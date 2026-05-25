@@ -43,14 +43,28 @@
 
 ## Phasing
 
-| PR | Tasks | Outcome |
-|----|-------|---------|
-| PR1 | 1–3 | Pure parser + store, no runtime integration |
-| PR2 | 4–7 | Manager wired into sessions; bootstrap fires; Superpowers compat shim |
-| PR3 | 8–10 | RPC + SDK exports |
-| PR4 | 11–14 | TUI slash command + end-to-end acceptance |
+All 14 tasks land in a single PR on one feature branch. Commits stay
+fine-grained (one commit per task) so the diff reviewer can walk the
+history task-by-task, but there is no intermediate merge to `main` and
+only one changeset is generated — at the very end (Task 14).
 
-Each PR ends with a `gen-changesets`-produced changeset (default `minor`, per `AGENTS.md`).
+Suggested branch name: `feat/plugins-v1`. Create it before Task 1:
+
+```bash
+git checkout -b feat/plugins-v1
+```
+
+Logical milestones inside the branch (for reviewer orientation):
+
+| Commit range | Outcome |
+|--------------|---------|
+| Tasks 1–3 | Pure parser + store, no runtime integration |
+| Tasks 4–7 | Manager wired into sessions; bootstrap fires; Superpowers compat shim |
+| Tasks 8–10 | RPC + SDK exports |
+| Tasks 11–14 | TUI slash command + end-to-end acceptance |
+
+`gen-changesets` runs once, after Task 14, capturing the whole feature
+(default `minor`, per `AGENTS.md`).
 
 ---
 
@@ -859,16 +873,12 @@ export { readInstalled, writeInstalled } from './store';
 export type { InstalledFile, InstalledRecord } from './store';
 ```
 
-- [ ] **Step 6: Generate changeset and commit (PR 1)**
+- [ ] **Step 6: Commit**
 
 ```bash
-# Per AGENTS.md, run gen-changesets after each PR-sized chunk; minor bump.
-# Add a changeset under .changeset/ with a one-line summary about the
-# plugin parser/store module being introduced.
 git add packages/agent-core/src/plugin/store.ts \
         packages/agent-core/src/plugin/index.ts \
-        packages/agent-core/test/plugin/store.test.ts \
-        .changeset/
+        packages/agent-core/test/plugin/store.test.ts
 git commit -m "feat(agent-core): add installed.json store for plugins"
 ```
 
@@ -1777,14 +1787,12 @@ pnpm --filter @moonshot-ai/agent-core typecheck
 ```
 Expected: PASS.
 
-- [ ] **Step 7: Generate changeset + commit (PR 2)**
+- [ ] **Step 7: Commit**
 
 ```bash
-# changeset entry: feat — plugin manager + bootstrap injector wired into sessions.
 git add packages/agent-core/src/rpc/core-impl.ts \
         packages/agent-core/src/session/index.ts \
-        packages/agent-core/test/plugin/integration.test.ts \
-        .changeset/
+        packages/agent-core/test/plugin/integration.test.ts
 git commit -m "feat(agent-core): wire PluginManager into session creation"
 ```
 
@@ -1998,10 +2006,10 @@ pnpm --filter @moonshot-ai/node-sdk typecheck
 ```
 Expected: PASS.
 
-- [ ] **Step 3: Generate changeset + commit (PR 3)**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add packages/node-sdk/src/rpc.ts .changeset/
+git add packages/node-sdk/src/rpc.ts
 git commit -m "feat(node-sdk): export plugin RPCs"
 ```
 
@@ -2334,11 +2342,23 @@ grep -rE 'require\(|child_process|vm\.|worker_threads|import\([^)]*\$' packages/
 # No matches.
 ```
 
-- [ ] **Step 9: Generate changeset + commit (PR 4)**
+- [ ] **Step 9: Generate changeset (single, for the whole feature) and commit**
+
+Per `AGENTS.md`, run the `gen-changesets` skill once now — it covers the
+whole feature in one entry. Default bump is `minor`.
 
 ```bash
+# Add the changeset file produced by gen-changesets.
 git add .changeset/
-git commit -m "feat(kimi-code): /plugins acceptance against Superpowers"
+git commit -m "chore: changeset for plugins v1"
+```
+
+Then open the PR:
+
+```bash
+git push -u origin feat/plugins-v1
+gh pr create --title "feat: plugins v1 (/plugins command + Superpowers compat)" \
+             --body-file <(printf '## Summary\n- Implements `/plugins` per `reports/2026-05-25-kimi-plugins-design.md`\n- Local-path install of plugins contributing skills + narrow bootstrap\n- Superpowers acceptance: brainstorming auto-triggers on a fresh "Let'\''s make a react todo list"\n\n## Test plan\n- [ ] `pnpm --filter @moonshot-ai/agent-core test`\n- [ ] `pnpm --filter kimi-code typecheck`\n- [ ] Manual: `/plugins install /Users/moonshot/code/superpowers` → `/new` → brainstorming triggers\n')
 ```
 
 ---
