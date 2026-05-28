@@ -132,6 +132,7 @@ import {
 } from './components/dialogs/approval-panel';
 import {
   ApiKeyInputDialogComponent,
+  type ApiKeyInputDialogOptions,
   type ApiKeyInputResult,
 } from './components/dialogs/api-key-input-dialog';
 import { CompactionComponent } from './components/dialogs/compaction';
@@ -227,7 +228,7 @@ import {
 import { formatBackgroundAgentTranscript } from './utils/background-agent-status';
 import { formatBackgroundTaskTranscript } from './utils/background-task-status';
 import { hasDispose, isExpandable, isPlanExpandable } from './utils/component-capabilities';
-import { resolveConnectCatalogRequest } from './utils/connect-catalog';
+import { resolveConnectCatalogRequest, safeUrlHost } from './utils/connect-catalog';
 import { isDeadTerminalError } from './utils/dead-terminal';
 import {
   appendStreamingArgsPreview,
@@ -5777,6 +5778,11 @@ export class KimiTUI {
   // key, then writes the provider config + model aliases. Model metadata
   // (context size, capabilities) comes from the catalog, so users do not
   // hand-write it.
+  //
+  // Catalogs that gate the response per user (e.g. free-tokens.msh.team)
+  // respond with HTTP 401; we then prompt for an access token, retry, and —
+  // since the same token also authenticates inference — reuse it as the
+  // provider API key without a second prompt.
   private async handleConnectCommand(args: string): Promise<void> {
     const resolution = resolveConnectCatalogRequest(args);
     if (resolution.kind === 'error') {
@@ -5785,55 +5791,9 @@ export class KimiTUI {
     }
     const { url, preferBuiltIn, allowBuiltInFallback } = resolution.request;
 
-    let catalog: Catalog | undefined;
-
-    // Default path: serve the bundled catalog so /connect works without a
-    // live network and is not gated by models.dev availability. The source
-    // placeholder is undefined in dev builds, so dev falls through to fetch.
-    if (preferBuiltIn) {
-      const builtIn = loadBuiltInCatalog(BUILT_IN_CATALOG_JSON);
-      if (builtIn !== undefined) {
-        this.showStatus('Loaded built-in catalog. Run /connect refresh for the latest.');
-        catalog = builtIn;
-      }
-    }
-
-    if (catalog === undefined) {
-      const controller = new AbortController();
-      const cancel = (): void => {
-        controller.abort();
-      };
-      this.cancelInFlight = cancel;
-
-      const spinner = this.showLoginProgressSpinner(`Fetching catalog from ${url}`);
-      try {
-        catalog = await fetchCatalog(url, controller.signal);
-        spinner.stop({ ok: true, label: 'Catalog loaded.' });
-      } catch (error) {
-        if (controller.signal.aborted) {
-          spinner.stop({ ok: false, label: 'Aborted.' });
-        } else {
-          const hint = error instanceof CatalogFetchError ? ` (HTTP ${error.status})` : '';
-          if (!allowBuiltInFallback) {
-            spinner.stop({ ok: false, label: 'Failed to load catalog.' });
-            this.showError(`Failed to fetch catalog${hint}: ${formatErrorMessage(error)}`);
-          } else {
-            const fallback = loadBuiltInCatalog(BUILT_IN_CATALOG_JSON);
-            if (fallback !== undefined) {
-              spinner.stop({ ok: true, label: 'Using built-in catalog (offline mode).' });
-              catalog = fallback;
-            } else {
-              spinner.stop({ ok: false, label: 'Failed to load catalog.' });
-              this.showError(`Failed to fetch catalog${hint}: ${formatErrorMessage(error)}`);
-            }
-          }
-        }
-      } finally {
-        if (this.cancelInFlight === cancel) this.cancelInFlight = undefined;
-      }
-    }
-
-    if (catalog === undefined) return;
+    const obtained = await this.obtainConnectCatalog(url, { preferBuiltIn, allowBuiltInFallback });
+    if (obtained === undefined) return;
+    const { catalog, accessToken } = obtained;
 
     const providerId = await this.promptCatalogProviderSelection(catalog);
     if (providerId === undefined) return;
@@ -5849,7 +5809,10 @@ export class KimiTUI {
     const selection = await this.promptModelSelectionForCatalog(providerId, models);
     if (selection === undefined) return;
 
-    const apiKey = await this.promptApiKey(entry.name ?? providerId);
+    // When the catalog required an access token, the same token authenticates
+    // inference too — reuse it directly instead of asking the user to paste
+    // the same value again.
+    const apiKey = accessToken ?? (await this.promptApiKey(entry.name ?? providerId));
     if (apiKey === undefined) return;
 
     const wire = inferWireType(entry);
@@ -5886,6 +5849,116 @@ export class KimiTUI {
     await this.refreshConfigAfterLogin();
     this.track('connect', { provider: providerId, model: selection.model.id });
     this.showStatus(`Connected: ${entry.name ?? providerId} · ${selection.model.id}`);
+  }
+
+  /**
+   * Resolves a catalog for `/connect`. Tries the built-in bundle first when
+   * eligible; otherwise fetches over the network, prompting for an access
+   * token on HTTP 401 and retrying once. Returns `undefined` when the user
+   * cancels or all paths fail (errors are already surfaced).
+   *
+   * The returned `accessToken` is set only when one was actually needed to
+   * load the catalog — the caller uses it to skip the redundant API-key
+   * prompt later in `/connect`.
+   */
+  private async obtainConnectCatalog(
+    url: string,
+    options: { preferBuiltIn: boolean; allowBuiltInFallback: boolean },
+  ): Promise<{ catalog: Catalog; accessToken?: string } | undefined> {
+    const { preferBuiltIn, allowBuiltInFallback } = options;
+
+    // Default path: serve the bundled catalog so /connect works without a
+    // live network and is not gated by models.dev availability. The source
+    // placeholder is undefined in dev builds, so dev falls through to fetch.
+    if (preferBuiltIn) {
+      const builtIn = loadBuiltInCatalog(BUILT_IN_CATALOG_JSON);
+      if (builtIn !== undefined) {
+        this.showStatus('Loaded built-in catalog. Run /connect refresh for the latest.');
+        return { catalog: builtIn };
+      }
+    }
+
+    const controller = new AbortController();
+    const cancel = (): void => {
+      controller.abort();
+    };
+    this.cancelInFlight = cancel;
+
+    const spinner = this.showLoginProgressSpinner(`Fetching catalog from ${url}`);
+    try {
+      const catalog = await fetchCatalog(url, { signal: controller.signal });
+      spinner.stop({ ok: true, label: 'Catalog loaded.' });
+      return { catalog };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        spinner.stop({ ok: false, label: 'Aborted.' });
+        return undefined;
+      }
+
+      if (error instanceof CatalogFetchError && error.status === 401) {
+        spinner.stop({ ok: false, label: 'Authorization required.' });
+        return await this.fetchCatalogWithToken(url, controller);
+      }
+
+      const hint = error instanceof CatalogFetchError ? ` (HTTP ${error.status})` : '';
+      if (allowBuiltInFallback) {
+        const fallback = loadBuiltInCatalog(BUILT_IN_CATALOG_JSON);
+        if (fallback !== undefined) {
+          spinner.stop({ ok: true, label: 'Using built-in catalog (offline mode).' });
+          return { catalog: fallback };
+        }
+      }
+      spinner.stop({ ok: false, label: 'Failed to load catalog.' });
+      this.showError(`Failed to fetch catalog${hint}: ${formatErrorMessage(error)}`);
+      return undefined;
+    } finally {
+      if (this.cancelInFlight === cancel) this.cancelInFlight = undefined;
+    }
+  }
+
+  /**
+   * Prompts for an access token and retries the catalog fetch. The 401
+   * branch reuses the same `AbortController` so /connect cancellation still
+   * works while the token dialog is open. Returns `undefined` on cancel,
+   * invalid token, or any other failure (which is surfaced as an error).
+   */
+  private async fetchCatalogWithToken(
+    url: string,
+    controller: AbortController,
+  ): Promise<{ catalog: Catalog; accessToken: string } | undefined> {
+    const host = safeUrlHost(url) ?? url;
+    const token = await this.promptCatalogAccessToken(host);
+    if (token === undefined) {
+      this.showStatus('Catalog connection cancelled.');
+      return undefined;
+    }
+
+    this.cancelInFlight = (): void => {
+      controller.abort();
+    };
+    const spinner = this.showLoginProgressSpinner(`Fetching catalog from ${url}`);
+    try {
+      const catalog = await fetchCatalog(url, {
+        signal: controller.signal,
+        accessToken: token,
+      });
+      spinner.stop({ ok: true, label: 'Catalog loaded.' });
+      return { catalog, accessToken: token };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        spinner.stop({ ok: false, label: 'Aborted.' });
+        return undefined;
+      }
+      if (error instanceof CatalogFetchError && error.status === 401) {
+        spinner.stop({ ok: false, label: 'Invalid access token.' });
+        this.showError('The access token was not accepted. Run /connect again to retry.');
+        return undefined;
+      }
+      const hint = error instanceof CatalogFetchError ? ` (HTTP ${error.status})` : '';
+      spinner.stop({ ok: false, label: 'Failed to load catalog.' });
+      this.showError(`Failed to fetch catalog${hint}: ${formatErrorMessage(error)}`);
+      return undefined;
+    }
   }
 
   // Handles the /feedback command — opens an inline input dialog and POSTs
@@ -6098,9 +6171,24 @@ export class KimiTUI {
   }
 
   private promptApiKey(platformName: string): Promise<string | undefined> {
+    return this.promptMaskedSecret({
+      title: `Enter API key for ${platformName}`,
+      subtitle: 'Your key will be saved to ~/.kimi-code/config.toml',
+    });
+  }
+
+  private promptCatalogAccessToken(host: string): Promise<string | undefined> {
+    return this.promptMaskedSecret({
+      title: `Enter access token for ${host}`,
+      subtitle: 'Required to load this catalog. Saved to ~/.kimi-code/config.toml.',
+      emptyHint: 'Access token cannot be empty.',
+    });
+  }
+
+  private promptMaskedSecret(options: ApiKeyInputDialogOptions): Promise<string | undefined> {
     return new Promise((resolve) => {
       const dialog = new ApiKeyInputDialogComponent(
-        platformName,
+        options,
         (result: ApiKeyInputResult) => {
           this.restoreEditor();
           resolve(result.kind === 'ok' ? result.value : undefined);

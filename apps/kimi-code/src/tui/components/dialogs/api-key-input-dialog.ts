@@ -15,7 +15,15 @@ export type ApiKeyInputResult =
   | { readonly kind: 'ok'; readonly value: string }
   | { readonly kind: 'cancel' };
 
+export interface ApiKeyInputDialogOptions {
+  readonly title: string;
+  readonly subtitle: string;
+  /** Hint shown in place of the subtitle when the user submits an empty value. */
+  readonly emptyHint?: string;
+}
+
 const FOOTER = 'Enter to submit  ·  Esc to cancel';
+const DEFAULT_EMPTY_HINT = 'API key cannot be empty.';
 
 function maskInputLine(raw: string): string {
   const prefix = '> ';
@@ -50,19 +58,21 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
   private readonly colors: ColorPalette;
   private readonly title: string;
   private readonly subtitle: string;
+  private readonly emptyHint: string;
   private done = false;
   private emptyHinted = false;
 
   constructor(
-    platformName: string,
+    options: ApiKeyInputDialogOptions,
     onDone: (result: ApiKeyInputResult) => void,
     colors: ColorPalette,
   ) {
     super();
     this.onDone = onDone;
     this.colors = colors;
-    this.title = `Enter API key for ${platformName}`;
-    this.subtitle = 'Your key will be saved to ~/.kimi-code/config.toml';
+    this.title = options.title;
+    this.subtitle = options.subtitle;
+    this.emptyHint = options.emptyHint ?? DEFAULT_EMPTY_HINT;
     this.input.onSubmit = (value) => {
       this.submit(value);
     };
@@ -98,7 +108,7 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
 
     const border = (s: string): string => chalk.hex(this.colors.primary)(s);
     const titleStyled = chalk.bold.hex(this.colors.textStrong)(this.title);
-    const subtitleText = this.emptyHinted ? 'API key cannot be empty.' : this.subtitle;
+    const subtitleText = this.emptyHinted ? this.emptyHint : this.subtitle;
     const subtitleStyled = chalk.hex(this.colors.textDim)(subtitleText);
     const footerStyled = chalk.hex(this.colors.textDim)(FOOTER);
 

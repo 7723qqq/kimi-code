@@ -6,7 +6,7 @@ import { DEFAULT_CATALOG_URL, loadBuiltInCatalog } from '@moonshot-ai/kimi-code-
 import { describe, expect, it } from 'vitest';
 
 import { BUILT_IN_CATALOG_JSON } from '#/built-in-catalog';
-import { resolveConnectCatalogRequest } from '#/tui/utils/connect-catalog';
+import { resolveConnectCatalogRequest, safeUrlHost } from '#/tui/utils/connect-catalog';
 
 import { builtInCatalogDefine } from '../../../scripts/built-in-catalog.mjs';
 
@@ -103,6 +103,20 @@ describe('resolveConnectCatalogRequest', () => {
       kind: 'error',
       message: 'Only one catalog URL can be provided. Got "https://a.com/x.json" and "https://b.com/y.json".',
     });
+  });
+});
+
+describe('safeUrlHost', () => {
+  it('returns the host portion of a valid http(s) URL', () => {
+    expect(safeUrlHost('https://free-tokens.msh.team/v1/models/api.json')).toBe(
+      'free-tokens.msh.team',
+    );
+    expect(safeUrlHost('http://example.com:8080/x')).toBe('example.com:8080');
+  });
+
+  it('returns undefined for unparseable strings', () => {
+    expect(safeUrlHost('not a url')).toBeUndefined();
+    expect(safeUrlHost('')).toBeUndefined();
   });
 });
 

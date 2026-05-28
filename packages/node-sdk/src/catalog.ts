@@ -23,13 +23,33 @@ export class CatalogFetchError extends Error {
   }
 }
 
-/** Fetches a models.dev-style catalog. Public endpoint, no credentials needed. */
+export interface FetchCatalogOptions {
+  readonly signal?: AbortSignal;
+  /**
+   * Bearer token to attach as `Authorization` when the catalog endpoint is
+   * gated (e.g. per-user model lists). Public endpoints like models.dev do
+   * not need this.
+   */
+  readonly accessToken?: string;
+  readonly fetchImpl?: typeof fetch;
+}
+
+/**
+ * Fetches a models.dev-style catalog. The endpoint is typically public, but
+ * may require an access token when the response is personalized per user —
+ * callers pass `accessToken` and the request is retried on 401 by the caller
+ * with a freshly prompted token.
+ */
 export async function fetchCatalog(
   url: string,
-  signal?: AbortSignal,
-  fetchImpl: typeof fetch = fetch,
+  options: FetchCatalogOptions = {},
 ): Promise<Catalog> {
-  const res = await fetchImpl(url, { headers: { Accept: 'application/json' }, signal });
+  const { signal, accessToken, fetchImpl = fetch } = options;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (accessToken !== undefined && accessToken !== '') {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  const res = await fetchImpl(url, { headers, signal });
   if (!res.ok) {
     throw new CatalogFetchError(`Failed to fetch catalog (HTTP ${res.status}).`, res.status);
   }

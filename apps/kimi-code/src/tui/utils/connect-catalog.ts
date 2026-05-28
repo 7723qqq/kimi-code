@@ -2,6 +2,15 @@ import { DEFAULT_CATALOG_URL } from '@moonshot-ai/kimi-code-sdk';
 
 const BARE_HTTP_URL_RE = /^https?:\/\/\S+$/;
 
+/** Returns the host portion of `url`, or `undefined` when it cannot be parsed. */
+export function safeUrlHost(url: string): string | undefined {
+  try {
+    return new URL(url).host || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface ConnectCatalogRequest {
   readonly url: string;
   readonly preferBuiltIn: boolean;

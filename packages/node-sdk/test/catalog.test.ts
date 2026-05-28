@@ -35,21 +35,53 @@ describe('fetchCatalog', () => {
   it('fetches and returns the catalog map', async () => {
     const catalog = { anthropic: { id: 'anthropic', models: { x: { id: 'x', limit: { context: 1000 } } } } };
     const fetchMock = vi.fn(async () => catalogResponse(catalog));
-    const result = await fetchCatalog('https://x/api.json', undefined, fetchMock as unknown as typeof fetch);
+    const result = await fetchCatalog('https://x/api.json', {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
     expect(result).toEqual(catalog);
+  });
+
+  it('does not send Authorization when no accessToken is provided', async () => {
+    const catalog = { x: { id: 'x', models: {} } };
+    const fetchMock = vi.fn(async () => catalogResponse(catalog));
+    await fetchCatalog('https://x/api.json', {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit | undefined])[1];
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    expect(headers['Authorization']).toBeUndefined();
+  });
+
+  it('sends Bearer Authorization when accessToken is provided', async () => {
+    const catalog = { x: { id: 'x', models: {} } };
+    const fetchMock = vi.fn(async () => catalogResponse(catalog));
+    await fetchCatalog('https://x/api.json', {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      accessToken: 'tok_abc',
+    });
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit | undefined])[1];
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    expect(headers['Authorization']).toBe('Bearer tok_abc');
   });
 
   it('throws CatalogFetchError on HTTP error', async () => {
     const fetchMock = vi.fn(async () => catalogResponse('no', 500));
     await expect(
-      fetchCatalog('https://x', undefined, fetchMock as unknown as typeof fetch),
+      fetchCatalog('https://x', { fetchImpl: fetchMock as unknown as typeof fetch }),
     ).rejects.toBeInstanceOf(CatalogFetchError);
+  });
+
+  it('throws CatalogFetchError with status 401 on unauthorized', async () => {
+    const fetchMock = vi.fn(async () => catalogResponse('unauthorized', 401));
+    await expect(
+      fetchCatalog('https://x', { fetchImpl: fetchMock as unknown as typeof fetch }),
+    ).rejects.toMatchObject({ status: 401 });
   });
 
   it('throws on a non-object payload', async () => {
     const fetchMock = vi.fn(async () => catalogResponse([1, 2]));
     await expect(
-      fetchCatalog('https://x', undefined, fetchMock as unknown as typeof fetch),
+      fetchCatalog('https://x', { fetchImpl: fetchMock as unknown as typeof fetch }),
     ).rejects.toThrow(/Unexpected catalog response/);
   });
 });
