@@ -15,7 +15,7 @@ describe('formatStepDebugTiming', () => {
       llmStreamDurationMs: 3000,
       usage: { output: 0 },
     });
-    expect(result).toBe('[Debug] TTFT: 250ms');
+    expect(result).toBe('TTFT: 250ms');
   });
 
   it('formats TTFT and TPS with output tokens', () => {
@@ -24,7 +24,7 @@ describe('formatStepDebugTiming', () => {
       llmStreamDurationMs: 5000,
       usage: { output: 200 },
     });
-    expect(result).toBe('[Debug] TTFT: 800ms | TPS: 40.0 tok/s (200 tokens in 5.0s)');
+    expect(result).toBe('TTFT: 800ms | TPS: 40.0 tok/s (200 tokens in 5.0s)');
   });
 
   it('formats durations under 1s as milliseconds', () => {

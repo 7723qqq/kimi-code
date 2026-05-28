@@ -15,7 +15,7 @@ export function formatStepDebugTiming(input: StepTimingInput): string | undefine
     const tps = (outputTokens / (streamMs / 1000)).toFixed(1);
     parts.push(`TPS: ${tps} tok/s (${outputTokens} tokens in ${formatDuration(streamMs)})`);
   }
-  return `[Debug] ${parts.join(' | ')}`;
+  return parts.join(' | ');
 }
 
 function formatDuration(ms: number): string {

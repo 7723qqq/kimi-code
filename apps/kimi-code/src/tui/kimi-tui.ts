@@ -24,6 +24,7 @@ import type {
 import chalk from 'chalk';
 
 import type { CLIOptions } from '#/cli/options';
+import { isDebugEnabled } from '#/utils/debug';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
 import type { GitLsFilesCache } from '#/utils/git/git-ls-files';
 import { createGitLsFilesCache } from '#/utils/git/git-ls-files';
@@ -65,6 +66,7 @@ import { TasksBrowserController } from './controllers/tasks-browser';
 import { FileMentionProvider } from './components/editor/file-mention-provider';
 import { AssistantMessageComponent } from './components/messages/assistant-message';
 import { BackgroundAgentStatusComponent } from './components/messages/background-agent-status';
+import { DebugMessageComponent } from './components/messages/debug-message';
 import { SkillActivationComponent } from './components/messages/skill-activation';
 import {
   NoticeMessageComponent,
@@ -1258,6 +1260,14 @@ export class KimiTUI {
   showStatus(message: string, color?: string): void {
     this.state.transcriptContainer.addChild(
       new StatusMessageComponent(message, this.state.theme.colors, color),
+    );
+    this.state.ui.requestRender();
+  }
+
+  showDebug(message: string): void {
+    if (!isDebugEnabled()) return;
+    this.state.transcriptContainer.addChild(
+      new DebugMessageComponent(message, this.state.theme.colors),
     );
     this.state.ui.requestRender();
   }

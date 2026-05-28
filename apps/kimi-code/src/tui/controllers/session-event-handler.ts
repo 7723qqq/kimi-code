@@ -57,6 +57,7 @@ import {
 import { openUrl } from '../utils/open-url';
 import { setProcessTitle } from '../utils/proctitle';
 import { errorReportHintLine } from '../constant/feedback';
+import { DebugEventTracker, formatDebugEvent, isRpcDebugEnabled } from '#/utils/debug';
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { StreamingUIController } from './streaming-ui';
@@ -85,6 +86,7 @@ export interface SessionEventHost {
   resetLivePane(): void;
   showError(msg: string): void;
   showStatus(msg: string, color?: string): void;
+  showDebug(msg: string): void;
   showNotice(title: string, detail?: string): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
@@ -103,6 +105,7 @@ export class SessionEventHandler {
   renderedSkillActivationIds: Set<string> = new Set();
   renderedMcpServerStatusKeys: Map<string, string> = new Map();
   mcpServerStatusSpinners: Map<string, MoonLoader> = new Map();
+  private readonly debugTracker = new DebugEventTracker();
 
   resetRuntimeState(): void {
     this.backgroundAgentMetadata.clear();
@@ -112,6 +115,7 @@ export class SessionEventHandler {
     this.renderedSkillActivationIds.clear();
     this.renderedMcpServerStatusKeys.clear();
     this.stopAllMcpServerStatusSpinners();
+    this.debugTracker.reset();
   }
 
   startSubscription(): void {
@@ -126,6 +130,9 @@ export class SessionEventHandler {
     host.sessionEventUnsubscribe = session.onEvent((event) => {
       if (host.aborted) return;
       if (event.sessionId !== sessionId) return;
+      if (isRpcDebugEnabled() && this.debugTracker.shouldEmit(event)) {
+        host.showDebug(formatDebugEvent(event));
+      }
       if (event.type === 'tool.progress') {
         mcpOAuthOpener.handleToolProgress(event);
       }
@@ -367,9 +374,8 @@ export class SessionEventHandler {
   }
 
   private maybeShowDebugTiming(event: TurnStepCompletedEvent): void {
-    if (process.env['KIMI_CODE_DEBUG'] !== '1') return;
     const text = formatStepDebugTiming(event);
-    if (text !== undefined) this.host.showStatus(text);
+    if (text !== undefined) this.host.showDebug(text);
   }
 
   private isAnthropicSessionActive(): boolean {
