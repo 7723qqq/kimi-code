@@ -42,10 +42,11 @@ describe('applyEnvModelConfig', () => {
     expectConfigInvalid(() => apply({ KIMI_MODEL_NAME: 'm' }));
   });
 
-  it('throws when max_context_size is missing', () => {
-    expectConfigInvalid(() =>
-      apply({ KIMI_MODEL_NAME: 'm', KIMI_MODEL_API_KEY: 'k' }),
-    );
+  it('defaults max_context_size to 262144 (256K) when unset', () => {
+    expect(
+      apply({ KIMI_MODEL_NAME: 'm', KIMI_MODEL_API_KEY: 'k' })
+        .models?.[ENV_MODEL_ALIAS_KEY]?.maxContextSize,
+    ).toBe(262144);
   });
 
   it.each(['abc', '0', '1.5', '-1'])(
@@ -68,6 +69,7 @@ describe('applyEnvModelConfig', () => {
       provider: ENV_MODEL_PROVIDER_KEY,
       model: 'kimi-for-coding',
       maxContextSize: 262144,
+      capabilities: ['image_in', 'thinking'],
     });
     expect(config.defaultModel).toBe(ENV_MODEL_ALIAS_KEY);
   });

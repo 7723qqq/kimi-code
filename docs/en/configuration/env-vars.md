@@ -77,8 +77,8 @@ For testing you can make Kimi Code use a specific model **without editing `confi
 | `KIMI_MODEL_API_KEY` | Yes | API key | — |
 | `KIMI_MODEL_PROVIDER_TYPE` | No | Provider type; one of `kimi`, `anthropic`, `openai` | `kimi` |
 | `KIMI_MODEL_BASE_URL` | No | API base URL | `kimi` → `https://api.moonshot.ai/v1`; `openai` → `https://api.openai.com/v1`; `anthropic` → SDK default |
-| `KIMI_MODEL_MAX_CONTEXT_SIZE` | Yes | Max context length in tokens (positive integer) | — |
-| `KIMI_MODEL_CAPABILITIES` | No | Comma-separated capability tags (e.g. `image_in,thinking`); unioned with auto-detected capabilities | — |
+| `KIMI_MODEL_MAX_CONTEXT_SIZE` | No | Max context length in tokens (positive integer) | `262144` (256K) |
+| `KIMI_MODEL_CAPABILITIES` | No | Comma-separated capability tags (e.g. `image_in,thinking`); unioned with auto-detected capabilities | `image_in,thinking` |
 | `KIMI_MODEL_DISPLAY_NAME` | No | Name shown in `/model` | Falls back to `KIMI_MODEL_NAME` |
 | `KIMI_MODEL_MAX_OUTPUT_SIZE` | No | Per-request output cap (`anthropic` only) | Per-model default |
 | `KIMI_MODEL_REASONING_KEY` | No | Reasoning field-name override (`openai` only) | Auto-detected |
