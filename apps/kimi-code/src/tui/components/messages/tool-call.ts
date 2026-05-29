@@ -1310,8 +1310,11 @@ export class ToolCallComponent extends Container {
     let tail: string;
     if (terminal) {
       const tag = m.phase === 'cancelled' ? ' · cancelled' : '';
+      // Surface drops alongside ✓/✗ so a recovered-with-gaps run is honest about
+      // the missing subtasks; omitted when zero to keep the common run compact.
+      const droppedPart = m.droppedCount > 0 ? ` ${String(m.droppedCount)}⊘` : '';
       tail = chalk.dim(
-        ` · ${String(m.workers.size)} workers · ${String(m.doneCount)}✓ ${String(m.failedCount)}✗${tag}`,
+        ` · ${String(m.workers.size)} workers · ${String(m.doneCount)}✓ ${String(m.failedCount)}✗${droppedPart}${tag}`,
       );
     } else if (m.phase === 'planning') {
       tail = chalk.dim(' · planning…');
@@ -1376,9 +1379,20 @@ export class ToolCallComponent extends Container {
     if (w.status === 'done') {
       return [line1];
     }
+    // Retrying is a transient in-flight state shown as a single dim line so the
+    // role's row stays visible (and stable) while the coordinator re-runs it.
+    if (w.status === 'retrying') {
+      return [line1];
+    }
     if (w.status === 'failed') {
       const errLine = chalk.hex(c.error)(`failed: ${w.error ?? 'error'}`);
       return [line1, `  ${branch2}    ${errLine}`];
+    }
+    // Dropped: the coordinator gave up on this subtask. Dim the row and show the
+    // reason on the second gutter line so the gap is explicit, not silent.
+    if (w.status === 'dropped') {
+      const dropLine = chalk.dim(`dropped: ${w.error ?? 'no reason'}`);
+      return [`  ${branch1} ${chalk.dim(w.role)}`, `  ${branch2}    ${dropLine}`];
     }
     const raw = w.latestActivity ?? 'starting…';
     const activity =

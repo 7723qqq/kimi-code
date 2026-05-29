@@ -164,6 +164,7 @@ describe('SwarmCoordinator failure recovery', () => {
     expect(payloads).toContainEqual({
       phase: 'revising',
       subtaskId: 'task-1',
+      role: 'Worker',
       decision: 'retry',
       attempt: 1,
     });
@@ -216,9 +217,11 @@ describe('SwarmCoordinator failure recovery', () => {
       if (workerCalls === 1) throw new Error('boom');
       return { result: 'worker-ok' };
     });
+    const onProgressCustom = vi.fn();
     const coordinator = new SwarmCoordinator({
       spawnSubagent: spawn,
       signal: new AbortController().signal,
+      onProgressCustom,
     });
     const result = await coordinator.run('x');
     expect(result).toBe('SYNTH');
@@ -226,6 +229,16 @@ describe('SwarmCoordinator failure recovery', () => {
     expect(seen[1]?.profileName).toBe('swarm:R2');
     expect(seen[1]?.systemPrompt).toBe('SP2');
     expect(seen[1]?.tools).toEqual(['Read']);
+    // The 'revising' event carries the role as it was BEFORE the reassign so
+    // the dashboard can correlate it to the existing worker row.
+    const payloads = (onProgressCustom as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(payloads).toContainEqual({
+      phase: 'revising',
+      subtaskId: 'task-1',
+      role: 'Worker',
+      decision: 'reassign',
+      attempt: 1,
+    });
   });
 
   it('drop (LLM-chosen): a dropped subtask is not re-run and is surfaced as a gap', async () => {
@@ -255,6 +268,7 @@ describe('SwarmCoordinator failure recovery', () => {
     expect(payloads).toContainEqual({
       phase: 'dropped',
       subtaskId: 'task-1',
+      role: 'Worker',
       reason: 'impossible',
     });
     expect(
@@ -319,6 +333,7 @@ describe('SwarmCoordinator failure recovery', () => {
     expect(payloads).toContainEqual({
       phase: 'revising',
       subtaskId: 'task-1',
+      role: 'Worker',
       decision: 'drop',
       attempt: 1,
     });

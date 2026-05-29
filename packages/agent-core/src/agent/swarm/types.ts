@@ -41,10 +41,16 @@ export type SwarmProgress =
   | {
       phase: 'revising';
       subtaskId: string;
+      /**
+       * The subtask's role at the moment the reviser decision is emitted, i.e.
+       * BEFORE the decision is applied. For a `reassign` this is the OLD role,
+       * letting the dashboard correlate the event to the existing worker row.
+       */
+      role: string;
       decision: 'retry' | 'regenerate' | 'reassign' | 'drop';
       attempt: number;
     }
-  | { phase: 'dropped'; subtaskId: string; reason: string }
+  | { phase: 'dropped'; subtaskId: string; role: string; reason: string }
   | { phase: 'synthesizing' }
   | { phase: 'done'; succeeded: number; failed: number; dropped: number };
 

@@ -102,6 +102,75 @@ describe('swarm dashboard wiring (translation)', () => {
     expect(out).toMatch(/1\/1 workers/);
   });
 
+  it('routes custom revising/dropped progress into retrying/dropped dashboard states', () => {
+    const parentToolCallId = 'tc-swarm';
+    const dash = makeSwarm();
+    const mockHost = {
+      streamingUI: {
+        setTurnId: (): void => {},
+        getToolComponent: (id: string): ToolCallComponent | undefined =>
+          id === parentToolCallId ? dash : undefined,
+      },
+    } as unknown as SessionEventHost;
+    const handler = new SessionEventHandler(mockHost);
+    const noop = (): void => {};
+
+    const progress = (customData: Record<string, unknown>): void => {
+      handler.handleEvent(
+        {
+          type: 'tool.progress',
+          agentId: 'main',
+          sessionId: 's',
+          turnId: 1,
+          toolCallId: parentToolCallId,
+          update: { kind: 'custom', customKind: 'swarm', customData },
+        } as unknown as Event,
+        noop,
+      );
+    };
+    const spawn = (subagentId: string): void => {
+      handler.handleEvent(
+        {
+          type: 'subagent.spawned',
+          agentId: 'main',
+          sessionId: 's',
+          subagentId,
+          subagentName: 'swarm:Worker',
+          parentToolCallId,
+          description: 'Worker',
+          runInBackground: false,
+        } as unknown as Event,
+        noop,
+      );
+    };
+
+    progress({ phase: 'planned', total: 1 });
+    spawn('w1');
+    handler.handleEvent(
+      {
+        type: 'subagent.failed',
+        agentId: 'main',
+        sessionId: 's',
+        subagentId: 'w1',
+        parentToolCallId,
+        error: 'boom',
+      } as unknown as Event,
+      noop,
+    );
+    // Coordinator decides to retry the Worker subtask.
+    progress({ phase: 'revising', subtaskId: 'task-1', role: 'Worker', decision: 'retry', attempt: 1 });
+    const retrying = strip(dash.render(80).join('\n'));
+    expect(retrying).toContain('Worker');
+    expect(retrying).toContain('retrying');
+
+    // Re-spawn collapses onto the same row, then the subtask is ultimately dropped.
+    spawn('w2');
+    progress({ phase: 'dropped', subtaskId: 'task-1', role: 'Worker', reason: 'impossible' });
+    const out = strip(dash.render(80).join('\n'));
+    expect(out.match(/Worker/g)?.length).toBe(1);
+    expect(out).toContain('dropped: impossible');
+  });
+
   it('counts only real workers — planner/synthesizer/retry never become rows', () => {
     const parentToolCallId = 'tc-swarm';
     const dash = makeSwarm();

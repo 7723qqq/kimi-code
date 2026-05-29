@@ -103,6 +103,58 @@ describe('ToolCallComponent swarm mode', () => {
     expect(out).toContain('failed: timeout');
   });
 
+  it('renders a retrying worker with a dim retrying indicator', () => {
+    const c = makeSwarm('t');
+    c.applySwarm({ t: 'planned', total: 1 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'Worker' });
+    c.applySwarm({ t: 'worker.failed', id: 'a1', error: 'boom' });
+    c.applySwarm({ t: 'worker.retrying', role: 'Worker' });
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toContain('└─ Worker');
+    expect(out).toContain('retrying');
+  });
+
+  it('reuses the same row when a retried worker re-spawns (one row per role)', () => {
+    const c = makeSwarm('t');
+    c.applySwarm({ t: 'planned', total: 1 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'Worker' });
+    c.applySwarm({ t: 'worker.failed', id: 'a1', error: 'boom' });
+    c.applySwarm({ t: 'worker.retrying', role: 'Worker' });
+    c.applySwarm({ t: 'worker.spawned', id: 'a2', role: 'Worker' });
+    c.applySwarm({ t: 'worker.done', id: 'a2', tokens: 1500 });
+    const out = strip(c.render(80).join('\n'));
+    // Only one Worker row across both attempts.
+    expect(out.match(/Worker/g)?.length).toBe(1);
+    expect(out).toContain('1.5k tok');
+    expect(out).not.toContain('retrying');
+  });
+
+  it('renders a dropped worker with its drop reason', () => {
+    const c = makeSwarm('t');
+    c.applySwarm({ t: 'planned', total: 1 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'Worker' });
+    c.applySwarm({ t: 'worker.failed', id: 'a1', error: 'boom' });
+    c.applySwarm({ t: 'worker.dropped', role: 'Worker', reason: 'impossible' });
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toContain('└─ Worker');
+    expect(out).toContain('dropped: impossible');
+  });
+
+  it('done-phase header shows the dropped count when there are drops', () => {
+    const c = makeSwarm('t');
+    c.applySwarm({ t: 'planned', total: 2 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'R' });
+    c.applySwarm({ t: 'worker.done', id: 'a1' });
+    c.applySwarm({ t: 'worker.spawned', id: 'a2', role: 'A' });
+    c.applySwarm({ t: 'worker.failed', id: 'a2', error: 'x' });
+    c.applySwarm({ t: 'worker.dropped', role: 'A', reason: 'gave up' });
+    c.applySwarm({ t: 'done', succeeded: 1, failed: 0, dropped: 1 });
+    c.setResult({ tool_call_id: 'tc-swarm', output: 'final report', is_error: false });
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toContain('1✓');
+    expect(out).toContain('1⊘');
+  });
+
   it('finalizes to a cancelled header on an error result', () => {
     const c = makeSwarm('t');
     c.applySwarm({ t: 'planned', total: 2 });

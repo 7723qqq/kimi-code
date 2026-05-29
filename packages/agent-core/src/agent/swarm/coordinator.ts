@@ -111,6 +111,9 @@ export class SwarmCoordinator {
         this.emit({
           phase: 'revising',
           subtaskId: st.id,
+          // Capture the role BEFORE applyDecision so a `reassign` still
+          // correlates to the existing dashboard row keyed by the old role.
+          role: st.role,
           decision: decision.kind,
           attempt: st.attempts,
         });
@@ -208,6 +211,6 @@ export class SwarmCoordinator {
     st.status = 'dropped';
     st.error = st.error === undefined ? `dropped: ${reason}` : `${st.error} (dropped: ${reason})`;
     this.progress(`x ${st.role}: dropped (${reason})`);
-    this.emit({ phase: 'dropped', subtaskId: st.id, reason });
+    this.emit({ phase: 'dropped', subtaskId: st.id, role: st.role, reason });
   }
 }

@@ -534,10 +534,25 @@ export class SessionEventHandler {
     if (event.update.kind === 'custom' && event.update.customKind === 'swarm') {
       const tc = this.host.streamingUI.getToolComponent(event.toolCallId);
       if (tc === undefined || !tc.isSwarm()) return;
-      const p = event.update.customData as { phase?: string; total?: number };
-      if (p.phase === 'planned' && typeof p.total === 'number') tc.applySwarm({ t: 'planned', total: p.total });
-      else if (p.phase === 'synthesizing') tc.applySwarm({ t: 'synthesizing' });
-      else if (p.phase === 'done') tc.applySwarm({ t: 'done', succeeded: 0, failed: 0 });
+      const p = event.update.customData as {
+        phase?: string;
+        total?: number;
+        role?: string;
+        reason?: string;
+      };
+      if (p.phase === 'planned' && typeof p.total === 'number') {
+        tc.applySwarm({ t: 'planned', total: p.total });
+      } else if (p.phase === 'synthesizing') {
+        tc.applySwarm({ t: 'synthesizing' });
+      } else if (p.phase === 'done') {
+        tc.applySwarm({ t: 'done', succeeded: 0, failed: 0 });
+      } else if (p.phase === 'revising' && typeof p.role === 'string') {
+        // The reviser decided to re-run this role's subtask — show it retrying.
+        tc.applySwarm({ t: 'worker.retrying', role: p.role });
+      } else if (p.phase === 'dropped' && typeof p.role === 'string') {
+        // The subtask was given up on — show it as a dropped gap with the reason.
+        tc.applySwarm({ t: 'worker.dropped', role: p.role, reason: p.reason ?? '' });
+      }
       return;
     }
     if (event.update.kind !== 'status') return;
