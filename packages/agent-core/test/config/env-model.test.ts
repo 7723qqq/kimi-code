@@ -7,8 +7,9 @@ import {
   applyEnvModelConfig,
   ENV_MODEL_ALIAS_KEY,
   ENV_MODEL_PROVIDER_KEY,
+  stripEnvModelConfig,
 } from '../../src/config/env-model';
-import { getDefaultConfig, loadRuntimeConfig, readConfigFile } from '../../src/config';
+import { getDefaultConfig, loadRuntimeConfig, readConfigFile, writeConfigFile } from '../../src/config';
 import { KimiError } from '../../src/errors';
 
 function apply(env: Record<string, string | undefined>) {
@@ -181,5 +182,70 @@ describe('loadRuntimeConfig vs readConfigFile (write-back isolation)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('stripEnvModelConfig (write-back guard)', () => {
+  it('removes synthesized env provider/model and clears the env default_model', () => {
+    const runtime = applyEnvModelConfig(getDefaultConfig(), { ...MIN });
+    const stripped = stripEnvModelConfig(runtime);
+    expect(stripped.providers[ENV_MODEL_PROVIDER_KEY]).toBeUndefined();
+    expect(stripped.models?.[ENV_MODEL_ALIAS_KEY]).toBeUndefined();
+    expect(stripped.defaultModel).toBeUndefined();
+  });
+
+  it('keeps user providers/models and a non-env default_model', () => {
+    const config = getDefaultConfig();
+    config.providers['kimi'] = { type: 'kimi', apiKey: 'k', baseUrl: 'https://x/v1' };
+    config.providers[ENV_MODEL_PROVIDER_KEY] = { type: 'kimi', apiKey: 'env-key' };
+    config.models = {
+      'my-model': { provider: 'kimi', model: 'm', maxContextSize: 1000 },
+      [ENV_MODEL_ALIAS_KEY]: { provider: ENV_MODEL_PROVIDER_KEY, model: 'x', maxContextSize: 1000 },
+    };
+    config.defaultModel = 'my-model';
+    const stripped = stripEnvModelConfig(config);
+    expect(stripped.providers['kimi']).toBeDefined();
+    expect(stripped.models?.['my-model']).toBeDefined();
+    expect(stripped.defaultModel).toBe('my-model');
+    expect(stripped.providers[ENV_MODEL_PROVIDER_KEY]).toBeUndefined();
+    expect(stripped.models?.[ENV_MODEL_ALIAS_KEY]).toBeUndefined();
+  });
+});
+
+describe('writeConfigFile never persists the env model', () => {
+  it('strips env entries even when a runtime config is written back', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-env-write-'));
+    const path = join(dir, 'config.toml');
+    writeFileSync(
+      path,
+      'default_model = "x"\n[providers.x]\ntype = "kimi"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
+    );
+    try {
+      // Reproduces the /login round-trip: a runtime config carrying the env
+      // model is written back through writeConfigFile and must not persist it.
+      const runtime = loadRuntimeConfig(path, { ...MIN });
+      expect(runtime.providers[ENV_MODEL_PROVIDER_KEY]).toBeDefined();
+      await writeConfigFile(path, runtime);
+      const onDisk = readConfigFile(path);
+      expect(onDisk.providers[ENV_MODEL_PROVIDER_KEY]).toBeUndefined();
+      expect(onDisk.models?.[ENV_MODEL_ALIAS_KEY]).toBeUndefined();
+      expect(onDisk.providers['x']).toBeDefined();
+      expect(onDisk.models?.['x']).toBeDefined();
+      expect(onDisk.defaultModel).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('KIMI_MODEL_DEFAULT_THINKING validation', () => {
+  it('rejects a non-empty unparseable value', () => {
+    expectConfigInvalid(() => apply({ ...MIN, KIMI_MODEL_DEFAULT_THINKING: 'flase' }));
+  });
+
+  it('accepts valid values and ignores when unset', () => {
+    expect(apply({ ...MIN, KIMI_MODEL_DEFAULT_THINKING: 'true' }).defaultThinking).toBe(true);
+    expect(apply({ ...MIN, KIMI_MODEL_DEFAULT_THINKING: '0' }).defaultThinking).toBe(false);
+    expect(apply({ ...MIN }).defaultThinking).toBeUndefined();
   });
 });

@@ -3,7 +3,7 @@ import { mkdir, open } from 'node:fs/promises';
 import { dirname } from 'pathe';
 
 import { ErrorCodes, KimiError } from '#/errors';
-import { applyEnvModelConfig } from './env-model';
+import { applyEnvModelConfig, stripEnvModelConfig } from './env-model';
 import {
   KimiConfigSchema,
   formatConfigValidationError,
@@ -263,7 +263,10 @@ function transformLoopControlData(data: Record<string, unknown>): Record<string,
 /* ------------------------------------------------------------------ */
 
 export async function writeConfigFile(filePath: string, config: KimiConfig): Promise<void> {
-  const validated = validateConfig(config);
+  // Final guard: never persist the env-synthesized model/provider to disk,
+  // even if a caller passes back the runtime config as a patch (see
+  // stripEnvModelConfig / the getConfig -> setConfig round-trip).
+  const validated = validateConfig(stripEnvModelConfig(config));
   await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
   await atomicWrite(filePath, `${stringifyToml(configToTomlData(validated))}\n`);
 }

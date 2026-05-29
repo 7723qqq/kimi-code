@@ -65,14 +65,32 @@ function parseCapabilities(raw: string | undefined): string[] | undefined {
   return caps.length === 0 ? undefined : caps;
 }
 
+// `parseBooleanEnv` returns undefined for unrecognized input. Treat a non-empty
+// but unparseable value (e.g. a typo like `flase`) as a config error so it
+// fails fast like the other KIMI_MODEL_* values, instead of silently keeping
+// config.toml's existing default_thinking.
+function parseDefaultThinking(raw: string | undefined): boolean | undefined {
+  const value = trimmed(raw);
+  if (value === undefined) return undefined;
+  const parsed = parseBooleanEnv(value);
+  if (parsed === undefined) {
+    fail(
+      `KIMI_MODEL_DEFAULT_THINKING must be a boolean (true/false/1/0/yes/no/on/off), got "${raw}".`,
+    );
+  }
+  return parsed;
+}
+
 /**
  * When `KIMI_MODEL_NAME` is set, synthesize one provider + one model alias from
  * the `KIMI_MODEL_*` environment variables and make it the default model.
  * Returns the config unchanged when the trigger variable is absent.
  *
  * IMPORTANT: the synthesized provider/model/default_model exist ONLY in the
- * in-memory runtime config. Callers must never serialize the result back to
- * config.toml (write paths must use the raw `readConfigFile`).
+ * in-memory runtime config and must never be serialized back to config.toml.
+ * Two layers enforce this: write paths read the raw config via `readConfigFile`,
+ * and `writeConfigFile` strips the reserved entries via `stripEnvModelConfig` as
+ * a final guard against patch round-trips (getConfig -> setConfig).
  */
 export function applyEnvModelConfig(config: KimiConfig, env: Env = process.env): KimiConfig {
   const model = trimmed(env['KIMI_MODEL_NAME']);
@@ -130,7 +148,7 @@ export function applyEnvModelConfig(config: KimiConfig, env: Env = process.env):
           ...(thinkingEffort !== undefined ? { effort: thinkingEffort } : {}),
         }
       : config.thinking;
-  const defaultThinking = parseBooleanEnv(env['KIMI_MODEL_DEFAULT_THINKING']);
+  const defaultThinking = parseDefaultThinking(env['KIMI_MODEL_DEFAULT_THINKING']);
 
   const merged: KimiConfig = {
     ...config,
@@ -145,4 +163,36 @@ export function applyEnvModelConfig(config: KimiConfig, env: Env = process.env):
   // (e.g. thinking.mode must be auto/on/off). `validateConfig` throws
   // KimiError(CONFIG_INVALID) on violation, matching the explicit checks above.
   return validateConfig(merged);
+}
+
+/**
+ * Remove the env-synthesized provider/model before a config is persisted to
+ * disk. Mirror of {@link applyEnvModelConfig}: that injects the reserved entries
+ * into the in-memory runtime config; this guarantees they never reach
+ * config.toml — including via a `getConfig` -> `setConfig` patch round-trip,
+ * where the runtime config (carrying the env provider and its shell API key)
+ * would otherwise be merged back and written out. A `default_model` pointing at
+ * the env alias is cleared to avoid persisting a dangling reference.
+ */
+export function stripEnvModelConfig(config: KimiConfig): KimiConfig {
+  const hasProvider = ENV_MODEL_PROVIDER_KEY in config.providers;
+  const hasModel = config.models !== undefined && ENV_MODEL_ALIAS_KEY in config.models;
+  const defaultIsEnv = config.defaultModel === ENV_MODEL_ALIAS_KEY;
+  if (!hasProvider && !hasModel && !defaultIsEnv) return config;
+
+  const providers = { ...config.providers };
+  delete providers[ENV_MODEL_PROVIDER_KEY];
+
+  let models = config.models;
+  if (models !== undefined && ENV_MODEL_ALIAS_KEY in models) {
+    models = { ...models };
+    delete models[ENV_MODEL_ALIAS_KEY];
+  }
+
+  return {
+    ...config,
+    providers,
+    ...(models !== undefined ? { models } : {}),
+    ...(defaultIsEnv ? { defaultModel: undefined } : {}),
+  };
 }
