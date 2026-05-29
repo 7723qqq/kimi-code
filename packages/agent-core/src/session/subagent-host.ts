@@ -2,7 +2,8 @@ import type { TokenUsage } from '@moonshot-ai/kosong';
 
 import type { Agent } from '../agent';
 import type { PromptOrigin } from '../agent/context';
-import type { LoopHooks, LoopTurnStopReason } from '../loop';
+import type { LoopTurnStopReason } from '../loop';
+import type { SubagentLoopHooks } from '../agent/swarm/stall-hook';
 import {
   DEFAULT_AGENT_PROFILES,
   prepareSystemPromptContext,
@@ -50,7 +51,7 @@ type RunSubagentOptions = {
    * built-in ones. Absent for the main agent and regular subagents, so their
    * behavior is unchanged.
    */
-  readonly loopHooks?: Partial<LoopHooks> | undefined;
+  readonly loopHooks?: SubagentLoopHooks | undefined;
 };
 
 type SubagentCompletion = {

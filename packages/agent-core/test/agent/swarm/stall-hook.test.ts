@@ -33,12 +33,33 @@ describe('createStallDetectionHook', () => {
     expect(r3?.block).toBe(true);
     expect(r3?.reason).toMatch(/stalled/i);
     expect(r3?.reason).toContain('Read');
+    // The reason includes the repeated call's canonical args so the reviser
+    // can tell WHAT was repeated, not just which tool.
+    expect(r3?.reason).toContain('/a');
+    expect(r3?.reason).toContain('"path"');
     expect(onStall).toHaveBeenCalledTimes(1);
+    expect(onStall).toHaveBeenLastCalledWith(r3?.reason);
 
     // Further repeats keep blocking but never re-fire onStall.
     const r4 = await prepare!(ctx);
     expect(r4?.block).toBe(true);
     expect(onStall).toHaveBeenCalledTimes(1);
+  });
+
+  it('truncates very long repeated args in the stall reason', async () => {
+    const onStall = vi.fn();
+    const hook = createStallDetectionHook({ repeatThreshold: 2, onStall });
+    const prepare = hook.prepareToolExecution!;
+
+    const longPattern = 'x'.repeat(500);
+    const ctx = makeCtx('Grep', { pattern: longPattern });
+    await prepare(ctx);
+    const r = await prepare(ctx);
+    expect(r?.block).toBe(true);
+    // Truncated with an ellipsis — the full 500-char pattern is not embedded.
+    expect(r?.reason).toContain('…');
+    expect(r?.reason?.length).toBeLessThan(longPattern.length);
+    expect(r?.reason).toContain('Grep');
   });
 
   it('never triggers on distinct progressing calls', async () => {

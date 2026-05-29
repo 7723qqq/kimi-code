@@ -230,13 +230,15 @@ describe('SwarmCoordinator failure recovery', () => {
     expect(seen[1]?.systemPrompt).toBe('SP2');
     expect(seen[1]?.tools).toEqual(['Read']);
     // The 'revising' event carries the role as it was BEFORE the reassign so
-    // the dashboard can correlate it to the existing worker row.
+    // the dashboard can correlate it to the existing worker row, plus the NEW
+    // role so the dashboard can re-key that row instead of stranding it.
     const payloads = (onProgressCustom as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
     expect(payloads).toContainEqual({
       phase: 'revising',
       subtaskId: 'task-1',
       role: 'Worker',
       decision: 'reassign',
+      newRole: 'R2',
       attempt: 1,
     });
   });
@@ -365,6 +367,46 @@ describe('SwarmCoordinator failure recovery', () => {
     expect(result).toBe('SYNTH');
     expect(calls['swarm:A']).toBe(2);
     expect(calls['swarm:B']).toBe(2);
+  });
+
+  it('all subtasks dropped: still synthesizes with a gap-only prompt (no crash)', async () => {
+    const TWO_PLAN = JSON.stringify({
+      subtasks: [
+        { id: 'task-1', role: 'A', systemPrompt: 'spa', prompt: 'pa' },
+        { id: 'task-2', role: 'B', systemPrompt: 'spb', prompt: 'pb' },
+      ],
+    });
+    let synthesizerPrompt: string | undefined;
+    const spawn = vi.fn(async (args) => {
+      if (args.profileName === 'swarm-planner') return { result: TWO_PLAN };
+      if (args.profileName === 'swarm-synthesizer') {
+        synthesizerPrompt = args.prompt;
+        return { result: 'SYNTH' };
+      }
+      if (args.profileName === 'swarm-reviser')
+        return { result: '{"kind":"drop","reason":"impossible"}' };
+      // Every worker fails on its first (only) run, then is dropped.
+      throw new Error('boom');
+    });
+    const onProgressCustom = vi.fn();
+    const coordinator = new SwarmCoordinator({
+      spawnSubagent: spawn,
+      signal: new AbortController().signal,
+      onProgressCustom,
+    });
+    const result = await coordinator.run('x');
+    expect(result).toBe('SYNTH');
+    // Synthesizer was consulted and its prompt surfaces both subtasks as gaps,
+    // never inventing a success.
+    expect(synthesizerPrompt).toBeDefined();
+    expect(synthesizerPrompt).toMatch(/DROPPED/);
+    expect(synthesizerPrompt).not.toMatch(/done\)/);
+    const payloads = (onProgressCustom as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(
+      payloads.some(
+        (p) => p.phase === 'done' && p.succeeded === 0 && p.dropped === 2 && p.failed === 0,
+      ),
+    ).toBe(true);
   });
 
   it('does not revise on a genuine swarm-wide cancel (re-throws the abort)', async () => {

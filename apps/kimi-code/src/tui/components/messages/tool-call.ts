@@ -1379,10 +1379,12 @@ export class ToolCallComponent extends Container {
     if (w.status === 'done') {
       return [line1];
     }
-    // Retrying is a transient in-flight state shown as a single dim line so the
+    // Retrying is a transient in-flight state shown as a single line so the
     // role's row stays visible (and stable) while the coordinator re-runs it.
+    // Dim the role label to match the 'dropped' convention: non-running rows
+    // (retrying, dropped) use a dimmed label, running/done/failed keep primary.
     if (w.status === 'retrying') {
-      return [line1];
+      return [`  ${branch1} ${chalk.dim(w.role)}${statsPart}`];
     }
     if (w.status === 'failed') {
       const errLine = chalk.hex(c.error)(`failed: ${w.error ?? 'error'}`);

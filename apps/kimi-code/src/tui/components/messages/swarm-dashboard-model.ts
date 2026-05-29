@@ -24,7 +24,7 @@ export interface SwarmModel {
 export type SwarmEvent =
   | { t: 'planned'; total: number }
   | { t: 'synthesizing' }
-  | { t: 'done'; succeeded: number; failed: number; dropped?: number }
+  | { t: 'done'; succeeded: number; failed: number }
   | { t: 'cancelled' }
   | { t: 'worker.spawned'; id: string; role: string }
   | { t: 'worker.toolcall'; id: string; activity: string }
@@ -32,6 +32,7 @@ export type SwarmEvent =
   | { t: 'worker.done'; id: string; tokens?: number }
   | { t: 'worker.failed'; id: string; error: string }
   | { t: 'worker.retrying'; role: string }
+  | { t: 'worker.reassigned'; fromRole: string; toRole: string }
   | { t: 'worker.dropped'; role: string; reason: string };
 
 export function initialSwarmModel(task: string): SwarmModel {
@@ -167,6 +168,25 @@ export function applySwarmEvent(model: SwarmModel, event: SwarmEvent): SwarmMode
       const workers = new Map(model.workers);
       const adj = countAdjustments(prior.status, 'retrying');
       workers.set(prior.id, { ...prior, status: 'retrying', latestActivity: undefined });
+      return { ...model, workers, ...withCounts(model, adj) };
+    }
+    case 'worker.reassigned': {
+      // The reviser moved this subtask to a new role. Re-key the SAME row from
+      // the old role to the new one and mark it retrying so the subsequent
+      // worker.spawned for the new role reuses THIS row (one row per subtask)
+      // instead of stranding the old-role row in 'retrying' forever. If no
+      // old-role row exists, no-op — there is nothing to correlate.
+      const prior = findReusableRoleRow(model.workers, event.fromRole);
+      if (prior === undefined) return model;
+      const workers = new Map(model.workers);
+      const adj = countAdjustments(prior.status, 'retrying');
+      workers.set(prior.id, {
+        ...prior,
+        role: event.toRole,
+        status: 'retrying',
+        latestActivity: undefined,
+        error: undefined,
+      });
       return { ...model, workers, ...withCounts(model, adj) };
     }
     case 'worker.dropped': {

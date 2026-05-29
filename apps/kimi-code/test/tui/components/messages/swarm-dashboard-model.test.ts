@@ -186,6 +186,79 @@ describe('applySwarmEvent', () => {
     expect(m.workers.get('a2')?.role).toBe('R2');
   });
 
+  it('reassign collapses to ONE row: failed(OLD) -> reassigned(OLD->NEW) -> spawned(NEW) -> done', () => {
+    // The reassign-orphan regression: before the fix, a reassign marked the OLD
+    // role row retrying then the re-spawn created a NEW role row, stranding the
+    // old one in 'retrying' forever. The reassigned event re-keys the SAME row.
+    const m = reduce([
+      { t: 'planned', total: 1 },
+      { t: 'worker.spawned', id: 'a1', role: 'OldRole' },
+      { t: 'worker.failed', id: 'a1', error: 'boom' },
+      { t: 'worker.reassigned', fromRole: 'OldRole', toRole: 'NewRole' },
+      { t: 'worker.spawned', id: 'a2', role: 'NewRole' },
+      { t: 'worker.done', id: 'a2', tokens: 1500 },
+    ]);
+    // Exactly one row, final role NewRole, status done.
+    expect(m.workers.size).toBe(1);
+    const w = [...m.workers.values()][0];
+    expect(w?.role).toBe('NewRole');
+    expect(w?.status).toBe('done');
+    expect(w?.tokens).toBe(1500);
+    // No row left dangling in 'retrying', and no stray OldRole row.
+    expect([...m.workers.values()].some((r) => r.status === 'retrying')).toBe(false);
+    expect([...m.workers.values()].some((r) => r.role === 'OldRole')).toBe(false);
+    expect(m.doneCount).toBe(1);
+    expect(m.failedCount).toBe(0);
+  });
+
+  it('worker.reassigned re-keys the failed row to the new role and marks it retrying', () => {
+    const m = reduce([
+      { t: 'planned', total: 1 },
+      { t: 'worker.spawned', id: 'a1', role: 'OldRole' },
+      { t: 'worker.failed', id: 'a1', error: 'boom' },
+      { t: 'worker.reassigned', fromRole: 'OldRole', toRole: 'NewRole' },
+    ]);
+    expect(m.workers.size).toBe(1);
+    const w = m.workers.get('a1');
+    expect(w?.role).toBe('NewRole');
+    expect(w?.status).toBe('retrying');
+    expect(w?.error).toBeUndefined();
+    // The transient failed count is reversed when the row leaves the failed state.
+    expect(m.failedCount).toBe(0);
+  });
+
+  it('worker.reassigned is a no-op when no fromRole row exists', () => {
+    const before = reduce([
+      { t: 'planned', total: 1 },
+      { t: 'worker.spawned', id: 'a1', role: 'Other' },
+    ]);
+    const after = applySwarmEvent(before, {
+      t: 'worker.reassigned',
+      fromRole: 'Missing',
+      toRole: 'NewRole',
+    });
+    expect(after).toBe(before);
+  });
+
+  it('full failed->retrying->respawn(running)->done on ONE role keeps counts consistent', () => {
+    // Locks count bookkeeping: the transient failed must be reversed, so the
+    // surviving row is done and the failed/dropped counts return to zero.
+    const m = reduce([
+      { t: 'planned', total: 1 },
+      { t: 'worker.spawned', id: 'a1', role: 'Worker' },
+      { t: 'worker.failed', id: 'a1', error: 'boom' },
+      { t: 'worker.retrying', role: 'Worker' },
+      { t: 'worker.spawned', id: 'a2', role: 'Worker' },
+      { t: 'worker.done', id: 'a2', tokens: 900 },
+    ]);
+    expect(m.workers.size).toBe(1);
+    const w = [...m.workers.values()][0];
+    expect(w?.status).toBe('done');
+    expect(m.doneCount).toBe(1);
+    expect(m.failedCount).toBe(0);
+    expect(m.droppedCount).toBe(0);
+  });
+
   it('single-run (no retry) leaves running rows untouched by reuse logic', () => {
     const m = reduce([
       { t: 'planned', total: 2 },

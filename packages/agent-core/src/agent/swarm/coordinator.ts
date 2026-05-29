@@ -115,6 +115,9 @@ export class SwarmCoordinator {
           // correlates to the existing dashboard row keyed by the old role.
           role: st.role,
           decision: decision.kind,
+          // For a reassign, carry the NEW role too so the dashboard can re-key
+          // the existing old-role row instead of stranding it in `retrying`.
+          ...(decision.kind === 'reassign' ? { newRole: decision.role } : {}),
           attempt: st.attempts,
         });
         this.applyDecision(st, decision);

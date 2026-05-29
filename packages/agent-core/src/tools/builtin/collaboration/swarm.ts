@@ -68,7 +68,6 @@ export class SwarmTool implements BuiltinTool<SwarmToolInput> {
     const coordinator = new SwarmCoordinator({
       signal: ctx.signal,
       maxConcurrency: DEFAULT_MAX_CONCURRENCY,
-      stallRepeatThreshold,
       onProgress: (text) => ctx.onUpdate?.({ kind: 'status', text }),
       onProgressCustom: (progress) =>
         ctx.onUpdate?.({ kind: 'custom', customKind: 'swarm', customData: progress }),

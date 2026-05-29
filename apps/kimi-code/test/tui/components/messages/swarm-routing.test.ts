@@ -171,6 +171,163 @@ describe('swarm dashboard wiring (translation)', () => {
     expect(out).toContain('dropped: impossible');
   });
 
+  it('routes a reassign decision so the subtask keeps ONE row (no orphan)', () => {
+    const parentToolCallId = 'tc-swarm';
+    const dash = makeSwarm();
+    const mockHost = {
+      streamingUI: {
+        setTurnId: (): void => {},
+        getToolComponent: (id: string): ToolCallComponent | undefined =>
+          id === parentToolCallId ? dash : undefined,
+      },
+    } as unknown as SessionEventHost;
+    const handler = new SessionEventHandler(mockHost);
+    const noop = (): void => {};
+
+    const progress = (customData: Record<string, unknown>): void => {
+      handler.handleEvent(
+        {
+          type: 'tool.progress',
+          agentId: 'main',
+          sessionId: 's',
+          turnId: 1,
+          toolCallId: parentToolCallId,
+          update: { kind: 'custom', customKind: 'swarm', customData },
+        } as unknown as Event,
+        noop,
+      );
+    };
+    const spawn = (subagentId: string, role: string): void => {
+      handler.handleEvent(
+        {
+          type: 'subagent.spawned',
+          agentId: 'main',
+          sessionId: 's',
+          subagentId,
+          subagentName: `swarm:${role}`,
+          parentToolCallId,
+          description: role,
+          runInBackground: false,
+        } as unknown as Event,
+        noop,
+      );
+    };
+    const fail = (subagentId: string): void => {
+      handler.handleEvent(
+        {
+          type: 'subagent.failed',
+          agentId: 'main',
+          sessionId: 's',
+          subagentId,
+          parentToolCallId,
+          error: 'boom',
+        } as unknown as Event,
+        noop,
+      );
+    };
+    const complete = (subagentId: string): void => {
+      handler.handleEvent(
+        {
+          type: 'subagent.completed',
+          agentId: 'main',
+          sessionId: 's',
+          subagentId,
+          parentToolCallId,
+          resultSummary: 'ok',
+        } as unknown as Event,
+        noop,
+      );
+    };
+
+    progress({ phase: 'planned', total: 1 });
+    spawn('w1', 'OldRole');
+    fail('w1');
+    // Reviser reassigns OldRole -> NewRole; the re-spawn uses the NEW role.
+    progress({
+      phase: 'revising',
+      subtaskId: 'task-1',
+      role: 'OldRole',
+      newRole: 'NewRole',
+      decision: 'reassign',
+      attempt: 1,
+    });
+    spawn('w2', 'NewRole');
+    complete('w2');
+
+    const out = strip(dash.render(80).join('\n'));
+    // Exactly one row, now labeled with the new role; the old role is gone.
+    expect(out).toContain('NewRole');
+    expect(out).not.toContain('OldRole');
+    // No stray retrying row left behind.
+    expect(out).not.toContain('retrying');
+  });
+
+  it('a drop decision then dropped produces a single dropped row with no transient retrying', () => {
+    const parentToolCallId = 'tc-swarm';
+    const dash = makeSwarm();
+    const mockHost = {
+      streamingUI: {
+        setTurnId: (): void => {},
+        getToolComponent: (id: string): ToolCallComponent | undefined =>
+          id === parentToolCallId ? dash : undefined,
+      },
+    } as unknown as SessionEventHost;
+    const handler = new SessionEventHandler(mockHost);
+    const noop = (): void => {};
+
+    const progress = (customData: Record<string, unknown>): void => {
+      handler.handleEvent(
+        {
+          type: 'tool.progress',
+          agentId: 'main',
+          sessionId: 's',
+          turnId: 1,
+          toolCallId: parentToolCallId,
+          update: { kind: 'custom', customKind: 'swarm', customData },
+        } as unknown as Event,
+        noop,
+      );
+    };
+
+    progress({ phase: 'planned', total: 1 });
+    handler.handleEvent(
+      {
+        type: 'subagent.spawned',
+        agentId: 'main',
+        sessionId: 's',
+        subagentId: 'w1',
+        subagentName: 'swarm:Worker',
+        parentToolCallId,
+        description: 'Worker',
+        runInBackground: false,
+      } as unknown as Event,
+      noop,
+    );
+    handler.handleEvent(
+      {
+        type: 'subagent.failed',
+        agentId: 'main',
+        sessionId: 's',
+        subagentId: 'w1',
+        parentToolCallId,
+        error: 'boom',
+      } as unknown as Event,
+      noop,
+    );
+    // The reviser decides to DROP. The 'revising' event with decision 'drop'
+    // must emit NOTHING (no transient retrying flash); the subsequent 'dropped'
+    // event fully describes the gap.
+    progress({ phase: 'revising', subtaskId: 'task-1', role: 'Worker', decision: 'drop', attempt: 1 });
+    const afterRevise = strip(dash.render(80).join('\n'));
+    expect(afterRevise).not.toContain('retrying');
+
+    progress({ phase: 'dropped', subtaskId: 'task-1', role: 'Worker', reason: 'impossible' });
+    const out = strip(dash.render(80).join('\n'));
+    expect(out.match(/Worker/g)?.length).toBe(1);
+    expect(out).toContain('dropped: impossible');
+    expect(out).not.toContain('retrying');
+  });
+
   it('counts only real workers — planner/synthesizer/retry never become rows', () => {
     const parentToolCallId = 'tc-swarm';
     const dash = makeSwarm();

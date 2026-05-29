@@ -15,13 +15,25 @@
 import { canonicalTelemetryArgs } from '../turn/canonical-args';
 import type { LoopHooks, PrepareToolExecutionResult } from '../../loop/types';
 
+/**
+ * The only loop-hook phase a subagent (swarm worker) overrides. `TurnFlow`
+ * composes just `prepareToolExecution` ahead of its built-in dedup, so a
+ * purpose-named subset keeps the surface honest and the main agent / regular
+ * subagent paths provably unaffected.
+ */
+export type SubagentLoopHooks = Pick<LoopHooks, 'prepareToolExecution'>;
+
+/** Max length of the repeated-call args snippet embedded in a stall reason. */
+const STALL_ARGS_PREVIEW_MAX_CHARS = 120;
+
 export interface StallDetectionHookOptions {
   /** Repeat count (inclusive) at which a call is treated as a stall. */
   readonly repeatThreshold: number;
   /**
    * Invoked exactly once, the first time the threshold is reached. Receives a
-   * distinguishable reason string (e.g. `stalled: repeated <tool> x<N>`) so a
-   * caller can abort a per-worker controller with it.
+   * distinguishable reason string (e.g.
+   * `stalled: repeated <tool>(<args>) x<N>`) so a caller can abort a per-worker
+   * controller with it.
    */
   readonly onStall: (reason: string) => void;
 }
@@ -37,20 +49,28 @@ export interface StallDetectionHookOptions {
  */
 export function createStallDetectionHook(
   options: StallDetectionHookOptions,
-): Partial<LoopHooks> {
+): SubagentLoopHooks {
   const { repeatThreshold, onStall } = options;
   const counts = new Map<string, number>();
   let stalled = false;
 
   return {
     prepareToolExecution: async (ctx): Promise<PrepareToolExecutionResult | undefined> => {
-      const key = `${ctx.toolCall.name} ${canonicalTelemetryArgs(ctx.args)}`;
+      const canonicalArgs = canonicalTelemetryArgs(ctx.args);
+      const key = `${ctx.toolCall.name} ${canonicalArgs}`;
       const next = (counts.get(key) ?? 0) + 1;
       counts.set(key, next);
 
       if (next < repeatThreshold) return undefined;
 
-      const reason = `stalled: repeated ${ctx.toolCall.name} x${String(next)}`;
+      // Include the repeated call's canonical args (truncated) so the reviser
+      // can see WHAT was repeated, not just which tool — e.g.
+      // `stalled: repeated Read({"path":"/a"}) x10`.
+      const argsPreview =
+        canonicalArgs.length > STALL_ARGS_PREVIEW_MAX_CHARS
+          ? `${canonicalArgs.slice(0, STALL_ARGS_PREVIEW_MAX_CHARS)}…`
+          : canonicalArgs;
+      const reason = `stalled: repeated ${ctx.toolCall.name}(${argsPreview}) x${String(next)}`;
       if (!stalled) {
         stalled = true;
         onStall(reason);

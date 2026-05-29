@@ -538,6 +538,8 @@ export class SessionEventHandler {
         phase?: string;
         total?: number;
         role?: string;
+        newRole?: string;
+        decision?: string;
         reason?: string;
       };
       if (p.phase === 'planned' && typeof p.total === 'number') {
@@ -547,8 +549,18 @@ export class SessionEventHandler {
       } else if (p.phase === 'done') {
         tc.applySwarm({ t: 'done', succeeded: 0, failed: 0 });
       } else if (p.phase === 'revising' && typeof p.role === 'string') {
-        // The reviser decided to re-run this role's subtask — show it retrying.
-        tc.applySwarm({ t: 'worker.retrying', role: p.role });
+        // Route by the reviser's decision so each recovery path shows the right
+        // transient state:
+        //   - retry/regenerate re-run the same role → mark it retrying.
+        //   - reassign moves the subtask to a new role → re-key the existing
+        //     row so the subtask keeps ONE row (no orphan left in retrying).
+        //   - drop emits nothing here; the subsequent 'dropped' event fully
+        //     describes it (and skipping this avoids a drop→retrying flash).
+        if (p.decision === 'reassign' && typeof p.newRole === 'string') {
+          tc.applySwarm({ t: 'worker.reassigned', fromRole: p.role, toRole: p.newRole });
+        } else if (p.decision === 'retry' || p.decision === 'regenerate') {
+          tc.applySwarm({ t: 'worker.retrying', role: p.role });
+        }
       } else if (p.phase === 'dropped' && typeof p.role === 'string') {
         // The subtask was given up on — show it as a dropped gap with the reason.
         tc.applySwarm({ t: 'worker.dropped', role: p.role, reason: p.reason ?? '' });

@@ -148,7 +148,7 @@ describe('ToolCallComponent swarm mode', () => {
     c.applySwarm({ t: 'worker.spawned', id: 'a2', role: 'A' });
     c.applySwarm({ t: 'worker.failed', id: 'a2', error: 'x' });
     c.applySwarm({ t: 'worker.dropped', role: 'A', reason: 'gave up' });
-    c.applySwarm({ t: 'done', succeeded: 1, failed: 0, dropped: 1 });
+    c.applySwarm({ t: 'done', succeeded: 1, failed: 0 });
     c.setResult({ tool_call_id: 'tc-swarm', output: 'final report', is_error: false });
     const out = strip(c.render(80).join('\n'));
     expect(out).toContain('1✓');

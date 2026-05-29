@@ -48,6 +48,14 @@ export type SwarmProgress =
        */
       role: string;
       decision: 'retry' | 'regenerate' | 'reassign' | 'drop';
+      /**
+       * For a `reassign`, the NEW role the subtask is being moved to (the
+       * decision's role). Lets the dashboard re-key the existing OLD-role row to
+       * the new role so the subtask keeps a single row across the reassign,
+       * rather than stranding the old row in `retrying`. Absent for other
+       * decisions.
+       */
+      newRole?: string;
       attempt: number;
     }
   | { phase: 'dropped'; subtaskId: string; role: string; reason: string }
@@ -60,13 +68,6 @@ export interface SwarmCoordinatorDeps {
   onProgress?: ((text: string) => void) | undefined;
   onProgressCustom?: ((progress: SwarmProgress) => void) | undefined;
   maxConcurrency?: number | undefined;
-  /**
-   * Repeat count at which a worker that keeps issuing the SAME tool call is
-   * treated as stalled and hard-stopped (its turn fails with a distinguishable
-   * reason so this wave records it as a failed subtask). Defaults to
-   * {@link DEFAULT_STALL_REPEAT_THRESHOLD}.
-   */
-  stallRepeatThreshold?: number | undefined;
   /**
    * Maximum number of times a single subtask is executed before it is
    * force-dropped (counting the original run). Defaults to

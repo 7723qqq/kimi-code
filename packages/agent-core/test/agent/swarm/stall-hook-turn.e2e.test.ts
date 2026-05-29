@@ -53,6 +53,8 @@ describe('swarm stall hook — turn level', () => {
     expect(worker.signal.aborted).toBe(true);
     expect(stallReason).toMatch(/stalled/i);
     expect(stallReason).toContain('echo');
+    // The reason carries the repeated call's args so a reviser sees WHAT spun.
+    expect(stallReason).toContain('spin');
     // Crucially the coordinator's signal is NOT aborted — a single worker
     // failure, not a whole-swarm cancel.
     expect(parent.signal.aborted).toBe(false);
