@@ -1,16 +1,13 @@
 import type { SwarmPlan } from './types';
 
-/** Read-only default tool set for workers; planner may widen via toolAllowlist. */
-export const DEFAULT_WORKER_TOOLS: string[] = ['Read', 'Grep', 'Glob', 'WebSearch', 'FetchURL'];
+/** Read-only default tool set for workers; planner may widen via toolAllowlist within the allowlist. */
+export const DEFAULT_WORKER_TOOLS: readonly string[] = ['Read', 'Grep', 'Glob', 'WebSearch', 'FetchURL'];
 
-/** Tool names a worker is allowed to request (excludes Agent/Swarm dispatch tools). */
-export const ALLOWED_WORKER_TOOLS: string[] = [
+/** Tool names a worker is allowed to request. Read-only for Phase 1 (no Write/Edit/Bash, no dispatch tools). */
+export const ALLOWED_WORKER_TOOLS: readonly string[] = [
   'Read',
-  'Write',
-  'Edit',
   'Grep',
   'Glob',
-  'Bash',
   'WebSearch',
   'FetchURL',
   'ReadMediaFile',

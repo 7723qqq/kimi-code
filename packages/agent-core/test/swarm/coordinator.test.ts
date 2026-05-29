@@ -80,4 +80,37 @@ describe('SwarmCoordinator.run', () => {
     expect(result).toBe('SYNTH');
     expect(onProgress.mock.calls.some((c) => /failed/i.test(String(c[0])))).toBe(true);
   });
+
+  it('strips disallowed tools (Agent/Bash) from a planner-supplied allowlist', async () => {
+    const planWithBadTools = JSON.stringify({
+      subtasks: [{ role: 'X', systemPrompt: 's', prompt: 'p', toolAllowlist: ['Agent', 'Read', 'Bash'] }],
+    });
+    const spawn = vi.fn(async (args) => {
+      if (args.profileName === 'swarm-planner') return { result: planWithBadTools };
+      if (args.profileName === 'swarm-synthesizer') return { result: 'S' };
+      return { result: 'w' };
+    });
+    const coordinator = new SwarmCoordinator({ spawnSubagent: spawn, signal: new AbortController().signal });
+    await coordinator.run('x');
+    const worker = (spawn as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .find((c) => c.profileName === 'swarm:X');
+    expect(worker?.tools).toEqual(['Read']);
+  });
+
+  it('propagates abort instead of swallowing it (no synthesis after cancel)', async () => {
+    const controller = new AbortController();
+    const PLAN = JSON.stringify({ subtasks: [{ role: 'A', systemPrompt: 's', prompt: 'p' }] });
+    const spawn = vi.fn(async (args) => {
+      if (args.profileName === 'swarm-planner') return { result: PLAN };
+      controller.abort();
+      const e = new Error('aborted');
+      e.name = 'AbortError';
+      throw e;
+    });
+    const coordinator = new SwarmCoordinator({ spawnSubagent: spawn, signal: controller.signal });
+    await expect(coordinator.run('x')).rejects.toThrow();
+    const profiles = (spawn as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0].profileName);
+    expect(profiles).not.toContain('swarm-synthesizer');
+  });
 });

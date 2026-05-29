@@ -1,6 +1,7 @@
 import { mapWithConcurrency } from './concurrency';
 import { parsePlan } from './parse';
 import {
+  ALLOWED_WORKER_TOOLS,
   DEFAULT_WORKER_TOOLS,
   PLANNER_SYSTEM_PROMPT,
   SYNTHESIZER_SYSTEM_PROMPT,
@@ -73,7 +74,9 @@ export class SwarmCoordinator {
         const out = await this.deps.spawnSubagent({
           profileName: `swarm:${st.role}`,
           systemPrompt: st.systemPrompt,
-          tools: st.toolAllowlist ?? DEFAULT_WORKER_TOOLS,
+          tools: (st.toolAllowlist ?? DEFAULT_WORKER_TOOLS).filter((t) =>
+            ALLOWED_WORKER_TOOLS.includes(t),
+          ),
           prompt: st.prompt,
           description: st.role,
           signal: this.deps.signal,
@@ -82,6 +85,7 @@ export class SwarmCoordinator {
         st.status = 'done';
         this.progress(`✓ ${st.role}: done`);
       } catch (err) {
+        if (this.deps.signal.aborted) throw err;
         st.status = 'failed';
         st.error = err instanceof Error ? err.message : String(err);
         this.progress(`✗ ${st.role}: failed (${st.error})`);
