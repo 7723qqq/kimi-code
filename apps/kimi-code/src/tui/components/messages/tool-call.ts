@@ -11,12 +11,12 @@ import chalk from 'chalk';
 
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
-import { BRAILLE_SPINNER_FRAMES, COMMAND_PREVIEW_LINES } from '#/tui/constant/rendering';
+import { COMMAND_PREVIEW_LINES } from '#/tui/constant/rendering';
 import {
   STREAMING_ARGS_FIELD_RE,
   STREAMING_ARGS_PREVIEW_MAX_CHARS,
 } from '#/tui/constant/streaming';
-import { FAILURE_MARK, STATUS_BULLET } from '#/tui/constant/symbols';
+import { STATUS_BULLET } from '#/tui/constant/symbols';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
@@ -507,10 +507,11 @@ export class ToolCallComponent extends Container {
   //
   // Populated only when this tool call is the `Swarm` coordinator. The pure
   // reducer in `swarm-dashboard-model` folds `applySwarm(event)` into this
-  // model; the body-building path renders the dashboard (phase line + one row
-  // per worker) instead of the normal progress/sub-tool/subagent blocks. A
-  // static spinner frame keeps the rendered lines stable so pi-tui's
-  // differential renderer never re-emits the card into scrollback.
+  // model; the body-building path renders the dashboard (one or two gutter
+  // lines per worker, mirroring `AgentGroupComponent`) instead of the normal
+  // progress/sub-tool/subagent blocks. No animated, per-render content is used
+  // so the rendered lines stay stable and pi-tui's differential renderer never
+  // re-emits the card into scrollback.
   private swarmModel: SwarmModel | undefined;
 
   /**
@@ -1164,70 +1165,104 @@ export class ToolCallComponent extends Container {
 
   // ── Swarm dashboard rendering ────────────────────────────────────
   //
-  // A static spinner frame is used (rather than an animated, per-render frame)
-  // so the rendered lines stay identical across consecutive renders — the
-  // property that lets pi-tui's differential renderer keep one stable card.
+  // The swarm card mirrors `AgentGroupComponent`'s gutter/indent/color
+  // vocabulary. No animated, per-render content is used so the rendered lines
+  // stay identical across consecutive renders — the property that lets
+  // pi-tui's differential renderer keep one stable card.
 
-  private swarmSpinner(): string {
-    return BRAILLE_SPINNER_FRAMES[0]!;
-  }
-
-  /** Single-line header for the Swarm card (carried by `headerText`). */
+  /**
+   * Single-line header for the Swarm card (carried by `headerText`). Mirrors
+   * `AgentGroupComponent.buildHeader`: a status bullet (roleAssistant while
+   * active, success when terminal), the bold `Swarm` label, a dim `· title`
+   * segment (omitted when empty so no dangling `·`), and a dim phase/summary
+   * tail. The displayed task is sourced live from the tool-call args rather
+   * than the stale model so it reflects the fully-streamed task string.
+   */
   private buildSwarmHeader(): string {
     const c = this.colors;
     const m = this.swarmModel;
     if (m === undefined) return '';
-    const title = m.task.length > 56 ? `${m.task.slice(0, 56)}…` : m.task;
-    if (m.phase === 'done' || m.phase === 'cancelled') {
-      const bullet = chalk.hex(c.success)(STATUS_BULLET);
+    const rawTask = str(this.toolCall.args['task']);
+    const title = rawTask.length > 56 ? `${rawTask.slice(0, 56)}…` : rawTask;
+    const label = chalk.hex(c.primary).bold('Swarm');
+    const titlePart = title.length > 0 ? chalk.dim(` · ${title}`) : '';
+    const terminal = m.phase === 'done' || m.phase === 'cancelled';
+    const bullet = terminal
+      ? chalk.hex(c.success)(STATUS_BULLET)
+      : chalk.hex(c.roleAssistant)(STATUS_BULLET);
+    let tail: string;
+    if (terminal) {
       const tag = m.phase === 'cancelled' ? ' · cancelled' : '';
-      const summary = `${String(m.workers.size)} workers · ${String(m.doneCount)}✓ ${String(m.failedCount)}✗${tag}`;
-      return `${bullet}${chalk.hex(c.primary).bold('Swarm')} ${chalk.dim(`· ${title}`)} ${chalk.dim(`· ${summary}`)}`;
+      tail = chalk.dim(
+        ` · ${String(m.workers.size)} workers · ${String(m.doneCount)}✓ ${String(m.failedCount)}✗${tag}`,
+      );
+    } else if (m.phase === 'planning') {
+      tail = chalk.dim(' · planning…');
+    } else if (m.phase === 'synthesizing') {
+      tail = chalk.dim(' · synthesizing…');
+    } else {
+      tail = chalk.dim(` · ${String(m.doneCount + m.failedCount)}/${String(m.total)} workers`);
     }
-    const bullet = chalk.hex(c.roleAssistant)(STATUS_BULLET);
-    return `${bullet}${chalk.hex(c.primary).bold('Swarm')} ${chalk.dim(`· ${title}`)}`;
+    return `${bullet}${label}${titlePart}${tail}`;
   }
 
-  /** Renders the swarm phase line and one row per worker into the body. */
+  /**
+   * Renders one or two gutter lines per worker into the body, mirroring
+   * `AgentGroupComponent.appendLines` (the `├─`/`└─`/`│` vocabulary, the
+   * 2-space lead, and the dim/primary/error coloring). While still planning
+   * with no workers yet, a single dim placeholder line keeps the card from
+   * rendering blank.
+   */
   private buildSwarmBody(): void {
     const m = this.swarmModel;
     if (m === undefined) return;
-    if (m.phase !== 'done' && m.phase !== 'cancelled') {
-      const phases = [
-        `Plan ${m.phase === 'planning' ? this.swarmSpinner() : '✓'}`,
-        `Workers ${String(m.doneCount + m.failedCount)}/${String(m.total)}`,
-        `Synthesize ${
-          m.phase === 'synthesizing'
-            ? this.swarmSpinner()
-            : m.phase === 'working' || m.phase === 'planning'
-              ? '·'
-              : '✓'
-        }`,
-      ].join('   ');
-      this.addChild(new Text(`  ${chalk.dim(phases)}`, 0, 0));
+    const workers = [...m.workers.values()];
+    if (m.phase === 'planning' && workers.length === 0) {
+      this.addChild(new Text(`  ${chalk.dim('└─ planning subtasks…')}`, 0, 0));
+      return;
     }
-    for (const w of m.workers.values()) {
-      this.addChild(new Text(this.buildSwarmWorkerLine(w), 0, 0));
-    }
+    workers.forEach((w, idx) => {
+      const isLast = idx === workers.length - 1;
+      for (const line of this.buildSwarmWorkerLine(w, isLast)) {
+        this.addChild(new Text(line, 0, 0));
+      }
+    });
   }
 
-  private buildSwarmWorkerLine(w: WorkerRow): string {
+  /**
+   * Builds the gutter lines for one worker. Line 1 carries the branch, the
+   * role, and a dim stats tail; line 2 (omitted once the worker is done)
+   * carries the latest activity or the failure reason. Matches
+   * `AgentGroupComponent`'s two-line gutter format.
+   */
+  private buildSwarmWorkerLine(w: WorkerRow, isLast: boolean): string[] {
     const c = this.colors;
+    const branch1 = isLast ? '└─' : '├─';
+    const branch2 = isLast ? '   ' : '│  ';
     const role = chalk.hex(c.primary)(w.role);
-    if (w.status === 'failed') {
-      return `  ${chalk.hex(c.error)(FAILURE_MARK)}${role} ${chalk.hex(c.error)(`failed: ${w.error ?? 'error'}`)}`;
-    }
+
+    let statsPart = '';
     if (w.status === 'done') {
       const tok = w.tokens !== undefined && w.tokens > 0 ? ` · ${formatTokens(w.tokens)}` : '';
-      return `  ${chalk.hex(c.success)('✓ ')}${role} ${chalk.dim(`${String(w.toolCount)} calls${tok}`)}`;
+      statsPart = chalk.dim(` · ${String(w.toolCount)} calls${tok}`);
+    } else if (w.status === 'retrying') {
+      statsPart = chalk.dim(' · retrying…');
+    } else if (w.status === 'running' && w.toolCount > 0) {
+      statsPart = chalk.dim(` · ${String(w.toolCount)} calls`);
     }
-    if (w.status === 'retrying') {
-      return `  ${chalk.hex(c.roleAssistant)('⟳ ')}${role} ${chalk.dim('retrying…')}`;
+    const line1 = `  ${branch1} ${role}${statsPart}`;
+
+    if (w.status === 'done') {
+      return [line1];
+    }
+    if (w.status === 'failed') {
+      const errLine = chalk.hex(c.error)(`failed: ${w.error ?? 'error'}`);
+      return [line1, `  ${branch2}    ${errLine}`];
     }
     const raw = w.latestActivity ?? 'starting…';
     const activity =
       raw.length > SWARM_ACTIVITY_MAX_LENGTH ? `${raw.slice(0, SWARM_ACTIVITY_MAX_LENGTH)}…` : raw;
-    return `  ${chalk.hex(c.roleAssistant)(this.swarmSpinner())} ${role} ${chalk.dim(`now: ${activity}`)}`;
+    return [line1, `  ${branch2}    ${chalk.dim(`now: ${activity}`)}`];
   }
 
   private rebuildContent(): void {

@@ -98,7 +98,8 @@ describe('swarm dashboard wiring (translation)', () => {
     const out = strip(dash.render(80).join('\n'));
     expect(out).toContain('Researcher');
     expect(out).toContain('boom');
-    expect(out).toMatch(/Workers 1\/1/);
+    // Active header tail reports worker progress (1 of 1 terminal).
+    expect(out).toMatch(/1\/1 workers/);
   });
 
   it('counts only real workers — planner/synthesizer/retry never become rows', () => {

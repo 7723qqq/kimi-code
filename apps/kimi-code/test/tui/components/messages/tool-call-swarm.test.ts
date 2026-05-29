@@ -35,7 +35,7 @@ describe('ToolCallComponent swarm mode', () => {
     expect(read.render(80).join('\n')).toBe(before);
   });
 
-  it('renders phase header and worker rows', () => {
+  it('renders the header and worker rows with the AgentGroup gutter style', () => {
     const c = makeSwarm('compare error handling');
     c.applySwarm({ t: 'planned', total: 2 });
     c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'Researcher' });
@@ -49,6 +49,21 @@ describe('ToolCallComponent swarm mode', () => {
     expect(out).toContain('Researcher');
     expect(out).toContain('read foo.ts');
     expect(out).toContain('Analyst');
+    // Active header tail reports worker progress (1 of 2 terminal).
+    expect(out).toContain('1/2 workers');
+    // Mirrors AgentGroup's gutter vocabulary: branch glyphs + "now:" activity.
+    expect(out).toContain('├─ Researcher');
+    expect(out).toContain('now: read foo.ts');
+    // The last worker (done) uses the closing branch and shows its call stats.
+    expect(out).toContain('└─ Analyst');
+    expect(out).toContain('1.8k tok');
+  });
+
+  it('shows a dim planning placeholder before any workers spawn', () => {
+    const c = makeSwarm('explore the repo');
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toContain('planning…');
+    expect(out).toContain('└─ planning subtasks…');
   });
 
   it('produces byte-identical output across consecutive renders (stability)', () => {
@@ -63,14 +78,14 @@ describe('ToolCallComponent swarm mode', () => {
     expect(c.render(80).join('\n')).toBe(c.render(80).join('\n'));
   });
 
-  it('shows a failed worker with its error', () => {
+  it('shows a failed worker with its error on the second gutter line', () => {
     const c = makeSwarm('t');
     c.applySwarm({ t: 'planned', total: 1 });
     c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'Scan' });
     c.applySwarm({ t: 'worker.failed', id: 'a1', error: 'timeout' });
     const out = strip(c.render(80).join('\n'));
-    expect(out).toContain('Scan');
-    expect(out).toContain('timeout');
+    expect(out).toContain('└─ Scan');
+    expect(out).toContain('failed: timeout');
   });
 
   it('finalizes to a cancelled header on an error result', () => {
@@ -109,5 +124,20 @@ describe('ToolCallComponent swarm mode', () => {
     const out = strip(c.render(80).join('\n'));
     expect(out).toMatch(/1 workers/);
     expect(out).toContain('1✓');
+  });
+
+  it('reflects a task supplied via tool-call args after empty-args construction', () => {
+    // The coordinator's `tool.call.started` fires before the streamed args
+    // finish, so the task is empty at construction time. The header must read
+    // the live task from the tool call once `updateToolCall` syncs it.
+    const c = new ToolCallComponent(
+      { id: 'tc-swarm', name: 'Swarm', args: {} },
+      undefined,
+      darkColors,
+    );
+    c.updateToolCall({ id: 'tc-swarm', name: 'Swarm', args: { task: 'explore the repo' } });
+    c.applySwarm({ t: 'planned', total: 2 });
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toContain('explore the repo');
   });
 });
