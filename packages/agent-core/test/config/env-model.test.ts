@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { join } from 'pathe';
@@ -213,27 +213,60 @@ describe('stripEnvModelConfig (write-back guard)', () => {
 });
 
 describe('writeConfigFile never persists the env model', () => {
-  it('strips env entries even when a runtime config is written back', async () => {
+  it('strips env entries (incl. thinking) when a runtime config is written back', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'kimi-env-write-'));
+    const path = join(dir, 'config.toml');
+    writeFileSync(
+      path,
+      'default_model = "x"\ndefault_thinking = false\n[thinking]\nmode = "auto"\n[providers.x]\ntype = "kimi"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
+    );
+    try {
+      // Reproduces the /login round-trip: a runtime config carrying the env
+      // model AND env thinking overrides is written back and must persist none.
+      const runtime = loadRuntimeConfig(path, {
+        ...MIN,
+        KIMI_MODEL_THINKING_MODE: 'on',
+        KIMI_MODEL_DEFAULT_THINKING: 'true',
+      });
+      // Sanity: env overrides are active at runtime.
+      expect(runtime.providers[ENV_MODEL_PROVIDER_KEY]).toBeDefined();
+      expect(runtime.thinking?.mode).toBe('on');
+      expect(runtime.defaultThinking).toBe(true);
+
+      await writeConfigFile(path, runtime);
+      const onDisk = readConfigFile(path);
+      // Env provider/model are gone; the user's stay; default_model is restored.
+      expect(onDisk.providers[ENV_MODEL_PROVIDER_KEY]).toBeUndefined();
+      expect(onDisk.models?.[ENV_MODEL_ALIAS_KEY]).toBeUndefined();
+      expect(onDisk.providers['x']).toBeDefined();
+      expect(onDisk.models?.['x']).toBeDefined();
+      expect(onDisk.defaultModel).toBe('x');
+      // Thinking is restored to the on-disk original, not the env override.
+      expect(onDisk.thinking?.mode).toBe('auto');
+      expect(onDisk.defaultThinking).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('output never contains env-injected identifiers', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-env-write2-'));
     const path = join(dir, 'config.toml');
     writeFileSync(
       path,
       'default_model = "x"\n[providers.x]\ntype = "kimi"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
     );
     try {
-      // Reproduces the /login round-trip: a runtime config carrying the env
-      // model is written back through writeConfigFile and must not persist it.
-      const runtime = loadRuntimeConfig(path, { ...MIN });
-      expect(runtime.providers[ENV_MODEL_PROVIDER_KEY]).toBeDefined();
+      const runtime = loadRuntimeConfig(path, {
+        ...MIN,
+        KIMI_MODEL_THINKING_EFFORT: 'low',
+        KIMI_MODEL_DEFAULT_THINKING: 'true',
+      });
       await writeConfigFile(path, runtime);
-      const onDisk = readConfigFile(path);
-      expect(onDisk.providers[ENV_MODEL_PROVIDER_KEY]).toBeUndefined();
-      expect(onDisk.models?.[ENV_MODEL_ALIAS_KEY]).toBeUndefined();
-      expect(onDisk.providers['x']).toBeDefined();
-      expect(onDisk.models?.['x']).toBeDefined();
-      // The env default_model is stripped, but the on-disk original is restored
-      // (not erased), so a real default_model in config.toml survives.
-      expect(onDisk.defaultModel).toBe('x');
+      const text = readFileSync(path, 'utf-8');
+      // Hard invariant: no env-synthesized identifiers ever reach config.toml.
+      expect(text).not.toContain(ENV_MODEL_PROVIDER_KEY);
+      expect(text).not.toContain(ENV_MODEL_ALIAS_KEY);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

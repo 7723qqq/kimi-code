@@ -171,9 +171,10 @@ export function applyEnvModelConfig(config: KimiConfig, env: Env = process.env):
  * into the in-memory runtime config; this guarantees they never reach
  * config.toml — including via a `getConfig` -> `setConfig` patch round-trip,
  * where the runtime config (carrying the env provider and its shell API key)
- * would otherwise be merged back and written out. A `default_model` pointing at
- * the env alias is restored to the on-disk value (from `config.raw`) rather than
- * erased, so a real default_model already in config.toml survives the round-trip.
+ * would otherwise be merged back and written out. Every env-injected top-level
+ * field (default_model, thinking, default_thinking) is restored to its on-disk
+ * value from `config.raw` rather than erased, so real values already in
+ * config.toml survive the round-trip.
  */
 export function stripEnvModelConfig(config: KimiConfig): KimiConfig {
   const hasProvider = ENV_MODEL_PROVIDER_KEY in config.providers;
@@ -194,13 +195,30 @@ export function stripEnvModelConfig(config: KimiConfig): KimiConfig {
     ...config,
     providers,
     ...(models !== undefined ? { models } : {}),
-    // Restore the on-disk default (from raw) instead of erasing it when the
-    // runtime default points at the env alias.
+    // Restore env-injected top-level fields from raw instead of persisting the
+    // shell overrides: the env default_model (when it points at the env alias),
+    // and the env thinking / default_thinking. Reaching here means env-model
+    // mode is active (the synthetic provider/model exist), so these may be env
+    // values; an unset raw field restores to undefined (i.e. drops it).
     ...(defaultIsEnv ? { defaultModel: rawDefaultModel(config) } : {}),
+    thinking: rawThinking(config),
+    defaultThinking: rawDefaultThinking(config),
   };
 }
 
 function rawDefaultModel(config: KimiConfig): string | undefined {
   const raw = config.raw?.['default_model'];
   return typeof raw === 'string' ? raw : undefined;
+}
+
+function rawDefaultThinking(config: KimiConfig): boolean | undefined {
+  const raw = config.raw?.['default_thinking'];
+  return typeof raw === 'boolean' ? raw : undefined;
+}
+
+function rawThinking(config: KimiConfig): ThinkingConfig | undefined {
+  const raw = config.raw?.['thinking'];
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+    ? (raw as ThinkingConfig)
+    : undefined;
 }
