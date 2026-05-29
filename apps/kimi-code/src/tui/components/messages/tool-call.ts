@@ -1358,14 +1358,18 @@ export class ToolCallComponent extends Container {
     const branch2 = isLast ? '   ' : '│  ';
     const role = chalk.hex(c.primary)(w.role);
 
+    // Live token counts are shown for every worker (running, retrying, done) so
+    // the dashboard stays consistent with `AgentGroupComponent`, which renders
+    // live tokens for all subagents from `agent.status.updated`. Running workers
+    // get their figure from `worker.tokens`; done workers from `worker.done`.
+    const tok = w.tokens !== undefined && w.tokens > 0 ? ` · ${formatTokens(w.tokens)}` : '';
     let statsPart = '';
     if (w.status === 'done') {
-      const tok = w.tokens !== undefined && w.tokens > 0 ? ` · ${formatTokens(w.tokens)}` : '';
       statsPart = chalk.dim(` · ${String(w.toolCount)} call${w.toolCount === 1 ? '' : 's'}${tok}`);
     } else if (w.status === 'retrying') {
-      statsPart = chalk.dim(' · retrying…');
+      statsPart = chalk.dim(` · retrying…${tok}`);
     } else if (w.status === 'running' && w.toolCount > 0) {
-      statsPart = chalk.dim(` · ${String(w.toolCount)} call${w.toolCount === 1 ? '' : 's'}`);
+      statsPart = chalk.dim(` · ${String(w.toolCount)} call${w.toolCount === 1 ? '' : 's'}${tok}`);
     }
     const line1 = `  ${branch1} ${role}${statsPart}`;
 

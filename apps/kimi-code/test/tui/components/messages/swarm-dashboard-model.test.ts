@@ -69,6 +69,30 @@ describe('applySwarmEvent', () => {
     const m = reduce([{ t: 'worker.spawned', id: 'a1', role: 'R' }, { t: 'worker.done', id: 'a1' }]);
     expect(m.workers.get('a1')?.status).toBe('done');
   });
+
+  it('worker.tokens updates a running worker tokens without touching count/status/activity', () => {
+    const m = reduce([
+      { t: 'planned', total: 1 },
+      { t: 'worker.spawned', id: 'a1', role: 'Researcher' },
+      { t: 'worker.toolcall', id: 'a1', activity: 'read foo.ts' },
+      { t: 'worker.tokens', id: 'a1', tokens: 3200 },
+    ]);
+    const w = m.workers.get('a1');
+    expect(w?.tokens).toBe(3200);
+    expect(w?.status).toBe('running');
+    expect(w?.toolCount).toBe(1);
+    expect(w?.latestActivity).toBe('read foo.ts');
+  });
+
+  it('worker.tokens is a no-op for an unknown worker id', () => {
+    const before = reduce([
+      { t: 'planned', total: 1 },
+      { t: 'worker.spawned', id: 'a1', role: 'R' },
+    ]);
+    const after = applySwarmEvent(before, { t: 'worker.tokens', id: 'ghost', tokens: 999 });
+    expect(after).toBe(before);
+    expect(after.workers.get('ghost')).toBeUndefined();
+  });
 });
 
 describe('workerActivityFromTool', () => {

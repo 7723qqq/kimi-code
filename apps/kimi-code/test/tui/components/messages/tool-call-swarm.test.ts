@@ -59,6 +59,21 @@ describe('ToolCallComponent swarm mode', () => {
     expect(out).toContain('1.8k tok');
   });
 
+  it('shows live token counts on a running worker that received worker.tokens', () => {
+    const c = makeSwarm('compare error handling');
+    c.applySwarm({ t: 'planned', total: 1 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'Researcher' });
+    c.applySwarm({ t: 'worker.toolcall', id: 'a1', activity: 'read foo.ts' });
+    c.applySwarm({ t: 'worker.tokens', id: 'a1', tokens: 4200 });
+
+    const out = strip(c.render(80).join('\n'));
+    // The running worker still shows its live activity line ...
+    expect(out).toContain('now: read foo.ts');
+    // ... alongside the live token count on its stats line.
+    expect(out).toContain('1 call');
+    expect(out).toContain('4.2k tok');
+  });
+
   it('shows a dim planning placeholder before any workers spawn', () => {
     const c = makeSwarm('explore the repo');
     const out = strip(c.render(80).join('\n'));

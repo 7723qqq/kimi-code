@@ -73,6 +73,28 @@ import type {
 } from '../types';
 import type { TUIState } from '../tui-state';
 
+/**
+ * Live token figure for a swarm worker from its `agent.status.updated` event,
+ * computed identically to the non-swarm grouped-subagent path so a running
+ * worker shows the same `· X tok` the grouped card would: prefer the per-agent
+ * `contextTokens` when positive, otherwise fall back to the usage grand total
+ * (`total ?? currentTurn`, summing input + output). Returns `undefined` when no
+ * positive figure is available so the dashboard line stays unchanged.
+ */
+function liveSwarmWorkerTokens(event: AgentStatusUpdatedEvent): number | undefined {
+  if (event.contextTokens !== undefined && event.contextTokens > 0) {
+    return event.contextTokens;
+  }
+  const usage = event.usage?.total ?? event.usage?.currentTurn;
+  if (usage === undefined) return undefined;
+  const total =
+    (usage.inputOther ?? 0) +
+    (usage.inputCacheRead ?? 0) +
+    (usage.inputCacheCreation ?? 0) +
+    usage.output;
+  return total > 0 ? total : undefined;
+}
+
 export interface SessionEventHost {
   state: TUIState;
   session: Session | undefined;
@@ -246,6 +268,16 @@ export class SessionEventHandler {
           id: subagentId,
           activity: workerActivityFromTool(event.name, argsRecord(event.args)),
         });
+      } else if (event.type === 'agent.status.updated') {
+        // Mirror the non-swarm `agent.status.updated` path's live-token
+        // computation (prefer the per-agent context tokens, fall back to the
+        // usage total) so a running worker shows the same live `· X tok` the
+        // grouped subagent card would. Matches the value `worker.done` later
+        // records via `SubagentCompletedEvent.contextTokens`.
+        const tokens = liveSwarmWorkerTokens(event);
+        if (tokens !== undefined) {
+          toolCall.applySwarm({ t: 'worker.tokens', id: subagentId, tokens });
+        }
       }
       return true;
     }

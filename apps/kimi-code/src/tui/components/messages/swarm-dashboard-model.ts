@@ -27,6 +27,7 @@ export type SwarmEvent =
   | { t: 'cancelled' }
   | { t: 'worker.spawned'; id: string; role: string }
   | { t: 'worker.toolcall'; id: string; activity: string }
+  | { t: 'worker.tokens'; id: string; tokens: number }
   | { t: 'worker.done'; id: string; tokens?: number }
   | { t: 'worker.failed'; id: string; error: string };
 
@@ -57,6 +58,13 @@ export function applySwarmEvent(model: SwarmModel, event: SwarmEvent): SwarmMode
       if (w !== undefined) {
         workers.set(event.id, { ...w, toolCount: w.toolCount + 1, latestActivity: event.activity });
       }
+      return { ...model, workers };
+    }
+    case 'worker.tokens': {
+      const w = model.workers.get(event.id);
+      if (w === undefined) return model;
+      const workers = new Map(model.workers);
+      workers.set(event.id, { ...w, tokens: event.tokens });
       return { ...model, workers };
     }
     case 'worker.done': {
