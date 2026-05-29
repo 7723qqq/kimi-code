@@ -1,0 +1,113 @@
+import { describe, expect, it } from 'vitest';
+
+import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { darkColors } from '#/tui/theme/colors';
+
+const ESC = String.fromCodePoint(0x1b);
+function strip(text: string): string {
+  return text
+    .replaceAll(/\[[0-9;]*m/g, '')
+    .replaceAll(new RegExp(`${ESC}\\][0-9];;[^\\u0007]*\\u0007`, 'g'), '');
+}
+
+function makeSwarm(task: string): ToolCallComponent {
+  return new ToolCallComponent(
+    { id: 'tc-swarm', name: 'Swarm', args: { task } },
+    undefined,
+    darkColors,
+  );
+}
+
+describe('ToolCallComponent swarm mode', () => {
+  it('identifies swarm tool calls and no-ops applySwarm on non-swarm tools', () => {
+    const swarm = makeSwarm('t');
+    expect(swarm.isSwarm()).toBe(true);
+
+    const read = new ToolCallComponent(
+      { id: 'tc-read', name: 'Read', args: { path: 'foo.ts' } },
+      undefined,
+      darkColors,
+    );
+    expect(read.isSwarm()).toBe(false);
+    const before = read.render(80).join('\n');
+    // applySwarm must be a safe no-op on non-swarm tools.
+    read.applySwarm({ t: 'planned', total: 2 });
+    expect(read.render(80).join('\n')).toBe(before);
+  });
+
+  it('renders phase header and worker rows', () => {
+    const c = makeSwarm('compare error handling');
+    c.applySwarm({ t: 'planned', total: 2 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'Researcher' });
+    c.applySwarm({ t: 'worker.toolcall', id: 'a1', activity: 'read foo.ts' });
+    c.applySwarm({ t: 'worker.spawned', id: 'a2', role: 'Analyst' });
+    c.applySwarm({ t: 'worker.done', id: 'a2', tokens: 1800 });
+
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toContain('Swarm');
+    expect(out).toContain('compare error handling');
+    expect(out).toContain('Researcher');
+    expect(out).toContain('read foo.ts');
+    expect(out).toContain('Analyst');
+  });
+
+  it('produces byte-identical output across consecutive renders (stability)', () => {
+    const c = makeSwarm('stable task');
+    c.applySwarm({ t: 'planned', total: 2 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'Researcher' });
+    c.applySwarm({ t: 'worker.toolcall', id: 'a1', activity: 'read foo.ts' });
+    c.applySwarm({ t: 'worker.spawned', id: 'a2', role: 'Analyst' });
+
+    // The root-cause property: a stable component renders the same lines each
+    // time, so pi-tui's differential renderer never re-emits it to scrollback.
+    expect(c.render(80).join('\n')).toBe(c.render(80).join('\n'));
+  });
+
+  it('shows a failed worker with its error', () => {
+    const c = makeSwarm('t');
+    c.applySwarm({ t: 'planned', total: 1 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'Scan' });
+    c.applySwarm({ t: 'worker.failed', id: 'a1', error: 'timeout' });
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toContain('Scan');
+    expect(out).toContain('timeout');
+  });
+
+  it('finalizes to a cancelled header on an error result', () => {
+    const c = makeSwarm('t');
+    c.applySwarm({ t: 'planned', total: 2 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'R' });
+    c.applySwarm({ t: 'worker.done', id: 'a1' });
+    c.applySwarm({ t: 'worker.spawned', id: 'a2', role: 'A' });
+    c.setResult({ tool_call_id: 'tc-swarm', output: 'aborted', is_error: true });
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toContain('cancelled');
+  });
+
+  it('finalizes to a summary header after done + success result', () => {
+    const c = makeSwarm('t');
+    c.applySwarm({ t: 'planned', total: 2 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'R' });
+    c.applySwarm({ t: 'worker.done', id: 'a1' });
+    c.applySwarm({ t: 'worker.spawned', id: 'a2', role: 'A' });
+    c.applySwarm({ t: 'worker.failed', id: 'a2', error: 'x' });
+    c.applySwarm({ t: 'done', succeeded: 1, failed: 1 });
+    c.setResult({ tool_call_id: 'tc-swarm', output: 'final report', is_error: false });
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toMatch(/2 workers/);
+    expect(out).toContain('1✓');
+    expect(out).toContain('1✗');
+  });
+
+  it('synthesizes a done header when a success result arrives before the done event', () => {
+    const c = makeSwarm('t');
+    c.applySwarm({ t: 'planned', total: 1 });
+    c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'R' });
+    c.applySwarm({ t: 'worker.done', id: 'a1' });
+    // No explicit {t:'done'} — setResult must finalize the header to a summary.
+    c.setResult({ tool_call_id: 'tc-swarm', output: 'final report', is_error: false });
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toMatch(/1 workers/);
+    expect(out).toContain('1✓');
+  });
+});

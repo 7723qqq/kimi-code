@@ -234,20 +234,22 @@ export class SessionEventHandler {
     const { parentToolCallId } = info;
     const sourceName = info.name;
 
-    const swarmDash = streamingUI.getSwarmDashboard(parentToolCallId);
-    if (swarmDash !== undefined) {
+    const toolCall = streamingUI.getToolComponent(parentToolCallId);
+    if (toolCall === undefined) return true;
+
+    // Swarm worker events drive the swarm dashboard, not the subagent block, and
+    // never fall through to the regular Agent appendSubToolCall path.
+    if (toolCall.isSwarm()) {
       if (event.type === 'tool.call.started') {
-        swarmDash.apply({
+        toolCall.applySwarm({
           t: 'worker.toolcall',
           id: subagentId,
           activity: workerActivityFromTool(event.name, argsRecord(event.args)),
         });
       }
-      return true; // swarm worker events never fall through to appendSubToolCall
+      return true;
     }
 
-    const toolCall = streamingUI.getToolComponent(parentToolCallId);
-    if (toolCall === undefined) return true;
     toolCall.setSubagentMeta(subagentId, sourceName);
 
     switch (event.type) {
@@ -498,12 +500,12 @@ export class SessionEventHandler {
 
   private handleToolProgress(event: ToolProgressEvent): void {
     if (event.update.kind === 'custom' && event.update.customKind === 'swarm') {
-      const dash = this.host.streamingUI.getSwarmDashboard(event.toolCallId);
-      if (dash === undefined) return;
+      const tc = this.host.streamingUI.getToolComponent(event.toolCallId);
+      if (tc === undefined || !tc.isSwarm()) return;
       const p = event.update.customData as { phase?: string; total?: number };
-      if (p.phase === 'planned' && typeof p.total === 'number') dash.apply({ t: 'planned', total: p.total });
-      else if (p.phase === 'synthesizing') dash.apply({ t: 'synthesizing' });
-      else if (p.phase === 'done') dash.apply({ t: 'done', succeeded: 0, failed: 0 });
+      if (p.phase === 'planned' && typeof p.total === 'number') tc.applySwarm({ t: 'planned', total: p.total });
+      else if (p.phase === 'synthesizing') tc.applySwarm({ t: 'synthesizing' });
+      else if (p.phase === 'done') tc.applySwarm({ t: 'done', succeeded: 0, failed: 0 });
       return;
     }
     if (event.update.kind !== 'status') return;
@@ -718,17 +720,17 @@ export class SessionEventHandler {
       name: event.subagentName,
     });
 
-    const swarmDash = streamingUI.getSwarmDashboard(event.parentToolCallId);
-    if (swarmDash !== undefined) {
+    const swarmTc = streamingUI.getToolComponent(event.parentToolCallId);
+    if (swarmTc?.isSwarm() === true) {
       // Only real workers (profile `swarm:<role>`) become dashboard rows. The
       // planner (`swarm-planner`, plus a possible retry) and synthesizer
       // (`swarm-synthesizer`) share the same parent tool-call id but must not
-      // appear as workers or inflate the worker counts. They still have a
-      // ToolCallComponent-less parent, so any non-worker subagent under a swarm
-      // dashboard returns without falling through to the foreground path.
+      // appear as workers or inflate the worker counts. Any non-worker subagent
+      // under a swarm coordinator returns without falling through to the
+      // foreground path.
       const workerPrefix = 'swarm:';
       if (event.subagentName.startsWith(workerPrefix)) {
-        swarmDash.apply({
+        swarmTc.applySwarm({
           t: 'worker.spawned',
           id: event.subagentId,
           role: event.description ?? event.subagentName.slice(workerPrefix.length),
@@ -780,17 +782,16 @@ export class SessionEventHandler {
       this.appendBackgroundAgentEntry('completed', backgroundMeta, extras);
       return;
     }
-    const swarmDashC = streamingUI.getSwarmDashboard(event.parentToolCallId);
-    if (swarmDashC !== undefined) {
-      swarmDashC.apply({
+    const tc = streamingUI.getToolComponent(event.parentToolCallId);
+    if (tc === undefined) return;
+    if (tc.isSwarm()) {
+      tc.applySwarm({
         t: 'worker.done',
         id: event.subagentId,
         ...(event.contextTokens !== undefined ? { tokens: event.contextTokens } : {}),
       });
       return;
     }
-    const tc = streamingUI.getToolComponent(event.parentToolCallId);
-    if (tc === undefined) return;
     tc.onSubagentCompleted({
       contextTokens: event.contextTokens,
       usage: event.usage,
@@ -815,13 +816,12 @@ export class SessionEventHandler {
       this.appendBackgroundAgentEntry('failed', backgroundMeta, { error: event.error });
       return;
     }
-    const swarmDashF = streamingUI.getSwarmDashboard(event.parentToolCallId);
-    if (swarmDashF !== undefined) {
-      swarmDashF.apply({ t: 'worker.failed', id: event.subagentId, error: event.error });
-      return;
-    }
     const tc = streamingUI.getToolComponent(event.parentToolCallId);
     if (tc === undefined) return;
+    if (tc.isSwarm()) {
+      tc.applySwarm({ t: 'worker.failed', id: event.subagentId, error: event.error });
+      return;
+    }
     tc.onSubagentFailed({ error: event.error });
     streamingUI.removeToolComponentIfInactive(event.parentToolCallId);
   }

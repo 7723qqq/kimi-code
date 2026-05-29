@@ -4,7 +4,6 @@ import { AgentGroupComponent } from '../components/messages/agent-group';
 import { AssistantMessageComponent } from '../components/messages/assistant-message';
 import { CompactionComponent } from '../components/dialogs/compaction';
 import { ReadGroupComponent } from '../components/messages/read-group';
-import { SwarmDashboardComponent } from '../components/messages/swarm-dashboard';
 import { ThinkingComponent } from '../components/messages/thinking';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { STREAMING_UI_FLUSH_MS } from '../constant/streaming';
@@ -61,7 +60,6 @@ export class StreamingUIController {
     { name?: string; argumentsText: string; startedAtMs: number }
   >();
   private _pendingToolComponents = new Map<string, ToolCallComponent>();
-  private readonly _swarmDashboards = new Map<string, SwarmDashboardComponent>();
   private _pendingAgentGroup: {
     readonly turnId: string | undefined;
     readonly step: number;
@@ -158,10 +156,6 @@ export class StreamingUIController {
     return this._pendingToolComponents.get(id);
   }
 
-  getSwarmDashboard(toolCallId: string): SwarmDashboardComponent | undefined {
-    return this._swarmDashboards.get(toolCallId);
-  }
-
   removeToolComponent(id: string): void {
     this._pendingToolComponents.delete(id);
   }
@@ -252,7 +246,6 @@ export class StreamingUIController {
     for (const toolCallId of completedToolCallIds) {
       this._pendingToolComponents.delete(toolCallId);
     }
-    this.disposeAndClearSwarmDashboards();
     this._pendingAgentGroup = null;
     this._pendingReadGroup = null;
     this._currentTurnId = undefined;
@@ -400,16 +393,8 @@ export class StreamingUIController {
     this.clearFlushTimerIfIdle();
     this._streamingToolCallArguments.clear();
     this.disposeAndClearPendingToolComponents();
-    this.disposeAndClearSwarmDashboards();
     this._pendingAgentGroup = null;
     this._pendingReadGroup = null;
-  }
-
-  private disposeAndClearSwarmDashboards(): void {
-    for (const dash of this._swarmDashboards.values()) {
-      dash.dispose();
-    }
-    this._swarmDashboards.clear();
   }
 
   resetToolCallState(): void {
@@ -519,19 +504,12 @@ export class StreamingUIController {
     if (toolCall.name === 'AskUserQuestion') return;
 
     // A tool call of any other kind breaks an in-flight Agent/Read run, so the
-    // pending groups are reset here — before the Swarm early-return — to avoid
-    // a Swarm call between Agent/Read calls leaving a stale pending group.
+    // pending groups are reset here to avoid a non-Agent/Read call (e.g. Swarm)
+    // between Agent/Read calls leaving a stale pending group. Swarm itself flows
+    // through the normal ToolCallComponent path below — it renders its dashboard
+    // via the managed tool-call lifecycle (one stable component per tool id).
     if (toolCall.name !== 'Agent') this._pendingAgentGroup = null;
     if (toolCall.name !== 'Read') this._pendingReadGroup = null;
-
-    if (toolCall.name === 'Swarm') {
-      const task = typeof toolCall.args['task'] === 'string' ? toolCall.args['task'] : '';
-      const dash = new SwarmDashboardComponent(task, this.host.state.theme.colors, this.host.state.ui);
-      this._swarmDashboards.set(toolCall.id, dash);
-      this.host.state.transcriptContainer.addChild(dash);
-      this.host.state.ui.requestRender();
-      return;
-    }
 
     const { state } = this.host;
     const tc = new ToolCallComponent(
@@ -569,16 +547,6 @@ export class StreamingUIController {
   onToolCallEnd(toolCallId: string, result: ToolResultBlockData): void {
     const { state } = this.host;
     const matchedCall = this._activeToolCalls.get(toolCallId);
-
-    // A Swarm call that ends in error (abort/throw) never emits the `done`
-    // custom progress, so its dashboard would otherwise stay stuck on a
-    // spinner. Finalize it as cancelled. A non-error end means the coordinator
-    // already emitted `done`, leaving the dashboard terminal — leave it alone.
-    const swarmDash = this._swarmDashboards.get(toolCallId);
-    if (swarmDash !== undefined) {
-      if (result.is_error === true) swarmDash.apply({ t: 'cancelled' });
-      return;
-    }
 
     const tc = this._pendingToolComponents.get(toolCallId);
     if (tc) {

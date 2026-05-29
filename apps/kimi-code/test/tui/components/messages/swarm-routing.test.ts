@@ -3,22 +3,30 @@ import { describe, expect, it } from 'vitest';
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
 
 import { SessionEventHandler, type SessionEventHost } from '#/tui/controllers/session-event-handler';
-import { SwarmDashboardComponent } from '#/tui/components/messages/swarm-dashboard';
+import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 import { workerActivityFromTool } from '#/tui/components/messages/swarm-dashboard-model';
 import { darkColors } from '#/tui/theme/colors';
 
 const strip = (t: string): string => t.replaceAll(/\[[0-9;]*m/g, '');
 
+function makeSwarm(): ToolCallComponent {
+  return new ToolCallComponent(
+    { id: 'tc-swarm', name: 'Swarm', args: { task: 'task' } },
+    undefined,
+    darkColors,
+  );
+}
+
 describe('swarm dashboard wiring (translation)', () => {
   it('produces the expected dashboard from a worker lifecycle sequence', () => {
-    const dash = new SwarmDashboardComponent('task', darkColors, undefined);
-    dash.apply({ t: 'planned', total: 2 });
-    dash.apply({ t: 'worker.spawned', id: 's1', role: 'Researcher' });
-    dash.apply({ t: 'worker.toolcall', id: 's1', activity: workerActivityFromTool('Read', { path: 'a.ts' }) });
-    dash.apply({ t: 'worker.done', id: 's1', tokens: 2100 });
-    dash.apply({ t: 'worker.spawned', id: 's2', role: 'Analyst' });
-    dash.apply({ t: 'worker.failed', id: 's2', error: 'timeout' });
-    dash.apply({ t: 'done', succeeded: 1, failed: 1 });
+    const dash = makeSwarm();
+    dash.applySwarm({ t: 'planned', total: 2 });
+    dash.applySwarm({ t: 'worker.spawned', id: 's1', role: 'Researcher' });
+    dash.applySwarm({ t: 'worker.toolcall', id: 's1', activity: workerActivityFromTool('Read', { path: 'a.ts' }) });
+    dash.applySwarm({ t: 'worker.done', id: 's1', tokens: 2100 });
+    dash.applySwarm({ t: 'worker.spawned', id: 's2', role: 'Analyst' });
+    dash.applySwarm({ t: 'worker.failed', id: 's2', error: 'timeout' });
+    dash.applySwarm({ t: 'done', succeeded: 1, failed: 1 });
     const out = strip(dash.render(80).join('\n'));
     expect(out).toContain('Researcher');
     expect(out).toContain('Analyst');
@@ -28,13 +36,12 @@ describe('swarm dashboard wiring (translation)', () => {
 
   it('routes live swarm events through SessionEventHandler into the dashboard', () => {
     const parentToolCallId = 'tc-swarm';
-    const dash = new SwarmDashboardComponent('task', darkColors, undefined);
+    const dash = makeSwarm();
     const mockHost = {
       streamingUI: {
         setTurnId: (): void => {},
-        getSwarmDashboard: (id: string): SwarmDashboardComponent | undefined =>
+        getToolComponent: (id: string): ToolCallComponent | undefined =>
           id === parentToolCallId ? dash : undefined,
-        getToolComponent: (): undefined => undefined,
       },
     } as unknown as SessionEventHost;
     const handler = new SessionEventHandler(mockHost);
@@ -96,13 +103,12 @@ describe('swarm dashboard wiring (translation)', () => {
 
   it('counts only real workers — planner/synthesizer/retry never become rows', () => {
     const parentToolCallId = 'tc-swarm';
-    const dash = new SwarmDashboardComponent('task', darkColors, undefined);
+    const dash = makeSwarm();
     const mockHost = {
       streamingUI: {
         setTurnId: (): void => {},
-        getSwarmDashboard: (id: string): SwarmDashboardComponent | undefined =>
+        getToolComponent: (id: string): ToolCallComponent | undefined =>
           id === parentToolCallId ? dash : undefined,
-        getToolComponent: (): undefined => undefined,
       },
     } as unknown as SessionEventHost;
     const handler = new SessionEventHandler(mockHost);

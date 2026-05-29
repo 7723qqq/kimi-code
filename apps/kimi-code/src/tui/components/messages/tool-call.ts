@@ -11,12 +11,12 @@ import chalk from 'chalk';
 
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
-import { COMMAND_PREVIEW_LINES } from '#/tui/constant/rendering';
+import { BRAILLE_SPINNER_FRAMES, COMMAND_PREVIEW_LINES } from '#/tui/constant/rendering';
 import {
   STREAMING_ARGS_FIELD_RE,
   STREAMING_ARGS_PREVIEW_MAX_CHARS,
 } from '#/tui/constant/streaming';
-import { STATUS_BULLET } from '#/tui/constant/symbols';
+import { FAILURE_MARK, STATUS_BULLET } from '#/tui/constant/symbols';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
@@ -25,10 +25,19 @@ import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 
 import { PlanBoxComponent } from './plan-box';
 import { ShellExecutionComponent } from './shell-execution';
+import {
+  applySwarmEvent,
+  initialSwarmModel,
+  type SwarmEvent,
+  type SwarmModel,
+  type WorkerRow,
+} from './swarm-dashboard-model';
 import { countNonEmptyLines, pickChip } from './tool-renderers/chip';
 import { pickResultRenderer } from './tool-renderers/registry';
 
 const MAX_ARG_LENGTH = 60;
+/** Keeps a running swarm worker's activity to a single dashboard line. */
+const SWARM_ACTIVITY_MAX_LENGTH = 48;
 const MAX_SUB_TOOL_CALLS_SHOWN = 4;
 const MAX_SINGLE_SUBAGENT_TOOL_ROWS = 4;
 const APPROVED_PLAN_MARKER = '## Approved Plan:';
@@ -494,6 +503,16 @@ export class ToolCallComponent extends Container {
   private progressLines: string[] = [];
   private static readonly MAX_PROGRESS_LINES = 24;
 
+  // ── Swarm dashboard state ────────────────────────────────────────
+  //
+  // Populated only when this tool call is the `Swarm` coordinator. The pure
+  // reducer in `swarm-dashboard-model` folds `applySwarm(event)` into this
+  // model; the body-building path renders the dashboard (phase line + one row
+  // per worker) instead of the normal progress/sub-tool/subagent blocks. A
+  // static spinner frame keeps the rendered lines stable so pi-tui's
+  // differential renderer never re-emits the card into scrollback.
+  private swarmModel: SwarmModel | undefined;
+
   /**
    * Registered by a group container (`AgentGroupComponent` or
    * `ReadGroupComponent`) when this component is borrowed as a hidden state
@@ -518,6 +537,9 @@ export class ToolCallComponent extends Container {
     this.colors = colors;
     this.ui = ui;
     this.markdownTheme = markdownTheme;
+    if (toolCall.name === 'Swarm') {
+      this.swarmModel = initialSwarmModel(str(toolCall.args['task']));
+    }
     this.applySubagentReplay(toolCall.subagent);
 
     this.addChild(new Spacer(1));
@@ -560,6 +582,7 @@ export class ToolCallComponent extends Container {
     // authoritative final state. Without this clear, a finished tool would
     // show both the streamed status lines and the final output stacked.
     this.progressLines = [];
+    this.finalizeSwarmModelIfNeeded(result);
     this.finalizeSubagentElapsedIfNeeded();
     this.syncStreamingProgressTimer();
     this.syncSubagentElapsedTimer();
@@ -600,6 +623,47 @@ export class ToolCallComponent extends Container {
     this.rebuildBody();
     this.notifySnapshotChange();
     this.ui?.requestRender();
+  }
+
+  /** True when this tool call drives the `Swarm` coordinator dashboard. */
+  isSwarm(): boolean {
+    return this.toolCall.name === 'Swarm';
+  }
+
+  /**
+   * Fold a swarm dashboard event into the model and re-render in place.
+   * No-ops for non-swarm tool calls so callers can route blindly. Mirrors
+   * {@link ToolCallComponent.appendProgress} so the swarm card stays a single,
+   * stable component managed by the normal tool-call lifecycle.
+   */
+  applySwarm(event: SwarmEvent): void {
+    if (this.swarmModel === undefined) return;
+    this.swarmModel = applySwarmEvent(this.swarmModel, event);
+    this.headerText.setText(this.buildHeader());
+    this.rebuildBody();
+    this.notifySnapshotChange();
+    this.ui?.requestRender();
+  }
+
+  /**
+   * Drives the swarm dashboard to its terminal state when the tool result
+   * lands. An error result (abort/throw) never emits the coordinator's `done`
+   * progress, so finalize it as cancelled; otherwise ensure the header shows
+   * the summary even if the `done` progress event was missed.
+   */
+  private finalizeSwarmModelIfNeeded(result: ToolResultBlockData): void {
+    if (this.swarmModel === undefined) return;
+    if (result.is_error === true) {
+      this.swarmModel = applySwarmEvent(this.swarmModel, { t: 'cancelled' });
+      return;
+    }
+    if (this.swarmModel.phase !== 'done' && this.swarmModel.phase !== 'cancelled') {
+      this.swarmModel = applySwarmEvent(this.swarmModel, {
+        t: 'done',
+        succeeded: this.swarmModel.doneCount,
+        failed: this.swarmModel.failedCount,
+      });
+    }
   }
 
   dispose(): void {
@@ -1039,6 +1103,10 @@ export class ToolCallComponent extends Container {
       bullet = chalk.hex(colors.roleAssistant)(STATUS_BULLET);
     }
 
+    if (this.swarmModel !== undefined) {
+      return this.buildSwarmHeader();
+    }
+
     if (toolCall.name === 'ExitPlanMode') {
       const label = chalk.hex(colors.primary).bold('Current plan');
       if (!isFinished || result === undefined || result.is_error === true) {
@@ -1094,6 +1162,74 @@ export class ToolCallComponent extends Container {
     return tone(` · ${text}`);
   }
 
+  // ── Swarm dashboard rendering ────────────────────────────────────
+  //
+  // A static spinner frame is used (rather than an animated, per-render frame)
+  // so the rendered lines stay identical across consecutive renders — the
+  // property that lets pi-tui's differential renderer keep one stable card.
+
+  private swarmSpinner(): string {
+    return BRAILLE_SPINNER_FRAMES[0]!;
+  }
+
+  /** Single-line header for the Swarm card (carried by `headerText`). */
+  private buildSwarmHeader(): string {
+    const c = this.colors;
+    const m = this.swarmModel;
+    if (m === undefined) return '';
+    const title = m.task.length > 56 ? `${m.task.slice(0, 56)}…` : m.task;
+    if (m.phase === 'done' || m.phase === 'cancelled') {
+      const bullet = chalk.hex(c.success)(STATUS_BULLET);
+      const tag = m.phase === 'cancelled' ? ' · cancelled' : '';
+      const summary = `${String(m.workers.size)} workers · ${String(m.doneCount)}✓ ${String(m.failedCount)}✗${tag}`;
+      return `${bullet}${chalk.hex(c.primary).bold('Swarm')} ${chalk.dim(`· ${title}`)} ${chalk.dim(`· ${summary}`)}`;
+    }
+    const bullet = chalk.hex(c.roleAssistant)(STATUS_BULLET);
+    return `${bullet}${chalk.hex(c.primary).bold('Swarm')} ${chalk.dim(`· ${title}`)}`;
+  }
+
+  /** Renders the swarm phase line and one row per worker into the body. */
+  private buildSwarmBody(): void {
+    const m = this.swarmModel;
+    if (m === undefined) return;
+    if (m.phase !== 'done' && m.phase !== 'cancelled') {
+      const phases = [
+        `Plan ${m.phase === 'planning' ? this.swarmSpinner() : '✓'}`,
+        `Workers ${String(m.doneCount + m.failedCount)}/${String(m.total)}`,
+        `Synthesize ${
+          m.phase === 'synthesizing'
+            ? this.swarmSpinner()
+            : m.phase === 'working' || m.phase === 'planning'
+              ? '·'
+              : '✓'
+        }`,
+      ].join('   ');
+      this.addChild(new Text(`  ${chalk.dim(phases)}`, 0, 0));
+    }
+    for (const w of m.workers.values()) {
+      this.addChild(new Text(this.buildSwarmWorkerLine(w), 0, 0));
+    }
+  }
+
+  private buildSwarmWorkerLine(w: WorkerRow): string {
+    const c = this.colors;
+    const role = chalk.hex(c.primary)(w.role);
+    if (w.status === 'failed') {
+      return `  ${chalk.hex(c.error)(FAILURE_MARK)}${role} ${chalk.hex(c.error)(`failed: ${w.error ?? 'error'}`)}`;
+    }
+    if (w.status === 'done') {
+      const tok = w.tokens !== undefined && w.tokens > 0 ? ` · ${formatTokens(w.tokens)}` : '';
+      return `  ${chalk.hex(c.success)('✓ ')}${role} ${chalk.dim(`${String(w.toolCount)} calls${tok}`)}`;
+    }
+    if (w.status === 'retrying') {
+      return `  ${chalk.hex(c.roleAssistant)('⟳ ')}${role} ${chalk.dim('retrying…')}`;
+    }
+    const raw = w.latestActivity ?? 'starting…';
+    const activity =
+      raw.length > SWARM_ACTIVITY_MAX_LENGTH ? `${raw.slice(0, SWARM_ACTIVITY_MAX_LENGTH)}…` : raw;
+    return `  ${chalk.hex(c.roleAssistant)(this.swarmSpinner())} ${role} ${chalk.dim(`now: ${activity}`)}`;
+  }
+
   private rebuildContent(): void {
     while (this.children.length > this.callPreviewEndIndex) {
       this.children.pop();
@@ -1125,6 +1261,7 @@ export class ToolCallComponent extends Container {
    * styled individually so surrounding prose keeps its default dim tone.
    */
   private buildProgressBlock(): void {
+    if (this.swarmModel !== undefined) return;
     if (this.progressLines.length === 0) return;
     if (this.result !== undefined) return;
     for (const raw of this.progressLines) {
@@ -1145,6 +1282,7 @@ export class ToolCallComponent extends Container {
   }
 
   private buildSubagentBlock(): void {
+    if (this.swarmModel !== undefined) return;
     if (
       this.subagentAgentId === undefined &&
       this.ongoingSubCalls.size === 0 &&
@@ -1415,6 +1553,10 @@ export class ToolCallComponent extends Container {
 
   private buildCallPreview(): void {
     const name = this.toolCall.name;
+    if (this.swarmModel !== undefined) {
+      this.buildSwarmBody();
+      return;
+    }
     if (name === 'ExitPlanMode') {
       this.buildPlanPreview();
       return;
@@ -1604,6 +1746,9 @@ export class ToolCallComponent extends Container {
 
   private buildContent(): void {
     const { result } = this;
+    // Swarm renders its dashboard via buildSwarmBody; the result output is the
+    // synthesized report which is surfaced elsewhere, not in this card.
+    if (this.swarmModel !== undefined) return;
     if (result === undefined || !result.output) return;
 
     if (this.isSingleSubagentView()) {
