@@ -266,6 +266,24 @@ export class Agent {
     this.tools.setActiveTools(profile.tools);
   }
 
+  /**
+   * Re-render only the system prompt from a profile, leaving the active tool
+   * set untouched. Used after plugin skills are hot-loaded so the model sees
+   * the new skills (the prompt's skill listing is rendered live from the
+   * registry). Unlike {@link useProfile}, this does not reset active tools,
+   * which can be mutated at runtime and must survive a reload.
+   */
+  rerenderSystemPrompt(profile: ResolvedAgentProfile, context?: PreparedSystemPromptContext): void {
+    const systemPrompt = profile.systemPrompt({
+      osEnv: this.kaos.osEnv,
+      cwd: this.config.cwd,
+      skills: this.skills?.registry,
+      cwdListing: context?.cwdListing,
+      agentsMd: context?.agentsMd,
+    });
+    this.config.update({ systemPrompt });
+  }
+
   async resume(): Promise<{ warning?: string }> {
     const result = await this.records.replay();
     await this.background.loadFromDisk();

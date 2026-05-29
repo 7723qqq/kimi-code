@@ -19,7 +19,11 @@ import {
   type McpServerEntry,
   type SessionMcpConfig,
 } from '../mcp';
-import type { EnabledPluginSessionStart } from '../plugin';
+import type {
+  EnabledPluginSessionStart,
+  PluginRuntimeApplyResult,
+  PluginRuntimeSnapshot,
+} from '../plugin';
 import {
   DEFAULT_AGENT_PROFILES,
   DEFAULT_INIT_PROMPT,
@@ -98,6 +102,11 @@ export class Session {
   readonly hookEngine: HookEngine;
   private agentIdCounter = 0;
   private readonly skillsReady: Promise<void>;
+  // Plugin ids whose skills have been loaded into the registry (initial load +
+  // every reload). The registry is additive and has no unload path, so a plugin
+  // id still in this set but absent from a later snapshot means its skills are
+  // now stale and only a new session can drop them.
+  private readonly loadedPluginSkillIds = new Set<string>();
   metadata: SessionMeta = {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -321,6 +330,116 @@ export class Session {
     return this.skills.listSkills().map(summarizeSkill);
   }
 
+  /**
+   * Hot-apply a plugin runtime snapshot to this live session. Additive only:
+   * newly enabled plugin skills are loaded and the main agent's system prompt
+   * is re-rendered so the model sees them; the `Skill` builtin tool is
+   * refreshed so it appears when skills first become available; and newly
+   * enabled plugin MCP servers are connected (their tools register via the MCP
+   * status subscription and are picked up on the next turn). Disabled/removed
+   * capabilities are NOT torn down and sessionStart skills are NOT injected
+   * mid-conversation — those are reported via `needsNewSession`.
+   */
+  async applyPluginRuntimeSnapshot(
+    snapshot: PluginRuntimeSnapshot,
+  ): Promise<PluginRuntimeApplyResult> {
+    await this.skillsReady;
+
+    // Skills: re-resolve roots with the snapshot's plugin roots and merge them
+    // in. loadRoots skips already-loaded roots, so only new ones are scanned.
+    const before = new Set(this.skills.listSkills().map((skill) => skill.name));
+    const roots = await resolveSkillRoots({
+      paths: {
+        userHomeDir: this.options.skills?.userHomeDir ?? homedir(),
+        workDir: this.options.kaos.getcwd(),
+      },
+      explicitDirs: this.options.skills?.explicitDirs,
+      extraDirs: this.options.skills?.extraDirs,
+      pluginSkillRoots: snapshot.pluginSkillRoots,
+      mergeAllAvailableSkills: this.options.skills?.mergeAllAvailableSkills,
+      builtinDir: this.options.skills?.builtinDir,
+    });
+    await this.skills.loadRoots(roots);
+    this.rememberLoadedPluginSkills(snapshot.pluginSkillRoots);
+    const addedSkills = this.skills
+      .listSkills()
+      .map((skill) => skill.name)
+      .filter((name) => !before.has(name));
+
+    // Builtin tools: rebuild so the `Skill` tool appears once skills exist.
+    this.refreshAgentBuiltinTools();
+
+    // System prompt: re-render the main agent's prompt so the model sees the
+    // new skills. Active tools are intentionally left untouched.
+    const main = this.agents.get('main');
+    const profile = DEFAULT_AGENT_PROFILES['agent'];
+    if (main !== undefined && profile !== undefined) {
+      const context = await prepareSystemPromptContext(main.kaos);
+      main.rerenderSystemPrompt(profile, context);
+    }
+
+    // MCP: connect only servers not already present; never reconnect existing.
+    const existingServers = new Set(this.mcp.list().map((entry) => entry.name));
+    const newServers = Object.fromEntries(
+      Object.entries(snapshot.mcpServers).filter(([name]) => !existingServers.has(name)),
+    );
+    const newServerNames = Object.keys(newServers);
+    if (newServerNames.length > 0) {
+      await this.mcp.connect(newServers);
+    }
+    // Report only servers that actually came online. connect() awaits each
+    // spawn, so by now every entry has settled; a failed / needs-auth server
+    // must not be announced as "now active".
+    const addedMcpServers = newServerNames.filter(
+      (name) => this.mcp.get(name)?.status === 'connected',
+    );
+
+    return {
+      addedSkills,
+      addedMcpServers,
+      needsNewSession: this.pluginRuntimeNeedsNewSession(snapshot, main),
+    };
+  }
+
+  /**
+   * Whether the live session still differs from the snapshot in a way only a
+   * new session can reconcile: skills from a now-disabled/removed plugin still
+   * loaded in the registry, a plugin MCP server still connected but no longer
+   * enabled (disable/remove can't be cleanly torn down), or a drift between the
+   * desired and currently-active sessionStart injections.
+   */
+  private pluginRuntimeNeedsNewSession(
+    snapshot: PluginRuntimeSnapshot,
+    main: Agent | undefined,
+  ): boolean {
+    // Skills: loadRoots is additive, so a plugin whose skills are still in the
+    // registry but is no longer in the snapshot leaves stale skills behind.
+    const desiredSkillPlugins = new Set(
+      snapshot.pluginSkillRoots
+        .map((root) => root.plugin?.id)
+        .filter((id): id is string => id !== undefined),
+    );
+    const stalePluginSkills = [...this.loadedPluginSkillIds].some(
+      (id) => !desiredSkillPlugins.has(id),
+    );
+    if (stalePluginSkills) return true;
+
+    const desiredServers = new Set(Object.keys(snapshot.mcpServers));
+    const stalePluginServer = this.mcp
+      .list()
+      .some((entry) => entry.name.startsWith('plugin-') && !desiredServers.has(entry.name));
+    if (stalePluginServer) return true;
+
+    const activeStarts = new Set(
+      (main?.pluginSessionStarts ?? []).map((start) => `${start.pluginId}:${start.skillName}`),
+    );
+    const desiredStarts = snapshot.sessionStarts.map(
+      (start) => `${start.pluginId}:${start.skillName}`,
+    );
+    if (desiredStarts.length !== activeStarts.size) return true;
+    return desiredStarts.some((key) => !activeStarts.has(key));
+  }
+
   private async loadSkills(): Promise<void> {
     const roots = await resolveSkillRoots({
       paths: {
@@ -335,6 +454,13 @@ export class Session {
     });
     await this.skills.loadRoots(roots);
     registerBuiltinSkills(this.skills);
+    this.rememberLoadedPluginSkills(this.options.skills?.pluginSkillRoots);
+  }
+
+  private rememberLoadedPluginSkills(roots: readonly SkillRoot[] | undefined): void {
+    for (const root of roots ?? []) {
+      if (root.plugin?.id !== undefined) this.loadedPluginSkillIds.add(root.plugin.id);
+    }
   }
 
   private async loadMcpServers(): Promise<void> {

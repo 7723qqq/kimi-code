@@ -35,8 +35,8 @@ import type {
   McpStartupMetrics,
   PermissionMode,
   PluginInfo,
+  PluginReloadResult,
   PluginSummary,
-  ReloadSummary,
   CompactOptions,
   SessionPlan,
   SessionStatus,
@@ -464,9 +464,9 @@ export class SDKRpcClient {
     return rpc.removePlugin({ id });
   }
 
-  async reloadPlugins(): Promise<ReloadSummary> {
+  async reloadPlugins(input: SessionIdRpcInput): Promise<PluginReloadResult> {
     const rpc = await this.getRpc();
-    return rpc.reloadPlugins({});
+    return rpc.reloadPlugins({ sessionId: input.sessionId });
   }
 
   async getPluginInfo(id: string): Promise<PluginInfo> {

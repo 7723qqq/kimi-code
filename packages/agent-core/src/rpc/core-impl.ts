@@ -60,6 +60,7 @@ import type {
   PromptPayload,
   ReconnectMcpServerPayload,
   RegisterToolPayload,
+  ReloadPluginsPayload,
   ReloadPluginsResult,
   RemoveKimiProviderPayload,
   RemovePluginPayload,
@@ -602,11 +603,11 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     await this.plugins.remove(id);
   }
 
-  async reloadPlugins(_: EmptyPayload): Promise<ReloadPluginsResult> {
+  async reloadPlugins({ sessionId }: ReloadPluginsPayload): Promise<ReloadPluginsResult> {
+    let summary: ReloadPluginsResult;
     try {
-      const summary = await this.plugins.reload();
+      summary = await this.plugins.reload();
       this.pluginsLoadError = undefined;
-      return summary;
     } catch (error) {
       this.pluginsLoadError = error instanceof Error ? error : new Error(String(error));
       throw new KimiError(
@@ -615,6 +616,18 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
         { cause: error, details: { kimiHomeDir: this.homeDir } },
       );
     }
+
+    // Hot-apply the refreshed plugin set to the session that asked for the
+    // reload. The manager is shared across sessions, but applying is
+    // per-session — other live sessions reconcile on their own reload. A
+    // failure here must NOT poison `pluginsLoadError`: the manager reloaded
+    // fine, so plugin management stays usable; the apply error surfaces on its
+    // own without the misleading "fix installed.json" guidance.
+    const session = this.sessions.get(sessionId);
+    const applied = session
+      ? await session.applyPluginRuntimeSnapshot(this.plugins.runtimeSnapshot())
+      : undefined;
+    return { ...summary, applied };
   }
 
   async getPluginInfo({ id }: GetPluginInfoPayload): Promise<PluginInfo> {
