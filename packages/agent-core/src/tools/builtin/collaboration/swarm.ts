@@ -51,7 +51,7 @@ export class SwarmTool implements BuiltinTool<SwarmToolInput> {
 
   resolveExecution(args: SwarmToolInput): ToolExecution {
     return {
-      description: `Running swarm: ${args.task.slice(0, 60)}`,
+      description: `Running swarm: ${args.task.replace(/\s+/g, ' ').trim().slice(0, 60)}`,
       approvalRule: 'Swarm',
       execute: (ctx) => this.execution(args, ctx),
     };
