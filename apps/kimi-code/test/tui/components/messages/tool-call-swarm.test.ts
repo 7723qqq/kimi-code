@@ -155,7 +155,7 @@ describe('ToolCallComponent swarm mode', () => {
     expect(out).toContain('1⊘');
   });
 
-  it('finalizes to a cancelled header on an error result', () => {
+  it('finalizes to a cancelled header on an error result (genuine abort, no failure event)', () => {
     const c = makeSwarm('t');
     c.applySwarm({ t: 'planned', total: 2 });
     c.applySwarm({ t: 'worker.spawned', id: 'a1', role: 'R' });
@@ -164,6 +164,27 @@ describe('ToolCallComponent swarm mode', () => {
     c.setResult({ tool_call_id: 'tc-swarm', output: 'aborted', is_error: true });
     const out = strip(c.render(80).join('\n'));
     expect(out).toContain('cancelled');
+  });
+
+  it('finalizes to a failed header showing the reason when a failure preceded the error result', () => {
+    const c = makeSwarm('do research');
+    c.applySwarm({ t: 'planned', total: 1 });
+    // An ordinary swarm failure (planner/synthesizer error) emits a failure
+    // event before the error result. The card must show the reason, not
+    // masquerade as a success-toned 'cancelled' with the message hidden.
+    c.applySwarm({
+      t: 'failed',
+      message: 'Swarm planner failed to produce a valid plan after one retry',
+    });
+    c.setResult({
+      tool_call_id: 'tc-swarm',
+      output: 'Swarm failed: Swarm planner failed to produce a valid plan after one retry',
+      is_error: true,
+    });
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toContain('· failed');
+    expect(out).not.toContain('cancelled');
+    expect(out).toContain('planner failed to produce a valid plan');
   });
 
   it('finalizes to a summary header after done + success result', () => {

@@ -1,4 +1,4 @@
-export type SwarmPhase = 'planning' | 'working' | 'synthesizing' | 'done' | 'cancelled';
+export type SwarmPhase = 'planning' | 'working' | 'synthesizing' | 'done' | 'cancelled' | 'failed';
 export type WorkerStatus = 'running' | 'done' | 'failed' | 'retrying' | 'dropped';
 
 export interface WorkerRow {
@@ -19,6 +19,8 @@ export interface SwarmModel {
   failedCount: number;
   droppedCount: number;
   workers: Map<string, WorkerRow>;
+  /** Set when phase is 'failed': the reason the whole swarm errored out. */
+  failureMessage?: string;
 }
 
 export type SwarmEvent =
@@ -26,6 +28,7 @@ export type SwarmEvent =
   | { t: 'synthesizing' }
   | { t: 'done'; succeeded: number; failed: number }
   | { t: 'cancelled' }
+  | { t: 'failed'; message: string }
   | { t: 'worker.spawned'; id: string; role: string }
   | { t: 'worker.toolcall'; id: string; activity: string }
   | { t: 'worker.tokens'; id: string; tokens: number }
@@ -103,6 +106,8 @@ export function applySwarmEvent(model: SwarmModel, event: SwarmEvent): SwarmMode
       return { ...model, phase: 'done' };
     case 'cancelled':
       return { ...model, phase: 'cancelled' };
+    case 'failed':
+      return { ...model, phase: 'failed', failureMessage: event.message };
     case 'worker.spawned': {
       if (model.workers.has(event.id)) return model;
       const workers = new Map(model.workers);

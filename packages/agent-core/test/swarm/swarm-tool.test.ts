@@ -56,6 +56,62 @@ describe('SwarmTool', () => {
     expect(updates.length).toBeGreaterThan(0);
   });
 
+  it('emits a failed dashboard event with the reason on an ordinary failure', async () => {
+    // Planner always returns garbage -> decompose fails after its one retry,
+    // so coordinator.run rejects with an ordinary (non-abort) error.
+    const host = {
+      spawn: vi.fn(async (profileName: string) => ({
+        agentId: 'a',
+        profileName,
+        resumed: false,
+        completion: Promise.resolve({ result: 'not json at all' }),
+      })),
+    } as unknown as SessionSubagentHost;
+    const tool = new SwarmTool(host);
+    const exec = tool.resolveExecution({ task: 'do it' });
+    if (!('execute' in exec)) throw new Error('expected runnable execution');
+    const customData: Array<{ phase?: string; message?: string }> = [];
+    const result = await exec.execute({
+      turnId: 't1',
+      toolCallId: 'tc1',
+      signal: new AbortController().signal,
+      onUpdate: (u) => {
+        if (u.kind === 'custom') customData.push(u.customData as { phase?: string; message?: string });
+      },
+    });
+    expect('isError' in result && result.isError).toBe(true);
+    const failed = customData.find((d) => d.phase === 'failed');
+    expect(failed).toBeDefined();
+    expect(failed?.message).toContain('planner failed to produce a valid plan');
+  });
+
+  it('does not emit a failed event when the swarm is aborted (genuine cancel)', async () => {
+    const controller = new AbortController();
+    const host = {
+      spawn: vi.fn(async (profileName: string) => ({
+        agentId: 'a',
+        profileName,
+        resumed: false,
+        completion: Promise.resolve({ result: 'not json at all' }),
+      })),
+    } as unknown as SessionSubagentHost;
+    const tool = new SwarmTool(host);
+    const exec = tool.resolveExecution({ task: 'do it' });
+    if (!('execute' in exec)) throw new Error('expected runnable execution');
+    controller.abort();
+    const customData: Array<{ phase?: string }> = [];
+    const result = await exec.execute({
+      turnId: 't1',
+      toolCallId: 'tc1',
+      signal: controller.signal,
+      onUpdate: (u) => {
+        if (u.kind === 'custom') customData.push(u.customData as { phase?: string });
+      },
+    });
+    expect('isError' in result && result.isError).toBe(true);
+    expect(customData.find((d) => d.phase === 'failed')).toBeUndefined();
+  });
+
   it('injects a stall hook + per-worker signal for workers but not planner/synthesizer', async () => {
     const seen: Array<{ profileName: string; hasHooks: boolean; sameAsCoordinator: boolean }> = [];
     const coordinatorSignal = new AbortController().signal;

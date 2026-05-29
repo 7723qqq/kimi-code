@@ -402,4 +402,46 @@ describe('swarm dashboard wiring (translation)', () => {
     expect(out).not.toContain('synthesizer');
     expect(out).toContain('2 workers · 2✓ 0✗');
   });
+
+  it('routes a failed progress event into a failed dashboard state and keeps it over the error result', () => {
+    const parentToolCallId = 'tc-swarm';
+    const dash = makeSwarm();
+    const mockHost = {
+      streamingUI: {
+        setTurnId: (): void => {},
+        getToolComponent: (id: string): ToolCallComponent | undefined =>
+          id === parentToolCallId ? dash : undefined,
+      },
+    } as unknown as SessionEventHost;
+    const handler = new SessionEventHandler(mockHost);
+    const noop = (): void => {};
+    const progress = (customData: Record<string, unknown>): void => {
+      handler.handleEvent(
+        {
+          type: 'tool.progress',
+          agentId: 'main',
+          sessionId: 's',
+          turnId: 1,
+          toolCallId: parentToolCallId,
+          update: { kind: 'custom', customKind: 'swarm', customData },
+        } as unknown as Event,
+        noop,
+      );
+    };
+
+    progress({ phase: 'planned', total: 1 });
+    progress({ phase: 'failed', message: 'planner failed to produce a valid plan' });
+    // The error tool result then lands; it must NOT override 'failed' with
+    // a success-toned 'cancelled'.
+    dash.setResult({
+      tool_call_id: parentToolCallId,
+      output: 'Swarm failed: planner failed to produce a valid plan',
+      is_error: true,
+    });
+
+    const out = strip(dash.render(80).join('\n'));
+    expect(out).toContain('· failed');
+    expect(out).not.toContain('cancelled');
+    expect(out).toContain('planner failed to produce a valid plan');
+  });
 });

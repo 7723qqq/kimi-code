@@ -541,6 +541,7 @@ export class SessionEventHandler {
         newRole?: string;
         decision?: string;
         reason?: string;
+        message?: string;
       };
       if (p.phase === 'planned' && typeof p.total === 'number') {
         tc.applySwarm({ t: 'planned', total: p.total });
@@ -548,6 +549,10 @@ export class SessionEventHandler {
         tc.applySwarm({ t: 'synthesizing' });
       } else if (p.phase === 'done') {
         tc.applySwarm({ t: 'done', succeeded: 0, failed: 0 });
+      } else if (p.phase === 'failed') {
+        // An ordinary swarm failure (planner/synthesizer error) — show it as a
+        // failed dashboard with the reason, not a success-toned 'cancelled'.
+        tc.applySwarm({ t: 'failed', message: typeof p.message === 'string' ? p.message : '' });
       } else if (p.phase === 'revising' && typeof p.role === 'string') {
         // Route by the reviser's decision so each recovery path shows the right
         // transient state:

@@ -675,14 +675,18 @@ export class ToolCallComponent extends Container {
 
   /**
    * Drives the swarm dashboard to its terminal state when the tool result
-   * lands. An error result (abort/throw) never emits the coordinator's `done`
-   * progress, so finalize it as cancelled; otherwise ensure the header shows
+   * lands. An ordinary failure (planner/synthesizer error) has already driven
+   * the model to 'failed' via a progress event carrying the reason, so leave it
+   * be; only a genuine abort/cancel reaches an error result still non-terminal,
+   * so finalize that as cancelled. A success result ensures the header shows
    * the summary even if the `done` progress event was missed.
    */
   private finalizeSwarmModelIfNeeded(result: ToolResultBlockData): void {
     if (this.swarmModel === undefined) return;
     if (result.is_error === true) {
-      this.swarmModel = applySwarmEvent(this.swarmModel, { t: 'cancelled' });
+      if (this.swarmModel.phase !== 'failed') {
+        this.swarmModel = applySwarmEvent(this.swarmModel, { t: 'cancelled' });
+      }
       return;
     }
     if (this.swarmModel.phase !== 'done' && this.swarmModel.phase !== 'cancelled') {
@@ -1303,13 +1307,17 @@ export class ToolCallComponent extends Container {
     const title = rawTask.length > 56 ? `${rawTask.slice(0, 56)}…` : rawTask;
     const label = chalk.hex(c.primary).bold('Swarm');
     const titlePart = title.length > 0 ? chalk.dim(` · ${title}`) : '';
-    const terminal = m.phase === 'done' || m.phase === 'cancelled';
-    const bullet = terminal
-      ? chalk.hex(c.success)(STATUS_BULLET)
-      : chalk.hex(c.roleAssistant)(STATUS_BULLET);
+    const terminal = m.phase === 'done' || m.phase === 'cancelled' || m.phase === 'failed';
+    const bullet =
+      m.phase === 'failed'
+        ? chalk.hex(c.error)(STATUS_BULLET)
+        : terminal
+          ? chalk.hex(c.success)(STATUS_BULLET)
+          : chalk.hex(c.roleAssistant)(STATUS_BULLET);
     let tail: string;
     if (terminal) {
-      const tag = m.phase === 'cancelled' ? ' · cancelled' : '';
+      const tag =
+        m.phase === 'cancelled' ? ' · cancelled' : m.phase === 'failed' ? ' · failed' : '';
       // Surface drops alongside ✓/✗ so a recovered-with-gaps run is honest about
       // the missing subtasks; omitted when zero to keep the common run compact.
       const droppedPart = m.droppedCount > 0 ? ` ${String(m.droppedCount)}⊘` : '';
@@ -1347,6 +1355,13 @@ export class ToolCallComponent extends Container {
         this.addChild(new Text(line, 0, 0));
       }
     });
+    // A whole-swarm failure (planner/synthesizer error) surfaces its reason as
+    // an error line so the card is honest about what went wrong instead of
+    // hiding the message behind a 'cancelled'-looking header.
+    if (m.phase === 'failed') {
+      const reason = m.failureMessage ?? 'swarm failed';
+      this.addChild(new Text(`  ${chalk.hex(this.colors.error)(`✗ ${reason}`)}`, 0, 0));
+    }
   }
 
   /**

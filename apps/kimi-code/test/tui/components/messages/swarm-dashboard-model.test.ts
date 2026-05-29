@@ -11,6 +11,17 @@ function reduce(events: Parameters<typeof applySwarmEvent>[1][]): SwarmModel {
   return events.reduce((m, e) => applySwarmEvent(m, e), initialSwarmModel('do a task'));
 }
 
+describe('swarm failed phase', () => {
+  it('sets the failed phase and stores the failure message', () => {
+    const m = reduce([
+      { t: 'planned', total: 1 },
+      { t: 'failed', message: 'planner exploded' },
+    ]);
+    expect(m.phase).toBe('failed');
+    expect(m.failureMessage).toBe('planner exploded');
+  });
+});
+
 describe('applySwarmEvent', () => {
   it('starts in planning phase with the task', () => {
     const m = initialSwarmModel('my task');

@@ -136,6 +136,19 @@ export class SwarmTool implements BuiltinTool<SwarmToolInput> {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.log?.error(`swarm failed: ${message}`);
+      // Distinguish an ordinary failure (planner/synthesizer error) from a
+      // genuine cancel (the turn was aborted). For a real failure, drive the
+      // dashboard to a 'failed' state that surfaces the reason; an abort emits
+      // nothing here so the card still finalizes as 'cancelled' on the error
+      // result. Without this, ordinary failures masquerade as a success-toned
+      // 'cancelled' card with the reason hidden.
+      if (!ctx.signal.aborted) {
+        ctx.onUpdate?.({
+          kind: 'custom',
+          customKind: 'swarm',
+          customData: { phase: 'failed', message },
+        });
+      }
       return { output: `Swarm failed: ${message}`, isError: true };
     }
   }
