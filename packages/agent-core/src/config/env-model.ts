@@ -1,0 +1,142 @@
+import { ErrorCodes, KimiError } from '#/errors';
+import { parseBooleanEnv } from './resolve';
+import {
+  validateConfig,
+  type KimiConfig,
+  type ModelAlias,
+  type ProviderConfig,
+  type ProviderType,
+  type ThinkingConfig,
+} from './schema';
+
+/** Reserved keys for the env-driven synthetic provider / model alias. */
+export const ENV_MODEL_PROVIDER_KEY = '__kimi_env__';
+export const ENV_MODEL_ALIAS_KEY = '__kimi_env_model__';
+
+const ALLOWED_TYPES: readonly ProviderType[] = ['kimi', 'anthropic', 'openai'];
+
+const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
+  kimi: 'https://api.moonshot.ai/v1',
+  openai: 'https://api.openai.com/v1',
+  // anthropic: omitted -> let the Anthropic SDK pick its default
+};
+
+type Env = Readonly<Record<string, string | undefined>>;
+
+function trimmed(value: string | undefined): string | undefined {
+  const t = value?.trim();
+  return t === undefined || t.length === 0 ? undefined : t;
+}
+
+function fail(message: string): never {
+  throw new KimiError(ErrorCodes.CONFIG_INVALID, message);
+}
+
+function parsePositiveInt(raw: string, varName: string): number {
+  if (!/^\d+$/.test(raw) || Number(raw) <= 0) {
+    fail(`${varName} must be a positive integer, got "${raw}".`);
+  }
+  return Number(raw);
+}
+
+function parseProviderType(raw: string | undefined): ProviderType {
+  if (raw === undefined) return 'kimi';
+  const normalized = raw.toLowerCase() as ProviderType;
+  if (!ALLOWED_TYPES.includes(normalized)) {
+    fail(
+      `KIMI_MODEL_PROVIDER_TYPE must be one of ${ALLOWED_TYPES.join(', ')}, got "${raw}".`,
+    );
+  }
+  return normalized;
+}
+
+function parseCapabilities(raw: string | undefined): string[] | undefined {
+  if (raw === undefined) return undefined;
+  const caps = raw
+    .split(',')
+    .map((c) => c.trim().toLowerCase())
+    .filter((c) => c.length > 0);
+  return caps.length === 0 ? undefined : caps;
+}
+
+/**
+ * When `KIMI_MODEL_NAME` is set, synthesize one provider + one model alias from
+ * the `KIMI_MODEL_*` environment variables and make it the default model.
+ * Returns the config unchanged when the trigger variable is absent.
+ *
+ * IMPORTANT: the synthesized provider/model/default_model exist ONLY in the
+ * in-memory runtime config. Callers must never serialize the result back to
+ * config.toml (write paths must use the raw `readConfigFile`).
+ */
+export function applyEnvModelConfig(config: KimiConfig, env: Env = process.env): KimiConfig {
+  const model = trimmed(env['KIMI_MODEL_NAME']);
+  if (model === undefined) return config;
+
+  const apiKey = trimmed(env['KIMI_MODEL_API_KEY']);
+  if (apiKey === undefined) {
+    fail('KIMI_MODEL_NAME is set but KIMI_MODEL_API_KEY is missing.');
+  }
+
+  const maxContextRaw = trimmed(env['KIMI_MODEL_MAX_CONTEXT_SIZE']);
+  if (maxContextRaw === undefined) {
+    fail('KIMI_MODEL_MAX_CONTEXT_SIZE is required when KIMI_MODEL_NAME is set.');
+  }
+  const maxContextSize = parsePositiveInt(maxContextRaw, 'KIMI_MODEL_MAX_CONTEXT_SIZE');
+
+  const type = parseProviderType(trimmed(env['KIMI_MODEL_PROVIDER_TYPE']));
+  const baseUrl = trimmed(env['KIMI_MODEL_BASE_URL']) ?? DEFAULT_BASE_URL[type];
+
+  const provider: ProviderConfig = {
+    type,
+    apiKey,
+    ...(baseUrl !== undefined ? { baseUrl } : {}),
+  };
+
+  const maxOutputRaw = trimmed(env['KIMI_MODEL_MAX_OUTPUT_SIZE']);
+  const maxOutputSize =
+    maxOutputRaw !== undefined
+      ? parsePositiveInt(maxOutputRaw, 'KIMI_MODEL_MAX_OUTPUT_SIZE')
+      : undefined;
+  const capabilities = parseCapabilities(env['KIMI_MODEL_CAPABILITIES']);
+  const displayName = trimmed(env['KIMI_MODEL_DISPLAY_NAME']);
+  const reasoningKey = trimmed(env['KIMI_MODEL_REASONING_KEY']);
+
+  const alias: ModelAlias = {
+    provider: ENV_MODEL_PROVIDER_KEY,
+    model,
+    maxContextSize,
+    ...(capabilities !== undefined ? { capabilities } : {}),
+    ...(displayName !== undefined ? { displayName } : {}),
+    ...(maxOutputSize !== undefined ? { maxOutputSize } : {}),
+    ...(reasoningKey !== undefined ? { reasoningKey } : {}),
+  };
+
+  const thinkingMode = trimmed(env['KIMI_MODEL_THINKING_MODE']);
+  const thinkingEffort = trimmed(env['KIMI_MODEL_THINKING_EFFORT']);
+  const thinking: ThinkingConfig | undefined =
+    thinkingMode !== undefined || thinkingEffort !== undefined
+      ? {
+          ...config.thinking,
+          // Cast: thinkingMode is a raw string passed through to validateConfig
+          // for enum validation (auto/on/off). The cast avoids a TS compile error
+          // without skipping runtime validation.
+          ...(thinkingMode !== undefined ? { mode: thinkingMode as ThinkingConfig['mode'] } : {}),
+          ...(thinkingEffort !== undefined ? { effort: thinkingEffort } : {}),
+        }
+      : config.thinking;
+  const defaultThinking = parseBooleanEnv(env['KIMI_MODEL_DEFAULT_THINKING']);
+
+  const merged: KimiConfig = {
+    ...config,
+    providers: { ...config.providers, [ENV_MODEL_PROVIDER_KEY]: provider },
+    models: { ...config.models, [ENV_MODEL_ALIAS_KEY]: alias },
+    defaultModel: ENV_MODEL_ALIAS_KEY,
+    ...(thinking !== undefined ? { thinking } : {}),
+    ...(defaultThinking !== undefined ? { defaultThinking } : {}),
+  };
+
+  // Re-validate so the synthesized entries honor the same schema constraints
+  // (e.g. thinking.mode must be auto/on/off). `validateConfig` throws
+  // KimiError(CONFIG_INVALID) on violation, matching the explicit checks above.
+  return validateConfig(merged);
+}
