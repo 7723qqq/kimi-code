@@ -21,6 +21,9 @@ import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from 
 import type { SessionSubagentHost } from '../../../session/subagent-host';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { SwarmCoordinator } from '../../../agent/swarm/coordinator';
+import { DEFAULT_STALL_REPEAT_THRESHOLD } from '../../../agent/swarm/types';
+import { createStallDetectionHook } from '../../../agent/swarm/stall-hook';
+import { linkAbortSignal } from '../../../utils/abort';
 
 export const SwarmToolInputSchema = z.object({
   task: z.string().describe('The high-level task to decompose and run as a parallel agent swarm.'),
@@ -61,22 +64,70 @@ export class SwarmTool implements BuiltinTool<SwarmToolInput> {
     args: SwarmToolInput,
     ctx: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
+    const stallRepeatThreshold = DEFAULT_STALL_REPEAT_THRESHOLD;
     const coordinator = new SwarmCoordinator({
       signal: ctx.signal,
       maxConcurrency: DEFAULT_MAX_CONCURRENCY,
+      stallRepeatThreshold,
       onProgress: (text) => ctx.onUpdate?.({ kind: 'status', text }),
       onProgressCustom: (progress) =>
         ctx.onUpdate?.({ kind: 'custom', customKind: 'swarm', customData: progress }),
       spawnSubagent: async ({ profileName, systemPrompt, tools, prompt, description, signal }) => {
-        const handle = await this.subagentHost.spawn(profileName, {
-          parentToolCallId: ctx.toolCallId,
-          prompt,
-          description,
-          runInBackground: false,
-          signal,
-          profileOverride: { systemPrompt, tools },
+        // Workers (the swarm:<role> spawns) get stall detection. Planner and
+        // synthesizer make no tool calls, so the hook is harmless there but we
+        // scope it to workers to keep their behavior identical.
+        const isWorker = profileName.startsWith('swarm:');
+        if (!isWorker) {
+          const handle = await this.subagentHost.spawn(profileName, {
+            parentToolCallId: ctx.toolCallId,
+            prompt,
+            description,
+            runInBackground: false,
+            signal,
+            profileOverride: { systemPrompt, tools },
+          });
+          return handle.completion;
+        }
+
+        // Per-worker AbortController linked to the incoming signal: a
+        // coordinator cancel still propagates DOWN, but a stall aborts ONLY
+        // this worker — the coordinator's signal stays unaborted, so the wave
+        // records a single failed subtask instead of cancelling the swarm.
+        const workerController = new AbortController();
+        const unlink = linkAbortSignal(signal, workerController);
+        let stallReason: string | undefined;
+        const loopHooks = createStallDetectionHook({
+          repeatThreshold: stallRepeatThreshold,
+          onStall: (reason) => {
+            stallReason = reason;
+            this.log?.warn(`swarm worker stalled (${description}): ${reason}`);
+            workerController.abort(new Error(reason));
+          },
         });
-        return handle.completion;
+        try {
+          const handle = await this.subagentHost.spawn(profileName, {
+            parentToolCallId: ctx.toolCallId,
+            prompt,
+            description,
+            runInBackground: false,
+            signal: workerController.signal,
+            profileOverride: { systemPrompt, tools },
+            loopHooks,
+          });
+          return await handle.completion;
+        } catch (error) {
+          // A stall aborts the worker, which surfaces as a generic cancellation
+          // ("Subagent turn cancelled"). Re-throw the distinguishable stalled
+          // reason instead so the coordinator records it on the subtask — but
+          // only when the incoming (coordinator) signal is NOT itself aborted,
+          // so a genuine swarm-wide cancel still propagates as a cancel.
+          if (stallReason !== undefined && !signal.aborted) {
+            throw new Error(stallReason, { cause: error });
+          }
+          throw error;
+        } finally {
+          unlink();
+        }
       },
     });
 

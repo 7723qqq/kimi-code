@@ -35,4 +35,14 @@ export interface SwarmCoordinatorDeps {
   onProgress?: ((text: string) => void) | undefined;
   onProgressCustom?: ((progress: SwarmProgress) => void) | undefined;
   maxConcurrency?: number | undefined;
+  /**
+   * Repeat count at which a worker that keeps issuing the SAME tool call is
+   * treated as stalled and hard-stopped (its turn fails with a distinguishable
+   * reason so this wave records it as a failed subtask). Defaults to
+   * {@link DEFAULT_STALL_REPEAT_THRESHOLD}.
+   */
+  stallRepeatThreshold?: number | undefined;
 }
+
+/** Default repeat threshold for swarm worker stall detection. */
+export const DEFAULT_STALL_REPEAT_THRESHOLD = 10;

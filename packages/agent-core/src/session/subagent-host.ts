@@ -2,7 +2,7 @@ import type { TokenUsage } from '@moonshot-ai/kosong';
 
 import type { Agent } from '../agent';
 import type { PromptOrigin } from '../agent/context';
-import type { LoopTurnStopReason } from '../loop';
+import type { LoopHooks, LoopTurnStopReason } from '../loop';
 import {
   DEFAULT_AGENT_PROFILES,
   prepareSystemPromptContext,
@@ -44,6 +44,13 @@ type RunSubagentOptions = {
   readonly origin?: PromptOrigin | undefined;
   readonly signal: AbortSignal;
   readonly profileOverride?: { readonly systemPrompt: string; readonly tools: string[] } | undefined;
+  /**
+   * Loop hooks scoped to this subagent only (e.g. swarm worker stall
+   * detection). Composed into the subagent's turn hooks alongside the
+   * built-in ones. Absent for the main agent and regular subagents, so their
+   * behavior is unchanged.
+   */
+  readonly loopHooks?: Partial<LoopHooks> | undefined;
 };
 
 type SubagentCompletion = {
@@ -104,7 +111,7 @@ export class SessionSubagentHost {
         ...options,
         signal: controller.signal,
       },
-      () => this.configureChild(parent, agent, profile),
+      () => this.configureChild(parent, agent, profile, options),
     ).finally(() => {
       unlinkAbortSignal();
       this.activeChildren.delete(id);
@@ -166,6 +173,7 @@ export class SessionSubagentHost {
       // reflected — a subagent always uses the parent agent's model.
       () => {
         child.config.update({ modelAlias: parent.config.modelAlias });
+        child.subagentLoopHooks = options.loopHooks;
         return Promise.resolve();
       },
     ).finally(() => {
@@ -289,6 +297,7 @@ export class SessionSubagentHost {
     parent: Agent,
     child: Agent,
     profile: ResolvedAgentProfile,
+    options: RunSubagentOptions,
   ): Promise<void> {
     // A subagent always inherits the parent agent's model.
     child.config.update({
@@ -296,6 +305,10 @@ export class SessionSubagentHost {
       modelAlias: parent.config.modelAlias,
       thinkingLevel: parent.config.thinkingLevel,
     });
+
+    // Per-worker loop hooks (e.g. swarm stall detection) are scoped to this
+    // child only; absent for regular subagents, leaving them unaffected.
+    child.subagentLoopHooks = options.loopHooks;
 
     const context = await prepareSystemPromptContext(child.kaos);
     child.useProfile(profile, context);
