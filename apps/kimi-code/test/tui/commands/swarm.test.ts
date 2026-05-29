@@ -27,8 +27,47 @@ describe('handleSwarmCommand', () => {
   it('sends a framed prompt to the session', async () => {
     const prompt = vi.fn<(text: string) => Promise<void>>(async () => undefined);
     const showError = vi.fn();
-    await handleSwarmCommand({ session: { prompt }, showError } as never, 'compare libs');
+    const beginSessionRequest = vi.fn();
+    const failSessionRequest = vi.fn();
+    await handleSwarmCommand(
+      { session: { prompt }, showError, beginSessionRequest, failSessionRequest } as never,
+      'compare libs',
+    );
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(String(prompt.mock.calls[0]?.[0])).toContain('compare libs');
+  });
+
+  it('begins the session request before prompting so a follow-up cannot race the swarm turn', async () => {
+    const prompt = vi.fn<(text: string) => Promise<void>>(async () => undefined);
+    const showError = vi.fn();
+    const beginSessionRequest = vi.fn();
+    const failSessionRequest = vi.fn();
+    await handleSwarmCommand(
+      { session: { prompt }, showError, beginSessionRequest, failSessionRequest } as never,
+      'compare libs',
+    );
+    expect(beginSessionRequest).toHaveBeenCalledTimes(1);
+    // The streamingPhase must flip out of 'idle' BEFORE the prompt is dispatched,
+    // otherwise the input gate stays open during turn startup.
+    expect(beginSessionRequest.mock.invocationCallOrder[0]).toBeLessThan(
+      prompt.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(failSessionRequest).not.toHaveBeenCalled();
+  });
+
+  it('fails the session request when the prompt rejects', async () => {
+    const prompt = vi.fn<(text: string) => Promise<void>>(async () => {
+      throw new Error('boom');
+    });
+    const showError = vi.fn();
+    const beginSessionRequest = vi.fn();
+    const failSessionRequest = vi.fn();
+    await handleSwarmCommand(
+      { session: { prompt }, showError, beginSessionRequest, failSessionRequest } as never,
+      'compare libs',
+    );
+    expect(beginSessionRequest).toHaveBeenCalledTimes(1);
+    expect(failSessionRequest).toHaveBeenCalledTimes(1);
+    expect(String(failSessionRequest.mock.calls[0]?.[0])).toContain('boom');
   });
 });

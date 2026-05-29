@@ -23,9 +23,17 @@ export async function handleSwarmCommand(host: SlashCommandHost, args: string): 
     host.showError('Usage: /swarm <task>');
     return;
   }
+  // Route through the same session-request lifecycle as a normal send /
+  // skill activation rather than calling session.prompt raw. beginSessionRequest
+  // flips streamingPhase out of 'idle' synchronously, so the input gate closes
+  // immediately and shows the waiting pane; otherwise, during the window before
+  // turn.started arrives the UI still thinks it is idle and a fast follow-up
+  // message could be dispatched as a second concurrent prompt and be silently
+  // dropped as agent_busy.
+  host.beginSessionRequest();
   try {
     await session.prompt(buildSwarmPrompt(task));
   } catch (error) {
-    host.showError(`Failed to start swarm: ${formatErrorMessage(error)}`);
+    host.failSessionRequest(`Failed to start swarm: ${formatErrorMessage(error)}`);
   }
 }
