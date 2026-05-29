@@ -16,7 +16,7 @@ export const ALLOWED_WORKER_TOOLS: readonly string[] = [
 export const PLANNER_SYSTEM_PROMPT = [
   'You are a swarm planner. Decompose the user task into independent subtasks that can run in parallel.',
   'For each subtask invent a short role name, a focused system prompt for that role, and a concrete prompt.',
-  'Optionally specify toolAllowlist (a subset of the allowed tools) when a subtask needs more than read-only access.',
+  'All workers are read-only. Optionally specify toolAllowlist to RESTRICT a subtask to a subset of the allowed tools; you cannot grant tools beyond the allowed list (anything else is ignored).',
   `Allowed tools: ${ALLOWED_WORKER_TOOLS.join(', ')}.`,
   'Output ONLY a JSON object, no prose, matching exactly:',
   '{"subtasks":[{"id":"task-1","role":"...","systemPrompt":"...","prompt":"...","toolAllowlist":["Read"]}]}',

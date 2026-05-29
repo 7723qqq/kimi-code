@@ -262,6 +262,37 @@ describe('SessionSubagentHost', () => {
     ]);
   });
 
+  it('uses the profileOverride system prompt and tools instead of a registry profile', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const summary =
+      'Researched the requested topic thoroughly and returned a complete, detailed summary that gives the parent agent everything it needs to continue without repeating the investigation work that was already finished here.';
+    const child = testAgent();
+    child.mockNextResponse({ type: 'text', text: summary });
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+
+    const handle = await host.spawn('swarm:Researcher', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Research the topic',
+      description: 'Research',
+      runInBackground: false,
+      signal,
+      profileOverride: {
+        systemPrompt: 'You are a researcher.',
+        tools: ['Read', 'Grep'],
+      },
+    });
+
+    await expect(handle.completion).resolves.toMatchObject({ result: summary });
+    expect(handle.profileName).toBe('swarm:Researcher');
+    expect(child.agent.config.systemPrompt).toBe('You are a researcher.');
+    expect(child.llmCalls[0]?.systemPrompt).toBe('You are a researcher.');
+    expect(child.llmCalls[0]?.tools.map((tool) => tool.name).toSorted()).toEqual(['Grep', 'Read']);
+  });
+
   it('rejects unknown subagent types before creating a child agent', async () => {
     const parent = testAgent();
     parent.configure();
