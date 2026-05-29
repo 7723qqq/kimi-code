@@ -435,15 +435,17 @@ describe('SessionSubagentHost', () => {
     );
   });
 
-  it('re-prompts the child when the first summary is too short', async () => {
+  it('returns a short summary as-is without re-prompting the child', async () => {
     const parent = testAgent();
     parent.configure();
     parent.newEvents();
 
-    const longSummary = 'Detailed findings: '.repeat(20);
+    const shortSummary = 'done';
     const child = testAgent();
-    child.mockNextResponse({ type: 'text', text: 'done' });
-    child.mockNextResponse({ type: 'text', text: longSummary });
+    child.mockNextResponse({ type: 'text', text: shortSummary });
+    // A second response is queued to prove it is never consumed: a short
+    // summary must NOT trigger a follow-up "expand" turn.
+    child.mockNextResponse({ type: 'text', text: 'Detailed findings: '.repeat(20) });
     const session = fakeSession(parent.agent, child.agent);
     const host = new SessionSubagentHost(session, 'main');
 
@@ -455,12 +457,8 @@ describe('SessionSubagentHost', () => {
       signal,
     });
 
-    await expect(handle.completion).resolves.toMatchObject({ result: longSummary.trim() });
-    expect(child.llmCalls).toHaveLength(2);
-    expect(child.llmCalls[1]?.history.at(-1)).toMatchObject({
-      role: 'user',
-      content: [{ type: 'text', text: expect.stringContaining('too brief') }],
-    });
+    await expect(handle.completion).resolves.toMatchObject({ result: shortSummary });
+    expect(child.llmCalls).toHaveLength(1);
   });
 
   it('fails the child instead of re-prompting when the response is truncated', async () => {
