@@ -1182,7 +1182,7 @@ export class ToolCallComponent extends Container {
     const c = this.colors;
     const m = this.swarmModel;
     if (m === undefined) return '';
-    const rawTask = str(this.toolCall.args['task']);
+    const rawTask = str(this.toolCall.args['task']).replace(/\s+/g, ' ').trim();
     const title = rawTask.length > 56 ? `${rawTask.slice(0, 56)}…` : rawTask;
     const label = chalk.hex(c.primary).bold('Swarm');
     const titlePart = title.length > 0 ? chalk.dim(` · ${title}`) : '';
@@ -1244,11 +1244,11 @@ export class ToolCallComponent extends Container {
     let statsPart = '';
     if (w.status === 'done') {
       const tok = w.tokens !== undefined && w.tokens > 0 ? ` · ${formatTokens(w.tokens)}` : '';
-      statsPart = chalk.dim(` · ${String(w.toolCount)} calls${tok}`);
+      statsPart = chalk.dim(` · ${String(w.toolCount)} call${w.toolCount === 1 ? '' : 's'}${tok}`);
     } else if (w.status === 'retrying') {
       statsPart = chalk.dim(' · retrying…');
     } else if (w.status === 'running' && w.toolCount > 0) {
-      statsPart = chalk.dim(` · ${String(w.toolCount)} calls`);
+      statsPart = chalk.dim(` · ${String(w.toolCount)} call${w.toolCount === 1 ? '' : 's'}`);
     }
     const line1 = `  ${branch1} ${role}${statsPart}`;
 
