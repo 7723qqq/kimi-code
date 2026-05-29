@@ -720,11 +720,20 @@ export class SessionEventHandler {
 
     const swarmDash = streamingUI.getSwarmDashboard(event.parentToolCallId);
     if (swarmDash !== undefined) {
-      swarmDash.apply({
-        t: 'worker.spawned',
-        id: event.subagentId,
-        role: event.description ?? event.subagentName,
-      });
+      // Only real workers (profile `swarm:<role>`) become dashboard rows. The
+      // planner (`swarm-planner`, plus a possible retry) and synthesizer
+      // (`swarm-synthesizer`) share the same parent tool-call id but must not
+      // appear as workers or inflate the worker counts. They still have a
+      // ToolCallComponent-less parent, so any non-worker subagent under a swarm
+      // dashboard returns without falling through to the foreground path.
+      const workerPrefix = 'swarm:';
+      if (event.subagentName.startsWith(workerPrefix)) {
+        swarmDash.apply({
+          t: 'worker.spawned',
+          id: event.subagentId,
+          role: event.description ?? event.subagentName.slice(workerPrefix.length),
+        });
+      }
       return;
     }
 

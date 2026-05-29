@@ -15,6 +15,8 @@ import {
 } from './swarm-dashboard-model';
 
 const THROTTLE_MS = 200;
+/** Keeps a running worker's activity to a single dashboard line. */
+const ACTIVITY_MAX_LENGTH = 48;
 
 export class SwarmDashboardComponent extends Container {
   private model: SwarmModel;
@@ -119,7 +121,8 @@ export class SwarmDashboardComponent extends Container {
     if (w.status === 'retrying') {
       return `  ${chalk.hex(c.roleAssistant)('⟳ ')}${role} ${chalk.dim('retrying…')}`;
     }
-    const activity = w.latestActivity ?? 'starting…';
+    const raw = w.latestActivity ?? 'starting…';
+    const activity = raw.length > ACTIVITY_MAX_LENGTH ? `${raw.slice(0, ACTIVITY_MAX_LENGTH)}…` : raw;
     return `  ${chalk.hex(c.roleAssistant)(this.spinner())} ${role} ${chalk.dim(`now: ${activity}`)}`;
   }
 

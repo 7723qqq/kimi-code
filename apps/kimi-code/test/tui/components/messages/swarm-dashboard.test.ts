@@ -35,6 +35,17 @@ describe('SwarmDashboardComponent', () => {
     expect(out).toContain('timeout');
   });
 
+  it('finalizes to a cancelled header on cancel', () => {
+    const c = new SwarmDashboardComponent('t', darkColors, undefined);
+    c.apply({ t: 'planned', total: 2 });
+    c.apply({ t: 'worker.spawned', id: 'a1', role: 'R' });
+    c.apply({ t: 'worker.done', id: 'a1' });
+    c.apply({ t: 'worker.spawned', id: 'a2', role: 'A' });
+    c.apply({ t: 'cancelled' });
+    const out = strip(c.render(80).join('\n'));
+    expect(out).toContain('cancelled');
+  });
+
   it('finalizes to a summary header on done', () => {
     const c = new SwarmDashboardComponent('t', darkColors, undefined);
     c.apply({ t: 'planned', total: 2 });
