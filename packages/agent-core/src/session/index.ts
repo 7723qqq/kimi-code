@@ -34,6 +34,7 @@ import {
 import type { ProviderManager } from './provider-manager';
 import type { ToolServices } from '../runtime-types';
 import {
+  discoverSkills,
   registerBuiltinSkills,
   resolveSkillRoots,
   SkillRegistry,
@@ -102,11 +103,13 @@ export class Session {
   readonly hookEngine: HookEngine;
   private agentIdCounter = 0;
   private readonly skillsReady: Promise<void>;
-  // Plugin ids whose skills have been loaded into the registry (initial load +
-  // every reload). The registry is additive and has no unload path, so a plugin
-  // id still in this set but absent from a later snapshot means its skills are
-  // now stale and only a new session can drop them.
-  private readonly loadedPluginSkillIds = new Set<string>();
+  // Config digest of every plugin MCP server actually connected into this
+  // session, keyed by runtime name (`plugin-<id>:<server>`). Entries are only
+  // ever ADDED (on first connect), never updated, because a running server's
+  // config cannot be hot-swapped. A later snapshot whose config differs from the
+  // recorded digest — or that drops a recorded server — means the live session
+  // is stale and only a new session can reconcile it.
+  private readonly loadedPluginMcpDigests = new Map<string, string>();
   metadata: SessionMeta = {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -186,6 +189,14 @@ export class Session {
     const profile = DEFAULT_AGENT_PROFILES['agent'];
     if (main !== undefined && profile !== undefined && main.config.systemPrompt === '') {
       await this.bootstrapAgentProfile(main, profile);
+    }
+    // Native resume replays the system prompt from the wire without calling
+    // useProfile, so the skill-listing baseline is never captured. Seed it now
+    // (it matches the replayed prompt) so the SkillRefreshInjector can detect
+    // when a later /plugins reload makes the listing stale.
+    const skillListing = this.skills.getModelSkillListing();
+    for (const agent of this.agents.values()) {
+      agent.systemPromptSkillListing ??= skillListing;
     }
     await this.triggerSessionStart('resume');
     return { warning: resumeWarning };
@@ -360,7 +371,6 @@ export class Session {
       builtinDir: this.options.skills?.builtinDir,
     });
     await this.skills.loadRoots(roots);
-    this.rememberLoadedPluginSkills(snapshot.pluginSkillRoots);
     const addedSkills = this.skills
       .listSkills()
       .map((skill) => skill.name)
@@ -369,14 +379,11 @@ export class Session {
     // Builtin tools: rebuild so the `Skill` tool appears once skills exist.
     this.refreshAgentBuiltinTools();
 
-    // System prompt: re-render the main agent's prompt so the model sees the
-    // new skills. Active tools are intentionally left untouched.
+    // The model learns about the new skills via the SkillRefreshInjector, which
+    // surfaces an updated skill listing as a system reminder on the next turn.
+    // We deliberately do NOT rewrite the base system prompt (that would bust the
+    // prompt-cache prefix and reset runtime state).
     const main = this.agents.get('main');
-    const profile = DEFAULT_AGENT_PROFILES['agent'];
-    if (main !== undefined && profile !== undefined) {
-      const context = await prepareSystemPromptContext(main.kaos);
-      main.rerenderSystemPrompt(profile, context);
-    }
 
     // MCP: connect only servers not already present; never reconnect existing.
     const existingServers = new Set(this.mcp.list().map((entry) => entry.name));
@@ -386,6 +393,12 @@ export class Session {
     const newServerNames = Object.keys(newServers);
     if (newServerNames.length > 0) {
       await this.mcp.connect(newServers);
+      // Record the config we just connected so a later in-place config change
+      // to the same server name is detected as stale. Existing servers are
+      // never re-recorded — their running config is whatever we first connected.
+      for (const [name, config] of Object.entries(newServers)) {
+        this.loadedPluginMcpDigests.set(name, mcpConfigDigest(config));
+      }
     }
     // Report only servers that actually came online. connect() awaits each
     // spawn, so by now every entry has settled; a failed / needs-auth server
@@ -394,41 +407,64 @@ export class Session {
       (name) => this.mcp.get(name)?.status === 'connected',
     );
 
+    // The skill names the plugins currently declare (re-discovered from the
+    // snapshot roots). Compared against the additive registry, this detects a
+    // skill that was removed or renamed by a plugin update.
+    const desiredSkillKeys = await this.desiredPluginSkillKeys(snapshot);
+
     return {
       addedSkills,
       addedMcpServers,
-      needsNewSession: this.pluginRuntimeNeedsNewSession(snapshot, main),
+      needsNewSession: this.pluginRuntimeNeedsNewSession(snapshot, main, desiredSkillKeys),
     };
+  }
+
+  /** `${pluginId}\0${skillName}` for every skill the snapshot's plugins currently declare. */
+  private async desiredPluginSkillKeys(snapshot: PluginRuntimeSnapshot): Promise<Set<string>> {
+    if (snapshot.pluginSkillRoots.length === 0) return new Set();
+    const discovered = await discoverSkills({ roots: snapshot.pluginSkillRoots });
+    const keys = new Set<string>();
+    for (const skill of discovered) {
+      if (skill.plugin?.id !== undefined) keys.add(pluginSkillKey(skill.plugin.id, skill.name));
+    }
+    return keys;
   }
 
   /**
    * Whether the live session still differs from the snapshot in a way only a
-   * new session can reconcile: skills from a now-disabled/removed plugin still
-   * loaded in the registry, a plugin MCP server still connected but no longer
-   * enabled (disable/remove can't be cleanly torn down), or a drift between the
-   * desired and currently-active sessionStart injections.
+   * new session can reconcile. Additive changes (new skills / new MCP servers)
+   * are hot-loaded and do NOT count; this detects capabilities that were
+   * removed or CHANGED IN PLACE by a plugin update, which the running session
+   * cannot tear down or hot-swap:
+   *   - a loaded plugin skill (in the additive registry) that the plugin no
+   *     longer declares — i.e. the plugin was disabled/removed, or it renamed
+   *     or dropped that skill;
+   *   - a connected plugin MCP server that is gone, or whose config (command /
+   *     args / env / cwd / …) changed since we connected it;
+   *   - a drift between the desired and currently-active sessionStart injections.
    */
   private pluginRuntimeNeedsNewSession(
     snapshot: PluginRuntimeSnapshot,
     main: Agent | undefined,
+    desiredSkillKeys: ReadonlySet<string>,
   ): boolean {
-    // Skills: loadRoots is additive, so a plugin whose skills are still in the
-    // registry but is no longer in the snapshot leaves stale skills behind.
-    const desiredSkillPlugins = new Set(
-      snapshot.pluginSkillRoots
-        .map((root) => root.plugin?.id)
-        .filter((id): id is string => id !== undefined),
-    );
-    const stalePluginSkills = [...this.loadedPluginSkillIds].some(
-      (id) => !desiredSkillPlugins.has(id),
-    );
-    if (stalePluginSkills) return true;
+    // Skills: the registry is additive (no unload), so any loaded plugin skill
+    // the plugins no longer declare is stale — covers disable/remove of a plugin
+    // and remove/rename of an individual skill. New skills are simply absent
+    // from the registry until loaded, so they never trip this.
+    const staleSkill = this.skills.listSkills().some((skill) => {
+      const pluginId = skill.plugin?.id;
+      return pluginId !== undefined && !desiredSkillKeys.has(pluginSkillKey(pluginId, skill.name));
+    });
+    if (staleSkill) return true;
 
-    const desiredServers = new Set(Object.keys(snapshot.mcpServers));
-    const stalePluginServer = this.mcp
-      .list()
-      .some((entry) => entry.name.startsWith('plugin-') && !desiredServers.has(entry.name));
-    if (stalePluginServer) return true;
+    // MCP: a server we connected is stale if it's no longer enabled, or if its
+    // config changed in place (same runtime name, different command/args/env/…).
+    const staleMcp = [...this.loadedPluginMcpDigests].some(([name, digest]) => {
+      const desired = snapshot.mcpServers[name];
+      return desired === undefined || mcpConfigDigest(desired) !== digest;
+    });
+    if (staleMcp) return true;
 
     const activeStarts = new Set(
       (main?.pluginSessionStarts ?? []).map((start) => `${start.pluginId}:${start.skillName}`),
@@ -454,18 +490,16 @@ export class Session {
     });
     await this.skills.loadRoots(roots);
     registerBuiltinSkills(this.skills);
-    this.rememberLoadedPluginSkills(this.options.skills?.pluginSkillRoots);
-  }
-
-  private rememberLoadedPluginSkills(roots: readonly SkillRoot[] | undefined): void {
-    for (const root of roots ?? []) {
-      if (root.plugin?.id !== undefined) this.loadedPluginSkillIds.add(root.plugin.id);
-    }
   }
 
   private async loadMcpServers(): Promise<void> {
     const servers = this.options.mcpConfig?.servers;
     if (servers === undefined || Object.keys(servers).length === 0) return;
+    // Record the config of each plugin server we're about to connect so a later
+    // reload can detect an in-place config change (see loadedPluginMcpDigests).
+    for (const [name, config] of Object.entries(servers)) {
+      if (name.startsWith('plugin-')) this.loadedPluginMcpDigests.set(name, mcpConfigDigest(config));
+    }
     await this.mcp.connectAll(servers);
     const entries = this.mcp.list().filter((entry) => entry.status !== 'disabled');
     const totalCount = entries.length;
@@ -634,6 +668,27 @@ export class Session {
 }
 
 export * from './subagent-host';
+
+function pluginSkillKey(pluginId: string, skillName: string): string {
+  return `${pluginId} ${skillName}`;
+}
+
+/**
+ * A stable, order-independent digest of an MCP server config, used to detect an
+ * in-place config change (command / args / env / cwd / …) across a reload.
+ */
+function mcpConfigDigest(config: unknown): string {
+  return stableStringify(config);
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`;
+}
 
 function initCompletionReminder(agentsMd: string): string {
   const latest =

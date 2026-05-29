@@ -56,7 +56,7 @@ describe('plugin reload hot-apply to a live session', () => {
     vi.unstubAllEnvs();
   });
 
-  it('makes a newly installed plugin skill available and visible to the model after reload', async () => {
+  it('makes a newly installed plugin skill available after reload', async () => {
     const { core, rpc } = await createTestRpc();
     const created = await rpc.createSession({ id: 'ses_reload_skill', workDir });
 
@@ -79,9 +79,11 @@ describe('plugin reload hot-apply to a live session', () => {
     const afterReload = await rpc.listSkills({ sessionId: created.id });
     expect(afterReload.some((skill) => skill.name === 'hotpack-review')).toBe(true);
 
-    // ...and the main agent's system prompt was re-rendered so the model knows.
+    // ...but the base system prompt is intentionally NOT rewritten — the model
+    // learns the new skill via the SkillRefreshInjector on its next turn (see
+    // skill-refresh.test.ts), which keeps the prompt-cache prefix stable.
     const main = core.sessions.get(created.id)?.agents.get('main');
-    expect(main?.config.systemPrompt).toContain('hotpack-review');
+    expect(main?.config.systemPrompt).not.toContain('hotpack-review');
   });
 
   it('exposes the Skill builtin tool to the model only after a skill is hot-loaded', async () => {
@@ -174,6 +176,71 @@ describe('plugin reload hot-apply to a live session', () => {
     // created, so it cannot be injected mid-conversation — reload must flag it.
     const result = await rpc.reloadPlugins({ sessionId: created.id });
     expect(result.applied?.needsNewSession).toBe(true);
+  });
+
+  it('flags needsNewSession when a reinstalled plugin changes an existing MCP server config', async () => {
+    const { rpc } = await createTestRpc();
+    const created = await rpc.createSession({ id: 'ses_mcp_cfg_change', workDir });
+
+    await rpc.installPlugin({
+      source: await makePlugin('cfgpack', { mcpServers: { data: { command: 'kimi-fake-mcp', args: ['v1'] } } }),
+    });
+    const first = await rpc.reloadPlugins({ sessionId: created.id });
+    expect(first.applied?.needsNewSession).toBe(false);
+
+    // Reinstall the same id with changed args for the same server name. Its
+    // runtime name is unchanged, so the live session keeps the old process.
+    await rpc.installPlugin({
+      source: await makePlugin('cfgpack', { mcpServers: { data: { command: 'kimi-fake-mcp', args: ['v2'] } } }),
+    });
+    const second = await rpc.reloadPlugins({ sessionId: created.id });
+    expect(second.applied?.needsNewSession).toBe(true);
+  });
+
+  it('flags needsNewSession when a reinstalled plugin renames a skill', async () => {
+    const { rpc } = await createTestRpc();
+    const created = await rpc.createSession({ id: 'ses_skill_rename', workDir });
+
+    await rpc.installPlugin({ source: await makePlugin('renamepack', { skillNames: ['old-skill'] }) });
+    const first = await rpc.reloadPlugins({ sessionId: created.id });
+    expect(first.applied?.needsNewSession).toBe(false);
+
+    // Reinstall with the skill renamed: old-skill removed on disk, new-skill added.
+    await rpc.installPlugin({ source: await makePlugin('renamepack', { skillNames: ['new-skill'] }) });
+    const second = await rpc.reloadPlugins({ sessionId: created.id });
+    expect(second.applied?.needsNewSession).toBe(true);
+
+    // new-skill is hot-loaded; old-skill lingers in the additive registry — which
+    // is exactly why a new session is required to drop it.
+    const skills = await rpc.listSkills({ sessionId: created.id });
+    expect(skills.some((s) => s.name === 'new-skill')).toBe(true);
+    expect(skills.some((s) => s.name === 'old-skill')).toBe(true);
+  });
+
+  it('keeps needsNewSession false when a reinstalled plugin only ADDS a skill', async () => {
+    const { rpc } = await createTestRpc();
+    const created = await rpc.createSession({ id: 'ses_skill_add', workDir });
+
+    await rpc.installPlugin({ source: await makePlugin('addpack', { skillNames: ['skill-a'] }) });
+    await rpc.reloadPlugins({ sessionId: created.id });
+
+    await rpc.installPlugin({ source: await makePlugin('addpack', { skillNames: ['skill-a', 'skill-b'] }) });
+    const second = await rpc.reloadPlugins({ sessionId: created.id });
+    expect(second.applied?.addedSkills).toContain('skill-b');
+    expect(second.applied?.needsNewSession).toBe(false);
+  });
+
+  it('captures the skill-listing baseline on resume so a later reload can still surface skills', async () => {
+    const first = await createTestRpc();
+    const created = await first.rpc.createSession({ id: 'ses_resume_base', workDir });
+    await first.core.sessions.get(created.id)?.flushMetadata();
+
+    // A fresh process resumes the session: useProfile is NOT called, but the
+    // baseline must still be seeded (otherwise SkillRefreshInjector goes silent).
+    const second = await createTestRpc();
+    await second.rpc.resumeSession({ sessionId: created.id });
+    const main = second.core.sessions.get(created.id)?.agents.get('main');
+    expect(main?.systemPromptSkillListing).toBeDefined();
   });
 
   async function makePlugin(
