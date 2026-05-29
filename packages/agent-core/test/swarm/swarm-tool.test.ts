@@ -114,6 +114,16 @@ describe('SwarmTool', () => {
           completion: Promise.resolve({ result: 'SYNTH' }),
         };
       }
+      if (profileName === 'swarm-reviser') {
+        // The coordinator now consults a reviser for the stalled subtask; drop
+        // it so the worker is not re-run and the stall surfaces as a gap.
+        return {
+          agentId: 'r',
+          profileName,
+          resumed: false,
+          completion: Promise.resolve({ result: '{"kind":"drop","reason":"stall is unrecoverable"}' }),
+        };
+      }
       // Worker: drive the injected stall hook with a repeated tool call. The
       // hook's onStall aborts the per-worker signal; we mirror the real
       // subagent-host path by rejecting with the generic cancel message once

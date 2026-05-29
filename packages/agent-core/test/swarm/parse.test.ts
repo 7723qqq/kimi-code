@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractJsonObject, parsePlan } from '../../src/agent/swarm/parse';
+import { extractJsonObject, parsePlan, parseReviseDecision } from '../../src/agent/swarm/parse';
 
 describe('extractJsonObject', () => {
   it('extracts a fenced json block', () => {
@@ -43,5 +43,65 @@ describe('parsePlan', () => {
 
   it('returns null for non-json garbage', () => {
     expect(parsePlan('root', 'totally not json')).toBeNull();
+  });
+});
+
+describe('parseReviseDecision', () => {
+  it('parses a retry decision', () => {
+    expect(parseReviseDecision('{"kind":"retry"}')).toEqual({ kind: 'retry' });
+  });
+
+  it('parses a retry decision from a fenced block', () => {
+    expect(parseReviseDecision('```json\n{"kind":"retry"}\n```')).toEqual({ kind: 'retry' });
+  });
+
+  it('parses a regenerate decision with a new prompt', () => {
+    expect(parseReviseDecision('{"kind":"regenerate","prompt":"NEW"}')).toEqual({
+      kind: 'regenerate',
+      prompt: 'NEW',
+    });
+  });
+
+  it('parses a reassign decision with role, systemPrompt, and toolAllowlist', () => {
+    expect(
+      parseReviseDecision(
+        '{"kind":"reassign","role":"R2","systemPrompt":"SP2","toolAllowlist":["Read"]}',
+      ),
+    ).toEqual({ kind: 'reassign', role: 'R2', systemPrompt: 'SP2', toolAllowlist: ['Read'] });
+  });
+
+  it('parses a reassign decision without a toolAllowlist', () => {
+    expect(parseReviseDecision('{"kind":"reassign","role":"R2","systemPrompt":"SP2"}')).toEqual({
+      kind: 'reassign',
+      role: 'R2',
+      systemPrompt: 'SP2',
+    });
+  });
+
+  it('parses a drop decision with a reason', () => {
+    expect(parseReviseDecision('{"kind":"drop","reason":"impossible"}')).toEqual({
+      kind: 'drop',
+      reason: 'impossible',
+    });
+  });
+
+  it('returns null for an unknown kind', () => {
+    expect(parseReviseDecision('{"kind":"explode"}')).toBeNull();
+  });
+
+  it('returns null when a regenerate decision misses its prompt', () => {
+    expect(parseReviseDecision('{"kind":"regenerate"}')).toBeNull();
+  });
+
+  it('returns null when a reassign decision misses required fields', () => {
+    expect(parseReviseDecision('{"kind":"reassign","role":"R2"}')).toBeNull();
+  });
+
+  it('returns null when a drop decision misses its reason', () => {
+    expect(parseReviseDecision('{"kind":"drop"}')).toBeNull();
+  });
+
+  it('returns null for non-json garbage', () => {
+    expect(parseReviseDecision('totally not json')).toBeNull();
   });
 });

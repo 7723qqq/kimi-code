@@ -1,4 +1,4 @@
-import type { SwarmPlan, Subtask } from './types';
+import type { ReviseDecision, SwarmPlan, Subtask } from './types';
 
 export function extractJsonObject(text: string): string | null {
   const fence = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
@@ -46,7 +46,50 @@ export function parsePlan(rootTask: string, text: string): SwarmPlan | null {
       prompt: o['prompt'],
       toolAllowlist,
       status: 'pending',
+      attempts: 0,
     });
   }
   return { rootTask, subtasks };
+}
+
+/**
+ * Parse a reviser subagent's decision about a single failed subtask. Returns
+ * `null` on any malformed input (missing/invalid `kind` or required per-variant
+ * fields) so the caller can apply a conservative fallback.
+ */
+export function parseReviseDecision(text: string): ReviseDecision | null {
+  const json = extractJsonObject(text);
+  if (json === null) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const o = parsed as Record<string, unknown>;
+
+  switch (o['kind']) {
+    case 'retry':
+      return { kind: 'retry' };
+    case 'regenerate':
+      if (typeof o['prompt'] !== 'string' || o['prompt'].length === 0) return null;
+      return { kind: 'regenerate', prompt: o['prompt'] };
+    case 'reassign': {
+      if (typeof o['role'] !== 'string' || o['role'].length === 0) return null;
+      if (typeof o['systemPrompt'] !== 'string' || o['systemPrompt'].length === 0) return null;
+      const toolAllowlist = Array.isArray(o['toolAllowlist'])
+        ? o['toolAllowlist'].filter((t): t is string => typeof t === 'string')
+        : undefined;
+      return toolAllowlist === undefined
+        ? { kind: 'reassign', role: o['role'], systemPrompt: o['systemPrompt'] }
+        : { kind: 'reassign', role: o['role'], systemPrompt: o['systemPrompt'], toolAllowlist };
+    }
+    case 'drop':
+      if (typeof o['reason'] !== 'string' || o['reason'].length === 0) return null;
+      return { kind: 'drop', reason: o['reason'] };
+    default:
+      return null;
+  }
 }

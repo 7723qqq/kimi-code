@@ -1,4 +1,4 @@
-import type { SwarmPlan } from './types';
+import type { Subtask, SwarmPlan } from './types';
 
 /** Read-only default tool set for workers; planner may widen via toolAllowlist within the allowlist. */
 export const DEFAULT_WORKER_TOOLS: readonly string[] = ['Read', 'Grep', 'Glob', 'WebSearch', 'FetchURL'];
@@ -41,14 +41,50 @@ export function renderPlannerRetryPrompt(rootTask: string, previous: string): st
 export const SYNTHESIZER_SYSTEM_PROMPT = [
   'You are a swarm synthesizer. You are given the original task and the outputs of several worker subagents.',
   'Merge them into one coherent, complete answer for the user.',
-  'If a subtask failed, note the gap explicitly instead of inventing its content.',
+  'If a subtask failed or was dropped, surface the gap explicitly instead of inventing its content. Never pretend a dropped or failed subtask succeeded.',
 ].join('\n');
 
 export function renderSynthesizerPrompt(plan: SwarmPlan): string {
   const blocks = plan.subtasks.map((st) => {
-    const body =
-      st.status === 'done' ? (st.result ?? '') : `[FAILED: ${st.error ?? 'unknown error'}]`;
+    let body: string;
+    if (st.status === 'done') {
+      body = st.result ?? '';
+    } else if (st.status === 'dropped') {
+      body = `[DROPPED: ${st.error ?? 'no reason given'}]`;
+    } else {
+      body = `[FAILED: ${st.error ?? 'unknown error'}]`;
+    }
     return `### ${st.role} (${st.status})\n${body}`;
   });
   return [`Original task:\n${plan.rootTask}`, '', 'Worker outputs:', '', ...blocks].join('\n');
+}
+
+export const REVISER_SYSTEM_PROMPT = [
+  'You are a swarm reviser. You are given ONE subtask that failed (a real error or a detected stall/loop) along with its error.',
+  'Decide how to recover it by choosing exactly one of:',
+  '- retry: re-run the subtask unchanged (use only for transient/flaky errors).',
+  '- regenerate: re-run with a more specific, better-scoped prompt you provide.',
+  '- reassign: re-run under a different role with a new system prompt (and optionally a restricted toolAllowlist).',
+  '- drop: abandon the subtask when it is impossible or not worth retrying; give a short reason.',
+  'For stalled or looping errors, prefer regenerate (with a tighter, more concrete prompt) or reassign — a plain retry will usually stall again.',
+  `Tools available to workers: ${ALLOWED_WORKER_TOOLS.join(', ')} (toolAllowlist may only restrict to a subset).`,
+  'Output ONLY a JSON object, no prose, matching exactly one of:',
+  '{"kind":"retry"}',
+  '{"kind":"regenerate","prompt":"..."}',
+  '{"kind":"reassign","role":"...","systemPrompt":"...","toolAllowlist":["Read"]}',
+  '{"kind":"drop","reason":"..."}',
+].join('\n');
+
+export function renderReviseSubtaskPrompt(subtask: Subtask, error: string | undefined): string {
+  return [
+    'A subtask failed. Decide how to recover it.',
+    '',
+    `Role: ${subtask.role}`,
+    `System prompt: ${subtask.systemPrompt}`,
+    `Prompt: ${subtask.prompt}`,
+    `Attempts so far: ${String(subtask.attempts)}`,
+    `Error: ${error ?? 'unknown error'}`,
+    '',
+    'Return ONLY the JSON decision object.',
+  ].join('\n');
 }
