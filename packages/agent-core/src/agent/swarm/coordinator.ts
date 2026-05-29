@@ -9,7 +9,7 @@ import {
   renderPlannerRetryPrompt,
   renderSynthesizerPrompt,
 } from './prompts';
-import type { SwarmCoordinatorDeps, SwarmPlan } from './types';
+import type { SwarmCoordinatorDeps, SwarmPlan, SwarmProgress } from './types';
 
 export class SwarmCoordinator {
   constructor(private readonly deps: SwarmCoordinatorDeps) {}
@@ -18,14 +18,20 @@ export class SwarmCoordinator {
     this.deps.onProgress?.(text);
   }
 
+  private emit(progress: SwarmProgress): void {
+    this.deps.onProgressCustom?.(progress);
+  }
+
   async run(rootTask: string): Promise<string> {
     this.deps.signal.throwIfAborted();
     this.progress('Planning subtasks…');
     const plan = await this.decompose(rootTask);
     this.progress(`Planned ${String(plan.subtasks.length)} subtasks`);
+    this.emit({ phase: 'planned', total: plan.subtasks.length });
 
     await this.runWave(plan);
 
+    this.emit({ phase: 'synthesizing' });
     this.progress('Synthesizing results…');
     const result = await this.deps.spawnSubagent({
       profileName: 'swarm-synthesizer',
@@ -35,6 +41,9 @@ export class SwarmCoordinator {
       description: 'Swarm synthesizer',
       signal: this.deps.signal,
     });
+    const succeeded = plan.subtasks.filter((s) => s.status === 'done').length;
+    const failed = plan.subtasks.filter((s) => s.status === 'failed').length;
+    this.emit({ phase: 'done', succeeded, failed });
     return result.result;
   }
 

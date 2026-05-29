@@ -98,6 +98,21 @@ describe('SwarmCoordinator.run', () => {
     expect(worker?.tools).toEqual(['Read']);
   });
 
+  it('emits structured progress: planned(total) → synthesizing → done', async () => {
+    const spawn = makeSpawner({});
+    const onProgressCustom = vi.fn();
+    const coordinator = new SwarmCoordinator({
+      spawnSubagent: spawn,
+      signal: new AbortController().signal,
+      onProgressCustom,
+    });
+    await coordinator.run('do a thing');
+    const payloads = (onProgressCustom as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(payloads).toContainEqual({ phase: 'planned', total: 2 });
+    expect(payloads).toContainEqual({ phase: 'synthesizing' });
+    expect(payloads.some((p) => p.phase === 'done' && p.succeeded === 2 && p.failed === 0)).toBe(true);
+  });
+
   it('propagates abort instead of swallowing it (no synthesis after cancel)', async () => {
     const controller = new AbortController();
     const PLAN = JSON.stringify({ subtasks: [{ role: 'A', systemPrompt: 's', prompt: 'p' }] });

@@ -65,6 +65,8 @@ export class SwarmTool implements BuiltinTool<SwarmToolInput> {
       signal: ctx.signal,
       maxConcurrency: DEFAULT_MAX_CONCURRENCY,
       onProgress: (text) => ctx.onUpdate?.({ kind: 'status', text }),
+      onProgressCustom: (progress) =>
+        ctx.onUpdate?.({ kind: 'custom', customKind: 'swarm', customData: progress }),
       spawnSubagent: async ({ profileName, systemPrompt, tools, prompt, description, signal }) => {
         const handle = await this.subagentHost.spawn(profileName, {
           parentToolCallId: ctx.toolCallId,

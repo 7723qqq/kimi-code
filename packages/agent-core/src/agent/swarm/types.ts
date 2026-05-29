@@ -24,9 +24,15 @@ export type SpawnSubagentFn = (args: {
   signal: AbortSignal;
 }) => Promise<{ result: string }>;
 
+export type SwarmProgress =
+  | { phase: 'planned'; total: number }
+  | { phase: 'synthesizing' }
+  | { phase: 'done'; succeeded: number; failed: number };
+
 export interface SwarmCoordinatorDeps {
   spawnSubagent: SpawnSubagentFn;
   signal: AbortSignal;
   onProgress?: ((text: string) => void) | undefined;
+  onProgressCustom?: ((progress: SwarmProgress) => void) | undefined;
   maxConcurrency?: number | undefined;
 }
