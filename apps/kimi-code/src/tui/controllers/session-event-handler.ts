@@ -33,6 +33,7 @@ import type {
 
 import { MoonLoader } from '../components/chrome/moon-loader';
 import { StatusMessageComponent } from '../components/messages/status-message';
+import { workerActivityFromTool } from '../components/messages/swarm-dashboard-model';
 import {
   MAIN_AGENT_ID,
   OAUTH_LOGIN_REQUIRED_CODE,
@@ -232,6 +233,19 @@ export class SessionEventHandler {
     if (info === undefined || info.parentToolCallId.length === 0) return true;
     const { parentToolCallId } = info;
     const sourceName = info.name;
+
+    const swarmDash = streamingUI.getSwarmDashboard(parentToolCallId);
+    if (swarmDash !== undefined) {
+      if (event.type === 'tool.call.started') {
+        swarmDash.apply({
+          t: 'worker.toolcall',
+          id: subagentId,
+          activity: workerActivityFromTool(event.name, argsRecord(event.args)),
+        });
+      }
+      return true; // swarm worker events never fall through to appendSubToolCall
+    }
+
     const toolCall = streamingUI.getToolComponent(parentToolCallId);
     if (toolCall === undefined) return true;
     toolCall.setSubagentMeta(subagentId, sourceName);
@@ -483,6 +497,15 @@ export class SessionEventHandler {
   }
 
   private handleToolProgress(event: ToolProgressEvent): void {
+    if (event.update.kind === 'custom' && event.update.customKind === 'swarm') {
+      const dash = this.host.streamingUI.getSwarmDashboard(event.toolCallId);
+      if (dash === undefined) return;
+      const p = event.update.customData as { phase?: string; total?: number };
+      if (p.phase === 'planned' && typeof p.total === 'number') dash.apply({ t: 'planned', total: p.total });
+      else if (p.phase === 'synthesizing') dash.apply({ t: 'synthesizing' });
+      else if (p.phase === 'done') dash.apply({ t: 'done', succeeded: 0, failed: 0 });
+      return;
+    }
     if (event.update.kind !== 'status') return;
     const text = event.update.text;
     if (text === undefined || text.length === 0) return;
@@ -695,6 +718,16 @@ export class SessionEventHandler {
       name: event.subagentName,
     });
 
+    const swarmDash = streamingUI.getSwarmDashboard(event.parentToolCallId);
+    if (swarmDash !== undefined) {
+      swarmDash.apply({
+        t: 'worker.spawned',
+        id: event.subagentId,
+        role: event.description ?? event.subagentName,
+      });
+      return;
+    }
+
     if (event.runInBackground) {
       const meta = this.buildBackgroundAgentMetadata(event);
       this.backgroundAgentMetadata.set(event.subagentId, meta);
@@ -738,6 +771,15 @@ export class SessionEventHandler {
       this.appendBackgroundAgentEntry('completed', backgroundMeta, extras);
       return;
     }
+    const swarmDashC = streamingUI.getSwarmDashboard(event.parentToolCallId);
+    if (swarmDashC !== undefined) {
+      swarmDashC.apply({
+        t: 'worker.done',
+        id: event.subagentId,
+        ...(event.contextTokens !== undefined ? { tokens: event.contextTokens } : {}),
+      });
+      return;
+    }
     const tc = streamingUI.getToolComponent(event.parentToolCallId);
     if (tc === undefined) return;
     tc.onSubagentCompleted({
@@ -762,6 +804,11 @@ export class SessionEventHandler {
         this.backgroundTaskTranscriptedTerminal.add(taskId);
       }
       this.appendBackgroundAgentEntry('failed', backgroundMeta, { error: event.error });
+      return;
+    }
+    const swarmDashF = streamingUI.getSwarmDashboard(event.parentToolCallId);
+    if (swarmDashF !== undefined) {
+      swarmDashF.apply({ t: 'worker.failed', id: event.subagentId, error: event.error });
       return;
     }
     const tc = streamingUI.getToolComponent(event.parentToolCallId);

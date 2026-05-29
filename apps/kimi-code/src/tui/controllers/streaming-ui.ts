@@ -4,6 +4,7 @@ import { AgentGroupComponent } from '../components/messages/agent-group';
 import { AssistantMessageComponent } from '../components/messages/assistant-message';
 import { CompactionComponent } from '../components/dialogs/compaction';
 import { ReadGroupComponent } from '../components/messages/read-group';
+import { SwarmDashboardComponent } from '../components/messages/swarm-dashboard';
 import { ThinkingComponent } from '../components/messages/thinking';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { STREAMING_UI_FLUSH_MS } from '../constant/streaming';
@@ -60,6 +61,7 @@ export class StreamingUIController {
     { name?: string; argumentsText: string; startedAtMs: number }
   >();
   private _pendingToolComponents = new Map<string, ToolCallComponent>();
+  private readonly _swarmDashboards = new Map<string, SwarmDashboardComponent>();
   private _pendingAgentGroup: {
     readonly turnId: string | undefined;
     readonly step: number;
@@ -154,6 +156,10 @@ export class StreamingUIController {
 
   getToolComponent(id: string): ToolCallComponent | undefined {
     return this._pendingToolComponents.get(id);
+  }
+
+  getSwarmDashboard(toolCallId: string): SwarmDashboardComponent | undefined {
+    return this._swarmDashboards.get(toolCallId);
   }
 
   removeToolComponent(id: string): void {
@@ -502,6 +508,15 @@ export class StreamingUIController {
 
   onToolCallStart(toolCall: ToolCallBlockData): void {
     if (toolCall.name === 'AskUserQuestion') return;
+
+    if (toolCall.name === 'Swarm') {
+      const task = typeof toolCall.args['task'] === 'string' ? toolCall.args['task'] : '';
+      const dash = new SwarmDashboardComponent(task, this.host.state.theme.colors, this.host.state.ui);
+      this._swarmDashboards.set(toolCall.id, dash);
+      this.host.state.transcriptContainer.addChild(dash);
+      this.host.state.ui.requestRender();
+      return;
+    }
 
     const { state } = this.host;
     const tc = new ToolCallComponent(
