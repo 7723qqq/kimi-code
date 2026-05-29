@@ -82,7 +82,7 @@ For testing you can make Kimi Code use a specific model **without editing `confi
 | `KIMI_MODEL_DISPLAY_NAME` | No | Name shown in `/model` | Falls back to `KIMI_MODEL_NAME` |
 | `KIMI_MODEL_MAX_OUTPUT_SIZE` | No | Per-request output cap (`anthropic` only) | Per-model default |
 | `KIMI_MODEL_REASONING_KEY` | No | Reasoning field-name override (`openai` only) | Auto-detected |
-| `KIMI_MODEL_DEFAULT_THINKING` | No | Default Thinking toggle for new sessions | Off |
+| `KIMI_MODEL_DEFAULT_THINKING` | No | Default Thinking toggle for new sessions | Unset follows the global default (Thinking on) |
 | `KIMI_MODEL_THINKING_MODE` | No | Thinking trigger policy; `auto`/`on`/`off` | — |
 | `KIMI_MODEL_THINKING_EFFORT` | No | Thinking effort (e.g. `low`/`medium`/`high`/`xhigh`/`max`; available levels depend on the provider) | — |
 

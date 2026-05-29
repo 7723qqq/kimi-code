@@ -231,7 +231,9 @@ describe('writeConfigFile never persists the env model', () => {
       expect(onDisk.models?.[ENV_MODEL_ALIAS_KEY]).toBeUndefined();
       expect(onDisk.providers['x']).toBeDefined();
       expect(onDisk.models?.['x']).toBeDefined();
-      expect(onDisk.defaultModel).toBeUndefined();
+      // The env default_model is stripped, but the on-disk original is restored
+      // (not erased), so a real default_model in config.toml survives.
+      expect(onDisk.defaultModel).toBe('x');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
