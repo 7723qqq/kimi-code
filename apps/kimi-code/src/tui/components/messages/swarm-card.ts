@@ -161,6 +161,16 @@ export class SwarmCard extends Container implements ManagedToolCard {
     }
   }
 
+  /**
+   * True once live progress arrived (a plan was announced or a worker spawned).
+   * False on a card reconstructed from session history: replay restores the
+   * tool call + final result but NOT the live tool.progress / subagent.* events
+   * that populate the dashboard, so a resumed completed swarm has no worker data.
+   */
+  private hasLiveData(): boolean {
+    return this.swarmModel.total > 0 || this.swarmModel.workers.size > 0;
+  }
+
   /** Pop the body children past the fixed header index and rebuild them. */
   private rebuildBody(): void {
     while (this.children.length > SWARM_BODY_START_INDEX) {
@@ -199,7 +209,17 @@ export class SwarmCard extends Container implements ManagedToolCard {
           ? chalk.hex(c.success)(STATUS_BULLET)
           : chalk.hex(c.roleAssistant)(STATUS_BULLET);
     let tail: string;
-    if (terminal) {
+    if (terminal && !this.hasLiveData()) {
+      // Resumed from history with no replayed worker data: the worker stats
+      // would all be zero and misleading, so show just the phase tag (if any)
+      // and let the result body carry the synthesized report.
+      tail =
+        m.phase === 'cancelled'
+          ? chalk.dim(' · cancelled')
+          : m.phase === 'failed'
+            ? chalk.dim(' · failed')
+            : '';
+    } else if (terminal) {
       const tag =
         m.phase === 'cancelled' ? ' · cancelled' : m.phase === 'failed' ? ' · failed' : '';
       // Surface drops alongside ✓/✗ so a recovered-with-gaps run is honest about
@@ -227,6 +247,20 @@ export class SwarmCard extends Container implements ManagedToolCard {
    */
   private buildSwarmBody(): void {
     const m = this.swarmModel;
+    // Resumed-from-history fallback: when no live worker data was replayed, the
+    // dashboard would render an empty "0 workers" body and hide the synthesized
+    // report. Render the result body (the actual deliverable) instead. A live
+    // whole-swarm failure (phase 'failed') is excluded — it already surfaces its
+    // reason via the '✗ <reason>' line below.
+    if (!this.hasLiveData() && m.phase !== 'failed' && this.result !== undefined) {
+      const output = this.result.output.trimEnd();
+      if (output.length > 0) {
+        for (const line of output.split('\n')) {
+          this.addChild(new Text(line, 0, 0));
+        }
+        return;
+      }
+    }
     const workers = [...m.workers.values()];
     if (m.phase === 'planning' && workers.length === 0) {
       this.addChild(new Text(`  ${chalk.dim('└─ planning subtasks…')}`, 0, 0));

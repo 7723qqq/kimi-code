@@ -229,4 +229,25 @@ describe('SwarmCard swarm mode', () => {
     const out = strip(c.render(80).join('\n'));
     expect(out).toContain('explore the repo');
   });
+
+  it('falls back to the synthesized result body when replayed with no live worker data', () => {
+    // On session resume the card is reconstructed with the final result but the
+    // live tool.progress/subagent.* events that populate the dashboard are not
+    // replayed. Without a fallback it would finalize to an empty
+    // "0 workers · 0✓ 0✗" dashboard and the synthesized report would be lost.
+    const c = new SwarmCard(
+      { id: 'tc-swarm', name: 'Swarm', args: { task: 'analyze the repo' } },
+      {
+        tool_call_id: 'tc-swarm',
+        output: 'SYNTHESIZED REPORT: the architecture is layered and well-tested.',
+        is_error: false,
+      },
+      darkColors,
+    );
+    const out = strip(c.render(80).join('\n'));
+    // The real deliverable is surfaced ...
+    expect(out).toContain('SYNTHESIZED REPORT: the architecture is layered');
+    // ... and the misleading empty-dashboard tail is suppressed.
+    expect(out).not.toContain('0 workers');
+  });
 });
