@@ -67,11 +67,13 @@ import { TasksBrowserController } from './controllers/tasks-browser';
 import { FileMentionProvider } from './components/editor/file-mention-provider';
 import { AssistantMessageComponent } from './components/messages/assistant-message';
 import { BackgroundAgentStatusComponent } from './components/messages/background-agent-status';
+import type { ManagedToolCard } from './components/messages/managed-tool-card';
 import { SkillActivationComponent } from './components/messages/skill-activation';
 import {
   NoticeMessageComponent,
   StatusMessageComponent,
 } from './components/messages/status-message';
+import { SwarmCard } from './components/messages/swarm-card';
 import { ThinkingComponent } from './components/messages/thinking';
 import { ToolCallComponent } from './components/messages/tool-call';
 import { UserMessageComponent } from './components/messages/user-message';
@@ -1192,14 +1194,24 @@ export class KimiTUI {
       }
       case 'tool_call':
         if (entry.toolCallData) {
-          const tc = new ToolCallComponent(
-            entry.toolCallData,
-            entry.toolCallData.result,
-            this.state.theme.colors,
-            this.state.ui,
-            this.state.theme.markdownTheme,
-            this.state.appState.workDir,
-          );
+          // Swarm replays into its dedicated SwarmCard, mirroring the live
+          // tool-call-start path; SwarmCard.setResult finalizes identically.
+          const tc: ManagedToolCard =
+            entry.toolCallData.name === 'Swarm'
+              ? new SwarmCard(
+                  entry.toolCallData,
+                  entry.toolCallData.result,
+                  this.state.theme.colors,
+                  this.state.ui,
+                )
+              : new ToolCallComponent(
+                  entry.toolCallData,
+                  entry.toolCallData.result,
+                  this.state.theme.colors,
+                  this.state.ui,
+                  this.state.theme.markdownTheme,
+                  this.state.appState.workDir,
+                );
           if (this.state.toolOutputExpanded) tc.setExpanded(true);
           if (this.state.planExpanded) tc.setPlanExpanded(true);
           return tc;

@@ -23,21 +23,15 @@ import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 import { appendStreamingArgsPreview } from '#/tui/utils/event-payload';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 
+import type { ManagedToolCard } from './managed-tool-card';
 import { PlanBoxComponent } from './plan-box';
 import { ShellExecutionComponent } from './shell-execution';
-import {
-  applySwarmEvent,
-  initialSwarmModel,
-  type SwarmEvent,
-  type SwarmModel,
-  type WorkerRow,
-} from './swarm-dashboard-model';
+import type { SwarmEvent } from './swarm-dashboard-model';
+import { formatTokens, str } from './tool-call-shared';
 import { countNonEmptyLines, pickChip } from './tool-renderers/chip';
 import { pickResultRenderer } from './tool-renderers/registry';
 
 const MAX_ARG_LENGTH = 60;
-/** Keeps a running swarm worker's activity to a single dashboard line. */
-const SWARM_ACTIVITY_MAX_LENGTH = 48;
 const MAX_SUB_TOOL_CALLS_SHOWN = 4;
 const MAX_SINGLE_SUBAGENT_TOOL_ROWS = 4;
 const APPROVED_PLAN_MARKER = '## Approved Plan:';
@@ -119,10 +113,6 @@ function backgroundFailureMessage(
     case undefined:
       return undefined;
   }
-}
-
-function str(v: unknown): string {
-  return typeof v === 'string' ? v : '';
 }
 
 function formatSubagentContextTokens(contextTokens: number | undefined): string | undefined {
@@ -457,7 +447,7 @@ class PrefixedWrappedLine implements Component {
   }
 }
 
-export class ToolCallComponent extends Container {
+export class ToolCallComponent extends Container implements ManagedToolCard {
   private expanded = false;
   private planExpanded = false;
   private toolCall: ToolCallBlockData;
@@ -530,17 +520,6 @@ export class ToolCallComponent extends Container {
   private progressLines: string[] = [];
   private static readonly MAX_PROGRESS_LINES = 24;
 
-  // ── Swarm dashboard state ────────────────────────────────────────
-  //
-  // Populated only when this tool call is the `Swarm` coordinator. The pure
-  // reducer in `swarm-dashboard-model` folds `applySwarm(event)` into this
-  // model; the body-building path renders the dashboard (one or two gutter
-  // lines per worker, mirroring `AgentGroupComponent`) instead of the normal
-  // progress/sub-tool/subagent blocks. No animated, per-render content is used
-  // so the rendered lines stay stable and pi-tui's differential renderer never
-  // re-emits the card into scrollback.
-  private swarmModel: SwarmModel | undefined;
-
   /**
    * Registered by a group container (`AgentGroupComponent` or
    * `ReadGroupComponent`) when this component is borrowed as a hidden state
@@ -565,9 +544,6 @@ export class ToolCallComponent extends Container {
     this.colors = colors;
     this.ui = ui;
     this.markdownTheme = markdownTheme;
-    if (toolCall.name === 'Swarm') {
-      this.swarmModel = initialSwarmModel(str(toolCall.args['task']));
-    }
     this.applySubagentReplay(toolCall.subagent);
 
     this.addChild(new Spacer(1));
@@ -610,7 +586,6 @@ export class ToolCallComponent extends Container {
     // authoritative final state. Without this clear, a finished tool would
     // show both the streamed status lines and the final output stacked.
     this.progressLines = [];
-    this.finalizeSwarmModelIfNeeded(result);
     this.finalizeSubagentElapsedIfNeeded();
     this.syncStreamingProgressTimer();
     this.syncSubagentElapsedTimer();
@@ -653,49 +628,23 @@ export class ToolCallComponent extends Container {
     this.ui?.requestRender();
   }
 
-  /** True when this tool call drives the `Swarm` coordinator dashboard. */
+  /**
+   * Always false: the `Swarm` coordinator renders via the dedicated
+   * {@link SwarmCard}, which `streaming-ui` selects at tool-call-start time.
+   * Kept on `ToolCallComponent` so routing guards can call `isSwarm()` on the
+   * `ManagedToolCard` union without re-narrowing.
+   */
   isSwarm(): boolean {
-    return this.toolCall.name === 'Swarm';
+    return false;
   }
 
   /**
-   * Fold a swarm dashboard event into the model and re-render in place.
-   * No-ops for non-swarm tool calls so callers can route blindly. Mirrors
-   * {@link ToolCallComponent.appendProgress} so the swarm card stays a single,
-   * stable component managed by the normal tool-call lifecycle.
+   * Swarm dashboard events are handled by {@link SwarmCard}; on a non-swarm
+   * `ToolCallComponent` this is a safe no-op so callers can route blindly after
+   * an `isSwarm()` guard.
    */
-  applySwarm(event: SwarmEvent): void {
-    if (this.swarmModel === undefined) return;
-    this.swarmModel = applySwarmEvent(this.swarmModel, event);
-    this.headerText.setText(this.buildHeader());
-    this.rebuildBody();
-    this.notifySnapshotChange();
-    this.ui?.requestRender();
-  }
-
-  /**
-   * Drives the swarm dashboard to its terminal state when the tool result
-   * lands. An ordinary failure (planner/synthesizer error) has already driven
-   * the model to 'failed' via a progress event carrying the reason, so leave it
-   * be; only a genuine abort/cancel reaches an error result still non-terminal,
-   * so finalize that as cancelled. A success result ensures the header shows
-   * the summary even if the `done` progress event was missed.
-   */
-  private finalizeSwarmModelIfNeeded(result: ToolResultBlockData): void {
-    if (this.swarmModel === undefined) return;
-    if (result.is_error === true) {
-      if (this.swarmModel.phase !== 'failed') {
-        this.swarmModel = applySwarmEvent(this.swarmModel, { t: 'cancelled' });
-      }
-      return;
-    }
-    if (this.swarmModel.phase !== 'done' && this.swarmModel.phase !== 'cancelled') {
-      this.swarmModel = applySwarmEvent(this.swarmModel, {
-        t: 'done',
-        succeeded: this.swarmModel.doneCount,
-        failed: this.swarmModel.failedCount,
-      });
-    }
+  applySwarm(_event: SwarmEvent): void {
+    void _event;
   }
 
   dispose(): void {
@@ -1225,10 +1174,6 @@ export class ToolCallComponent extends Container {
       bullet = chalk.hex(colors.roleAssistant)(STATUS_BULLET);
     }
 
-    if (this.swarmModel !== undefined) {
-      return this.buildSwarmHeader();
-    }
-
     if (toolCall.name === 'ExitPlanMode') {
       const label = chalk.hex(colors.primary).bold('Current plan');
       if (!isFinished || result === undefined || result.is_error === true) {
@@ -1284,139 +1229,6 @@ export class ToolCallComponent extends Container {
     return tone(` · ${text}`);
   }
 
-  // ── Swarm dashboard rendering ────────────────────────────────────
-  //
-  // The swarm card mirrors `AgentGroupComponent`'s gutter/indent/color
-  // vocabulary. No animated, per-render content is used so the rendered lines
-  // stay identical across consecutive renders — the property that lets
-  // pi-tui's differential renderer keep one stable card.
-
-  /**
-   * Single-line header for the Swarm card (carried by `headerText`). Mirrors
-   * `AgentGroupComponent.buildHeader`: a status bullet (roleAssistant while
-   * active, success when terminal), the bold `Swarm` label, a dim `· title`
-   * segment (omitted when empty so no dangling `·`), and a dim phase/summary
-   * tail. The displayed task is sourced live from the tool-call args rather
-   * than the stale model so it reflects the fully-streamed task string.
-   */
-  private buildSwarmHeader(): string {
-    const c = this.colors;
-    const m = this.swarmModel;
-    if (m === undefined) return '';
-    const rawTask = str(this.toolCall.args['task']).replace(/\s+/g, ' ').trim();
-    const title = rawTask.length > 56 ? `${rawTask.slice(0, 56)}…` : rawTask;
-    const label = chalk.hex(c.primary).bold('Swarm');
-    const titlePart = title.length > 0 ? chalk.dim(` · ${title}`) : '';
-    const terminal = m.phase === 'done' || m.phase === 'cancelled' || m.phase === 'failed';
-    const bullet =
-      m.phase === 'failed'
-        ? chalk.hex(c.error)(STATUS_BULLET)
-        : terminal
-          ? chalk.hex(c.success)(STATUS_BULLET)
-          : chalk.hex(c.roleAssistant)(STATUS_BULLET);
-    let tail: string;
-    if (terminal) {
-      const tag =
-        m.phase === 'cancelled' ? ' · cancelled' : m.phase === 'failed' ? ' · failed' : '';
-      // Surface drops alongside ✓/✗ so a recovered-with-gaps run is honest about
-      // the missing subtasks; omitted when zero to keep the common run compact.
-      const droppedPart = m.droppedCount > 0 ? ` ${String(m.droppedCount)}⊘` : '';
-      tail = chalk.dim(
-        ` · ${String(m.workers.size)} workers · ${String(m.doneCount)}✓ ${String(m.failedCount)}✗${droppedPart}${tag}`,
-      );
-    } else if (m.phase === 'planning') {
-      tail = chalk.dim(' · planning…');
-    } else if (m.phase === 'synthesizing') {
-      tail = chalk.dim(' · synthesizing…');
-    } else {
-      tail = chalk.dim(` · ${String(m.doneCount + m.failedCount)}/${String(m.total)} workers`);
-    }
-    return `${bullet}${label}${titlePart}${tail}`;
-  }
-
-  /**
-   * Renders one or two gutter lines per worker into the body, mirroring
-   * `AgentGroupComponent.appendLines` (the `├─`/`└─`/`│` vocabulary, the
-   * 2-space lead, and the dim/primary/error coloring). While still planning
-   * with no workers yet, a single dim placeholder line keeps the card from
-   * rendering blank.
-   */
-  private buildSwarmBody(): void {
-    const m = this.swarmModel;
-    if (m === undefined) return;
-    const workers = [...m.workers.values()];
-    if (m.phase === 'planning' && workers.length === 0) {
-      this.addChild(new Text(`  ${chalk.dim('└─ planning subtasks…')}`, 0, 0));
-      return;
-    }
-    workers.forEach((w, idx) => {
-      const isLast = idx === workers.length - 1;
-      for (const line of this.buildSwarmWorkerLine(w, isLast)) {
-        this.addChild(new Text(line, 0, 0));
-      }
-    });
-    // A whole-swarm failure (planner/synthesizer error) surfaces its reason as
-    // an error line so the card is honest about what went wrong instead of
-    // hiding the message behind a 'cancelled'-looking header.
-    if (m.phase === 'failed') {
-      const reason = m.failureMessage ?? 'swarm failed';
-      this.addChild(new Text(`  ${chalk.hex(this.colors.error)(`✗ ${reason}`)}`, 0, 0));
-    }
-  }
-
-  /**
-   * Builds the gutter lines for one worker. Line 1 carries the branch, the
-   * role, and a dim stats tail; line 2 (omitted once the worker is done)
-   * carries the latest activity or the failure reason. Matches
-   * `AgentGroupComponent`'s two-line gutter format.
-   */
-  private buildSwarmWorkerLine(w: WorkerRow, isLast: boolean): string[] {
-    const c = this.colors;
-    const branch1 = isLast ? '└─' : '├─';
-    const branch2 = isLast ? '   ' : '│  ';
-    const role = chalk.hex(c.primary)(w.role);
-
-    // Live token counts are shown for every worker (running, retrying, done) so
-    // the dashboard stays consistent with `AgentGroupComponent`, which renders
-    // live tokens for all subagents from `agent.status.updated`. Running workers
-    // get their figure from `worker.tokens`; done workers from `worker.done`.
-    const tok = w.tokens !== undefined && w.tokens > 0 ? ` · ${formatTokens(w.tokens)}` : '';
-    let statsPart = '';
-    if (w.status === 'done') {
-      statsPart = chalk.dim(` · ${String(w.toolCount)} call${w.toolCount === 1 ? '' : 's'}${tok}`);
-    } else if (w.status === 'retrying') {
-      statsPart = chalk.dim(` · retrying…${tok}`);
-    } else if (w.status === 'running' && w.toolCount > 0) {
-      statsPart = chalk.dim(` · ${String(w.toolCount)} call${w.toolCount === 1 ? '' : 's'}${tok}`);
-    }
-    const line1 = `  ${branch1} ${role}${statsPart}`;
-
-    if (w.status === 'done') {
-      return [line1];
-    }
-    // Retrying is a transient in-flight state shown as a single line so the
-    // role's row stays visible (and stable) while the coordinator re-runs it.
-    // Dim the role label to match the 'dropped' convention: non-running rows
-    // (retrying, dropped) use a dimmed label, running/done/failed keep primary.
-    if (w.status === 'retrying') {
-      return [`  ${branch1} ${chalk.dim(w.role)}${statsPart}`];
-    }
-    if (w.status === 'failed') {
-      const errLine = chalk.hex(c.error)(`failed: ${w.error ?? 'error'}`);
-      return [line1, `  ${branch2}    ${errLine}`];
-    }
-    // Dropped: the coordinator gave up on this subtask. Dim the row and show the
-    // reason on the second gutter line so the gap is explicit, not silent.
-    if (w.status === 'dropped') {
-      const dropLine = chalk.dim(`dropped: ${w.error ?? 'no reason'}`);
-      return [`  ${branch1} ${chalk.dim(w.role)}`, `  ${branch2}    ${dropLine}`];
-    }
-    const raw = w.latestActivity ?? 'starting…';
-    const activity =
-      raw.length > SWARM_ACTIVITY_MAX_LENGTH ? `${raw.slice(0, SWARM_ACTIVITY_MAX_LENGTH)}…` : raw;
-    return [line1, `  ${branch2}    ${chalk.dim(`now: ${activity}`)}`];
-  }
-
   private rebuildContent(): void {
     while (this.children.length > this.callPreviewEndIndex) {
       this.children.pop();
@@ -1448,7 +1260,6 @@ export class ToolCallComponent extends Container {
    * styled individually so surrounding prose keeps its default dim tone.
    */
   private buildProgressBlock(): void {
-    if (this.swarmModel !== undefined) return;
     if (this.progressLines.length === 0) return;
     if (this.result !== undefined) return;
     for (const raw of this.progressLines) {
@@ -1469,7 +1280,6 @@ export class ToolCallComponent extends Container {
   }
 
   private buildSubagentBlock(): void {
-    if (this.swarmModel !== undefined) return;
     if (
       this.subagentAgentId === undefined &&
       this.ongoingSubCalls.size === 0 &&
@@ -1745,10 +1555,6 @@ export class ToolCallComponent extends Container {
 
   private buildCallPreview(): void {
     const name = this.toolCall.name;
-    if (this.swarmModel !== undefined) {
-      this.buildSwarmBody();
-      return;
-    }
     if (name === 'ExitPlanMode') {
       this.buildPlanPreview();
       return;
@@ -1938,9 +1744,6 @@ export class ToolCallComponent extends Container {
 
   private buildContent(): void {
     const { result } = this;
-    // Swarm renders its dashboard via buildSwarmBody; the result output is the
-    // synthesized report which is surfaced elsewhere, not in this card.
-    if (this.swarmModel !== undefined) return;
     if (result === undefined || !result.output) return;
 
     if (this.isSingleSubagentView()) {
@@ -2073,12 +1876,6 @@ function computeLatestActivity(
     if (tail !== undefined) return tail.trim();
   }
   return undefined;
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M tok`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k tok`;
-  return `${String(n)} tok`;
 }
 
 function formatActivityLine(

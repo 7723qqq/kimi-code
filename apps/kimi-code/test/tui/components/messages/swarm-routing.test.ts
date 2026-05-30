@@ -3,14 +3,14 @@ import { describe, expect, it } from 'vitest';
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
 
 import { SessionEventHandler, type SessionEventHost } from '#/tui/controllers/session-event-handler';
-import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { SwarmCard } from '#/tui/components/messages/swarm-card';
 import { workerActivityFromTool } from '#/tui/components/messages/swarm-dashboard-model';
 import { darkColors } from '#/tui/theme/colors';
 
 const strip = (t: string): string => t.replaceAll(/\[[0-9;]*m/g, '');
 
-function makeSwarm(): ToolCallComponent {
-  return new ToolCallComponent(
+function makeSwarm(): SwarmCard {
+  return new SwarmCard(
     { id: 'tc-swarm', name: 'Swarm', args: { task: 'task' } },
     undefined,
     darkColors,
@@ -40,7 +40,7 @@ describe('swarm dashboard wiring (translation)', () => {
     const mockHost = {
       streamingUI: {
         setTurnId: (): void => {},
-        getToolComponent: (id: string): ToolCallComponent | undefined =>
+        getToolComponent: (id: string): SwarmCard | undefined =>
           id === parentToolCallId ? dash : undefined,
       },
     } as unknown as SessionEventHost;
@@ -108,7 +108,7 @@ describe('swarm dashboard wiring (translation)', () => {
     const mockHost = {
       streamingUI: {
         setTurnId: (): void => {},
-        getToolComponent: (id: string): ToolCallComponent | undefined =>
+        getToolComponent: (id: string): SwarmCard | undefined =>
           id === parentToolCallId ? dash : undefined,
       },
     } as unknown as SessionEventHost;
@@ -177,7 +177,7 @@ describe('swarm dashboard wiring (translation)', () => {
     const mockHost = {
       streamingUI: {
         setTurnId: (): void => {},
-        getToolComponent: (id: string): ToolCallComponent | undefined =>
+        getToolComponent: (id: string): SwarmCard | undefined =>
           id === parentToolCallId ? dash : undefined,
       },
     } as unknown as SessionEventHost;
@@ -268,7 +268,7 @@ describe('swarm dashboard wiring (translation)', () => {
     const mockHost = {
       streamingUI: {
         setTurnId: (): void => {},
-        getToolComponent: (id: string): ToolCallComponent | undefined =>
+        getToolComponent: (id: string): SwarmCard | undefined =>
           id === parentToolCallId ? dash : undefined,
       },
     } as unknown as SessionEventHost;
@@ -334,7 +334,7 @@ describe('swarm dashboard wiring (translation)', () => {
     const mockHost = {
       streamingUI: {
         setTurnId: (): void => {},
-        getToolComponent: (id: string): ToolCallComponent | undefined =>
+        getToolComponent: (id: string): SwarmCard | undefined =>
           id === parentToolCallId ? dash : undefined,
       },
     } as unknown as SessionEventHost;
@@ -409,7 +409,7 @@ describe('swarm dashboard wiring (translation)', () => {
     const mockHost = {
       streamingUI: {
         setTurnId: (): void => {},
-        getToolComponent: (id: string): ToolCallComponent | undefined =>
+        getToolComponent: (id: string): SwarmCard | undefined =>
           id === parentToolCallId ? dash : undefined,
       },
     } as unknown as SessionEventHost;

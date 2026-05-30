@@ -34,6 +34,7 @@ import type {
 import { MoonLoader } from '../components/chrome/moon-loader';
 import { StatusMessageComponent } from '../components/messages/status-message';
 import { workerActivityFromTool } from '../components/messages/swarm-dashboard-model';
+import { ToolCallComponent } from '../components/messages/tool-call';
 import {
   MAIN_AGENT_ID,
   OAUTH_LOGIN_REQUIRED_CODE,
@@ -281,6 +282,11 @@ export class SessionEventHandler {
       }
       return true;
     }
+
+    // Past the swarm guard, the generic subagent block API is ToolCallComponent
+    // only. A non-ToolCallComponent card here would be a swarm card (already
+    // handled above), so this narrows the registry union for the calls below.
+    if (!(toolCall instanceof ToolCallComponent)) return true;
 
     toolCall.setSubagentMeta(subagentId, sourceName);
 
@@ -576,7 +582,9 @@ export class SessionEventHandler {
     const text = event.update.text;
     if (text === undefined || text.length === 0) return;
     const tc = this.host.streamingUI.getToolComponent(event.toolCallId);
-    if (tc === undefined) return;
+    // Status progress lines target ToolCallComponent only; the swarm card uses
+    // custom swarm progress (handled above) and never status progress.
+    if (!(tc instanceof ToolCallComponent)) return;
     tc.appendProgress(text);
   }
 
@@ -820,7 +828,7 @@ export class SessionEventHandler {
       }
     }
     tc ??= this.createStandaloneSubagentToolCall(event);
-    if (tc === undefined) return;
+    if (!(tc instanceof ToolCallComponent)) return;
     tc.onSubagentSpawned({
       agentId: event.subagentId,
       agentName: event.subagentName,
@@ -856,6 +864,7 @@ export class SessionEventHandler {
       });
       return;
     }
+    if (!(tc instanceof ToolCallComponent)) return;
     tc.onSubagentCompleted({
       contextTokens: event.contextTokens,
       usage: event.usage,
@@ -897,6 +906,7 @@ export class SessionEventHandler {
       tc.applySwarm({ t: 'worker.failed', id: event.subagentId, error: event.error });
       return;
     }
+    if (!(tc instanceof ToolCallComponent)) return;
     tc.onSubagentFailed({ error: event.error });
     streamingUI.removeToolComponentIfInactive(event.parentToolCallId);
   }

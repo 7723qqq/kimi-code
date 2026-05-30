@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { SwarmCard } from '#/tui/components/messages/swarm-card';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 import { darkColors } from '#/tui/theme/colors';
 
@@ -10,15 +11,15 @@ function strip(text: string): string {
     .replaceAll(new RegExp(`${ESC}\\][0-9];;[^\\u0007]*\\u0007`, 'g'), '');
 }
 
-function makeSwarm(task: string): ToolCallComponent {
-  return new ToolCallComponent(
+function makeSwarm(task: string): SwarmCard {
+  return new SwarmCard(
     { id: 'tc-swarm', name: 'Swarm', args: { task } },
     undefined,
     darkColors,
   );
 }
 
-describe('ToolCallComponent swarm mode', () => {
+describe('SwarmCard swarm mode', () => {
   it('identifies swarm tool calls and no-ops applySwarm on non-swarm tools', () => {
     const swarm = makeSwarm('t');
     expect(swarm.isSwarm()).toBe(true);
@@ -218,7 +219,7 @@ describe('ToolCallComponent swarm mode', () => {
     // The coordinator's `tool.call.started` fires before the streamed args
     // finish, so the task is empty at construction time. The header must read
     // the live task from the tool call once `updateToolCall` syncs it.
-    const c = new ToolCallComponent(
+    const c = new SwarmCard(
       { id: 'tc-swarm', name: 'Swarm', args: {} },
       undefined,
       darkColors,
