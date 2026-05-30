@@ -41,6 +41,18 @@ describe('parsePlan', () => {
     expect(parsePlan('root', '{"subtasks":[{"role":"R"}]}')).toBeNull();
   });
 
+  it('returns null when a required field is empty or whitespace-only', () => {
+    expect(
+      parsePlan('root', '{"subtasks":[{"role":"","systemPrompt":"sp","prompt":"p"}]}'),
+    ).toBeNull();
+    expect(
+      parsePlan('root', '{"subtasks":[{"role":"R","systemPrompt":"   ","prompt":"p"}]}'),
+    ).toBeNull();
+    expect(
+      parsePlan('root', '{"subtasks":[{"role":"R","systemPrompt":"sp","prompt":""}]}'),
+    ).toBeNull();
+  });
+
   it('returns null for non-json garbage', () => {
     expect(parsePlan('root', 'totally not json')).toBeNull();
   });

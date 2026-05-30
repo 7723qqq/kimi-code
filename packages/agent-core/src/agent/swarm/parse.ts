@@ -29,10 +29,20 @@ export function parsePlan(rootTask: string, text: string): SwarmPlan | null {
     const raw = subtasksRaw[i];
     if (typeof raw !== 'object' || raw === null) return null;
     const o = raw as Record<string, unknown>;
+    const role = o['role'];
+    const systemPrompt = o['systemPrompt'];
+    const prompt = o['prompt'];
+    // Required fields must be present AND non-empty: an empty/whitespace-only
+    // role/systemPrompt/prompt would spawn a worker with no identity or
+    // instructions, so reject the plan and let decompose's retry re-prompt the
+    // planner (mirrors the reviser's non-empty validation in parseReviseDecision).
     if (
-      typeof o['role'] !== 'string' ||
-      typeof o['systemPrompt'] !== 'string' ||
-      typeof o['prompt'] !== 'string'
+      typeof role !== 'string' ||
+      role.trim().length === 0 ||
+      typeof systemPrompt !== 'string' ||
+      systemPrompt.trim().length === 0 ||
+      typeof prompt !== 'string' ||
+      prompt.trim().length === 0
     ) {
       return null;
     }
@@ -41,9 +51,9 @@ export function parsePlan(rootTask: string, text: string): SwarmPlan | null {
       : undefined;
     subtasks.push({
       id: typeof o['id'] === 'string' && o['id'].length > 0 ? o['id'] : `task-${String(i + 1)}`,
-      role: o['role'],
-      systemPrompt: o['systemPrompt'],
-      prompt: o['prompt'],
+      role,
+      systemPrompt,
+      prompt,
       toolAllowlist,
       status: 'pending',
       attempts: 0,
