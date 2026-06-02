@@ -127,6 +127,7 @@ export class AgentRecords {
         type: 'metadata',
         protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
         created_at: Date.now(),
+        app_version: this.agent.appVersion,
       });
       this.metadataInitialized = true;
     }
