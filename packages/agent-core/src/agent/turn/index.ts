@@ -366,7 +366,7 @@ export class TurnFlow {
 
   private async runTurn(turnId: number, signal: AbortSignal): Promise<LoopTurnStopReason> {
     let stopHookContinuationUsed = false;
-    const deduper = new ToolCallDeduplicator();
+    const deduper = new ToolCallDeduplicator({ telemetry: this.agent.telemetry });
     await this.agent.mcp?.waitForInitialLoad(signal);
     while (true) {
       signal.throwIfAborted();
