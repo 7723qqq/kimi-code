@@ -4,6 +4,4 @@
 "@moonshot-ai/kimi-code": minor
 ---
 
-`/plugins reload` now hot-applies plugin changes to the current session — no `/new` required. Newly installed or enabled plugin skills load immediately (the main agent's skill list and `Skill` tool are refreshed) and newly enabled plugin MCP servers are connected. Disable, remove, update, and `sessionStart` changes are not torn down in a running session; reload reports when a new session is still needed to fully apply them.
-
-Adds `PluginManager.runtimeSnapshot()` and `Session.applyPluginRuntimeSnapshot()` in `agent-core`; the SDK's `reloadPlugins()` now returns the applied result (`PluginReloadResult` / `PluginRuntimeApplyResult`).
+`/plugins reload` can now apply newly enabled plugin skills and MCP servers to the current session while reporting when a new session is still required.
