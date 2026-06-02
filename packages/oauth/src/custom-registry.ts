@@ -349,3 +349,28 @@ export function removeCustomRegistryProvider(
     config['defaultProvider'] = undefined;
   }
 }
+
+/**
+ * Applies every entry from a single api.json import in memory. Mirrors the
+ * "remove if present, then apply" sequence the Add Platform flow used to do
+ * via the `removeProvider` RPC, but stays purely in-memory so callers can
+ * persist the whole batch with a single write at the end.
+ *
+ * Bug fixed: previously the caller interleaved in-memory `applyCustomRegistry-
+ * Provider` with the disk-writing `removeProvider` RPC inside a loop. Each
+ * RPC re-read disk and returned a fresh config object, discarding entries that
+ * had already been merged in-memory from earlier iterations. Re-importing a
+ * multi-provider api.json silently lost N-1 of N providers.
+ */
+export function applyCustomRegistryEntries(
+  config: ManagedKimiConfigShape,
+  entries: Record<string, CustomRegistryProviderEntry>,
+  source: CustomRegistrySource,
+): void {
+  for (const entry of Object.values(entries)) {
+    if (entry.id in config.providers) {
+      removeCustomRegistryProvider(config, entry.id);
+    }
+    applyCustomRegistryProvider(config, entry, source);
+  }
+}
