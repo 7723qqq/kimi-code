@@ -21,6 +21,10 @@ export interface SkillRegistryOptions {
   readonly sessionId?: string;
 }
 
+export interface LoadSkillRootsOptions {
+  readonly replace?: boolean;
+}
+
 export class SkillRegistry {
   private readonly byName = new Map<string, SkillDefinition>();
   private readonly byPluginAndName = new Map<string, SkillDefinition>();
@@ -36,7 +40,11 @@ export class SkillRegistry {
     this.sessionId = options.sessionId;
   }
 
-  async loadRoots(roots: readonly SkillRoot[]): Promise<void> {
+  async loadRoots(
+    roots: readonly SkillRoot[],
+    options: LoadSkillRootsOptions = {},
+  ): Promise<void> {
+    const replace = options.replace ?? true;
     for (const root of roots) {
       if (!this.roots.includes(root.path)) this.roots.push(root.path);
     }
@@ -46,12 +54,12 @@ export class SkillRegistry {
       onWarning: this.onWarning,
       onSkippedByPolicy: (skill) => this.skipped.push(skill),
       onDiscoveredSkill: (skill) => {
-        this.indexPluginSkill(skill);
+        this.indexPluginSkill(skill, { replace });
       },
     } satisfies DiscoverSkillsOptions);
 
     for (const skill of skills) {
-      this.byName.set(normalizeSkillName(skill.name), skill);
+      this.register(skill, { replace });
     }
   }
 

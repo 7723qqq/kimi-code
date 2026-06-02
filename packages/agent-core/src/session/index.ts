@@ -39,6 +39,7 @@ import {
   resolveSkillRoots,
   SkillRegistry,
   summarizeSkill,
+  type SkillDefinition,
   type SkillRoot,
   type SkillSummary,
 } from '../skill';
@@ -110,6 +111,10 @@ export class Session {
   // recorded digest — or that drops a recorded server — means the live session
   // is stale and only a new session can reconcile it.
   private readonly loadedPluginMcpDigests = new Map<string, string>();
+  // Digest of every plugin skill actually loaded into this session. The map is
+  // additive for the same reason as the registry: removed or changed entries are
+  // stale until a new session starts with a fresh registry.
+  private readonly loadedPluginSkillDigests = new Map<string, string>();
   metadata: SessionMeta = {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -189,14 +194,6 @@ export class Session {
     const profile = DEFAULT_AGENT_PROFILES['agent'];
     if (main !== undefined && profile !== undefined && main.config.systemPrompt === '') {
       await this.bootstrapAgentProfile(main, profile);
-    }
-    // Native resume replays the system prompt from the wire without calling
-    // useProfile, so the skill-listing baseline is never captured. Seed it now
-    // (it matches the replayed prompt) so the SkillRefreshInjector can detect
-    // when a later /plugins reload makes the listing stale.
-    const skillListing = this.skills.getModelSkillListing();
-    for (const agent of this.agents.values()) {
-      agent.systemPromptSkillListing ??= skillListing;
     }
     await this.triggerSessionStart('resume');
     return { warning: resumeWarning };
@@ -343,11 +340,11 @@ export class Session {
 
   /**
    * Hot-apply a plugin runtime snapshot to this live session. Additive only:
-   * newly enabled plugin skills are loaded and the main agent's system prompt
-   * is re-rendered so the model sees them; the `Skill` builtin tool is
-   * refreshed so it appears when skills first become available; and newly
-   * enabled plugin MCP servers are connected (their tools register via the MCP
-   * status subscription and are picked up on the next turn). Disabled/removed
+   * newly enabled plugin skills are loaded and surfaced to the model by the
+   * SkillRefreshInjector; the `Skill` builtin tool is refreshed so it appears
+   * when skills first become available; and newly enabled plugin MCP servers are
+   * connected (their tools register via the MCP status subscription and are
+   * picked up on the next turn). Disabled/removed
    * capabilities are NOT torn down and sessionStart skills are NOT injected
    * mid-conversation — those are reported via `needsNewSession`.
    */
@@ -357,8 +354,10 @@ export class Session {
     await this.skillsReady;
 
     // Skills: re-resolve roots with the snapshot's plugin roots and merge them
-    // in. loadRoots skips already-loaded roots, so only new ones are scanned.
+    // in additively. Existing skills are not replaced; if a plugin changes a
+    // loaded skill in place, `needsNewSession` reports the stale runtime instead.
     const before = new Set(this.skills.listSkills().map((skill) => skill.name));
+    const desiredSkillDigests = await this.desiredPluginSkillDigests(snapshot);
     const roots = await resolveSkillRoots({
       paths: {
         userHomeDir: this.options.skills?.userHomeDir ?? homedir(),
@@ -370,7 +369,12 @@ export class Session {
       mergeAllAvailableSkills: this.options.skills?.mergeAllAvailableSkills,
       builtinDir: this.options.skills?.builtinDir,
     });
-    await this.skills.loadRoots(roots);
+    await this.skills.loadRoots(roots, { replace: false });
+    for (const [key, digest] of desiredSkillDigests) {
+      if (!this.loadedPluginSkillDigests.has(key)) {
+        this.loadedPluginSkillDigests.set(key, digest);
+      }
+    }
     const addedSkills = this.skills
       .listSkills()
       .map((skill) => skill.name)
@@ -407,27 +411,32 @@ export class Session {
       (name) => this.mcp.get(name)?.status === 'connected',
     );
 
-    // The skill names the plugins currently declare (re-discovered from the
-    // snapshot roots). Compared against the additive registry, this detects a
-    // skill that was removed or renamed by a plugin update.
-    const desiredSkillKeys = await this.desiredPluginSkillKeys(snapshot);
-
     return {
       addedSkills,
       addedMcpServers,
-      needsNewSession: this.pluginRuntimeNeedsNewSession(snapshot, main, desiredSkillKeys),
+      needsNewSession: this.pluginRuntimeNeedsNewSession(snapshot, main, desiredSkillDigests),
     };
   }
 
-  /** `${pluginId}\0${skillName}` for every skill the snapshot's plugins currently declare. */
-  private async desiredPluginSkillKeys(snapshot: PluginRuntimeSnapshot): Promise<Set<string>> {
-    if (snapshot.pluginSkillRoots.length === 0) return new Set();
-    const discovered = await discoverSkills({ roots: snapshot.pluginSkillRoots });
-    const keys = new Set<string>();
+  /** Current digest for every skill the snapshot's plugins declare. */
+  private async desiredPluginSkillDigests(
+    snapshot: PluginRuntimeSnapshot,
+  ): Promise<Map<string, string>> {
+    return this.pluginSkillDigests(snapshot.pluginSkillRoots);
+  }
+
+  private async pluginSkillDigests(
+    roots: readonly SkillRoot[] | undefined,
+  ): Promise<Map<string, string>> {
+    if (roots === undefined || roots.length === 0) return new Map();
+    const discovered = await discoverSkills({ roots });
+    const digests = new Map<string, string>();
     for (const skill of discovered) {
-      if (skill.plugin?.id !== undefined) keys.add(pluginSkillKey(skill.plugin.id, skill.name));
+      if (skill.plugin?.id !== undefined) {
+        digests.set(pluginSkillKey(skill.plugin.id, skill.name), pluginSkillDigest(skill));
+      }
     }
-    return keys;
+    return digests;
   }
 
   /**
@@ -436,9 +445,8 @@ export class Session {
    * are hot-loaded and do NOT count; this detects capabilities that were
    * removed or CHANGED IN PLACE by a plugin update, which the running session
    * cannot tear down or hot-swap:
-   *   - a loaded plugin skill (in the additive registry) that the plugin no
-   *     longer declares — i.e. the plugin was disabled/removed, or it renamed
-   *     or dropped that skill;
+   *   - a loaded plugin skill that the plugin no longer declares or now declares
+   *     with different content;
    *   - a connected plugin MCP server that is gone, or whose config (command /
    *     args / env / cwd / …) changed since we connected it;
    *   - a drift between the desired and currently-active sessionStart injections.
@@ -446,15 +454,14 @@ export class Session {
   private pluginRuntimeNeedsNewSession(
     snapshot: PluginRuntimeSnapshot,
     main: Agent | undefined,
-    desiredSkillKeys: ReadonlySet<string>,
+    desiredSkillDigests: ReadonlyMap<string, string>,
   ): boolean {
     // Skills: the registry is additive (no unload), so any loaded plugin skill
-    // the plugins no longer declare is stale — covers disable/remove of a plugin
-    // and remove/rename of an individual skill. New skills are simply absent
-    // from the registry until loaded, so they never trip this.
-    const staleSkill = this.skills.listSkills().some((skill) => {
-      const pluginId = skill.plugin?.id;
-      return pluginId !== undefined && !desiredSkillKeys.has(pluginSkillKey(pluginId, skill.name));
+    // the plugins no longer declare — or now declare with different content —
+    // is stale. New skills are recorded after additive loading and do not trip this.
+    const staleSkill = [...this.loadedPluginSkillDigests].some(([key, digest]) => {
+      const desired = desiredSkillDigests.get(key);
+      return desired === undefined || desired !== digest;
     });
     if (staleSkill) return true;
 
@@ -490,6 +497,15 @@ export class Session {
     });
     await this.skills.loadRoots(roots);
     registerBuiltinSkills(this.skills);
+    await this.recordLoadedPluginSkillDigests(this.options.skills?.pluginSkillRoots);
+  }
+
+  private async recordLoadedPluginSkillDigests(
+    roots: readonly SkillRoot[] | undefined,
+  ): Promise<void> {
+    for (const [key, digest] of await this.pluginSkillDigests(roots)) {
+      this.loadedPluginSkillDigests.set(key, digest);
+    }
   }
 
   private async loadMcpServers(): Promise<void> {
@@ -670,7 +686,17 @@ export class Session {
 export * from './subagent-host';
 
 function pluginSkillKey(pluginId: string, skillName: string): string {
-  return `${pluginId} ${skillName}`;
+  return `${pluginId}\0${skillName}`;
+}
+
+function pluginSkillDigest(skill: SkillDefinition): string {
+  return stableStringify({
+    path: skill.path,
+    description: skill.description,
+    content: skill.content,
+    metadata: skill.metadata,
+    instructions: skill.plugin?.instructions,
+  });
 }
 
 /**

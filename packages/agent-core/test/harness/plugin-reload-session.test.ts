@@ -230,23 +230,83 @@ describe('plugin reload hot-apply to a live session', () => {
     expect(second.applied?.needsNewSession).toBe(false);
   });
 
-  it('captures the skill-listing baseline on resume so a later reload can still surface skills', async () => {
+  it('flags needsNewSession and keeps the loaded skill when a plugin changes an existing skill body', async () => {
+    const { core, rpc } = await createTestRpc();
+    const created = await rpc.createSession({ id: 'ses_skill_body_change', workDir });
+
+    await rpc.installPlugin({
+      source: await makePlugin('editpack', {
+        skillNames: ['edit-skill'],
+        skillContents: { 'edit-skill': 'old body' },
+      }),
+    });
+    await rpc.reloadPlugins({ sessionId: created.id });
+    const session = core.sessions.get(created.id)!;
+    expect(session.skills.getSkill('edit-skill')?.content).toContain('old body');
+
+    await rpc.installPlugin({
+      source: await makePlugin('editpack', {
+        skillNames: ['edit-skill'],
+        skillContents: { 'edit-skill': 'new body' },
+      }),
+    });
+    const second = await rpc.reloadPlugins({ sessionId: created.id });
+
+    expect(second.applied?.needsNewSession).toBe(true);
+    expect(session.skills.getSkill('edit-skill')?.content).toContain('old body');
+  });
+
+  it('does not duplicate the skill listing on resume when the replayed prompt already has it', async () => {
     const first = await createTestRpc();
+    await first.rpc.installPlugin({
+      source: await makePlugin('prepack', { skillNames: ['preloaded-skill'] }),
+    });
     const created = await first.rpc.createSession({ id: 'ses_resume_base', workDir });
+    const original = first.core.sessions.get(created.id)?.agents.get('main')?.config.systemPrompt;
+    expect(original).toContain('preloaded-skill');
     await first.core.sessions.get(created.id)?.flushMetadata();
 
     // A fresh process resumes the session: useProfile is NOT called, but the
-    // baseline must still be seeded (otherwise SkillRefreshInjector goes silent).
+    // replayed prompt already contains the current listing, so no reminder is needed.
     const second = await createTestRpc();
     await second.rpc.resumeSession({ sessionId: created.id });
     const main = second.core.sessions.get(created.id)?.agents.get('main');
-    expect(main?.systemPromptSkillListing).toBeDefined();
+    await main?.injection.inject();
+    const injected = main?.context.history.some((message) =>
+      message.content.some((part) => part.type === 'text' && part.text.includes('preloaded-skill')),
+    );
+    expect(injected).toBe(false);
+  });
+
+  it('surfaces plugin skills installed after a session was saved when that session is resumed', async () => {
+    const first = await createTestRpc();
+    const created = await first.rpc.createSession({ id: 'ses_resume_after_install', workDir });
+    const original = first.core.sessions.get(created.id)?.agents.get('main')?.config.systemPrompt;
+    expect(original).not.toContain('resume-hot-skill');
+    await first.core.sessions.get(created.id)?.flushMetadata();
+
+    await first.rpc.installPlugin({
+      source: await makePlugin('resumepack', { skillNames: ['resume-hot-skill'] }),
+    });
+
+    const second = await createTestRpc();
+    await second.rpc.resumeSession({ sessionId: created.id });
+    const main = second.core.sessions.get(created.id)?.agents.get('main');
+    expect(main?.config.systemPrompt).not.toContain('resume-hot-skill');
+
+    await main?.injection.inject();
+
+    const injected = main?.context.history.some((message) =>
+      message.content.some((part) => part.type === 'text' && part.text.includes('resume-hot-skill')),
+    );
+    expect(injected).toBe(true);
   });
 
   async function makePlugin(
     name: string,
     options: {
       readonly skillNames?: readonly string[];
+      readonly skillContents?: Readonly<Record<string, string>>;
       readonly mcpServers?: Record<string, unknown>;
       readonly sessionStartSkill?: string;
     } = {},
@@ -258,7 +318,7 @@ describe('plugin reload hot-apply to a live session', () => {
       await mkdir(join(root, 'skills', skillName), { recursive: true });
       await writeFile(
         join(root, 'skills', skillName, 'SKILL.md'),
-        `---\nname: ${skillName}\ndescription: A hot-loaded skill\n---\nbody`,
+        `---\nname: ${skillName}\ndescription: A hot-loaded skill\n---\n${options.skillContents?.[skillName] ?? 'body'}`,
         'utf8',
       );
     }

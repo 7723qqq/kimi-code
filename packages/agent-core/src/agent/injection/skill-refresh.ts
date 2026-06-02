@@ -23,16 +23,20 @@ export class SkillRefreshInjector extends DynamicInjector {
   override getInjection(): string | undefined {
     const registry = this.agent.skills?.registry;
     if (registry === undefined) return undefined;
-    // No baseline captured means the agent never rendered a profile prompt with
-    // a skill listing (e.g. a resumed agent replaying its prompt, or a bare test
-    // agent). Without a baseline we cannot tell what the model already sees, so
-    // surface nothing rather than risk a spurious reminder.
     const baseline = this.agent.systemPromptSkillListing;
-    if (baseline === undefined) return undefined;
     const current = registry.getModelSkillListing();
+    if (current.length === 0) return undefined;
+    // Native resume replays the system prompt from records without calling
+    // useProfile, so no baseline exists. In that case, compare against the
+    // replayed prompt string itself: if it already contains the current listing,
+    // there is nothing to surface; otherwise a plugin was added after the prompt
+    // was recorded and the model needs the fresh listing.
+    if (baseline === undefined && this.agent.config?.systemPrompt.includes(current)) {
+      return undefined;
+    }
     // While the live listing still matches the one baked into the system
     // prompt, there is nothing extra to surface.
-    if (current === baseline) return undefined;
+    if (baseline !== undefined && current === baseline) return undefined;
     // The listing drifted from the prompt baseline. Surface it once; only
     // re-surface if it changed again or scrolled out of context via compaction
     // (the base class nulls `injectedAt` in that case).
