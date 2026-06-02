@@ -44,7 +44,7 @@ export interface CompactedHistory {
   text: string;
 }
 
-export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
+export const MAX_COMPACTION_RETRY_ATTEMPTS = 10;
 
 class CompactionTruncatedError extends Error {
   constructor() {
@@ -283,7 +283,7 @@ export class FullCompaction {
           break;
         } catch (error) {
           if (error instanceof APIContextOverflowError || error instanceof CompactionTruncatedError) {
-            compactedCount = this.strategy.reduceCompactOnOverflow(messagesToCompact);
+            compactedCount = this.strategy.reduceCompactOnOverflow(messagesToCompact, retryCount);
           }
           else if (!isRetryableGenerateError(error)) {
             throw error;

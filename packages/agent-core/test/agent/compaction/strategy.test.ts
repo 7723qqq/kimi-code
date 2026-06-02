@@ -120,6 +120,23 @@ describe('DefaultCompactionStrategy', () => {
     expect(strategy.shouldCompact(28_000)).toBe(true);
     expect(strategy.shouldBlock(28_000)).toBe(true);
   });
+
+  it('reduces more aggressively when retry count exceeds 5', () => {
+    const strategy = testCompactionStrategy(1_000);
+    const messages = [
+      textMessage('assistant', 'a'.repeat(192)),
+      textMessage('user', 'u'.repeat(4)),
+      textMessage('assistant', 'a'.repeat(192)),
+      textMessage('user', 'u'.repeat(4)),
+      textMessage('assistant', 'a'.repeat(192)),
+      textMessage('user', 'u'.repeat(4)),
+      textMessage('assistant', 'a'.repeat(192)),
+    ];
+
+    expect(strategy.reduceCompactOnOverflow(messages, 0)).toBe(5);
+    expect(strategy.reduceCompactOnOverflow(messages, 5)).toBe(5);
+    expect(strategy.reduceCompactOnOverflow(messages, 6)).toBe(3);
+  });
 });
 
 function testCompactionStrategy(maxSize: number = 1_000): DefaultCompactionStrategy {

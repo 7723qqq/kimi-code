@@ -28,7 +28,7 @@ export interface CompactionStrategy {
   shouldCompact(usedSize: number): boolean;
   shouldBlock(usedSize: number): boolean;
   computeCompactCount(messages: readonly Message[], source: CompactionSource): number;
-  reduceCompactOnOverflow(messages: readonly Message[]): number;
+  reduceCompactOnOverflow(messages: readonly Message[], retry: number): number;
   readonly checkAfterStep: boolean;
   readonly maxCompactionPerTurn: number;
 }
@@ -118,10 +118,13 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
     return bestN ?? 0;
   }
 
-  reduceCompactOnOverflow(messages: readonly Message[]): number {
+  reduceCompactOnOverflow(messages: readonly Message[], retry: number): number {
+    const ratio = retry > 5
+      ? this.config.minOverflowReductionRatio * 2
+      : this.config.minOverflowReductionRatio;
     const minReducedSize = Math.max(
       1,
-      Math.ceil(this.maxSize * this.config.minOverflowReductionRatio),
+      Math.ceil(this.maxSize * ratio),
     );
     let reducedSize = 0;
     let bestN: number | undefined;

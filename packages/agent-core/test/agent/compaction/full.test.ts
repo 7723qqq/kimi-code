@@ -146,7 +146,7 @@ describe('FullCompaction', () => {
       ]).flat(),
     ];
 
-    const reduced = strategy.reduceCompactOnOverflow(messages);
+    const reduced = strategy.reduceCompactOnOverflow(messages, 0);
     const removed = messages.slice(reduced);
 
     expect(reduced).toBeGreaterThan(0);
@@ -749,7 +749,7 @@ describe('FullCompaction', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     const events = await ctx.untilTurnEnd();
 
-    expect(attempts).toBe(5);
+    expect(attempts).toBe(10);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
@@ -788,14 +788,14 @@ describe('FullCompaction', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await failed;
 
-    expect(attempts).toBe(5);
+    expect(attempts).toBe(10);
     expect(records).toContainEqual({
       event: 'compaction_failed',
       properties: {
         trigger_type: 'manual',
         before_tokens: 25,
         duration_ms: expect.any(Number),
-        retry_count: 4,
+        retry_count: 9,
         error_type: 'APIConnectionError',
       },
     });
@@ -1763,7 +1763,7 @@ const alwaysCompactOnce: CompactionStrategy = {
   shouldCompact: () => true,
   shouldBlock: () => true,
   computeCompactCount: (messages: readonly Message[]) => messages.length,
-  reduceCompactOnOverflow: (messages: readonly Message[]) => messages.length,
+  reduceCompactOnOverflow: (messages: readonly Message[], _retry: number) => messages.length,
   checkAfterStep: true,
   maxCompactionPerTurn: 1,
 };
