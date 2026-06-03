@@ -680,7 +680,7 @@ function makeToolResult(
 }
 
 function toolResultStopsTurn(result: ExecutableToolResult): boolean {
-  return result.isError === true && result.stopTurn === true;
+  return result.stopTurn === true;
 }
 
 function makeErrorToolResult(
