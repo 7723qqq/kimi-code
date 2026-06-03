@@ -9,46 +9,16 @@ import { Session } from '../../src/session';
 import { SessionAPIImpl } from '../../src/session/rpc';
 import {
   SessionGoalStore,
-  type GoalAuditSink,
   type GoalChange,
   type GoalSnapshot,
   type SessionGoalState,
 } from '../../src/session/goal';
-import type { AgentRecord } from '../../src/agent/records';
 import type { SDKSessionRPC } from '../../src/rpc';
 import type { TelemetryClient } from '../../src/telemetry';
 import { testKaos } from '../fixtures/test-kaos';
 import { recordingTelemetry, type TelemetryRecord } from '../fixtures/telemetry';
 
 const GOAL_FLAG = 'KIMI_CODE_EXPERIMENTAL_GOAL_COMMAND';
-
-/** An in-memory store backing plus a controllable lazy audit sink. */
-function makeAuditStore(opts: { sinkReady?: boolean } = {}) {
-  let state: SessionGoalState | undefined;
-  const records: AgentRecord[] = [];
-  const sink: GoalAuditSink = { logRecord: (r) => records.push(r) };
-  let ready = opts.sinkReady ?? true;
-  const store = new SessionGoalStore({
-    sessionId: 'test',
-    readState: () => state,
-    writeState: async (next) => {
-      state = next;
-    },
-    auditSink: () => (ready ? sink : undefined),
-  });
-  return {
-    store,
-    records,
-    types: () => records.map((r) => r.type),
-    current: () => state,
-    setState: (next: SessionGoalState | undefined) => {
-      state = next;
-    },
-    enableSink: () => {
-      ready = true;
-    },
-  };
-}
 
 function activeState(overrides: Partial<SessionGoalState> = {}): SessionGoalState {
   return {
@@ -68,7 +38,7 @@ function activeState(overrides: Partial<SessionGoalState> = {}): SessionGoalStat
 }
 
 /** A simple in-memory backing for the goal store. */
-function makeStore(opts: { now?: () => number; telemetry?: TelemetryClient } = {}) {
+function makeStore(opts: { telemetry?: TelemetryClient } = {}) {
   let state: SessionGoalState | undefined;
   let writeCount = 0;
   const updates: (GoalSnapshot | null)[] = [];
@@ -85,11 +55,13 @@ function makeStore(opts: { now?: () => number; telemetry?: TelemetryClient } = {
       changes.push(change);
     },
     telemetry: opts.telemetry,
-    ...(opts.now !== undefined ? { now: opts.now } : {}),
   });
   return {
     store,
     current: () => state,
+    setState: (next: SessionGoalState | undefined) => {
+      state = next;
+    },
     writeCount: () => writeCount,
     updates: () => updates,
     changes: () => changes,
@@ -99,6 +71,8 @@ function makeStore(opts: { now?: () => number; telemetry?: TelemetryClient } = {
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });
   }
@@ -359,8 +333,9 @@ describe('SessionGoalStore budgets', () => {
   });
 
   it('computes token, turn, and wall-clock budget flags independently', async () => {
-    let clock = 1_000;
-    const { store } = makeStore({ now: () => clock });
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const { store } = makeStore();
     await store.createGoal({
       objective: 'work',
       budgetLimits: { tokenBudget: 100, turnBudget: 2, wallClockBudgetMs: 1000 },
@@ -378,7 +353,7 @@ describe('SessionGoalStore budgets', () => {
     expect(snap.budget.turnBudgetReached).toBe(true);
 
     // Live wall-clock: advancing the clock past the budget trips the flag.
-    clock += 1_000;
+    vi.setSystemTime(2_000);
     snap = store.getGoal().goal!;
     expect(snap.budget.wallClockBudgetReached).toBe(true);
   });
@@ -394,15 +369,16 @@ describe('SessionGoalStore accounting', () => {
   });
 
   it('tracks live wall-clock from when the goal became active', async () => {
-    let clock = 10_000;
-    const { store } = makeStore({ now: () => clock });
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const { store } = makeStore();
     await store.createGoal({ objective: 'work' });
-    clock += 500;
+    vi.setSystemTime(10_500);
     expect(store.getGoal().goal?.wallClockMs).toBe(500);
     // Folds the interval and stops counting once the goal leaves `active`.
-    clock += 250;
+    vi.setSystemTime(10_750);
     await store.pauseGoal();
-    clock += 9_999; // paused time must not accrue
+    vi.setSystemTime(20_749); // paused time must not accrue
     expect(store.getGoal().goal?.wallClockMs).toBe(750);
   });
 
@@ -524,126 +500,38 @@ describe('SessionGoalStore lifecycle', () => {
   });
 });
 
-describe('SessionGoalStore audit records', () => {
-  it('writes directly when the sink is already available', async () => {
-    const { store, types } = makeAuditStore({ sinkReady: true });
-    await store.createGoal({ objective: 'work' });
-    expect(types()).toEqual(['goal.create']);
-  });
-
-  it('queues records and flushes them in order when the sink becomes available', async () => {
-    const { store, types, enableSink } = makeAuditStore({ sinkReady: false });
-    await store.createGoal({ objective: 'work' });
-    await store.incrementTurn();
-    expect(types()).toEqual([]); // queued, not yet flushed
-    enableSink();
-    store.flushPendingRecords();
-    expect(types()).toEqual(['goal.create', 'goal.continuation']);
-  });
-
-  it('flushPendingRecords is idempotent', async () => {
-    const { store, types, enableSink } = makeAuditStore({ sinkReady: false });
-    await store.createGoal({ objective: 'work' });
-    enableSink();
-    store.flushPendingRecords();
-    store.flushPendingRecords();
-    expect(types()).toEqual(['goal.create']);
-  });
-
-  it('replacing a goal appends one goal.clear before the new goal.create', async () => {
-    const { store, types } = makeAuditStore();
-    await store.createGoal({ objective: 'first' });
-    await store.createGoal({ objective: 'second', replace: true });
-    expect(types()).toEqual(['goal.create', 'goal.clear', 'goal.create']);
-  });
-
-  it('pauseGoal and resumeGoal append goal.update', async () => {
-    const { store, types } = makeAuditStore();
-    await store.createGoal({ objective: 'work' });
-    await store.pauseGoal();
-    await store.resumeGoal();
-    expect(types()).toEqual(['goal.create', 'goal.update', 'goal.update']);
-  });
-
-  it('markBlocked appends a goal.update with the blocked status', async () => {
-    const { store, records } = makeAuditStore();
-    await store.createGoal({ objective: 'work' });
-    await store.markBlocked({ reason: 'stuck' });
-    const last = records.at(-1);
-    expect(last).toMatchObject({ type: 'goal.update', status: 'blocked' });
-  });
-
-  it('markComplete appends a goal.update (complete) then a goal.clear', async () => {
-    const { store, types } = makeAuditStore();
-    await store.createGoal({ objective: 'work' });
-    await store.markComplete({ reason: 'done' });
-    expect(types()).toEqual(['goal.create', 'goal.update', 'goal.clear']);
-  });
-
-  it('accounting appends goal.account_usage for token usage', async () => {
-    const { store, records } = makeAuditStore();
-    await store.createGoal({ objective: 'work' });
-    await store.recordTokenUsage({ tokenDelta: 5, agentId: 'main', agentType: 'main', source: 'agent_step' });
-    const usage = records.filter((r) => r.type === 'goal.account_usage');
-    expect(usage.map((r) => (r as { usageKind: string }).usageKind)).toEqual(['token']);
-  });
-
-  it('incrementTurn appends goal.continuation', async () => {
-    const { store, types } = makeAuditStore();
-    await store.createGoal({ objective: 'work' });
-    await store.incrementTurn();
-    expect(types().at(-1)).toBe('goal.continuation');
-  });
-
-  it('cancelGoal appends only goal.clear (cancel = discard)', async () => {
-    const { store, types } = makeAuditStore();
-    await store.createGoal({ objective: 'work' });
-    await store.cancelGoal({ reason: 'stop' });
-    expect(types()).toEqual(['goal.create', 'goal.clear']);
-  });
-});
-
 describe('SessionGoalStore normalizeMetadata', () => {
   it('converts an active goal to paused on resume', async () => {
-    const { store, current, setState } = makeAuditStore();
+    const { store, current, setState } = makeStore();
     setState(activeState());
     await store.normalizeMetadata();
     expect(current()?.status).toBe('paused');
     expect(store.getGoal().goal?.status).toBe('paused');
   });
 
-  it('queues a goal.update for the active-to-paused resume transition', async () => {
-    const { store, types, setState } = makeAuditStore();
-    setState(activeState());
-    await store.normalizeMetadata();
-    expect(types()).toEqual(['goal.update']);
-  });
-
   it('keeps paused goals on resume', async () => {
-    const { store, types, current, setState } = makeAuditStore();
+    const { store, current, setState } = makeStore();
     setState(activeState({ status: 'paused' }));
     await store.normalizeMetadata();
     expect(current()?.status).toBe('paused');
-    expect(types()).toEqual([]);
   });
 
   it('keeps blocked goals on resume (resumable)', async () => {
-    const { store, types, current, setState } = makeAuditStore();
+    const { store, current, setState } = makeStore();
     setState(activeState({ status: 'blocked', terminalReason: 'stuck' }));
     await store.normalizeMetadata();
     expect(current()?.status).toBe('blocked');
-    expect(types()).toEqual([]);
   });
 
   it('removes malformed goal data on resume', async () => {
-    const { store, current, setState } = makeAuditStore();
+    const { store, current, setState } = makeStore();
     setState({ bogus: true } as unknown as SessionGoalState);
     await store.normalizeMetadata();
     expect(current()).toBeUndefined();
   });
 
   it('removes a stray complete goal on resume (complete is transient)', async () => {
-    const { store, current, setState } = makeAuditStore();
+    const { store, current, setState } = makeStore();
     setState(activeState({ status: 'complete', terminalReason: 'done' }));
     await store.normalizeMetadata();
     expect(current()).toBeUndefined();

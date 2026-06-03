@@ -143,7 +143,6 @@ export class Session {
         }
         return this.writeMetadata();
       },
-      auditSink: () => this.agents.get('main')?.records,
       onGoalUpdated: (snapshot, change) => {
         void this.rpc.emitEvent({ type: 'goal.updated', agentId: 'main', snapshot, change });
       },
@@ -171,8 +170,6 @@ export class Session {
 
   async createMain() {
     const { agent } = await this.createAgent({ type: 'main' }, DEFAULT_AGENT_PROFILES['agent']);
-    // The main-agent audit sink now exists; flush any goal records queued before it.
-    this.goals.flushPendingRecords();
     await this.triggerSessionStart('startup');
     return agent;
   }
@@ -180,8 +177,8 @@ export class Session {
   async resume(): Promise<{ warning?: string }> {
     await this.skillsReady;
     const { agents } = await this.readMetadata();
-    // Reconcile the persisted goal (active -> paused, drop malformed/stale) before
-    // agents are rebuilt. The audit record (if any) is queued and flushed below.
+    // Reconcile the persisted goal (active -> paused, drop malformed/stale)
+    // before agents are rebuilt.
     await this.goals.normalizeMetadata();
     this.agents.clear();
     let warning: string | undefined;
@@ -193,9 +190,6 @@ export class Session {
       }
     });
     await Promise.all(resumeTasks);
-    // The main-agent audit sink now exists; flush any goal records queued during
-    // normalizeMetadata (e.g. the active -> paused resume transition).
-    this.goals.flushPendingRecords();
     const resumeWarning = warning;
     // A session migrated from an external tool ships a wire without the
     // `config.update` bootstrap events a natively-created agent writes, so the

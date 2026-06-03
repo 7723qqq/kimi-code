@@ -1,17 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
 import { ErrorCodes, KimiError } from '#/errors';
-import type { AgentRecord } from '../agent/records/types';
 import {
   noopTelemetryClient,
   type TelemetryClient,
   type TelemetryProperties,
 } from '../telemetry';
-
-/** Minimal audit sink the goal store writes `goal.*` records into. */
-export interface GoalAuditSink {
-  logRecord(record: AgentRecord): void;
-}
 
 /**
  * Durable goal-mode state owned by {@link SessionGoalStore}.
@@ -89,7 +83,7 @@ export type GoalStatus =
    */
   | 'complete';
 
-/** Who performed a goal action. `cleared` is an audit action, not a status. */
+/** Who performed a goal action. */
 export type GoalActor = 'user' | 'model' | 'runtime' | 'system';
 
 export interface GoalBudgetLimits {
@@ -220,11 +214,6 @@ export interface SessionGoalStoreOptions {
   /** Writes (or clears, when `undefined`) the goal state and persists metadata. */
   readonly writeState: (state: SessionGoalState | undefined) => Promise<void>;
   /**
-   * Lazily resolves the main-agent audit sink. Goal audit records are written
-   * here once the sink exists, and queued in order until then.
-   */
-  readonly auditSink?: () => GoalAuditSink | undefined;
-  /**
    * Notified with the current goal snapshot (or `null` when cleared) after each
    * durable state change, so live UI (e.g. the footer badge) can update. A
    * `change` accompanies lifecycle / verdict / terminal transitions so the UI can
@@ -235,8 +224,6 @@ export interface SessionGoalStoreOptions {
   readonly onGoalUpdated?: (snapshot: GoalSnapshot | null, change?: GoalChange) => void;
   /** Remote usage telemetry. Goal content and reasons are never reported. */
   readonly telemetry?: TelemetryClient | undefined;
-  /** Injectable clock (epoch ms) for the live wall-clock timer; tests override it. */
-  readonly now?: () => number;
 }
 
 /**
@@ -258,42 +245,10 @@ export interface SessionGoalStoreOptions {
  *   to `paused` on session resume.
  */
 export class SessionGoalStore {
-  /** Audit records queued until the main-agent sink becomes available. */
-  private readonly pending: AgentRecord[] = [];
   private readonly telemetry: TelemetryClient;
 
   constructor(private readonly options: SessionGoalStoreOptions) {
     this.telemetry = options.telemetry ?? noopTelemetryClient;
-  }
-
-  /** Current epoch ms from the injectable clock (defaults to `Date.now`). */
-  private nowMs(): number {
-    return this.options.now?.() ?? Date.now();
-  }
-
-  // --- Audit -------------------------------------------------------------
-
-  /**
-   * Writes an audit record to the main-agent sink, or queues it in order when
-   * the sink is not yet available (e.g. before the main agent exists).
-   */
-  private appendAudit(record: AgentRecord): void {
-    const sink = this.options.auditSink?.();
-    if (sink !== undefined) {
-      sink.logRecord(record);
-    } else {
-      this.pending.push(record);
-    }
-  }
-
-  /** Flushes queued audit records in original order once a sink is available. */
-  flushPendingRecords(): void {
-    const sink = this.options.auditSink?.();
-    if (sink === undefined) return;
-    const queued = this.pending.splice(0);
-    for (const record of queued) {
-      sink.logRecord(record);
-    }
   }
 
   /**
@@ -329,7 +284,7 @@ export class SessionGoalStore {
     if (state.status === 'active') {
       this.applyStatus(state, 'paused', 'runtime', 'Paused after session resume');
       await this.persistState(state);
-      this.appendStatusUpdate(state, 'runtime', 'Paused after session resume');
+      this.trackStatusChanged(state, 'runtime');
       return;
     }
 
@@ -375,8 +330,8 @@ export class SessionGoalStore {
           'A goal already exists; use replace to start a new one',
         );
       }
-      // Clear the previous goal through the same internal clear path so audit
-      // and metadata stay consistent before storing the replacement.
+      // Clear the previous goal through the same internal clear path before
+      // storing the replacement.
       await this.clearInternal('system', 'Replaced by a new goal');
     }
 
@@ -393,7 +348,7 @@ export class SessionGoalStore {
       turnsUsed: 0,
       tokensUsed: 0,
       wallClockMs: 0,
-      wallClockResumedAt: this.nowMs(),
+      wallClockResumedAt: Date.now(),
       budgetLimits: input.budgetLimits ?? {},
     };
     if (input.completionCriterion !== undefined && input.completionCriterion.trim().length > 0) {
@@ -401,14 +356,6 @@ export class SessionGoalStore {
     }
 
     await this.persistState(state);
-    this.appendAudit({
-      type: 'goal.create',
-      goalId: state.goalId,
-      objective: state.objective,
-      status: state.status,
-      actor,
-      budgetLimits: state.budgetLimits,
-    });
     this.trackGoalCreated(state, actor, input.replace === true);
     return this.toSnapshot(state);
   }
@@ -430,7 +377,7 @@ export class SessionGoalStore {
     await this.persistState(state, {
       change: { kind: 'lifecycle', status: 'paused', reason: input.reason },
     });
-    this.appendStatusUpdate(state, actor, input.reason);
+    this.trackStatusChanged(state, actor);
     return this.toSnapshot(state);
   }
 
@@ -450,7 +397,7 @@ export class SessionGoalStore {
     await this.persistState(state, {
       change: { kind: 'lifecycle', status: 'paused', reason: input.reason },
     });
-    this.appendStatusUpdate(state, actor, input.reason);
+    this.trackStatusChanged(state, actor);
     return this.toSnapshot(state);
   }
 
@@ -471,7 +418,7 @@ export class SessionGoalStore {
     await this.persistState(state, {
       change: { kind: 'lifecycle', status: 'active', reason: input.reason },
     });
-    this.appendStatusUpdate(state, actor, input.reason);
+    this.trackStatusChanged(state, actor);
     return this.toSnapshot(state);
   }
 
@@ -528,7 +475,7 @@ export class SessionGoalStore {
     await this.persistState(state, {
       change: { kind: 'lifecycle', status: 'blocked', reason: input.reason },
     });
-    this.appendStatusUpdate(state, actor, input.reason);
+    this.trackStatusChanged(state, actor);
     return this.toSnapshot(state);
   }
 
@@ -550,9 +497,9 @@ export class SessionGoalStore {
     this.applyStatus(state, 'complete', actor, input.reason);
     state.terminalReason = input.reason;
     const snapshot = this.toSnapshot(state);
-    // Audit + notify the UI of completion (with final stats) directly, without
+    // Notify the UI of completion (with final stats) directly, without
     // persisting `complete` to disk...
-    this.appendStatusUpdate(state, actor, input.reason);
+    this.trackStatusChanged(state, actor);
     this.options.onGoalUpdated?.(snapshot, {
       kind: 'completion',
       status: 'complete',
@@ -592,17 +539,6 @@ export class SessionGoalStore {
     state.tokensUsed += delta;
     state.updatedAt = new Date().toISOString();
     await this.persistState(state, { silent: true }); // per-step: no UI update
-    this.appendAudit({
-      type: 'goal.account_usage',
-      goalId: state.goalId,
-      usageKind: 'token',
-      delta,
-      agentId: input.agentId,
-      agentType: input.agentType,
-      source: input.source,
-      tokensUsed: state.tokensUsed,
-      wallClockMs: state.wallClockMs,
-    });
     return this.toSnapshot(state);
   }
 
@@ -613,11 +549,6 @@ export class SessionGoalStore {
     state.turnsUsed += 1;
     state.updatedAt = new Date().toISOString();
     await this.persistState(state);
-    this.appendAudit({
-      type: 'goal.continuation',
-      goalId: state.goalId,
-      turnsUsed: state.turnsUsed,
-    });
     this.track('goal_continued', {
       turns_used: state.turnsUsed,
     });
@@ -626,32 +557,20 @@ export class SessionGoalStore {
 
   // --- Internals ---------------------------------------------------------
 
-  private async clearInternal(actor: GoalActor, reason?: string): Promise<void> {
+  private async clearInternal(actor: GoalActor, _reason?: string): Promise<void> {
     const state = this.options.readState();
     if (state === undefined) return; // idempotent
-    const goalId = state.goalId;
     await this.persistState(undefined);
-    this.appendAudit({ type: 'goal.clear', goalId, actor, reason });
     this.track('goal_cleared', { actor });
   }
 
-  private appendStatusUpdate(state: SessionGoalState, actor: GoalActor, reason?: string): void {
-    this.appendAudit({
-      type: 'goal.update',
-      goalId: state.goalId,
-      status: state.status,
-      actor,
-      reason,
-      turnsUsed: state.turnsUsed,
-      tokensUsed: state.tokensUsed,
-      wallClockMs: state.wallClockMs,
-    });
+  private trackStatusChanged(state: SessionGoalState, actor: GoalActor): void {
     this.track('goal_status_changed', {
       actor,
       status: state.status,
       turns_used: state.turnsUsed,
       tokens_used: state.tokensUsed,
-      wall_clock_ms: liveWallClockMs(state, this.nowMs()),
+      wall_clock_ms: liveWallClockMs(state, Date.now()),
       ...budgetTelemetryProperties(state.budgetLimits),
     });
   }
@@ -682,7 +601,7 @@ export class SessionGoalStore {
     // Fold the live wall-clock interval into the running total when leaving
     // `active`, and anchor a fresh interval when entering it, so `wallClockMs`
     // stays a correct, persistable total across pause/resume/complete.
-    const now = this.nowMs();
+    const now = Date.now();
     if (state.status === 'active' && state.wallClockResumedAt !== undefined) {
       state.wallClockMs += Math.max(0, now - state.wallClockResumedAt);
       state.wallClockResumedAt = undefined;
@@ -727,7 +646,7 @@ export class SessionGoalStore {
     return {
       turnsUsed: state.turnsUsed,
       tokensUsed: state.tokensUsed,
-      wallClockMs: liveWallClockMs(state, this.nowMs()),
+      wallClockMs: liveWallClockMs(state, Date.now()),
     };
   }
 
@@ -743,8 +662,8 @@ export class SessionGoalStore {
       updatedBy: state.updatedBy,
       turnsUsed: state.turnsUsed,
       tokensUsed: state.tokensUsed,
-      wallClockMs: liveWallClockMs(state, this.nowMs()),
-      budget: computeBudgetReport(state, this.nowMs()),
+      wallClockMs: liveWallClockMs(state, Date.now()),
+      budget: computeBudgetReport(state, Date.now()),
       terminalReason: state.terminalReason,
     };
   }

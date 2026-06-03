@@ -158,21 +158,10 @@ describe('goal session end-to-end', () => {
     expect(parsed.custom.goal).toBeUndefined();
     expect(api.getGoal({}).goal).toBeNull();
 
-    // Audit trail records the whole run incl. completion — and no evaluator record.
+    // Goal state is stored in session metadata only; wire records must not contain
+    // goal.* audit entries.
     const records = await readWireRecords(sessionDir);
-    const types = new Set(records.map((record) => record['type']));
-    for (const t of ['goal.create', 'goal.account_usage', 'goal.continuation', 'goal.update', 'goal.clear']) {
-      expect(types.has(t)).toBe(true);
-    }
-    expect(types.has('goal.evaluate')).toBe(false);
-    const usageRecords = records.filter((record) => record['type'] === 'goal.account_usage');
-    expect(usageRecords).toHaveLength(2);
-    const finalUsage = usageRecords.at(-1)?.['tokensUsed'];
-    expect(typeof finalUsage).toBe('number');
-    const completion = records.find(
-      (record) => record['type'] === 'goal.update' && record['status'] === 'complete',
-    );
-    expect(completion?.['tokensUsed']).toBe(finalUsage);
+    expect(records.filter((record) => String(record['type']).startsWith('goal.'))).toEqual([]);
   });
 
   it('blocks at a turn budget (no wrap-up segment)', async () => {
