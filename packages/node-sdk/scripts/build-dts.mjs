@@ -22,6 +22,12 @@ try {
   await writeProviderClientShim();
   await rewriteWorkspaceSpecifiers();
   await run('api-extractor', ['run', '--local']);
+  await run('api-extractor', [
+    'run',
+    '--local',
+    '--config',
+    path.join(packageRoot, 'api-extractor.browser.json'),
+  ]);
 } finally {
   await rm(tempDir, { recursive: true, force: true });
 }

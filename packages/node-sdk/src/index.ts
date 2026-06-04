@@ -8,6 +8,11 @@ export {
   type SDKRpcClientOptions,
 } from '#/sdk-rpc-client';
 export { SDKRpcClientBase } from '#/rpc';
+export {
+  KimiCoreBirpcServer,
+  type KimiCoreBirpcServerChannelOptions,
+  type KimiCoreBirpcServerOptions,
+} from '#/birpc-server';
 export { KimiForCodingProvider } from '#/kimi-code-model-provider';
 export type { KimiForCodingProviderOptions } from '#/kimi-code-model-provider';
 

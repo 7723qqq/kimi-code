@@ -1,0 +1,54 @@
+{
+  "name": "@moonshot-ai/kimi-code-web",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Minimal web UI for Kimi Code",
+  "license": "MIT",
+  "author": "Moonshot AI",
+  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/apps/kimi-code-web#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MoonshotAI/kimi-code.git",
+    "directory": "apps/kimi-code-web"
+  },
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
+  "keywords": [
+    "kimi",
+    "kimi-code",
+    "web",
+    "agent",
+    "coding-agent",
+    "ai"
+  ],
+  "type": "module",
+  "imports": {
+    "#/*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "scripts": {
+    "predev": "pnpm -C ../../packages/node-sdk run build",
+    "dev": "vite",
+    "prebuild": "pnpm -C ../../packages/node-sdk run build",
+    "build": "vite build",
+    "pretypecheck": "pnpm -C ../../packages/node-sdk run build",
+    "typecheck": "vue-tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@moonshot-ai/kimi-code-sdk": "workspace:^",
+    "vue": "^3.5.35"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.7",
+    "typescript": "6.0.2",
+    "vite": "^6.3.3",
+    "vue-tsc": "^3.3.3"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}

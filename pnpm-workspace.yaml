@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - apps/*
+  - apps/kimi-code-web
   - apps/vis/server
   - apps/vis/web
   - docs

@@ -1,18 +1,22 @@
 import {
   ErrorCodes,
-  makeErrorPayload,
-  type AgentContextData,
-  type ApprovalRequest,
-  type ApprovalResponse,
-  type CoreAPI,
-  type Event,
-  type ExperimentalFeatureState,
-  type QuestionRequest,
-  type QuestionResult,
-  type RPCMethods,
-  type SDKAPI,
-  type ToolCallRequest,
-  type ToolCallResponse,
+  KIMI_ERROR_INFO,
+  type KimiErrorCode,
+} from '@moonshot-ai/agent-core/errors/codes';
+import type {
+  AgentContextData,
+  ApprovalRequest,
+  ApprovalResponse,
+  CoreAPI,
+  Event,
+  ExperimentalFeatureState,
+  KimiErrorPayload,
+  QuestionRequest,
+  QuestionResult,
+  RPCMethods,
+  SDKAPI,
+  ToolCallRequest,
+  ToolCallResponse,
 } from '@moonshot-ai/agent-core';
 
 import type { ApprovalHandler, QuestionHandler } from '#/events';
@@ -609,4 +613,12 @@ export class ClientAPI implements SDKAPI {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function makeErrorPayload(code: KimiErrorCode, message: string): KimiErrorPayload {
+  return {
+    code,
+    message,
+    retryable: KIMI_ERROR_INFO[code].retryable,
+  };
 }

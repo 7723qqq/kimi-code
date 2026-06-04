@@ -1,0 +1,8 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/api-extractor/v7/api-extractor.schema.json",
+  "extends": "./api-extractor.json",
+  "mainEntryPointFilePath": "<projectFolder>/.tmp-api-extractor/dts/node-sdk/src/browser.d.ts",
+  "dtsRollup": {
+    "untrimmedFilePath": "<projectFolder>/dist/browser.d.mts"
+  }
+}

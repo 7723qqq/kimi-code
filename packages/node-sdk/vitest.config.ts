@@ -7,12 +7,20 @@ import { rawTextPlugin } from '../../build/raw-text-plugin.mjs';
 export default defineConfig({
   plugins: [rawTextPlugin()],
   resolve: {
-    alias: {
-      '@moonshot-ai/agent-core': fileURLToPath(new URL('../agent-core/src/index.ts', import.meta.url)),
-      '@moonshot-ai/kimi-code-oauth': fileURLToPath(
-        new URL('../oauth/src/index.ts', import.meta.url),
-      ),
-    },
+    alias: [
+      {
+        find: /^@moonshot-ai\/agent-core\/(.+)$/,
+        replacement: fileURLToPath(new URL('../agent-core/src/$1', import.meta.url)),
+      },
+      {
+        find: '@moonshot-ai/agent-core',
+        replacement: fileURLToPath(new URL('../agent-core/src/index.ts', import.meta.url)),
+      },
+      {
+        find: '@moonshot-ai/kimi-code-oauth',
+        replacement: fileURLToPath(new URL('../oauth/src/index.ts', import.meta.url)),
+      },
+    ],
   },
   test: {
     name: 'kimi-sdk',
