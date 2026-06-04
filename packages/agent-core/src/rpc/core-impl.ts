@@ -123,7 +123,7 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
   readonly sessions = new Map<string, Session>();
   readonly telemetry: TelemetryClient;
 
-  private kaos: Promise<Kaos> | undefined;
+  private kaos: Promise<Kaos>;
   private runtime: ToolServices | undefined;
   private config: KimiConfig;
   private readonly runtimeOverride: ToolServices | undefined;
@@ -147,6 +147,12 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     this.configPath = resolveConfigPath({
       homeDir: this.homeDir,
       configPath: options.configPath,
+    });
+    this.kaos = LocalKaos.create().catch((error: unknown) => {
+      if (error instanceof KaosShellNotFoundError) {
+        throw new KimiError(ErrorCodes.SHELL_GIT_BASH_NOT_FOUND, error.message);
+      }
+      throw error;
     });
     this.runtimeOverride = options.runtime;
     this.runtime = options.runtime;
@@ -174,10 +180,6 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     log.info('experimental flags enabled', { flags: this.experimentalFlags.enabledIds() });
 
     this.sdk = rpcClient(this);
-  }
-
-  async checkRuntimeEnvironment(_: EmptyPayload): Promise<void> {
-    await this.getKaos();
   }
 
   async createSession(input: CreateSessionPayload): Promise<SessionSummary> {
@@ -209,7 +211,7 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     // ctor block throws, `session.close()` releases the sink (and mcp).
     const runtime = await this.resolveRuntime(config);
     const session = new Session({
-      kaos: (await this.getKaos()).withCwd(workDir),
+      kaos: (await this.kaos).withCwd(workDir),
       toolServices: runtime,
       config,
       id,
@@ -297,7 +299,7 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     const mcpConfig = this.mergePluginMcpConfig(withCallerMcp);
     const runtime = await this.resolveRuntime(config);
     const session = new Session({
-      kaos: (await this.getKaos()).withCwd(summary.workDir),
+      kaos: (await this.kaos).withCwd(summary.workDir),
       toolServices: runtime,
       config,
       id: summary.id,
@@ -733,16 +735,6 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     });
     this.runtime = runtime;
     return runtime;
-  }
-
-  private getKaos(): Promise<Kaos> {
-    this.kaos ??= LocalKaos.create().catch((error: unknown) => {
-      if (error instanceof KaosShellNotFoundError) {
-        throw new KimiError(ErrorCodes.SHELL_GIT_BASH_NOT_FOUND, error.message);
-      }
-      throw error;
-    });
-    return this.kaos;
   }
 
   private resolveSessionSkillConfig(config: KimiConfig): SessionSkillConfig {
