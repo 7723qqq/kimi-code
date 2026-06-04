@@ -71,6 +71,7 @@
         ./packages/oauth
         ./packages/telemetry
         ./apps/kimi-code
+        ./apps/kimi-code-web
         ./apps/vis
         ./apps/vis/server
         ./apps/vis/web
@@ -87,6 +88,7 @@
         "@moonshot-ai/kimi-code-oauth"
         "@moonshot-ai/kimi-telemetry"
         "@moonshot-ai/kimi-code"
+        "@moonshot-ai/kimi-code-web"
         "@moonshot-ai/vis"
         "@moonshot-ai/vis-server"
         "@moonshot-ai/vis-web"

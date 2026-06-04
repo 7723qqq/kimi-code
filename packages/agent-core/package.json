@@ -37,6 +37,18 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./errors/codes": {
+      "types": "./src/errors/codes.ts",
+      "default": "./src/errors/codes.ts"
+    },
+    "./errors/classes": {
+      "types": "./src/errors/classes.ts",
+      "default": "./src/errors/classes.ts"
+    },
+    "./telemetry": {
+      "types": "./src/telemetry.ts",
+      "default": "./src/telemetry.ts"
+    },
     "./agent/records/migration": {
       "types": "./src/agent/records/migration/index.ts",
       "default": "./src/agent/records/migration/index.ts"

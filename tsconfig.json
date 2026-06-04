@@ -32,7 +32,7 @@
     "apps/*/src/**/*.tsx",
     "apps/*/test/**/*.ts",
     "apps/*/test/**/*.tsx"
-  ],
+, "apps/kimi-code-web/vite-env.d.ts"  ],
   "exclude": [
     "node_modules",
     "dist",

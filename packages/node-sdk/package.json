@@ -36,6 +36,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./browser": {
+      "types": "./src/browser.ts",
+      "default": "./src/browser.ts"
     }
   },
   "publishConfig": {
@@ -45,6 +49,11 @@
         "types": "./dist/index.d.mts",
         "import": "./dist/index.mjs",
         "default": "./dist/index.mjs"
+      },
+      "./browser": {
+        "types": "./dist/browser.d.mts",
+        "import": "./dist/browser.mjs",
+        "default": "./dist/browser.mjs"
       }
     },
     "provenance": true
@@ -57,6 +66,7 @@
   },
   "dependencies": {
     "@antfu/utils": "^9.3.0",
+    "birpc": "^4.0.0",
     "smol-toml": "^1.6.1",
     "yazl": "^3.3.1",
     "zod": "catalog:"

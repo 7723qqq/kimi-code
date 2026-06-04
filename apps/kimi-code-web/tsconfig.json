@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client", "node"],
+    "resolveJsonModule": true,
+    "paths": {
+      "@moonshot-ai/kimi-code-sdk/browser": [
+        "../../packages/node-sdk/dist/browser.d.mts"
+      ],
+      "#/*": ["./src/*", "./src/*/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts", "vite-env.d.ts"]
+}
