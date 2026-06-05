@@ -81,6 +81,7 @@
     "@moonshot-ai/acp-adapter": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-code-sdk": "workspace:^",
+    "@moonshot-ai/daemon": "workspace:^",
     "@moonshot-ai/kimi-telemetry": "workspace:^",
     "@moonshot-ai/migration-legacy": "workspace:^",
     "@types/semver": "^7.7.0",

@@ -1,0 +1,52 @@
+{
+  "name": "@moonshot-ai/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local REST + WebSocket daemon exposing kimi-code SDK over a stable wire protocol.",
+  "license": "MIT",
+  "author": "Moonshot AI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MoonshotAI/kimi-code.git",
+    "directory": "packages/daemon"
+  },
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
+  "type": "module",
+  "imports": {
+    "#/*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@fastify/multipart": "^10.0.0",
+    "@moonshot-ai/agent-core": "workspace:^",
+    "@moonshot-ai/protocol": "workspace:^",
+    "@moonshot-ai/services": "workspace:^",
+    "chokidar": "^4.0.3",
+    "fastify": "^5.1.0",
+    "ignore": "^5.3.2",
+    "pino": "^9.5.0",
+    "pino-pretty": "^13.0.0",
+    "ulid": "^3.0.1",
+    "ws": "^8.18.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.0"
+  }
+}

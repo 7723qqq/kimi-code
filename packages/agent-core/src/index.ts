@@ -80,3 +80,6 @@ export type {
   ExecutableToolSuccessResult,
   ExecutableToolErrorResult,
 } from './loop/types';
+
+// ─── Dependency injection container ────────────────────────────────────────
+export * from './di';
