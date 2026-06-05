@@ -41,6 +41,10 @@
       "types": "./src/agent/records/migration/index.ts",
       "default": "./src/agent/records/migration/index.ts"
     },
+    "./di/test": {
+      "types": "./src/di/test.ts",
+      "default": "./src/di/test.ts"
+    },
     "./session/store": {
       "types": "./src/session/store/index.ts",
       "default": "./src/session/store/index.ts"
