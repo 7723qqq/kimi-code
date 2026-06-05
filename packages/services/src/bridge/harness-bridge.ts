@@ -40,6 +40,10 @@ import {
   type OAuthTokenProviderResolver,
   type SDKAPI,
 } from '@moonshot-ai/agent-core';
+import {
+  createKimiDefaultHeaders,
+  type KimiHostIdentity,
+} from '@moonshot-ai/kimi-code-oauth';
 import { KimiAuthFacade } from '@moonshot-ai/kimi-code-sdk';
 
 import { BridgeClientAPI } from './bridge-client-api';
@@ -48,9 +52,22 @@ import { IEventBus } from '../interfaces/event-bus';
 import { IQuestionBroker } from '../interfaces/question-broker';
 
 export interface HarnessBridgeOptions extends KimiCoreOptions {
-  // Future per-bridge knobs (e.g. logger handle) land here. For W3 the bridge
-  // forwards every option to `KimiCore` verbatim; daemon-specific extras
-  // (request_id prefix, audit hooks, etc.) get added by W4/Chain wiring.
+  /**
+   * Host identity (product name + version). When set and
+   * `kimiRequestHeaders` is omitted, the bridge default-wires
+   * `createKimiDefaultHeaders({ homeDir, ...identity })` into KimiCore so
+   * upstream sees `User-Agent: <product>/<version>` + `X-Msh-Platform: …`.
+   * Without this, the managed Kimi-for-Coding endpoint rejects requests
+   * with 40340 ("only available for Coding Agents") because the default
+   * fetch User-Agent doesn't match any known coding-agent product.
+   *
+   * `identity.version` also feeds `appVersion` so session records carry
+   * the host CLI version — same wiring `SDKRpcClient` does in node-sdk.
+   *
+   * Callers can still pass explicit `kimiRequestHeaders` (or `appVersion`)
+   * to override; the explicit values win.
+   */
+  readonly identity?: KimiHostIdentity;
 }
 
 /**
@@ -143,10 +160,32 @@ export class HarnessBridge extends Disposable implements IHarnessBridge {
       options.resolveOAuthTokenProvider ??
       HarnessBridge._defaultOAuthTokenResolver(options);
 
+    // Default-wire the Kimi request headers (User-Agent + X-Msh-* device
+    // identity). Without this, KimiCore's outbound fetch carries the
+    // default Node fetch User-Agent and the managed Kimi-for-Coding
+    // endpoint rejects with 40340 ("only available for Coding Agents
+    // such as Kimi CLI, Claude Code, …"). Mirrors what `SDKRpcClient`
+    // does for the in-process TUI path (node-sdk's sdk-rpc-client.ts).
+    // Caller-supplied `kimiRequestHeaders` always wins; absent that, we
+    // synthesize from `options.identity`. Hosts that pass neither
+    // (no identity, no headers) still construct — preserves the W3
+    // contract — but their requests will trip the 40340 guard.
+    const kimiRequestHeaders: Record<string, string> | undefined =
+      options.kimiRequestHeaders ??
+      HarnessBridge._defaultKimiRequestHeaders(options);
+
+    // `appVersion` flows into Session records (`app_version`) and tool
+    // call ctx. Prefer explicit > identity.version so callers can pin
+    // a different value if they need to.
+    const appVersion: string | undefined =
+      options.appVersion ?? options.identity?.version;
+
     // 2. Construct the core. KimiCore's ctor wires itself into `coreRpc` and
     //    exposes `this.sdk: Promise<SDKRPC>` for the reverse direction.
     this._core = new KimiCore(coreRpc, {
       ...options,
+      kimiRequestHeaders,
+      appVersion,
       resolveOAuthTokenProvider,
     });
 
@@ -236,5 +275,34 @@ export class HarnessBridge extends Disposable implements IHarnessBridge {
     });
     const facade = new KimiAuthFacade({ homeDir, configPath });
     return facade.resolveOAuthTokenProvider;
+  }
+
+  /**
+   * Build the default `kimiRequestHeaders` from `options.identity` so the
+   * outbound `User-Agent` + device-identity headers identify this process
+   * as a real Coding Agent host (e.g. `kimi-code-cli/<ver>`). Without
+   * these, the managed Kimi-for-Coding endpoint rejects with 40340.
+   *
+   * Returns `undefined` when no identity is provided — preserves the
+   * pre-fix W3 contract for hosts that pass headers explicitly via
+   * `options.kimiRequestHeaders` (or for legacy callers / tests that
+   * don't talk to the managed endpoint at all).
+   *
+   * `homeDir` resolution matches KimiCore's so the per-device id (minted
+   * + cached at `<homeDir>/device_id` on first call) lives in the same
+   * root as everything else KimiCore touches.
+   *
+   * Exposed as `static` so tests can assert the wiring without booting
+   * the bridge.
+   */
+  static _defaultKimiRequestHeaders(
+    options: HarnessBridgeOptions,
+  ): Record<string, string> | undefined {
+    if (options.identity === undefined) return undefined;
+    const homeDir = resolveKimiHome(options.homeDir);
+    return createKimiDefaultHeaders({
+      homeDir,
+      ...options.identity,
+    });
   }
 }
