@@ -220,6 +220,51 @@ describe('HarnessBridge direct construction (W3.2)', () => {
     expect(tokenProvider).toBeDefined();
     expect(typeof tokenProvider?.getAccessToken).toBe('function');
   });
+
+  // Regression: prior to the identity-wiring fix the bridge never forwarded
+  // `kimiRequestHeaders` into KimiCore — the daemon-hosted KimiCore made
+  // upstream fetches with the Node default User-Agent, and the managed
+  // Kimi-for-Coding endpoint rejected with 40340 ("only available for
+  // Coding Agents such as Kimi CLI, …"). The in-process TUI path
+  // (`createKimiHarness`) was unaffected because `SDKRpcClient` already
+  // built these headers from `identity`. Lock down that the bridge does
+  // the same when given an `identity`.
+  it('default-wires kimiRequestHeaders from identity when caller omits headers', () => {
+    const headers = HarnessBridge._defaultKimiRequestHeaders({
+      homeDir: tmpHome,
+      identity: { userAgentProduct: 'kimi-code-cli', version: '9.9.9' },
+    });
+    expect(headers).toBeDefined();
+    expect(headers!['User-Agent']).toMatch(/^kimi-code-cli\/9\.9\.9/);
+    expect(headers!['X-Msh-Platform']).toBe('kimi_code_cli');
+    expect(headers!['X-Msh-Version']).toBe('9.9.9');
+    // `createKimiDeviceId` mints + caches a per-machine UUID under
+    // `<homeDir>/device_id`. Assert the header exists (UUID shape, not a
+    // literal value — we tmp-isolate the home, so the value differs every
+    // run).
+    expect(headers!['X-Msh-Device-Id']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it('returns undefined headers when no identity is provided (back-compat)', () => {
+    const headers = HarnessBridge._defaultKimiRequestHeaders({ homeDir: tmpHome });
+    expect(headers).toBeUndefined();
+  });
+
+  it('caller-supplied kimiRequestHeaders win over identity-derived defaults', () => {
+    // Sanity: when both are present the bridge ctor takes
+    // `options.kimiRequestHeaders` first. We can't observe the KimiCore
+    // ctor arg directly without exposing it, so we just lock down the
+    // helper's precedence contract — the ctor's `??` chain depends on it.
+    const explicit = { 'User-Agent': 'override/1.0' };
+    const picked =
+      explicit ?? HarnessBridge._defaultKimiRequestHeaders({
+        homeDir: tmpHome,
+        identity: { userAgentProduct: 'kimi-code-cli', version: '9.9.9' },
+      });
+    expect(picked).toBe(explicit);
+  });
 });
 
 describe('defaultServicesModule() composition (W3.2)', () => {

@@ -9,6 +9,8 @@ import type { Command } from 'commander';
 
 import { startDaemon, type DaemonLogLevel } from '@moonshot-ai/daemon';
 
+import { createKimiCodeHostIdentity, getVersion } from '../version';
+
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 7878;
 const DEFAULT_LOG_LEVEL: DaemonLogLevel = 'info';
@@ -44,7 +46,24 @@ export function registerDaemonCommand(parent: Command): void {
       const port = parsePort(opts.port);
       const logLevel = parseLogLevel(opts.logLevel);
 
-      const running = await startDaemon({ host, port, logLevel });
+      // Identify this process to the managed Kimi-for-Coding endpoint
+      // as a real Coding Agent — same `kimi-code-cli/<ver>` UA + X-Msh-*
+      // device-identity headers the in-process TUI path sends via
+      // `createKimiHarness`. Without this the upstream returns 40340
+      // ("only available for Coding Agents such as Kimi CLI, …")
+      // because HarnessBridge would otherwise forward fetch's default
+      // User-Agent. `HarnessBridge` reads `identity.version` for both
+      // the headers and KimiCore's `appVersion`, so we don't need to
+      // pass `appVersion` separately.
+      const version = getVersion();
+      const running = await startDaemon({
+        host,
+        port,
+        logLevel,
+        bridgeOptions: {
+          identity: createKimiCodeHostIdentity(version),
+        },
+      });
 
       const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
         running.logger.info({ signal }, 'daemon shutting down');
