@@ -3,7 +3,7 @@
  *
  * Covers the reverse-RPC path: agent-core → BridgeClientAPI.requestQuestion →
  * IQuestionBroker.request → WS `event.question.requested` → REST
- * `POST /v1/sessions/{sid}/questions/{qid}` (or `:dismiss`) → Promise
+ * `POST /api/v1/sessions/{sid}/questions/{qid}` (or `:dismiss`) → Promise
  * resolves with `Record<string, string | true>` (or `null` for dismiss).
  *
  * Mirrors `approval.e2e.test.ts` strategy — bypass `bridge.rpc.prompt(...)`
@@ -94,7 +94,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: join(tmpDir, 'workspace') } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -111,7 +111,7 @@ async function openSubscriber(
   ws: WebSocket;
   received: Record<string, unknown>[];
 }> {
-  const wsUrl = r.address.replace('http://', 'ws://') + '/v1/ws';
+  const wsUrl = r.address.replace('http://', 'ws://') + '/api/v1/ws';
   const received: Record<string, unknown>[] = [];
   const ws = await new Promise<WebSocket>((resolve, reject) => {
     const sock = new WebSocket(wsUrl);
@@ -216,7 +216,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
     // POST with mixed kinds INCLUDING one skipped.
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/questions/${payload.question_id}`,
+      url: `/api/v1/sessions/${sid}/questions/${payload.question_id}`,
       payload: {
         answers: {
           q_0: { kind: 'single', option_id: 'opt_0_0' },
@@ -314,7 +314,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
 
       const res = await appOf(r).inject({
         method: 'POST',
-        url: `/v1/sessions/${sid}/questions/${questionId}`,
+        url: `/api/v1/sessions/${sid}/questions/${questionId}`,
         payload: { answers },
       });
       const env = envelopeOf<{ resolved: boolean }>(res.json());
@@ -354,7 +354,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
 
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/questions/${payload.question_id}:dismiss`,
+      url: `/api/v1/sessions/${sid}/questions/${payload.question_id}:dismiss`,
       payload: {},
     });
     const env = envelopeOf<{ dismissed: boolean; dismissed_at: string }>(res.json());
@@ -381,7 +381,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/questions/01JAAAAAAAAAAAAAAAAAAAAAAA`,
+      url: `/api/v1/sessions/${sid}/questions/01JAAAAAAAAAAAAAAAAAAAAAAA`,
       payload: { answers: { q_0: { kind: 'skipped' } } },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -393,7 +393,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/questions/01JBBBBBBBBBBBBBBBBBBBBBBB:dismiss`,
+      url: `/api/v1/sessions/${sid}/questions/01JBBBBBBBBBBBBBBBBBBBBBBB:dismiss`,
       payload: {},
     });
     const env = envelopeOf<unknown>(res.json());
@@ -426,7 +426,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
 
     const ok = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/questions/${questionId}`,
+      url: `/api/v1/sessions/${sid}/questions/${questionId}`,
       payload: { answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } } },
     });
     expect(envelopeOf<{ resolved: boolean }>(ok.json()).code).toBe(0);
@@ -434,7 +434,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
 
     const dup = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/questions/${questionId}`,
+      url: `/api/v1/sessions/${sid}/questions/${questionId}`,
       payload: { answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } } },
     });
     const dupEnv = envelopeOf<{ resolved: boolean }>(dup.json());
@@ -468,7 +468,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
 
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/questions/${questionId}`,
+      url: `/api/v1/sessions/${sid}/questions/${questionId}`,
       payload: { answers: { q_0: { kind: 'rangefinder', value: 42 } } },
     });
     const env = envelopeOf<unknown>(res.json());

@@ -1,5 +1,5 @@
 /**
- * `/v1/sessions/{sid}/fs:search` + `/v1/sessions/{sid}/fs:grep` end-to-end
+ * `/api/v1/sessions/{sid}/fs:search` + `/api/v1/sessions/{sid}/fs:grep` end-to-end
  * tests (W11.1 / Chain 11 / P1.11).
  *
  * AC coverage (ROADMAP §Chain 11):
@@ -111,7 +111,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: workspace } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -121,7 +121,7 @@ async function createSession(r: RunningDaemon): Promise<string> {
   return env.data.id;
 }
 
-describe('POST /v1/sessions/{sid}/fs:search (W11.1)', () => {
+describe('POST /api/v1/sessions/{sid}/fs:search (W11.1)', () => {
   it('finds a file by fuzzy filename match', async () => {
     mkdirSync(join(workspace, 'src', 'components'), { recursive: true });
     writeFileSync(
@@ -134,7 +134,7 @@ describe('POST /v1/sessions/{sid}/fs:search (W11.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:search`,
+      url: `/api/v1/sessions/${sid}/fs:search`,
       payload: { query: 'buton' },
     });
     const env = envelopeOf<{
@@ -155,7 +155,7 @@ describe('POST /v1/sessions/{sid}/fs:search (W11.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:search`,
+      url: `/api/v1/sessions/${sid}/fs:search`,
       payload: { query: 'index' },
     });
     const env = envelopeOf<{
@@ -178,7 +178,7 @@ describe('POST /v1/sessions/{sid}/fs:search (W11.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:search`,
+      url: `/api/v1/sessions/${sid}/fs:search`,
       payload: { query: 'match', limit: 200 },
     });
     const env = envelopeOf<{ items: unknown[]; truncated: boolean }>(res.json());
@@ -196,7 +196,7 @@ describe('POST /v1/sessions/{sid}/fs:search (W11.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:search`,
+      url: `/api/v1/sessions/${sid}/fs:search`,
       payload: { query: 'keep', include_globs: ['*.ts'] },
     });
     const env = envelopeOf<{
@@ -212,7 +212,7 @@ describe('POST /v1/sessions/{sid}/fs:search (W11.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:search`,
+      url: `/api/v1/sessions/${sid}/fs:search`,
       payload: { query: 'a' },
     });
     const env = envelopeOf<{ items: unknown[]; truncated: boolean }>(res.json());
@@ -224,7 +224,7 @@ describe('POST /v1/sessions/{sid}/fs:search (W11.1)', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/sessions/sess_does_not_exist/fs:search',
+      url: '/api/v1/sessions/sess_does_not_exist/fs:search',
       payload: { query: 'x' },
     });
     const env = envelopeOf<null>(res.json());
@@ -232,7 +232,7 @@ describe('POST /v1/sessions/{sid}/fs:search (W11.1)', () => {
   });
 });
 
-describe('POST /v1/sessions/{sid}/fs:grep (W11.1)', () => {
+describe('POST /api/v1/sessions/{sid}/fs:grep (W11.1)', () => {
   it('finds a literal match across files with context', async () => {
     writeFileSync(
       join(workspace, 'a.txt'),
@@ -243,7 +243,7 @@ describe('POST /v1/sessions/{sid}/fs:grep (W11.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:grep`,
+      url: `/api/v1/sessions/${sid}/fs:grep`,
       payload: { pattern: 'hello', context_lines: 1 },
     });
     const env = envelopeOf<{
@@ -286,7 +286,7 @@ describe('POST /v1/sessions/{sid}/fs:grep (W11.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:grep`,
+      url: `/api/v1/sessions/${sid}/fs:grep`,
       payload: { pattern: 'foo|bar', regex: true, context_lines: 0 },
     });
     const env = envelopeOf<{
@@ -304,7 +304,7 @@ describe('POST /v1/sessions/{sid}/fs:grep (W11.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:grep`,
+      url: `/api/v1/sessions/${sid}/fs:grep`,
       payload: { pattern: 'hello', case_sensitive: false, context_lines: 0 },
     });
     const env = envelopeOf<{
@@ -323,7 +323,7 @@ describe('POST /v1/sessions/{sid}/fs:grep (W11.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:grep`,
+      url: `/api/v1/sessions/${sid}/fs:grep`,
       payload: { pattern: 'needle', context_lines: 0 },
     });
     const env = envelopeOf<{
@@ -343,7 +343,7 @@ describe('POST /v1/sessions/{sid}/fs:grep (W11.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:grep`,
+      url: `/api/v1/sessions/${sid}/fs:grep`,
       payload: {
         pattern: 'needle',
         max_total_matches: 5,
@@ -364,7 +364,7 @@ describe('POST /v1/sessions/{sid}/fs:grep (W11.1)', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/sessions/sess_does_not_exist/fs:grep',
+      url: '/api/v1/sessions/sess_does_not_exist/fs:grep',
       payload: { pattern: 'x' },
     });
     const env = envelopeOf<null>(res.json());

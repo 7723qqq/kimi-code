@@ -79,7 +79,7 @@ async function spawn(): Promise<RunningDaemon> {
 }
 
 function wsUrl(http: string): string {
-  return http.replace(/^http:\/\//, 'ws://') + '/v1/ws';
+  return http.replace(/^http:\/\//, 'ws://') + '/api/v1/ws';
 }
 
 interface WsFrame {

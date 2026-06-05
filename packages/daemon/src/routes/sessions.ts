@@ -1,13 +1,13 @@
 /**
- * `/v1/sessions/*` REST routes (Chain 2 / P1.2).
+ * `/sessions/*` REST routes (Chain 2 / P1.2).
  *
  * 5 endpoints (REST.md §3.3):
  *
- *   POST   /v1/sessions               body: SessionCreate    data: Session
- *   GET    /v1/sessions               query: ListSessions    data: Page<Session>
- *   GET    /v1/sessions/{id}          -                      data: Session
- *   PATCH  /v1/sessions/{id}          body: SessionUpdate    data: Session
- *   DELETE /v1/sessions/{id}          -                      data: { deleted: true }
+ *   POST   /sessions               body: SessionCreate    data: Session
+ *   GET    /sessions               query: ListSessions    data: Page<Session>
+ *   GET    /sessions/{id}          -                      data: Session
+ *   PATCH  /sessions/{id}          body: SessionUpdate    data: Session
+ *   DELETE /sessions/{id}          -                      data: { deleted: true }
  *
  * Each handler validates input with the Zod `validateBody` / `validateQuery`
  * preHandler (40001 on failure with `details` path), invokes
@@ -29,6 +29,9 @@
 import {
   ErrorCode,
   createSessionRequestSchema,
+  deleteSessionResponseSchema,
+  pageResponseSchema,
+  sessionSchema,
   sessionStatusSchema,
   updateSessionRequestSchema,
   type SessionCreate,
@@ -44,6 +47,7 @@ import { z } from 'zod';
 import type { IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope.js';
+import { buildRouteSchema } from '../middleware/schema.js';
 import { validateBody, validateParams, validateQuery } from '../middleware/validate.js';
 
 /**
@@ -53,7 +57,7 @@ import { validateBody, validateParams, validateQuery } from '../middleware/valid
 interface SessionRouteHost {
   post(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -61,7 +65,7 @@ interface SessionRouteHost {
   ): unknown;
   get(
     path: string,
-    options: { preHandler: unknown[] } | undefined,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
     handler: (
       req: { id: string; query: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -70,7 +74,7 @@ interface SessionRouteHost {
   // Fastify exposes `patch` and `delete` as instance methods.
   patch(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -78,7 +82,7 @@ interface SessionRouteHost {
   ): unknown;
   delete(
     path: string,
-    options: { preHandler: unknown[] } | undefined,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
     handler: (
       req: { id: string; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -126,10 +130,18 @@ export function registerSessionsRoutes(
   app: SessionRouteHost,
   ix: IInstantiationService,
 ): void {
-  // POST /v1/sessions ------------------------------------------------------
+  // POST /sessions ------------------------------------------------------
   app.post(
-    '/v1/sessions',
-    { preHandler: [validateBody(createSessionRequestSchema)] },
+    '/sessions',
+    {
+      preHandler: [validateBody(createSessionRequestSchema)],
+      schema: buildRouteSchema({
+        description: 'Create a new session',
+        tags: ['sessions'],
+        body: createSessionRequestSchema,
+        response: { 200: sessionSchema },
+      }),
+    },
     async (req, reply) => {
       try {
         const body = req.body as SessionCreate;
@@ -141,10 +153,18 @@ export function registerSessionsRoutes(
     },
   );
 
-  // GET /v1/sessions -------------------------------------------------------
+  // GET /sessions -------------------------------------------------------
   app.get(
-    '/v1/sessions',
-    { preHandler: [validateQuery(sessionsListQueryCoercion)] },
+    '/sessions',
+    {
+      preHandler: [validateQuery(sessionsListQueryCoercion)],
+      schema: buildRouteSchema({
+        description: 'List sessions',
+        tags: ['sessions'],
+        querystring: sessionsListQueryCoercion,
+        response: { 200: pageResponseSchema(sessionSchema) },
+      }),
+    },
     async (req, reply) => {
       try {
         const query = req.query as SessionListQuery;
@@ -156,10 +176,18 @@ export function registerSessionsRoutes(
     },
   );
 
-  // GET /v1/sessions/{session_id} ------------------------------------------
+  // GET /sessions/{session_id} ------------------------------------------
   app.get(
-    '/v1/sessions/:session_id',
-    { preHandler: [validateParams(sessionIdParamSchema)] },
+    '/sessions/:session_id',
+    {
+      preHandler: [validateParams(sessionIdParamSchema)],
+      schema: buildRouteSchema({
+        description: 'Get a session by ID',
+        tags: ['sessions'],
+        params: sessionIdParamSchema,
+        response: { 200: sessionSchema },
+      }),
+    },
     async (req, reply) => {
       try {
         const { session_id } = req.params as { session_id: string };
@@ -171,14 +199,21 @@ export function registerSessionsRoutes(
     },
   );
 
-  // PATCH /v1/sessions/{session_id} ----------------------------------------
+  // PATCH /sessions/{session_id} ----------------------------------------
   app.patch(
-    '/v1/sessions/:session_id',
+    '/sessions/:session_id',
     {
       preHandler: [
         validateParams(sessionIdParamSchema),
         validateBody(updateSessionRequestSchema),
       ],
+      schema: buildRouteSchema({
+        description: 'Update a session',
+        tags: ['sessions'],
+        params: sessionIdParamSchema,
+        body: updateSessionRequestSchema,
+        response: { 200: sessionSchema },
+      }),
     },
     async (req, reply) => {
       try {
@@ -194,10 +229,18 @@ export function registerSessionsRoutes(
     },
   );
 
-  // DELETE /v1/sessions/{session_id} ---------------------------------------
+  // DELETE /sessions/{session_id} ---------------------------------------
   app.delete(
-    '/v1/sessions/:session_id',
-    { preHandler: [validateParams(sessionIdParamSchema)] },
+    '/sessions/:session_id',
+    {
+      preHandler: [validateParams(sessionIdParamSchema)],
+      schema: buildRouteSchema({
+        description: 'Delete a session',
+        tags: ['sessions'],
+        params: sessionIdParamSchema,
+        response: { 200: deleteSessionResponseSchema },
+      }),
+    },
     async (req, reply) => {
       try {
         const { session_id } = req.params as { session_id: string };

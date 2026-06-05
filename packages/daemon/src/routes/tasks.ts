@@ -1,12 +1,12 @@
 /**
- * `/v1/sessions/{sid}/tasks*` REST routes (Chain 8 / P1.8, W9.2).
+ * `/sessions/{sid}/tasks*` REST routes (Chain 8 / P1.8, W9.2).
  *
  * 3 endpoints (REST.md §3.7):
  *
- *   GET  /v1/sessions/{sid}/tasks                    query: {status?}        data: {items[]}
- *   GET  /v1/sessions/{sid}/tasks/{tid}              query: {with_output?,
+ *   GET  /sessions/{sid}/tasks                    query: {status?}        data: {items[]}
+ *   GET  /sessions/{sid}/tasks/{tid}              query: {with_output?,
  *                                                            output_bytes?} data: BackgroundTask
- *   POST /v1/sessions/{sid}/tasks/{tid}:cancel       body: empty             data: {cancelled:true}
+ *   POST /sessions/{sid}/tasks/{tid}:cancel       body: empty             data: {cancelled:true}
  *
  * **Error mapping**:
  *   - `SessionNotFoundError`     → envelope `code: 40401`
@@ -24,8 +24,11 @@
 
 import {
   ErrorCode,
+  cancelTaskResultSchema,
   getTaskQuerySchema,
+  getTaskResponseSchema,
   listTasksQuerySchema,
+  listTasksResponseSchema,
   type ListTasksQuery,
 } from '@moonshot-ai/protocol';
 import {
@@ -39,13 +42,14 @@ import { z } from 'zod';
 import type { IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope.js';
+import { buildRouteSchema } from '../middleware/schema.js';
 import { validateParams, validateQuery } from '../middleware/validate.js';
 import { parseActionSuffix } from './action-suffix.js';
 
 interface TasksRouteHost {
   get(
     path: string,
-    options: { preHandler: unknown[] } | undefined,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
     handler: (
       req: { id: string; query: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -53,7 +57,7 @@ interface TasksRouteHost {
   ): unknown;
   post(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -74,14 +78,21 @@ export function registerTasksRoutes(
   app: TasksRouteHost,
   ix: IInstantiationService,
 ): void {
-  // GET /v1/sessions/{session_id}/tasks ------------------------------------
+  // GET /sessions/{session_id}/tasks ------------------------------------
   app.get(
-    '/v1/sessions/:session_id/tasks',
+    '/sessions/:session_id/tasks',
     {
       preHandler: [
         validateParams(sessionIdParamSchema),
         validateQuery(listTasksQuerySchema),
       ],
+      schema: buildRouteSchema({
+        description: 'List background tasks for a session',
+        tags: ['tasks'],
+        params: sessionIdParamSchema,
+        querystring: listTasksQuerySchema,
+        response: { 200: listTasksResponseSchema },
+      }),
     },
     async (req, reply) => {
       try {
@@ -97,14 +108,21 @@ export function registerTasksRoutes(
     },
   );
 
-  // GET /v1/sessions/{session_id}/tasks/{task_id} --------------------------
+  // GET /sessions/{session_id}/tasks/{task_id} --------------------------
   app.get(
-    '/v1/sessions/:session_id/tasks/:task_id',
+    '/sessions/:session_id/tasks/:task_id',
     {
       preHandler: [
         validateParams(sessionAndTaskIdParamSchema),
         validateQuery(getTaskQuerySchema),
       ],
+      schema: buildRouteSchema({
+        description: 'Get a background task by ID',
+        tags: ['tasks'],
+        params: sessionAndTaskIdParamSchema,
+        querystring: getTaskQuerySchema,
+        response: { 200: getTaskResponseSchema },
+      }),
     },
     async (req, reply) => {
       try {
@@ -122,14 +140,22 @@ export function registerTasksRoutes(
     },
   );
 
-  // POST /v1/sessions/{session_id}/tasks/{task_id}:cancel ------------------
+  // POST /sessions/{session_id}/tasks/{task_id}:cancel ------------------
   //
   // Fastify routes the GET `/:task_id` and the POST `/:tail` against the
   // same Trie prefix. Using `/:task_id:cancel`-style would collide; we
   // capture `:tail` and demand the `:cancel` suffix via the shared parser.
   app.post(
-    '/v1/sessions/:session_id/tasks/:tail',
-    { preHandler: [] },
+    '/sessions/:session_id/tasks/:tail',
+    {
+      preHandler: [],
+      schema: buildRouteSchema({
+        description: 'Cancel a background task',
+        tags: ['tasks'],
+        operationId: 'cancelTask',
+        response: { 200: cancelTaskResultSchema },
+      }),
+    },
     async (req, reply) => {
       try {
         const { session_id, tail } = req.params as {
@@ -149,7 +175,7 @@ export function registerTasksRoutes(
         }
         if (parsed.kind === 'bare') {
           // POST without `:cancel` is not a defined action; the bare GET
-          // form serves `/v1/.../tasks/{tid}`.
+          // form serves `/.../tasks/{tid}`.
           reply.send(
             errEnvelope(
               ErrorCode.VALIDATION_FAILED,

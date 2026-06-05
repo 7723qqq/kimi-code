@@ -1,9 +1,9 @@
 /**
- * `/v1/sessions/{sid}/approvals/{aid}` REST route (Chain 5 / P1.5, W8.1).
+ * `/sessions/{sid}/approvals/{aid}` REST route (Chain 5 / P1.5, W8.1).
  *
  * 1 endpoint (REST.md §3.6):
  *
- *   POST   /v1/sessions/{sid}/approvals/{aid}   body: ApprovalResponse
+ *   POST   /sessions/{sid}/approvals/{aid}   body: ApprovalResponse
  *                                               data: { resolved: true, resolved_at }
  *
  * Error mapping (REST.md §3.6):
@@ -26,6 +26,7 @@
 
 import {
   approvalResolveRequestSchema,
+  approvalResolveResultSchema,
   ErrorCode,
   type ApprovalResolveRequest,
   type ApprovalResolveResult,
@@ -39,6 +40,7 @@ import { z } from 'zod';
 import type { IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope.js';
+import { buildRouteSchema } from '../middleware/schema.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import {
   DaemonApprovalBroker,
@@ -47,7 +49,7 @@ import {
 interface ApprovalRouteHost {
   post(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -65,12 +67,19 @@ export function registerApprovalsRoutes(
   ix: IInstantiationService,
 ): void {
   app.post(
-    '/v1/sessions/:session_id/approvals/:approval_id',
+    '/sessions/:session_id/approvals/:approval_id',
     {
       preHandler: [
         validateParams(approvalParamsSchema),
         validateBody(approvalResolveRequestSchema),
       ],
+      schema: buildRouteSchema({
+        description: 'Resolve an approval request',
+        tags: ['approvals'],
+        params: approvalParamsSchema,
+        body: approvalResolveRequestSchema,
+        response: { 200: approvalResolveResultSchema },
+      }),
     },
     async (req, reply) => {
       try {

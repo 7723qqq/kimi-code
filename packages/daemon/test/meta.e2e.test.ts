@@ -1,8 +1,8 @@
 /**
- * `/v1/meta` end-to-end smoke (W6.1 / Chain 1 / P1.1).
+ * `/api/v1/meta` end-to-end smoke (W6.1 / Chain 1 / P1.1).
  *
  * Boots the real daemon (hermetic — port 0, tmp lock + bridge home), hits
- * `GET /v1/meta` via Fastify's `inject` simulator on the constructed app, and
+ * `GET /api/v1/meta` via Fastify's `inject` simulator on the constructed app, and
  * asserts:
  *   1. Envelope shape (`code: 0`, `msg: success`, `request_id`, `data`).
  *   2. `data` matches `metaResponseSchema` — daemon_version + capabilities
@@ -12,7 +12,7 @@
  *   4. `started_at` is the daemon's boot time — within a generous window of
  *      `Date.now()` at test start.
  *
- * Plus request_id propagation (already covered for `/v1/healthz` in
+ * Plus request_id propagation (already covered for `/api/v1/healthz` in
  * `error-handler.test.ts` but re-asserted here because the prompt requires
  * Chain 1's first business endpoint to demonstrate the W4.3 request_id pipe):
  *
@@ -87,10 +87,10 @@ function appOf(r: RunningDaemon): {
   });
 }
 
-describe('GET /v1/meta — envelope + metaResponseSchema', () => {
+describe('GET /api/v1/meta — envelope + metaResponseSchema', () => {
   it('responds 200 with code 0 + schema-conforming data', async () => {
     const r = await bootDaemon();
-    const res = await appOf(r).inject({ method: 'GET', url: '/v1/meta' });
+    const res = await appOf(r).inject({ method: 'GET', url: '/api/v1/meta' });
     expect(res.statusCode).toBe(200);
     const body = res.json() as Record<string, unknown>;
     expect(body['code']).toBe(0);
@@ -122,8 +122,8 @@ describe('GET /v1/meta — envelope + metaResponseSchema', () => {
   it('server_id is stable across multiple calls (process-scoped)', async () => {
     const r = await bootDaemon();
     const app = appOf(r);
-    const a = await app.inject({ method: 'GET', url: '/v1/meta' });
-    const b = await app.inject({ method: 'GET', url: '/v1/meta' });
+    const a = await app.inject({ method: 'GET', url: '/api/v1/meta' });
+    const b = await app.inject({ method: 'GET', url: '/api/v1/meta' });
     const aData = (a.json() as { data: { server_id: string } }).data;
     const bData = (b.json() as { data: { server_id: string } }).data;
     expect(aData.server_id).toBe(bData.server_id);
@@ -150,8 +150,8 @@ describe('GET /v1/meta — envelope + metaResponseSchema', () => {
       bridgeOptions: { homeDir: homeB },
     });
     try {
-      const a = await appOf(r1).inject({ method: 'GET', url: '/v1/meta' });
-      const b = await appOf(r2).inject({ method: 'GET', url: '/v1/meta' });
+      const a = await appOf(r1).inject({ method: 'GET', url: '/api/v1/meta' });
+      const b = await appOf(r2).inject({ method: 'GET', url: '/api/v1/meta' });
       const aData = (a.json() as { data: { server_id: string } }).data;
       const bData = (b.json() as { data: { server_id: string } }).data;
       expect(aData.server_id).not.toBe(bData.server_id);
@@ -164,13 +164,13 @@ describe('GET /v1/meta — envelope + metaResponseSchema', () => {
   });
 });
 
-describe('GET /v1/meta — request_id propagation (W4.3 contract)', () => {
+describe('GET /api/v1/meta — request_id propagation (W4.3 contract)', () => {
   it('echoes a client-supplied valid ULID verbatim', async () => {
     const r = await bootDaemon();
     const goodUlid = '01HQXY4Z2M3GZP6F8K9R5W7VBA';
     const res = await appOf(r).inject({
       method: 'GET',
-      url: '/v1/meta',
+      url: '/api/v1/meta',
       headers: { 'x-request-id': goodUlid },
     });
     const body = res.json() as Record<string, unknown>;
@@ -179,7 +179,7 @@ describe('GET /v1/meta — request_id propagation (W4.3 contract)', () => {
 
   it('mints a bare ULID when no header is supplied (no req_ prefix)', async () => {
     const r = await bootDaemon();
-    const res = await appOf(r).inject({ method: 'GET', url: '/v1/meta' });
+    const res = await appOf(r).inject({ method: 'GET', url: '/api/v1/meta' });
     const body = res.json() as Record<string, unknown>;
     const id = body['request_id'] as string;
     expect(id).not.toMatch(/^req_/);
@@ -190,7 +190,7 @@ describe('GET /v1/meta — request_id propagation (W4.3 contract)', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'GET',
-      url: '/v1/meta',
+      url: '/api/v1/meta',
       headers: { 'x-request-id': 'req_garbage' },
     });
     const body = res.json() as Record<string, unknown>;

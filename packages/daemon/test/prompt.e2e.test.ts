@@ -3,7 +3,7 @@
  *
  * **Bootstrap strategy**: spawn the real daemon (port 0, tmp lock + bridge
  * home) and exercise:
- *   1. POST /v1/sessions/{sid}/prompts validation (40001 on bad body, 40401
+ *   1. POST /api/v1/sessions/{sid}/prompts validation (40001 on bad body, 40401
  *      on bad sid).
  *   2. Lifecycle event synthesis: register a fake active prompt directly on
  *      the IPromptService (so we don't have to drive agent-core through the
@@ -98,7 +98,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: join(tmpDir, 'workspace') } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -123,7 +123,7 @@ async function openSubscriber(
   ws: WebSocket;
   received: Record<string, unknown>[];
 }> {
-  const wsUrl = r.address.replace('http://', 'ws://') + '/v1/ws';
+  const wsUrl = r.address.replace('http://', 'ws://') + '/api/v1/ws';
   const received: Record<string, unknown>[] = [];
   const ws = await new Promise<WebSocket>((resolve, reject) => {
     const sock = new WebSocket(wsUrl);
@@ -166,13 +166,13 @@ async function waitFor(
   );
 }
 
-describe('POST /v1/sessions/{sid}/prompts — submit validation (W7.2 / Chain 4)', () => {
+describe('POST /api/v1/sessions/{sid}/prompts — submit validation (W7.2 / Chain 4)', () => {
   it('rejects an empty content array with 40001', async () => {
     const r = await bootDaemon();
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/prompts`,
+      url: `/api/v1/sessions/${sid}/prompts`,
       payload: { content: [] },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -185,7 +185,7 @@ describe('POST /v1/sessions/{sid}/prompts — submit validation (W7.2 / Chain 4)
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/sessions/sess_missing/prompts',
+      url: '/api/v1/sessions/sess_missing/prompts',
       payload: { content: [{ type: 'text', text: 'hello' }] },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -197,7 +197,7 @@ describe('POST /v1/sessions/{sid}/prompts — submit validation (W7.2 / Chain 4)
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/prompts`,
+      url: `/api/v1/sessions/${sid}/prompts`,
       payload: { content: [{ text: 'no type' }] },
     });
     const env = envelopeOf<unknown>(res.json());

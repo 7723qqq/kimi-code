@@ -1,5 +1,5 @@
 /**
- * `GET /v1/meta` route handler — Chain 1 / P1.1.
+ * `GET /meta` route handler — Chain 1 / P1.1.
  *
  * Returns the daemon's `daemon_version`, declared `capabilities` literal map,
  * a per-process `server_id` (ULID minted at boot — reset on every restart so
@@ -19,7 +19,10 @@
  * `getDaemonVersion()` — no indirection through services or agent-core.
  */
 
+import { metaResponseSchema } from '@moonshot-ai/protocol';
+
 import { okEnvelope } from '../envelope.js';
+import { buildRouteSchema } from '../middleware/schema.js';
 import type { MetaResponse } from '@moonshot-ai/protocol';
 
 /**
@@ -32,6 +35,7 @@ import type { MetaResponse } from '@moonshot-ai/protocol';
 interface RouteHost {
   get(
     path: string,
+    options: { schema?: Record<string, unknown> },
     handler: (
       req: { id: string },
       reply: { send(payload: unknown): void },
@@ -64,7 +68,17 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
     started_at: opts.startedAt,
   });
 
-  app.get('/v1/meta', async (req, reply) => {
-    reply.send(okEnvelope(data, req.id));
-  });
+  app.get(
+    '/meta',
+    {
+      schema: buildRouteSchema({
+        description: 'Get daemon metadata',
+        tags: ['meta'],
+        response: { 200: metaResponseSchema },
+      }),
+    },
+    async (req, reply) => {
+      reply.send(okEnvelope(data, req.id));
+    },
+  );
 }

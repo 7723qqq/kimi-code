@@ -1,5 +1,5 @@
 /**
- * `/v1/sessions/{sid}/fs:list` + `/v1/sessions/{sid}/fs:read` end-to-end
+ * `/api/v1/sessions/{sid}/fs:list` + `/api/v1/sessions/{sid}/fs:read` end-to-end
  * tests (W10.1 / Chain 9 / P1.9).
  *
  * AC coverage (ROADMAP §Chain 9):
@@ -101,7 +101,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: workspace } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -111,7 +111,7 @@ async function createSession(r: RunningDaemon): Promise<string> {
   return env.data.id;
 }
 
-describe('POST /v1/sessions/{sid}/fs:list (W10.1)', () => {
+describe('POST /api/v1/sessions/{sid}/fs:list (W10.1)', () => {
   it('lists direct children of cwd', async () => {
     writeFileSync(join(workspace, 'hello.txt'), 'hi');
     mkdirSync(join(workspace, 'src'));
@@ -121,7 +121,7 @@ describe('POST /v1/sessions/{sid}/fs:list (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:list`,
+      url: `/api/v1/sessions/${sid}/fs:list`,
       payload: { path: '.' },
     });
     const env = envelopeOf<{
@@ -140,7 +140,7 @@ describe('POST /v1/sessions/{sid}/fs:list (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:list`,
+      url: `/api/v1/sessions/${sid}/fs:list`,
       payload: { path: '/etc' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -152,7 +152,7 @@ describe('POST /v1/sessions/{sid}/fs:list (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:list`,
+      url: `/api/v1/sessions/${sid}/fs:list`,
       payload: { path: '../..' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -169,7 +169,7 @@ describe('POST /v1/sessions/{sid}/fs:list (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:list`,
+      url: `/api/v1/sessions/${sid}/fs:list`,
       payload: { path: '.' },
     });
     const env = envelopeOf<{ items: { name: string }[] }>(res.json());
@@ -185,7 +185,7 @@ describe('POST /v1/sessions/{sid}/fs:list (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:list`,
+      url: `/api/v1/sessions/${sid}/fs:list`,
       payload: { path: '.', follow_gitignore: false },
     });
     const env = envelopeOf<{ items: { name: string }[] }>(res.json());
@@ -197,7 +197,7 @@ describe('POST /v1/sessions/{sid}/fs:list (W10.1)', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/sessions/does-not-exist/fs:list',
+      url: '/api/v1/sessions/does-not-exist/fs:list',
       payload: { path: '.' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -209,7 +209,7 @@ describe('POST /v1/sessions/{sid}/fs:list (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:bogus`,
+      url: `/api/v1/sessions/${sid}/fs:bogus`,
       payload: {},
     });
     const env = envelopeOf<unknown>(res.json());
@@ -217,14 +217,14 @@ describe('POST /v1/sessions/{sid}/fs:list (W10.1)', () => {
   });
 });
 
-describe('POST /v1/sessions/{sid}/fs:read (W10.1)', () => {
+describe('POST /api/v1/sessions/{sid}/fs:read (W10.1)', () => {
   it('reads a normal utf-8 text file', async () => {
     writeFileSync(join(workspace, 'hello.txt'), 'hello world');
     const r = await bootDaemon();
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:read`,
+      url: `/api/v1/sessions/${sid}/fs:read`,
       payload: { path: 'hello.txt' },
     });
     const env = envelopeOf<{
@@ -247,7 +247,7 @@ describe('POST /v1/sessions/{sid}/fs:read (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:read`,
+      url: `/api/v1/sessions/${sid}/fs:read`,
       payload: { path: '/etc/passwd' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -259,7 +259,7 @@ describe('POST /v1/sessions/{sid}/fs:read (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:read`,
+      url: `/api/v1/sessions/${sid}/fs:read`,
       payload: { path: 'no-such-file.txt' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -272,7 +272,7 @@ describe('POST /v1/sessions/{sid}/fs:read (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:read`,
+      url: `/api/v1/sessions/${sid}/fs:read`,
       payload: { path: 'a-dir' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -287,7 +287,7 @@ describe('POST /v1/sessions/{sid}/fs:read (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:read`,
+      url: `/api/v1/sessions/${sid}/fs:read`,
       payload: { path: 'huge.txt' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -305,7 +305,7 @@ describe('POST /v1/sessions/{sid}/fs:read (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:read`,
+      url: `/api/v1/sessions/${sid}/fs:read`,
       payload: { path: 'bin', encoding: 'utf-8' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -319,7 +319,7 @@ describe('POST /v1/sessions/{sid}/fs:read (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:read`,
+      url: `/api/v1/sessions/${sid}/fs:read`,
       payload: { path: 'bin' },
     });
     const env = envelopeOf<{
@@ -340,7 +340,7 @@ describe('POST /v1/sessions/{sid}/fs:read (W10.1)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:read`,
+      url: `/api/v1/sessions/${sid}/fs:read`,
       payload: { path: 'small.txt', length: 11 * 1024 * 1024 },
     });
     const env = envelopeOf<unknown>(res.json());

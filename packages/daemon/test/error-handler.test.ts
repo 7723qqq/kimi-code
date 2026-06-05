@@ -6,7 +6,7 @@
  *   2. `request_id` in envelope respects client-supplied `X-Request-Id` when valid.
  *   3. Malformed `X-Request-Id` → fresh ULID minted (regression test for the
  *      pre-W4 verbatim-echo behavior; security review demanded ULID-only).
- *   4. `/v1/healthz` smoke — success envelope shape stays byte-identical
+ *   4. `/api/v1/healthz` smoke — success envelope shape stays byte-identical
  *      after the protocol re-export.
  *
  * Uses Fastify's built-in `.inject(...)` HTTP simulator — no socket binding,
@@ -29,7 +29,7 @@ function buildApp() {
     genReqId: (req) => resolveRequestId(req.headers as Record<string, string | string[] | undefined>),
   });
   installErrorHandler(app);
-  app.get('/v1/healthz', async (req, reply) => reply.send(okEnvelope({ ok: true }, req.id)));
+  app.get('/api/v1/healthz', async (req, reply) => reply.send(okEnvelope({ ok: true }, req.id)));
   app.get('/boom', async () => {
     throw new Error('oops something broke');
   });
@@ -72,7 +72,7 @@ describe('request_id resolution at the REST boundary', () => {
   it('mints a bare ULID when no header is supplied (no req_ prefix)', async () => {
     const app = buildApp();
     try {
-      const res = await app.inject({ method: 'GET', url: '/v1/healthz' });
+      const res = await app.inject({ method: 'GET', url: '/api/v1/healthz' });
       const body = res.json() as Record<string, unknown>;
       expect(body['code']).toBe(0);
       expect(body['data']).toEqual({ ok: true });
@@ -90,7 +90,7 @@ describe('request_id resolution at the REST boundary', () => {
       const goodUlid = '01HQXY4Z2M3GZP6F8K9R5W7VBA'; // 26-char crockford
       const res = await app.inject({
         method: 'GET',
-        url: '/v1/healthz',
+        url: '/api/v1/healthz',
         headers: { 'x-request-id': goodUlid },
       });
       const body = res.json() as Record<string, unknown>;
@@ -107,7 +107,7 @@ describe('request_id resolution at the REST boundary', () => {
     try {
       const res = await app.inject({
         method: 'GET',
-        url: '/v1/healthz',
+        url: '/api/v1/healthz',
         headers: { 'x-request-id': 'req_garbage' },
       });
       const body = res.json() as Record<string, unknown>;
@@ -127,7 +127,7 @@ describe('request_id resolution at the REST boundary', () => {
       const looksRight = 'IIIIIIIIIIIIIIIIIIIIIIIIII';
       const res = await app.inject({
         method: 'GET',
-        url: '/v1/healthz',
+        url: '/api/v1/healthz',
         headers: { 'x-request-id': looksRight },
       });
       const id = (res.json() as Record<string, unknown>)['request_id'] as string;
@@ -139,11 +139,11 @@ describe('request_id resolution at the REST boundary', () => {
   });
 });
 
-describe('/v1/healthz envelope shape stability across the protocol re-export', () => {
+describe('/api/v1/healthz envelope shape stability across the protocol re-export', () => {
   it('responds with the documented success envelope', async () => {
     const app = buildApp();
     try {
-      const res = await app.inject({ method: 'GET', url: '/v1/healthz' });
+      const res = await app.inject({ method: 'GET', url: '/api/v1/healthz' });
       expect(res.statusCode).toBe(200);
       const body = res.json() as Record<string, unknown>;
       // Field order isn't a contract (JSON), but key set + types must hold.

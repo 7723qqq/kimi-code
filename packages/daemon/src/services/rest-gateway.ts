@@ -30,7 +30,7 @@ import { Disposable, createDecorator } from '@moonshot-ai/agent-core';
  * default generics that surfaces at the route-options level.
  *
  * W5.1: `server` (the raw Node `http.Server` Fastify wraps) is required so
- * `WSGateway` can attach a typed `'upgrade'` handler for `/v1/ws` without
+ * `WSGateway` can attach a typed `'upgrade'` handler for `/api/v1/ws` without
  * pulling in `fastify-websocket`. Fastify exposes `app.server` after
  * `await app.ready()` (or after `listen()`); we add the typed property here
  * rather than widening to `any` — the anti-corruption discipline matters.

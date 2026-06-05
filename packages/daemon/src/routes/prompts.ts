@@ -1,11 +1,11 @@
 /**
- * `/v1/sessions/{sid}/prompts*` REST routes (Chain 4 / P1.4, W7.2;
+ * `/sessions/{sid}/prompts*` REST routes (Chain 4 / P1.4, W7.2;
  * abort handler extended in Chain 4b / W7.3).
  *
  * 2 endpoints (REST.md §3.5):
  *
- *   POST   /v1/sessions/{sid}/prompts              body: PromptSubmission  data: PromptSubmitResult
- *   POST   /v1/sessions/{sid}/prompts/{pid}:abort  body: empty             data: { aborted, at_seq? }
+ *   POST   /sessions/{sid}/prompts              body: PromptSubmission  data: PromptSubmitResult
+ *   POST   /sessions/{sid}/prompts/{pid}:abort  body: empty             data: { aborted, at_seq? }
  *
  * **Error mapping**:
  *   - `SessionNotFoundError`        → 40401
@@ -26,7 +26,9 @@
 
 import {
   ErrorCode,
+  promptAbortResponseSchema,
   promptSubmissionSchema,
+  promptSubmitResultSchema,
   type PromptSubmission,
 } from '@moonshot-ai/protocol';
 import {
@@ -41,13 +43,14 @@ import { z } from 'zod';
 import type { IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope.js';
+import { buildRouteSchema } from '../middleware/schema.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { parseActionSuffix } from './action-suffix.js';
 
 interface PromptRouteHost {
   post(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -67,14 +70,21 @@ export function registerPromptsRoutes(
   app: PromptRouteHost,
   ix: IInstantiationService,
 ): void {
-  // POST /v1/sessions/{session_id}/prompts ---------------------------------
+  // POST /sessions/{session_id}/prompts ---------------------------------
   app.post(
-    '/v1/sessions/:session_id/prompts',
+    '/sessions/:session_id/prompts',
     {
       preHandler: [
         validateParams(sessionIdParamSchema),
         validateBody(promptSubmissionSchema),
       ],
+      schema: buildRouteSchema({
+        description: 'Submit a prompt to a session',
+        tags: ['prompts'],
+        params: sessionIdParamSchema,
+        body: promptSubmissionSchema,
+        response: { 200: promptSubmitResultSchema },
+      }),
     },
     async (req, reply) => {
       try {
@@ -90,7 +100,7 @@ export function registerPromptsRoutes(
     },
   );
 
-  // POST /v1/sessions/{session_id}/prompts/{prompt_id}:abort ---------------
+  // POST /sessions/{session_id}/prompts/{prompt_id}:abort ---------------
   // Fastify's path syntax doesn't allow a literal `:abort` suffix on a
   // colon-prefixed param (`:prompt_id:abort` parses ambiguously). REST.md
   // §3.5 specifies the action-suffix syntax `{prompt_id}:abort`. We register
@@ -98,8 +108,16 @@ export function registerPromptsRoutes(
   // with `:abort` via the shared `parseActionSuffix` helper (4th call site
   // shared since W9.1).
   app.post(
-    '/v1/sessions/:session_id/prompts/:tail',
-    { preHandler: [] },
+    '/sessions/:session_id/prompts/:tail',
+    {
+      preHandler: [],
+      schema: buildRouteSchema({
+        description: 'Abort a running prompt',
+        tags: ['prompts'],
+        operationId: 'abortPrompt',
+        response: { 200: promptAbortResponseSchema },
+      }),
+    },
     async (req, reply) => {
       try {
         const { session_id, tail } = req.params as {

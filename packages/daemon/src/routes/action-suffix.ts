@@ -45,7 +45,7 @@ export interface ParseActionSuffixOptions<TAction extends string> {
    * When set, a bare `<id>` (no action suffix) is accepted and reported as
    * `{kind:'bare'}`. When `undefined`, bare ids are rejected with
    * `unsupported action: <tail>` — appropriate for resources where every
-   * REST action is an explicit `:verb` (e.g. `/v1/sessions/{sid}/prompts/`).
+   * REST action is an explicit `:verb` (e.g. `/sessions/{sid}/prompts/`).
    */
   readonly defaultAction?: TAction;
   /**

@@ -1,5 +1,5 @@
 /**
- * `/v1/sessions/{sid}/questions/{qid}*` REST routes (Chain 6 / P1.6, W8.2).
+ * `/sessions/{sid}/questions/{qid}*` REST routes (Chain 6 / P1.6, W8.2).
  *
  * 2 endpoints (REST.md §3.6), both serviced by a SINGLE Fastify route handler
  * because Fastify cannot disambiguate `:question_id` vs `:question_id:dismiss`
@@ -7,11 +7,11 @@
  * sole tail; questions has both a bare resolve and a `:dismiss` so we MUST
  * use the tail-parser for both):
  *
- *   POST   /v1/sessions/{sid}/questions/{qid}             (resolve)
+ *   POST   /sessions/{sid}/questions/{qid}             (resolve)
  *     body: QuestionResponse (5-kind answers map + method?+ note?)
  *     data: { resolved: true, resolved_at }
  *
- *   POST   /v1/sessions/{sid}/questions/{qid}:dismiss     (first-class
+ *   POST   /sessions/{sid}/questions/{qid}:dismiss     (first-class
  *     body: empty                                          dismiss)
  *     envelope: code: 40909, data: { dismissed: true, dismissed_at }
  *
@@ -33,6 +33,7 @@
 import {
   ErrorCode,
   questionResolveRequestSchema,
+  questionResolveResultSchema,
   type QuestionResolveRequest,
   type QuestionResolveResult,
 } from '@moonshot-ai/protocol';
@@ -45,6 +46,7 @@ import { z } from 'zod';
 import type { IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope.js';
+import { buildRouteSchema } from '../middleware/schema.js';
 import { validateParams } from '../middleware/validate.js';
 import { parseActionSuffix } from './action-suffix.js';
 import { DaemonQuestionBroker } from '../services/question-broker.js';
@@ -52,7 +54,7 @@ import { DaemonQuestionBroker } from '../services/question-broker.js';
 interface QuestionRouteHost {
   post(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -71,9 +73,17 @@ export function registerQuestionsRoutes(
 ): void {
   // Single route capturing both the resolve and dismiss paths via `:tail`.
   app.post(
-    '/v1/sessions/:session_id/questions/:tail',
+    '/sessions/:session_id/questions/:tail',
     {
       preHandler: [validateParams(tailParamsSchema)],
+      schema: buildRouteSchema({
+        description: 'Resolve or dismiss a question',
+        tags: ['questions'],
+        operationId: 'resolveOrDismissQuestion',
+        params: tailParamsSchema,
+        body: questionResolveRequestSchema,
+        response: { 200: questionResolveResultSchema },
+      }),
     },
     async (req, reply) => {
       const { tail } = req.params as { session_id: string; tail: string };

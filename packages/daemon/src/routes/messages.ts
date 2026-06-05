@@ -1,10 +1,10 @@
 /**
- * `/v1/sessions/{session_id}/messages*` REST routes (Chain 3 / P1.3, W7.1).
+ * `/sessions/{session_id}/messages*` REST routes (Chain 3 / P1.3, W7.1).
  *
  * 2 endpoints (REST.md §3.4):
  *
- *   GET    /v1/sessions/{sid}/messages         query: ListMessages   data: Page<Message>
- *   GET    /v1/sessions/{sid}/messages/{mid}   -                     data: Message
+ *   GET    /sessions/{sid}/messages         query: ListMessages   data: Page<Message>
+ *   GET    /sessions/{sid}/messages/{mid}   -                     data: Message
  *
  * Validation: query is coerced + checked by `messagesListQueryCoercion`
  * (`z.coerce.number()` for `page_size`, mutex re-asserted via superRefine,
@@ -26,6 +26,8 @@
 
 import {
   ErrorCode,
+  getMessageResponseSchema,
+  listMessagesResponseSchema,
   messageRoleSchema,
   type ListMessagesQuery,
 } from '@moonshot-ai/protocol';
@@ -39,6 +41,7 @@ import { z } from 'zod';
 import type { IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope.js';
+import { buildRouteSchema } from '../middleware/schema.js';
 import { validateParams, validateQuery } from '../middleware/validate.js';
 
 /**
@@ -48,7 +51,7 @@ import { validateParams, validateQuery } from '../middleware/validate.js';
 interface MessageRouteHost {
   get(
     path: string,
-    options: { preHandler: unknown[] } | undefined,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
     handler: (
       req: { id: string; query: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -98,14 +101,21 @@ export function registerMessagesRoutes(
   app: MessageRouteHost,
   ix: IInstantiationService,
 ): void {
-  // GET /v1/sessions/{session_id}/messages --------------------------------
+  // GET /sessions/{session_id}/messages --------------------------------
   app.get(
-    '/v1/sessions/:session_id/messages',
+    '/sessions/:session_id/messages',
     {
       preHandler: [
         validateParams(sessionIdParamSchema),
         validateQuery(messagesListQueryCoercion),
       ],
+      schema: buildRouteSchema({
+        description: 'List messages for a session',
+        tags: ['messages'],
+        params: sessionIdParamSchema,
+        querystring: messagesListQueryCoercion,
+        response: { 200: listMessagesResponseSchema },
+      }),
     },
     async (req, reply) => {
       try {
@@ -121,10 +131,18 @@ export function registerMessagesRoutes(
     },
   );
 
-  // GET /v1/sessions/{session_id}/messages/{message_id} -------------------
+  // GET /sessions/{session_id}/messages/{message_id} -------------------
   app.get(
-    '/v1/sessions/:session_id/messages/:message_id',
-    { preHandler: [validateParams(messageIdParamSchema)] },
+    '/sessions/:session_id/messages/:message_id',
+    {
+      preHandler: [validateParams(messageIdParamSchema)],
+      schema: buildRouteSchema({
+        description: 'Get a message by ID',
+        tags: ['messages'],
+        params: messageIdParamSchema,
+        response: { 200: getMessageResponseSchema },
+      }),
+    },
     async (req, reply) => {
       try {
         const { session_id, message_id } = req.params as {

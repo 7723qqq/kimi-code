@@ -3,7 +3,7 @@
  *
  * Covers the reverse-RPC path: agent-core → BridgeClientAPI.requestApproval
  * → IApprovalBroker.request → WS `event.approval.requested` → REST
- * `POST /v1/sessions/{sid}/approvals/{aid}` → Promise resolves with agent-core
+ * `POST /api/v1/sessions/{sid}/approvals/{aid}` → Promise resolves with agent-core
  * `ApprovalResponse`.
  *
  * **Bootstrap strategy** (mirrors prompt.e2e.test.ts): spawn the real daemon,
@@ -103,7 +103,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: join(tmpDir, 'workspace') } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -120,7 +120,7 @@ async function openSubscriber(
   ws: WebSocket;
   received: Record<string, unknown>[];
 }> {
-  const wsUrl = r.address.replace('http://', 'ws://') + '/v1/ws';
+  const wsUrl = r.address.replace('http://', 'ws://') + '/api/v1/ws';
   const received: Record<string, unknown>[] = [];
   const ws = await new Promise<WebSocket>((resolve, reject) => {
     const sock = new WebSocket(wsUrl);
@@ -222,7 +222,7 @@ describe('Approval reverse-RPC: WS broadcast → REST resolve → Promise settle
     // REST resolve.
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/approvals/${payload.approval_id}`,
+      url: `/api/v1/sessions/${sid}/approvals/${payload.approval_id}`,
       payload: {
         decision: 'approved',
         scope: 'session',
@@ -311,7 +311,7 @@ describe('Approval reverse-RPC: WS broadcast → REST resolve → Promise settle
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/approvals/01JAAAAAAAAAAAAAAAAAAAAAAA`,
+      url: `/api/v1/sessions/${sid}/approvals/01JAAAAAAAAAAAAAAAAAAAAAAA`,
       payload: { decision: 'approved' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -349,7 +349,7 @@ describe('Approval reverse-RPC: WS broadcast → REST resolve → Promise settle
     // First resolve succeeds.
     const ok = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/approvals/${approvalId}`,
+      url: `/api/v1/sessions/${sid}/approvals/${approvalId}`,
       payload: { decision: 'approved' },
     });
     const env1 = envelopeOf<{ resolved: boolean }>(ok.json());
@@ -359,7 +359,7 @@ describe('Approval reverse-RPC: WS broadcast → REST resolve → Promise settle
     // Second resolve hits the idempotency window.
     const dup = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/approvals/${approvalId}`,
+      url: `/api/v1/sessions/${sid}/approvals/${approvalId}`,
       payload: { decision: 'approved' },
     });
     const env2 = envelopeOf<{ resolved: boolean }>(dup.json());
@@ -397,7 +397,7 @@ describe('Approval reverse-RPC: WS broadcast → REST resolve → Promise settle
 
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/approvals/${approvalId}`,
+      url: `/api/v1/sessions/${sid}/approvals/${approvalId}`,
       payload: { decision: 'maybe' },
     });
     const env = envelopeOf<unknown>(res.json());

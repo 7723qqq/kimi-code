@@ -1,10 +1,10 @@
 /**
- * `/v1/sessions/{sid}/fs:*` REST routes (W10 / Chains 9 + 10).
+ * `/sessions/{sid}/fs:*` REST routes (W10 / Chains 9 + 10).
  *
  * Endpoints landed in W10.1 (Chain 9):
  *
- *   POST /v1/sessions/{sid}/fs:list       → FsListResponse
- *   POST /v1/sessions/{sid}/fs:read       → FsReadResponse
+ *   POST /sessions/{sid}/fs:list       → FsListResponse
+ *   POST /sessions/{sid}/fs:read       → FsReadResponse
  *
  * W10.2 (Chain 10) extends this module with `:list_many`, `:stat`, and
  * `:stat_many` — same dispatch shape, different per-action handlers.
@@ -64,6 +64,7 @@ import { z } from 'zod';
 import type { IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope.js';
+import { buildRouteSchema } from '../middleware/schema.js';
 import { validateParams } from '../middleware/validate.js';
 import {
   FsIsBinaryError,
@@ -86,7 +87,7 @@ import { FsPathEscapesError } from '../services/fs-path-safety.js';
 interface FsRouteHost {
   post(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -94,7 +95,7 @@ interface FsRouteHost {
   ): unknown;
   get(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: {
         id: string;
@@ -144,9 +145,9 @@ export function registerFsRoutes(
   app: FsRouteHost,
   ix: IInstantiationService,
 ): void {
-  // POST /v1/sessions/{sid}/fs:<action>
+  // POST /sessions/{sid}/fs:<action>
   //
-  // Fastify path: `/v1/sessions/:session_id/:tail`. We capture the FULL
+  // Fastify path: `/sessions/:session_id/:tail`. We capture the FULL
   // final segment (`fs:list`, `fs:read`, ...) and split locally — Fastify's
   // `::` colon-escape collapses both colons into a literal `:` STATIC
   // path, NOT a literal `:` followed by a param, so we can't isolate the
@@ -156,8 +157,17 @@ export function registerFsRoutes(
   // this route — sibling routes (`messages`, `prompts`, `tasks`, etc.)
   // claim the bare-segment paths.
   app.post(
-    '/v1/sessions/:session_id/:tail',
-    { preHandler: [validateParams(sessionIdAndTailParamSchema)] },
+    '/sessions/:session_id/:tail',
+    {
+      preHandler: [validateParams(sessionIdAndTailParamSchema)],
+      schema: buildRouteSchema({
+        description:
+          'Filesystem action dispatcher. Supported actions: list, read, list_many, stat, stat_many, search, grep, git_status.',
+        tags: ['fs'],
+        operationId: 'fsAction',
+        params: sessionIdAndTailParamSchema,
+      }),
+    },
     async (req, reply) => {
       const { session_id, tail } = req.params as {
         session_id: string;
@@ -230,13 +240,13 @@ export function registerFsRoutes(
   );
 
   // ---------------------------------------------------------------------
-  // GET /v1/sessions/{sid}/fs/*  — Chain 13 (W11.3) streaming download.
+  // GET /sessions/{sid}/fs/*  — Chain 13 (W11.3) streaming download.
   //
   // **Architectural exception**: REST.md §3.9 line 558 — the ONLY GET in
   // the daemon's REST surface with a verb in the URL (`:download`
   // suffix). HTTP semantics dictate GET for downloads.
   //
-  // URL pattern (REST.md §3.9 line 562): `GET /v1/sessions/{sid}/fs/{path}:download`
+  // URL pattern (REST.md §3.9 line 562): `GET /sessions/{sid}/fs/{path}:download`
   // `{path}` retains forward slashes; Fastify's `*` wildcard captures
   // everything after `fs/`. We then peel off the `:download` action
   // suffix and validate the path through `IFsService.resolveDownload`.
@@ -255,8 +265,15 @@ export function registerFsRoutes(
   // documented one-way escape hatch per REST.md §3.9 line 571).
   // ---------------------------------------------------------------------
   app.get(
-    '/v1/sessions/:session_id/fs/*',
-    { preHandler: [] },
+    '/sessions/:session_id/fs/*',
+    {
+      preHandler: [],
+      schema: buildRouteSchema({
+        description: 'Download a file from the session workspace',
+        tags: ['fs'],
+        operationId: 'downloadFile',
+      }),
+    },
     async (req, reply) => {
       const { session_id, '*': wildcard } = req.params as {
         session_id: string;

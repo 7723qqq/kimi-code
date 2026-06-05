@@ -1,5 +1,5 @@
 /**
- * `/v1/files` end-to-end (W12.2 / Chain 15, P1.15).
+ * `/api/v1/files` end-to-end (W12.2 / Chain 15, P1.15).
  *
  * AC coverage (ROADMAP §Chain 15):
  *   1. upload → file_id → GET stream → DELETE → re-GET → 40407
@@ -129,7 +129,7 @@ function buildMultipart(parts: {
   };
 }
 
-describe('POST /v1/files (W12.2 / Chain 15)', () => {
+describe('POST /api/v1/files (W12.2 / Chain 15)', () => {
   it('AC #1: upload tiny file → file_id → GET stream matches → DELETE → re-GET 40407', async () => {
     const r = await bootDaemon();
     const data = Buffer.from('hello daemon files');
@@ -143,7 +143,7 @@ describe('POST /v1/files (W12.2 / Chain 15)', () => {
     });
     const upRes = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/files',
+      url: '/api/v1/files',
       payload: mp.body,
       headers: { 'content-type': mp.contentType },
     });
@@ -169,7 +169,7 @@ describe('POST /v1/files (W12.2 / Chain 15)', () => {
     // GET should return the bytes with octet-stream-or-mime body.
     const getRes = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/files/${meta.id}`,
+      url: `/api/v1/files/${meta.id}`,
     });
     expect(getRes.statusCode).toBe(200);
     expect(getRes.headers['content-type']).toBe('text/plain');
@@ -183,7 +183,7 @@ describe('POST /v1/files (W12.2 / Chain 15)', () => {
     // DELETE.
     const delRes = await appOf(r).inject({
       method: 'DELETE',
-      url: `/v1/files/${meta.id}`,
+      url: `/api/v1/files/${meta.id}`,
     });
     expect(delRes.statusCode).toBe(200);
     const delEnv = delRes.json() as Envelope<{ deleted: true }>;
@@ -193,7 +193,7 @@ describe('POST /v1/files (W12.2 / Chain 15)', () => {
     // GET after delete → 40407.
     const get2Res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/files/${meta.id}`,
+      url: `/api/v1/files/${meta.id}`,
     });
     expect(get2Res.statusCode).toBe(404);
     expect(get2Res.headers['content-type']).toMatch(/application\/json/);
@@ -215,7 +215,7 @@ describe('POST /v1/files (W12.2 / Chain 15)', () => {
     });
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/files',
+      url: '/api/v1/files',
       payload: mp.body,
       headers: { 'content-type': mp.contentType },
     });
@@ -228,14 +228,14 @@ describe('POST /v1/files (W12.2 / Chain 15)', () => {
     const r = await bootDaemon();
     const getRes = await appOf(r).inject({
       method: 'GET',
-      url: '/v1/files/f_does_not_exist',
+      url: '/api/v1/files/f_does_not_exist',
     });
     expect(getRes.statusCode).toBe(404);
     expect((getRes.json() as Envelope).code).toBe(40407);
 
     const delRes = await appOf(r).inject({
       method: 'DELETE',
-      url: '/v1/files/f_does_not_exist',
+      url: '/api/v1/files/f_does_not_exist',
     });
     expect(delRes.statusCode).toBe(404);
     expect((delRes.json() as Envelope).code).toBe(40407);
@@ -255,7 +255,7 @@ describe('POST /v1/files (W12.2 / Chain 15)', () => {
     });
     const upRes = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/files',
+      url: '/api/v1/files',
       payload: mp.body,
       headers: { 'content-type': mp.contentType },
     });
@@ -269,7 +269,7 @@ describe('POST /v1/files (W12.2 / Chain 15)', () => {
 
     const getRes = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/files/${meta.id}`,
+      url: `/api/v1/files/${meta.id}`,
     });
     expect(getRes.statusCode).toBe(200);
     expect(getRes.rawPayload).toEqual(data);
@@ -289,7 +289,7 @@ describe('POST /v1/files (W12.2 / Chain 15)', () => {
     });
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/files',
+      url: '/api/v1/files',
       payload: mp.body,
       headers: { 'content-type': mp.contentType },
     });
@@ -307,7 +307,7 @@ describe('POST /v1/files (W12.2 / Chain 15)', () => {
     );
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/files',
+      url: '/api/v1/files',
       payload: body,
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
     });

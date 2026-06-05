@@ -9,7 +9,7 @@
  *   2. WS `abort` idempotency: second abort returns
  *      `code: 0, payload.aborted: false` (per WS.md §3.4 convention —
  *      NOT REST's 40903, intentional).
- *   3. REST `POST /v1/sessions/{sid}/prompts/{pid}:abort`:
+ *   3. REST `POST /api/v1/sessions/{sid}/prompts/{pid}:abort`:
  *      - Returns `{aborted: true}` on first call.
  *      - Returns `code: 40903 + data: {aborted: false}` on second
  *        (idempotent already-completed) per REST.md §3.5.
@@ -97,7 +97,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: join(tmpDir, 'workspace') } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -125,7 +125,7 @@ interface Subscriber {
 }
 
 async function openSubscriber(r: RunningDaemon, sid: string): Promise<Subscriber> {
-  const wsUrl = r.address.replace('http://', 'ws://') + '/v1/ws';
+  const wsUrl = r.address.replace('http://', 'ws://') + '/api/v1/ws';
   const received: Record<string, unknown>[] = [];
   const ws = await new Promise<WebSocket>((resolve, reject) => {
     const sock = new WebSocket(wsUrl);
@@ -263,7 +263,7 @@ describe('REST abort + REST/WS symmetry (W7.3 / Chain 4b)', () => {
     injectActivePrompt(r, sid, promptId, 1);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/prompts/${promptId}:abort`,
+      url: `/api/v1/sessions/${sid}/prompts/${promptId}:abort`,
     });
     const env = envelopeOf<{ aborted: boolean }>(res.json());
     expect(env.code).toBe(0);
@@ -277,11 +277,11 @@ describe('REST abort + REST/WS symmetry (W7.3 / Chain 4b)', () => {
     injectActivePrompt(r, sid, promptId, 2);
     await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/prompts/${promptId}:abort`,
+      url: `/api/v1/sessions/${sid}/prompts/${promptId}:abort`,
     });
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/prompts/${promptId}:abort`,
+      url: `/api/v1/sessions/${sid}/prompts/${promptId}:abort`,
     });
     const env = envelopeOf<{ aborted: boolean }>(res.json());
     expect(env.code).toBe(40903);
@@ -292,7 +292,7 @@ describe('REST abort + REST/WS symmetry (W7.3 / Chain 4b)', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/sessions/sess_missing/prompts/prompt_X:abort',
+      url: '/api/v1/sessions/sess_missing/prompts/prompt_X:abort',
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40401);
@@ -303,7 +303,7 @@ describe('REST abort + REST/WS symmetry (W7.3 / Chain 4b)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/prompts/prompt_missing:abort`,
+      url: `/api/v1/sessions/${sid}/prompts/prompt_missing:abort`,
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40402);
@@ -318,7 +318,7 @@ describe('REST abort + REST/WS symmetry (W7.3 / Chain 4b)', () => {
     // First abort via REST → success.
     const rest = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/prompts/${promptId}:abort`,
+      url: `/api/v1/sessions/${sid}/prompts/${promptId}:abort`,
     });
     expect(envelopeOf<{ aborted: boolean }>(rest.json()).data?.aborted).toBe(true);
 
@@ -360,7 +360,7 @@ describe('REST abort + REST/WS symmetry (W7.3 / Chain 4b)', () => {
     // Second abort via REST — must surface 40903 already_completed.
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/prompts/${promptId}:abort`,
+      url: `/api/v1/sessions/${sid}/prompts/${promptId}:abort`,
     });
     const env = envelopeOf<{ aborted: boolean }>(res.json());
     expect(env.code).toBe(40903);
