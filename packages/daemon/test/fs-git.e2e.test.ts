@@ -1,5 +1,5 @@
 /**
- * `/v1/sessions/{sid}/fs:git_status` end-to-end tests (W11.2 / Chain 12 / P1.12).
+ * `/api/v1/sessions/{sid}/fs:git_status` end-to-end tests (W11.2 / Chain 12 / P1.12).
  *
  * AC coverage (ROADMAP §Chain 12):
  *   1. e2e: git repo / non-git repo / dirty / clean
@@ -102,7 +102,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: workspace } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -133,7 +133,7 @@ function initRepo(): void {
   git(['commit', '-m', 'seed', '--no-gpg-sign']);
 }
 
-describe('POST /v1/sessions/{sid}/fs:git_status (W11.2)', () => {
+describe('POST /api/v1/sessions/{sid}/fs:git_status (W11.2)', () => {
   it('clean repo: empty entries, branch populated', async () => {
     initRepo();
 
@@ -141,7 +141,7 @@ describe('POST /v1/sessions/{sid}/fs:git_status (W11.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:git_status`,
+      url: `/api/v1/sessions/${sid}/fs:git_status`,
       payload: {},
     });
     const env = envelopeOf<{
@@ -168,7 +168,7 @@ describe('POST /v1/sessions/{sid}/fs:git_status (W11.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:git_status`,
+      url: `/api/v1/sessions/${sid}/fs:git_status`,
       payload: {},
     });
     const env = envelopeOf<{
@@ -190,7 +190,7 @@ describe('POST /v1/sessions/{sid}/fs:git_status (W11.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:git_status`,
+      url: `/api/v1/sessions/${sid}/fs:git_status`,
       payload: {},
     });
     const env = envelopeOf<{ entries: Record<string, string> }>(res.json());
@@ -216,7 +216,7 @@ describe('POST /v1/sessions/{sid}/fs:git_status (W11.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:git_status`,
+      url: `/api/v1/sessions/${sid}/fs:git_status`,
       payload: { paths: ['a.txt'] },
     });
     const env = envelopeOf<{ entries: Record<string, string> }>(res.json());
@@ -231,7 +231,7 @@ describe('POST /v1/sessions/{sid}/fs:git_status (W11.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:git_status`,
+      url: `/api/v1/sessions/${sid}/fs:git_status`,
       payload: {},
     });
     const env = envelopeOf<null>(res.json());
@@ -245,7 +245,7 @@ describe('POST /v1/sessions/{sid}/fs:git_status (W11.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:git_status`,
+      url: `/api/v1/sessions/${sid}/fs:git_status`,
       payload: { paths: ['../outside.txt'] },
     });
     const env = envelopeOf<null>(res.json());
@@ -256,7 +256,7 @@ describe('POST /v1/sessions/{sid}/fs:git_status (W11.2)', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/sessions/sess_does_not_exist/fs:git_status',
+      url: '/api/v1/sessions/sess_does_not_exist/fs:git_status',
       payload: {},
     });
     const env = envelopeOf<null>(res.json());

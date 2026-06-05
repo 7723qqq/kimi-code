@@ -1,5 +1,5 @@
 /**
- * `GET /v1/sessions/{sid}/fs/{path}:download` end-to-end tests
+ * `GET /api/v1/sessions/{sid}/fs/{path}:download` end-to-end tests
  * (W11.3 / Chain 13 / P1.13).
  *
  * AC coverage (ROADMAP §Chain 13):
@@ -106,7 +106,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: workspace } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -116,7 +116,7 @@ async function createSession(r: RunningDaemon): Promise<string> {
   return env.data.id;
 }
 
-describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
+describe('GET /api/v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
   it('streams a text file with the correct mime + length headers', async () => {
     writeFileSync(join(workspace, 'hello.txt'), 'hello world\n');
 
@@ -124,7 +124,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/hello.txt:download`,
+      url: `/api/v1/sessions/${sid}/fs/hello.txt:download`,
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-length']).toBe('12');
@@ -144,7 +144,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/pixel.png:download`,
+      url: `/api/v1/sessions/${sid}/fs/pixel.png:download`,
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('image/png');
@@ -159,7 +159,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/src/lib/util.ts:download`,
+      url: `/api/v1/sessions/${sid}/fs/src/lib/util.ts:download`,
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-disposition']).toContain('util.ts');
@@ -176,7 +176,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/big.bin:download`,
+      url: `/api/v1/sessions/${sid}/fs/big.bin:download`,
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-length']).toBe(String(SIZE));
@@ -191,7 +191,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/a.bin:download`,
+      url: `/api/v1/sessions/${sid}/fs/a.bin:download`,
       headers: { Range: 'bytes=2-5' },
     });
     expect(res.statusCode).toBe(206);
@@ -206,7 +206,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/a.bin:download`,
+      url: `/api/v1/sessions/${sid}/fs/a.bin:download`,
       headers: { Range: 'bytes=-3' },
     });
     expect(res.statusCode).toBe(206);
@@ -220,7 +220,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/a.bin:download`,
+      url: `/api/v1/sessions/${sid}/fs/a.bin:download`,
       headers: { Range: 'bytes=3-' },
     });
     expect(res.statusCode).toBe(206);
@@ -234,14 +234,14 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const first = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/hello.txt:download`,
+      url: `/api/v1/sessions/${sid}/fs/hello.txt:download`,
     });
     expect(first.statusCode).toBe(200);
     const etag = first.headers['etag'];
     expect(etag).toBeDefined();
     const second = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/hello.txt:download`,
+      url: `/api/v1/sessions/${sid}/fs/hello.txt:download`,
       headers: { 'If-None-Match': etag as string },
     });
     expect(second.statusCode).toBe(304);
@@ -254,7 +254,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/does-not-exist.txt:download`,
+      url: `/api/v1/sessions/${sid}/fs/does-not-exist.txt:download`,
     });
     expect(res.statusCode).toBe(200);
     expect((res.headers['content-type'] as string) ?? '').toContain('json');
@@ -268,7 +268,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/src:download`,
+      url: `/api/v1/sessions/${sid}/fs/src:download`,
     });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<null>(res.json());
@@ -283,7 +283,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     // is what we're testing, not the URL parser.
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/%2E%2E%2Foutside.txt:download`,
+      url: `/api/v1/sessions/${sid}/fs/%2E%2E%2Foutside.txt:download`,
     });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<null>(res.json());
@@ -294,7 +294,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'GET',
-      url: '/v1/sessions/sess_does_not_exist/fs/a.txt:download',
+      url: '/api/v1/sessions/sess_does_not_exist/fs/a.txt:download',
     });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<null>(res.json());
@@ -307,7 +307,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/a.txt:bogus`,
+      url: `/api/v1/sessions/${sid}/fs/a.txt:bogus`,
     });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<null>(res.json());
@@ -319,7 +319,7 @@ describe('GET /v1/sessions/{sid}/fs/{path}:download (W11.3)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/fs/:download`,
+      url: `/api/v1/sessions/${sid}/fs/:download`,
     });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<null>(res.json());

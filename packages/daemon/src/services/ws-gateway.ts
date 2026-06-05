@@ -2,7 +2,7 @@
  * `IWSGateway` (W5.1 / P0.15) — WebSocket gateway.
  *
  * Owns a `ws.WebSocketServer` in `noServer` mode and attaches an `'upgrade'`
- * handler to the Fastify-exposed raw `http.Server`. WS path is `/v1/ws`
+ * handler to the Fastify-exposed raw `http.Server`. WS path is `/api/v1/ws`
  * (WS.md §1.1). On upgrade we instantiate a `WsConnection`, register it in
  * `IConnectionRegistry`, and let the connection drive its own handshake +
  * heartbeat.
@@ -21,7 +21,7 @@
  *
  * Why `noServer` mode (not `port:`): Fastify already owns the HTTP server.
  * We share it — every WS handshake passes through Fastify's listener, gets
- * intercepted by our `'upgrade'` handler, and only `/v1/ws` paths are
+ * intercepted by our `'upgrade'` handler, and only `/api/v1/ws` paths are
  * upgraded; other paths get an immediate `socket.destroy()` (defensive).
  *
  * `dispose()` is reverse-order safe:
@@ -47,7 +47,7 @@ import { ISessionClientsService } from './session-clients.js';
 import { WsConnection, type AbortHandler, type FsWatchHandler } from '../ws/connection.js';
 
 /** WS endpoint path. WS.md §1.1. */
-export const WS_PATH = '/v1/ws';
+export const WS_PATH = '/api/v1/ws';
 
 export interface IWSGateway {
   /** Number of currently-attached WS connections. */
@@ -127,7 +127,7 @@ export class WSGateway extends Disposable implements IWSGateway {
   }
 
   private onUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): void {
-    // Restrict to `/v1/ws` (with optional query string per WS.md §1.1).
+    // Restrict to `/api/v1/ws` (with optional query string per WS.md §1.1).
     const url = req.url ?? '';
     const path = url.split('?', 1)[0];
     if (path !== WS_PATH) {

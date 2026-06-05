@@ -7,7 +7,7 @@
  * `tool-adapter.toProtocolMcpServer`.
  *
  * **agent-core API note**: `listMcpServers` is exposed on the SessionAPI
- * (per-session). Per REST.md §3.8 the wire endpoint `/v1/mcp/servers` is
+ * (per-session). Per REST.md §3.8 the wire endpoint `/api/v1/mcp/servers` is
  * GLOBAL (not session-scoped). We pass the agent-core implicit session id
  * `'__global__'` via the bridge — but agent-core's `listMcpServers` actually
  * reads from the in-process MCP registrar which is process-global today, so
@@ -20,7 +20,7 @@
  * the global REST surface we accept ANY known session id; the daemon route
  * can pass a probe (e.g. first session from `listSessions`) or — when no
  * sessions exist — return an empty list. We implement the latter to keep the
- * daemon's `/v1/mcp/servers` 200-OK before any session is created.
+ * daemon's `/api/v1/mcp/servers` 200-OK before any session is created.
  *
  * **Reconnect**: `bridge.rpc.reconnectMcpServer({name, sessionId})` likewise
  * needs a session anchor. We forward the route-supplied `sessionId` (the

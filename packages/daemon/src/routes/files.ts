@@ -1,11 +1,11 @@
 /**
- * `/v1/files*` REST routes (W12.2 / Chain 15 / P1.15).
+ * `/files*` REST routes (W12.2 / Chain 15 / P1.15).
  *
  * Three endpoints:
  *
- *   POST   /v1/files            multipart upload → FileMeta envelope
- *   GET    /v1/files/{file_id}  binary stream (NO envelope) or 40407 envelope
- *   DELETE /v1/files/{file_id}  `{deleted: true}` envelope
+ *   POST   /files            multipart upload → FileMeta envelope
+ *   GET    /files/{file_id}  binary stream (NO envelope) or 40407 envelope
+ *   DELETE /files/{file_id}  `{deleted: true}` envelope
  *
  * **`@fastify/multipart` registration**: this module registers the
  * plugin against the captured Fastify instance on first call. The
@@ -37,13 +37,16 @@ import multipart from '@fastify/multipart';
 import {
   ErrorCode,
   deleteFileParamSchema,
+  deleteFileResponseSchema,
   getFileParamSchema,
+  uploadFileResponseSchema,
 } from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
 import type { IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope.js';
+import { buildRouteSchema } from '../middleware/schema.js';
 import { validateParams } from '../middleware/validate.js';
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
@@ -65,6 +68,7 @@ interface FilesRouteHost {
   register(plugin: unknown, opts?: unknown): unknown;
   post(
     path: string,
+    options: { schema?: Record<string, unknown> },
     handler: (
       req: FastifyRequestLike,
       reply: FilesReply,
@@ -72,7 +76,7 @@ interface FilesRouteHost {
   ): unknown;
   get(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: FastifyRequestLike,
       reply: FilesReply,
@@ -80,7 +84,7 @@ interface FilesRouteHost {
   ): unknown;
   delete(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: FastifyRequestLike,
       reply: FilesReply,
@@ -128,12 +132,19 @@ export function registerFilesRoutes(
     },
   });
 
-  // POST /v1/files ----------------------------------------------------
+  // POST /files ----------------------------------------------------
   //
   // `multipart/form-data` with required `file` field + optional `name`
   // / `expires_in_sec` fields. We stream the `file` directly into
   // `IFileStore.save` (no in-memory buffering).
-  app.post('/v1/files', async (req, reply) => {
+  app.post('/files', {
+    schema: buildRouteSchema({
+      description: 'Upload a file',
+      tags: ['files'],
+      consumes: ['multipart/form-data'],
+      response: { 200: uploadFileResponseSchema },
+    }),
+  }, async (req, reply) => {
     try {
       if (!req.file) {
         reply.send(
@@ -211,14 +222,21 @@ export function registerFilesRoutes(
     }
   });
 
-  // GET /v1/files/{file_id} -------------------------------------------
+  // GET /files/{file_id} -------------------------------------------
   //
   // Architectural exception: the ONLY endpoint that does not use the
   // envelope on success (REST.md §3.10 line 691). 404 still returns a
   // JSON envelope; clients distinguish by `Content-Type`.
   app.get(
-    '/v1/files/:file_id',
-    { preHandler: [validateParams(getFileParamSchema)] },
+    '/files/:file_id',
+    {
+      preHandler: [validateParams(getFileParamSchema)],
+      schema: buildRouteSchema({
+        description: 'Download a file by ID',
+        tags: ['files'],
+        params: getFileParamSchema,
+      }),
+    },
     async (req, reply) => {
       try {
         const { file_id } = req.params as { file_id: string };
@@ -246,10 +264,18 @@ export function registerFilesRoutes(
     },
   );
 
-  // DELETE /v1/files/{file_id} ----------------------------------------
+  // DELETE /files/{file_id} ----------------------------------------
   app.delete(
-    '/v1/files/:file_id',
-    { preHandler: [validateParams(deleteFileParamSchema)] },
+    '/files/:file_id',
+    {
+      preHandler: [validateParams(deleteFileParamSchema)],
+      schema: buildRouteSchema({
+        description: 'Delete a file by ID',
+        tags: ['files'],
+        params: deleteFileParamSchema,
+        response: { 200: deleteFileResponseSchema },
+      }),
+    },
     async (req, reply) => {
       try {
         const { file_id } = req.params as { file_id: string };

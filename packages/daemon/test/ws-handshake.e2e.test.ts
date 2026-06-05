@@ -68,7 +68,7 @@ async function spawn(): Promise<RunningDaemon> {
 }
 
 function wsUrl(http: string): string {
-  return http.replace(/^http:\/\//, 'ws://') + '/v1/ws';
+  return http.replace(/^http:\/\//, 'ws://') + '/api/v1/ws';
 }
 
 interface WsFrame {
@@ -230,9 +230,9 @@ describe('WS gateway handshake + heartbeat (W5.1)', () => {
     expect(code).toBe(1001);
   });
 
-  it('non-/v1/ws upgrade requests are rejected', async () => {
+  it('non-/api/v1/ws upgrade requests are rejected', async () => {
     const r = await spawn();
-    const badUrl = r.address.replace(/^http:\/\//, 'ws://') + '/v1/other';
+    const badUrl = r.address.replace(/^http:\/\//, 'ws://') + '/api/v1/other';
     await expect(openConn(badUrl)).rejects.toBeInstanceOf(Error);
   });
 });

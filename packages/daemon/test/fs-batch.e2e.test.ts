@@ -1,5 +1,5 @@
 /**
- * `/v1/sessions/{sid}/fs:list_many` + `:stat` + `:stat_many` end-to-end
+ * `/api/v1/sessions/{sid}/fs:list_many` + `:stat` + `:stat_many` end-to-end
  * tests (W10.2 / Chain 10 / P1.10).
  *
  * AC coverage (ROADMAP §Chain 10):
@@ -101,7 +101,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: workspace } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -111,7 +111,7 @@ async function createSession(r: RunningDaemon): Promise<string> {
   return env.data.id;
 }
 
-describe('POST /v1/sessions/{sid}/fs:list_many (W10.2)', () => {
+describe('POST /api/v1/sessions/{sid}/fs:list_many (W10.2)', () => {
   it('returns 100 path results, half existing half missing, with partial_errors', async () => {
     // 50 real directories + 50 missing paths.
     const real: string[] = [];
@@ -129,7 +129,7 @@ describe('POST /v1/sessions/{sid}/fs:list_many (W10.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:list_many`,
+      url: `/api/v1/sessions/${sid}/fs:list_many`,
       payload: { paths },
     });
 
@@ -158,7 +158,7 @@ describe('POST /v1/sessions/{sid}/fs:list_many (W10.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:list_many`,
+      url: `/api/v1/sessions/${sid}/fs:list_many`,
       payload: { paths: ['.', '../escape'] },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -169,7 +169,7 @@ describe('POST /v1/sessions/{sid}/fs:list_many (W10.2)', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/sessions/does-not-exist/fs:list_many',
+      url: '/api/v1/sessions/does-not-exist/fs:list_many',
       payload: { paths: ['.'] },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -182,7 +182,7 @@ describe('POST /v1/sessions/{sid}/fs:list_many (W10.2)', () => {
     const paths = Array.from({ length: 101 }, (_, i) => `p${i}`);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:list_many`,
+      url: `/api/v1/sessions/${sid}/fs:list_many`,
       payload: { paths },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -190,14 +190,14 @@ describe('POST /v1/sessions/{sid}/fs:list_many (W10.2)', () => {
   });
 });
 
-describe('POST /v1/sessions/{sid}/fs:stat (W10.2)', () => {
+describe('POST /api/v1/sessions/{sid}/fs:stat (W10.2)', () => {
   it('returns an FsEntry for an existing file', async () => {
     writeFileSync(join(workspace, 'a.ts'), 'export {}');
     const r = await bootDaemon();
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:stat`,
+      url: `/api/v1/sessions/${sid}/fs:stat`,
       payload: { path: 'a.ts' },
     });
     const env = envelopeOf<{
@@ -219,7 +219,7 @@ describe('POST /v1/sessions/{sid}/fs:stat (W10.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:stat`,
+      url: `/api/v1/sessions/${sid}/fs:stat`,
       payload: { path: 'no-such.txt' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -231,7 +231,7 @@ describe('POST /v1/sessions/{sid}/fs:stat (W10.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:stat`,
+      url: `/api/v1/sessions/${sid}/fs:stat`,
       payload: { path: '/etc/passwd' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -239,14 +239,14 @@ describe('POST /v1/sessions/{sid}/fs:stat (W10.2)', () => {
   });
 });
 
-describe('POST /v1/sessions/{sid}/fs:stat_many (W10.2)', () => {
+describe('POST /api/v1/sessions/{sid}/fs:stat_many (W10.2)', () => {
   it('returns null for missing per-path entries (REST.md §3.9 line 524)', async () => {
     writeFileSync(join(workspace, 'present.txt'), 'p');
     const r = await bootDaemon();
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:stat_many`,
+      url: `/api/v1/sessions/${sid}/fs:stat_many`,
       payload: { paths: ['present.txt', 'missing.txt'] },
     });
     const env = envelopeOf<{
@@ -264,7 +264,7 @@ describe('POST /v1/sessions/{sid}/fs:stat_many (W10.2)', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:stat_many`,
+      url: `/api/v1/sessions/${sid}/fs:stat_many`,
       payload: { paths: ['safe.txt', '/etc/passwd'] },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -288,7 +288,7 @@ describe('POST /v1/sessions/{sid}/fs:stat_many (W10.2)', () => {
     const start = performance.now();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/fs:stat_many`,
+      url: `/api/v1/sessions/${sid}/fs:stat_many`,
       payload: { paths },
     });
     const elapsed = performance.now() - start;

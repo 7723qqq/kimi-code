@@ -1,11 +1,11 @@
 /**
- * `/v1/tools` + `/v1/mcp/servers*` REST routes (Chain 7 / P1.7, W9.1).
+ * `/tools` + `/mcp/servers*` REST routes (Chain 7 / P1.7, W9.1).
  *
  * 3 endpoints (REST.md §3.8):
  *
- *   GET  /v1/tools                                  query: {session_id?}    data: {tools: ToolDescriptor[]}
- *   GET  /v1/mcp/servers                            -                       data: {servers: McpServer[]}
- *   POST /v1/mcp/servers/{mcp_server_id}:restart    body: empty             data: {restarting: true}
+ *   GET  /tools                                  query: {session_id?}    data: {tools: ToolDescriptor[]}
+ *   GET  /mcp/servers                            -                       data: {servers: McpServer[]}
+ *   POST /mcp/servers/{mcp_server_id}:restart    body: empty             data: {restarting: true}
  *
  * **Error mapping**:
  *   - `McpServerNotFoundError` → envelope `code: 40408 mcp.server_not_found`.
@@ -21,7 +21,10 @@
 
 import {
   ErrorCode,
+  listMcpServersResponseSchema,
   listToolsQuerySchema,
+  listToolsResponseSchema,
+  restartMcpServerResultSchema,
   type ListToolsQuery,
 } from '@moonshot-ai/protocol';
 import { IMcpService, IToolService, McpServerNotFoundError } from '@moonshot-ai/services';
@@ -30,13 +33,14 @@ import { z } from 'zod';
 import type { IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope.js';
+import { buildRouteSchema } from '../middleware/schema.js';
 import { validateQuery } from '../middleware/validate.js';
 import { parseActionSuffix } from './action-suffix.js';
 
 interface ToolsRouteHost {
   get(
     path: string,
-    options: { preHandler: unknown[] } | undefined,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
     handler: (
       req: { id: string; query: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -44,7 +48,7 @@ interface ToolsRouteHost {
   ): unknown;
   post(
     path: string,
-    options: { preHandler: unknown[] },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -56,10 +60,18 @@ export function registerToolsRoutes(
   app: ToolsRouteHost,
   ix: IInstantiationService,
 ): void {
-  // GET /v1/tools ----------------------------------------------------------
+  // GET /tools ----------------------------------------------------------
   app.get(
-    '/v1/tools',
-    { preHandler: [validateQuery(listToolsQuerySchema)] },
+    '/tools',
+    {
+      preHandler: [validateQuery(listToolsQuerySchema)],
+      schema: buildRouteSchema({
+        description: 'List available tools',
+        tags: ['tools'],
+        querystring: listToolsQuerySchema,
+        response: { 200: listToolsResponseSchema },
+      }),
+    },
     async (req, reply) => {
       try {
         const query = req.query as ListToolsQuery;
@@ -73,8 +85,15 @@ export function registerToolsRoutes(
     },
   );
 
-  // GET /v1/mcp/servers ----------------------------------------------------
-  app.get('/v1/mcp/servers', { preHandler: [] }, async (req, reply) => {
+  // GET /mcp/servers ----------------------------------------------------
+  app.get('/mcp/servers', {
+    preHandler: [],
+    schema: buildRouteSchema({
+      description: 'List configured MCP servers',
+      tags: ['tools'],
+      response: { 200: listMcpServersResponseSchema },
+    }),
+  }, async (req, reply) => {
     try {
       const servers = await ix.invokeFunction((a) => a.get(IMcpService).list());
       reply.send(okEnvelope({ servers }, req.id));
@@ -83,10 +102,18 @@ export function registerToolsRoutes(
     }
   });
 
-  // POST /v1/mcp/servers/{mcp_server_id}:restart ---------------------------
+  // POST /mcp/servers/{mcp_server_id}:restart ---------------------------
   app.post(
-    '/v1/mcp/servers/:tail',
-    { preHandler: [] },
+    '/mcp/servers/:tail',
+    {
+      preHandler: [],
+      schema: buildRouteSchema({
+        description: 'Restart an MCP server by ID',
+        tags: ['tools'],
+        operationId: 'restartMcpServer',
+        response: { 200: restartMcpServerResultSchema },
+      }),
+    },
     async (req, reply) => {
       try {
         const { tail } = req.params as { tail: string };
@@ -102,7 +129,7 @@ export function registerToolsRoutes(
           return;
         }
         if (parsed.kind === 'bare') {
-          // No bare form for /v1/mcp/servers/{id} — only :restart.
+          // No bare form for /mcp/servers/{id} — only :restart.
           reply.send(
             errEnvelope(
               ErrorCode.VALIDATION_FAILED,

@@ -9,11 +9,11 @@
  * `core-impl.ts:170-172`), but no network / external state is involved.
  *
  * Coverage matrix per REST.md §3.3:
- *   - POST /v1/sessions               → envelope code 0 + Session payload
- *   - GET  /v1/sessions               → Page<Session> + has_more
- *   - GET  /v1/sessions/{id}          → Session (40401 on unknown id)
- *   - PATCH /v1/sessions/{id}         → Session (40401 on unknown id)
- *   - DELETE /v1/sessions/{id}        → { deleted: true } (40401 on unknown)
+ *   - POST /api/v1/sessions               → envelope code 0 + Session payload
+ *   - GET  /api/v1/sessions               → Page<Session> + has_more
+ *   - GET  /api/v1/sessions/{id}          → Session (40401 on unknown id)
+ *   - PATCH /api/v1/sessions/{id}         → Session (40401 on unknown id)
+ *   - DELETE /api/v1/sessions/{id}        → { deleted: true } (40401 on unknown)
  *
  * Plus the validation matrix:
  *   - POST with missing `metadata.cwd` → 40001 + `details` containing path.
@@ -82,13 +82,13 @@ function envelopeOf<T>(body: unknown): { code: number; msg: string; data: T | nu
   return body as { code: number; msg: string; data: T | null; request_id: string; details?: unknown };
 }
 
-describe('POST /v1/sessions — create', () => {
+describe('POST /api/v1/sessions — create', () => {
   it('returns a Session payload with snake_case + ISO Z timestamps', async () => {
     const r = await bootDaemon();
     const cwd = join(tmpDir, 'workspace-create');
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/sessions',
+      url: '/api/v1/sessions',
       payload: { metadata: { cwd }, title: 'created via test' },
     });
     expect(res.statusCode).toBe(200);
@@ -108,7 +108,7 @@ describe('POST /v1/sessions — create', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/sessions',
+      url: '/api/v1/sessions',
       payload: { title: 'no cwd' },
     });
     expect(res.statusCode).toBe(200);
@@ -123,15 +123,15 @@ describe('POST /v1/sessions — create', () => {
   });
 });
 
-describe('GET /v1/sessions — list', () => {
+describe('GET /api/v1/sessions — list', () => {
   it('returns Page<Session> with has_more=false when fewer than page_size entries exist', async () => {
     const r = await bootDaemon();
     const cwd1 = join(tmpDir, 'workspace-list-1');
     const cwd2 = join(tmpDir, 'workspace-list-2');
-    await appOf(r).inject({ method: 'POST', url: '/v1/sessions', payload: { metadata: { cwd: cwd1 } } });
-    await appOf(r).inject({ method: 'POST', url: '/v1/sessions', payload: { metadata: { cwd: cwd2 } } });
+    await appOf(r).inject({ method: 'POST', url: '/api/v1/sessions', payload: { metadata: { cwd: cwd1 } } });
+    await appOf(r).inject({ method: 'POST', url: '/api/v1/sessions', payload: { metadata: { cwd: cwd2 } } });
 
-    const res = await appOf(r).inject({ method: 'GET', url: '/v1/sessions' });
+    const res = await appOf(r).inject({ method: 'GET', url: '/api/v1/sessions' });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<{ items: unknown[]; has_more: boolean }>(res.json());
     expect(env.code).toBe(0);
@@ -146,11 +146,11 @@ describe('GET /v1/sessions — list', () => {
 
   it('honors page_size and surfaces has_more', async () => {
     const r = await bootDaemon();
-    await appOf(r).inject({ method: 'POST', url: '/v1/sessions', payload: { metadata: { cwd: join(tmpDir, 'ws-a') } } });
-    await appOf(r).inject({ method: 'POST', url: '/v1/sessions', payload: { metadata: { cwd: join(tmpDir, 'ws-b') } } });
-    await appOf(r).inject({ method: 'POST', url: '/v1/sessions', payload: { metadata: { cwd: join(tmpDir, 'ws-c') } } });
+    await appOf(r).inject({ method: 'POST', url: '/api/v1/sessions', payload: { metadata: { cwd: join(tmpDir, 'ws-a') } } });
+    await appOf(r).inject({ method: 'POST', url: '/api/v1/sessions', payload: { metadata: { cwd: join(tmpDir, 'ws-b') } } });
+    await appOf(r).inject({ method: 'POST', url: '/api/v1/sessions', payload: { metadata: { cwd: join(tmpDir, 'ws-c') } } });
 
-    const res = await appOf(r).inject({ method: 'GET', url: '/v1/sessions?page_size=2' });
+    const res = await appOf(r).inject({ method: 'GET', url: '/api/v1/sessions?page_size=2' });
     const env = envelopeOf<{ items: unknown[]; has_more: boolean }>(res.json());
     expect(env.code).toBe(0);
     expect(env.data!.items).toHaveLength(2);
@@ -159,7 +159,7 @@ describe('GET /v1/sessions — list', () => {
 
   it('rejects page_size=0 (out of range)', async () => {
     const r = await bootDaemon();
-    const res = await appOf(r).inject({ method: 'GET', url: '/v1/sessions?page_size=0' });
+    const res = await appOf(r).inject({ method: 'GET', url: '/api/v1/sessions?page_size=0' });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40001);
   });
@@ -168,27 +168,27 @@ describe('GET /v1/sessions — list', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'GET',
-      url: '/v1/sessions?before_id=a&after_id=b',
+      url: '/api/v1/sessions?before_id=a&after_id=b',
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40001);
   });
 });
 
-describe('GET /v1/sessions/{session_id} — fetch single', () => {
+describe('GET /api/v1/sessions/{session_id} — fetch single', () => {
   it('returns the matching Session', async () => {
     const r = await bootDaemon();
     const cwd = join(tmpDir, 'workspace-get');
     const createRes = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/sessions',
+      url: '/api/v1/sessions',
       payload: { metadata: { cwd } },
     });
     const created = envelopeOf<{ id: string }>(createRes.json()).data!;
 
     const getRes = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${created.id}`,
+      url: `/api/v1/sessions/${created.id}`,
     });
     const env = envelopeOf<unknown>(getRes.json());
     expect(env.code).toBe(0);
@@ -201,7 +201,7 @@ describe('GET /v1/sessions/{session_id} — fetch single', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'GET',
-      url: '/v1/sessions/sess_does_not_exist',
+      url: '/api/v1/sessions/sess_does_not_exist',
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40401);
@@ -210,21 +210,21 @@ describe('GET /v1/sessions/{session_id} — fetch single', () => {
   });
 });
 
-describe('PATCH /v1/sessions/{session_id} — update', () => {
+describe('PATCH /api/v1/sessions/{session_id} — update', () => {
   it('updates the title and returns the post-update Session', async () => {
     const r = await bootDaemon();
     const cwd = join(tmpDir, 'workspace-patch');
     const created = envelopeOf<{ id: string }>(
       (await appOf(r).inject({
         method: 'POST',
-        url: '/v1/sessions',
+        url: '/api/v1/sessions',
         payload: { metadata: { cwd } },
       })).json(),
     ).data!;
 
     const res = await appOf(r).inject({
       method: 'PATCH',
-      url: `/v1/sessions/${created.id}`,
+      url: `/api/v1/sessions/${created.id}`,
       payload: { title: 'Renamed' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -239,7 +239,7 @@ describe('PATCH /v1/sessions/{session_id} — update', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'PATCH',
-      url: '/v1/sessions/sess_missing',
+      url: '/api/v1/sessions/sess_missing',
       payload: { title: 'x' },
     });
     const env = envelopeOf<unknown>(res.json());
@@ -247,21 +247,21 @@ describe('PATCH /v1/sessions/{session_id} — update', () => {
   });
 });
 
-describe('DELETE /v1/sessions/{session_id} — delete', () => {
+describe('DELETE /api/v1/sessions/{session_id} — delete', () => {
   it('returns { deleted: true } envelope', async () => {
     const r = await bootDaemon();
     const cwd = join(tmpDir, 'workspace-delete');
     const created = envelopeOf<{ id: string }>(
       (await appOf(r).inject({
         method: 'POST',
-        url: '/v1/sessions',
+        url: '/api/v1/sessions',
         payload: { metadata: { cwd } },
       })).json(),
     ).data!;
 
     const res = await appOf(r).inject({
       method: 'DELETE',
-      url: `/v1/sessions/${created.id}`,
+      url: `/api/v1/sessions/${created.id}`,
     });
     const env = envelopeOf<{ deleted: boolean }>(res.json());
     expect(env.code).toBe(0);
@@ -272,7 +272,7 @@ describe('DELETE /v1/sessions/{session_id} — delete', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'DELETE',
-      url: '/v1/sessions/sess_missing',
+      url: '/api/v1/sessions/sess_missing',
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40401);

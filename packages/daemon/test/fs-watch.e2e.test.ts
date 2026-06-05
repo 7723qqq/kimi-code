@@ -103,7 +103,7 @@ function appOf(r: RunningDaemon): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: workspace } },
   });
   const env = res.json() as { code: number; data: { id: string } | null };
@@ -114,7 +114,7 @@ async function createSession(r: RunningDaemon): Promise<string> {
 }
 
 function wsUrl(http: string): string {
-  return http.replace(/^http:\/\//, 'ws://') + '/v1/ws';
+  return http.replace(/^http:\/\//, 'ws://') + '/api/v1/ws';
 }
 
 interface WsFrame {

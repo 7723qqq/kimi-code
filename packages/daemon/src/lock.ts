@@ -1,10 +1,11 @@
 /**
  * Filesystem lock for single-instance daemon enforcement (ROADMAP P0.12).
  *
- * The lock is a small JSON file at `~/.kimi/daemon/lock` (overridable for
- * tests). It records the live daemon's `pid`, `started_at`, and `port`.
- * Acquisition is exclusive (`O_WRONLY | O_CREAT | O_EXCL`) — racing daemons
- * can't both win.
+ * The lock is a small JSON file at `<KIMI_CODE_HOME>/daemon/lock` (defaults
+ * to `~/.kimi-code/daemon/lock`; overridable via `KIMI_CODE_HOME` env or
+ * `lockPath` for tests). It records the live daemon's `pid`, `started_at`,
+ * and `port`. Acquisition is exclusive (`O_WRONLY | O_CREAT | O_EXCL`) —
+ * racing daemons can't both win.
  *
  * Stale lock takeover: when a lock file exists, we ping the recorded pid via
  * `process.kill(pid, 0)`. Node's `kill` does NOT send a signal when sig is 0 —
@@ -32,10 +33,11 @@ import {
   writeFileSync,
   openSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-export const DEFAULT_LOCK_DIR = join(homedir(), '.kimi', 'daemon');
+import { resolveKimiHome } from '@moonshot-ai/agent-core';
+
+export const DEFAULT_LOCK_DIR = join(resolveKimiHome(), 'daemon');
 export const DEFAULT_LOCK_PATH = join(DEFAULT_LOCK_DIR, 'lock');
 
 /** JSON shape stored in the lock file. snake_case to match operator-facing logs. */
@@ -46,7 +48,7 @@ export interface LockContents {
 }
 
 export interface AcquireLockOptions {
-  /** Override default `~/.kimi/daemon/lock` — used in tests. */
+  /** Override default `<KIMI_CODE_HOME>/daemon/lock` — used in tests. */
   lockPath?: string;
   /** Port the daemon will bind to. Recorded in the lock file for diagnostics. */
   port: number;

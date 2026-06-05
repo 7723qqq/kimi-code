@@ -1,6 +1,6 @@
 /**
  * Read the daemon's own `package.json` version at boot. Mirrors
- * `packages/agent-core/src/version.ts:4-13` so the daemon's `/v1/meta` can
+ * `packages/agent-core/src/version.ts:4-13` so the daemon's `/meta` can
  * report a real version without taking an SDK / agent-core export dep.
  *
  * Tries the bundled-at-build `package.json` next to `dist/` first; falls back

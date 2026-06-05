@@ -149,7 +149,7 @@ describe('acquireLock — concurrent-instance protection', () => {
 });
 
 describe('acquireLock — defaults', () => {
-  it('DEFAULT_LOCK_PATH points under the homedir', () => {
-    expect(DEFAULT_LOCK_PATH).toMatch(/[/\\]\.kimi[/\\]daemon[/\\]lock$/);
+  it('DEFAULT_LOCK_PATH points under the kimi-code home', () => {
+    expect(DEFAULT_LOCK_PATH).toMatch(/[/\\]\.kimi-code[/\\]daemon[/\\]lock$/);
   });
 });

@@ -7,10 +7,10 @@
  * interference.
  *
  * Coverage matrix per REST.md §3.4:
- *   - GET /v1/sessions/{sid}/messages              → Page<Message> + has_more
+ *   - GET /api/v1/sessions/{sid}/messages              → Page<Message> + has_more
  *     - Empty session → empty page, has_more=false
  *     - page_size honored (sub-cap)
- *   - GET /v1/sessions/{sid}/messages/{mid}        → Message (40403 unknown id)
+ *   - GET /api/v1/sessions/{sid}/messages/{mid}        → Message (40403 unknown id)
  *
  * Plus the validation matrix:
  *   - page_size=0                                   → 40001
@@ -104,7 +104,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: join(tmpDir, 'workspace') } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -114,13 +114,13 @@ async function createSession(r: RunningDaemon): Promise<string> {
   return env.data.id;
 }
 
-describe('GET /v1/sessions/{session_id}/messages — list (W7.1 / Chain 3)', () => {
+describe('GET /api/v1/sessions/{session_id}/messages — list (W7.1 / Chain 3)', () => {
   it('returns an empty page for a freshly-created session', async () => {
     const r = await bootDaemon();
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/messages`,
+      url: `/api/v1/sessions/${sid}/messages`,
     });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<{ items: unknown[]; has_more: boolean }>(res.json());
@@ -134,7 +134,7 @@ describe('GET /v1/sessions/{session_id}/messages — list (W7.1 / Chain 3)', () 
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'GET',
-      url: '/v1/sessions/sess_missing/messages',
+      url: '/api/v1/sessions/sess_missing/messages',
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40401);
@@ -146,7 +146,7 @@ describe('GET /v1/sessions/{session_id}/messages — list (W7.1 / Chain 3)', () 
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/messages?page_size=0`,
+      url: `/api/v1/sessions/${sid}/messages?page_size=0`,
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40001);
@@ -158,7 +158,7 @@ describe('GET /v1/sessions/{session_id}/messages — list (W7.1 / Chain 3)', () 
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/messages?page_size=101`,
+      url: `/api/v1/sessions/${sid}/messages?page_size=101`,
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40001);
@@ -169,7 +169,7 @@ describe('GET /v1/sessions/{session_id}/messages — list (W7.1 / Chain 3)', () 
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/messages?before_id=a&after_id=b`,
+      url: `/api/v1/sessions/${sid}/messages?before_id=a&after_id=b`,
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40001);
@@ -180,7 +180,7 @@ describe('GET /v1/sessions/{session_id}/messages — list (W7.1 / Chain 3)', () 
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/messages?role=cat`,
+      url: `/api/v1/sessions/${sid}/messages?role=cat`,
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40001);
@@ -191,7 +191,7 @@ describe('GET /v1/sessions/{session_id}/messages — list (W7.1 / Chain 3)', () 
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/messages?page_size=10&role=assistant`,
+      url: `/api/v1/sessions/${sid}/messages?page_size=10&role=assistant`,
     });
     const env = envelopeOf<{ items: unknown[]; has_more: boolean }>(res.json());
     expect(env.code).toBe(0);
@@ -200,7 +200,7 @@ describe('GET /v1/sessions/{session_id}/messages — list (W7.1 / Chain 3)', () 
   });
 });
 
-describe('GET /v1/sessions/{session_id}/messages/{message_id} — get (W7.1 / Chain 3)', () => {
+describe('GET /api/v1/sessions/{session_id}/messages/{message_id} — get (W7.1 / Chain 3)', () => {
   it('returns 40403 (message.not_found) when the id has no matching history entry', async () => {
     const r = await bootDaemon();
     const sid = await createSession(r);
@@ -209,7 +209,7 @@ describe('GET /v1/sessions/{session_id}/messages/{message_id} — get (W7.1 / Ch
     const fakeId = `msg_${sid}_000000`;
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/messages/${fakeId}`,
+      url: `/api/v1/sessions/${sid}/messages/${fakeId}`,
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40403);
@@ -222,7 +222,7 @@ describe('GET /v1/sessions/{session_id}/messages/{message_id} — get (W7.1 / Ch
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/messages/garbage`,
+      url: `/api/v1/sessions/${sid}/messages/garbage`,
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40403);
@@ -232,7 +232,7 @@ describe('GET /v1/sessions/{session_id}/messages/{message_id} — get (W7.1 / Ch
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'GET',
-      url: '/v1/sessions/sess_missing/messages/msg_anything',
+      url: '/api/v1/sessions/sess_missing/messages/msg_anything',
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40401);

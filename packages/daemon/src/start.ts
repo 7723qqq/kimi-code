@@ -26,6 +26,8 @@ import {
 } from '@moonshot-ai/services';
 import { ErrorCode } from '@moonshot-ai/protocol';
 import Fastify from 'fastify';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import { ulid } from 'ulid';
 import { promises as fspPromises } from 'node:fs';
 import { sep as nodePathSep, relative as nodePathRelativeNative } from 'node:path';
@@ -168,19 +170,30 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<RunningDaem
   });
   installErrorHandler(app);
 
-  app.get('/v1/healthz', async (req, reply) => {
-    return reply.send(okEnvelope({ ok: true }, req.id));
-  });
-
-  // W6.1 / Chain 1 — `/v1/meta`. Pure daemon-self info, no DI needed. Mint
-  // the per-process server_id + boot timestamp once at registration time
-  // (ROADMAP P1.1; REST.md §3.1).
-  const serverId = ulid();
-  const startedAt = new Date().toISOString();
-  registerMetaRoute(app, {
-    daemonVersion: getDaemonVersion(),
-    serverId,
-    startedAt,
+  // Register @fastify/swagger BEFORE routes so it can collect schema
+  // metadata via the `onRoute` hook.
+  const daemonVersion = getDaemonVersion();
+  await app.register(swagger, {
+    openapi: {
+      info: {
+        title: 'Kimi Code Daemon API',
+        description:
+          'REST API for the Kimi Code local daemon. All JSON responses are wrapped in a uniform envelope `{ code, msg, data, request_id }`.',
+        version: daemonVersion,
+      },
+      tags: [
+        { name: 'meta', description: 'Daemon metadata' },
+        { name: 'sessions', description: 'Session lifecycle' },
+        { name: 'messages', description: 'Message history' },
+        { name: 'prompts', description: 'Prompt submission & abort' },
+        { name: 'approvals', description: 'Approval resolution' },
+        { name: 'questions', description: 'Question resolution & dismiss' },
+        { name: 'tools', description: 'Tool & MCP server management' },
+        { name: 'tasks', description: 'Background tasks' },
+        { name: 'fs', description: 'Filesystem operations' },
+        { name: 'files', description: 'File upload & download' },
+      ],
+    },
   });
 
   // Seed the container with the two pre-built instances. They become "live"
@@ -206,69 +219,115 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<RunningDaem
   );
   const ix = new InstantiationService(services);
 
-  // W6.2 / Chain 2 — register `/v1/sessions/*` routes. The route module
-  // captures `ix` by reference; per-request `accessor.get(ISessionService)`
-  // dispatches against whatever's in the container at that moment. We
-  // populate ISessionService below; by the time the first request lands the
-  // container is fully wired (we await app.ready() + bridge.ready() before
-  // listen() opens the socket).
-  registerSessionsRoutes(app as unknown as Parameters<typeof registerSessionsRoutes>[0], ix);
-  // W7.1 / Chain 3 — register `/v1/sessions/{sid}/messages*` routes. Same
-  // wiring story: handlers resolve `IMessageService` per-request through ix.
-  registerMessagesRoutes(app as unknown as Parameters<typeof registerMessagesRoutes>[0], ix);
-  // W7.2 / Chain 4 — register `/v1/sessions/{sid}/prompts*` routes (submit +
-  // abort). Submit triggers `bridge.rpc.prompt(...)` whose synchronous event
-  // stream lands on `IEventBus → WS broadcast`. Abort is the REST fallback
-  // for the WS abort message handled at `ws/connection.ts` (Chain 4b / W7.3).
-  registerPromptsRoutes(app as unknown as Parameters<typeof registerPromptsRoutes>[0], ix);
-  // W8.1 / Chain 5 — register `/v1/sessions/{sid}/approvals/{aid}` route.
-  // The reverse-RPC path: agent-core → bridge → DaemonApprovalBroker → WS
-  // `event.approval.requested`. The REST handler completes the round-trip
-  // by calling `IApprovalBroker.resolve(aid, body)`.
-  registerApprovalsRoutes(
-    app as unknown as Parameters<typeof registerApprovalsRoutes>[0],
-    ix,
-  );
-  // W8.2 / Chain 6 — register `/v1/sessions/{sid}/questions/{qid}*` routes.
-  // Same reverse-RPC pattern as approval, with first-class `:dismiss`
-  // (SCHEMAS §6.3) and 5-kind discriminated-union answer normalization
-  // (SCHEMAS §6.4) done by the services adapter at REST-boundary time.
-  registerQuestionsRoutes(
-    app as unknown as Parameters<typeof registerQuestionsRoutes>[0],
-    ix,
-  );
-  // W9.1 / Chain 7 — register `/v1/tools` + `/v1/mcp/servers*` routes.
-  // Read-only `getTools` + `listMcpServers` plus `:restart` action — the 4th
-  // call site of the `:tail` action-suffix pattern, now extracted into
-  // `routes/action-suffix.ts`.
-  registerToolsRoutes(
-    app as unknown as Parameters<typeof registerToolsRoutes>[0],
-    ix,
-  );
-  // W9.2 / Chain 8 — register `/v1/sessions/{sid}/tasks*` routes.
-  // list/get/cancel with 40406 + 40904 + the 5th `:tail` (action :cancel).
-  registerTasksRoutes(
-    app as unknown as Parameters<typeof registerTasksRoutes>[0],
-    ix,
-  );
-  // W10 / Chains 9 + 10 — register `/v1/sessions/{sid}/fs:*` routes.
-  // POST :list / :read / :list_many / :stat / :stat_many — daemon-OWN
-  // service, no agent-core bridge involved. Path safety is the central
-  // correctness concern; every input path flows through
-  // `resolveSafePath(cwd, input)` before any Node fs syscall.
-  registerFsRoutes(
-    app as unknown as Parameters<typeof registerFsRoutes>[0],
-    ix,
-  );
+  // Register all REST routes under a single `/api/v1` prefix so individual
+  // route modules don't hardcode the version segment.
+  await app.register(async (apiV1) => {
+    apiV1.get('/healthz', {
+      schema: {
+        description: 'Health check',
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              code: { type: 'number' },
+              msg: { type: 'string' },
+              data: {
+                type: 'object',
+                properties: { ok: { type: 'boolean' } },
+              },
+              request_id: { type: 'string' },
+            },
+          },
+        },
+      },
+    }, async (req, reply) => {
+      return reply.send(okEnvelope({ ok: true }, req.id));
+    });
 
-  // W12.2 / Chain 15 — register `/v1/files*` routes (upload / download /
-  // delete). Registers `@fastify/multipart` lazily on the captured
-  // Fastify instance. Anti-corruption invariant: handlers resolve
-  // `IFileStore` via the DI accessor; no SDK imports.
-  registerFilesRoutes(
-    app as unknown as Parameters<typeof registerFilesRoutes>[0],
-    ix,
-  );
+    // W6.1 / Chain 1 — `/meta`. Pure daemon-self info, no DI needed. Mint
+    // the per-process server_id + boot timestamp once at registration time
+    // (ROADMAP P1.1; REST.md §3.1).
+    const serverId = ulid();
+    const startedAt = new Date().toISOString();
+    registerMetaRoute(apiV1, {
+      daemonVersion,
+      serverId,
+      startedAt,
+    });
+
+    // W6.2 / Chain 2 — register `/sessions/*` routes. The route module
+    // captures `ix` by reference; per-request `accessor.get(ISessionService)`
+    // dispatches against whatever's in the container at that moment. We
+    // populate ISessionService below; by the time the first request lands the
+    // container is fully wired (we await app.ready() + bridge.ready() before
+    // listen() opens the socket).
+    registerSessionsRoutes(apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0], ix);
+    // W7.1 / Chain 3 — register `/sessions/{sid}/messages*` routes. Same
+    // wiring story: handlers resolve `IMessageService` per-request through ix.
+    registerMessagesRoutes(apiV1 as unknown as Parameters<typeof registerMessagesRoutes>[0], ix);
+    // W7.2 / Chain 4 — register `/sessions/{sid}/prompts*` routes (submit +
+    // abort). Submit triggers `bridge.rpc.prompt(...)` whose synchronous event
+    // stream lands on `IEventBus → WS broadcast`. Abort is the REST fallback
+    // for the WS abort message handled at `ws/connection.ts` (Chain 4b / W7.3).
+    registerPromptsRoutes(apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0], ix);
+    // W8.1 / Chain 5 — register `/sessions/{sid}/approvals/{aid}` route.
+    // The reverse-RPC path: agent-core → bridge → DaemonApprovalBroker → WS
+    // `event.approval.requested`. The REST handler completes the round-trip
+    // by calling `IApprovalBroker.resolve(aid, body)`.
+    registerApprovalsRoutes(
+      apiV1 as unknown as Parameters<typeof registerApprovalsRoutes>[0],
+      ix,
+    );
+    // W8.2 / Chain 6 — register `/sessions/{sid}/questions/{qid}*` routes.
+    // Same reverse-RPC pattern as approval, with first-class `:dismiss`
+    // (SCHEMAS §6.3) and 5-kind discriminated-union answer normalization
+    // (SCHEMAS §6.4) done by the services adapter at REST-boundary time.
+    registerQuestionsRoutes(
+      apiV1 as unknown as Parameters<typeof registerQuestionsRoutes>[0],
+      ix,
+    );
+    // W9.1 / Chain 7 — register `/tools` + `/mcp/servers*` routes.
+    // Read-only `getTools` + `listMcpServers` plus `:restart` action — the 4th
+    // call site of the `:tail` action-suffix pattern, now extracted into
+    // `routes/action-suffix.ts`.
+    registerToolsRoutes(
+      apiV1 as unknown as Parameters<typeof registerToolsRoutes>[0],
+      ix,
+    );
+    // W9.2 / Chain 8 — register `/sessions/{sid}/tasks*` routes.
+    // list/get/cancel with 40406 + 40904 + the 5th `:tail` (action :cancel).
+    registerTasksRoutes(
+      apiV1 as unknown as Parameters<typeof registerTasksRoutes>[0],
+      ix,
+    );
+    // W10 / Chains 9 + 10 — register `/sessions/{sid}/fs:*` routes.
+    // POST :list / :read / :list_many / :stat / :stat_many — daemon-OWN
+    // service, no agent-core bridge involved. Path safety is the central
+    // correctness concern; every input path flows through
+    // `resolveSafePath(cwd, input)` before any Node fs syscall.
+    registerFsRoutes(
+      apiV1 as unknown as Parameters<typeof registerFsRoutes>[0],
+      ix,
+    );
+
+    // W12.2 / Chain 15 — register `/files*` routes (upload / download /
+    // delete). Registers `@fastify/multipart` lazily on the captured
+    // Fastify instance. Anti-corruption invariant: handlers resolve
+    // `IFileStore` via the DI accessor; no SDK imports.
+    registerFilesRoutes(
+      apiV1 as unknown as Parameters<typeof registerFilesRoutes>[0],
+      ix,
+    );
+  }, { prefix: '/api/v1' });
+
+  // Register Swagger UI AFTER all routes are collected.
+  await app.register(swaggerUi, {
+    routePrefix: '/documentation',
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true,
+    },
+  });
 
   // Fastify lazily creates the raw `http.Server`. `WSGateway` (W5.1) needs
   // `app.server` to attach an `'upgrade'` listener — `app.ready()` populates
@@ -584,7 +643,7 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<RunningDaem
   }
 
   // Bridge readiness gate — KimiCore plugin init + RPC binding completion.
-  // Awaiting before listen() means /v1/healthz only goes live once the
+  // Awaiting before listen() means /healthz only goes live once the
   // services graph is fully usable.
   try {
     await bridge.ready();

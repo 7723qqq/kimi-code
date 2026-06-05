@@ -2,9 +2,9 @@
  * Background Tasks end-to-end tests (W9.2 / Chain 8 / P1.8).
  *
  * Covers REST.md §3.7:
- *   - GET  /v1/sessions/{sid}/tasks                  → envelope + items[]
- *   - GET  /v1/sessions/{sid}/tasks/{tid}            → BackgroundTask, 40406 unknown
- *   - POST /v1/sessions/{sid}/tasks/{tid}:cancel     → {cancelled:true},
+ *   - GET  /api/v1/sessions/{sid}/tasks                  → envelope + items[]
+ *   - GET  /api/v1/sessions/{sid}/tasks/{tid}            → BackgroundTask, 40406 unknown
+ *   - POST /api/v1/sessions/{sid}/tasks/{tid}:cancel     → {cancelled:true},
  *                                                       40406 unknown id,
  *                                                       40904 already finished
  *   - Negative: session_id unknown → 40401
@@ -104,7 +104,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: join(tmpDir, 'workspace') } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -145,12 +145,12 @@ function overrideTaskService(
   ix._instances.set(ITaskService, replacement);
 }
 
-describe('GET /v1/sessions/{sid}/tasks', () => {
+describe('GET /api/v1/sessions/{sid}/tasks', () => {
   it('returns 40401 for an unknown session_id', async () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'GET',
-      url: '/v1/sessions/does-not-exist/tasks',
+      url: '/api/v1/sessions/does-not-exist/tasks',
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40401);
@@ -161,7 +161,7 @@ describe('GET /v1/sessions/{sid}/tasks', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/tasks`,
+      url: `/api/v1/sessions/${sid}/tasks`,
     });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<unknown>(res.json());
@@ -175,20 +175,20 @@ describe('GET /v1/sessions/{sid}/tasks', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/tasks?status=pending`,
+      url: `/api/v1/sessions/${sid}/tasks?status=pending`,
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40001);
   });
 });
 
-describe('GET /v1/sessions/{sid}/tasks/{tid}', () => {
+describe('GET /api/v1/sessions/{sid}/tasks/{tid}', () => {
   it('returns 40406 for an unknown task_id (real session, empty tasks)', async () => {
     const r = await bootDaemon();
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/${sid}/tasks/does-not-exist`,
+      url: `/api/v1/sessions/${sid}/tasks/does-not-exist`,
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40406);
@@ -198,20 +198,20 @@ describe('GET /v1/sessions/{sid}/tasks/{tid}', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/sessions/unknown/tasks/anything`,
+      url: `/api/v1/sessions/unknown/tasks/anything`,
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40401);
   });
 });
 
-describe('POST /v1/sessions/{sid}/tasks/{tid}:cancel', () => {
+describe('POST /api/v1/sessions/{sid}/tasks/{tid}:cancel', () => {
   it('returns 40406 for an unknown task_id', async () => {
     const r = await bootDaemon();
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/tasks/nope:cancel`,
+      url: `/api/v1/sessions/${sid}/tasks/nope:cancel`,
       payload: {},
     });
     const env = envelopeOf<unknown>(res.json());
@@ -223,7 +223,7 @@ describe('POST /v1/sessions/{sid}/tasks/{tid}:cancel', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/tasks/abc123`,
+      url: `/api/v1/sessions/${sid}/tasks/abc123`,
       payload: {},
     });
     const env = envelopeOf<unknown>(res.json());
@@ -236,7 +236,7 @@ describe('POST /v1/sessions/{sid}/tasks/{tid}:cancel', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/tasks/abc:bogus`,
+      url: `/api/v1/sessions/${sid}/tasks/abc:bogus`,
       payload: {},
     });
     const env = envelopeOf<unknown>(res.json());
@@ -253,7 +253,7 @@ describe('POST /v1/sessions/{sid}/tasks/{tid}:cancel', () => {
     });
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/tasks/t_finished:cancel`,
+      url: `/api/v1/sessions/${sid}/tasks/t_finished:cancel`,
       payload: {},
     });
     const env = envelopeOf<{ cancelled: false }>(res.json());
@@ -273,7 +273,7 @@ describe('POST /v1/sessions/{sid}/tasks/{tid}:cancel', () => {
     });
     const res = await appOf(r).inject({
       method: 'POST',
-      url: `/v1/sessions/${sid}/tasks/t_running:cancel`,
+      url: `/api/v1/sessions/${sid}/tasks/t_running:cancel`,
       payload: {},
     });
     const env = envelopeOf<{ cancelled: true }>(res.json());

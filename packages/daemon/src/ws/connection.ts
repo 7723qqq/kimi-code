@@ -507,7 +507,7 @@ export class WsConnection {
 
   /**
    * W7.3: dispatch a WS `abort` control message through the same handler the
-   * REST `POST /v1/sessions/{sid}/prompts/{pid}:abort` route uses
+   * REST `POST /sessions/{sid}/prompts/{pid}:abort` route uses
    * (`IPromptService.abort` via the daemon's accessor). Idempotent calls
    * (already-completed prompt) return `code: 0, payload.aborted: false`
    * per WS.md §3.4 — NOT the REST 40903; different convention to avoid the

@@ -2,11 +2,11 @@
  * Tools + MCP end-to-end tests (W9.1 / Chain 7 / P1.7).
  *
  * Coverage:
- *   - GET  /v1/tools                              → envelope shape + tools[]
- *   - GET  /v1/mcp/servers                        → envelope shape + servers[]
- *   - POST /v1/mcp/servers/{id}:restart           → {restarting:true} on a real
+ *   - GET  /api/v1/tools                              → envelope shape + tools[]
+ *   - GET  /api/v1/mcp/servers                        → envelope shape + servers[]
+ *   - POST /api/v1/mcp/servers/{id}:restart           → {restarting:true} on a real
  *                                                   server / 40408 on unknown
- *   - POST /v1/mcp/servers/foo:bogus              → 40001 unsupported action
+ *   - POST /api/v1/mcp/servers/foo:bogus              → 40001 unsupported action
  *
  * **Bootstrap strategy**: spawn the real daemon and create one session so the
  * agent-core `getTools` / `listMcpServers` can dispatch (those calls live on
@@ -90,7 +90,7 @@ function envelopeOf<T>(body: unknown): {
 async function createSession(r: RunningDaemon): Promise<string> {
   const res = await appOf(r).inject({
     method: 'POST',
-    url: '/v1/sessions',
+    url: '/api/v1/sessions',
     payload: { metadata: { cwd: join(tmpDir, 'workspace') } },
   });
   const env = envelopeOf<{ id: string }>(res.json());
@@ -100,10 +100,10 @@ async function createSession(r: RunningDaemon): Promise<string> {
   return env.data.id;
 }
 
-describe('GET /v1/tools', () => {
+describe('GET /api/v1/tools', () => {
   it('returns an envelope with {tools: ToolDescriptor[]} (empty list pre-session)', async () => {
     const r = await bootDaemon();
-    const res = await appOf(r).inject({ method: 'GET', url: '/v1/tools' });
+    const res = await appOf(r).inject({ method: 'GET', url: '/api/v1/tools' });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(0);
@@ -115,7 +115,7 @@ describe('GET /v1/tools', () => {
   it('returns a populated list after a session exists (response data round-trips through schema)', async () => {
     const r = await bootDaemon();
     await createSession(r);
-    const res = await appOf(r).inject({ method: 'GET', url: '/v1/tools' });
+    const res = await appOf(r).inject({ method: 'GET', url: '/api/v1/tools' });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(0);
@@ -131,7 +131,7 @@ describe('GET /v1/tools', () => {
     const sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'GET',
-      url: `/v1/tools?session_id=${sid}`,
+      url: `/api/v1/tools?session_id=${sid}`,
     });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<unknown>(res.json());
@@ -143,18 +143,18 @@ describe('GET /v1/tools', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'GET',
-      url: '/v1/tools?session_id=',
+      url: '/api/v1/tools?session_id=',
     });
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40001);
   });
 });
 
-describe('GET /v1/mcp/servers', () => {
+describe('GET /api/v1/mcp/servers', () => {
   it('returns an envelope with {servers: McpServer[]} (typically empty in sandboxed home)', async () => {
     const r = await bootDaemon();
     await createSession(r);
-    const res = await appOf(r).inject({ method: 'GET', url: '/v1/mcp/servers' });
+    const res = await appOf(r).inject({ method: 'GET', url: '/api/v1/mcp/servers' });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(0);
@@ -164,7 +164,7 @@ describe('GET /v1/mcp/servers', () => {
 
   it('returns 200 with empty list even before any session is created', async () => {
     const r = await bootDaemon();
-    const res = await appOf(r).inject({ method: 'GET', url: '/v1/mcp/servers' });
+    const res = await appOf(r).inject({ method: 'GET', url: '/api/v1/mcp/servers' });
     expect(res.statusCode).toBe(200);
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(0);
@@ -173,13 +173,13 @@ describe('GET /v1/mcp/servers', () => {
   });
 });
 
-describe('POST /v1/mcp/servers/{id}:restart', () => {
+describe('POST /api/v1/mcp/servers/{id}:restart', () => {
   it('returns 40408 mcp.server_not_found for an unknown server id', async () => {
     const r = await bootDaemon();
     await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/mcp/servers/does-not-exist:restart',
+      url: '/api/v1/mcp/servers/does-not-exist:restart',
       payload: {},
     });
     const env = envelopeOf<unknown>(res.json());
@@ -191,7 +191,7 @@ describe('POST /v1/mcp/servers/{id}:restart', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/mcp/servers/x:restart',
+      url: '/api/v1/mcp/servers/x:restart',
       payload: {},
     });
     const env = envelopeOf<unknown>(res.json());
@@ -202,7 +202,7 @@ describe('POST /v1/mcp/servers/{id}:restart', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/mcp/servers/foo:bogus',
+      url: '/api/v1/mcp/servers/foo:bogus',
       payload: {},
     });
     const env = envelopeOf<unknown>(res.json());
@@ -214,7 +214,7 @@ describe('POST /v1/mcp/servers/{id}:restart', () => {
     const r = await bootDaemon();
     const res = await appOf(r).inject({
       method: 'POST',
-      url: '/v1/mcp/servers/foo',
+      url: '/api/v1/mcp/servers/foo',
       payload: {},
     });
     const env = envelopeOf<unknown>(res.json());

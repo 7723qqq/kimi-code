@@ -1,11 +1,12 @@
 /**
  * `IFileStore` — daemon-OWN files store (W12.2 / Chain 15, P1.15).
  *
- * **Responsibility**: persist uploaded blobs under `~/.kimi/files/`,
- * maintain a JSON index of `FileMeta` records, and serve them back by
- * `file_id` for download / delete. Streams writes (no in-memory
- * buffering) and enforces the 50MB size cap DURING the streaming write
- * — abort on overrun, then delete the partial blob.
+ * **Responsibility**: persist uploaded blobs under `<KIMI_CODE_HOME>/files/`
+ * (defaults to `~/.kimi-code/files/`; overridable via `KIMI_CODE_HOME` env
+ * or `options.homeDir`), maintain a JSON index of `FileMeta` records, and
+ * serve them back by `file_id` for download / delete. Streams writes (no
+ * in-memory buffering) and enforces the 50MB size cap DURING the streaming
+ * write — abort on overrun, then delete the partial blob.
  *
  * **Daemon-OWN distinction**: like `IFsService` / `IFsWatcher`, the
  * store is NOT a thin wrapper around an `IHarnessBridge` call.
@@ -49,7 +50,6 @@
  */
 
 import { createWriteStream, promises as fsp } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { Readable } from 'node:stream';
@@ -59,6 +59,7 @@ import { ulid } from 'ulid';
 import {
   Disposable,
   createDecorator,
+  resolveKimiHome,
 } from '@moonshot-ai/agent-core';
 
 import type { FileMeta } from '@moonshot-ai/protocol';
@@ -157,8 +158,8 @@ export const IFileStore = createDecorator<IFileStore>('IFileStore');
 export interface FileStoreOptions {
   /**
    * Base directory containing the `files/` subdir + `index.json`. In
-   * production this is `<bridgeOptions.homeDir>/.kimi` or the OS home;
-   * tests pass a tmpdir under `~/.kimi-test-...`.
+   * production this is `<KIMI_CODE_HOME>` (defaults to `~/.kimi-code`);
+   * tests pass a tmpdir under `~/.kimi-code-test-...`.
    */
   homeDir?: string;
   /** Override the 50 MB cap (tests set this to something tiny). */
@@ -186,7 +187,7 @@ export class FileStoreImpl extends Disposable implements IFileStore {
     @ILogger private readonly logger: ILogger,
   ) {
     super();
-    const home = options.homeDir ?? join(homedir(), '.kimi');
+    const home = options.homeDir ?? resolveKimiHome();
     this.baseDir = join(home, 'files');
     this.indexPath = join(this.baseDir, 'index.json');
     this.maxUploadBytes = options.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;

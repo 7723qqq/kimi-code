@@ -121,7 +121,7 @@ export function buildEventEnvelope(
  * WS.md §3.6: `resync_required` system message (S→C). Sent when the
  * client's claimed `last_seq` for a session is older than the ring buffer
  * retains (`lastSeq + 1 < oldestSeq`). The client should drop its local
- * cache for that session and `GET /v1/sessions/{id}/messages` to rebuild,
+ * cache for that session and `GET /sessions/{id}/messages` to rebuild,
  * then re-`subscribe` with `last_seq_by_session[sid] = current_seq`.
  *
  * `reason` is always `'buffer_overflow'` in Stage 1; `'session_recreated'`
