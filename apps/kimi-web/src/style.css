@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #14171c;
+  --text: #3f454d;
+  --dim: #697079;
+  --muted: #8b929b;
+  --faint: #aeb4bc;
+  --line: #e7eaee;
+  --line2: #eef1f4;
+  --panel: #fafbfc;
+  --panel2: #f3f5f8;
+  --bg: #ffffff;
+  --blue: #1565c0;
+  --blue2: #0d4f9e;
+  --soft: #e9f0fa;
+  --bd: #cfe0f6;
+  --ok: #0e7a38;
+  --warn: #92660a;
+  --err: #b91c1c;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--mono);
+  color: var(--text);
+  background: var(--bg);
+  font-size: 12.5px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}

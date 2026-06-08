@@ -1,0 +1,12 @@
+export default {
+  dialogLabel: '切换模型',
+  title: '切换模型',
+  close: '关闭 (Esc)',
+  searchPlaceholder: '搜索模型或提供商…',
+  loading: '加载模型中…',
+  unavailable: 'daemon 暂不支持模型列表',
+  contextSuffix: '{size}k ctx',
+  emptyNoModels: 'daemon 未提供可选模型',
+  emptyNoMatch: '无匹配模型',
+  footerHint: '↑↓ 导航 · Enter 选择 · Esc 关闭',
+} as const;
