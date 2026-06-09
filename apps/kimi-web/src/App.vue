@@ -482,36 +482,41 @@ function handleCreateSession(): void {
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
 
-    <!-- Mobile switcher bottom-sheet: workspaces + sessions + new/add -->
+    <!-- Mobile switcher bottom-sheet: workspace groups + sessions (mirrors the
+         desktop sidebar) -->
     <MobileSwitcherSheet
       v-if="isMobile"
       v-model="showMobileSwitcher"
-      :workspaces="client.workspacesView.value"
-      :active-workspace="client.visibleWorkspace.value"
+      :groups="client.workspaceGroups.value"
       :active-workspace-id="client.activeWorkspaceId.value"
-      :sessions="client.sessionsForView.value"
       :active-id="client.activeSessionId.value"
       :attention-by-session="client.attentionBySession.value"
       :attention-by-workspace="client.attentionByWorkspace.value"
       @select="client.selectSession($event)"
-      @select-workspace="client.selectWorkspace($event)"
-      @create="handleCreateSession"
+      @create-in-workspace="client.createSessionInWorkspace($event)"
       @add-workspace="showAddWorkspace = true"
       @rename="(id, title) => client.renameSession(id, title)"
       @delete="(id) => client.deleteSession(id)"
     />
 
-    <!-- Mobile session-settings bottom-sheet: the StatusLine controls -->
+    <!-- Mobile settings bottom-sheet: StatusLine controls + app prefs + auth -->
     <MobileSettingsSheet
       v-if="isMobile"
       v-model="showMobileSettings"
       :status="client.status.value"
       :thinking="client.thinking.value"
       :plan-mode="client.planMode.value"
+      :theme="client.theme.value"
+      :accent="client.accent.value"
+      :auth-ready="client.authReady.value"
       @pick-model="openModelPicker()"
       @set-thinking="client.setThinking($event)"
       @toggle-plan="client.togglePlanMode()"
       @set-permission="client.setPermission($event)"
+      @set-theme="client.setTheme($event)"
+      @set-accent="client.setAccent($event)"
+      @login="openLogin"
+      @logout="client.logout"
     />
   </div>
 </template>

@@ -595,7 +595,9 @@ html[data-theme="modern"] .mlist .srow {
   margin: 1px 8px;
   border-radius: var(--r-sm);
   border-bottom: none;
-  padding: 12px 10px;
+  /* Trim both paddings by the 8px inset margin so session titles stay on the
+     sheet's --m-indent alignment line (under the workspace name). */
+  padding: 12px calc(var(--m-pad, 16px) - 8px) 12px calc(var(--m-indent, 39px) - 8px);
 }
 html[data-theme="modern"] .mlist .srow.cur { box-shadow: inset 0 0 0 1px var(--bd); }
 html[data-theme="modern"] .srow,

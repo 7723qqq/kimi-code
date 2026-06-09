@@ -1,24 +1,33 @@
 <!-- apps/kimi-web/src/components/MobileSettingsSheet.vue -->
-<!-- Mobile session settings: a bottom sheet that surfaces the desktop StatusLine -->
+<!-- Mobile settings: a bottom sheet that surfaces the desktop StatusLine -->
 <!-- controls as big tappable rows — model (opens ModelPicker), thinking level -->
 <!-- (inline cycle picker), plan mode (toggle), permission (cycle), and a -->
-<!-- read-only context-usage meter. The 23px desktop status strip is too cramped -->
-<!-- for touch, so these live here on narrow viewports. Terminal Pro styling. -->
+<!-- read-only context-usage meter — plus the desktop settings-popover prefs -->
+<!-- (theme / accent / language) and the sign-in/out entry, which previously -->
+<!-- had no mobile counterpart. -->
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ConversationStatus, PermissionMode } from '../types';
 import type { ThinkingLevel } from '../api/types';
+import type { Accent, Theme } from '../composables/useKimiWebClient';
 import BottomSheet from './BottomSheet.vue';
+import LanguageSwitcher from './LanguageSwitcher.vue';
 
 const { t } = useI18n();
 
-const props = defineProps<{
-  modelValue: boolean;
-  status: ConversationStatus;
-  thinking?: ThinkingLevel;
-  planMode?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean;
+    status: ConversationStatus;
+    thinking?: ThinkingLevel;
+    planMode?: boolean;
+    theme?: Theme;
+    accent?: Accent;
+    authReady?: boolean;
+  }>(),
+  { theme: 'terminal', accent: 'blue', authReady: false },
+);
 
 const emit = defineEmits<{
   'update:modelValue': [open: boolean];
@@ -26,6 +35,10 @@ const emit = defineEmits<{
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
   setPermission: [mode: PermissionMode];
+  setTheme: [theme: Theme];
+  setAccent: [accent: Accent];
+  login: [];
+  logout: [];
 }>();
 
 const PERM_MODES: PermissionMode[] = ['manual', 'auto', 'yolo'];
@@ -67,6 +80,16 @@ function cyclePermission(): void {
 
 function onPickModel(): void {
   emit('pickModel');
+  emit('update:modelValue', false);
+}
+
+function onLogin(): void {
+  emit('login');
+  emit('update:modelValue', false);
+}
+
+function onLogout(): void {
+  emit('logout');
   emit('update:modelValue', false);
 }
 </script>
@@ -123,6 +146,70 @@ function onPickModel(): void {
         <i :style="{ width: ctxPct + '%' }" />
       </span>
     </div>
+
+    <!-- App preferences (the desktop settings-popover controls) -->
+    <div class="srow read-only pref">
+      <span class="srow-main">
+        <span class="srow-label">{{ t('theme.label') }}</span>
+      </span>
+      <div class="seg" role="group" :aria-label="t('theme.label')">
+        <button
+          type="button"
+          class="seg-opt"
+          :class="{ on: theme === 'modern' }"
+          :aria-pressed="theme === 'modern'"
+          @click="emit('setTheme', 'modern')"
+        >{{ t('theme.modern') }}</button>
+        <button
+          type="button"
+          class="seg-opt"
+          :class="{ on: theme === 'terminal' }"
+          :aria-pressed="theme === 'terminal'"
+          @click="emit('setTheme', 'terminal')"
+        >{{ t('theme.terminal') }}</button>
+      </div>
+    </div>
+
+    <div class="srow read-only pref">
+      <span class="srow-main">
+        <span class="srow-label">{{ t('theme.accentLabel') }}</span>
+      </span>
+      <div class="seg" role="group" :aria-label="t('theme.accentLabel')">
+        <button
+          type="button"
+          class="seg-opt"
+          :class="{ on: accent === 'blue' }"
+          :aria-pressed="accent === 'blue'"
+          @click="emit('setAccent', 'blue')"
+        >{{ t('theme.accentBlue') }}</button>
+        <button
+          type="button"
+          class="seg-opt"
+          :class="{ on: accent === 'mono' }"
+          :aria-pressed="accent === 'mono'"
+          @click="emit('setAccent', 'mono')"
+        >{{ t('theme.accentMono') }}</button>
+      </div>
+    </div>
+
+    <div class="srow read-only pref">
+      <span class="srow-main">
+        <span class="srow-label">{{ t('sidebar.language') }}</span>
+      </span>
+      <LanguageSwitcher />
+    </div>
+
+    <!-- Account: sign in / out -->
+    <button v-if="authReady" type="button" class="srow acct out" @click="onLogout">
+      <span class="srow-main">
+        <span class="srow-label">{{ t('sidebar.signOut') }}</span>
+      </span>
+    </button>
+    <button v-else type="button" class="srow acct in" @click="onLogin">
+      <span class="srow-main">
+        <span class="srow-label">{{ t('sidebar.signIn') }}</span>
+      </span>
+    </button>
   </BottomSheet>
 </template>
 
@@ -201,6 +288,37 @@ function onPickModel(): void {
   transition: left 0.18s;
 }
 .toggle.on::after { left: 21px; }
+
+/* App preference rows: segmented theme/accent toggles + language switcher. */
+.srow.pref { cursor: default; }
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+  flex: none;
+}
+.seg-opt {
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 7px 14px;
+  line-height: 1.4;
+}
+.seg-opt + .seg-opt { border-left: 1px solid var(--line); }
+.seg-opt.on {
+  background: var(--soft);
+  color: var(--blue2);
+  font-weight: 600;
+}
+
+/* Account rows */
+.srow.acct.in .srow-label { color: var(--blue2); font-weight: 600; }
+.srow.acct.out .srow-label { color: var(--err); }
 
 /* Context meter (96px prototype) */
 .ctx-meter {
