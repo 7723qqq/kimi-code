@@ -278,7 +278,7 @@ export class WorkspaceRegistryService extends Disposable implements IWorkspaceRe
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     super.dispose();
   }
 }

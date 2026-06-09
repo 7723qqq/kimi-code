@@ -106,7 +106,7 @@ export class AuthSummaryService
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     super.dispose();
   }
 

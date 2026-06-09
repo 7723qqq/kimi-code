@@ -18,7 +18,7 @@ export class FastifyRestGateway extends Disposable implements IRestGateway {
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     // Fire-and-forget — Fastify's close is async but the DI dispose contract is sync.
     // The daemon's RunningDaemon.close() awaits `app.close()` explicitly before
     // calling ix.dispose(), so by the time we get here the listener is already

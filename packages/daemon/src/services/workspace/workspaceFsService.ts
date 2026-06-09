@@ -92,7 +92,7 @@ export class WorkspaceFsService extends Disposable implements IWorkspaceFsServic
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     super.dispose();
   }
 }

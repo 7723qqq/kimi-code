@@ -142,7 +142,7 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     // KimiCore does not currently expose a dispose() — when it does, we'll
     // await/call it here BEFORE super.dispose(). For now, disposing the
     // service flips _disposed, which makes future rpc.* invocations reject
@@ -152,7 +152,7 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
 
   private _buildRpcProxy(): CoreRPC {
     const rpcPromise = this._coreRpcPromise;
-    const isDisposedRef = () => this._isDisposed;
+    const isDisposedRef = () => this._store.isDisposed;
 
     // We don't know the concrete method set at compile time here (CoreAPI is
     // a structural interface; `RPCMethods<CoreAPI>` is a mapped type).

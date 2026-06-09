@@ -47,7 +47,7 @@ export class ConnectionRegistry extends Disposable implements IConnectionRegistr
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     // Belt-and-suspenders: WSGateway.dispose() already called closeAll().
     // Idempotent.
     this.closeAll();

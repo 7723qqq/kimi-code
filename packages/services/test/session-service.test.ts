@@ -1,19 +1,3 @@
-/**
- * `SessionService` (Chain 2 / P1.2) unit tests.
- *
- * Hermetic: we mock `ICoreProcessService` with an in-memory `rpc` proxy whose
- * methods return controllable promises. No KimiCore, no agent-core RPC pair
- * — the adapter is exercised against a fake bridge.
- *
- * Test cases cover:
- *   - create → toProtocolSession (camelCase ↔ snake_case + number → ISO)
- *   - list pagination (default/before_id/after_id/page_size; has_more)
- *   - get + SessionNotFoundError → 40401 mapping at the daemon layer
- *   - update (title-only / metadata-only / both / empty)
- *   - delete returning {deleted: true}
- *   - toProtocolSession field defaults for fields agent-core doesn't surface
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -23,15 +7,13 @@ import {
   type CreateSessionPayload,
   Emitter,
   type ForkSessionPayload,
-  type IInstantiationService,
   type RenameSessionPayload,
   type ResumeSessionResult,
-  type ServiceIdentifier,
-  type ServicesAccessor,
   type SessionMeta,
   type SessionSummary,
   type UpdateSessionMetadataPayload,
 } from '@moonshot-ai/agent-core';
+import { TestInstantiationService } from '@moonshot-ai/agent-core/di/test';
 import { emptySessionUsage, type Session } from '@moonshot-ai/protocol';
 
 import {
@@ -63,11 +45,6 @@ interface FakeBridgeState {
   postUndoContexts: Map<string, AgentContextData>;
 }
 
-/**
- * Build a tiny fake `ICoreProcessService` whose `rpc` proxy implements just the
- * five session methods the impl uses. Each method delegates to an in-memory
- * state object the test owns.
- */
 function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
   const rpc: Partial<CoreRPC> = {
     createSession: vi
@@ -152,8 +129,6 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
       .fn()
       .mockImplementation(async (payload: WithSessionId<RenameSessionPayload>) => {
         state.renamedTitles.set(payload.sessionId, payload.title);
-        // Reflect into the metadata map so subsequent `getSessionMetadata`
-        // returns the updated title (mirrors real KimiCore behavior).
         const existing = state.metas.get(payload.sessionId);
         if (existing !== undefined) {
           state.metas.set(payload.sessionId, { ...existing, title: payload.title });
@@ -257,15 +232,8 @@ function textMessage(
 let state: FakeBridgeState;
 let svc: SessionService;
 let promptStub: ReturnType<typeof makePromptServiceStub>;
+let instantiation: TestInstantiationService;
 
-/**
- * Stub `IPromptService` for hermetic SessionService tests. Records every
- * `applyAgentState(sid, patch, source)` call so tests can assert that
- * `SessionService.update` forwards `agent_config` runtime fields through
- * the shared shadow-aware helper rather than dispatching `core.rpc.*`
- * directly. The other `IPromptService` methods aren't reachable from
- * SessionService and are stubbed to throw on access.
- */
 function makePromptServiceStub(): {
   promptService: IPromptService;
   calls: Array<{ sid: string; patch: Record<string, unknown>; source: string; promptId: string | undefined }>;
@@ -290,45 +258,27 @@ function makePromptServiceStub(): {
   return { promptService, calls };
 }
 
-/**
- * Fake `IInstantiationService` that only resolves the one service
- * `SessionService.update` reaches for (`IPromptService`). Other lookups
- * throw — they would indicate an unintended dependency creeping in.
- */
-function makeFakeInstantiation(stubs: {
+function makeTestInstantiation(stubs: {
   promptService: IPromptService;
-}): IInstantiationService {
-  const accessor: ServicesAccessor = {
-    get: <T,>(id: ServiceIdentifier<T>): T => {
-      if ((id as unknown) === (IPromptService as unknown)) {
-        return stubs.promptService as unknown as T;
-      }
-      throw new Error(`unexpected service lookup: ${String((id as unknown as { toString(): string }).toString())}`);
-    },
-  };
-  return {
-    _serviceBrand: undefined,
-    invokeFunction: <R,>(fn: (a: ServicesAccessor) => R): R => fn(accessor),
-    createInstance: (() => {
-      throw new Error('createInstance not supported in this test stub');
-    }) as IInstantiationService['createInstance'],
-    createChild: () => {
-      throw new Error('createChild not supported in this test stub');
-    },
-  } as unknown as IInstantiationService;
+}): TestInstantiationService {
+  const ix = new TestInstantiationService(undefined, true);
+  ix.stub(IPromptService, stubs.promptService);
+  return ix;
 }
 
 beforeEach(() => {
   state = freshState();
   promptStub = makePromptServiceStub();
+  instantiation = makeTestInstantiation({ promptService: promptStub.promptService });
   svc = new SessionService(
     makeFakeBridge(state),
-    makeFakeInstantiation({ promptService: promptStub.promptService }),
+    instantiation,
   );
 });
 
 afterEach(() => {
   svc.dispose();
+  instantiation.dispose();
 });
 
 describe('toProtocolSession adapter', () => {
@@ -458,7 +408,6 @@ describe('SessionService.create', () => {
     expect(state.sessions).toHaveLength(1);
     expect(state.sessions[0]!.workDir).toBe('/tmp/foo');
     expect(session.metadata.cwd).toBe('/tmp/foo');
-    // title is echoed back even when CoreAPI doesn't reflect it (gap doc).
     expect(session.title).toBe('My session');
     expect(session.created_at.endsWith('Z')).toBe(true);
   });
@@ -468,9 +417,7 @@ describe('SessionService.create', () => {
       metadata: { cwd: '/tmp/x' },
       agent_config: { model: 'moonshot-v1-128k' },
     });
-    const created = state.sessions[0]!;
-    expect((state.sessions as SessionSummary[])[0]!.metadata?.['cwd']).toBe('/tmp/x');
-    void created;
+    expect(state.sessions[0]!.metadata?.['cwd']).toBe('/tmp/x');
   });
 
   it('rejects when metadata.cwd is absent (daemon route must pre-resolve workspace_id → cwd)', async () => {
@@ -482,7 +429,6 @@ describe('SessionService.create', () => {
 
 describe('SessionService.list', () => {
   beforeEach(async () => {
-    // Seed 3 sessions in increasing createdAt order.
     await svc.create({ metadata: { cwd: '/tmp/a' } });
     await svc.create({ metadata: { cwd: '/tmp/b' } });
     await svc.create({ metadata: { cwd: '/tmp/c' } });
@@ -504,20 +450,19 @@ describe('SessionService.list', () => {
 
   it('before_id returns older sessions only', async () => {
     const all = await svc.list({});
-    const pivotId = all.items[0]!.id; // newest
+    const pivotId = all.items[0]!.id;
     const olderPage = await svc.list({ before_id: pivotId });
     expect(olderPage.items.map((s) => s.metadata.cwd)).toEqual(['/tmp/b', '/tmp/a']);
   });
 
   it('after_id returns newer sessions only', async () => {
     const all = await svc.list({});
-    const pivotId = all.items[2]!.id; // oldest
+    const pivotId = all.items[2]!.id;
     const newerPage = await svc.list({ after_id: pivotId });
     expect(newerPage.items.map((s) => s.metadata.cwd)).toEqual(['/tmp/c', '/tmp/b']);
   });
 
   it('status filter applies post-hydration', async () => {
-    // Today everything maps to 'idle'; non-matching filter returns []
     const empty = await svc.list({ status: 'running' });
     expect(empty.items).toEqual([]);
     const idle = await svc.list({ status: 'idle' });
@@ -569,7 +514,6 @@ describe('SessionService.update', () => {
   it('routes title through bridge.rpc.renameSession', async () => {
     await svc.update(created.id, { title: 'Renamed' });
     expect(state.renamedTitles.get(created.id)).toBe('Renamed');
-    // Title is reflected via the next get (impl re-fetches metadata).
     expect(state.metadataPatches.has(created.id)).toBe(false);
   });
 

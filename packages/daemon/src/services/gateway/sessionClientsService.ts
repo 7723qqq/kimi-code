@@ -80,7 +80,7 @@ export class SessionClientsService extends Disposable implements ISessionClients
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     this._bySession.clear();
     super.dispose();
   }

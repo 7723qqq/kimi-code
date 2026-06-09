@@ -29,11 +29,22 @@ export { InstantiationService } from './instantiationService';
 export {
   Disposable,
   DisposableStore,
+  DisposableMap,
+  DisposableSet,
   MutableDisposable,
+  DisposableTracker,
   combinedDisposable,
   toDisposable,
+  dispose,
+  disposeIfDisposable,
+  disposeOnReturn,
+  isDisposable,
+  markAsSingleton,
+  setDisposableTracker,
+  trackDisposable,
+  markAsDisposed,
 } from './lifecycle';
-export type { IDisposable } from './lifecycle';
+export type { IDisposable, IDisposableTracker } from './lifecycle';
 export { CyclicDependencyError } from './errors';
 export {
   InstantiationType,

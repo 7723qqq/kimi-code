@@ -92,7 +92,7 @@ export class WSGateway extends Disposable implements IWSGateway {
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     // 1. Close every attached connection (WS code 1001 = going away).
     try {
       this.registry.closeAll('daemon shutting down');

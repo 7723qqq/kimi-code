@@ -819,7 +819,7 @@ export class PromptService
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     this._active.clear();
     this._queued.clear();
     this._agentState.clear();

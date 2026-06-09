@@ -1,18 +1,9 @@
-/**
- * Acceptance: the three peer-service decorators (`IEventService`,
- * `IApprovalService`, `IQuestionService`) are typed correctly, can be
- * registered in a `ServiceCollection`, resolved through
- * `InstantiationService`, and surface their diagnostic names in
- * not-registered errors.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  InstantiationService,
-  ServiceCollection,
   Emitter,
 } from '@moonshot-ai/agent-core';
+import { TestInstantiationService } from '@moonshot-ai/agent-core/di/test';
 import type { ApprovalRequest, Event, QuestionRequest } from '@moonshot-ai/agent-core';
 
 import {
@@ -72,7 +63,6 @@ class FakeQuestionService implements IQuestionService {
 }
 
 function makeFakeEvent(): Event {
-  // Minimal AgentStatusUpdatedEvent shape — the union narrows by `type`.
   return {
     type: 'agent_status_updated',
     sessionId: 'sess-1',
@@ -106,117 +96,81 @@ function makeFakeQuestion(): QuestionRequest & { sessionId: string; agentId: str
 }
 
 describe('@moonshot-ai/services · interfaces', () => {
-  it('registers all three peer services in a ServiceCollection and resolves them through InstantiationService', () => {
+  it('registers all three peer services in a test instantiation service', () => {
     const events = new FakeEventService();
     const approvals = new FakeApprovalService();
     const questions = new FakeQuestionService();
 
-    const services = new ServiceCollection(
-      [IEventService, events],
-      [IApprovalService, approvals],
-      [IQuestionService, questions],
-    );
-    const ix = new InstantiationService(services);
+    const ix = new TestInstantiationService();
+    ix.stub(IEventService, events);
+    ix.stub(IApprovalService, approvals);
+    ix.stub(IQuestionService, questions);
 
-    try {
-      ix.invokeFunction((accessor) => {
-        expect(accessor.get(IEventService)).toBe(events);
-        expect(accessor.get(IApprovalService)).toBe(approvals);
-        expect(accessor.get(IQuestionService)).toBe(questions);
-      });
-    } finally {
-      ix.dispose();
-    }
+    expect(ix.get(IEventService)).toBe(events);
+    expect(ix.get(IApprovalService)).toBe(approvals);
+    expect(ix.get(IQuestionService)).toBe(questions);
   });
 
-  it('end-to-end smoke: invokes service methods via the accessor', async () => {
+  it('end-to-end smoke: invokes service methods through the test container', async () => {
     const events = new FakeEventService();
     const approvals = new FakeApprovalService();
     const questions = new FakeQuestionService();
 
-    const services = new ServiceCollection(
-      [IEventService, events],
-      [IApprovalService, approvals],
-      [IQuestionService, questions],
-    );
-    const ix = new InstantiationService(services);
+    const ix = new TestInstantiationService();
+    ix.stub(IEventService, events);
+    ix.stub(IApprovalService, approvals);
+    ix.stub(IQuestionService, questions);
 
-    try {
-      const event = makeFakeEvent();
-      ix.invokeFunction((a) => a.get(IEventService).publish(event));
-      expect(events.events).toEqual([event]);
+    const event = makeFakeEvent();
+    ix.get(IEventService).publish(event);
+    expect(events.events).toEqual([event]);
 
-      const approval = makeFakeApproval();
-      const approvalResp = await ix.invokeFunction((a) =>
-        a.get(IApprovalService).request(approval),
-      );
-      expect(approvalResp).toEqual({ decision: 'approved' });
-      expect(approvals.received).toHaveLength(1);
+    const approval = makeFakeApproval();
+    const approvalResp = await ix.get(IApprovalService).request(approval);
+    expect(approvalResp).toEqual({ decision: 'approved' });
+    expect(approvals.received).toHaveLength(1);
 
-      const question = makeFakeQuestion();
-      const questionResp = await ix.invokeFunction((a) =>
-        a.get(IQuestionService).request(question),
-      );
-      expect(questionResp).toBeNull();
-      expect(questions.received).toHaveLength(1);
-    } finally {
-      ix.dispose();
-    }
+    const question = makeFakeQuestion();
+    const questionResp = await ix.get(IQuestionService).request(question);
+    expect(questionResp).toBeNull();
+    expect(questions.received).toHaveLength(1);
   });
 
   it('resolve/dismiss service methods are wired through the same DI value', () => {
     const approvals = new FakeApprovalService();
     const questions = new FakeQuestionService();
 
-    const services = new ServiceCollection(
-      [IApprovalService, approvals],
-      [IQuestionService, questions],
-    );
-    const ix = new InstantiationService(services);
+    const ix = new TestInstantiationService();
+    ix.stub(IApprovalService, approvals);
+    ix.stub(IQuestionService, questions);
 
-    try {
-      ix.invokeFunction((a) => {
-        a.get(IApprovalService).resolve('tc-1', { decision: 'rejected', feedback: 'no' });
-        a.get(IQuestionService).resolve('q-1', { answers: { q_1: 'A' } });
-        a.get(IQuestionService).dismiss('q-2');
-      });
+    ix.get(IApprovalService).resolve('tc-1', { decision: 'rejected', feedback: 'no' });
+    ix.get(IQuestionService).resolve('q-1', { answers: { q_1: 'A' } });
+    ix.get(IQuestionService).dismiss('q-2');
 
-      expect(approvals.resolveCalls).toEqual([
-        { id: 'tc-1', response: { decision: 'rejected', feedback: 'no' } },
-      ]);
-      expect(questions.resolveCalls).toEqual([
-        { id: 'q-1', response: { answers: { q_1: 'A' } } },
-      ]);
-      expect(questions.dismissCalls).toEqual(['q-2']);
-    } finally {
-      ix.dispose();
-    }
+    expect(approvals.resolveCalls).toEqual([
+      { id: 'tc-1', response: { decision: 'rejected', feedback: 'no' } },
+    ]);
+    expect(questions.resolveCalls).toEqual([
+      { id: 'q-1', response: { answers: { q_1: 'A' } } },
+    ]);
+    expect(questions.dismissCalls).toEqual(['q-2']);
   });
 
   it('looking up an unregistered service returns undefined in non-strict mode', () => {
-    const ix = new InstantiationService(new ServiceCollection());
-    try {
-      expect(ix.invokeFunction((a) => a.get(IEventService))).toBeUndefined();
-      expect(ix.invokeFunction((a) => a.get(IApprovalService))).toBeUndefined();
-      expect(ix.invokeFunction((a) => a.get(IQuestionService))).toBeUndefined();
-    } finally {
-      ix.dispose();
-    }
+    const ix = new TestInstantiationService();
+    expect(ix.get(IEventService)).toBeUndefined();
+    expect(ix.get(IApprovalService)).toBeUndefined();
+    expect(ix.get(IQuestionService)).toBeUndefined();
   });
 
   it('IEventService / IApprovalService / IQuestionService are callable ServiceIdentifiers (compile-time guard)', () => {
-    // The const half of the dual export must be usable as a ServiceCollection
-    // key and as a `createDecorator` brand value. We exercise both at runtime
-    // to also catch any accidental swap of the value with the type.
     expect(typeof IEventService).toBe('function');
     expect(typeof IApprovalService).toBe('function');
     expect(typeof IQuestionService).toBe('function');
 
-    // Avoid an unused-import warning on the type-only re-export.
     const _typeProbe: ApprovalResponse | QuestionResult = null;
     void _typeProbe;
-    // And use vi to keep the import surface (helpful when running with strict
-    // unused-imports lints in the future).
     vi.fn();
   });
 });

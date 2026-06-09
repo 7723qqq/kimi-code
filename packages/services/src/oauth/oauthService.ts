@@ -2,7 +2,7 @@
  * `OAuthService` — implementation of `IOAuthService`.
  */
 
-import { Disposable, InstantiationType, registerSingleton } from '@moonshot-ai/agent-core';
+import { Disposable, DisposableMap, InstantiationType, registerSingleton, type IDisposable } from '@moonshot-ai/agent-core';
 import {
   DeviceCodeTimeoutError,
   KIMI_CODE_PROVIDER_NAME,
@@ -22,19 +22,52 @@ import { ulid } from 'ulid';
 import { IEnvironmentService } from '../environment/environment';
 import { IOAuthService } from './oauth';
 
-interface FlowState {
-  readonly flowId: string;
-  readonly provider: string;
-  readonly deviceAuth: DeviceAuthorization;
-  /** Resolved seconds-until-expiry (may differ from `deviceAuth.expiresIn` if that was null). */
-  readonly expiresInSec: number;
-  readonly startedAt: number;
-  readonly expiresAt: number;
-  status: OAuthFlowStatus;
-  readonly controller: AbortController;
+/**
+ * One in-flight (or recently-completed) device-code flow. Stored in
+ * `OAuthService._flows` (a `DisposableMap`) so:
+ *   - `_flows.set(provider, newState)` auto-disposes the supersedee
+ *   - `_flows.deleteAndDispose(provider)` (called from the GC timer) tears
+ *     down a terminal entry's leftover state
+ *   - service-wide `super.dispose()` walks every entry's `dispose()`
+ *     instead of the old hand-written for-loop in `override dispose()`.
+ *
+ * `dispose()` is idempotent and aborts the controller only when the flow is
+ * still pending — terminal flows have already returned from their underlying
+ * promise, so a second abort would be a noisy no-op.
+ */
+class FlowState implements IDisposable {
+  status: OAuthFlowStatus = 'pending';
   resolvedAt?: number;
   errorMessage?: string;
   gcTimer?: NodeJS.Timeout;
+  private _disposed = false;
+
+  constructor(
+    readonly flowId: string,
+    readonly provider: string,
+    readonly deviceAuth: DeviceAuthorization,
+    /** Resolved seconds-until-expiry (may differ from `deviceAuth.expiresIn` if that was null). */
+    readonly expiresInSec: number,
+    readonly startedAt: number,
+    readonly expiresAt: number,
+    readonly controller: AbortController,
+  ) {}
+
+  dispose(): void {
+    if (this._disposed) return;
+    this._disposed = true;
+    if (this.gcTimer !== undefined) {
+      clearTimeout(this.gcTimer);
+      this.gcTimer = undefined;
+    }
+    if (this.status === 'pending') {
+      try {
+        this.controller.abort();
+      } catch {
+        // ignore
+      }
+    }
+  }
 }
 
 /** Terminal flows live this long after resolution before GC. */
@@ -44,10 +77,11 @@ export class OAuthService extends Disposable implements IOAuthService {
   readonly _serviceBrand: undefined;
 
   private readonly _authFacade: KimiAuthFacade;
-  private readonly _flows = new Map<string, FlowState>();
+  private readonly _flows: DisposableMap<string, FlowState>;
 
   constructor(@IEnvironmentService private readonly env: IEnvironmentService) {
     super();
+    this._flows = this._register(new DisposableMap<string, FlowState>());
     this._authFacade = new KimiAuthFacade({
       homeDir: env.homeDir,
       configPath: env.configPath,
@@ -117,16 +151,15 @@ export class OAuthService extends Disposable implements IOAuthService {
     // `OAuthManager.login`, so the `expires_at` we surface to clients is
     // never further out than the deadline that's actually being enforced.
     const expiresInSec = deviceAuth.expiresIn ?? 15 * 60;
-    const state: FlowState = {
+    const state = new FlowState(
       flowId,
-      provider: name,
+      name,
       deviceAuth,
       expiresInSec,
       startedAt,
-      expiresAt: startedAt + expiresInSec * 1000,
-      status: 'pending',
+      startedAt + expiresInSec * 1000,
       controller,
-    };
+    );
     this._flows.set(name, state);
 
     // Wire the background promise's terminal transition. We branch on error
@@ -185,18 +218,7 @@ export class OAuthService extends Disposable implements IOAuthService {
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
-    for (const state of this._flows.values()) {
-      if (state.gcTimer !== undefined) clearTimeout(state.gcTimer);
-      if (state.status === 'pending') {
-        try {
-          state.controller.abort();
-        } catch {
-          // ignore
-        }
-      }
-    }
-    this._flows.clear();
+    if (this._store.isDisposed) return;
     super.dispose();
   }
 
@@ -220,14 +242,18 @@ export class OAuthService extends Disposable implements IOAuthService {
     if (state.status === status) return;
     state.status = status;
     state.resolvedAt = Date.now();
-    // Schedule GC. If a new flow supersedes this entry first, the new flow
-    // replaces the map entry and this timer just no-ops on the stale state.
+    // Schedule GC. If a new flow supersedes this entry first, the supersede
+    // path runs `_flows.set(name, newState)` which auto-disposes this entry —
+    // its `dispose()` clears `gcTimer` before the timer can fire, so the
+    // callback can rely on "this state is still the current map entry"
+    // without the equality check needing a stale-guard.
     if (state.gcTimer !== undefined) clearTimeout(state.gcTimer);
     state.gcTimer = setTimeout(() => {
       const current = this._flows.get(state.provider);
-      // Only GC if this state IS the current map entry. A newer flow may
-      // have already overwritten the slot.
-      if (current === state) this._flows.delete(state.provider);
+      // Belt-and-suspenders: even though dispose() clears the timer on
+      // overwrite, keep the identity check in case the timer was queued
+      // before the clearTimeout took effect.
+      if (current === state) this._flows.deleteAndDispose(state.provider);
     }, TERMINAL_RETENTION_MS);
     // Don't keep the process alive solely for GC.
     state.gcTimer.unref?.();
