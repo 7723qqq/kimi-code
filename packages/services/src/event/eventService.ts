@@ -35,7 +35,7 @@ export class EventService extends Disposable implements IEventService {
   readonly onDidPublish = this._onDidPublish.event;
 
   publish(event: ProtocolEvent): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     this._onDidPublish.fire(event);
   }
 }

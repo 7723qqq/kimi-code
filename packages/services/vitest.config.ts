@@ -8,9 +8,6 @@ export default defineConfig({
   plugins: [rawTextPlugin()],
   resolve: {
     alias: [
-      // Order matters — list MORE specific entries first so prefix matching
-      // doesn't route them through the bare `@moonshot-ai/agent-core` alias
-      // (which points at agent-core/src/index.ts, breaking subpath imports).
       {
         find: /^@moonshot-ai\/agent-core\/session\/store$/,
         replacement: fileURLToPath(
@@ -21,6 +18,12 @@ export default defineConfig({
         find: /^@moonshot-ai\/agent-core\/base\/common\/event$/,
         replacement: fileURLToPath(
           new URL('../agent-core/src/base/common/event.ts', import.meta.url),
+        ),
+      },
+      {
+        find: /^@moonshot-ai\/agent-core\/di\/test$/,
+        replacement: fileURLToPath(
+          new URL('../agent-core/src/di/test.ts', import.meta.url),
         ),
       },
       {

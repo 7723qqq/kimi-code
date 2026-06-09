@@ -222,7 +222,7 @@ export class FileStore extends Disposable implements IFileStore {
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     this.indexCache = undefined;
     super.dispose();
   }

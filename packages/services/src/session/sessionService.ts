@@ -1,7 +1,3 @@
-/**
- * `SessionService` — implementation of `ISessionService`.
- */
-
 import {
   Disposable,
   Emitter,
@@ -50,13 +46,6 @@ const DEFAULT_UNDO_MESSAGE_PAGE_SIZE = 50;
 const MAX_UNDO_MESSAGE_PAGE_SIZE = 100;
 const CHILD_SESSION_KIND = 'child';
 
-/**
- * Treat the incoming `metadata` object — schema-validated by zod as
- * `{cwd: string}` plus arbitrary `unknown` keys — as a JSON-safe object for
- * agent-core's `JsonObject` slot. We don't deep-validate here; clients can
- * send non-JSON-serializable values and agent-core will reject at the RPC
- * boundary. This cast keeps the adapter narrow and the wire stable.
- */
 function asJsonObject(value: Record<string, unknown>): JsonObject {
   return value as unknown as JsonObject;
 }
@@ -111,17 +100,8 @@ function pageContextMessages(
 export class SessionService extends Disposable implements ISessionService {
   readonly _serviceBrand: undefined;
 
-  /**
-   * VSCode-style Emitter for session-creation events. Listener exceptions
-   * route to `onUnexpectedError` inside `Emitter.fire()`. Owned via
-   * `_register(...)` so it disposes when the service is torn down.
-   */
   private readonly _onDidCreate = this._register(new Emitter<{ session: Session }>());
   readonly onDidCreate = this._onDidCreate.event;
-  /**
-   * VSCode-style Emitter for session-close events. Same ownership +
-   * exception-routing semantics as `_onDidCreate`.
-   */
   private readonly _onDidClose = this._register(new Emitter<{ sessionId: string }>());
   readonly onDidClose = this._onDidClose.event;
 
@@ -134,13 +114,6 @@ export class SessionService extends Disposable implements ISessionService {
   }
 
   async create(input: SessionCreate): Promise<Session> {
-    // The protocol schema now allows `metadata` to be omitted (so callers can
-    // send `{ workspace_id }` only). The daemon route layer is responsible
-    // for resolving workspace_id → workspace.root → metadata.cwd BEFORE
-    // calling this method; by the time we land here `metadata.cwd` must be
-    // set. agent-core's `createSession` calls `requiredWorkDir(...)` and
-    // throws if cwd is missing, so a missing-cwd bug surfaces as a
-    // descriptive error rather than silently picking the daemon's cwd.
     if (input.metadata === undefined || typeof input.metadata.cwd !== 'string') {
       throw new Error('SessionService.create: metadata.cwd is required');
     }
@@ -150,39 +123,25 @@ export class SessionService extends Disposable implements ISessionService {
       metadata: metadataForCore,
       ...(input.agent_config?.model !== undefined ? { model: input.agent_config.model } : {}),
     });
-    // agent-core's createSession ignores any caller-supplied title — newly
-    // created sessions get the default `SessionMeta.title = 'New Session'`.
-    // When the caller supplied a title we apply it via `renameSession` so the
-    // post-create get reflects it.
     if (input.title !== undefined) {
       try {
         await this.core.rpc.renameSession({ sessionId: summary.id, title: input.title });
       } catch {
-        // If rename fails (e.g. session closed/race), continue with the
-        // default — the response shape is unchanged.
       }
     }
     const meta = await this.tryGetMeta(summary.id);
     const session = toProtocolSession(summary, meta);
-    // Fire onDidCreate listeners after the core RPC resolves.
     this._onDidCreate.fire({ session });
     return session;
   }
 
   async list(query: SessionListQuery): Promise<PageResponse<Session>> {
-    // Fast path: when caller supplies a workDir (typically from `?workspace_id=`
-    // resolving to a workspace.root), agent-core's `listSessions({workDir})`
-    // walks a single wd-key bucket via readdir instead of scanning every
-    // workdir. Otherwise we list everything and apply downstream filters.
     const all =
       query.workDir !== undefined
         ? await this.core.rpc.listSessions({ workDir: query.workDir })
         : await this.core.rpc.listSessions({});
-    // Sort by createdAt desc per REST §1.6 "最近 N 条（按 created_at desc）".
-    const sorted = [...all].sort((a, b) => b.createdAt - a.createdAt);
+    const sorted = all.toSorted((a, b) => b.createdAt - a.createdAt);
 
-    // Cursor: anchor on id. before_id = older than that id; after_id = newer.
-    // Because the underlying list is desc, "older" = AFTER in the array.
     let pivotIndex = -1;
     if (query.before_id !== undefined) {
       pivotIndex = sorted.findIndex((s) => s.id === query.before_id);
@@ -192,10 +151,8 @@ export class SessionService extends Disposable implements ISessionService {
 
     let slice: typeof sorted;
     if (query.before_id !== undefined && pivotIndex >= 0) {
-      // before_id = older entries → tail of the desc array, exclusive of pivot
       slice = sorted.slice(pivotIndex + 1);
     } else if (query.after_id !== undefined && pivotIndex >= 0) {
-      // after_id = newer entries → head of the desc array, exclusive of pivot
       slice = sorted.slice(0, pivotIndex);
     } else {
       slice = sorted;
@@ -206,16 +163,10 @@ export class SessionService extends Disposable implements ISessionService {
     const pageSummaries = slice.slice(0, pageSize);
     const hasMore = slice.length > pageSize;
 
-    // Hydrate each summary with its metadata. We do these in parallel —
-    // `getSessionMetadata` is in-memory once the session is loaded, so the
-    // round-trip count is what matters, not bandwidth.
     const items = await Promise.all(
       pageSummaries.map(async (s) => toProtocolSession(s, await this.tryGetMeta(s.id))),
     );
 
-    // Apply post-hydration status filter if requested. Today all sessions
-    // are mapped to 'idle' (see header note); the filter is wired now so the
-    // wire contract is stable when agent-core surfaces a real status enum.
     const filtered =
       query.status !== undefined ? items.filter((s) => s.status === query.status) : items;
 
@@ -233,21 +184,16 @@ export class SessionService extends Disposable implements ISessionService {
   }
 
   async update(id: string, input: SessionUpdate): Promise<Session> {
-    // Existence check first — gives a deterministic 40401 if the id is wrong.
     const all = await this.core.rpc.listSessions({});
     const summary = all.find((s) => s.id === id);
     if (summary === undefined) {
       throw new SessionNotFoundError(id);
     }
 
-    // 1) title goes through renameSession.
     if (input.title !== undefined) {
       await this.core.rpc.renameSession({ sessionId: id, title: input.title });
     }
 
-    // 2) metadata patches go through updateSessionMetadata. agent-core's
-    //    SessionMeta has top-level `title` + `custom`; we route protocol's
-    //    `metadata` (catchall) into `custom` so it round-trips on the next get.
     const metadataPatch = input.metadata;
     if (metadataPatch !== undefined && Object.keys(metadataPatch).length > 0) {
       await this.core.rpc.updateSessionMetadata({
@@ -256,19 +202,9 @@ export class SessionService extends Disposable implements ISessionService {
       });
     }
 
-    // 3) agent_config runtime controls — route the four fields (model,
-    //    thinking, permission_mode, plan_mode) through the per-session
-    //    shadow on `IPromptService.applyAgentState`. The helper diff-
-    //    dispatches against the shadow and writes a dispatch-log entry
-    //    with `source='meta'` for any setter that actually fires.
-    //    Resolution is lazy via `IInstantiationService` to break the
-    //    ctor cycle (`PromptService` already injects `ISessionService`).
     const ac = input.agent_config;
     if (ac !== undefined) {
       const patch: AgentStatePatch = {};
-      // SessionService.update has long accepted `agent_config.model` and
-      // treated empty string as "no change" — we preserve that quirk by
-      // dropping the empty case before forwarding to the shadow.
       if (ac.model !== undefined && ac.model !== '') patch.model = ac.model;
       if (ac.thinking !== undefined) patch.thinking = ac.thinking;
       if (ac.permission_mode !== undefined) patch.permission_mode = ac.permission_mode;
@@ -286,10 +222,6 @@ export class SessionService extends Disposable implements ISessionService {
       }
     }
 
-    // 4) permission_rules: no CoreAPI surface yet — we accept the input
-    //    (schema-validated) but no CoreAPI surface exists to persist them yet.
-
-    // Re-fetch to return the post-update Session.
     const allAfter = await this.core.rpc.listSessions({});
     const summaryAfter = allAfter.find((s) => s.id === id) ?? summary;
     const meta = await this.tryGetMeta(id);
@@ -374,7 +306,6 @@ export class SessionService extends Disposable implements ISessionService {
   }
 
   async getStatus(id: string): Promise<SessionStatusResponse> {
-    // Existence check — same pattern as get() / update() / delete().
     const all = await this.core.rpc.listSessions({});
     const summary = all.find((s) => s.id === id);
     if (summary === undefined) {
@@ -448,14 +379,12 @@ export class SessionService extends Disposable implements ISessionService {
   }
 
   async delete(id: string): Promise<{ deleted: true }> {
-    // Existence check — deterministic 40401 even on close.
     const all = await this.core.rpc.listSessions({});
     const summary = all.find((s) => s.id === id);
     if (summary === undefined) {
       throw new SessionNotFoundError(id);
     }
     await this.core.rpc.closeSession({ sessionId: id });
-    // Fire onDidClose listeners after the core RPC resolves.
     this._onDidClose.fire({ sessionId: id });
     return { deleted: true };
   }
@@ -469,11 +398,6 @@ export class SessionService extends Disposable implements ISessionService {
     return summary;
   }
 
-  /**
-   * Pull a session's metadata; swallow errors (session may not be loaded into
-   * the active session map yet, in which case `sessionApi(id)` throws). The
-   * caller falls back to defaults from the summary alone.
-   */
   private async tryGetMeta(id: string): Promise<SessionMeta | undefined> {
     try {
       const meta = await this.core.rpc.getSessionMetadata({ sessionId: id });
@@ -483,24 +407,10 @@ export class SessionService extends Disposable implements ISessionService {
     }
   }
 
-  // --- Per-domain event accessors -------------------------------------------
-  //
-  // `onDidCreate` / `onDidClose` are declared above as
-  // `Emitter<T>.event` getters; consumers subscribe via
-  // `svc.onDidCreate(handler)` (returns IDisposable) and own the
-  // detach lifetime through `Disposable._register(...)`.
-
   override dispose(): void {
-    if (this._isDisposed) return;
-    // `_onDidCreate` and `_onDidClose` are registered via `this._register(...)`,
-    // so `super.dispose()` flushes their listeners.
+    if (this._store.isDisposed) return;
     super.dispose();
   }
 }
 
-// Self-register under the global singleton registry. Daemon-side bootstrap
-// projects this through `defaultServicesModule()` /
-// `getSingletonServiceDescriptors()`. All ctor deps are `@I…`-injected, so
-// `staticArguments` is `[]`. `supportsDelayedInstantiation = false` preserves
-// current reverse-dispose semantics.
 registerSingleton(ISessionService, SessionService, InstantiationType.Delayed);

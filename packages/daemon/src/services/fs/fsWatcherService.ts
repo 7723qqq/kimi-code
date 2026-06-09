@@ -6,7 +6,7 @@ import nodePath from 'node:path';
 
 import { FSWatcher } from 'chokidar';
 
-import { Disposable } from '@moonshot-ai/agent-core';
+import { Disposable, DisposableMap, type IDisposable } from '@moonshot-ai/agent-core';
 import { ISessionService } from '@moonshot-ai/services';
 
 import type { FsChangeEntry, FsChangeAction, FsChangeKind } from '@moonshot-ai/protocol';
@@ -42,25 +42,51 @@ interface PendingChange {
   kind: FsChangeKind;
 }
 
-interface SessionEntry {
-  /** Live chokidar watcher; closed + dropped on last unref. */
-  watcher: FSWatcher;
-  /** `sessionId.cwd` (absolute, post-realpath) for relative-path mapping. */
-  cwd: string;
+/**
+ * Per-session watcher state. Owns the chokidar `FSWatcher` + active debounce
+ * timer; `dispose()` clears the timer and fire-and-forgets `watcher.close()`.
+ * Stored in `FsWatcherService.sessions` (a `DisposableMap`) so removal via
+ * `sessions.deleteAndDispose(sessionId)` and service-wide teardown via
+ * `super.dispose()` both flow through `dispose()` automatically.
+ */
+class SessionEntry implements IDisposable {
   /** `absPath → refCount` across all connections subscribed to this session. */
-  pathRefs: Map<string, number>;
+  readonly pathRefs = new Map<string, number>();
   /** `connectionId → Set<absPath>` for overlap filtering on emit. */
-  connectionPaths: Map<string, Set<string>>;
+  readonly connectionPaths = new Map<string, Set<string>>();
   /** Accumulating changes for the current 200ms window. */
-  pendingChanges: PendingChange[];
+  pendingChanges: PendingChange[] = [];
   /** Raw event count (used for `truncated.count`). */
-  pendingRawCount: number;
+  pendingRawCount = 0;
   /** True once `pendingChanges.length > maxChangesPerWindow`. */
-  truncated: boolean;
+  truncated = false;
   /** Timer for the active debounce window; `undefined` between windows. */
-  debounceTimer: NodeJS.Timeout | undefined;
+  debounceTimer: NodeJS.Timeout | undefined = undefined;
   /** Per-session seq counter, monotonic, starts at 1. */
-  seq: number;
+  seq = 0;
+  private _disposed = false;
+
+  constructor(
+    public readonly sessionId: string,
+    public readonly watcher: FSWatcher,
+    public cwd: string,
+    private readonly logger: ILogService,
+  ) {}
+
+  dispose(): void {
+    if (this._disposed) return;
+    this._disposed = true;
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = undefined;
+    }
+    void this.watcher.close().catch((err) => {
+      this.logger.warn(
+        { sessionId: this.sessionId, err: String(err) },
+        'fs-watcher close failed',
+      );
+    });
+  }
 }
 
 export class FsWatcherService extends Disposable implements IFsWatcher {
@@ -70,7 +96,7 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
   private readonly maxChangesPerWindow: number;
   private readonly maxPathsPerConnection: number;
   private readonly makeWatcher: () => FSWatcher;
-  private readonly sessions = new Map<string, SessionEntry>();
+  private readonly sessions: DisposableMap<string, SessionEntry>;
   /** `connectionId → Map<sessionId, Set<absPath>>`. */
   private readonly connections = new Map<string, Map<string, Set<string>>>();
 
@@ -89,6 +115,7 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     @ISessionService _sessionService: ISessionService,
   ) {
     super();
+    this.sessions = this._register(new DisposableMap<string, SessionEntry>());
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.maxChangesPerWindow =
       options.maxChangesPerWindow ?? DEFAULT_MAX_CHANGES_PER_WINDOW;
@@ -111,7 +138,7 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     connectionId: string,
     absPaths: readonly string[],
   ): readonly string[] {
-    if (this._isDisposed) return [];
+    if (this._store.isDisposed) return [];
 
     // Project the new total for this connection (assuming all `absPaths` are
     // additions). Dedup against existing first.
@@ -184,7 +211,7 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     connectionId: string,
     absPaths: readonly string[],
   ): readonly string[] {
-    if (this._isDisposed) return [];
+    if (this._store.isDisposed) return [];
     const entry = this.sessions.get(sessionId);
     if (!entry) return [];
     const connSessions = this.connections.get(connectionId);
@@ -218,7 +245,7 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     }
     // Per-session cleanup: if no path references remain, close the watcher.
     if (entry.pathRefs.size === 0) {
-      this.disposeSessionEntry(sessionId, entry);
+      this.sessions.deleteAndDispose(sessionId);
     }
     return connSessionPaths ? Array.from(connSessionPaths) : [];
   }
@@ -285,17 +312,7 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
 
   private createSessionEntry(sessionId: string, cwd: string): SessionEntry {
     const watcher = this.makeWatcher();
-    const entry: SessionEntry = {
-      watcher,
-      cwd,
-      pathRefs: new Map(),
-      connectionPaths: new Map(),
-      pendingChanges: [],
-      pendingRawCount: 0,
-      truncated: false,
-      debounceTimer: undefined,
-      seq: 0,
-    };
+    const entry = new SessionEntry(sessionId, watcher, cwd, this.logger);
     watcher.on(
       'all',
       (eventName: string, absPath: string) => {
@@ -311,27 +328,13 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     return entry;
   }
 
-  private disposeSessionEntry(sessionId: string, entry: SessionEntry): void {
-    if (entry.debounceTimer) {
-      clearTimeout(entry.debounceTimer);
-      entry.debounceTimer = undefined;
-    }
-    void entry.watcher.close().catch((err) => {
-      this.logger.warn(
-        { sessionId, err: String(err) },
-        'fs-watcher close failed',
-      );
-    });
-    this.sessions.delete(sessionId);
-  }
-
   private onRawChange(
     sessionId: string,
     entry: SessionEntry,
     eventName: string,
     absPath: string,
   ): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     const action = mapChokidarEventToAction(eventName);
     if (action === undefined) return; // 'ready', 'raw', 'all', 'error'
     const kind = mapChokidarEventToKind(eventName);
@@ -414,11 +417,7 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
-    const entries = Array.from(this.sessions.entries());
-    for (const [sid, e] of entries) {
-      this.disposeSessionEntry(sid, e);
-    }
+    if (this._store.isDisposed) return;
     this.connections.clear();
     super.dispose();
   }

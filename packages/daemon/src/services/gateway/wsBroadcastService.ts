@@ -77,7 +77,7 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
   }
 
   private _onEvent(event: Event): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     const sid = extractSessionId(event);
     const evType = (event as { type?: string }).type ?? '<no-type>';
     if (!sid) {
@@ -157,7 +157,7 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
+    if (this._store.isDisposed) return;
     this._sessions.clear();
     super.dispose();
   }

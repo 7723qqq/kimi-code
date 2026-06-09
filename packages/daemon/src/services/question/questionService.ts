@@ -31,7 +31,7 @@
 
 import { ulid } from 'ulid';
 
-import { Disposable } from '@moonshot-ai/agent-core';
+import { Disposable, DisposableMap, type IDisposable } from '@moonshot-ai/agent-core';
 import type {
   Event,
   QuestionRequest as ProtocolQuestionRequest,
@@ -66,23 +66,67 @@ export class QuestionExpiredError extends Error {
   }
 }
 
-interface PendingQuestion {
-  readonly questionId: string;
-  readonly sessionId: string;
-  readonly toolCallId: string | undefined;
-  readonly createdAt: string;
-  readonly expiresAt: string;
-  readonly protocolRequest: ProtocolQuestionRequest;
-  resolve: (r: QuestionResult) => void;
-  reject: (e: Error) => void;
-  timer: NodeJS.Timeout;
+/**
+ * One pending question. Owns the 60s timer + promise callbacks. Two ways out:
+ *   - `markSettled()` — the happy path called by resolve/dismiss/expire AFTER
+ *     they've decided the outcome; just stops the timer.
+ *   - `dispose()` — the shutdown fallback. If the entry hasn't been settled
+ *     yet, clears the timer AND rejects with "daemon shutting down" so the
+ *     awaiter doesn't dangle.
+ *
+ * Stored in `QuestionService._pending` (`DisposableMap`) so service-wide
+ * teardown via `super.dispose()` triggers each entry's `dispose()`
+ * automatically, replacing the old hand-written for-loop in `override
+ * dispose()`.
+ */
+class PendingQuestion implements IDisposable {
+  private _settled = false;
+
+  constructor(
+    readonly questionId: string,
+    readonly sessionId: string,
+    readonly toolCallId: string | undefined,
+    readonly createdAt: string,
+    readonly expiresAt: string,
+    readonly protocolRequest: ProtocolQuestionRequest,
+    private readonly _resolveFn: (r: QuestionResult) => void,
+    private readonly _rejectFn: (e: Error) => void,
+    private readonly _timer: NodeJS.Timeout,
+  ) {}
+
+  /** Happy-path settle (resolve/dismiss/expire decided the outcome). */
+  markSettled(): void {
+    if (this._settled) return;
+    this._settled = true;
+    clearTimeout(this._timer);
+  }
+
+  resolve(r: QuestionResult): void {
+    this._resolveFn(r);
+  }
+
+  reject(e: Error): void {
+    this._rejectFn(e);
+  }
+
+  /** Shutdown fallback: reject any unsettled awaiter. Idempotent. */
+  dispose(): void {
+    if (this._settled) return;
+    this._settled = true;
+    clearTimeout(this._timer);
+    try {
+      this._rejectFn(new Error('daemon shutting down'));
+    } catch {
+      // swallow — the awaiter side may have already gone away
+    }
+  }
 }
 
 export class QuestionService extends Disposable implements IQuestionService {
   readonly _serviceBrand: undefined;
 
   /** Indexed by daemon-minted `question_id` (REST path key). */
-  private readonly _pending = new Map<string, PendingQuestion>();
+  private readonly _pending: DisposableMap<string, PendingQuestion>;
   /** Bounded set of resolved/dismissed ids for idempotency. */
   private readonly _recentlyResolved = new Set<string>();
   private _timeoutMs = QUESTION_DEFAULT_TIMEOUT_MS;
@@ -93,12 +137,13 @@ export class QuestionService extends Disposable implements IQuestionService {
     @IEventService private readonly eventService: IEventService,
   ) {
     super();
+    this._pending = this._register(new DisposableMap<string, PendingQuestion>());
   }
 
   async request(
     req: QuestionRequest & { sessionId: string; agentId: string },
   ): Promise<QuestionResult> {
-    if (this._isDisposed) {
+    if (this._store.isDisposed) {
       throw new Error('question service disposed');
     }
 
@@ -135,17 +180,20 @@ export class QuestionService extends Disposable implements IQuestionService {
     return await new Promise<QuestionResult>((resolve, reject) => {
       const timer = setTimeout(() => this._expire(questionId), this._timeoutMs);
       timer.unref?.();
-      this._pending.set(questionId, {
+      this._pending.set(
         questionId,
-        sessionId: req.sessionId,
-        toolCallId: req.toolCallId,
-        createdAt,
-        expiresAt,
-        protocolRequest,
-        resolve,
-        reject,
-        timer,
-      });
+        new PendingQuestion(
+          questionId,
+          req.sessionId,
+          req.toolCallId,
+          createdAt,
+          expiresAt,
+          protocolRequest,
+          resolve,
+          reject,
+          timer,
+        ),
+      );
     });
   }
 
@@ -157,8 +205,8 @@ export class QuestionService extends Disposable implements IQuestionService {
   resolve(id: string, response: QuestionResult): void {
     const p = this._pending.get(id);
     if (!p) return;
-    clearTimeout(p.timer);
-    this._pending.delete(id);
+    p.markSettled();
+    this._pending.deleteAndLeak(id);
     this.markResolved(p.questionId);
 
     const resolvedAt = new Date().toISOString();
@@ -187,8 +235,8 @@ export class QuestionService extends Disposable implements IQuestionService {
   dismiss(id: string): void {
     const p = this._pending.get(id);
     if (!p) return;
-    clearTimeout(p.timer);
-    this._pending.delete(id);
+    p.markSettled();
+    this._pending.deleteAndLeak(id);
     this.markResolved(p.questionId);
 
     const dismissedAt = new Date().toISOString();
@@ -253,7 +301,8 @@ export class QuestionService extends Disposable implements IQuestionService {
   private _expire(questionId: string): void {
     const p = this._pending.get(questionId);
     if (!p) return;
-    this._pending.delete(questionId);
+    p.markSettled();
+    this._pending.deleteAndLeak(questionId);
     this.markResolved(p.questionId);
 
     const expiredEvent: Event = {
@@ -268,16 +317,7 @@ export class QuestionService extends Disposable implements IQuestionService {
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
-    for (const [, p] of this._pending) {
-      clearTimeout(p.timer);
-      try {
-        p.reject(new Error('daemon shutting down'));
-      } catch {
-        // ignore
-      }
-    }
-    this._pending.clear();
+    if (this._store.isDisposed) return;
     this._recentlyResolved.clear();
     super.dispose();
   }

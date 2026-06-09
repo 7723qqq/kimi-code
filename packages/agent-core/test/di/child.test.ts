@@ -292,7 +292,7 @@ describe('InstantiationService.createChild', () => {
 });
 
 describe('Disposable base class', () => {
-  it('reverse register order on dispose', () => {
+  it('insertion order on dispose', () => {
     const events: string[] = [];
     class Child implements IDisposable {
       constructor(public readonly label: string) {}
@@ -310,7 +310,7 @@ describe('Disposable base class', () => {
     }
     const o = new Owner();
     o.dispose();
-    expect(events).toEqual(['disposed third', 'disposed second', 'disposed first']);
+    expect(events).toEqual(['disposed first', 'disposed second', 'disposed third']);
   });
 
   it('idempotent dispose on the base class', () => {
@@ -372,7 +372,8 @@ describe('Disposable base class', () => {
     }
     const o = new Owner();
     expect(() => o.dispose()).not.toThrow();
-    // BadChild is registered last so it tears down first (LIFO).
-    expect(events).toEqual(['bad-attempted', 'good']);
+    // GoodChild is registered first, so it tears down first (insertion order);
+    // BadChild throws but the loop continues.
+    expect(events).toEqual(['good', 'bad-attempted']);
   });
 });

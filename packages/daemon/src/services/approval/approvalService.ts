@@ -48,7 +48,7 @@
 
 import { ulid } from 'ulid';
 
-import { Disposable } from '@moonshot-ai/agent-core';
+import { Disposable, DisposableMap, type IDisposable } from '@moonshot-ai/agent-core';
 import type {
   ApprovalRequest as ProtocolApprovalRequest,
   Event,
@@ -86,23 +86,64 @@ export class ApprovalExpiredError extends Error {
   }
 }
 
-interface PendingApproval {
-  readonly approvalId: string;
-  readonly sessionId: string;
-  readonly toolCallId: string;
-  readonly createdAt: string;
-  readonly expiresAt: string;
-  readonly protocolRequest: ProtocolApprovalRequest;
-  resolve: (r: ApprovalResponse) => void;
-  reject: (e: Error) => void;
-  timer: NodeJS.Timeout;
+/**
+ * One pending approval. Owns the 60s timer + promise callbacks. Two ways out:
+ *   - `markSettled()` — the happy path called by resolve/expire AFTER they've
+ *     decided the outcome; just stops the timer.
+ *   - `dispose()` — the shutdown fallback. If the entry hasn't been settled
+ *     yet, clears the timer AND rejects with "daemon shutting down" so the
+ *     awaiter doesn't dangle.
+ *
+ * Stored in `ApprovalService._pending` (`DisposableMap`) so service-wide
+ * teardown via `super.dispose()` triggers each entry's `dispose()`
+ * automatically.
+ */
+class PendingApproval implements IDisposable {
+  private _settled = false;
+
+  constructor(
+    readonly approvalId: string,
+    readonly sessionId: string,
+    readonly toolCallId: string,
+    readonly createdAt: string,
+    readonly expiresAt: string,
+    readonly protocolRequest: ProtocolApprovalRequest,
+    private readonly _resolveFn: (r: ApprovalResponse) => void,
+    private readonly _rejectFn: (e: Error) => void,
+    private readonly _timer: NodeJS.Timeout,
+  ) {}
+
+  markSettled(): void {
+    if (this._settled) return;
+    this._settled = true;
+    clearTimeout(this._timer);
+  }
+
+  resolve(r: ApprovalResponse): void {
+    this._resolveFn(r);
+  }
+
+  reject(e: Error): void {
+    this._rejectFn(e);
+  }
+
+  dispose(): void {
+    if (this._settled) return;
+    this._settled = true;
+    clearTimeout(this._timer);
+    try {
+      this._rejectFn(new Error('daemon shutting down'));
+    } catch {
+      // awaiter may not have a catch handler attached yet
+    }
+  }
 }
 
 export class ApprovalService extends Disposable implements IApprovalService {
   readonly _serviceBrand: undefined;
 
   /** Indexed by daemon-minted `approval_id` (REST path key). */
-  private readonly _pending = new Map<string, PendingApproval>();
+  private readonly _pending: DisposableMap<string, PendingApproval>;
   /** Reverse lookup for `toolCallId` (legacy in-process interface compatibility). */
   private readonly _byToolCallId = new Map<string, string>();
   /**
@@ -119,12 +160,13 @@ export class ApprovalService extends Disposable implements IApprovalService {
     @IEventService private readonly eventService: IEventService,
   ) {
     super();
+    this._pending = this._register(new DisposableMap<string, PendingApproval>());
   }
 
   async request(
     req: ApprovalRequest & { sessionId: string; agentId: string },
   ): Promise<ApprovalResponse> {
-    if (this._isDisposed) {
+    if (this._store.isDisposed) {
       throw new Error('approval service disposed');
     }
 
@@ -169,17 +211,20 @@ export class ApprovalService extends Disposable implements IApprovalService {
     return await new Promise<ApprovalResponse>((resolve, reject) => {
       const timer = setTimeout(() => this._expire(approvalId), this._timeoutMs);
       timer.unref?.();
-      this._pending.set(approvalId, {
+      this._pending.set(
         approvalId,
-        sessionId: req.sessionId,
-        toolCallId: req.toolCallId,
-        createdAt,
-        expiresAt,
-        protocolRequest,
-        resolve,
-        reject,
-        timer,
-      });
+        new PendingApproval(
+          approvalId,
+          req.sessionId,
+          req.toolCallId,
+          createdAt,
+          expiresAt,
+          protocolRequest,
+          resolve,
+          reject,
+          timer,
+        ),
+      );
       this._byToolCallId.set(req.toolCallId, approvalId);
     });
   }
@@ -194,8 +239,8 @@ export class ApprovalService extends Disposable implements IApprovalService {
   resolve(id: string, response: ApprovalResponse): void {
     const p = this._pending.get(id);
     if (!p) return;
-    clearTimeout(p.timer);
-    this._pending.delete(id);
+    p.markSettled();
+    this._pending.deleteAndLeak(id);
     this._byToolCallId.delete(p.toolCallId);
     this.markResolved(p.approvalId);
 
@@ -275,7 +320,8 @@ export class ApprovalService extends Disposable implements IApprovalService {
   private _expire(approvalId: string): void {
     const p = this._pending.get(approvalId);
     if (!p) return;
-    this._pending.delete(approvalId);
+    p.markSettled();
+    this._pending.deleteAndLeak(approvalId);
     this._byToolCallId.delete(p.toolCallId);
     // Mark as resolved-style for idempotency — a late REST resolve on this id
     // gets 40902 rather than 40404 (matches "expired ≈ already_resolved" UX).
@@ -293,16 +339,7 @@ export class ApprovalService extends Disposable implements IApprovalService {
   }
 
   override dispose(): void {
-    if (this._isDisposed) return;
-    for (const [, p] of this._pending) {
-      clearTimeout(p.timer);
-      try {
-        p.reject(new Error('daemon shutting down'));
-      } catch {
-        // ignore — the awaiter may not have a catch handler attached yet.
-      }
-    }
-    this._pending.clear();
+    if (this._store.isDisposed) return;
     this._byToolCallId.clear();
     this._recentlyResolved.clear();
     super.dispose();

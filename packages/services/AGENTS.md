@@ -96,13 +96,13 @@ no new suffixes get reintroduced.
 
 Adding a new service: create the folder + contracts + impl pair, add a
 bottom-of-file `registerSingleton(IXxxService, XxxService,
-InstantiationType.Delayed)` in the impl, add the corresponding side-effect
-import to `module.ts`, re-export from `index.ts`. The daemon's `start.ts`
-consumes `defaultServicesModule()` for descriptor-only services; only override
-the registry entry (via `services.set(I, prebuiltInstance)` or
-`services.set(I, new SyncDescriptor(C, [runtimeArgs], false))`) when the
-service needs an external handle or runtime static args that the registry
-can't supply.
+InstantiationType.Delayed)` in the impl, then re-export the contracts and impl
+from `index.ts` so importing `@moonshot-ai/services` runs the registration
+side effect. Daemon bootstrap consumes `getSingletonServiceDescriptors()` for
+descriptor-only services; only override the registry entry (via
+`services.set(I, prebuiltInstance)` or `services.set(I, new SyncDescriptor(C,
+[runtimeArgs], false))`) when the service needs an external handle or runtime
+static args that the registry can't supply.
 
 ## Service registration (normative)
 
@@ -127,11 +127,9 @@ can't supply.
      `CoreProcessService`'s `options`), fall back to the descriptor overload:
      `registerSingleton(IXxxService, new SyncDescriptor(XxxService, [optionsBag]))`.
 
-2. **`defaultServicesModule()` is a thin projection** of
-   `getSingletonServiceDescriptors()`. It does NOT maintain a separate
-   list — `module.ts`'s only responsibility is the side-effect import
-   list that populates the registry plus the
-   `InstantiationType.Delayed | Eager` projection.
+2. **Consumers seed from `getSingletonServiceDescriptors()` directly**.
+   Importing `@moonshot-ai/services` loads the package barrel, whose impl
+   re-exports run the `registerSingleton(...)` side effects.
 
 3. **Daemon-side `services.set(...)` may override** the registry-derived
    entry for services that need runtime static args (e.g.
@@ -142,9 +140,9 @@ can't supply.
    from `registerSingleton` (plan §158); the later registration wins at
    every layer.
 
-The legacy "hand-built array in `module.ts`" pattern that lived here
-through Phase 2 is gone. Do NOT reintroduce it — extending the array in
-`module.ts` no longer has any effect on what the daemon resolves.
+The legacy "hand-built array" and `defaultServicesModule()` wrapper patterns
+are gone. Do NOT reintroduce them — the registry is the source of truth, and
+bootstrap code should read it with `getSingletonServiceDescriptors()`.
 
 ## Comments (normative)
 
@@ -178,4 +176,3 @@ Existing files in this package over-comment by historical accident.
 file, prefer leaving the surrounding comments alone — large comment
 deletions belong in their own dedicated cleanup pass, not bundled into
 behavior changes.
-

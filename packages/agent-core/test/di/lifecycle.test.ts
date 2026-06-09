@@ -41,7 +41,7 @@ describe('toDisposable', () => {
 });
 
 describe('combinedDisposable', () => {
-  it('disposes all children', () => {
+  it('disposes all children in insertion order', () => {
     const order: string[] = [];
     const d = combinedDisposable(
       makeRecorder('a', order),
@@ -142,14 +142,14 @@ describe('DisposableStore', () => {
     store.dispose();
   });
 
-  it('dispose tears down children in LIFO order', () => {
+  it('dispose tears down children in insertion order', () => {
     const order: string[] = [];
     const store = new DisposableStore();
     store.add(makeRecorder('a', order));
     store.add(makeRecorder('b', order));
     store.add(makeRecorder('c', order));
     store.dispose();
-    expect(order).toEqual(['c', 'b', 'a']);
+    expect(order).toEqual(['a', 'b', 'c']);
   });
 
   it('clear disposes children but keeps the store usable', () => {
@@ -158,18 +158,30 @@ describe('DisposableStore', () => {
     store.add(makeRecorder('a', order));
     store.add(makeRecorder('b', order));
     store.clear();
-    expect(order).toEqual(['b', 'a']);
+    expect(order).toEqual(['a', 'b']);
     store.add(makeRecorder('c', order));
     store.dispose();
-    expect(order).toEqual(['b', 'a', 'c']);
+    expect(order).toEqual(['a', 'b', 'c']);
   });
 
-  it('delete removes a child without disposing it', () => {
+  it('delete removes a child AND disposes it', () => {
     const order: string[] = [];
     const store = new DisposableStore();
     const rec = makeRecorder('a', order);
     store.add(rec);
     store.delete(rec);
+    expect(order).toEqual(['a']);
+    // No second dispose when the store itself is later torn down.
+    store.dispose();
+    expect(order).toEqual(['a']);
+  });
+
+  it('deleteAndLeak removes a child WITHOUT disposing it', () => {
+    const order: string[] = [];
+    const store = new DisposableStore();
+    const rec = makeRecorder('a', order);
+    store.add(rec);
+    store.deleteAndLeak(rec);
     store.dispose();
     expect(order).toEqual([]);
   });
@@ -205,16 +217,16 @@ describe('DisposableStore', () => {
     });
     store.add(makeRecorder('c', order));
     store.dispose();
-    // LIFO: c, throwing-child, a
-    expect(order).toEqual(['c', 'a']);
+    // Insertion order: a, throwing-child, c
+    expect(order).toEqual(['a', 'c']);
     expect(captured).toHaveLength(1);
     expect((captured[0] as Error).message).toBe('store-child-boom');
     resetUnexpectedErrorHandler();
   });
 });
 
-describe('Disposable base class (unchanged behaviour)', () => {
-  it('LIFO teardown still holds after the lifecycle expansion', () => {
+describe('Disposable base class', () => {
+  it('insertion-order teardown', () => {
     const order: string[] = [];
     class Owner extends Disposable {
       add(label: string): void {
@@ -226,6 +238,19 @@ describe('Disposable base class (unchanged behaviour)', () => {
     owner.add('b');
     owner.add('c');
     owner.dispose();
-    expect(order).toEqual(['c', 'b', 'a']);
+    expect(order).toEqual(['a', 'b', 'c']);
+  });
+
+  it('registering self throws', () => {
+    class Owner extends Disposable {
+      registerSelf(): void {
+        this._register(this);
+      }
+    }
+    const owner = new Owner();
+    expect(() => owner.registerSelf()).toThrow(
+      /Cannot register a disposable on itself/,
+    );
+    owner.dispose();
   });
 });
