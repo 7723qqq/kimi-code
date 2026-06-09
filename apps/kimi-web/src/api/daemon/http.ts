@@ -5,6 +5,21 @@ import { buildRestUrl } from '../config';
 import { DaemonApiError, DaemonNetworkError } from '../errors';
 import type { WireEnvelope } from './wire';
 
+/** Per-request timeout. Without one, a hung connection (half-open TCP after a
+    network change, stuck daemon) leaves promises pending for minutes — and the
+    composer's in-flight flag with them. Generous enough for slow endpoints;
+    streaming runs over the WS, not these REST calls. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/** AbortSignal.timeout with a fallback for older environments (jsdom). */
+function timeoutSignal(): AbortSignal | undefined {
+  try {
+    return AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  } catch {
+    return undefined;
+  }
+}
+
 export class DaemonHttpClient {
   constructor(private readonly origin: string) {}
 
@@ -24,7 +39,7 @@ export class DaemonHttpClient {
     };
     let response: Response;
     try {
-      response = await fetch(url, { method: 'POST', headers, body: formData });
+      response = await fetch(url, { method: 'POST', headers, body: formData, signal: timeoutSignal() });
     } catch (err) {
       throw new DaemonNetworkError(`Network error calling POST ${path}`, err);
     }
@@ -88,6 +103,7 @@ export class DaemonHttpClient {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: timeoutSignal(),
       });
     } catch (err) {
       throw new DaemonNetworkError(`Network error calling ${method} ${path}`, err);
