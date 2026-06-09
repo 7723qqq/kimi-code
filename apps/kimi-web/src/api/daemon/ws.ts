@@ -49,13 +49,17 @@ export class DaemonEventSocket {
 
   private msgSeq = 0;
 
+  /** Automatic reconnect (exponential backoff, reset on a successful hello). */
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(
     private readonly wsUrl: string,
     private readonly clientId: string,
     private readonly handlers: DaemonEventSocketHandlers,
   ) {}
 
-  /** Open the WebSocket connection. Safe to call once. */
+  /** Open the WebSocket connection. No-op while one is open or after close(). */
   connect(): void {
     if (this.ws !== null || this.closed) return;
 
@@ -85,7 +89,23 @@ export class DaemonEventSocket {
       this.connected = false;
       this.ws = null;
       this.handlers.onConnectionState(false);
+      // Unexpected drop (daemon restart, sleep, network blip) → reconnect.
+      // onServerHello re-sends every kept subscription via client_hello, and
+      // the server answers a too-large seq gap with resync_required, so live
+      // updates resume without a page reload.
+      this.scheduleReconnect();
     };
+  }
+
+  private scheduleReconnect(): void {
+    if (this.closed || this.reconnectTimer !== null) return;
+    const base = Math.min(30_000, 1000 * 2 ** this.reconnectAttempts);
+    const delay = base + Math.floor(Math.random() * 250); // jitter
+    this.reconnectAttempts += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
   }
 
   /**
@@ -134,6 +154,10 @@ export class DaemonEventSocket {
   close(): void {
     this.closed = true;
     this.connected = false;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close(1000);
       this.ws = null;
@@ -232,6 +256,7 @@ export class DaemonEventSocket {
 
   private onServerHello(): void {
     this.connected = true;
+    this.reconnectAttempts = 0;
     this.handlers.onConnectionState(true);
 
     // Build the initial subscription list from current subscriptions + pending
