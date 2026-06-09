@@ -50,6 +50,8 @@ import {
   type SessionFork,
   type SessionStatusResponse,
   type SessionUpdate,
+  type UndoSessionRequest,
+  type UndoSessionResponse,
 } from '@moonshot-ai/protocol';
 
 /**
@@ -132,6 +134,8 @@ export interface ISessionService {
 
   compact(id: string, input: CompactSessionRequest): Promise<CompactSessionResponse>;
 
+  undo(id: string, input: UndoSessionRequest): Promise<UndoSessionResponse>;
+
   /**
    * `DELETE /v1/sessions/{id}` — close (= soft-delete in v1) the session.
    *   Backed by `bridge.rpc.closeSession({sessionId})`. CoreAPI does not
@@ -161,6 +165,15 @@ export interface ISessionService {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ISessionService = createDecorator<ISessionService>('sessionService');
+
+export class SessionUndoUnavailableError extends Error {
+  readonly sessionId: string;
+  constructor(sessionId: string, message = 'Nothing to undo in the active context.') {
+    super(message);
+    this.name = 'SessionUndoUnavailableError';
+    this.sessionId = sessionId;
+  }
+}
 
 /**
  * Sentinel error class — daemon's route layer catches this and maps to

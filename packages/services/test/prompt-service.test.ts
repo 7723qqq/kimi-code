@@ -250,6 +250,7 @@ function makeSessionService(): {
     createChild: vi.fn() as unknown as ISessionService['createChild'],
     getStatus: vi.fn() as unknown as ISessionService['getStatus'],
     compact: vi.fn() as unknown as ISessionService['compact'],
+    undo: vi.fn() as unknown as ISessionService['undo'],
     delete: vi.fn() as unknown as ISessionService['delete'],
     onDidCreate: createEmitter.event,
     onDidClose: closeEmitter.event,

@@ -57,11 +57,14 @@ import {
   sessionStatusResponseSchema,
   sessionStatusSchema,
   updateSessionProfileRequestSchema,
+  undoSessionRequestSchema,
+  undoSessionResponseSchema,
   workspaceIdSchema,
 } from '@moonshot-ai/protocol';
 import {
   ISessionService,
   SessionNotFoundError,
+  SessionUndoUnavailableError,
 } from '@moonshot-ai/services';
 import { z } from 'zod';
 
@@ -187,6 +190,8 @@ const sessionActionRequestSchema = z.preprocess(
     title: z.string().min(1).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
     instruction: z.string().optional(),
+    count: z.number().int().positive().optional(),
+    page_size: z.number().int().min(1).max(100).optional(),
   }),
 );
 
@@ -432,19 +437,20 @@ export function registerSessionsRoutes(
     updateProfileRoute.handler as Parameters<SessionRouteHost['post']>[2],
   );
 
-  // POST /sessions/{session_id}:fork|compact ---------------------------
+  // POST /sessions/{session_id}:fork|compact|undo ----------------------
   const sessionActionRoute = defineRoute(
     {
       method: 'POST',
       path: '/sessions/{tail}',
       params: sessionActionTailParamSchema,
       body: sessionActionRequestSchema,
-      success: { data: z.union([sessionSchema, compactSessionResponseSchema]) },
+      success: { data: z.union([sessionSchema, compactSessionResponseSchema, undoSessionResponseSchema]) },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.SESSION_BUSY]: {},
         [ErrorCode.COMPACTION_UNABLE]: {},
+        [ErrorCode.SESSION_UNDO_UNAVAILABLE]: {},
       },
       description: 'Run a session action',
       tags: ['sessions'],
@@ -455,7 +461,7 @@ export function registerSessionsRoutes(
         const { tail } = req.params;
         const parsed = parseActionSuffix({
           tail,
-          allowedActions: ['fork', 'compact'] as const,
+          allowedActions: ['fork', 'compact', 'undo'] as const,
           resourceLabel: 'session',
         });
         if (parsed.kind !== 'action') {
@@ -480,9 +486,18 @@ export function registerSessionsRoutes(
           return;
         }
 
-        const body = compactSessionRequestSchema.parse(req.body);
+        if (parsed.action === 'compact') {
+          const body = compactSessionRequestSchema.parse(req.body);
+          const result = await ix.invokeFunction((a) =>
+            a.get(ISessionService).compact(parsed.id, body),
+          );
+          reply.send(okEnvelope(result, req.id));
+          return;
+        }
+
+        const body = undoSessionRequestSchema.parse(req.body);
         const result = await ix.invokeFunction((a) =>
-          a.get(ISessionService).compact(parsed.id, body),
+          a.get(ISessionService).undo(parsed.id, body),
         );
         reply.send(okEnvelope(result, req.id));
       } catch (err) {
@@ -647,6 +662,10 @@ function sendMappedError(
   }
   if (err instanceof KimiError && err.code === ErrorCodes.COMPACTION_UNABLE) {
     reply.send(errEnvelope(ErrorCode.COMPACTION_UNABLE, err.message, requestId));
+    return;
+  }
+  if (err instanceof SessionUndoUnavailableError) {
+    reply.send(errEnvelope(ErrorCode.SESSION_UNDO_UNAVAILABLE, err.message, requestId));
     return;
   }
   // Re-throw so Fastify's error hook handles it.

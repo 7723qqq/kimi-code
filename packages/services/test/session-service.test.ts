@@ -17,7 +17,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  type AgentContextData,
   type CoreRPC,
+  type ContextMessage,
   type CreateSessionPayload,
   Emitter,
   type ForkSessionPayload,
@@ -40,6 +42,7 @@ import {
   type ISessionService,
   PromptService,
   SessionNotFoundError,
+  SessionUndoUnavailableError,
   SessionService,
   toProtocolSession,
 } from '../src';
@@ -54,6 +57,10 @@ interface FakeBridgeState {
   metadataPatches: Map<string, UpdateSessionMetadataPayload['metadata']>;
   forkPayloads: Array<WithSessionId<Omit<ForkSessionPayload, 'sessionId'>>>;
   compactions: Array<{ sessionId: string; agentId: string; instruction?: string }>;
+  undoPayloads: Array<{ sessionId: string; agentId: string; count: number }>;
+  resumedIds: string[];
+  contexts: Map<string, AgentContextData>;
+  postUndoContexts: Map<string, AgentContextData>;
 }
 
 /**
@@ -182,6 +189,33 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
       .mockImplementation(async (payload: { sessionId: string; agentId: string; instruction?: string }) => {
         state.compactions.push(payload);
       }),
+    resumeSession: vi.fn().mockImplementation(async ({ sessionId }: { sessionId: string }) => {
+      state.resumedIds.push(sessionId);
+      const found = state.sessions.find((session) => session.id === sessionId);
+      if (found === undefined) throw new Error(`missing session ${sessionId}`);
+      return found as ResumeSessionResult;
+    }),
+    undoHistory: vi
+      .fn()
+      .mockImplementation(async (payload: { sessionId: string; agentId: string; count: number }) => {
+        state.undoPayloads.push(payload);
+        const next = state.postUndoContexts.get(payload.sessionId);
+        if (next !== undefined) {
+          state.contexts.set(payload.sessionId, next);
+        }
+      }),
+    getContext: vi
+      .fn()
+      .mockImplementation(async ({ sessionId }: { sessionId: string }): Promise<AgentContextData> => {
+        return state.contexts.get(sessionId) ?? { history: [], tokenCount: 0 };
+      }),
+    getConfig: vi.fn().mockResolvedValue({
+      modelAlias: 'kimi-k2',
+      thinkingLevel: 'auto',
+      modelCapabilities: { max_context_tokens: 100 },
+    }),
+    getPermission: vi.fn().mockResolvedValue({ mode: 'manual' }),
+    getPlan: vi.fn().mockResolvedValue(null),
   };
   return {
     rpc: rpc as CoreRPC,
@@ -200,6 +234,23 @@ function freshState(): FakeBridgeState {
     metadataPatches: new Map(),
     forkPayloads: [],
     compactions: [],
+    undoPayloads: [],
+    resumedIds: [],
+    contexts: new Map(),
+    postUndoContexts: new Map(),
+  };
+}
+
+function textMessage(
+  role: ContextMessage['role'],
+  text: string,
+  origin?: ContextMessage['origin'],
+): ContextMessage {
+  return {
+    role,
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    origin,
   };
 }
 
@@ -749,6 +800,78 @@ describe('SessionService.compact', () => {
   it('throws SessionNotFoundError on a missing id', async () => {
     await expect(svc.compact('does-not-exist', {})).rejects.toBeInstanceOf(SessionNotFoundError);
     expect(state.compactions).toEqual([]);
+  });
+});
+
+describe('SessionService.undo', () => {
+  it('undoes through core and returns refreshed messages plus status', async () => {
+    const created = await svc.create({ metadata: { cwd: '/tmp/undo' } });
+    state.contexts.set(created.id, {
+      history: [
+        textMessage('user', 'first prompt'),
+        textMessage('assistant', 'first answer'),
+        textMessage('user', 'second prompt'),
+        textMessage('assistant', 'second answer'),
+      ],
+      tokenCount: 40,
+    });
+    state.postUndoContexts.set(created.id, {
+      history: [
+        textMessage('user', 'first prompt'),
+        textMessage('assistant', 'first answer'),
+      ],
+      tokenCount: 20,
+    });
+
+    const result = await svc.undo(created.id, { count: 1, page_size: 10 });
+
+    expect(state.resumedIds).toEqual([created.id]);
+    expect(state.undoPayloads).toEqual([
+      { sessionId: created.id, agentId: 'main', count: 1 },
+    ]);
+    expect(result.messages.has_more).toBe(false);
+    expect(result.messages.items.map((message) => message.content[0])).toEqual([
+      { type: 'text', text: 'first answer' },
+      { type: 'text', text: 'first prompt' },
+    ]);
+    expect(result.status).toMatchObject({
+      model: 'kimi-k2',
+      thinking_level: 'auto',
+      permission: 'manual',
+      plan_mode: false,
+      context_tokens: 20,
+      max_context_tokens: 100,
+      context_usage: 0.2,
+    });
+  });
+
+  it('does not call core undo when the requested count crosses a compaction boundary', async () => {
+    const created = await svc.create({ metadata: { cwd: '/tmp/undo-boundary' } });
+    state.contexts.set(created.id, {
+      history: [
+        textMessage('assistant', 'summary', { kind: 'compaction_summary' }),
+        textMessage('user', 'recent prompt'),
+        textMessage('assistant', 'recent answer'),
+      ],
+      tokenCount: 20,
+    });
+
+    await expect(svc.undo(created.id, { count: 2 })).rejects.toBeInstanceOf(
+      SessionUndoUnavailableError,
+    );
+    expect(state.undoPayloads).toEqual([]);
+    expect(state.contexts.get(created.id)?.history.map((message) => message.content[0])).toEqual([
+      { type: 'text', text: 'summary' },
+      { type: 'text', text: 'recent prompt' },
+      { type: 'text', text: 'recent answer' },
+    ]);
+  });
+
+  it('throws SessionNotFoundError on a missing id', async () => {
+    await expect(svc.undo('does-not-exist', { count: 1 })).rejects.toBeInstanceOf(
+      SessionNotFoundError,
+    );
+    expect(state.undoPayloads).toEqual([]);
   });
 });
 

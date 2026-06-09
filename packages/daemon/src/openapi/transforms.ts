@@ -18,6 +18,8 @@ import {
   questionDismissResultSchema,
   questionResolveRequestSchema,
   questionResolveResultSchema,
+  undoSessionRequestSchema,
+  undoSessionResponseSchema,
 } from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
@@ -84,7 +86,7 @@ export function transformOpenApiDocument(
 
   patchFileUpload(paths);
   patchFileDownload(paths);
-  patchSessionFork(paths);
+  patchSessionActions(paths);
   patchFsAction(paths);
   patchFsDownload(paths);
   patchQuestionResolveOrDismiss(paths);
@@ -129,15 +131,31 @@ function patchFileDownload(paths: Record<string, unknown>): void {
   });
 }
 
-function patchSessionFork(paths: Record<string, unknown>): void {
+function patchSessionActions(paths: Record<string, unknown>): void {
   const internalPath = '/api/v1/sessions/{tail}';
-  const publicPath = '/api/v1/sessions/{session_id}:fork';
   const pathItem = asRecord(paths[internalPath]);
   const operation = asRecord(pathItem?.['post']);
   if (pathItem === undefined || operation === undefined) return;
 
-  replacePathParamName(pathItem, 'tail', 'session_id');
-  paths[publicPath] = pathItem;
+  for (const action of ['fork', 'compact', 'undo']) {
+    const cloned = cloneRecord(pathItem);
+    replacePathParamName(cloned, 'tail', 'session_id');
+    const clonedOperation = asRecord(cloned['post']);
+    if (clonedOperation !== undefined) {
+      clonedOperation['operationId'] = `runSession${capitalize(action)}Action`;
+      if (action === 'undo') {
+        clonedOperation['requestBody'] = {
+          required: false,
+          content: jsonContent(openApiDocumentJsonSchema(undoSessionRequestSchema)),
+        };
+        setResponse(clonedOperation, '200', {
+          description: 'Session undo response',
+          content: jsonContent(openApiDocumentEnvelopeJsonSchema(undoSessionResponseSchema)),
+        });
+      }
+    }
+    paths[`/api/v1/sessions/{session_id}:${action}`] = cloned;
+  }
   delete paths[internalPath];
 }
 
@@ -288,6 +306,14 @@ function replacePathParamName(
       replacePathParamName(operation, from, to);
     }
   }
+}
+
+function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {
+  return structuredClone(value);
+}
+
+function capitalize(value: string): string {
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
