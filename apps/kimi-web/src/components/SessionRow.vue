@@ -172,16 +172,11 @@ defineExpose({ closeMenu, cancelDelete });
 </template>
 
 <style scoped>
-:root {
-  /* Sidebar alignment — session rows sit 5px left of the workspace name
-     (workspace: folder icon 14px + mr 2px + gap 6px = 22px;
-      session: spacer 9px + mr 2px + gap 6px = 17px → 5px left). */
-  --session-indent: calc(9px + 2px + 6px);
-}
-
 .se {
+  /* --sb-* vars come from .side in Sidebar.vue: the title starts at
+     --sb-pad-x + --sb-gutter + --sb-gap, exactly under the workspace name. */
   display: block;
-  padding: 7px 12px;
+  padding: 7px var(--sb-pad-x, 12px);
   cursor: pointer;
   position: relative;
 }
@@ -191,16 +186,15 @@ defineExpose({ closeMenu, cancelDelete });
 .row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sb-gap, 6px);
   min-width: 0;
 }
 
-/* Spacer sits 5px left of the workspace name (9px vs 14px folder icon). */
+/* Leading spacer mirrors the workspace header's icon slot. */
 .row::before {
   content: '';
   display: block;
-  width: 9px;
-  margin-right: 2px;
+  width: var(--sb-gutter, 16px);
   flex: none;
 }
 

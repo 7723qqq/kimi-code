@@ -201,6 +201,9 @@ html[data-theme="modern"] .chat { background: transparent; }
 html[data-theme="modern"] .se {
   margin: 1px 6px;
   border-radius: var(--r-sm);
+  /* Trim the row padding by the inset margin so the title still starts at the
+     same x as the workspace name (whose header has no inset). */
+  padding: 7px calc(var(--sb-pad-x, 12px) - 6px);
 }
 html[data-theme="modern"] .se:hover { background: #f0f0f0; }
 html[data-theme="modern"] .se.on {

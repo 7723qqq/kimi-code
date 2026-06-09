@@ -583,6 +583,12 @@ function blinkOnce(): void {
   flex-direction: row;
   min-width: 0;
   height: 100%;
+  /* Alignment contract, inherited by SessionRow and the theme overrides in
+     style.css: text in the workspace header, the path line and session rows
+     all starts at --sb-pad-x + --sb-gutter + --sb-gap from the sidebar edge. */
+  --sb-pad-x: 12px;  /* row horizontal padding */
+  --sb-gutter: 16px; /* leading icon slot (14px folder icon + 2px margin) */
+  --sb-gap: 6px;     /* gap between the icon slot and the text */
 }
 
 /* Session column. Width is set inline from the App resize handle. */
@@ -692,14 +698,14 @@ function blinkOnce(): void {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 0px 12px 4px 12px;
+  padding: 0 var(--sb-pad-x) 4px;
   font-size: 10.5px;
   user-select: none;
 }
 .gh-top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sb-gap);
 }
 .gh.sel {
   background: var(--soft);
@@ -709,7 +715,8 @@ function blinkOnce(): void {
 .gh-folder {
   flex: none;
   color: var(--muted);
-  margin-right: 2px;
+  /* 14px icon + 2px margin fills the --sb-gutter icon slot */
+  margin-right: calc(var(--sb-gutter) - 14px);
 }
 
 .gh-name {
@@ -728,7 +735,7 @@ function blinkOnce(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding-left: 24px;
+  padding-left: calc(var(--sb-gutter) + var(--sb-gap));
   font-size: 12px;
 }
 .gh-add {
