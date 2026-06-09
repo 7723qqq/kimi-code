@@ -1,14 +1,14 @@
 /**
  * `PromptService` — adapter between the protocol-shaped REST surface and
- * agent-core's `prompt` / `cancel` RPC.
+ * agent-core's `prompt` / `steer` / `cancel` RPC.
  *
  * **Three responsibilities**:
  *
- *   1. **Submit**: validate session existence + busy-check, mint a ULID
+ *   1. **Submit/list queue**: validate session existence, mint a ULID
  *      `prompt_id`, derive the `user_message_id` (so the response matches
- *      SCHEMAS §5), and fire-and-forget `core.rpc.prompt(...)`. agent-core
- *      streams events synchronously from inside; they reach WS subscribers
- *      via the event service.
+ *      SCHEMAS §5), and either start the prompt immediately or append it to
+ *      the per-session daemon queue. agent-core streams events synchronously
+ *      from inside; they reach WS subscribers via the event service.
  *
  *   2. **Lifecycle observation**: subscribes to the event service via
  *      `IEventService.onDidPublish(handler)` (VSCode-style
@@ -26,7 +26,9 @@
  *      `onDidAbort: Event<...>` are also exposed so callers can observe the
  *      typed synthetic events without filtering the raw event stream.
  *
- *   3. **Abort**: existence-check the prompt id, dispatch
+ *   3. **Steer/abort**: `steer` removes queued prompt(s) and injects their
+ *      content into the active turn via `core.rpc.steer`, matching the TUI
+ *      Ctrl-S path. `abort` existence-checks the prompt id and dispatches
  *      `core.rpc.cancel({sessionId, agentId:'main', turnId?})`. Idempotent:
  *      subsequent aborts on a completed/aborted prompt return
  *      `PromptAlreadyCompletedError` (→ envelope code 40903 with
@@ -43,11 +45,10 @@
  * - On `turn.ended` matching the top-level turn (turnId equal to the original
  *   mapping), we synthesize the lifecycle event and clear `activePromptId`.
  *
- * **session.busy detection**: the impl
- * maintains `Map<sessionId, PromptState>` where `PromptState` carries
- * `promptId`, `turnId | null`, and a terminal flag. A second submit while a
- * non-terminal prompt exists for the same session throws
- * `SessionBusyError → 40901`.
+ * **queueing**: the impl maintains an active `Map<sessionId, PromptState>` plus
+ * a per-session FIFO queue. A second submit while a non-terminal prompt exists
+ * returns status=`queued`; when the top-level active turn ends, the daemon
+ * starts the next queued prompt.
  *
  * **`user_message_id` derivation**: SCHEMAS §5 mandates a `user_message_id`
  * in the submit response. When the full message history adapter is available,
@@ -65,18 +66,14 @@
  * `IEventService.publish` (also a daemon-side interface; agent-core not touched).
  */
 
-import { createDecorator, Disposable } from '@moonshot-ai/agent-core';
+import { createDecorator } from '@moonshot-ai/agent-core';
 import type { Event } from '@moonshot-ai/agent-core/base/common/event';
 import type {
+  PromptListResponse,
   PromptSubmission,
+  PromptSteerResult,
   PromptSubmitResult,
 } from '@moonshot-ai/protocol';
-import { ulid } from 'ulid';
-
-import { ICoreProcessService } from '../coreProcess/coreProcess';
-import { IAuthSummaryService } from '../authSummary/authSummary';
-import { IEventService } from '../event/event';
-import { SessionNotFoundError } from '../session/session';
 
 export interface PromptAbortResult {
   /** True iff this call performed the cancel (false on idempotent already-completed). */
@@ -115,12 +112,30 @@ export interface IPromptService {
   readonly _serviceBrand: undefined;
 
   /**
+   * `GET /v1/sessions/{sid}/prompts` — return the current daemon prompt
+   * scheduler view: one active prompt, plus queued prompts waiting for the
+   * current turn to finish or for a steer action.
+   */
+  list(sid: string): Promise<PromptListResponse>;
+
+  /**
    * `POST /v1/sessions/{sid}/prompts` — submit a prompt for execution.
    *
    * Throws `SessionNotFoundError` (→ 40401) for unknown `sid`.
-   * Throws `SessionBusyError`     (→ 40901) when another prompt is active.
+   * Returns status=`running` when the session is idle, or status=`queued` when
+   * another prompt is active.
    */
   submit(sid: string, body: PromptSubmission): Promise<PromptSubmitResult>;
+
+  /**
+   * `POST /v1/sessions/{sid}/prompts/{pid}:steer` and collection
+   * `POST /v1/sessions/{sid}/prompts:steer` — remove queued prompt(s) and
+   * inject their content into the active turn via agent-core steer.
+   *
+   * Throws `SessionNotFoundError` (→ 40401) for unknown `sid`.
+   * Throws `PromptNotFoundError`  (→ 40402) when any pid is not queued.
+   */
+  steer(sid: string, promptIds: readonly string[]): Promise<PromptSteerResult>;
 
   /**
    * `POST /v1/sessions/{sid}/prompts/{pid}:abort` — cancel an in-flight prompt.
@@ -249,6 +264,16 @@ export interface SyntheticPromptAbortedEvent {
   readonly sessionId: string;
   readonly promptId: string;
   readonly abortedAt: string;
+}
+
+export interface SyntheticPromptSteeredEvent {
+  readonly type: 'prompt.steered';
+  readonly agentId: string;
+  readonly sessionId: string;
+  readonly activePromptId: string;
+  readonly promptIds: readonly string[];
+  readonly content: PromptSubmission['content'];
+  readonly steeredAt: string;
 }
 
 /**
