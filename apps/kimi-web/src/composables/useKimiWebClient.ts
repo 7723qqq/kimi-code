@@ -236,6 +236,13 @@ interface GitStatusEntry {
   entries: Record<string, string>;
 }
 
+/** A prompt waiting for the session to go idle. Keeps the uploaded image
+    fileIds so attachments survive queueing (not just the text). */
+interface QueuedPrompt {
+  text: string;
+  attachments?: { fileId: string }[];
+}
+
 interface ExtendedState extends KimiClientState {
   connected: boolean;
   daemonVersion: string;
@@ -246,7 +253,7 @@ interface ExtendedState extends KimiClientState {
   planMode: boolean;
   loading: boolean;
   sessionLoading: boolean;
-  queuedBySession: Record<string, string[]>;
+  queuedBySession: Record<string, QueuedPrompt[]>;
   gitStatusBySession: Record<string, GitStatusEntry>;
   // Real daemon prompt_id of the last submitted prompt, per session. This is the
   // AUTHORITATIVE id for :abort — the event projector synthesizes a `pr_…` id
@@ -802,11 +809,11 @@ const permission = computed<PermissionMode>(() => rawState.permission);
 const thinking = computed<ThinkingLevel>(() => rawState.thinking);
 const planMode = computed<boolean>(() => rawState.planMode);
 
-/** Queued messages for the active session */
+/** Queued messages for the active session (display texts). */
 const queued = computed<string[]>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
-  return rawState.queuedBySession[sid] ?? [];
+  return (rawState.queuedBySession[sid] ?? []).map((q) => q.text);
 });
 
 /** Pending warnings list */
@@ -1129,9 +1136,18 @@ watch(activity, (act) => {
 
   const [next, ...rest] = queue;
   rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: rest };
-  // Flush the first queued message
+  // Flush the first queued message; on failure put it back at the head so a
+  // transient error doesn't silently drop the prompt.
   if (next !== undefined) {
-    void submitPromptInternal(sid, next);
+    void submitPromptInternal(sid, next.text, next.attachments).then((ok) => {
+      if (!ok) {
+        const current = rawState.queuedBySession[sid] ?? [];
+        rawState.queuedBySession = {
+          ...rawState.queuedBySession,
+          [sid]: [next, ...current],
+        };
+      }
+    });
   }
 });
 
@@ -1423,12 +1439,14 @@ async function createSession(cwd: string, opts?: { title?: string; model?: strin
   }
 }
 
-/** Internal: submit a prompt to a specific session, bypassing the queue check */
-async function submitPromptInternal(sid: string, text: string, attachments?: { fileId: string }[]): Promise<void> {
+/** Internal: submit a prompt to a specific session, bypassing the queue check.
+    Returns true when the daemon accepted the prompt. */
+async function submitPromptInternal(sid: string, text: string, attachments?: { fileId: string }[]): Promise<boolean> {
   // Mark this session as having a prompt in flight BEFORE any await, so a racing
   // sendPrompt sees it and enqueues. Cleared when activity returns to idle.
   inFlightPromptSessions.add(sid);
   rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: true };
+  const tempId = `msg_opt_${Date.now().toString(36)}`;
   try {
     const api = getKimiWebApi();
     const content: import('../api/types').AppMessageContent[] = [];
@@ -1439,13 +1457,12 @@ async function submitPromptInternal(sid: string, text: string, attachments?: { f
     if (content.length === 0) {
       inFlightPromptSessions.delete(sid);
       rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
-      return;
+      return false;
     }
 
     // OPTIMISTICALLY add the user message to local state BEFORE awaiting the
     // submit.  The real daemon does NOT emit a user-message event over WS, so
     // without this the user's own text never appears in the transcript.
-    const tempId = `msg_opt_${Date.now().toString(36)}`;
     const optimisticMsg: AppMessage = {
       id: tempId,
       sessionId: sid,
@@ -1501,12 +1518,23 @@ async function submitPromptInternal(sid: string, text: string, attachments?: { f
     // session.meta.updated (projected to sessionMetaUpdated). PATCHing a title
     // locally would mark the session isCustomTitle=true and SUPPRESS the
     // daemon's auto-title, so we let the daemon own it.
+    return true;
   } catch (err) {
     // Submit failed — clear the in-flight flag so the next prompt isn't stuck
-    // queued forever (turn.ended will never arrive).
+    // queued forever (turn.ended will never arrive), and roll back the
+    // optimistic user message so the transcript doesn't show a delivered-
+    // looking message the daemon never received.
     inFlightPromptSessions.delete(sid);
     rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
+    const msgs = rawState.messagesBySession[sid] ?? [];
+    if (msgs.some((m) => m.id === tempId)) {
+      rawState.messagesBySession = {
+        ...rawState.messagesBySession,
+        [sid]: msgs.filter((m) => m.id !== tempId),
+      };
+    }
     rawState.warnings = [...rawState.warnings, `sendPrompt failed: ${String(err)}`];
+    return false;
   }
 }
 
@@ -1518,9 +1546,8 @@ async function sendPrompt(text: string, attachments?: { fileId: string }[]): Pro
   // the WS turn.started hasn't flipped activity to 'running' yet), enqueue
   // instead of submitting directly. Gating on inFlightPromptSessions closes the
   // window where two rapid prompts would both submit and race.
-  // Attachments are not queued for simplicity — only the text is enqueued.
   if (activity.value !== 'idle' || inFlightPromptSessions.has(sid)) {
-    enqueue(text);
+    enqueue(text, attachments);
     return;
   }
 
@@ -1543,11 +1570,14 @@ async function uploadImage(file: Blob, name?: string): Promise<{ fileId: string;
 }
 
 /** Enqueue a message for the active session; flushed when activity returns to idle */
-function enqueue(text: string): void {
+function enqueue(text: string, attachments?: { fileId: string }[]): void {
   const sid = rawState.activeSessionId;
   if (!sid) return;
   const current = rawState.queuedBySession[sid] ?? [];
-  rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: [...current, text] };
+  rawState.queuedBySession = {
+    ...rawState.queuedBySession,
+    [sid]: [...current, { text, attachments }],
+  };
 }
 
 async function abortCurrentPrompt(): Promise<void> {
