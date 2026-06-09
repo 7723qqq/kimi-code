@@ -376,7 +376,7 @@ watch(
   user-select: none;
 }
 
-.ft-badge.modified  { background: #e8f0fe; color: #1565C0; }
+.ft-badge.modified  { background: #e8f0fe; color: var(--blue); }
 .ft-badge.added     { background: #e6f4ea; color: #1e7e34; }
 .ft-badge.deleted   { background: #fce8e6; color: #c5221f; }
 .ft-badge.renamed   { background: #fef3e2; color: #b06000; }

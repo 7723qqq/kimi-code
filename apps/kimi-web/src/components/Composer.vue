@@ -1286,7 +1286,7 @@ function selectModel(modelId: string): void {
   font-weight: 500;
 }
 .md-row-more:hover {
-  background: var(--blue-soft);
+  background: var(--soft);
 }
 
 .md-check {
@@ -1339,7 +1339,7 @@ function selectModel(modelId: string): void {
   text-align: left;
 }
 .pd-row:hover { background: var(--soft); }
-.pd-row.is-current { background: var(--blue-soft); }
+.pd-row.is-current { background: var(--soft); }
 
 .pd-check {
   width: 14px;
@@ -1390,11 +1390,11 @@ function selectModel(modelId: string): void {
   background: var(--soft);
 }
 .toggle-pill.on {
-  background: var(--blue-soft);
+  background: var(--soft);
   color: var(--blue2);
 }
 .toggle-pill.on:hover {
-  background: var(--blue-soft-hover, var(--blue-soft));
+  background: var(--soft);
 }
 
 /* ---- Mobile composer (prototype): round attach + rounded panel input +
