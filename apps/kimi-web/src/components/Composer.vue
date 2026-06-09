@@ -354,6 +354,11 @@ function editQueued(index: number, msg: string): void {
 function handleSubmit(): void {
   const trimmed = text.value.trim();
 
+  // An upload is still in flight — submitting now would silently send the
+  // message WITHOUT the image. Keep the text + chips (the chip shows its
+  // uploading spinner); the user submits again in a moment.
+  if (attachments.value.some((a) => a.uploading)) return;
+
   // Allow submission with images even when text is empty
   const readyAttachments = attachments.value.filter((a) => !a.uploading && !a.error && a.fileId);
 
