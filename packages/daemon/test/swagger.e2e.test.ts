@@ -160,6 +160,19 @@ describe('Swagger / OpenAPI', () => {
     const forkResponse = responseJsonSchema(doc, '/api/v1/sessions/{session_id}:fork', 'post');
     expect(Array.isArray(forkResponse['oneOf'])).toBe(true);
 
+    const undoOp = operation(doc, '/api/v1/sessions/{session_id}:undo', 'post');
+    const undoParams = undoOp['parameters'] as Array<Record<string, unknown>>;
+    expect(undoParams.some((p) => p['in'] === 'path' && p['name'] === 'session_id')).toBe(true);
+    expect(undoParams.some((p) => p['name'] === 'tail')).toBe(false);
+    const undoRequest = requestJsonSchema(doc, '/api/v1/sessions/{session_id}:undo', 'post');
+    expect(asRecord(undoRequest['properties'])['count']).toBeDefined();
+    const undoResponse = responseJsonSchema(doc, '/api/v1/sessions/{session_id}:undo', 'post');
+    const undoResponseEnvelope = schemaWithProperties(undoResponse);
+    const undoData = schemaWithProperties(
+      asRecord(asRecord(undoResponseEnvelope['properties'])['data']),
+    );
+    expect(asRecord(undoData['properties'])['messages']).toBeDefined();
+
     const listChildrenResponse = responseJsonSchema(
       doc,
       '/api/v1/sessions/{session_id}/children',

@@ -30,7 +30,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { pino } from 'pino';
-import { ErrorCode, sessionSchema } from '@moonshot-ai/protocol';
+import { ErrorCode, sessionSchema, undoSessionResponseSchema } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IRestGateway, startDaemon, type RunningDaemon } from '../src';
@@ -369,6 +369,76 @@ describe('POST /api/v1/sessions/{session_id}:compact — begin compaction', () =
     expect(env.code).toBe(ErrorCode.COMPACTION_UNABLE);
     expect(env.data).toBeNull();
     expect(env.msg).toMatch(/No prefix/);
+  });
+});
+
+describe('POST /api/v1/sessions/{session_id}:undo — undo history', () => {
+  it('returns 40401 for unknown id', async () => {
+    const r = await bootDaemon();
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: '/api/v1/sessions/sess_missing:undo',
+      payload: {},
+    });
+    const env = envelopeOf(res.json());
+    expect(env.code).toBe(ErrorCode.SESSION_NOT_FOUND);
+    expect(env.data).toBeNull();
+  });
+
+  it('rejects invalid counts before dispatching undo', async () => {
+    const r = await bootDaemon();
+    const created = envelopeOf<{ id: string }>(
+      (await appOf(r).inject({
+        method: 'POST',
+        url: '/api/v1/sessions',
+        payload: { metadata: { cwd: join(tmpDir, 'workspace-undo-invalid') } },
+      })).json(),
+    ).data!;
+
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${created.id}:undo`,
+      payload: { count: 0 },
+    });
+    const env = envelopeOf(res.json());
+    expect(env.code).toBe(ErrorCode.VALIDATION_FAILED);
+    expect(env.data).toBeNull();
+  });
+
+  it('maps a fresh session undo attempt to session.undo_unavailable', async () => {
+    const r = await bootDaemon();
+    const created = envelopeOf<{ id: string }>(
+      (await appOf(r).inject({
+        method: 'POST',
+        url: '/api/v1/sessions',
+        payload: { metadata: { cwd: join(tmpDir, 'workspace-undo-empty') } },
+      })).json(),
+    ).data!;
+
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${created.id}:undo`,
+      payload: {},
+    });
+    const env = envelopeOf(res.json());
+    expect(env.code).toBe(ErrorCode.SESSION_UNDO_UNAVAILABLE);
+    expect(env.data).toBeNull();
+  });
+
+  it('accepts the undo response schema', () => {
+    expect(
+      undoSessionResponseSchema.parse({
+        messages: { items: [], has_more: false },
+        status: {
+          thinking_level: 'auto',
+          permission: 'manual',
+          plan_mode: false,
+          context_tokens: 0,
+          max_context_tokens: 0,
+          context_usage: 0,
+        },
+      }),
+    ).toMatchObject({ messages: { items: [] } });
   });
 });
 

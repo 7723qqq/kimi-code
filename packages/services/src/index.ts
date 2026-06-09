@@ -107,6 +107,7 @@ export { ModelCatalogService } from './modelCatalog/modelCatalogService';
 export {
   ISessionService,
   SessionNotFoundError,
+  SessionUndoUnavailableError,
   toProtocolSession,
 } from './session/session';
 export type { SessionListQuery } from './session/session';

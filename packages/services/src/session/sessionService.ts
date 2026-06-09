@@ -5,14 +5,23 @@
 import {
   Disposable,
   Emitter,
+  ErrorCodes,
   IInstantiationService,
   InstantiationType,
+  KimiError,
   registerSingleton,
 } from '@moonshot-ai/agent-core';
-import type { JsonObject, SessionMeta } from '@moonshot-ai/agent-core';
+import type {
+  AgentContextData,
+  ContextMessage,
+  JsonObject,
+  SessionMeta,
+  SessionSummary,
+} from '@moonshot-ai/agent-core';
 import {
   type CompactSessionRequest,
   type CompactSessionResponse,
+  type Message,
   type PageResponse,
   type Session,
   type SessionChildCreate,
@@ -20,19 +29,25 @@ import {
   type SessionFork,
   type SessionStatusResponse,
   type SessionUpdate,
+  type UndoSessionRequest,
+  type UndoSessionResponse,
 } from '@moonshot-ai/protocol';
 
 import { ICoreProcessService } from '../coreProcess/coreProcess';
+import { toProtocolMessage } from '../message/message';
 import { IPromptService, type AgentStatePatch } from '../prompt/prompt';
 import {
   ISessionService,
   SessionNotFoundError,
+  SessionUndoUnavailableError,
   toProtocolSession,
   type SessionListQuery,
 } from './session';
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
+const DEFAULT_UNDO_MESSAGE_PAGE_SIZE = 50;
+const MAX_UNDO_MESSAGE_PAGE_SIZE = 100;
 const CHILD_SESSION_KIND = 'child';
 
 /**
@@ -49,6 +64,48 @@ function asJsonObject(value: Record<string, unknown>): JsonObject {
 function normalizeOptionalString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed === '' ? undefined : trimmed;
+}
+
+function canUndoHistory(history: readonly ContextMessage[], count: number): boolean {
+  let found = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const message = history[i];
+    if (message === undefined) continue;
+    if (message.origin?.kind === 'injection') continue;
+    if (message.origin?.kind === 'compaction_summary') return false;
+    if (isRealUserPrompt(message)) {
+      found++;
+      if (found >= count) return true;
+    }
+  }
+  return false;
+}
+
+function isRealUserPrompt(message: ContextMessage): boolean {
+  if (message.role !== 'user') return false;
+  const origin = message.origin;
+  if (origin === undefined || origin.kind === 'user') return true;
+  return origin.kind === 'skill_activation' && origin.trigger === 'user-slash';
+}
+
+function pageContextMessages(
+  sessionId: string,
+  sessionCreatedAtMs: number,
+  context: AgentContextData,
+  requestedPageSize: number | undefined,
+): PageResponse<Message> {
+  const pageSize = Math.min(
+    Math.max(requestedPageSize ?? DEFAULT_UNDO_MESSAGE_PAGE_SIZE, 1),
+    MAX_UNDO_MESSAGE_PAGE_SIZE,
+  );
+  const all = context.history.map((message, index) =>
+    toProtocolMessage(sessionId, index, message, sessionCreatedAtMs),
+  );
+  const desc = all.toReversed();
+  return {
+    items: desc.slice(0, pageSize),
+    has_more: desc.length > pageSize,
+  };
 }
 
 export class SessionService extends Disposable implements ISessionService {
@@ -362,6 +419,34 @@ export class SessionService extends Disposable implements ISessionService {
     return {};
   }
 
+  async undo(id: string, input: UndoSessionRequest): Promise<UndoSessionResponse> {
+    const summary = await this.requireSummary(id);
+    await this.core.rpc.resumeSession({ sessionId: id });
+    const before = await this.core.rpc.getContext({ sessionId: id, agentId: 'main' });
+    if (!canUndoHistory(before.history, input.count)) {
+      throw new SessionUndoUnavailableError(id);
+    }
+
+    try {
+      await this.core.rpc.undoHistory({
+        sessionId: id,
+        agentId: 'main',
+        count: input.count,
+      });
+    } catch (error) {
+      if (error instanceof KimiError && error.code === ErrorCodes.REQUEST_INVALID) {
+        throw new SessionUndoUnavailableError(id, error.message);
+      }
+      throw error;
+    }
+
+    const after = await this.core.rpc.getContext({ sessionId: id, agentId: 'main' });
+    return {
+      messages: pageContextMessages(id, summary.createdAt, after, input.page_size),
+      status: await this.getStatus(id),
+    };
+  }
+
   async delete(id: string): Promise<{ deleted: true }> {
     // Existence check — deterministic 40401 even on close.
     const all = await this.core.rpc.listSessions({});
@@ -373,6 +458,15 @@ export class SessionService extends Disposable implements ISessionService {
     // Fire onDidClose listeners after the core RPC resolves.
     this._onDidClose.fire({ sessionId: id });
     return { deleted: true };
+  }
+
+  private async requireSummary(id: string): Promise<SessionSummary> {
+    const all = await this.core.rpc.listSessions({});
+    const summary = all.find((s) => s.id === id);
+    if (summary === undefined) {
+      throw new SessionNotFoundError(id);
+    }
+    return summary;
   }
 
   /**
