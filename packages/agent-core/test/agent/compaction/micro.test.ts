@@ -710,6 +710,46 @@ describe('MicroCompaction', () => {
     expect(hasMarker(messages)).toBe(true);
   });
 
+  it('applies once when context usage reaches sixty percent', () => {
+    vi.useFakeTimers();
+    const ctx = testAgent({
+      microCompaction: {
+        keepRecentMessages: 2,
+        minContentTokens: 1,
+        cacheMissedThresholdMs: 60 * MINUTE,
+      },
+    });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: {
+        image_in: true,
+        video_in: true,
+        audio_in: false,
+        thinking: true,
+        tool_use: true,
+        max_context_tokens: 100,
+      },
+    });
+
+    vi.setSystemTime(0);
+    appendMicroToolExchange(ctx, 1, { output: 'result one', usageTokens: 30 });
+    appendMicroToolExchange(ctx, 2, { output: 'result two', usageTokens: 60 });
+
+    ctx.agent.microCompaction.detect();
+
+    expect(toolTexts(ctx.agent.context.messages)).toEqual([DEFAULT_MARKER, 'result two']);
+
+    vi.setSystemTime(1 * MINUTE);
+    appendMicroToolExchange(ctx, 3, { output: 'result three', usageTokens: 90 });
+    ctx.agent.microCompaction.detect();
+
+    expect(toolTexts(ctx.agent.context.messages)).toEqual([
+      DEFAULT_MARKER,
+      'result two',
+      'result three',
+    ]);
+  });
+
   it('does not truncate when messages are fewer than keepRecentMessages', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
