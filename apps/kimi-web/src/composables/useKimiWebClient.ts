@@ -484,6 +484,15 @@ function connectEventsIfNeeded(): void {
       // run so lastSeqBySession stays current.
       applyEvent(appEvent, meta.sessionId, meta.seq);
 
+      // Turn-end cleanup for the session the event belongs to — including
+      // sessions running in the background (see onSessionIdle).
+      if (
+        appEvent.type === 'sessionStatusChanged' &&
+        toUiSessionStatus(appEvent.status) === 'idle'
+      ) {
+        onSessionIdle(appEvent.sessionId);
+      }
+
       // Permission auto-approve: CLIENT-SIDE POLICY until the daemon exposes a
       // permission endpoint. When permission is 'auto' or 'yolo' and an approval
       // request arrives, immediately respond with 'approved'.
@@ -1112,24 +1121,25 @@ const recentCwds = computed<string[]>(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Queue auto-flush watcher
-// When activity returns to 'idle' and there are queued messages, flush one.
-// Also refresh git status when the agent finishes (activity → idle).
+// Per-session turn-end cleanup + queue auto-flush.
+// Driven by the daemon's sessionStatusChanged → idle event (wired in
+// connectEventsIfNeeded), NOT by the active-session `activity` computed: a
+// watcher on `activity` only ever saw the ACTIVE session, so a session that
+// finished in the background kept its in-flight flag forever — every later
+// prompt to it was silently enqueued and never flushed.
 // ---------------------------------------------------------------------------
 
-watch(activity, (act) => {
-  if (act !== 'idle') return;
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-
+function onSessionIdle(sid: string): void {
   // The turn finished — this session no longer has a prompt in flight.
   inFlightPromptSessions.delete(sid);
   rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
 
-  // Refresh git status so edits the agent just made are reflected
-  void loadGitStatus(sid);
-  // Refresh runtime status (model/context usage may have changed this turn).
-  void refreshSessionStatus(sid);
+  // For the session on screen, refresh git status (edits the agent just made)
+  // and runtime status (model/context usage may have changed this turn).
+  if (sid === rawState.activeSessionId) {
+    void loadGitStatus(sid);
+    void refreshSessionStatus(sid);
+  }
 
   const queue = rawState.queuedBySession[sid] ?? [];
   if (queue.length === 0) return;
@@ -1149,7 +1159,7 @@ watch(activity, (act) => {
       }
     });
   }
-});
+}
 
 // ---------------------------------------------------------------------------
 // Actions
