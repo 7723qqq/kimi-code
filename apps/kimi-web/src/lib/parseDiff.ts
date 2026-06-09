@@ -47,11 +47,15 @@ export function parseDiff(diff: string): DiffViewLine[] {
 
   for (const raw of diff.split('\n')) {
     // A new file's header always ends the previous file's hunk run, even if
-    // we were mid-hunk (git emits no blank separator between files).
-    if (isFileHeader(raw)) {
+    // we were mid-hunk (git emits no blank separator between files). Only
+    // `diff --git` may end a hunk: inside a hunk, a deleted `-- comment` line
+    // (SQL/Lua/Haskell) is rendered by git as `--- comment` and an added one
+    // as `+++ comment`, which the other header patterns would misclassify.
+    if (raw.startsWith('diff --git')) {
       inHunk = false;
       continue;
     }
+    if (!inHunk && isFileHeader(raw)) continue;
 
     // Hunk header: `@@ -a,b +c,d @@ optional section heading`
     if (raw.startsWith('@@')) {
