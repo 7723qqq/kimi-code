@@ -1,76 +1,43 @@
-/**
- * `TestInstantiationService` — a test-friendly extension of
- * `InstantiationService` that exposes direct `get` / `set` / `stub`
- * helpers so test bodies don't have to thread an `invokeFunction(a => …)`
- * accessor through every assertion.
- *
- * Adapted from krow `testInstantiationService.ts` (in turn the VSCode
- * original). Two divergences from krow:
- *
- *   1. **Ctor signature**: follows the runtime container's VS Code order
- *      `(services, strict, parent, _enableTracing)`.
- *   2. **`createServices` factory**: krow uses `DisposableStore` /
- *      `toDisposable` from `base/`. kimi's `Disposable` class is a
- *      different shape (LIFO subdisposable owner, not a Set). The factory
- *      is therefore omitted from the initial port — `TestInstantiationService`
- *      alone covers >95% of the test surface daemon will need in Phase 2.
- *      Add `createServices` if/when a test fixture needs it.
- *
- * Exported via the subpath barrel `@moonshot-ai/agent-core/di/test` so
- * the main `@moonshot-ai/agent-core` entry stays free of test-only code
- * (no test code leaks into the daemon bundle).
- */
+import * as sinon from 'sinon';
 
-import { SyncDescriptor } from './descriptors';
+import { SyncDescriptor, type SyncDescriptor0 } from './descriptors';
 import {
+  type GetLeadingNonServiceArgs,
   type ServiceIdentifier,
   type ServicesAccessor,
 } from './instantiation';
 import { InstantiationService, Trace } from './instantiationService';
+import { DisposableStore, isDisposable, toDisposable, type IDisposable } from './lifecycle';
 import { ServiceCollection } from './serviceCollection';
 
-/**
- * A test-friendly extension of {@link InstantiationService}.
- *
- * Convenience surface for tests:
- *  - {@link get} — directly resolve a service without going through an
- *    accessor.
- *  - {@link set} — register or replace a service instance / descriptor.
- *  - {@link stub} — semantic alias for {@link set}, intended for test
- *    overrides where the intent is "replace the real impl with a mock".
- *  - {@link createChild} — return a child `TestInstantiationService`
- *    (krow returns `IInstantiationService`; we narrow to the test type so
- *    callers can keep calling `.stub` / `.get` on the child).
- *
- * Example:
- * ```ts
- * import { TestInstantiationService } from '@moonshot-ai/agent-core/di/test';
- *
- * const ix = new TestInstantiationService();
- * ix.stub(ILogger, { log: vi.fn() } as ILogger);
- * const target = ix.createInstance(SomeClass, 'static-arg');
- * ```
- */
-export class TestInstantiationService extends InstantiationService implements ServicesAccessor {
-  private readonly _serviceCollection: ServiceCollection;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyConstructor<T = unknown> = new (...args: any[]) => T;
+
+interface IServiceMock<T> {
+  id: ServiceIdentifier<T>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  service?: any;
+}
+
+const isSinonSpyLike = (fn: Function): fn is sinon.SinonSpy =>
+  fn && 'callCount' in fn;
+
+export class TestInstantiationService extends InstantiationService implements IDisposable, ServicesAccessor {
+  private readonly _classStubs = new Map<Function, unknown>();
+  private readonly _parentTestService?: TestInstantiationService;
 
   constructor(
-    serviceCollection: ServiceCollection = new ServiceCollection(),
+    private readonly _serviceCollection: ServiceCollection = new ServiceCollection(),
     strict: boolean = false,
     parent?: InstantiationService,
-    enableTracing: boolean = false,
+    private readonly _properDispose?: boolean,
   ) {
-    super(serviceCollection, strict, parent, enableTracing);
-    this._serviceCollection = serviceCollection;
+    super(_serviceCollection, strict, parent);
+    if (parent instanceof TestInstantiationService) {
+      this._parentTestService = parent;
+    }
   }
 
-  /**
-   * Directly resolve a service. Calls the protected
-   * `_getOrCreateServiceInstance` on the base class with a no-op
-   * `Trace._None`-equivalent (`Trace.traceCreation(false, …)` returns the
-   * sentinel) so the public test API matches accessor.get semantics
-   * without forcing every test to open an `invokeFunction` closure.
-   */
   public get<T>(id: ServiceIdentifier<T>): T {
     return super._getOrCreateServiceInstance(
       id,
@@ -78,14 +45,6 @@ export class TestInstantiationService extends InstantiationService implements Se
     );
   }
 
-  /**
-   * Register or replace a service instance in the underlying collection.
-   * Accepts a pre-built instance OR a `SyncDescriptor` for lazy
-   * construction.
-   *
-   * Returns the previous binding (or `undefined` if none) so test
-   * fixtures can save-and-restore.
-   */
   public set<T>(
     id: ServiceIdentifier<T>,
     instanceOrDescriptor: T | SyncDescriptor<T>,
@@ -93,24 +52,218 @@ export class TestInstantiationService extends InstantiationService implements Se
     return this._serviceCollection.set(id, instanceOrDescriptor);
   }
 
-  /**
-   * Semantic alias for {@link set}. Use this in tests when you want to
-   * *override* an existing service with a mock or stub — the verb makes
-   * intent obvious at the call site.
-   */
+  public mock<T>(id: ServiceIdentifier<T>): T | sinon.SinonMock {
+    return this._create({ id }, { mock: true });
+  }
+
+  public stubInstance<T>(ctor: AnyConstructor<T>, instance: Partial<T>): void {
+    this._classStubs.set(ctor, instance);
+  }
+
+  protected _getClassStub(ctor: Function): unknown {
+    return this._classStubs.get(ctor) ?? this._parentTestService?._getClassStub(ctor);
+  }
+
+  public override createInstance<T>(descriptor: SyncDescriptor0<T>): T;
+  public override createInstance<
+    Ctor extends AnyConstructor,
+    R extends InstanceType<Ctor>,
+  >(
+    ctor: Ctor,
+    ...args: GetLeadingNonServiceArgs<ConstructorParameters<Ctor>>
+  ): R;
+  public override createInstance(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ctorOrDescriptor: any,
+    ...rest: unknown[]
+  ): unknown {
+    const stub =
+      ctorOrDescriptor instanceof SyncDescriptor
+        ? this._getClassStub(ctorOrDescriptor.ctor)
+        : this._getClassStub(ctorOrDescriptor);
+
+    if (stub !== undefined) {
+      return stub;
+    }
+
+    if (ctorOrDescriptor instanceof SyncDescriptor) {
+      return super.createInstance(ctorOrDescriptor, ...rest);
+    }
+    return super.createInstance(ctorOrDescriptor, ...rest);
+  }
+
   public stub<T>(
     id: ServiceIdentifier<T>,
     instanceOrDescriptor: T | SyncDescriptor<T>,
-  ): T | SyncDescriptor<T> | undefined {
-    return this.set(id, instanceOrDescriptor);
+  ): T | SyncDescriptor<T>;
+  public stub<T>(id: ServiceIdentifier<T>, ctor: AnyConstructor<T>): T;
+  public stub<T, V>(
+    id: ServiceIdentifier<T>,
+    obj: Partial<NoInfer<T>> | Function,
+    property: string,
+    value: V,
+  ): V extends Function ? sinon.SinonSpy : sinon.SinonStub;
+  public stub<T, V>(
+    id: ServiceIdentifier<T>,
+    property: string,
+    value: V,
+  ): V extends Function ? sinon.SinonSpy : sinon.SinonStub;
+  public stub<T>(
+    id: ServiceIdentifier<T>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    arg2: any,
+    arg3?: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    arg4?: any,
+  ): T | SyncDescriptor<T> | sinon.SinonStub | sinon.SinonSpy {
+    if (arg2 instanceof SyncDescriptor && typeof arg3 !== 'string') {
+      this._serviceCollection.set(id, arg2);
+      return arg2;
+    }
+
+    if (typeof arg2 !== 'string' && typeof arg3 !== 'string') {
+      const service = this._create(arg2, { stub: true }) as T;
+      this._serviceCollection.set(id, service);
+      return service;
+    }
+
+    const service = typeof arg2 !== 'string' ? arg2 : undefined;
+    const property = typeof arg2 === 'string' ? arg2 : arg3;
+    const value = typeof arg2 === 'string' ? arg3 : arg4;
+
+    if (typeof property !== 'string') {
+      throw new TypeError('stub requires a method/property name');
+    }
+
+    const serviceMock: IServiceMock<T> = { id, service };
+    const stubObject = this._create(serviceMock, { stub: true }, Boolean(service && !property)) as Record<string, unknown>;
+    const replacement = this._createReplacement(value);
+
+    const current = stubObject[property] as { restore?: () => void } | undefined;
+    if (current && typeof current.restore === 'function') {
+      current.restore();
+    }
+    stubObject[property] = replacement;
+    return replacement;
   }
 
-  /**
-   * Create a child `TestInstantiationService` that inherits services from
-   * this one. The return type is narrowed from `IInstantiationService`
-   * to `TestInstantiationService` so chained test calls (`.stub`, `.get`)
-   * remain ergonomic on the child.
-   */
+  public stubPromise<T>(
+    id?: ServiceIdentifier<T>,
+    fnProperty?: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    value?: any,
+  ): T | sinon.SinonStub;
+  public stubPromise<T, V>(
+    id?: ServiceIdentifier<T>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ctor?: any,
+    fnProperty?: string,
+    value?: V,
+  ): V extends Function ? sinon.SinonSpy : sinon.SinonStub;
+  public stubPromise<T, V>(
+    id?: ServiceIdentifier<T>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    obj?: any,
+    fnProperty?: string,
+    value?: V,
+  ): V extends Function ? sinon.SinonSpy : sinon.SinonStub;
+  public stubPromise(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    arg1?: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    arg2?: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    arg3?: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    arg4?: any,
+  ): unknown {
+    arg3 = typeof arg2 === 'string' ? Promise.resolve(arg3) : arg3;
+    arg4 = typeof arg2 !== 'string' && typeof arg3 === 'string' ? Promise.resolve(arg4) : arg4;
+    return this.stub(arg1, arg2, arg3, arg4);
+  }
+
+  public spy<T>(id: ServiceIdentifier<T>, property: string): sinon.SinonSpy {
+    const spy = sinon.spy();
+    this.stub(id, property, spy);
+    return spy;
+  }
+
+  private _create<T>(serviceMock: IServiceMock<T>, options: SinonOptions, reset?: boolean): T;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _create<T>(ctor: any, options: SinonOptions): T | sinon.SinonMock;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _create(arg1: any, options: SinonOptions, reset: boolean = false): any {
+    if (this._isServiceMock(arg1)) {
+      const service = this._getOrCreateService(arg1, options, reset);
+      if (options.mock) {
+        return sinon.mock(service);
+      }
+      this._serviceCollection.set(arg1.id, service);
+      return service;
+    }
+    return options.mock ? sinon.mock(arg1) : this._createStub(arg1);
+  }
+
+  private _getOrCreateService<T>(
+    serviceMock: IServiceMock<T>,
+    opts: SinonOptions,
+    reset?: boolean,
+  ): T {
+    const service = this._serviceCollection.get(serviceMock.id);
+    if (!reset && service && !(service instanceof SyncDescriptor)) {
+      if (opts.stub && this._hasSinonOption(service, 'stub')) {
+        return service as T;
+      }
+      if (opts.mock && this._hasSinonOption(service, 'mock')) {
+        return service as T;
+      }
+      return service as T;
+    }
+    return this._createService(serviceMock, opts);
+  }
+
+  private _createService<T>(serviceMock: IServiceMock<T>, opts: SinonOptions): T {
+    const existing = this._serviceCollection.get(serviceMock.id);
+    const source =
+      serviceMock.service
+      ?? (existing instanceof SyncDescriptor ? existing.ctor : undefined);
+    const service = this._createStub(source);
+    service.sinonOptions = opts;
+    return service as T;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _createStub(arg: any): any {
+    if (arg instanceof SyncDescriptor) {
+      return sinon.createStubInstance(arg.ctor);
+    }
+    if (typeof arg === 'function') {
+      return sinon.createStubInstance(arg);
+    }
+    if (arg && typeof arg === 'object') {
+      return arg;
+    }
+    return Object.create(null);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _createReplacement(value: any): sinon.SinonStub | sinon.SinonSpy {
+    if (typeof value === 'function') {
+      return isSinonSpyLike(value) ? value : sinon.spy(value);
+    }
+    return value ? sinon.stub().returns(value) : sinon.stub();
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _hasSinonOption(service: any, key: keyof SinonOptions): boolean {
+    return Boolean(service?.sinonOptions?.[key]);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _isServiceMock(arg: any): arg is IServiceMock<unknown> {
+    return typeof arg === 'object' && arg !== null && 'id' in arg;
+  }
+
   public override createChild(services: ServiceCollection): TestInstantiationService {
     if (!(services instanceof ServiceCollection)) {
       throw new TypeError(
@@ -118,14 +271,63 @@ export class TestInstantiationService extends InstantiationService implements Se
       );
     }
     const child = new TestInstantiationService(services, false, this);
-    // The base class tracks children for cascade-dispose via its private
-    // `_children` set; we mirror by relying on the parent's `_children`
-    // being populated through the base ctor's parent reference. But the
-    // base `createChild` we shadow here also registered the child into
-    // `_children` — we duplicate that registration manually because the
-    // `super.createChild` call would have built an `InstantiationService`
-    // (not `TestInstantiationService`).
     (this as unknown as { _children: Set<InstantiationService> })._children.add(child);
     return child;
   }
+
+  public override dispose(): void {
+    sinon.restore();
+    if (this._properDispose) {
+      super.dispose();
+    }
+  }
+}
+
+interface SinonOptions {
+  mock?: boolean;
+  stub?: boolean;
+}
+
+export type ServiceIdCtorPair<T> = [
+  id: ServiceIdentifier<T>,
+  ctorOrInstance: T | AnyConstructor<T>,
+];
+
+export function createServices(
+  disposables: DisposableStore,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  services: ServiceIdCtorPair<any>[],
+): TestInstantiationService {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const serviceIdentifiers: ServiceIdentifier<any>[] = [];
+  const serviceCollection = new ServiceCollection();
+
+  const define = <T>(
+    id: ServiceIdentifier<T>,
+    ctorOrInstance: T | AnyConstructor<T>,
+  ): void => {
+    if (!serviceCollection.has(id)) {
+      if (typeof ctorOrInstance === 'function') {
+        serviceCollection.set(id, new SyncDescriptor(ctorOrInstance as AnyConstructor<T>));
+      } else {
+        serviceCollection.set(id, ctorOrInstance);
+      }
+    }
+    serviceIdentifiers.push(id);
+  };
+
+  for (const [id, ctorOrInstance] of services) {
+    define(id, ctorOrInstance);
+  }
+
+  const instantiationService = disposables.add(new TestInstantiationService(serviceCollection, true));
+  disposables.add(toDisposable(() => {
+    for (const id of serviceIdentifiers) {
+      const instanceOrDescriptor = serviceCollection.get(id);
+      if (isDisposable(instanceOrDescriptor)) {
+        instanceOrDescriptor.dispose();
+      }
+    }
+  }));
+  return instantiationService;
 }

@@ -1,31 +1,28 @@
-import { describe, expect, it, vi } from 'vitest';
+import * as sinon from 'sinon';
+import { describe, expect, it } from 'vitest';
 
 import * as mainBarrel from '#/di/index';
-import { TestInstantiationService } from '#/di/test';
+import { createServices, TestInstantiationService } from '#/di/test';
 import { createDecorator } from '#/di/instantiation';
 import { SyncDescriptor } from '#/di/descriptors';
 import { ServiceCollection } from '#/di/serviceCollection';
-
-/**
- * P1.3 — `TestInstantiationService` exposed via `@moonshot-ai/agent-core/di/test`
- * subpath only. The main barrel `@moonshot-ai/agent-core` (which re-exports
- * from `agent-core/src/di/index.ts`) MUST NOT carry `TestInstantiationService`
- * — test-time code stays out of production bundles.
- *
- * The local subpath alias `#/di/test` resolves to the same barrel
- * (`src/di/test.ts`) the external consumer sees via the `package.json`
- * exports map.
- */
+import { DisposableStore } from '#/di/lifecycle';
 
 interface ILogger {
   log(msg: string): void;
 }
 const ILogger = createDecorator<ILogger>('p1.3-ILogger');
 
+interface IAsyncService {
+  load(id: string): Promise<string[]>;
+  answer(): number;
+}
+const IAsyncService = createDecorator<IAsyncService>('p1.3-IAsyncService');
+
 describe('TestInstantiationService (P1.3)', () => {
   it('`.stub(id, impl)` registers a pre-built instance and `.get(id)` returns it', () => {
     const ix = new TestInstantiationService();
-    const stub: ILogger = { log: vi.fn() };
+    const stub: ILogger = { log: sinon.stub() };
     ix.stub(ILogger, stub);
     const resolved = ix.get(ILogger);
     expect(resolved).toBe(stub);
@@ -33,7 +30,7 @@ describe('TestInstantiationService (P1.3)', () => {
 
   it('a class constructed via `.createInstance` receives the stubbed dependency', () => {
     const ix = new TestInstantiationService();
-    const log = vi.fn();
+    const log = sinon.stub();
     const stub: ILogger = { log };
     ix.stub(ILogger, stub);
 
@@ -48,8 +45,6 @@ describe('TestInstantiationService (P1.3)', () => {
         return msg;
       }
     }
-    // Apply the parameter decorator manually (vitest's rolldown transform
-    // does not parse TS parameter decorators in test files).
     (ILogger as unknown as (t: unknown, k: string, i: number) => void)(
       Greeter,
       '',
@@ -58,7 +53,7 @@ describe('TestInstantiationService (P1.3)', () => {
 
     const g = ix.createInstance(Greeter as new (prefix: string) => Greeter, 'hello');
     expect(g.greet('world')).toBe('hello world');
-    expect(log).toHaveBeenCalledWith('hello world');
+    sinon.assert.calledWith(log, 'hello world');
   });
 
   it('`.set(id, descriptor)` accepts a SyncDescriptor and lazily constructs', () => {
@@ -67,9 +62,7 @@ describe('TestInstantiationService (P1.3)', () => {
       constructor() {
         ctorCount += 1;
       }
-      log(_m: string): void {
-        /* noop */
-      }
+      log(_m: string): void {}
     }
     const ix = new TestInstantiationService();
     ix.set(ILogger, new SyncDescriptor(DescLogger));
@@ -81,18 +74,119 @@ describe('TestInstantiationService (P1.3)', () => {
   });
 
   it('main barrel `#/di/index` does NOT re-export `TestInstantiationService`', () => {
-    // Subpath-only export contract: production code that imports the
-    // package entry should not accidentally pull test scaffolding.
     expect((mainBarrel as Record<string, unknown>)['TestInstantiationService']).toBeUndefined();
   });
 
   it('`createChild` returns a `TestInstantiationService` (narrowed from base)', () => {
     const parent = new TestInstantiationService();
-    const sharedStub: ILogger = { log: vi.fn() };
+    const sharedStub: ILogger = { log: sinon.stub() };
     parent.stub(ILogger, sharedStub);
     const child = parent.createChild(new ServiceCollection());
     expect(child).toBeInstanceOf(TestInstantiationService);
-    // Child inherits the parent's stub.
     expect(child.get(ILogger)).toBe(sharedStub);
+  });
+
+  it('`.mock(id)` returns a sinon expectation mock for the injected service', () => {
+    const ix = new TestInstantiationService();
+    ix.stub(ILogger, {
+      log(_msg: string): void {},
+    });
+
+    const mock = ix.mock(ILogger) as sinon.SinonMock;
+    mock.expects('log').once().withArgs('error');
+
+    ix.get(ILogger).log('error');
+
+    mock.verify();
+  });
+
+  it('`.stubPromise(id, method, value)` installs a sinon stub that resolves to the value', async () => {
+    const ix = new TestInstantiationService();
+
+    const load = ix.stubPromise(IAsyncService, 'load', ['a', 'b']) as sinon.SinonStub;
+    const service = ix.get(IAsyncService);
+
+    await expect(service.load('req-1')).resolves.toEqual(['a', 'b']);
+    sinon.assert.calledWith(load, 'req-1');
+  });
+
+  it('`.stub(id, method, value)` installs a sinon stub that returns the value', () => {
+    const ix = new TestInstantiationService();
+
+    const answer = ix.stub(IAsyncService, 'answer', 42);
+    const service = ix.get(IAsyncService);
+
+    expect(service.answer()).toBe(42);
+    sinon.assert.calledOnce(answer);
+  });
+
+  it('`.stub(id, ctor)` creates a sinon stub instance for the service', () => {
+    class AsyncService implements IAsyncService {
+      async load(_id: string): Promise<string[]> {
+        return ['real'];
+      }
+
+      answer(): number {
+        return 0;
+      }
+    }
+
+    const ix = new TestInstantiationService();
+    const service = ix.stub(IAsyncService, AsyncService);
+    (service.answer as sinon.SinonStub).returns(42);
+
+    expect(ix.get(IAsyncService).answer()).toBe(42);
+    sinon.assert.calledOnce(service.answer as sinon.SinonStub);
+  });
+
+  it('`.spy(id, method)` installs a sinon spy function on the service', () => {
+    const ix = new TestInstantiationService();
+
+    const spy = ix.spy(ILogger, 'log');
+    ix.get(ILogger).log('hello');
+
+    sinon.assert.calledWith(spy, 'hello');
+  });
+
+  it('`.stubInstance(ctor, instance)` overrides createInstance and is inherited by children', () => {
+    class Widget {
+      constructor(public readonly name: string) {}
+      render(): string {
+        return `real:${this.name}`;
+      }
+    }
+
+    const parent = new TestInstantiationService();
+    const replacement = {
+      render: sinon.stub().returns('stubbed'),
+    };
+    parent.stubInstance(Widget, replacement);
+
+    expect(parent.createInstance(Widget, 'parent')).toBe(replacement);
+
+    const child = parent.createChild(new ServiceCollection());
+    expect(child.createInstance(Widget, 'child')).toBe(replacement);
+    expect(replacement.render()).toBe('stubbed');
+  });
+
+  it('`createServices` registers prebuilt services and disposes them with the store', () => {
+    class DisposableLogger implements ILogger {
+      disposeCount = 0;
+      log = sinon.stub();
+
+      dispose(): void {
+        this.disposeCount += 1;
+      }
+    }
+
+    const disposables = new DisposableStore();
+    const logger = new DisposableLogger();
+    const ix = createServices(disposables, [[ILogger, logger]]);
+
+    expect(ix.get(ILogger)).toBe(logger);
+
+    disposables.dispose();
+
+    expect(logger.disposeCount).toBe(1);
   });
 });
