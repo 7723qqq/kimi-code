@@ -31,6 +31,8 @@ import type {
   SessionChildCreate,
   SessionCreate,
   SessionUpdate,
+  UndoSessionRequest,
+  UndoSessionResponse,
   Workspace,
   WorkspaceCreate,
   WorkspaceUpdate,
@@ -222,6 +224,16 @@ export class HttpClient {
     return this.request(
       'POST',
       `/sessions/${encodeURIComponent(sid)}:compact`,
+      body,
+    );
+  }
+  undoSession(
+    sid: string,
+    body: UndoSessionRequest = { count: 1 },
+  ): Promise<UndoSessionResponse> {
+    return this.request(
+      'POST',
+      `/sessions/${encodeURIComponent(sid)}:undo`,
       body,
     );
   }

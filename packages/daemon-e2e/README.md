@@ -47,6 +47,7 @@ await client.deleteSession(session.id);
 pnpm --filter @moonshot-ai/daemon-e2e typecheck
 pnpm --filter @moonshot-ai/daemon-e2e test            # vitest self-tests
 pnpm --filter @moonshot-ai/daemon-e2e test:scenarios  # run every scenarios/*.ts
+pnpm --filter @moonshot-ai/daemon-e2e docker:e2e      # run daemon + scenarios in docker
 ```
 
 Both `test` and `test:scenarios` require a running daemon (set `DAEMON_URL`
@@ -60,6 +61,26 @@ Both commands write a browser-readable report to
 timeline of case logs, HTTP request / response envelopes, WebSocket frames, and
 test results. JSON payloads are kept in collapsed detail blocks so the terminal
 can stay concise while the full wire trace remains available.
+
+`docker:e2e` builds `kimi-daemon:dev` from the root `Dockerfile`, layers
+`packages/daemon-e2e/Dockerfile` on top, then runs a one-shot Docker container.
+The container starts the daemon on container-local `127.0.0.1:7878` and runs
+`pnpm test:scenarios` in the same container. The launcher intentionally does
+not pass `-p` / `--publish`, so it does not expose a daemon port on the host and
+can coexist with the `docker-compose.yml` daemon that publishes host port 7878.
+Reports are written under
+`~/.kimi-code-daemon-dev/daemon-e2e-reports/docker/<run-id>/latest/index.html`;
+the daemon log is written beside them as `daemon.log`.
+
+The Docker workflow uses an isolated KIMI home at
+`~/.kimi-code-daemon-dev/docker-e2e/<run-id>/kimi-code-home` to avoid sharing
+daemon locks with Compose. `<run-id>` is deterministic by default:
+`<repo-basename>-<cksum-of-repo-path>`, so different worktrees do not collide.
+On first run it seeds `config.toml` and `credentials/` from
+`~/.kimi-code-daemon-dev/kimi-home/kimi-code-home` when those files exist.
+Override the namespace with `DAEMON_E2E_RUN_ID`, or override paths with
+`DAEMON_E2E_STATE_ROOT`, `DAEMON_E2E_KIMI_HOME_HOST`,
+`DAEMON_E2E_SEED_KIMI_HOME_HOST`, or `DAEMON_E2E_REPORT_DIR_HOST`.
 
 ## Public API summary
 
