@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/di/descriptors';
 import { InstantiationService } from '#/di/instantiationService';
-import { createDecorator, type ServicesAccessor } from '#/di/instantiation';
+import {
+  createDecorator,
+  type BrandedService,
+  type IConstructorSignature,
+  type ServicesAccessor,
+} from '#/di/instantiation';
 import { ServiceCollection } from '#/di/serviceCollection';
 
 interface ILogger {
@@ -29,9 +34,7 @@ describe('InstantiationService (basic)', () => {
 
   it('returns the same cached instance across multiple invokeFunction calls', () => {
     class ConsoleLogger implements ILogger {
-      log(_m: string): void {
-        /* noop */
-      }
+      log(_m: string): void {}
     }
     const ix = new InstantiationService(
       new ServiceCollection([ILogger, new SyncDescriptor(ConsoleLogger)]),
@@ -43,9 +46,7 @@ describe('InstantiationService (basic)', () => {
 
   it('returns the same cached instance within a single invokeFunction call', () => {
     class ConsoleLogger implements ILogger {
-      log(_m: string): void {
-        /* noop */
-      }
+      log(_m: string): void {}
     }
     const ix = new InstantiationService(
       new ServiceCollection([ILogger, new SyncDescriptor(ConsoleLogger)]),
@@ -73,6 +74,57 @@ describe('InstantiationService (basic)', () => {
     expect(inst.b).toBe(7);
   });
 
+  it('IConstructorSignature models manual constructor args followed by DI services', () => {
+    interface IBrandedLogger {
+      readonly _serviceBrand: undefined;
+      log(msg: string): void;
+    }
+    const IBrandedLogger = createDecorator<IBrandedLogger>('branded-logger');
+
+    class BrandedLogger implements IBrandedLogger {
+      declare readonly _serviceBrand: undefined;
+      readonly messages: string[] = [];
+
+      log(msg: string): void {
+        this.messages.push(msg);
+      }
+    }
+
+    class RouteContribution {
+      constructor(
+        public readonly route: string,
+        public readonly logger: IBrandedLogger,
+      ) {}
+
+      start(): void {
+        this.logger.log(this.route);
+      }
+    }
+
+    function registerRouteContribution<Services extends BrandedService[]>(
+      ctor: new (route: string, ...services: Services) => RouteContribution,
+    ): IConstructorSignature<RouteContribution, [string]> {
+      return ctor as IConstructorSignature<RouteContribution, [string]>;
+    }
+
+    const ctor = registerRouteContribution(RouteContribution);
+    (IBrandedLogger as unknown as (t: unknown, k: string, i: number) => void)(
+      RouteContribution,
+      '',
+      1,
+    );
+    const ix = new InstantiationService(
+      new ServiceCollection([IBrandedLogger, new SyncDescriptor(BrandedLogger)]),
+    );
+
+    const contribution = ix.createInstance(ctor, '/auth');
+    contribution.start();
+
+    expect(contribution.route).toBe('/auth');
+    expect(contribution.logger).toBeInstanceOf(BrandedLogger);
+    expect((contribution.logger as BrandedLogger).messages).toEqual(['/auth']);
+  });
+
   it('createInstance(descriptor) unpacks ctor + staticArguments (P0.4)', () => {
     class Foo {
       constructor(
@@ -95,7 +147,6 @@ describe('InstantiationService (basic)', () => {
       ) {}
     }
     const ix = new InstantiationService();
-    // staticArguments=['a'], rest=['b'] → new Foo('a', 'b')
     const inst = ix.createInstance(new SyncDescriptor(Foo, ['a']), 'b');
     expect(inst.a).toBe('a');
     expect(inst.b).toBe('b');
@@ -112,11 +163,9 @@ describe('InstantiationService (basic)', () => {
     const ix = new InstantiationService(
       new ServiceCollection([IFoo, new SyncDescriptor(CountingService)]),
     );
-    // Not constructed at container creation time.
     expect(ctorCount).toBe(0);
     ix.invokeFunction((a) => a.get(IFoo));
     expect(ctorCount).toBe(1);
-    // Second get: cached, ctor NOT re-run.
     ix.invokeFunction((a) => a.get(IFoo));
     expect(ctorCount).toBe(1);
   });
@@ -137,9 +186,7 @@ describe('InstantiationService (basic)', () => {
 
   it('accepts a pre-built instance shorthand from ServiceCollection', () => {
     class ConsoleLogger implements ILogger {
-      log(_m: string): void {
-        /* noop */
-      }
+      log(_m: string): void {}
     }
     const inst = new ConsoleLogger();
     const ix = new InstantiationService(new ServiceCollection([ILogger, inst]));
@@ -171,9 +218,7 @@ describe('InstantiationService (basic)', () => {
 
   it('invokeFunction accessor is invalid after the callback returns', () => {
     class AccessorLogger implements ILogger {
-      log(_m: string): void {
-        /* noop */
-      }
+      log(_m: string): void {}
     }
     const ix = new InstantiationService(
       new ServiceCollection([ILogger, new SyncDescriptor(AccessorLogger)]),
@@ -190,14 +235,10 @@ describe('InstantiationService (basic)', () => {
 
   it('uses the live ServiceCollection entry instead of a stale instance cache', () => {
     class InitialLogger implements ILogger {
-      log(_m: string): void {
-        /* noop */
-      }
+      log(_m: string): void {}
     }
     class ReplacementLogger implements ILogger {
-      log(_m: string): void {
-        /* noop */
-      }
+      log(_m: string): void {}
     }
     const first = new InitialLogger();
     const second = new ReplacementLogger();
@@ -214,8 +255,6 @@ describe('InstantiationService (basic)', () => {
   });
 
   it('createChild returns a child container, dispose tears down', () => {
-    // Detailed createChild + dispose semantics live in `child.test.ts`; this
-    // is just a smoke test that the W2.3 wiring is in place.
     const ix = new InstantiationService();
     const child = ix.createChild(new ServiceCollection());
     expect(child).toBeDefined();
