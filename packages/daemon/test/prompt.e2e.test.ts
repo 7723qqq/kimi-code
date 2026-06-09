@@ -32,7 +32,7 @@ import { WebSocket } from 'ws';
 import type { Event, PromptSubmission } from '@moonshot-ai/protocol';
 import { IEventService, IPromptService, PromptService } from '@moonshot-ai/services';
 
-import { IRestGateway, startDaemon, type RunningDaemon } from '../src';
+import { IRestGateway, startDaemon, type DaemonStartOptions, type RunningDaemon } from '../src';
 
 let tmpDir: string;
 let lockPath: string;
@@ -56,7 +56,9 @@ afterEach(async () => {
   rmSync(bridgeHome, { recursive: true, force: true });
 });
 
-async function bootDaemon(): Promise<RunningDaemon> {
+async function bootDaemon(
+  serviceOverrides?: DaemonStartOptions['serviceOverrides'],
+): Promise<RunningDaemon> {
   daemon = await startDaemon({
     host: '127.0.0.1',
     port: 0,
@@ -64,6 +66,7 @@ async function bootDaemon(): Promise<RunningDaemon> {
     logger: pino({ level: 'silent' }),
     coreProcessOptions: { homeDir: bridgeHome },
     wsGatewayOptions: { pingIntervalMs: 5_000, pongTimeoutMs: 5_000 },
+    serviceOverrides,
   });
   return daemon;
 }
@@ -95,10 +98,9 @@ function envelopeOf<T>(body: unknown): {
   };
 }
 
-function overridePromptService(
-  r: RunningDaemon,
+function createPromptServiceOverride(
   stub: Partial<IPromptService>,
-): void {
+): IPromptService {
   const noopComplete = (() => ({ dispose: () => undefined })) as IPromptService['onDidComplete'];
   const noopAbort = (() => ({ dispose: () => undefined })) as IPromptService['onDidAbort'];
   const defaultImpl: IPromptService = {
@@ -112,11 +114,7 @@ function overridePromptService(
     onDidComplete: noopComplete,
     onDidAbort: noopAbort,
   };
-  const replacement = { ...defaultImpl, ...stub };
-  const ix = r.services as unknown as {
-    services: { set: (id: unknown, impl: unknown) => void };
-  };
-  ix.services.set(IPromptService, replacement);
+  return { ...defaultImpl, ...stub };
 }
 
 function buildMultipart(parts: {
@@ -277,20 +275,24 @@ describe('POST /api/v1/sessions/{sid}/prompts — submit validation (W7.2 / Chai
   });
 
   it('submits image URL content without a file upload step', async () => {
-    const r = await bootDaemon();
-    const sid = await createSession(r);
     let submittedSid: string | undefined;
     let submitted: PromptSubmission | undefined;
-    overridePromptService(r, {
-      submit: async (sessionId, body) => {
-        submittedSid = sessionId;
-        submitted = body;
-        return {
-          prompt_id: 'prompt_from_stub',
-          user_message_id: 'msg_from_stub',
-        };
-      },
-    });
+    const r = await bootDaemon([
+      [
+        IPromptService,
+        createPromptServiceOverride({
+          submit: async (sessionId, body) => {
+            submittedSid = sessionId;
+            submitted = body;
+            return {
+              prompt_id: 'prompt_from_stub',
+              user_message_id: 'msg_from_stub',
+            };
+          },
+        }),
+      ],
+    ]);
+    const sid = await createSession(r);
 
     const imageUrl = 'https://example.com/images/sample.png?size=full#frame';
     const res = await appOf(r).inject({
@@ -319,18 +321,22 @@ describe('POST /api/v1/sessions/{sid}/prompts — submit validation (W7.2 / Chai
   });
 
   it('uploads a real PNG image file and resolves it before submitting the prompt', async () => {
-    const r = await bootDaemon();
-    const sid = await createSession(r);
     let submitted: PromptSubmission | undefined;
-    overridePromptService(r, {
-      submit: async (_sid, body) => {
-        submitted = body;
-        return {
-          prompt_id: 'prompt_from_stub',
-          user_message_id: 'msg_from_stub',
-        };
-      },
-    });
+    const r = await bootDaemon([
+      [
+        IPromptService,
+        createPromptServiceOverride({
+          submit: async (_sid, body) => {
+            submitted = body;
+            return {
+              prompt_id: 'prompt_from_stub',
+              user_message_id: 'msg_from_stub',
+            };
+          },
+        }),
+      ],
+    ]);
+    const sid = await createSession(r);
 
     const upload = buildMultipart({
       file: {
@@ -383,18 +389,22 @@ describe('POST /api/v1/sessions/{sid}/prompts — submit validation (W7.2 / Chai
   });
 
   it('returns 40407 when prompt image file_id is unknown', async () => {
-    const r = await bootDaemon();
-    const sid = await createSession(r);
     let submitted = false;
-    overridePromptService(r, {
-      submit: async () => {
-        submitted = true;
-        return {
-          prompt_id: 'prompt_from_stub',
-          user_message_id: 'msg_from_stub',
-        };
-      },
-    });
+    const r = await bootDaemon([
+      [
+        IPromptService,
+        createPromptServiceOverride({
+          submit: async () => {
+            submitted = true;
+            return {
+              prompt_id: 'prompt_from_stub',
+              user_message_id: 'msg_from_stub',
+            };
+          },
+        }),
+      ],
+    ]);
+    const sid = await createSession(r);
 
     const res = await appOf(r).inject({
       method: 'POST',
@@ -414,18 +424,22 @@ describe('POST /api/v1/sessions/{sid}/prompts — submit validation (W7.2 / Chai
   });
 
   it('rejects non-image file_id content before submitting the prompt', async () => {
-    const r = await bootDaemon();
-    const sid = await createSession(r);
     let submitted = false;
-    overridePromptService(r, {
-      submit: async () => {
-        submitted = true;
-        return {
-          prompt_id: 'prompt_from_stub',
-          user_message_id: 'msg_from_stub',
-        };
-      },
-    });
+    const r = await bootDaemon([
+      [
+        IPromptService,
+        createPromptServiceOverride({
+          submit: async () => {
+            submitted = true;
+            return {
+              prompt_id: 'prompt_from_stub',
+              user_message_id: 'msg_from_stub',
+            };
+          },
+        }),
+      ],
+    ]);
+    const sid = await createSession(r);
 
     const upload = buildMultipart({
       file: {

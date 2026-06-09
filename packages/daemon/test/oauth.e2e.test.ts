@@ -1,8 +1,8 @@
 /**
  * `/v1/oauth/*` REST endpoints e2e tests (P2.7).
  *
- * **Strategy**: replace the real `IOAuthService` in the DI container with a
- * scripted stub AFTER `startDaemon` returns, so the routes go through their
+ * **Strategy**: replace the real `IOAuthService` via a startup DI override,
+ * so the routes go through their
  * full Fastify validation + envelope wrapping but never touch a real OAuth
  * host. We keep the `OAuthServiceImpl` itself out of scope here — the
  * services-package unit test (`oauth-service.test.ts`) covers its internal
@@ -128,13 +128,8 @@ async function bootDaemon(stub: StubOAuth): Promise<RunningDaemon> {
     lockPath,
     logger: pino({ level: 'silent' }),
     coreProcessOptions: { homeDir: bridgeHome },
+    serviceOverrides: [[IOAuthService, stub]],
   });
-  // Override the IOAuthService in the container post-boot. The container's
-  // `ServiceCollection` is live, so subsequent requests resolve the stub.
-  const ix = daemon.services as unknown as {
-    services: { set: (id: unknown, v: unknown) => void };
-  };
-  ix.services.set(IOAuthService, stub);
   return daemon;
 }
 

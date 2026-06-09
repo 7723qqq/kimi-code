@@ -1,4 +1,5 @@
 import {
+  type ServiceIdentifier,
   InstantiationService,
   resolveConfigPath,
   resolveKimiHome,
@@ -103,6 +104,11 @@ export interface DaemonStartOptions {
    * REST surface cannot reveal.
    */
   debugEndpoints?: boolean;
+  /**
+   * Optional startup-time DI overrides. Tests use this to replace service
+   * implementations without reaching into the container internals after boot.
+   */
+  serviceOverrides?: ReadonlyArray<readonly [ServiceIdentifier<unknown>, unknown]>;
 }
 
 export interface RunningDaemon {

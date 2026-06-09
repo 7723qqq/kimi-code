@@ -176,7 +176,7 @@ export class InstantiationService implements IInstantiationService {
   private _disposed = false;
 
   constructor(
-    public readonly services: ServiceCollection = new ServiceCollection(),
+    private readonly _services: ServiceCollection = new ServiceCollection(),
     private readonly _strict: boolean = false,
     parent?: InstantiationService,
     protected readonly _enableTracing: boolean = false,
@@ -191,7 +191,7 @@ export class InstantiationService implements IInstantiationService {
     // lives in the local `services` map, so
     // `_getServiceInstanceOrDescriptor(IInstantiationService)` in the child
     // finds the child's own slot before walking to the parent.
-    this.services.set(IInstantiationServiceDecorator, this);
+    this._services.set(IInstantiationServiceDecorator, this);
   }
 
   invokeFunction<R, TS extends any[] = []>(
@@ -588,7 +588,7 @@ export class InstantiationService implements IInstantiationService {
     supportsDelayedInstantiation: boolean,
     _trace: Trace,
   ): T {
-    if (this.services.get(id) instanceof SyncDescriptor) {
+    if (this._services.get(id) instanceof SyncDescriptor) {
       return this._createServiceInstance(
         id,
         ctor,
@@ -741,8 +741,8 @@ export class InstantiationService implements IInstantiationService {
    * container-owned for disposal.
    */
   private _setCreatedServiceInstance<T>(id: ServiceIdentifier<T>, instance: T): void {
-    if (this.services.get(id) instanceof SyncDescriptor) {
-      this.services.set(id, instance);
+    if (this._services.get(id) instanceof SyncDescriptor) {
+      this._services.set(id, instance);
     } else if (this._parent) {
       this._parent._setCreatedServiceInstance(id, instance);
     } else {
@@ -761,7 +761,7 @@ export class InstantiationService implements IInstantiationService {
     id: ServiceIdentifier<T>,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ): T | SyncDescriptor<T> | undefined {
-    const instanceOrDesc = this.services.get(id);
+    const instanceOrDesc = this._services.get(id);
     if (instanceOrDesc === undefined && this._parent) {
       return this._parent._getServiceInstanceOrDescriptor(id);
     }
