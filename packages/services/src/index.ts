@@ -137,6 +137,7 @@ export type {
   PromptDispatchLogEntry,
   SyntheticPromptAbortedEvent,
   SyntheticPromptCompletedEvent,
+  SyntheticPromptSteeredEvent,
 } from './prompt/prompt';
 export { PromptService } from './prompt/promptService';
 

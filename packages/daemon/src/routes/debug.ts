@@ -8,6 +8,7 @@
  *
  *   GET /debug/prompts/{sid}/state         data: AgentStateSnapshot | null
  *   GET /debug/prompts/{sid}/dispatch-log  data: { entries: PromptDispatchLogEntry[] }
+ *   POST /debug/prompts/{sid}/active       data: { prompt_id: string }
  *
  * Why expose these:
  *
@@ -18,8 +19,11 @@
  * the same WS surface. To prove the suppression really happened, e2e tests
  * need to see the dispatch ring buffer directly.
  *
- * Read-only, no auth, no mutation. Both endpoints return `null` data (state)
- * or empty array (dispatch-log) when the session has never bootstrapped.
+ * No auth; only mounted in explicit debug/test mode. Read endpoints return
+ * `null` data (state) or empty array (dispatch-log) when the session has never
+ * bootstrapped. The mutating active-prompt endpoint is test-only scaffolding
+ * for daemon-e2e queue/steer coverage and should not be mounted by production
+ * CLI callers.
  *
  * **Anti-corruption**: we resolve `IPromptService` via the accessor and
  * cast to the concrete `PromptService` class to reach the underscore-
@@ -46,10 +50,25 @@ interface DebugRouteHost {
       reply: { send(payload: unknown): unknown },
     ) => Promise<void> | void,
   ): unknown;
+  post(
+    path: string,
+    options:
+      | { preHandler: unknown[]; schema?: Record<string, unknown> }
+      | undefined,
+    handler: (
+      req: { id: string; body: unknown; params: unknown },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void,
+  ): unknown;
 }
 
 const sessionIdParamSchema = z.object({
   session_id: z.string().min(1),
+});
+
+const debugInjectActivePromptSchema = z.object({
+  prompt_id: z.string().min(1).optional(),
+  turn_id: z.number().int().nullable().optional(),
 });
 
 export function registerDebugRoutes(
@@ -96,5 +115,28 @@ export function registerDebugRoutes(
     debugPromptDispatchLogRoute.path,
     debugPromptDispatchLogRoute.options,
     debugPromptDispatchLogRoute.handler as Parameters<DebugRouteHost['get']>[2],
+  );
+
+  // POST /debug/prompts/{session_id}/active -------------------------------
+  const debugInjectActivePromptRoute = defineRoute(
+    {
+      method: 'POST',
+      path: '/debug/prompts/{session_id}/active',
+      params: sessionIdParamSchema,
+      body: debugInjectActivePromptSchema,
+    },
+    async (req, reply) => {
+      const { session_id: sid } = req.params;
+      const { prompt_id, turn_id } = req.body;
+      const prompts = ix.invokeFunction((a) => a.get(IPromptService)) as PromptService;
+      const activePromptId = prompt_id ?? `prompt_debug_${sid}`;
+      prompts._injectActiveForTest(sid, activePromptId, turn_id ?? null);
+      reply.send(okEnvelope({ prompt_id: activePromptId }, req.id));
+    },
+  );
+  app.post(
+    debugInjectActivePromptRoute.path,
+    debugInjectActivePromptRoute.options,
+    debugInjectActivePromptRoute.handler as Parameters<DebugRouteHost['post']>[2],
   );
 }

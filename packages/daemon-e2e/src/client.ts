@@ -30,8 +30,10 @@ import type {
   Message,
   ProviderCatalogItem,
   PromptAbortResponse,
+  PromptListResponse,
   PromptPermissionMode,
   PromptSubmission,
+  PromptSteerResult,
   PromptSubmitResult,
   PromptThinking,
   QuestionRequest,
@@ -256,6 +258,15 @@ export class DaemonClient {
     body: PromptSubmission,
   ): Promise<PromptSubmitResult> {
     return this.http.submitPrompt(sid, body);
+  }
+  listPrompts(sid: string): Promise<PromptListResponse> {
+    return this.http.listPrompts(sid);
+  }
+  steerPrompt(sid: string, pid: string): Promise<PromptSteerResult> {
+    return this.http.steerPrompt(sid, pid);
+  }
+  steerPrompts(sid: string, promptIds: readonly string[]): Promise<PromptSteerResult> {
+    return this.http.steerPrompts(sid, promptIds);
   }
   abortPrompt(sid: string, pid: string): Promise<PromptAbortResponse> {
     return this.http.abortPrompt(sid, pid);

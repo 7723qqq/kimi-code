@@ -8,8 +8,8 @@
  * `ISessionService` exposes `onDidClose` so cleanup tests can trigger it.
  *
  * Coverage:
- *   - submit returns {prompt_id, user_message_id}
- *   - submit registers an active prompt → busy detection on second submit
+ *   - submit returns PromptItem with status='running' or status='queued'
+ *   - submit registers an active prompt → second submit enters daemon queue
  *   - submit translates protocol content → kosong content (text + image_url)
  *   - submit on unknown sid → SessionNotFoundError
  *   - submit on a session with an active completed/aborted prompt succeeds
@@ -21,6 +21,9 @@
  *   - abort() rejects PromptNotFoundError when no active prompt
  *   - abort() returns {aborted: true} + publishes prompt.aborted
  *   - second abort() → PromptAlreadyCompletedError (40903)
+ *   - busy submit queues instead of throwing; list returns active + queued
+ *   - steer removes queued prompts and dispatches core.rpc.steer
+ *   - failed steer restores queued prompts
  *   - per-request stateless controls (model / thinking / permission_mode /
  *     plan_mode) bootstrap once, diff-dispatch on change, no-op on match,
  *     reseed after session close, agent.status.updated mirrors into shadow.
@@ -45,7 +48,6 @@ import {
   PromptAlreadyCompletedError,
   PromptNotFoundError,
   PromptService,
-  SessionBusyError,
   SessionNotFoundError,
 } from '../src';
 
@@ -94,6 +96,7 @@ function mkBodyMinimal(over: Partial<PromptSubmission> = {}): PromptSubmission {
 
 interface RpcRecord {
   promptCalls: unknown[];
+  steerCalls: unknown[];
   cancelCalls: unknown[];
   setModelCalls: unknown[];
   setThinkingCalls: unknown[];
@@ -118,6 +121,7 @@ function makeBridge(
 ): { bridge: ICoreProcessService; record: RpcRecord } {
   const record: RpcRecord = {
     promptCalls: [],
+    steerCalls: [],
     cancelCalls: [],
     setModelCalls: [],
     setThinkingCalls: [],
@@ -144,6 +148,9 @@ function makeBridge(
     resumeSession: vi.fn().mockResolvedValue(undefined as unknown as never),
     prompt: vi.fn().mockImplementation(async (payload) => {
       record.promptCalls.push(payload);
+    }),
+    steer: vi.fn().mockImplementation(async (payload) => {
+      record.steerCalls.push(payload);
     }),
     cancel: vi.fn().mockImplementation(async (payload) => {
       record.cancelCalls.push(payload);
@@ -339,14 +346,53 @@ describe('PromptService.submit', () => {
     ]);
   });
 
-  it('throws SessionBusyError when a non-terminal prompt is already active', async () => {
+  it('queues a second prompt when a non-terminal prompt is already active', async () => {
     const { bridge } = makeBridge();
     const { bus } = makeBus();
     const impl = newSvc(bridge, bus);
-    await impl.submit(SID, mkBody({ content: [{ type: 'text', text: 'one' }] }));
-    await expect(
-      impl.submit(SID, mkBody({ content: [{ type: 'text', text: 'two' }] })),
-    ).rejects.toBeInstanceOf(SessionBusyError);
+    const first = await impl.submit(SID, mkBody({ content: [{ type: 'text', text: 'one' }] }));
+    const second = await impl.submit(SID, mkBody({ content: [{ type: 'text', text: 'two' }] }));
+    const listed = await impl.list(SID);
+
+    expect(first.status).toBe('running');
+    expect(second.status).toBe('queued');
+    expect(listed.active?.prompt_id).toBe(first.prompt_id);
+    expect(listed.queued.map((p) => p.prompt_id)).toEqual([second.prompt_id]);
+  });
+
+  it('starts the next queued prompt after the active prompt completes', async () => {
+    const { bridge, record } = makeBridge();
+    const { bus, triggerSubscribers } = makeBus();
+    const impl = newSvc(bridge, bus);
+    const first = await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'one' }] }));
+    const second = await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'two' }] }));
+
+    triggerSubscribers({
+      type: 'turn.started',
+      turnId: 7,
+      origin: { kind: 'user' },
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+    triggerSubscribers({
+      type: 'turn.ended',
+      turnId: 7,
+      reason: 'completed',
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+    await Promise.resolve();
+
+    expect(record.promptCalls).toHaveLength(2);
+    expect(record.promptCalls[1]).toEqual({
+      sessionId: SID,
+      agentId: 'main',
+      input: [{ type: 'text', text: 'two' }],
+    });
+    const listed = await impl.list(SID);
+    expect(listed.active?.prompt_id).toBe(second.prompt_id);
+    expect(listed.queued).toHaveLength(0);
+    expect(first.status).toBe('running');
   });
 
   it('throws SessionNotFoundError on unknown session id', async () => {
@@ -597,6 +643,92 @@ describe('PromptService.abort', () => {
     await impl.abort(SID, submit.prompt_id);
     await expect(impl.abort(SID, submit.prompt_id)).rejects.toBeInstanceOf(
       PromptAlreadyCompletedError,
+    );
+  });
+});
+
+describe('PromptService queue steer', () => {
+  it('steers a queued prompt into the active turn without starting a new prompt', async () => {
+    const { bridge, record } = makeBridge();
+    const { bus, events } = makeBus();
+    const impl = newSvc(bridge, bus);
+    const active = await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'active' }] }));
+    const queued = await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'queued' }] }));
+
+    const result = await impl.steer(SID, [queued.prompt_id]);
+
+    expect(result).toEqual({ steered: true, prompt_ids: [queued.prompt_id] });
+    expect(record.promptCalls).toHaveLength(1);
+    expect(record.steerCalls).toEqual([
+      {
+        sessionId: SID,
+        agentId: 'main',
+        input: [{ type: 'text', text: 'queued' }],
+      },
+    ]);
+    expect((await impl.list(SID)).queued).toHaveLength(0);
+    expect(
+      events.some((event) => {
+        const payload = event as unknown as {
+          type?: string;
+          activePromptId?: string;
+          promptIds?: readonly string[];
+        };
+        return (
+          payload.type === 'prompt.steered' &&
+          payload.activePromptId === active.prompt_id &&
+          payload.promptIds?.[0] === queued.prompt_id
+        );
+      }),
+    ).toBe(true);
+  });
+
+  it('joins multiple queued text prompts with blank lines when steering', async () => {
+    const { bridge, record } = makeBridge();
+    const { bus } = makeBus();
+    const impl = newSvc(bridge, bus);
+    await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'active' }] }));
+    const first = await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'first' }] }));
+    const second = await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'second' }] }));
+
+    await impl.steer(SID, [first.prompt_id, second.prompt_id]);
+
+    expect(record.steerCalls).toEqual([
+      {
+        sessionId: SID,
+        agentId: 'main',
+        input: [{ type: 'text', text: 'first\n\nsecond' }],
+      },
+    ]);
+    expect((await impl.list(SID)).queued).toHaveLength(0);
+  });
+
+  it('keeps queued prompts when core steer fails', async () => {
+    const { bridge } = makeBridge();
+    const { bus } = makeBus();
+    vi.mocked(bridge.rpc.steer).mockRejectedValueOnce(new Error('steer failed'));
+    const impl = newSvc(bridge, bus);
+    await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'active' }] }));
+    const queued = await impl.submit(
+      SID,
+      mkBodyMinimal({ content: [{ type: 'text', text: 'queued' }] }),
+    );
+
+    await expect(impl.steer(SID, [queued.prompt_id])).rejects.toThrow('steer failed');
+
+    expect((await impl.list(SID)).queued.map((prompt) => prompt.prompt_id)).toEqual([
+      queued.prompt_id,
+    ]);
+  });
+
+  it('throws PromptNotFoundError when steering a prompt that is not queued', async () => {
+    const { bridge } = makeBridge();
+    const { bus } = makeBus();
+    const impl = newSvc(bridge, bus);
+    await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'active' }] }));
+
+    await expect(impl.steer(SID, ['prompt_missing'])).rejects.toBeInstanceOf(
+      PromptNotFoundError,
     );
   });
 });

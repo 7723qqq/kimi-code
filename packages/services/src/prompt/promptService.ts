@@ -10,7 +10,10 @@ import {
 } from '@moonshot-ai/agent-core';
 import type {
   Event,
+  PromptItem,
+  PromptListResponse,
   PromptSubmission,
+  PromptSteerResult,
   PromptSubmitResult,
   PromptThinking,
 } from '@moonshot-ai/protocol';
@@ -23,7 +26,6 @@ import { IEventService } from '../event/event';
 import { ISessionService, SessionNotFoundError } from '../session/session';
 import {
   IPromptService,
-  SessionBusyError,
   PromptNotFoundError,
   PromptAlreadyCompletedError,
   type AgentStatePatch,
@@ -33,6 +35,7 @@ import {
   type PromptDispatchLogEntry,
   type SyntheticPromptCompletedEvent,
   type SyntheticPromptAbortedEvent,
+  type SyntheticPromptSteeredEvent,
 } from './prompt';
 
 const MAIN_AGENT_ID = 'main';
@@ -81,11 +84,87 @@ function pickAgentStatePatch(body: PromptSubmission): AgentStatePatch | undefine
  */
 interface PromptState {
   promptId: string;
+  userMessageId: string;
+  body: PromptSubmission;
+  createdAt: string;
   turnId: number | null;
   /** Set on `turn.ended` for the top-level turn (reason='completed'|'failed'). */
   completed: boolean;
   /** Set on `turn.ended` with reason='cancelled' or after a successful abort RPC. */
   aborted: boolean;
+}
+
+type CorePromptPart =
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'image_url'; readonly imageUrl: { readonly url: string } };
+
+function toPromptItem(state: PromptState, status: 'running' | 'queued'): PromptItem {
+  return {
+    prompt_id: state.promptId,
+    user_message_id: state.userMessageId,
+    status,
+    content: state.body.content,
+    created_at: state.createdAt,
+  };
+}
+
+function contentToCoreParts(content: PromptSubmission['content']): CorePromptPart[] {
+  const input: CorePromptPart[] = [];
+  for (const part of content) {
+    switch (part.type) {
+      case 'text':
+        input.push({ type: 'text', text: part.text });
+        break;
+      case 'image':
+        if (part.source.kind === 'url') {
+          input.push({
+            type: 'image_url',
+            imageUrl: { url: part.source.url },
+          });
+        } else if (part.source.kind === 'base64') {
+          input.push({
+            type: 'image_url',
+            imageUrl: {
+              url: `data:${part.source.media_type};base64,${part.source.data}`,
+            },
+          });
+        }
+        break;
+      case 'file':
+      case 'thinking':
+      case 'tool_result':
+      case 'tool_use':
+        break;
+    }
+  }
+  return input;
+}
+
+function steerContentToCoreParts(states: readonly PromptState[]): CorePromptPart[] {
+  const textBodies: string[] = [];
+  let allText = true;
+  for (const state of states) {
+    const texts: string[] = [];
+    for (const part of state.body.content) {
+      if (part.type !== 'text') {
+        allText = false;
+        break;
+      }
+      texts.push(part.text);
+    }
+    if (!allText) break;
+    textBodies.push(texts.join('\n'));
+  }
+  if (allText) {
+    return [{ type: 'text', text: textBodies.join('\n\n') }];
+  }
+
+  const input: CorePromptPart[] = [];
+  states.forEach((state, index) => {
+    if (index > 0) input.push({ type: 'text', text: '\n\n' });
+    input.push(...contentToCoreParts(state.body.content));
+  });
+  return input;
 }
 
 /**
@@ -138,6 +217,8 @@ export class PromptService
 
   /** Active prompt per session. Cleared on completion / abort emission. */
   private readonly _active = new Map<string, PromptState>();
+
+  private readonly _queued = new Map<string, PromptState[]>();
 
   /**
    * Per-session shadow of `model` / `thinking` / `permissionMode` /
@@ -200,11 +281,26 @@ export class PromptService
       this.sessionService.onDidClose(({ sessionId }) => {
         this._agentState.delete(sessionId);
         this._dispatchLog.delete(sessionId);
+        this._queued.delete(sessionId);
       }),
     );
   }
 
   // --- IPromptService --------------------------------------------------------
+
+  async list(sid: string): Promise<PromptListResponse> {
+    await this._requireSession(sid);
+    const active = this._active.get(sid);
+    return {
+      active:
+        active !== undefined && !active.completed && !active.aborted
+          ? toPromptItem(active, 'running')
+          : null,
+      queued: (this._queued.get(sid) ?? []).map((state) =>
+        toPromptItem(state, 'queued'),
+      ),
+    };
+  }
 
   async submit(sid: string, body: PromptSubmission): Promise<PromptSubmitResult> {
     await this._requireSession(sid);
@@ -215,71 +311,76 @@ export class PromptService
     // hand off to agent-core. Daemon route layer maps to 40110/40111/40113.
     await this.auth.ensureReady();
 
+    const promptId = `prompt_${ulid()}`;
+    const state = this._createPromptState(sid, promptId, body);
+
     const existing = this._active.get(sid);
     if (existing !== undefined && !existing.completed && !existing.aborted) {
-      throw new SessionBusyError(sid, existing.promptId);
+      this._enqueue(sid, state);
+      return toPromptItem(state, 'queued');
     }
 
-    // Mint the prompt id BEFORE the diff-dispatch so each dispatch-log
-    // entry can be attributed to the prompt that triggered it. The id is
-    // not yet recorded in `_active`; if a setter throws below we surface
-    // the error to the caller and leak only the unused ulid string.
-    const promptId = `prompt_${ulid()}`;
+    await this._startPrompt(sid, state);
+    return toPromptItem(state, 'running');
+  }
 
-    // Per-turn override path. `PromptSubmission` allows the four runtime
-    // controls as optional — when ANY of them is set, we ensure the
-    // shadow is bootstrapped and run diff-dispatch with `source='prompt'`.
-    // When none is set, no setter fires and no bootstrap RPC is issued
-    // (the latter saves three round-trips on hot content-only paths).
-    // Both happen BEFORE we record an active prompt / call
-    // `core.rpc.prompt`, so a setter failure surfaces to the caller and
-    // we don't leak an active prompt record.
-    const overridePatch = pickAgentStatePatch(body);
+  async steer(sid: string, promptIds: readonly string[]): Promise<PromptSteerResult> {
+    await this._requireSession(sid);
+    if (promptIds.length === 0) {
+      throw new PromptNotFoundError(sid, '');
+    }
+    const active = this._active.get(sid);
+    if (active === undefined || active.completed || active.aborted) {
+      throw new PromptNotFoundError(sid, promptIds[0]!);
+    }
+
+    const queue = this._queued.get(sid) ?? [];
+    const selected: PromptState[] = [];
+    for (const promptId of promptIds) {
+      const state = queue.find((item) => item.promptId === promptId);
+      if (state === undefined) {
+        throw new PromptNotFoundError(sid, promptId);
+      }
+      selected.push(state);
+    }
+
+    const selectedIds = new Set(promptIds);
+    const remaining = queue.filter((item) => !selectedIds.has(item.promptId));
+    this._replaceQueue(sid, remaining);
+
+    try {
+      await this.core.rpc.steer({
+        sessionId: sid,
+        agentId: MAIN_AGENT_ID,
+        input: steerContentToCoreParts(selected),
+      });
+    } catch (error) {
+      this._restoreSteeredQueueItems(sid, selected);
+      throw error;
+    }
+
+    const event: SyntheticPromptSteeredEvent = {
+      type: 'prompt.steered',
+      agentId: MAIN_AGENT_ID,
+      sessionId: sid,
+      activePromptId: active.promptId,
+      promptIds: [...promptIds],
+      content: selected.flatMap((state) => state.body.content),
+      steeredAt: new Date().toISOString(),
+    };
+    this.eventService.publish(event as unknown as Event);
+    return { steered: true, prompt_ids: [...promptIds] };
+  }
+
+  private async _startPrompt(sid: string, state: PromptState): Promise<void> {
+    const overridePatch = pickAgentStatePatch(state.body);
     if (overridePatch !== undefined) {
       await this._ensureAgentStateBootstrapped(sid);
-      await this._applyAgentStateInternal(sid, overridePatch, 'prompt', promptId);
+      await this._applyAgentStateInternal(sid, overridePatch, 'prompt', state.promptId);
     }
 
-    const userMessageId = `msg_${sid}_pending_${promptId}`;
-
-    this._active.set(sid, {
-      promptId,
-      turnId: null,
-      completed: false,
-      aborted: false,
-    });
-
-    // Translate protocol MessageContent → agent-core ContentPart. Only text /
-    // image content survive the kosong-shape boundary; tool_use / tool_result
-    // / thinking originate from the model, not from client submission.
-    const input = body.content
-      .map((part) => {
-        switch (part.type) {
-          case 'text':
-            return { type: 'text' as const, text: part.text };
-          case 'image':
-            if (part.source.kind === 'url') {
-              return {
-                type: 'image_url' as const,
-                imageUrl: { url: part.source.url },
-              };
-            }
-            if (part.source.kind === 'base64') {
-              return {
-                type: 'image_url' as const,
-                imageUrl: {
-                  url: `data:${part.source.media_type};base64,${part.source.data}`,
-                },
-              };
-            }
-            return undefined;
-          // Other content kinds (file / tool_use / tool_result / thinking) are
-          // not accepted from client submissions in this stage.
-          default:
-            return undefined;
-        }
-      })
-      .filter((part): part is NonNullable<typeof part> => part !== undefined);
+    this._active.set(sid, state);
+    const input = contentToCoreParts(state.body.content);
 
     // Fire-and-forget. agent-core streams events via the SDK side of the
     // RPC pair which lands on `BridgeClientAPI.emitEvent → IEventService.publish`.
@@ -288,7 +389,7 @@ export class PromptService
     try {
       // eslint-disable-next-line no-console
       console.error(
-        `[DBG prompt-service.submit] sid=${sid} promptId=${promptId} agent=${MAIN_AGENT_ID} parts=${input.length} -> core.rpc.prompt(...)`,
+        `[DBG prompt-service.submit] sid=${sid} promptId=${state.promptId} agent=${MAIN_AGENT_ID} parts=${input.length} -> core.rpc.prompt(...)`,
       );
       await this.core.rpc.prompt({
         sessionId: sid,
@@ -297,20 +398,20 @@ export class PromptService
       });
       // eslint-disable-next-line no-console
       console.error(
-        `[DBG prompt-service.submit] sid=${sid} promptId=${promptId} core.rpc.prompt(...) resolved`,
+        `[DBG prompt-service.submit] sid=${sid} promptId=${state.promptId} core.rpc.prompt(...) resolved`,
       );
-    } catch (err) {
+    } catch (error) {
       // Clear our active-prompt state so the next submit succeeds; surface
       // the error to the route layer.
-      this._active.delete(sid);
+      if (this._active.get(sid)?.promptId === state.promptId) {
+        this._active.delete(sid);
+      }
       // eslint-disable-next-line no-console
       console.error(
-        `[DBG prompt-service.submit] sid=${sid} promptId=${promptId} core.rpc.prompt(...) threw: ${(err as Error)?.message ?? err}`,
+        `[DBG prompt-service.submit] sid=${sid} promptId=${state.promptId} core.rpc.prompt(...) threw: ${(error as Error)?.message ?? error}`,
       );
-      throw err;
+      throw error;
     }
-
-    return { prompt_id: promptId, user_message_id: userMessageId };
   }
 
   async abort(sid: string, pid: string): Promise<PromptAbortResult> {
@@ -331,11 +432,11 @@ export class PromptService
       };
       if (state.turnId !== null) cancelArgs.turnId = state.turnId;
       await this.core.rpc.cancel(cancelArgs);
-    } catch (err) {
+    } catch (error) {
       // Roll back the optimistic flag so the route surfaces a real error;
       // the caller will see a 50001 (internal) via the global error handler.
       state.aborted = false;
-      throw err;
+      throw error;
     }
     // Synthesize the prompt.aborted event immediately. agent-core may also
     // emit a turn.ended(cancelled) later; _handleBusEvent suppresses a second
@@ -548,9 +649,7 @@ export class PromptService
       // Capture the FIRST turn.started after submit as the "top-level" turn.
       // Subsequent nested turns (e.g. subagent) carry different turnId values
       // and are NOT promoted to the prompt's top-level.
-      if (state.turnId === null) {
-        state.turnId = event.turnId;
-      }
+      state.turnId ??= event.turnId;
       return;
     }
 
@@ -563,6 +662,7 @@ export class PromptService
       // completed to prevent stale lookups, but emit nothing.
       if (state.aborted) {
         this._active.delete(sid);
+        void this._startNextQueued(sid);
         return;
       }
 
@@ -583,6 +683,7 @@ export class PromptService
         // Fire typed listeners BEFORE publishing the synth event.
         this._onDidAbort.fire(synth);
         this.eventService.publish(synth as unknown as Event);
+        void this._startNextQueued(sid);
         return;
       }
 
@@ -599,6 +700,7 @@ export class PromptService
       // Fire typed listeners BEFORE publishing the synth event.
       this._onDidComplete.fire(synth);
       this.eventService.publish(synth as unknown as Event);
+      void this._startNextQueued(sid);
     }
   }
 
@@ -644,6 +746,9 @@ export class PromptService
   _injectActiveForTest(sid: string, promptId: string, turnId: number | null): void {
     this._active.set(sid, {
       promptId,
+      userMessageId: `msg_${sid}_pending_${promptId}`,
+      body: { content: [{ type: 'text', text: 'test' }] },
+      createdAt: new Date().toISOString(),
       turnId,
       completed: false,
       aborted: false,
@@ -651,6 +756,60 @@ export class PromptService
   }
 
   // --- internals -----------------------------------------------------------
+
+  private _createPromptState(
+    sid: string,
+    promptId: string,
+    body: PromptSubmission,
+  ): PromptState {
+    return {
+      promptId,
+      userMessageId: `msg_${sid}_pending_${promptId}`,
+      body,
+      createdAt: new Date().toISOString(),
+      turnId: null,
+      completed: false,
+      aborted: false,
+    };
+  }
+
+  private _enqueue(sid: string, state: PromptState): void {
+    let queue = this._queued.get(sid);
+    if (queue === undefined) {
+      queue = [];
+      this._queued.set(sid, queue);
+    }
+    queue.push(state);
+  }
+
+  private _replaceQueue(sid: string, queue: PromptState[]): void {
+    if (queue.length === 0) {
+      this._queued.delete(sid);
+      return;
+    }
+    this._queued.set(sid, queue);
+  }
+
+  private _restoreSteeredQueueItems(sid: string, selected: readonly PromptState[]): void {
+    const queue = this._queued.get(sid) ?? [];
+    const queueIds = new Set(queue.map((state) => state.promptId));
+    const missing = selected.filter((state) => !queueIds.has(state.promptId));
+    this._replaceQueue(sid, [...missing, ...queue]);
+  }
+
+  private async _startNextQueued(sid: string): Promise<void> {
+    const active = this._active.get(sid);
+    if (active !== undefined && !active.completed && !active.aborted) return;
+    const queue = this._queued.get(sid);
+    const next = queue?.shift();
+    if (queue !== undefined && queue.length === 0) {
+      this._queued.delete(sid);
+    }
+    if (next === undefined) return;
+    await this._startPrompt(sid, next).catch(() => {
+      void this._startNextQueued(sid);
+    });
+  }
 
   private async _requireSession(sid: string): Promise<void> {
     const all = await this.core.rpc.listSessions({});
@@ -662,6 +821,7 @@ export class PromptService
   override dispose(): void {
     if (this._isDisposed) return;
     this._active.clear();
+    this._queued.clear();
     this._agentState.clear();
     this._dispatchLog.clear();
     // `_onDidComplete` and `_onDidAbort` are registered via `this._register(...)`,
