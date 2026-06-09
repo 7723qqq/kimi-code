@@ -31,6 +31,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:scenarios": "tsx scripts/run-scenarios.ts",
+    "docker:e2e": "bash scripts/run-docker-e2e.sh",
     "clean": "rm -rf dist"
   },
   "dependencies": {

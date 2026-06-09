@@ -46,6 +46,8 @@ import type {
   SessionCreate,
   SessionStatus,
   SessionUpdate,
+  UndoSessionRequest,
+  UndoSessionResponse,
   Workspace,
   WorkspaceCreate,
   WorkspaceUpdate,
@@ -193,6 +195,12 @@ export class DaemonClient {
     body: CompactSessionRequest = {},
   ): Promise<CompactSessionResponse> {
     return this.http.compactSession(sid, body);
+  }
+  undoSession(
+    sid: string,
+    body: UndoSessionRequest = { count: 1 },
+  ): Promise<UndoSessionResponse> {
+    return this.http.undoSession(sid, body);
   }
   deleteSession(sid: string): Promise<{ deleted: true }> {
     return this.http.deleteSession(sid);

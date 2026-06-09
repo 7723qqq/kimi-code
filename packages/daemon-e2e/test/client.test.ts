@@ -18,9 +18,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   ErrorCode,
   type FileMeta,
+  type Message,
   type ModelCatalogItem,
   type ProviderCatalogItem,
   type Session,
+  type SessionStatusResponse,
 } from '@moonshot-ai/protocol';
 
 import { DaemonClient, EnvelopeError } from '../src/index.js';
@@ -274,6 +276,57 @@ describeLive('DaemonClient (live daemon required)', () => {
     },
     PROMPT_TIMEOUT_MS + 30_000,
   );
+
+  it(
+    'undoSession removes the latest prompt and returns refreshed messages plus status',
+    async () => {
+      const log = createCaseLogger('client: undo action');
+      const client = new DaemonClient({ baseUrl: BASE_URL });
+      const session = await client.createSession({ metadata: { cwd: process.cwd() } });
+      created.push({ client, sid: session.id });
+      log('source session', session);
+
+      await client.connect();
+      await client.subscribe(session.id);
+      log('subscribe accepted', { session_id: session.id });
+
+      const keepPrompt = await client.submitAndWait(
+        session.id,
+        { content: [{ type: 'text', text: 'Remember KEEP. Reply with "OK".' }] },
+        { waitFor: 'prompt.completed', timeoutMs: PROMPT_TIMEOUT_MS },
+      );
+      log('keep prompt completed', {
+        prompt_id: keepPrompt.prompt_id,
+        user_message_id: keepPrompt.user_message_id,
+        final_frame: frameForLog(keepPrompt.finalFrame),
+      });
+
+      const undoPrompt = await client.submitAndWait(
+        session.id,
+        { content: [{ type: 'text', text: 'Remember UNDO-ME. Reply with "OK".' }] },
+        { waitFor: 'prompt.completed', timeoutMs: PROMPT_TIMEOUT_MS },
+      );
+      log('undo prompt completed', {
+        prompt_id: undoPrompt.prompt_id,
+        user_message_id: undoPrompt.user_message_id,
+        final_frame: frameForLog(undoPrompt.finalFrame),
+      });
+
+      const beforeUndo = await client.listMessages(session.id, { page_size: 100 });
+      log('messages before undo', beforeUndo);
+      expect(textFromMessages(beforeUndo.items)).toContain('UNDO-ME');
+
+      const result = await client.undoSession(session.id, { count: 1, page_size: 100 });
+      log('undo response', result);
+
+      const afterText = textFromMessages(result.messages.items);
+      expect(afterText).toContain('KEEP');
+      expect(afterText).not.toContain('UNDO-ME');
+      expect(result.messages.has_more).toBe(false);
+      expect(result.status.context_tokens).toBeGreaterThanOrEqual(0);
+    },
+    PROMPT_TIMEOUT_MS * 2 + 30_000,
+  );
 });
 
 describe('DaemonClient session action helpers', () => {
@@ -343,6 +396,33 @@ describe('DaemonClient session action helpers', () => {
     expect(calls[0]?.init.method).toBe('POST');
     expect(parseRecordedJsonBody(calls[0])).toEqual({
       instruction: '  focus on decisions  ',
+    });
+  });
+
+  it('undoSession posts the action-suffix route and unwraps messages plus status', async () => {
+    const log = createCaseLogger('client helper: undoSession');
+    const calls: FetchCall[] = [];
+    const message = testMessage({ id: 'msg_kept', session_id: 'sess_source' });
+    const undoResponse = {
+      messages: { items: [message], has_more: false },
+      status: testSessionStatus(),
+    };
+    const client = new DaemonClient({
+      baseUrl: 'http://daemon.example.test',
+      fetchImpl: recordingFetch(okEnvelope(undoResponse), calls),
+    });
+
+    const result = await client.undoSession('sess_source', { count: 2, page_size: 25 });
+
+    log('fetch calls', calls);
+    log('unwrapped result', result);
+    expect(result).toEqual(undoResponse);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe('http://daemon.example.test/api/v1/sessions/sess_source:undo');
+    expect(calls[0]?.init.method).toBe('POST');
+    expect(parseRecordedJsonBody(calls[0])).toEqual({
+      count: 2,
+      page_size: 25,
     });
   });
 
@@ -610,4 +690,35 @@ function testFile(overrides: Partial<FileMeta> = {}): FileMeta {
     created_at: '2026-06-09T00:00:00.000Z',
     ...overrides,
   };
+}
+
+function testMessage(overrides: Partial<Message> = {}): Message {
+  return {
+    id: 'msg_example',
+    session_id: 'sess_example',
+    role: 'user',
+    content: [{ type: 'text', text: 'kept' }],
+    created_at: '2026-06-09T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function testSessionStatus(): SessionStatusResponse {
+  return {
+    model: 'kimi-code/kimi-for-coding',
+    thinking_level: 'off',
+    permission: 'manual',
+    plan_mode: false,
+    context_tokens: 0,
+    max_context_tokens: 100,
+    context_usage: 0,
+  };
+}
+
+function textFromMessages(messages: Array<{ content: Array<{ type: string; text?: string }> }>): string {
+  return messages
+    .flatMap((message) => message.content)
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text ?? '')
+    .join('\n');
 }
