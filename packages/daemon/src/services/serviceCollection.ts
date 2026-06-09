@@ -163,5 +163,9 @@ export function createDaemonServiceCollection(
   services.set(IFileStore, new SyncDescriptor(FileStore, [], false));
   services.set(IWorkspaceRegistry, new SyncDescriptor(WorkspaceRegistryService, [], false));
 
+  for (const [id, override] of daemon.serviceOverrides ?? []) {
+    services.set(id, override);
+  }
+
   return services;
 }

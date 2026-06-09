@@ -39,7 +39,7 @@ import {
   listTasksResponseSchema,
 } from '@moonshot-ai/protocol';
 
-import { IRestGateway, startDaemon, type RunningDaemon } from '../src';
+import { IRestGateway, startDaemon, type DaemonStartOptions, type RunningDaemon } from '../src';
 
 let tmpDir: string;
 let lockPath: string;
@@ -63,13 +63,16 @@ afterEach(async () => {
   rmSync(bridgeHome, { recursive: true, force: true });
 });
 
-async function bootDaemon(): Promise<RunningDaemon> {
+async function bootDaemon(
+  serviceOverrides?: DaemonStartOptions['serviceOverrides'],
+): Promise<RunningDaemon> {
   daemon = await startDaemon({
     host: '127.0.0.1',
     port: 0,
     lockPath,
     logger: pino({ level: 'silent' }),
     coreProcessOptions: { homeDir: bridgeHome },
+    serviceOverrides,
   });
   return daemon;
 }
@@ -115,17 +118,13 @@ async function createSession(r: RunningDaemon): Promise<string> {
 }
 
 /**
- * Override the container's `ITaskService` with a stub. Used to drive the
+ * Build an `ITaskService` stub. Used to drive the
  * 40904 / 40406 envelope mapping paths without seeding real background
  * tasks.
- *
- * The InstantiationService reads from the live `ServiceCollection`, so a
- * post-boot `services.set(...)` is observed by subsequent route requests.
  */
-function overrideTaskService(
-  r: RunningDaemon,
+function createTaskServiceOverride(
   stub: Partial<ITaskService>,
-): void {
+): ITaskService {
   const defaultImpl: ITaskService = {
     _serviceBrand: undefined,
     list: async () => [],
@@ -134,11 +133,7 @@ function overrideTaskService(
     },
     cancel: async () => ({ cancelled: true as const }),
   };
-  const replacement = { ...defaultImpl, ...stub };
-  const ix = r.services as unknown as {
-    services: { set: (id: unknown, impl: unknown) => void };
-  };
-  ix.services.set(ITaskService, replacement);
+  return { ...defaultImpl, ...stub };
 }
 
 describe('GET /api/v1/sessions/{sid}/tasks', () => {
@@ -240,13 +235,18 @@ describe('POST /api/v1/sessions/{sid}/tasks/{tid}:cancel', () => {
   });
 
   it("emits 40904 envelope with data:{cancelled:false} when service throws TaskAlreadyFinishedError", async () => {
-    const r = await bootDaemon();
-    const sid = await createSession(r);
-    overrideTaskService(r, {
-      cancel: async () => {
-        throw new TaskAlreadyFinishedError(sid, 't_finished', 'completed');
-      },
-    });
+    let sid = '';
+    const r = await bootDaemon([
+      [
+        ITaskService,
+        createTaskServiceOverride({
+          cancel: async () => {
+            throw new TaskAlreadyFinishedError(sid, 't_finished', 'completed');
+          },
+        }),
+      ],
+    ]);
+    sid = await createSession(r);
     const res = await appOf(r).inject({
       method: 'POST',
       url: `/api/v1/sessions/${sid}/tasks/t_finished:cancel`,
@@ -262,11 +262,15 @@ describe('POST /api/v1/sessions/{sid}/tasks/{tid}:cancel', () => {
   });
 
   it('returns {cancelled:true} when service succeeds (stub override)', async () => {
-    const r = await bootDaemon();
+    const r = await bootDaemon([
+      [
+        ITaskService,
+        createTaskServiceOverride({
+          cancel: async () => ({ cancelled: true as const }),
+        }),
+      ],
+    ]);
     const sid = await createSession(r);
-    overrideTaskService(r, {
-      cancel: async () => ({ cancelled: true as const }),
-    });
     const res = await appOf(r).inject({
       method: 'POST',
       url: `/api/v1/sessions/${sid}/tasks/t_running:cancel`,

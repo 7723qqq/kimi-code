@@ -208,6 +208,11 @@ describe('InstantiationService (basic)', () => {
     expect(ix.invokeFunction((a) => a.get(ILogger))).toBe(second);
   });
 
+  it('does not expose the backing ServiceCollection as a public runtime property', () => {
+    const ix = new InstantiationService(new ServiceCollection());
+    expect('services' in ix).toBe(false);
+  });
+
   it('createChild returns a child container, dispose tears down', () => {
     // Detailed createChild + dispose semantics live in `child.test.ts`; this
     // is just a smoke test that the W2.3 wiring is in place.
