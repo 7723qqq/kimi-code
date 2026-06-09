@@ -197,16 +197,17 @@ html[data-theme="modern"] .con { background: var(--bg); }
 html[data-theme="modern"] .chat { background: transparent; }
 
 /* Session rows → rounded, inset pills with a soft active state (cards, not a
-   full-bleed tint bar). Keeps the mono timestamp/badges. */
-html[data-theme="modern"] .se {
+   full-bleed tint bar). Keeps the mono timestamp/badges. Scoped under
+   .sessions because .se is also a (different) class in MobileTopBar. */
+html[data-theme="modern"] .sessions .se {
   margin: 1px 6px;
   border-radius: var(--r-sm);
   /* Trim the row padding by the inset margin so the title still starts at the
      same x as the workspace name (whose header has no inset). */
   padding: 7px calc(var(--sb-pad-x, 12px) - 6px);
 }
-html[data-theme="modern"] .se:hover { background: #f0f0f0; }
-html[data-theme="modern"] .se.on {
+html[data-theme="modern"] .sessions .se:hover { background: #f0f0f0; }
+html[data-theme="modern"] .sessions .se.on {
   background: var(--soft);
   box-shadow: inset 0 0 0 1px var(--bd);
 }
@@ -304,7 +305,7 @@ html[data-theme="modern"] .toggle-pill {
   font-size: 10.5px;
 }
 html[data-theme="modern"] .toggle-pill.on {
-  background: var(--blue-soft);
+  background: var(--soft);
   color: var(--blue);
 }
 html[data-theme="modern"] .model-dropdown,
@@ -416,11 +417,190 @@ html[data-theme="modern"] .box.open .bb > div:nth-child(4) { animation-delay: 90
 html[data-theme="modern"] .box.open .bb > div:nth-child(5) { animation-delay: 120ms; }
 html[data-theme="modern"] .box.open .bb > div:nth-child(6) { animation-delay: 150ms; }
 
-/* Modern dialogs/sheets: soften the centered-modal shadow on desktop too. The
-   data-theme hook is on <html>, so teleported/fixed dialogs inherit it. */
+/* ===========================================================================
+   MODERN DE-TERMINALIZATION
+   Component-scoped styles ship the terminal look (sharp 0–4px corners, --mono
+   on UI copy, 2px blue "terminal stripe" dialog tops, hardcoded colors). The
+   rules below restyle those remnants under Modern with the shared tokens
+   (--r-* radius scale, --sans for UI copy, --sh/--shc shadows). Code, paths,
+   commands, timestamps and badges deliberately keep --mono. Grouped by
+   surface; Terminal (default theme) is untouched.
+   =========================================================================== */
+
+/* ---- App shell ---- */
+html[data-theme="modern"] .app { border-top: none; }
+html[data-theme="modern"] .auth-banner-inner { font-family: var(--sans); }
+html[data-theme="modern"] .auth-banner-btn { border-radius: var(--r-sm); font-family: var(--sans); }
+html[data-theme="modern"] .coming-soon { font-family: var(--sans); }
+html[data-theme="modern"] .gload-text { font-family: var(--sans); }
+
+/* ---- Sidebar: buttons, rename inputs, kebab menu, settings popover ---- */
+html[data-theme="modern"] .btn-new-ws { font-family: var(--sans); }
+html[data-theme="modern"] .theme-opt { font-family: var(--sans); }
+html[data-theme="modern"] .gh-rename { border-radius: var(--r-xs); font-family: var(--sans); }
+html[data-theme="modern"] .gh.sel { border-radius: var(--r-sm); }
+html[data-theme="modern"] .gh-add { color: var(--faint); }
+html[data-theme="modern"] .gh-add:hover { color: var(--dim); }
+html[data-theme="modern"] .am-item.danger { color: var(--err); }
+html[data-theme="modern"] .sessions .se .menu { border-radius: var(--r-sm); box-shadow: var(--sh); }
+html[data-theme="modern"] .sessions .se .menu-item { font-family: var(--sans); }
+html[data-theme="modern"] .sessions .se .rename-input { border-radius: var(--r-xs); font-family: var(--sans); }
+html[data-theme="modern"] .sessions .se .kebab { border-radius: var(--r-xs); }
+html[data-theme="modern"] .sessions .se .btn-confirm,
+html[data-theme="modern"] .sessions .se .btn-cancel { border-radius: var(--r-xs); font-family: var(--sans); }
+
+/* ---- Chat content: code blocks, inline code, thinking, tool chips ---- */
+html[data-theme="modern"] .md .code-block-container { border-radius: var(--r-sm); box-shadow: var(--shc); }
+html[data-theme="modern"] .md .diff-wrap { border-radius: var(--r-sm); box-shadow: var(--shc); }
+html[data-theme="modern"] .md :not(pre) > code,
+html[data-theme="modern"] .md .inline-code { border-radius: var(--r-xs); }
+html[data-theme="modern"] .mthink .h,
+html[data-theme="modern"] .mthink .c { font-family: var(--sans); }
+html[data-theme="modern"] .box .chip { border-radius: var(--r-xs); font-family: var(--mono); }
+html[data-theme="modern"] .box.err { border-color: color-mix(in srgb, var(--err) 25%, #fff); }
+html[data-theme="modern"] .box.err .bh { background: color-mix(in srgb, var(--err) 4%, #fff); }
+html[data-theme="modern"] .box.err .bh:hover { background: color-mix(in srgb, var(--err) 7%, #fff); }
+html[data-theme="modern"] .u-bub code { background: color-mix(in srgb, var(--blue) 9%, transparent); }
+html[data-theme="modern"] .newmsg-pill { font-family: var(--sans); }
+html[data-theme="modern"] .seg-btn { font-family: var(--sans); }
+html[data-theme="modern"] .files-back { font-family: var(--sans); }
+
+/* ---- Approval & question cards (match the rounded .box tool cards) ---- */
+html[data-theme="modern"] .appr { border-radius: var(--r-md); box-shadow: var(--shc); overflow: hidden; }
+html[data-theme="modern"] .appr .ah { border-radius: var(--r-md) var(--r-md) 0 0; }
+html[data-theme="modern"] .kbtn { font-family: var(--sans); transition: background-color 0.18s ease, color 0.18s ease; }
+html[data-theme="modern"] .feedback-ta { font-family: var(--sans); border-radius: var(--r-sm); }
+html[data-theme="modern"] .shell-cmd,
+html[data-theme="modern"] .shell-danger { border-radius: var(--r-sm); }
+html[data-theme="modern"] .aw,
+html[data-theme="modern"] .abadge,
+html[data-theme="modern"] .chip-label { border-radius: var(--r-xs); }
+html[data-theme="modern"] .qcard { border-radius: var(--r-md); box-shadow: var(--shc); overflow: hidden; }
+html[data-theme="modern"] .qcard .qh { border-radius: var(--r-md) var(--r-md) 0 0; }
+html[data-theme="modern"] .qopt { border-radius: var(--r-sm); }
+html[data-theme="modern"] .qbtn { font-family: var(--sans); border-radius: var(--r-sm); }
+html[data-theme="modern"] .other-input { font-family: var(--sans); }
+html[data-theme="modern"] .qnav { font-family: var(--sans); border-radius: var(--r-xs); }
+html[data-theme="modern"] .qheader-chip { border-radius: var(--r-xs); }
+
+/* ---- Composer: permission pill, model menu, queue strip ---- */
+html[data-theme="modern"] .perm-pill { font-family: var(--sans); border-radius: var(--r-sm); }
+html[data-theme="modern"] .md-row { font-family: var(--sans); }
+html[data-theme="modern"] .queue-item,
+html[data-theme="modern"] .queue-text { font-family: var(--sans); }
+html[data-theme="modern"] .compact-chip { border-radius: var(--r-xs); }
+html[data-theme="modern"] .interrupt:hover { background: color-mix(in srgb, var(--err) 6%, transparent); }
+html[data-theme="modern"] .att-thumb { border-radius: 5px; }
+
+/* ---- Floating menus + status line ---- */
+html[data-theme="modern"] .slash-menu { border-radius: var(--r-md); box-shadow: var(--sh); }
+html[data-theme="modern"] .slash-desc { font-family: var(--sans); }
+html[data-theme="modern"] .mention-menu { border-radius: var(--r-md); box-shadow: var(--sh); }
+html[data-theme="modern"] .mention-state { font-family: var(--sans); }
+html[data-theme="modern"] .statusline .popover {
+  border-radius: var(--r-md);
+  border-top: 1px solid var(--line);
+  box-shadow: var(--sh);
+}
+html[data-theme="modern"] .statusline .pop-row { font-family: var(--sans); border-radius: var(--r-xs); }
+html[data-theme="modern"] .interrupt-btn { border-radius: var(--r-xs); font-family: var(--sans); }
+
+/* ---- Dialog shell (ModelPicker / Login / NewSession / Sessions /
+        AddWorkspace / ProviderManager / StatusPanel share these classes).
+        UI copy goes sans; per-element mono below keeps code-like content
+        (paths, model ids, device codes) terminal-crisp. ---- */
 html[data-theme="modern"] .backdrop .dialog {
+  font-family: var(--sans);
+  border-top: 1px solid var(--line);
   box-shadow: 0 8px 30px rgba(20, 23, 28, 0.16);
 }
+@media (min-width: 641px) {
+  /* Desktop only: ≤640px keeps the bottom-sheet 16px top corners. */
+  html[data-theme="modern"] .backdrop .dialog { border-radius: var(--r-lg); }
+  html[data-theme="modern"] .backdrop .footer-hint { border-radius: 0 0 var(--r-lg) var(--r-lg); }
+}
+html[data-theme="modern"] .backdrop .act-btn { border-radius: var(--r-sm); font-family: var(--sans); }
+html[data-theme="modern"] .backdrop .search-input { border-radius: var(--r-sm); font-family: var(--sans); }
+html[data-theme="modern"] .backdrop .finput { border-radius: var(--r-sm); }
+html[data-theme="modern"] .backdrop .recent-item { border-radius: var(--r-sm); }
+html[data-theme="modern"] .backdrop .folder-row {
+  margin: 1px 6px;
+  width: calc(100% - 12px);
+  border-radius: var(--r-sm);
+}
+html[data-theme="modern"] .backdrop .session-row { margin: 1px 6px; border-radius: var(--r-sm); }
+html[data-theme="modern"] .backdrop .session-row.is-active { box-shadow: inset 0 0 0 1px var(--bd); }
+html[data-theme="modern"] .backdrop .up-btn,
+html[data-theme="modern"] .backdrop .crumb { border-radius: var(--r-xs); }
+html[data-theme="modern"] .backdrop .paste-input { border-radius: var(--r-sm); }
+html[data-theme="modern"] .backdrop .paste-add { border-radius: var(--r-sm); font-family: var(--sans); }
+html[data-theme="modern"] .backdrop .model-row { font-family: var(--mono); } /* model ids */
+html[data-theme="modern"] .backdrop .caps { border-radius: var(--r-xs); }
+html[data-theme="modern"] .backdrop .dc-code-wrap { border-radius: var(--r-md); }
+html[data-theme="modern"] .backdrop .dc-uri-btn { border-radius: var(--r-sm); }
+html[data-theme="modern"] .backdrop .dc-copy-btn { border-radius: var(--r-sm); font-family: var(--sans); }
+html[data-theme="modern"] .backdrop .dc-countdown { font-family: var(--mono); } /* mm:ss timer */
+html[data-theme="modern"] .backdrop .add-btn-oauth,
+html[data-theme="modern"] .backdrop .add-btn { border-radius: var(--r-sm); font-family: var(--sans); }
+html[data-theme="modern"] .backdrop .prov-key-state { border-radius: var(--r-xs); }
+html[data-theme="modern"] .backdrop .bar { background: var(--line); }
+
+/* ---- Files / diff / tasks panes ---- */
+html[data-theme="modern"] .back-btn { border-radius: var(--r-sm); font-family: var(--sans); }
+html[data-theme="modern"] .changes-pane .empty-state { font-family: var(--sans); }
+html[data-theme="modern"] .br-label,
+html[data-theme="modern"] .empty-head { font-family: var(--sans); }
+html[data-theme="modern"] .change-count { font-family: var(--sans); border-radius: 999px; }
+html[data-theme="modern"] .ch-row,
+html[data-theme="modern"] .ct-row {
+  margin: 1px 6px;
+  width: calc(100% - 12px);
+  border-radius: var(--r-sm);
+}
+html[data-theme="modern"] .changes-pane .badge,
+html[data-theme="modern"] .changed-tree .badge { border-radius: var(--r-xs); }
+html[data-theme="modern"] .ft-row { margin: 1px 6px; border-radius: var(--r-sm); }
+html[data-theme="modern"] .ft-row.selected { box-shadow: inset 0 0 0 1px var(--bd); }
+html[data-theme="modern"] .ft-badge { border-radius: var(--r-xs); }
+html[data-theme="modern"] .ft-loading,
+html[data-theme="modern"] .ft-empty { font-family: var(--sans); }
+html[data-theme="modern"] .fp-copy { font-family: var(--sans); border-radius: var(--r-sm); }
+html[data-theme="modern"] .fp-empty,
+html[data-theme="modern"] .fp-loading { font-family: var(--sans); }
+html[data-theme="modern"] .fp-binary-card { border-radius: var(--r-md); box-shadow: var(--shc); }
+html[data-theme="modern"] .fp-binary-label { font-family: var(--sans); }
+html[data-theme="modern"] .fp-image { border-radius: var(--r-sm); box-shadow: var(--shc); }
+html[data-theme="modern"] .tp-out { border-radius: var(--r-sm); font-family: var(--mono); } /* command output */
+html[data-theme="modern"] .tp-stop { border-radius: var(--r-sm); font-family: var(--sans); }
+html[data-theme="modern"] .tp-kind { border-radius: var(--r-xs); }
+html[data-theme="modern"] .tabs.mobile .tb { font-family: var(--sans); }
+
+/* ---- Warning toasts: route the error reds through the token system ---- */
+html[data-theme="modern"] .toast.err { border-color: color-mix(in srgb, var(--err) 35%, transparent); }
+html[data-theme="modern"] .toast.err .dot { background: var(--err); }
+html[data-theme="modern"] .toast.err .msg { color: var(--err); }
+html[data-theme="modern"] .toast .x { border-radius: var(--r-xs); }
+
+/* ---- Misc chrome ---- */
+html[data-theme="modern"] .lang-switch { border-radius: var(--r-sm); font-family: var(--sans); }
+html[data-theme="modern"] .ob-seg-btn { font-family: var(--sans); }
+
+/* ---- Mobile surfaces (bottom sheets, top bar, switcher) ---- */
+html[data-theme="modern"] .sheet-panel { font-family: var(--sans); }
+html[data-theme="modern"] .topbar .tb-path { font-family: var(--sans); }
+html[data-theme="modern"] .newrow { font-family: var(--sans); }
+html[data-theme="modern"] .kmenu { border-radius: var(--r-md); box-shadow: var(--sh); }
+html[data-theme="modern"] .kitem { font-family: var(--sans); }
+html[data-theme="modern"] .mlist .srow {
+  margin: 1px 8px;
+  border-radius: var(--r-sm);
+  border-bottom: none;
+  padding: 12px 10px;
+}
+html[data-theme="modern"] .mlist .srow.cur { box-shadow: inset 0 0 0 1px var(--bd); }
+html[data-theme="modern"] .srow,
+html[data-theme="modern"] .srow-sub,
+html[data-theme="modern"] .srow-val { font-family: var(--sans); }
 
 /* ---- Modern keyframes (shared by component-scoped rules) ---- */
 @keyframes kimi-bubble-in {

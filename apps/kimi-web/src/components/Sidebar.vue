@@ -722,7 +722,7 @@ function blinkOnce(): void {
 .gh-name {
   font-size: 14px;
   font-weight: 400;
-  color: #000;
+  color: var(--ink);
   flex: 1;
   min-width: 0;
   overflow: hidden;
