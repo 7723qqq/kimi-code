@@ -105,9 +105,17 @@ function createPromptServiceOverride(
   const noopAbort = (() => ({ dispose: () => undefined })) as IPromptService['onDidAbort'];
   const defaultImpl: IPromptService = {
     _serviceBrand: undefined,
+    list: async () => ({ active: null, queued: [] }),
     submit: async () => ({
       prompt_id: 'prompt_test',
       user_message_id: 'msg_test',
+      status: 'running',
+      content: [{ type: 'text', text: 'test' }],
+      created_at: '2026-06-09T00:00:00.000Z',
+    }),
+    steer: async (_sid, promptIds) => ({
+      steered: true,
+      prompt_ids: [...promptIds],
     }),
     abort: async () => ({ aborted: true }),
     applyAgentState: async () => undefined,
@@ -287,6 +295,9 @@ describe('POST /api/v1/sessions/{sid}/prompts — submit validation (W7.2 / Chai
             return {
               prompt_id: 'prompt_from_stub',
               user_message_id: 'msg_from_stub',
+              status: 'running',
+              content: body.content,
+              created_at: '2026-06-09T00:00:00.000Z',
             };
           },
         }),
@@ -331,6 +342,9 @@ describe('POST /api/v1/sessions/{sid}/prompts — submit validation (W7.2 / Chai
             return {
               prompt_id: 'prompt_from_stub',
               user_message_id: 'msg_from_stub',
+              status: 'running',
+              content: body.content,
+              created_at: '2026-06-09T00:00:00.000Z',
             };
           },
         }),
@@ -399,6 +413,9 @@ describe('POST /api/v1/sessions/{sid}/prompts — submit validation (W7.2 / Chai
             return {
               prompt_id: 'prompt_from_stub',
               user_message_id: 'msg_from_stub',
+              status: 'running',
+              content: [{ type: 'text', text: 'stub' }],
+              created_at: '2026-06-09T00:00:00.000Z',
             };
           },
         }),
@@ -434,6 +451,9 @@ describe('POST /api/v1/sessions/{sid}/prompts — submit validation (W7.2 / Chai
             return {
               prompt_id: 'prompt_from_stub',
               user_message_id: 'msg_from_stub',
+              status: 'running',
+              content: [{ type: 'text', text: 'stub' }],
+              created_at: '2026-06-09T00:00:00.000Z',
             };
           },
         }),
@@ -474,6 +494,108 @@ describe('POST /api/v1/sessions/{sid}/prompts — submit validation (W7.2 / Chai
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40001);
     expect(submitted).toBe(false);
+  });
+});
+
+describe('Prompt queue and steer routes', () => {
+  it('lists active and queued prompts', async () => {
+    let sid: string | undefined;
+    const r = await bootDaemon([
+      [
+        IPromptService,
+        createPromptServiceOverride({
+          list: async (sessionId) => {
+            expect(sessionId).toBe(sid);
+            return {
+              active: {
+                prompt_id: 'prompt_active',
+                user_message_id: 'msg_active',
+                status: 'running',
+                content: [{ type: 'text', text: 'active' }],
+                created_at: '2026-06-09T00:00:00.000Z',
+              },
+              queued: [
+                {
+                  prompt_id: 'prompt_queued',
+                  user_message_id: 'msg_queued',
+                  status: 'queued',
+                  content: [{ type: 'text', text: 'queued' }],
+                  created_at: '2026-06-09T00:00:01.000Z',
+                },
+              ],
+            };
+          },
+        }),
+      ],
+    ]);
+    sid = await createSession(r);
+
+    const res = await appOf(r).inject({
+      method: 'GET',
+      url: `/api/v1/sessions/${sid}/prompts`,
+    });
+    const env = envelopeOf<{
+      active: { prompt_id: string } | null;
+      queued: Array<{ prompt_id: string }>;
+    }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data?.active?.prompt_id).toBe('prompt_active');
+    expect(env.data?.queued.map((p) => p.prompt_id)).toEqual(['prompt_queued']);
+  });
+
+  it('steers one queued prompt through the action suffix route', async () => {
+    let sid: string | undefined;
+    let steered: readonly string[] | undefined;
+    const r = await bootDaemon([
+      [
+        IPromptService,
+        createPromptServiceOverride({
+          steer: async (sessionId, promptIds) => {
+            expect(sessionId).toBe(sid);
+            steered = promptIds;
+            return { steered: true, prompt_ids: [...promptIds] };
+          },
+        }),
+      ],
+    ]);
+    sid = await createSession(r);
+
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/prompts/prompt_queued:steer`,
+    });
+    const env = envelopeOf<{ steered: true; prompt_ids: string[] }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data?.prompt_ids).toEqual(['prompt_queued']);
+    expect(steered).toEqual(['prompt_queued']);
+  });
+
+  it('steers multiple queued prompts through the collection action route', async () => {
+    let sid: string | undefined;
+    let steered: readonly string[] | undefined;
+    const r = await bootDaemon([
+      [
+        IPromptService,
+        createPromptServiceOverride({
+          steer: async (sessionId, promptIds) => {
+            expect(sessionId).toBe(sid);
+            steered = promptIds;
+            return { steered: true, prompt_ids: [...promptIds] };
+          },
+        }),
+      ],
+    ]);
+    sid = await createSession(r);
+
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/prompts:steer`,
+      payload: { prompt_ids: ['prompt_a', 'prompt_b'] },
+    });
+    const env = envelopeOf<{ steered: true; prompt_ids: string[] }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data?.prompt_ids).toEqual(['prompt_a', 'prompt_b']);
+    expect(steered).toEqual(['prompt_a', 'prompt_b']);
   });
 });
 

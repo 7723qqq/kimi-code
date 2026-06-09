@@ -206,6 +206,10 @@ export class WsClient {
       { reportDir: this.opts.reportDir },
     );
 
+    if (frame.type === 'ping') {
+      this.send({ type: 'pong', payload: { nonce: pingNonce(frame) } });
+    }
+
     // Dispatch to subscribers first — they observe every frame, regardless of
     // whether a `waitForFrame` consumed it.
     for (const sub of this._subscribers) {
@@ -253,6 +257,11 @@ export class WsClient {
     }
     for (const w of this._closeWaiters.splice(0)) w(this._closeReason);
   }
+}
+
+function pingNonce(frame: AnyFrame): string {
+  const payload = frame.payload as { nonce?: unknown } | undefined;
+  return typeof payload?.nonce === 'string' ? payload.nonce : '';
 }
 
 function errorForReport(error: unknown): unknown {

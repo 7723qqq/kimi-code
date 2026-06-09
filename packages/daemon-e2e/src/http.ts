@@ -20,7 +20,9 @@ import type {
   Message,
   ProviderCatalogItem,
   PromptAbortResponse,
+  PromptListResponse,
   PromptSubmission,
+  PromptSteerResult,
   PromptSubmitResult,
   QuestionResolveResult,
   QuestionResponse,
@@ -302,8 +304,25 @@ export class HttpClient {
   }
 
   // ── Prompts ─────────────────────────────────────────────────────────────
+  listPrompts(sid: string): Promise<PromptListResponse> {
+    return this.request('GET', `/sessions/${encodeURIComponent(sid)}/prompts`, undefined);
+  }
   submitPrompt(sid: string, body: PromptSubmission): Promise<PromptSubmitResult> {
     return this.request('POST', `/sessions/${encodeURIComponent(sid)}/prompts`, body);
+  }
+  steerPrompt(sid: string, pid: string): Promise<PromptSteerResult> {
+    return this.request(
+      'POST',
+      `/sessions/${encodeURIComponent(sid)}/prompts/${encodeURIComponent(pid)}:steer`,
+      {},
+    );
+  }
+  steerPrompts(sid: string, promptIds: readonly string[]): Promise<PromptSteerResult> {
+    return this.request(
+      'POST',
+      `/sessions/${encodeURIComponent(sid)}/prompts:steer`,
+      { prompt_ids: [...promptIds] },
+    );
   }
   abortPrompt(sid: string, pid: string): Promise<PromptAbortResponse> {
     return this.request(

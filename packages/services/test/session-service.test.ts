@@ -279,7 +279,9 @@ function makePromptServiceStub(): {
   const emitter = new Emitter<never>();
   const promptService: IPromptService = {
     _serviceBrand: undefined,
+    list: vi.fn() as unknown as IPromptService['list'],
     submit: vi.fn() as unknown as IPromptService['submit'],
+    steer: vi.fn() as unknown as IPromptService['steer'],
     abort: vi.fn() as unknown as IPromptService['abort'],
     applyAgentState,
     onDidComplete: emitter.event as unknown as IPromptService['onDidComplete'],

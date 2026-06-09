@@ -1,9 +1,12 @@
 /**
  * `/sessions/{sid}/prompts*` REST routes.
  *
- * 2 endpoints (REST.md §3.5):
+ * Prompt endpoints (REST.md §3.5):
  *
+ *   GET    /sessions/{sid}/prompts              body: empty             data: PromptListResponse
  *   POST   /sessions/{sid}/prompts              body: PromptSubmission  data: PromptSubmitResult
+ *   POST   /sessions/{sid}/prompts/{pid}:steer  body: empty             data: { steered, prompt_ids }
+ *   POST   /sessions/{sid}/prompts:steer        body: { prompt_ids }    data: { steered, prompt_ids }
  *   POST   /sessions/{sid}/prompts/{pid}:abort  body: empty             data: { aborted, at_seq? }
  *
  * **Stateful session, optional per-turn overrides**: `PromptSubmission`
@@ -17,15 +20,15 @@
  *
  * **Error mapping**:
  *   - `SessionNotFoundError`        → 40401
- *   - `SessionBusyError`            → 40901 (with details.active_prompt_id)
+ *   - `SessionBusyError`            → 40901 (legacy mapping; normal submit
+ *                                      now queues instead of throwing busy)
  *   - `PromptNotFoundError`         → 40402
  *   - `PromptAlreadyCompletedError` → 40903 with data `{aborted: false}`
  *     per REST.md §3.5 (idempotent — wire data, non-zero code)
  *   - Other errors → 50001 via the global `installErrorHandler`.
  *
- * **Shared abort handler**: the actual abort logic lives in
- * `IPromptService.abort` — both this REST route AND the WS abort control
- * message dispatch through the same accessor call. The route is just a thin
+ * **Shared prompt actions**: abort logic lives in `IPromptService.abort`, and
+ * steer logic lives in `IPromptService.steer`. The route is just a thin
  * envelope layer.
  *
  * **Anti-corruption**: routes go through `accessor.get(IPromptService)`;
@@ -37,8 +40,11 @@ import { readFile } from 'node:fs/promises';
 import {
   ErrorCode,
   promptAbortResponseSchema,
+  promptListResponseSchema,
   promptSubmissionSchema,
   promptSubmitResultSchema,
+  promptSteerRequestSchema,
+  promptSteerResultSchema,
   type PromptSubmission,
 } from '@moonshot-ai/protocol';
 import {
@@ -62,6 +68,14 @@ import { FileNotFoundError, IFileStore, type GetResult } from '#/services/fileSt
 import { parseActionSuffix } from './action-suffix';
 
 interface PromptRouteHost {
+  get(
+    path: string,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
+    handler: (
+      req: { id: string; params: unknown },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void,
+  ): unknown;
   post(
     path: string,
     options: { preHandler: unknown[]; schema?: Record<string, unknown> },
@@ -94,6 +108,39 @@ export function registerPromptsRoutes(
   app: PromptRouteHost,
   ix: IInstantiationService,
 ): void {
+  // GET /sessions/{session_id}/prompts ----------------------------------
+  const listRoute = defineRoute(
+    {
+      method: 'GET',
+      path: '/sessions/{session_id}/prompts',
+      params: sessionIdParamSchema,
+      success: { data: promptListResponseSchema },
+      errors: {
+        [ErrorCode.SESSION_NOT_FOUND]: {},
+      },
+      description: 'List the active prompt and queued prompts for a session',
+      tags: ['prompts'],
+      operationId: 'listPrompts',
+    },
+    async (req, reply) => {
+      try {
+        const { session_id } = req.params;
+        const result = await ix.invokeFunction((a) =>
+          a.get(IPromptService).list(session_id),
+        );
+        reply.send(okEnvelope(result, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
+      }
+    },
+  );
+
+  app.get(
+    listRoute.path,
+    listRoute.options,
+    listRoute.handler as Parameters<PromptRouteHost['get']>[2],
+  );
+
   // POST /sessions/{session_id}/prompts ---------------------------------
   const submitRoute = defineRoute(
     {
@@ -135,8 +182,8 @@ export function registerPromptsRoutes(
           ),
         );
         reply.send(okEnvelope(result, req.id));
-      } catch (err) {
-        sendMappedError(reply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
     },
   );
@@ -149,7 +196,43 @@ export function registerPromptsRoutes(
     submitRoute.handler as Parameters<PromptRouteHost['post']>[2],
   );
 
-  // POST /sessions/{session_id}/prompts/{prompt_id}:abort ---------------
+  // POST /sessions/{session_id}/prompts:steer ---------------------------
+  const steerManyRoute = defineRoute(
+    {
+      method: 'POST',
+      path: '/sessions/{session_id}/prompts::steer',
+      body: promptSteerRequestSchema,
+      params: sessionIdParamSchema,
+      success: { data: promptSteerResultSchema },
+      errors: {
+        [ErrorCode.VALIDATION_FAILED]: {},
+        [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.PROMPT_NOT_FOUND]: {},
+      },
+      description: 'Steer queued prompts into the active turn',
+      tags: ['prompts'],
+      operationId: 'steerPrompts',
+    },
+    async (req, reply) => {
+      try {
+        const { session_id } = req.params;
+        const result = await ix.invokeFunction((a) =>
+          a.get(IPromptService).steer(session_id, req.body.prompt_ids),
+        );
+        reply.send(okEnvelope(result, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
+      }
+    },
+  );
+
+  app.post(
+    steerManyRoute.path,
+    steerManyRoute.options,
+    steerManyRoute.handler as Parameters<PromptRouteHost['post']>[2],
+  );
+
+  // POST /sessions/{session_id}/prompts/{prompt_id}:abort|steer ---------
   // Fastify's path syntax doesn't allow a literal `:abort` suffix on a
   // colon-prefixed param (`:prompt_id:abort` parses ambiguously). REST.md
   // §3.5 specifies the action-suffix syntax `{prompt_id}:abort`. We register
@@ -159,16 +242,16 @@ export function registerPromptsRoutes(
     {
       method: 'POST',
       path: '/sessions/{session_id}/prompts/{tail}',
-      success: { data: promptAbortResponseSchema },
+      success: { data: z.union([promptAbortResponseSchema, promptSteerResultSchema]) },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.PROMPT_NOT_FOUND]: {},
         [ErrorCode.PROMPT_ALREADY_COMPLETED]: { dataSchema: z.object({ aborted: z.literal(false) }) },
       },
-      description: 'Abort a running prompt',
+      description: 'Abort a running prompt or steer a queued prompt',
       tags: ['prompts'],
-      operationId: 'abortPrompt',
+      operationId: 'promptAction',
     },
     async (req, reply) => {
       try {
@@ -178,7 +261,7 @@ export function registerPromptsRoutes(
         };
         const parsed = parseActionSuffix({
           tail,
-          allowedActions: ['abort'] as const,
+          allowedActions: ['abort', 'steer'] as const,
           resourceLabel: 'prompt',
         });
         if (parsed.kind === 'invalid') {
@@ -205,12 +288,15 @@ export function registerPromptsRoutes(
           );
           return;
         }
-        const result = await ix.invokeFunction((a) =>
-          a.get(IPromptService).abort(session_id, prompt_id),
-        );
+        const result = await ix.invokeFunction((a) => {
+          const service = a.get(IPromptService);
+          return parsed.action === 'abort'
+            ? service.abort(session_id, prompt_id)
+            : service.steer(session_id, [prompt_id]);
+        });
         reply.send(okEnvelope(result, req.id));
-      } catch (err) {
-        sendMappedError(reply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
     },
   );
