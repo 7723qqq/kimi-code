@@ -610,11 +610,11 @@ function selectModel(modelId: string): void {
           :title="msg.attachmentCount > 0 ? t('composer.queuedHasImage', { n: msg.attachmentCount }) : t('composer.editQueued')"
           @click="msg.attachmentCount === 0 && editQueued(i, msg.text)"
         >
-          <svg v-if="msg.attachmentCount > 0" class="queue-img" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5.5" cy="6.5" r="1.2"/><path d="M2.5 12l3.5-3.5 2.5 2.5 3-3 2 2"/></svg>
+          <svg v-if="msg.attachmentCount > 0" class="queue-img" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5.5" cy="6.5" r="1.2"/><path d="M2.5 12l3.5-3.5 2.5 2.5 3-3 2 2"/></svg>
           <span class="queue-text-inner" :class="{ placeholder: !msg.text }">{{ msg.text || t('composer.queuedImageOnly', { n: msg.attachmentCount }) }}</span>
         </button>
         <button class="queue-rm" :title="t('composer.remove')" @click="emit('unqueue', i)">
-          <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" xmlns="http://www.w3.org/2000/svg"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
+          <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" xmlns="http://www.w3.org/2000/svg"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
         </button>
       </div>
     </div>
@@ -628,7 +628,7 @@ function selectModel(modelId: string): void {
         <span class="att-name">{{ att.name }}</span>
         <!-- Spinner while uploading -->
         <span v-if="att.uploading" class="att-spinner" :aria-label="t('composer.uploading')">
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" xmlns="http://www.w3.org/2000/svg">
             <circle cx="8" cy="8" r="6" stroke-opacity="0.25"/>
             <path d="M8 2 A6 6 0 0 1 14 8" stroke-linecap="round">
               <animateTransform attributeName="transform" type="rotate" from="0 8 8" to="360 8 8" dur="0.8s" repeatCount="indefinite"/>
@@ -637,11 +637,11 @@ function selectModel(modelId: string): void {
         </span>
         <!-- Error indicator -->
         <span v-else-if="att.error" class="att-err-icon" :title="t('composer.uploadFailed')">
-          <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" xmlns="http://www.w3.org/2000/svg"><circle cx="6" cy="6" r="5"/><line x1="6" y1="3.5" x2="6" y2="6.5"/><circle cx="6" cy="8.5" r="0.5" fill="currentColor"/></svg>
+          <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" xmlns="http://www.w3.org/2000/svg"><circle cx="6" cy="6" r="5"/><line x1="6" y1="3.5" x2="6" y2="6.5"/><circle cx="6" cy="8.5" r="0.5" fill="currentColor"/></svg>
         </span>
         <!-- Remove button -->
         <button class="att-rm" :title="t('composer.removeNamed', { name: att.name })" @click="removeAttachment(att.localId)">
-          <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5" xmlns="http://www.w3.org/2000/svg"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
+          <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.6" xmlns="http://www.w3.org/2000/svg"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
         </button>
       </div>
     </div>
@@ -715,7 +715,7 @@ function selectModel(modelId: string): void {
             type="button"
             @click="openFilePicker"
           >
-            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="5.5" cy="6.5" r="1"/><polyline points="2,13 5.5,9 8,11.5 10.5,8.5 14,13"/></svg>
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="5.5" cy="6.5" r="1"/><polyline points="2,13 5.5,9 8,11.5 10.5,8.5 14,13"/></svg>
           </button>
 
           <!-- Permission pill — click to open dropdown -->
@@ -741,7 +741,7 @@ function selectModel(modelId: string): void {
               role="menuitem"
               @click="choosePermission(opt.mode)"
             >
-              <span class="pd-check">{{ opt.mode === status.permission ? '✓' : '' }}</span>
+              <span class="pd-check"><svg v-if="opt.mode === status.permission" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg></span>
               <span class="pd-info">
                 <span class="pd-name" :style="{ color: opt.color }">{{ t(opt.labelKey) }}</span>
                 <span class="pd-desc">{{ t(opt.descKey) }}</span>
@@ -760,10 +760,7 @@ function selectModel(modelId: string): void {
             @click="emit('togglePlan')"
             @keydown.enter="emit('togglePlan')"
             @keydown.space.prevent="emit('togglePlan')"
-          >
-            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="1.5" width="10" height="13" rx="1"/><path d="M6 5.5h4M6 8h4M6 10.5h2.5"/></svg>
-            {{ t('status.planLabel') }}
-          </span>
+          >{{ t('status.planLabel') }}</span>
         </div>
 
         <!-- Right: ctx + model -->
@@ -812,7 +809,7 @@ function selectModel(modelId: string): void {
           >
             <b>{{ status.model }}</b>
             <span v-if="thinkingOn" class="think-suffix">{{ t('composer.thinkingSuffix') }}</span>
-            <svg class="cv" viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+            <svg class="cv" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
           </span>
         </div>
 
@@ -828,7 +825,7 @@ function selectModel(modelId: string): void {
             role="menuitem"
             @click="selectModel(m.id)"
           >
-            <span class="md-check">{{ (m.id === status.model || m.model === status.model || m.displayName === status.model) ? '✓' : '' }}</span>
+            <span class="md-check"><svg v-if="m.id === status.model || m.model === status.model || m.displayName === status.model" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg></span>
             <span class="md-name">{{ m.displayName ?? m.model }}</span>
           </button>
 
@@ -841,7 +838,7 @@ function selectModel(modelId: string): void {
             :class="{ 'is-on': thinkingOn }"
             @click="toggleThinking()"
           >
-            <span class="md-check">{{ thinkingOn ? '✓' : '' }}</span>
+            <span class="md-check"><svg v-if="thinkingOn" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg></span>
             <span class="md-name">{{ t('status.thinkingLabel') }}</span>
           </button>
 
