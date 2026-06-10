@@ -84,6 +84,9 @@ const streamingTurnId = computed<string | null>(() => {
 
 const emit = defineEmits<{
   approvalDecide: [approvalId: string, response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string }];
+  /** The user toggled a process fold — the scroller must NOT auto-follow to
+      the bottom, or the fold visually expands upward from a pinned bottom. */
+  foldToggle: [];
 }>();
 
 // Per-turn copy button state (keyed by turn id)
@@ -161,6 +164,7 @@ function isFolded(turnId: string): boolean {
 
 function toggleTurnCollapse(turnId: string): void {
   collapsedTurns.value = { ...collapsedTurns.value, [turnId]: !collapsedTurns.value[turnId] };
+  emit('foldToggle');
 }
 
 /** Extract a file path from a tool's JSON arg, if any. */
