@@ -1,6 +1,6 @@
 <!-- apps/kimi-web/src/components/Markdown.vue -->
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { MarkdownRender } from 'markstream-vue';
 // px-based CSS build (our app is px, not rem). Imported here so the styles
@@ -10,6 +10,53 @@ import { MarkdownRender } from 'markstream-vue';
 import 'markstream-vue/index.px.css';
 
 const { t } = useI18n();
+
+const resolveImage = inject<(src: string) => Promise<string>>('resolveImage');
+
+const mdRef = ref<HTMLElement | null>(null);
+const processedImages = new Set<string>();
+
+async function processImages(): Promise<void> {
+  if (!resolveImage || !mdRef.value) return;
+  const imgs = mdRef.value.querySelectorAll('img');
+  for (const img of imgs) {
+    const src = img.getAttribute('src');
+    if (!src) continue;
+    // Skip already processed or addressable URLs
+    if (processedImages.has(src)) continue;
+    if (/^(https?:|data:)/i.test(src)) {
+      processedImages.add(src);
+      continue;
+    }
+    processedImages.add(src);
+    try {
+      const url = await resolveImage(src);
+      if (url !== src) img.setAttribute('src', url);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+// Process images after content changes (markstream streaming + static)
+watch(() => props.text, () => {
+  void nextTick().then(() => processImages());
+});
+
+let observer: MutationObserver | null = null;
+onMounted(() => {
+  void processImages();
+  if (mdRef.value) {
+    observer = new MutationObserver(() => {
+      void processImages();
+    });
+    observer.observe(mdRef.value, { childList: true, subtree: true });
+  }
+});
+onUnmounted(() => {
+  observer?.disconnect();
+  processedImages.clear();
+});
 
 const props = withDefaults(
   defineProps<{
@@ -116,7 +163,7 @@ function copyDiff(code: string, idx: number) {
 </script>
 
 <template>
-  <div class="md">
+  <div ref="mdRef" class="md">
     <template v-for="(seg, i) in segments" :key="i">
       <!-- Non-diff markdown → markstream (smooth streaming + shiki) -->
       <MarkdownRender

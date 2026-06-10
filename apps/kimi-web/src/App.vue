@@ -1,6 +1,6 @@
 <!-- apps/kimi-web/src/App.vue -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, provide, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Sidebar from './components/Sidebar.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
@@ -23,6 +23,7 @@ import { useIsMobile } from './composables/useIsMobile';
 import type { ThinkingLevel } from './api/types';
 
 const client = useKimiWebClient();
+provide('resolveImage', client.resolveImageUrl);
 const { t } = useI18n();
 
 // Narrow viewports (≤640px) render the single-column mobile shell; desktop is
