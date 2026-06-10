@@ -473,9 +473,6 @@ onUnmounted(() => {
       @set-align="setAlign"
     />
 
-    <!-- Floating todo card, pinned top-right over the chat transcript -->
-    <TodoCard v-if="active === 'chat'" :todos="todos ?? []" :mobile="mobile" />
-
     <div
       ref="panesRef"
       class="panes"
@@ -501,6 +498,14 @@ onUnmounted(() => {
         v-else-if="active === 'tasks'"
         :tasks="tasks"
         @cancel="emit('cancelTask', $event)"
+      />
+
+      <!-- ~/todo tab: inline todo list (replaces the floating card). -->
+      <TodoCard
+        v-else-if="active === 'todo'"
+        :todos="todos ?? []"
+        :mobile="mobile"
+        inline
       />
 
       <!-- Merged ~/files tab: a navigator (Changed-first list / full tree via the

@@ -12,6 +12,8 @@ const props = defineProps<{
   todos: TodoView[];
   /** Mobile shell: clear the taller mobile TabBar. */
   mobile?: boolean;
+  /** Render as a normal block (tab content) instead of a floating card. */
+  inline?: boolean;
 }>();
 
 const { t } = useI18n();
@@ -26,7 +28,7 @@ function glyph(status: TodoView['status']): string {
 </script>
 
 <template>
-  <div v-if="todos.length > 0" class="todo-card" :class="{ mobile }">
+  <div v-if="todos.length > 0" class="todo-card" :class="{ mobile, 'tab-mode': inline }">
     <button class="tc-head" type="button" @click="collapsed = !collapsed">
       <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
         <polyline points="2,4.5 3.5,6 5.5,3" />
@@ -67,6 +69,25 @@ function glyph(status: TodoView['status']): string {
 }
 /* Below the 46px mobile TabBar */
 .todo-card.mobile { top: 56px; right: 10px; width: 220px; }
+
+/* Tab mode: static block instead of floating card */
+.todo-card.tab-mode {
+  position: static;
+  width: 100%;
+  max-width: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  z-index: auto;
+}
+.todo-card.tab-mode .tc-head {
+  padding: 8px 14px;
+  font-size: 13px;
+}
+.todo-card.tab-mode .tc-list {
+  padding: 6px 14px 10px;
+  max-height: none;
+}
 
 .tc-head {
   display: flex;
