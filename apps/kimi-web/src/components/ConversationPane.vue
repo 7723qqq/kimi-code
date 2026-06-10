@@ -58,6 +58,8 @@ const props = defineProps<{
   /** True when the active workspace has no sessions — shows a centred input
       placeholder so the user can start typing immediately. */
   workspaceEmpty?: boolean;
+  /** Workspace name shown in the empty-session hint above the centred composer. */
+  workspaceName?: string;
 }>();
 
 const emit = defineEmits<{
@@ -248,6 +250,7 @@ const showPill = ref(false);
 /** Within this many pixels from the bottom counts as "at the bottom" —
     scrolling DOWN into this zone re-enables the follow. */
 const BOTTOM_THRESHOLD = 80;
+const USER_ACTION_FOLLOW_LOCK_MS = 1000;
 
 function distanceFromBottom(): number {
   const el = panesRef.value;
@@ -256,12 +259,32 @@ function distanceFromBottom(): number {
 }
 
 let lastScrollTop = 0;
+let userActionFollowUntil = 0;
+let lastProgrammaticScroll = 0;
+
+function hasUserActionFollowLock(): boolean {
+  return Date.now() < userActionFollowUntil;
+}
 
 function onPanesScroll(): void {
   const el = panesRef.value;
   if (!el) return;
   const top = el.scrollTop;
+
+  // Treat scroll events within 100 ms of a programmatic scroll as non-user;
+  // just sync lastScrollTop so the next real user scroll compares correctly.
+  if (performance.now() - lastProgrammaticScroll < 100) {
+    lastScrollTop = top;
+    return;
+  }
+
   const dist = distanceFromBottom();
+  if (hasUserActionFollowLock()) {
+    following.value = true;
+    showPill.value = false;
+    lastScrollTop = top;
+    return;
+  }
   if (top < lastScrollTop - 1 && dist > 1) {
     // ANY upward move is user intent — stop following immediately, even inside
     // the bottom zone. Content that mutates on a fast cadence (e.g. the moon
@@ -289,9 +312,12 @@ function onPanesScroll(): void {
 function scrollToBottom(smooth = false): void {
   const el = panesRef.value;
   if (!el) return;
-  // Guard: el.scrollTo may be absent in jsdom/test environments
-  if (typeof el.scrollTo === 'function') {
-    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+  lastProgrammaticScroll = performance.now();
+  // Use the synchronous scrollTop setter for instant scrolling to avoid race
+  // conditions where a delayed scroll event from el.scrollTo() sees a stale
+  // lastScrollTop and incorrectly treats the scroll as upward user intent.
+  if (smooth && typeof el.scrollTo === 'function') {
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   } else {
     el.scrollTop = el.scrollHeight;
   }
@@ -326,7 +352,7 @@ const scrollKey = computed(() => {
 watch(scrollKey, async () => {
   if (active.value !== 'chat') return;
   await nextTick();
-  if (following.value) scrollToBottom(false);
+  if (following.value || hasUserActionFollowLock()) scrollToBottom(false);
   else showPill.value = true;
 });
 
@@ -373,17 +399,25 @@ watch(
 // bottom, even if they were scrolled up reading history.
 function followAfterUserAction(): void {
   following.value = true;
-  void nextTick(() => scrollToBottom(false));
+  showPill.value = false;
+  userActionFollowUntil = Date.now() + USER_ACTION_FOLLOW_LOCK_MS;
+  void nextTick(() => {
+    scrollToBottom(false);
+    const schedule = typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (cb: () => void) => setTimeout(cb, 16) as unknown as number;
+    schedule(() => scrollToBottom(false));
+  });
 }
 
 function handleComposerSubmit(payload: { text: string; attachments: { fileId: string }[] }): void {
-  emit('submit', payload);
   followAfterUserAction();
+  emit('submit', payload);
 }
 
 function handleQuestionAnswer(qid: string, resp: QuestionResponse): void {
-  emit('answer', qid, resp);
   followAfterUserAction();
+  emit('answer', qid, resp);
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +437,6 @@ let resizeObserver: ResizeObserver | null = null;
 let observedContent: Element | null = null;
 let scrollRaf = 0;
 let pillEligible = false;
-let muteFollowOnce = false;
 
 function scheduleFollow(allowPill: boolean): void {
   if (active.value !== 'chat') return;
@@ -414,22 +447,9 @@ function scheduleFollow(allowPill: boolean): void {
     scrollRaf = 0;
     const wantPill = pillEligible;
     pillEligible = false;
-    if (muteFollowOnce) {
-      muteFollowOnce = false;
-      return;
-    }
-    if (following.value) scrollToBottom(false);
+    if (following.value || hasUserActionFollowLock()) scrollToBottom(false);
     else if (wantPill) showPill.value = true;
   }) as unknown as number;
-}
-
-/** The user toggled a turn's process fold. Stop following so the fold opens
-    in place — downward from the clicked line — instead of the auto-follow
-    pinning the bottom (which makes the content appear to grow upward). The
-    resulting mutation also must not raise the "new content" pill. */
-function handleFoldToggle(): void {
-  following.value = false;
-  muteFollowOnce = true;
 }
 
 /** Keep the ResizeObserver attached to the scroller's current content column
@@ -494,6 +514,7 @@ onUnmounted(() => {
 <template>
   <section class="con" :class="{ mobile }">
     <TabBar
+      v-if="!(turns.length === 0 && !sessionLoading)"
       :active="active"
       :running-tasks="runningTasks"
       :changes-count="changesCount"
@@ -512,10 +533,14 @@ onUnmounted(() => {
       <!-- Chat reading column: constrained to a comfortable max width and
            aligned left or centered within the pane. -->
       <div v-if="active === 'chat'" class="content-wrap" :class="[mobile ? 'align-mobile' : `align-${contentAlign}`]">
-        <template v-if="workspaceEmpty && turns.length === 0 && !sessionLoading">
-          <!-- Empty workspace: Composer rendered in the centre of the pane -->
+        <template v-if="turns.length === 0 && !sessionLoading">
+          <!-- Empty session: Composer rendered in the centre of the pane -->
           <div class="empty-spacer" />
+          <div class="empty-hint">
+            <span class="empty-hint-text">{{ t('conversation.emptyWorkspaceHint', { name: workspaceName || '' }) }}</span>
+          </div>
           <Composer
+            class="empty-composer"
             :running="running"
             :queued="queued"
             :search-files="searchFiles"
@@ -549,7 +574,6 @@ onUnmounted(() => {
             :sending="sending"
             :session-loading="sessionLoading"
             @approval-decide="handleApprovalDecide"
-            @fold-toggle="handleFoldToggle"
           />
         </template>
       </div>
@@ -696,7 +720,7 @@ onUnmounted(() => {
         @dismiss="(qid) => emit('dismiss', qid)"
       />
       <Composer
-        v-else-if="!(workspaceEmpty && turns.length === 0 && !sessionLoading)"
+        v-else-if="!(turns.length === 0 && !sessionLoading)"
         :running="running"
         :queued="queued"
         :search-files="searchFiles"
@@ -762,6 +786,25 @@ onUnmounted(() => {
 
 /* Empty-workspace spacers: push the centred Composer to the vertical middle. */
 .empty-spacer { flex: 1; }
+
+/* Empty-session hint above the centred composer */
+.empty-hint {
+  flex: none;
+  text-align: center;
+  padding: 0 16px 16px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 22px;
+  font-weight: 400;
+}
+.empty-hint-text {
+  display: inline-block;
+}
+
+/* Larger textarea in the centred empty-session composer */
+:deep(.empty-composer .ph) {
+  min-height: 120px;
+}
 
 /* Bottom dock (status line + composer): capped to the same reading column as
    the chat and aligned the same way, so it doesn't stretch the full pane width
