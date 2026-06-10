@@ -55,6 +55,9 @@ const props = defineProps<{
   sessionLoading?: boolean;
   /** Available models for the quick-switch dropdown in the composer toolbar. */
   models?: AppModel[];
+  /** True when the active workspace has no sessions — shows a centred input
+      placeholder so the user can start typing immediately. */
+  workspaceEmpty?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -505,8 +508,10 @@ onUnmounted(() => {
           :running="running"
           :sending="sending"
           :session-loading="sessionLoading"
+          :workspace-empty="workspaceEmpty"
           @approval-decide="handleApprovalDecide"
           @fold-toggle="handleFoldToggle"
+          @submit="emit('submit', $event)"
         />
       </div>
       <TasksPane

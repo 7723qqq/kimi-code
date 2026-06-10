@@ -14,6 +14,7 @@ export default {
   interrupt: 'Interrupt',
   interruptTitle: 'Interrupt current operation',
   emptyConversation: 'No messages yet — type below to start the conversation.',
+  quickStartPlaceholder: 'Type a message to start a new conversation…',
   thinkingSuffix: ' · thinking',
 
 } as const;
