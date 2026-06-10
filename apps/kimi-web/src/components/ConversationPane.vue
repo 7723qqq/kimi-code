@@ -218,25 +218,53 @@ function defaultLoadDir(): Promise<FsEntry[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-scroll + "new messages" pill (chat tab only)
+// Auto-scroll: "following" state machine + "new messages" pill (chat tab only)
+//
+// `following` is an INTENT flag, not a position snapshot. While true, every
+// content/layout change re-pins the view to the bottom. It only turns off
+// when the USER scrolls up out of the bottom zone — our own scrolls only ever
+// move down, so an upward scrollTop move is always user intent. It turns back
+// on when the user returns to the bottom zone, clicks the pill, sends a
+// prompt, answers a question, or switches session/tab.
+//
+// The previous design gated on an `atBottom` snapshot updated by scroll
+// events, which broke under streaming: the scroll event fired by our own
+// scrollToBottom could observe a view that had ALREADY grown past the
+// threshold and flip the gate off mid-stream (thinking/tool phases), leaving
+// the view stuck above the newest content.
 // ---------------------------------------------------------------------------
 
 const panesRef = ref<HTMLElement | null>(null);
-const atBottom = ref(true);
+const dockRef = ref<HTMLElement | null>(null);
+const following = ref(true);
 const showPill = ref(false);
 
-/** Within this many pixels from the bottom counts as "at the bottom". */
+/** Within this many pixels from the bottom counts as "at the bottom" — small
+    upward drifts inside this zone never break the follow. */
 const BOTTOM_THRESHOLD = 80;
 
-function checkAtBottom(): boolean {
+function distanceFromBottom(): number {
   const el = panesRef.value;
-  if (!el) return true;
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD;
+  if (!el) return 0;
+  return el.scrollHeight - el.scrollTop - el.clientHeight;
 }
 
+let lastScrollTop = 0;
+
 function onPanesScroll(): void {
-  atBottom.value = checkAtBottom();
-  if (atBottom.value) showPill.value = false;
+  const el = panesRef.value;
+  if (!el) return;
+  const top = el.scrollTop;
+  const nearBottom = distanceFromBottom() <= BOTTOM_THRESHOLD;
+  if (nearBottom) {
+    // Back in the bottom zone (user scroll or our own pin) → follow again.
+    following.value = true;
+    showPill.value = false;
+  } else if (top < lastScrollTop - 1) {
+    // Upward move OUT of the bottom zone — always user intent; stop following.
+    following.value = false;
+  }
+  lastScrollTop = top;
 }
 
 function scrollToBottom(smooth = false): void {
@@ -248,7 +276,8 @@ function scrollToBottom(smooth = false): void {
   } else {
     el.scrollTop = el.scrollHeight;
   }
-  atBottom.value = true;
+  lastScrollTop = el.scrollTop;
+  following.value = true;
   showPill.value = false;
 }
 
@@ -273,36 +302,13 @@ const scrollKey = computed(() => {
   return `${t.length}:${last.text.length}:${thinkingLen}:${toolsLen}|${approvalIds}`;
 });
 
-// Stick-to-bottom window: after a session's messages load, markstream/shiki keep
-// growing the content for a short while (code highlighting, images), so a single
-// scrollToBottom lands short of the end. While the window is open we force-follow
-// the bottom on every content change; a user scroll (wheel/touch) cancels it.
-const STICK_WINDOW_MS = 1200;
-let stickBottom = false;
-let stickTimer: ReturnType<typeof setTimeout> | undefined;
-function stickToBottomFor(ms: number): void {
-  stickBottom = true;
-  if (stickTimer) clearTimeout(stickTimer);
-  stickTimer = setTimeout(() => {
-    stickBottom = false;
-  }, ms);
-}
-function cancelStick(): void {
-  stickBottom = false;
-}
-
+// Vue-tracked content changes (redundant with the observers below, kept as a
+// cheap safety net + the pill trigger for data-driven updates).
 watch(scrollKey, async () => {
   if (active.value !== 'chat') return;
   await nextTick();
-  if (stickBottom) {
-    scrollToBottom(false);
-    return;
-  }
-  if (atBottom.value) {
-    scrollToBottom(false);
-  } else {
-    showPill.value = true;
-  }
+  if (following.value) scrollToBottom(false);
+  else showPill.value = true;
 });
 
 // When switching to the chat tab, scroll to bottom immediately. Leaving the
@@ -310,71 +316,112 @@ watch(scrollKey, async () => {
 // never lands on a stale preview.
 watch(active, async (tab) => {
   if (tab !== 'files') filesShowPreview.value = false;
-  if (tab !== 'chat') {
-    cancelStick(); // leaving chat: drop any stale stick window so it can't lock the pill on return
-    return;
-  }
+  if (tab !== 'chat') return;
+  following.value = true;
   await nextTick();
   scrollToBottom(false);
 });
 
 // New session (reload key changes): reset the mobile files drill-down + clear
-// any previously-opened preview, and scroll chat to bottom so the user lands
-// at the end of the newly-selected historical session.
+// any previously-opened preview, and land at the bottom of the newly-selected
+// session. `following` stays on afterwards, so the markdown/code-highlighting
+// that keeps growing the content after the load is followed automatically.
 watch(
   () => props.fileReloadKey,
   async () => {
     filesShowPreview.value = false;
     selectedFile.value = null;
-    // Arm the stick window on every session switch (fires synchronously here).
-    // This survives rapid A->B->C switching, where overlapping async loads can
-    // collapse sessionLoading's true->false edge into a single transition (the
-    // watch below would then only fire once and later sessions land short).
-    stickToBottomFor(STICK_WINDOW_MS);
+    following.value = true;
     await nextTick();
     scrollToBottom(false);
   },
 );
 
-// Land at the bottom of a freshly-opened historical session. The fileReloadKey
-// watch above fires the instant activeSessionId changes — BEFORE the messages
-// finish their async REST load — so it scrolls an empty view, and the markdown
-// then renders tall (markstream/shiki) which the atBottom-gated watchers won't
-// follow. `sessionLoading` brackets the async load in selectSession (true ->
-// load -> false); on its true->false edge the turns have rendered, so we scroll
-// AND open a stick window to keep following until the tall markdown settles.
+// Re-pin when a freshly-opened session finishes its async message load (the
+// fileReloadKey watch above fires BEFORE the REST load completes).
 watch(
   () => props.sessionLoading,
   async (loading, was) => {
     if (loading || !was) return; // only on the load-finished (true -> false) edge
     if (active.value !== 'chat') return;
-    stickToBottomFor(STICK_WINDOW_MS);
+    following.value = true;
     await nextTick();
     scrollToBottom(false);
   },
 );
 
-// Robust follow-to-bottom: a MutationObserver catches EVERY content change in
-// the chat area — streaming text, thinking deltas (even while collapsed), tool
-// output, markdown, images — and follows the bottom when the user is already
-// there. The scrollKey watch above only sees Vue-tracked content; this catches
-// the rest (this is what fixes "no auto-scroll during the thinking phase").
-let contentObserver: MutationObserver | null = null;
-let scrollRaf = 0;
+// The user sent a prompt (or answered an agent question): always jump to the
+// bottom, even if they were scrolled up reading history.
+function followAfterUserAction(): void {
+  following.value = true;
+  void nextTick(() => scrollToBottom(false));
+}
 
-function onContentMutated(): void {
+function handleComposerSubmit(payload: { text: string; attachments: { fileId: string }[] }): void {
+  emit('submit', payload);
+  followAfterUserAction();
+}
+
+function handleQuestionAnswer(qid: string, resp: QuestionResponse): void {
+  emit('answer', qid, resp);
+  followAfterUserAction();
+}
+
+// ---------------------------------------------------------------------------
+// Follow triggers.
+// - MutationObserver on the scroller subtree: streaming text, thinking deltas,
+//   tool output, markdown, new cards. May raise the pill when not following.
+// - ResizeObservers: (a) the bottom dock — QuestionCard replacing the
+//   Composer, the queue strip or attachment chips growing the dock all shrink
+//   the scroll viewport WITHOUT any scroll/mutation event, which used to
+//   leave the newest content hidden behind the dock; (b) the scroller itself
+//   (window resizes); (c) the content column (image loads etc. that change
+//   size without DOM mutations). Resizes re-pin but never raise the pill —
+//   nothing new arrived.
+// ---------------------------------------------------------------------------
+let contentObserver: MutationObserver | null = null;
+let resizeObserver: ResizeObserver | null = null;
+let observedContent: Element | null = null;
+let scrollRaf = 0;
+let pillEligible = false;
+
+function scheduleFollow(allowPill: boolean): void {
   if (active.value !== 'chat') return;
+  pillEligible = pillEligible || allowPill;
   if (scrollRaf) return;
   const schedule = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (cb: () => void) => setTimeout(cb, 16) as unknown as number;
   scrollRaf = schedule(() => {
     scrollRaf = 0;
-    if (stickBottom) {
-      scrollToBottom(false);
-      return;
-    }
-    if (atBottom.value) scrollToBottom(false);
-    else showPill.value = true;
+    const wantPill = pillEligible;
+    pillEligible = false;
+    if (following.value) scrollToBottom(false);
+    else if (wantPill) showPill.value = true;
   }) as unknown as number;
+}
+
+/** Keep the ResizeObserver attached to the scroller's current content column
+    (it is destroyed/recreated on tab switches and session changes). */
+function ensureContentObserved(): void {
+  if (!resizeObserver) return;
+  const el = panesRef.value?.firstElementChild ?? null;
+  if (el === observedContent) return;
+  if (observedContent) resizeObserver.unobserve(observedContent);
+  observedContent = el;
+  if (el) resizeObserver.observe(el);
+}
+
+function onContentMutated(): void {
+  ensureContentObserved();
+  scheduleFollow(true);
+}
+
+// Background tabs freeze rAF, so a stream that ran while the tab was hidden
+// may leave the view above the bottom; re-pin when the tab becomes visible.
+function onVisibilityChange(): void {
+  if (typeof document === 'undefined') return;
+  if (document.visibilityState === 'visible' && following.value && active.value === 'chat') {
+    scrollToBottom(false);
+  }
 }
 
 onMounted(() => {
@@ -389,22 +436,24 @@ onMounted(() => {
         characterData: true,
       });
     }
-    // A real user scroll cancels the stick-to-bottom window so we never fight
-    // someone who scrolls up right after opening a session.
-    if (panesRef.value) {
-      panesRef.value.addEventListener('wheel', cancelStick, { passive: true });
-      panesRef.value.addEventListener('touchstart', cancelStick, { passive: true });
+    if (typeof ResizeObserver === 'function') {
+      resizeObserver = new ResizeObserver(() => scheduleFollow(false));
+      if (panesRef.value) resizeObserver.observe(panesRef.value);
+      if (dockRef.value) resizeObserver.observe(dockRef.value);
+      ensureContentObserved();
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
     }
   });
 });
 
 onUnmounted(() => {
   if (contentObserver) contentObserver.disconnect();
+  if (resizeObserver) resizeObserver.disconnect();
   if (scrollRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(scrollRaf);
-  if (stickTimer) clearTimeout(stickTimer);
-  if (panesRef.value) {
-    panesRef.value.removeEventListener('wheel', cancelStick);
-    panesRef.value.removeEventListener('touchstart', cancelStick);
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
   }
 });
 </script>
@@ -567,12 +616,12 @@ onUnmounted(() => {
          edge-to-edge on wide screens. The composer/input sits on top; the status
          line is a quiet footer BELOW it (model/thinking/plan/permission left,
          ctx far right). -->
-    <div class="dock" :class="[mobile ? 'align-mobile' : `align-${contentAlign}`]">
+    <div ref="dockRef" class="dock" :class="[mobile ? 'align-mobile' : `align-${contentAlign}`]">
       <!-- QuestionCard replaces Composer while a question is pending -->
       <QuestionCard
         v-if="pendingQuestion"
         :question="pendingQuestion"
-        @answer="(qid, resp) => emit('answer', qid, resp)"
+        @answer="handleQuestionAnswer"
         @dismiss="(qid) => emit('dismiss', qid)"
       />
       <Composer
@@ -585,7 +634,7 @@ onUnmounted(() => {
         :thinking="thinking"
         :plan-mode="planMode"
         :models="models"
-        @submit="emit('submit', $event)"
+        @submit="handleComposerSubmit"
         @command="emit('command', $event)"
         @interrupt="emit('interrupt')"
         @unqueue="emit('unqueue', $event)"
