@@ -870,7 +870,7 @@ onUnmounted(() => {
     border-bottom: 1px solid var(--line);
     color: var(--dim);
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 15px;
     cursor: pointer;
     text-align: left;
   }

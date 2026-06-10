@@ -404,4 +404,24 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 .sending-line .tx {
   padding-top: 2px;
 }
+
+/* Mobile font bump (+2px) */
+@media (max-width: 640px) {
+  .u-bub .msg,
+  .a-msg .msg {
+    font-size: 16px;
+  }
+  .userline .pr,
+  .ai .pr,
+  .who {
+    font-size: 14.5px;
+  }
+  .ts {
+    font-size: 13px;
+  }
+  .chat-empty-text,
+  .chat-loading-text {
+    font-size: 15px;
+  }
+}
 </style>
