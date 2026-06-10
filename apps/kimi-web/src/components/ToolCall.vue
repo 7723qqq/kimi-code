@@ -59,6 +59,9 @@ const isError = () => props.tool.status === 'error';
       </span>
     </div>
     <div v-if="open" class="bb">
+      <!-- Touch screens have no :title tooltip — when expanded, show the full
+           (otherwise ellipsized) summary above the output. -->
+      <div v-if="summary()" class="bb-summary">{{ summary() }}</div>
       <div v-for="(line, i) in tool.output" :key="i">{{ line }}</div>
     </div>
   </div>
@@ -68,11 +71,11 @@ const isError = () => props.tool.status === 'error';
 .box {
   border: 1px solid var(--line);
   margin: 10px 0;
-  background: #fff;
+  background: var(--bg);
   border-radius: 3px;
 }
 .box.err {
-  border-color: #f5c6c6;
+  border-color: color-mix(in srgb, var(--err) 35%, var(--bg));
 }
 .bh {
   display: flex;
@@ -89,13 +92,13 @@ const isError = () => props.tool.status === 'error';
   border-radius: 3px 3px 0 0;
 }
 .box.err .bh {
-  background: #fff5f5;
+  background: color-mix(in srgb, var(--err) 6%, var(--bg));
 }
 .bh:hover {
   background: var(--panel2);
 }
 .box.err .bh:hover {
-  background: #ffecec;
+  background: color-mix(in srgb, var(--err) 11%, var(--bg));
 }
 .car { color: var(--faint); }
 .gl {
@@ -147,6 +150,12 @@ const isError = () => props.tool.status === 'error';
   font-family: var(--mono);
   white-space: pre-wrap;
   word-break: break-word;
+}
+.bb-summary {
+  color: var(--muted);
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
 }
 
 /* Mobile bubble layout: no left gutter indent, softer corners (prototype .tool). */

@@ -246,7 +246,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .qcard {
   border: 1px solid var(--bd);
   border-radius: 3px;
-  background: #fff;
+  background: var(--bg);
   margin: 8px 0;
 }
 
@@ -269,7 +269,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   padding: 2px 8px;
   border: 1px solid var(--line);
   border-radius: 3px;
-  background: #fff;
+  background: var(--bg);
   color: var(--dim);
   cursor: pointer;
 }
@@ -345,6 +345,10 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   background: transparent;
   min-width: 0;
 }
+.other-input:focus-visible {
+  border-bottom-color: var(--blue);
+  box-shadow: 0 1px 0 0 var(--blue);
+}
 
 
 /* Footer */
@@ -360,14 +364,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   padding: 6px 16px;
   border: 1px solid var(--line);
   border-radius: 3px;
-  background: #fff;
+  background: var(--bg);
   color: var(--text);
   cursor: pointer;
 }
 .qbtn:hover:not(:disabled) { background: var(--panel2); }
 .qbtn.pri {
   background: var(--blue);
-  color: #fff;
+  color: var(--bg);
   border-color: var(--blue);
 }
 .qbtn.pri:hover:not(:disabled) { background: var(--blue2); }

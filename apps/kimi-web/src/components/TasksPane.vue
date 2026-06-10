@@ -177,7 +177,7 @@ function statusClass(state: string): string {
 .tp-stop {
   flex: none;
   background: none;
-  border: 1px solid #f0c9c9;
+  border: 1px solid color-mix(in srgb, var(--err) 22%, var(--bg));
   border-radius: 3px;
   color: var(--err);
   font-size: 10.5px;

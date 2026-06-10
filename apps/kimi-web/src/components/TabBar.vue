@@ -29,7 +29,7 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
       {{ t(tab.labelKey) }}
       <!-- TODO: restore when files tab is re-enabled -->
       <!-- <span v-if="tab.key === 'files' && (changesCount ?? 0) > 0" class="d"></span> -->
-      <span v-if="tab.key === 'tasks'" class="cnt">{{ runningTasks }}</span>
+      <span v-if="tab.key === 'tasks' && runningTasks > 0" class="cnt">{{ runningTasks }}</span>
       <span v-if="tab.key === 'todo' && (todos?.length ?? 0) > 0" class="cnt">{{ (todos?.filter((t) => t.status === 'done').length ?? 0) }}/{{ todos!.length }}</span>
     </div>
   </div>
@@ -57,7 +57,8 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
   background: var(--panel2);
 }
 .tb.on {
-  background: #fff;
+  /* Merge the active tab into the content surface below (dark-mode safe). */
+  background: var(--bg);
   color: var(--blue2);
   font-weight: 600;
 }
@@ -85,12 +86,16 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
   flex: 1;
   justify-content: center;
   gap: 5px;
-  padding: 0;
+  padding: 0 2px;
   font-family: var(--mono);
   font-size: 14.5px;
   color: var(--muted);
   border-right: none;
   border-bottom: none;
+  /* Three flex:1 tabs + a "10/12" pill must not blow up tiny screens. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .tabs.mobile .tb:hover { background: var(--bg); }
 .tabs.mobile .tb.on {
@@ -107,7 +112,7 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
   align-items: center;
   justify-content: center;
   background: var(--blue);
-  color: #fff;
+  color: var(--bg); /* on-accent text — readable in dark + mono-dark */
   border-radius: 9px;
   font-size: 12px;
   font-weight: 600;

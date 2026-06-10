@@ -944,7 +944,7 @@ function selectModel(modelId: string): void {
 .composer-card {
   border: 1px solid var(--line);
   border-radius: 16px;
-  background: #fff;
+  background: var(--bg);
   box-shadow: 0 1px 4px rgba(0,0,0,0.04);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -1179,7 +1179,7 @@ function selectModel(modelId: string): void {
   height: 30px;
   border-radius: 50%;
   background: var(--blue);
-  color: #fff;
+  color: var(--bg); /* on-accent text — readable in dark + mono-dark */
   border: none;
   padding: 0;
   display: flex;
@@ -1567,7 +1567,7 @@ function selectModel(modelId: string): void {
     content: "↑";
     font-size: 17px;
     line-height: 1;
-    color: #fff;
+    color: var(--bg);
   }
   .send.aborting::after {
     content: "■";

@@ -383,6 +383,10 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   color: var(--ink);
   outline: none;
 }
+.paste-input:focus-visible {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 25%, transparent);
+}
 
 .paste-add {
   flex: none;
@@ -421,7 +425,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .act-btn.primary {
   background: var(--blue);
   border-color: var(--blue);
-  color: #fff;
+  color: var(--bg);
   flex: 1;
 }
 .act-btn.primary:hover:not(:disabled) { background: var(--blue2); }

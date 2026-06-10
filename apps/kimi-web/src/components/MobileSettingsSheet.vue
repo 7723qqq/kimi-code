@@ -63,10 +63,13 @@ const permSub = computed<string>(() => {
 
 const kFmt = (n: number): string => `${Math.round(n / 1000)}k`;
 const ctxPct = computed<number>(() =>
-  props.status.ctxMax > 0 ? Math.round((props.status.ctxUsed / props.status.ctxMax) * 100) : 0,
+  props.status.ctxMax > 0
+    ? Math.min(100, Math.max(0, Math.round((props.status.ctxUsed / props.status.ctxMax) * 100)))
+    : 0,
 );
+// Same "12k/256k" format as the desktop toolbar ring.
 const ctxValue = computed<string>(() =>
-  props.status.ctxMax > 0 ? `${kFmt(props.status.ctxUsed)} / ${kFmt(props.status.ctxMax)}` : t('status.statusNone'),
+  props.status.ctxMax > 0 ? `${kFmt(props.status.ctxUsed)}/${kFmt(props.status.ctxMax)}` : t('status.statusNone'),
 );
 
 function cycleThinking(): void {
@@ -314,7 +317,9 @@ function onLogout(): void {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #fff;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--line);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   transition: left 0.18s;
 }

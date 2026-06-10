@@ -128,4 +128,19 @@ function glyph(status: TodoView['status']): string {
 .tc-row.s-in_progress .tc-name { font-weight: 600; }
 .tc-row.s-done .tc-glyph { color: var(--ok); }
 .tc-row.s-done .tc-name { color: var(--faint); text-decoration: line-through; }
+
+/* Mobile (~/todo tab): match the chat font bump and give the collapsible
+   header a ≥44px tap target; row spacing opens up for finger-reading. */
+@media (max-width: 640px) {
+  .todo-card.tab-mode .tc-head {
+    min-height: 44px;
+    font-size: 14px;
+  }
+  .todo-card.tab-mode .tc-list {
+    font-size: 15px;
+  }
+  .todo-card.tab-mode .tc-row {
+    padding: 5px 0;
+  }
+}
 </style>

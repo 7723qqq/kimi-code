@@ -109,7 +109,7 @@ const statusText = computed<string>(() =>
   height: 28px;
   border-radius: 8px;
   background: var(--ink);
-  color: #fff;
+  color: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;

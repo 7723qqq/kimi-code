@@ -250,6 +250,10 @@ onUnmounted(() => {
   color: var(--ink);
   outline: none;
 }
+.search-input:focus-visible {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 25%, transparent);
+}
 
 
 /* Session list */
@@ -323,7 +327,7 @@ onUnmounted(() => {
   flex: none;
   font-size: 10px;
   font-weight: 700;
-  color: #fff;
+  color: var(--bg);
   background: var(--warn);
   border-radius: 9px;
   min-width: 16px;

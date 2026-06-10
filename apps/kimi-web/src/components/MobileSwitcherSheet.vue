@@ -505,7 +505,7 @@ onUnmounted(() => {
   flex: none;
   font-family: var(--mono);
   font-size: 10px;
-  color: #fff;
+  color: var(--bg);
   background: var(--warn);
   border-radius: 10px;
   padding: 1px 7px;

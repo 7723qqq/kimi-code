@@ -306,12 +306,12 @@ function onBack(): void {
   user-select: none;
 }
 
-.badge.modified  { background: #e8f0fe; color: var(--blue); }
-.badge.added     { background: #e6f4ea; color: #1e7e34; }
-.badge.deleted   { background: #fce8e6; color: #c5221f; }
-.badge.renamed   { background: #fef3e2; color: #b06000; }
+.badge.modified  { background: color-mix(in srgb, var(--blue) 12%, var(--bg)); color: var(--blue); }
+.badge.added     { background: color-mix(in srgb, var(--ok) 10%, var(--bg)); color: var(--ok); }
+.badge.deleted   { background: color-mix(in srgb, var(--err) 10%, var(--bg)); color: var(--err); }
+.badge.renamed   { background: color-mix(in srgb, var(--warn) 12%, var(--bg)); color: var(--warn); }
 .badge.untracked { background: var(--soft, #f0f0f5); color: var(--muted, #9098a0); }
-.badge.conflicted{ background: #fce8e6; color: #c5221f; font-size: 9px; }
+.badge.conflicted{ background: color-mix(in srgb, var(--err) 10%, var(--bg)); color: var(--err); font-size: 9px; }
 .badge.ignored   { background: var(--soft, #f0f0f5); color: var(--faint, #c0c5cc); }
 .badge.clean     { background: transparent; color: var(--faint, #c0c5cc); }
 .badge.unknown   { background: var(--soft, #f0f0f5); color: var(--muted, #9098a0); }

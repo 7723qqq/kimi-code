@@ -202,7 +202,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .appr {
   border: 1px solid var(--bd);
   margin: 10px 0;
-  background: #fff;
+  background: var(--bg);
   border-radius: 3px;
 }
 
@@ -245,9 +245,9 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .dl { display: flex; padding: 0 10px; }
 .dg { width: 30px; color: var(--faint); text-align: right; padding-right: 12px; user-select: none; }
 .dc { white-space: pre; font-family: var(--mono); }
-.del { background: #fcf0f0; }
+.del { background: color-mix(in srgb, var(--err) 8%, var(--bg)); }
 .del .dc { color: var(--err); }
-.add { background: #eef8f1; }
+.add { background: color-mix(in srgb, var(--ok) 8%, var(--bg)); }
 .add .dc { color: var(--ok); }
 
 /* Shell */
@@ -271,7 +271,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   border-radius: 3px;
   color: var(--err);
   font-size: 11.5px;
-  background: #fff5f5;
+  background: color-mix(in srgb, var(--err) 5%, var(--bg));
 }
 
 /* File */
@@ -342,7 +342,11 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   resize: none;
   outline: none;
   color: var(--text);
-  background: #fff;
+  background: var(--bg);
+}
+.feedback-ta:focus-visible {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 25%, transparent);
 }
 
 .feedback-hint { font-size: 10.5px; color: var(--faint); margin-top: 4px; }
@@ -352,7 +356,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .kbtn {
   padding: 8px 14px;
   font-size: 11.5px;
-  background: #fff;
+  background: var(--bg);
   color: var(--text);
   cursor: pointer;
   border-right: 1px solid var(--line);
@@ -362,10 +366,10 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 }
 .kbtn:last-child { border-right: none; }
 .kbtn:hover { background: var(--panel2); }
-.kbtn.pri { background: var(--blue); color: #fff; }
+.kbtn.pri { background: var(--blue); color: var(--bg); }
 .kbtn.pri:hover { background: var(--blue2); }
 .k { color: var(--faint); margin-left: 6px; font-size: 10px; }
-.kbtn.pri .k { color: rgba(255, 255, 255, 0.6); }
+.kbtn.pri .k { color: color-mix(in srgb, var(--bg) 60%, transparent); }
 
 /* =========================================================================
    MOBILE (≤640px): the card spans the full chat column (no 33px left gutter),

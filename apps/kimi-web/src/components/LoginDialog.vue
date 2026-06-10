@@ -524,7 +524,7 @@ function formatSeconds(s: number): string {
 .act-btn.primary {
   background: var(--blue);
   border-color: var(--blue);
-  color: #fff;
+  color: var(--bg);
 }
 .act-btn.primary:hover { background: var(--blue2); }
 

@@ -3,6 +3,7 @@
 import { computed, inject, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { MarkdownRender } from 'markstream-vue';
+import { useIsDark } from '../composables/useIsDark';
 // px-based CSS build (our app is px, not rem). Imported here so the styles
 // load wherever Markdown is used; scoped overrides below re-skin it to
 // Terminal Pro. Importing the same file from multiple components is a no-op
@@ -31,6 +32,9 @@ const props = withDefaults(
 );
 
 const final = computed(() => !props.streaming);
+
+// Code blocks follow the app colour scheme (shiki re-renders on flip).
+const isDark = useIsDark();
 
 // ---------------------------------------------------------------------------
 // Local image resolution — rewrite the SOURCE TEXT before markstream sees it.
@@ -117,10 +121,10 @@ watch(
   { immediate: true },
 );
 
-// Light Shiki theme for code blocks. `github-light` matches Terminal Pro's
-// light surface (markstream's default is vitesse-dark/light; we force a light
-// theme and isDark=false so code never renders on a dark surface).
+// Shiki themes for code blocks: github-light on the light surface,
+// github-dark when the app colour scheme is dark.
 const CODE_LIGHT_THEME = 'github-light';
+const CODE_DARK_THEME = 'github-dark';
 
 // Props forwarded to each code block. markstream's CodeBlock ships its own
 // header with a copy button + language label, so we keep the header + copy
@@ -211,9 +215,10 @@ function copyDiff(code: string, idx: number) {
         :content="seg.text"
         mode="chat"
         code-renderer="shiki"
-        :is-dark="false"
+        :is-dark="isDark"
         :code-block-light-theme="CODE_LIGHT_THEME"
-        :themes="[CODE_LIGHT_THEME]"
+        :code-block-dark-theme="CODE_DARK_THEME"
+        :themes="[CODE_LIGHT_THEME, CODE_DARK_THEME]"
         :code-block-props="codeBlockProps"
         :final="final"
         :smooth-streaming="streaming"
@@ -473,12 +478,12 @@ function copyDiff(code: string, idx: number) {
 }
 .diff-add {
   color: var(--ok);
-  background: rgba(14, 122, 56, 0.07);
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
   border-left-color: var(--ok) !important;
 }
 .diff-del {
   color: var(--err);
-  background: rgba(185, 28, 28, 0.06);
+  background: color-mix(in srgb, var(--err) 7%, transparent);
   border-left-color: var(--err) !important;
 }
 .diff-hunk {

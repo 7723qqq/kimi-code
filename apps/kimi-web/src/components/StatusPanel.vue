@@ -187,7 +187,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
   width: 80px;
   height: 5px;
   border-radius: 2px;
-  background: #d7dbe1;
+  background: var(--line);
   overflow: hidden;
   flex: none;
 }

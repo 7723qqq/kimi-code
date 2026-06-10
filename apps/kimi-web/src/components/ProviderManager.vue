@@ -385,7 +385,7 @@ function statusLabel(status: AppProvider['status']): string {
   padding: 1px 5px;
   border-radius: 3px;
 }
-.prov-key-state.has-key { background: #e8f5e9; color: var(--ok); }
+.prov-key-state.has-key { background: color-mix(in srgb, var(--ok) 9%, var(--bg)); color: var(--ok); }
 .prov-key-state.no-key { background: var(--line2); color: var(--muted); }
 
 .prov-actions, .confirm-row {
@@ -464,6 +464,10 @@ function statusLabel(status: AppProvider['status']): string {
   color: var(--ink);
   outline: none;
 }
+.finput:focus-visible {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 25%, transparent);
+}
 
 .fselect { cursor: pointer; }
 .add-error {
@@ -490,11 +494,11 @@ function statusLabel(status: AppProvider['status']): string {
 }
 .act-btn:hover { background: var(--panel2); }
 .act-btn.danger { color: var(--err); }
-.act-btn.danger:hover { background: #fff5f5; border-color: var(--err); }
+.act-btn.danger:hover { background: color-mix(in srgb, var(--err) 5%, var(--bg)); border-color: var(--err); }
 .act-btn.primary {
   background: var(--blue);
   border-color: var(--blue);
-  color: #fff;
+  color: var(--bg);
 }
 .act-btn.primary:hover { background: var(--blue2); }
 

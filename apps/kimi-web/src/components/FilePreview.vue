@@ -286,7 +286,7 @@ function truncatePath(path: string, maxLen = 55): string {
 }
 .fp-copy.copied {
   color: var(--ok);
-  border-color: #a8d5b5;
+  border-color: color-mix(in srgb, var(--ok) 35%, var(--bg));
 }
 
 /* ---- Body ---- */

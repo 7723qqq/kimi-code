@@ -182,7 +182,7 @@ defineExpose({ closeMenu, cancelDelete });
   position: relative;
 }
 .se:hover { background: var(--panel2); }
-.se.on { background: rgba(21, 101, 192, 0.07); }
+.se.on { background: color-mix(in srgb, var(--blue) 7%, transparent); }
 
 .row {
   display: flex;
@@ -327,7 +327,7 @@ defineExpose({ closeMenu, cancelDelete });
 .archive-label { color: var(--err); flex: 1; }
 .btn-confirm {
   background: var(--err);
-  color: #fff;
+  color: var(--bg);
   border: none;
   border-radius: 3px;
   padding: 2px 8px;

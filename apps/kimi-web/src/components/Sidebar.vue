@@ -968,7 +968,7 @@ function blinkOnce(): void {
 .gh-add {
   background: transparent;
   border: none;
-  color: #bbb;
+  color: var(--faint);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -976,7 +976,7 @@ function blinkOnce(): void {
   padding: 2px 6px;
   flex: none;
 }
-.gh-add:hover { color: #666; }
+.gh-add:hover { color: var(--dim); }
 
 /* More button — hidden until hover */
 .gh-more {
@@ -1154,8 +1154,8 @@ function blinkOnce(): void {
   border-radius: 5px;
 }
 .am-item:hover { background: var(--hover, rgba(0, 0, 0, 0.04)); }
-.am-item.danger { color: #c0392b; }
-.am-item.danger:hover { background: rgba(192, 57, 43, 0.08); }
+.am-item.danger { color: var(--err); }
+.am-item.danger:hover { background: color-mix(in srgb, var(--err) 8%, transparent); }
 .am-item.signin { color: var(--blue2); }
 .am-item.signin:hover { background: var(--soft); }
 
@@ -1209,38 +1209,6 @@ function blinkOnce(): void {
 .theme-opt:hover { color: var(--ink); }
 .theme-opt.on {
   background: var(--soft);
-  color: var(--blue2);
-  font-weight: 600;
-}
-
-/* Code font grid */
-.font-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-}
-.font-opt {
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--bg);
-  font-size: 11px;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 3px 6px;
-  line-height: 1.4;
-  text-align: center;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.font-opt:hover {
-  color: var(--ink);
-  border-color: var(--line2);
-}
-.font-opt.on {
-  background: var(--soft);
-  border-color: var(--bd);
   color: var(--blue2);
   font-weight: 600;
 }

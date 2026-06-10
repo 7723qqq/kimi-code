@@ -121,6 +121,19 @@ function saveColorSchemeToStorage(v: ColorScheme): void {
 function applyColorSchemeToDocument(c: ColorScheme): void {
   if (typeof document === 'undefined' || !document.documentElement) return;
   document.documentElement.dataset.colorScheme = c;
+
+  // Mobile browser chrome (status/address bar) follows <meta name=theme-color>.
+  // The static tags in index.html only track the OS preference — when the user
+  // explicitly picks light/dark, pin both media variants to the app's colour
+  // so the chrome doesn't sit in the opposite scheme.
+  const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
+  if (metas.length === 0) return;
+  const pinned = c === 'dark' ? '#0d1117' : c === 'light' ? '#ffffff' : null;
+  metas.forEach((meta) => {
+    const media = meta.getAttribute('media') ?? '';
+    const systemValue = media.includes('dark') ? '#0d1117' : '#ffffff';
+    meta.setAttribute('content', pinned ?? systemValue);
+  });
 }
 
 function loadPermissionFromStorage(): PermissionMode {

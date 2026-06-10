@@ -156,7 +156,7 @@ onUnmounted(() => {
 /* Error toasts: a subtle red-tinted border (no left accent bar); the red dot
    is the primary error cue. */
 .toast.err {
-  border-color: rgba(192, 57, 43, 0.35);
+  border-color: color-mix(in srgb, var(--err) 35%, transparent);
 }
 .dot {
   flex: none;
@@ -167,7 +167,7 @@ onUnmounted(() => {
   background: var(--muted);
 }
 .toast.err .dot {
-  background: #c0392b;
+  background: var(--err);
 }
 .msg {
   flex: 1;
@@ -175,7 +175,7 @@ onUnmounted(() => {
   word-break: break-word;
 }
 .toast.err .msg {
-  color: #a93226;
+  color: var(--err);
 }
 .x {
   flex: none;

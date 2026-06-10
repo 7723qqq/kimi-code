@@ -259,8 +259,8 @@ export function reduceAppEvent(
               id: optimistic.id,
               promptId: event.message.promptId ?? optimistic.promptId,
               metadata: {
-                ...(event.message.metadata ?? {}),
-                ...(optimistic.metadata ?? {}),
+                ...event.message.metadata,
+                ...optimistic.metadata,
               },
             };
             next.messagesBySession[sid] = updated;

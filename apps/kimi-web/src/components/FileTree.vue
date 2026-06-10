@@ -376,10 +376,10 @@ watch(
   user-select: none;
 }
 
-.ft-badge.modified  { background: #e8f0fe; color: var(--blue); }
-.ft-badge.added     { background: #e6f4ea; color: #1e7e34; }
-.ft-badge.deleted   { background: #fce8e6; color: #c5221f; }
-.ft-badge.renamed   { background: #fef3e2; color: #b06000; }
+.ft-badge.modified  { background: color-mix(in srgb, var(--blue) 12%, var(--bg)); color: var(--blue); }
+.ft-badge.added     { background: color-mix(in srgb, var(--ok) 10%, var(--bg)); color: var(--ok); }
+.ft-badge.deleted   { background: color-mix(in srgb, var(--err) 10%, var(--bg)); color: var(--err); }
+.ft-badge.renamed   { background: color-mix(in srgb, var(--warn) 12%, var(--bg)); color: var(--warn); }
 .ft-badge.untracked { background: var(--soft); color: var(--muted); }
 .ft-badge.unknown   { background: var(--panel2); color: var(--muted); }
 

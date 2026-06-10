@@ -821,11 +821,27 @@ onUnmounted(() => {
 }
 .empty-hint-text {
   display: inline-block;
+  /* Long workspace names must not wrap into a multi-line hint. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Larger textarea in the centred empty-session composer */
 :deep(.empty-composer .ph) {
   min-height: 120px;
+}
+
+/* Mobile empty session: a 120px textarea floating mid-screen jumps around
+   when the soft keyboard opens. Keep the input compact and the hint modest. */
+@media (max-width: 640px) {
+  :deep(.empty-composer .ph) {
+    min-height: 44px;
+  }
+  .empty-hint {
+    font-size: 17px;
+  }
 }
 
 /* Bottom dock (status line + composer): capped to the same reading column as
@@ -933,7 +949,7 @@ onUnmounted(() => {
 .seg-n {
   font-size: 9.5px;
   background: var(--blue);
-  color: #fff;
+  color: var(--bg); /* on-accent text */
   border-radius: 8px;
   padding: 0 5px;
   line-height: 1.5;
@@ -1040,7 +1056,7 @@ onUnmounted(() => {
   gap: 5px;
   padding: 6px 14px 6px 10px;
   background: var(--blue);
-  color: #fff;
+  color: var(--bg); /* on-accent text */
   border: none;
   border-radius: 20px;
   font-size: 14px;
