@@ -58,6 +58,7 @@ describe('kimi daemon', () => {
         port: DEFAULT_DAEMON_PORT,
         logLevel: 'info',
         debugEndpoints: false,
+        restart: false,
       },
       expect.any(Function),
     );
@@ -85,6 +86,7 @@ describe('kimi daemon', () => {
         port: DEFAULT_DAEMON_PORT,
         logLevel: 'info',
         debugEndpoints: false,
+        restart: false,
       },
       expect.any(Function),
     );
@@ -105,6 +107,7 @@ describe('kimi daemon', () => {
       port: 7879,
       logLevel: 'debug',
       debugEndpoints: false,
+      restart: false,
     });
     expect(stdout.join('')).toBe('');
     expect(stderr.join('')).toBe('');
@@ -116,6 +119,7 @@ describe('kimi daemon', () => {
       port: DEFAULT_DAEMON_PORT,
       logLevel: 'info' as const,
       debugEndpoints: false,
+      restart: false,
     };
     const deps: EnsureDaemonRunningDeps = {
       isDaemonHealthy: vi.fn(async () => false),
@@ -130,6 +134,8 @@ describe('kimi daemon', () => {
         logPath: '/tmp/kimi-daemon.log',
       })),
       daemonLogPath: vi.fn(() => '/tmp/kimi-daemon.log'),
+      currentBuild: vi.fn(() => ({ version: '1.0.0', entry: '/cli/main.mjs' })),
+      stopDaemon: vi.fn(async () => true),
     };
 
     await expect(ensureDaemonRunning(parsedOptions, deps)).rejects.toThrow(
@@ -155,6 +161,7 @@ describe('kimi daemon', () => {
       port: 7999,
       logLevel: 'info' as const,
       debugEndpoints: false,
+      restart: false,
     };
     const status: string[] = [];
     const deps: EnsureDaemonRunningDeps = {
@@ -164,12 +171,16 @@ describe('kimi daemon', () => {
         pid: 4321,
         started_at: '2026-06-10T00:00:00.000Z',
         port: 7880,
+        host_version: '1.0.0',
+        entry: '/cli/main.mjs',
       })),
       startDaemonBackground: vi.fn(() => ({
         pid: 9876,
         logPath: '/tmp/kimi-daemon.log',
       })),
       daemonLogPath: vi.fn(() => '/tmp/kimi-daemon.log'),
+      currentBuild: vi.fn(() => ({ version: '1.0.0', entry: '/cli/main.mjs' })),
+      stopDaemon: vi.fn(async () => true),
     };
 
     await expect(
@@ -189,5 +200,206 @@ describe('kimi daemon', () => {
       'locked daemon is healthy; reusing http://127.0.0.1:7880',
     ]);
     expect(deps.startDaemonBackground).not.toHaveBeenCalled();
+  });
+
+  function makeEnsureDeps(overrides: Partial<EnsureDaemonRunningDeps> = {}): EnsureDaemonRunningDeps {
+    return {
+      isDaemonHealthy: vi.fn(async () => true),
+      waitForDaemonHealthy: vi.fn(async () => true),
+      readLiveDaemonLock: vi.fn(() => ({
+        pid: 4321,
+        started_at: '2026-06-10T00:00:00.000Z',
+        port: DEFAULT_DAEMON_PORT,
+        host_version: '1.0.0',
+        entry: '/old/main.mjs',
+      })),
+      startDaemonBackground: vi.fn(() => ({ pid: 9876, logPath: '/tmp/kimi-daemon.log' })),
+      daemonLogPath: vi.fn(() => '/tmp/kimi-daemon.log'),
+      currentBuild: vi.fn(() => ({ version: '1.0.0', entry: '/old/main.mjs' })),
+      stopDaemon: vi.fn(async () => true),
+      ...overrides,
+    };
+  }
+
+  const parsedDefaults = {
+    host: DEFAULT_DAEMON_HOST,
+    port: DEFAULT_DAEMON_PORT,
+    logLevel: 'info' as const,
+    debugEndpoints: false,
+    restart: false,
+  };
+
+  it('reuses a healthy daemon that was started by the same build', async () => {
+    const deps = makeEnsureDeps();
+
+    await expect(ensureDaemonRunning(parsedDefaults, deps)).resolves.toMatchObject({
+      status: 'already-running',
+      origin: DEFAULT_DAEMON_ORIGIN,
+      pid: 4321,
+    });
+    expect(deps.stopDaemon).not.toHaveBeenCalled();
+    expect(deps.startDaemonBackground).not.toHaveBeenCalled();
+  });
+
+  it('warns but reuses a build-mismatched daemon without --restart', async () => {
+    const status: string[] = [];
+    const deps = makeEnsureDeps({
+      currentBuild: vi.fn(() => ({ version: '2.0.0', entry: '/new/main.mjs' })),
+    });
+
+    await expect(
+      ensureDaemonRunning(parsedDefaults, deps, (m) => status.push(m)),
+    ).resolves.toMatchObject({
+      status: 'already-running',
+      origin: DEFAULT_DAEMON_ORIGIN,
+      pid: 4321,
+    });
+    expect(deps.stopDaemon).not.toHaveBeenCalled();
+    expect(deps.startDaemonBackground).not.toHaveBeenCalled();
+    expect(status).toContain(
+      'running daemon is a different build (running 1.0.0, current 2.0.0); rerun with --restart to replace it',
+    );
+  });
+
+  it('warns about a different install of the same version without --restart', async () => {
+    const status: string[] = [];
+    const deps = makeEnsureDeps({
+      currentBuild: vi.fn(() => ({ version: '1.0.0', entry: '/new/main.mjs' })),
+    });
+
+    await expect(
+      ensureDaemonRunning(parsedDefaults, deps, (m) => status.push(m)),
+    ).resolves.toMatchObject({ status: 'already-running' });
+    expect(deps.stopDaemon).not.toHaveBeenCalled();
+    expect(status).toContain(
+      'running daemon is a different install of 1.0.0 (/old/main.mjs); rerun with --restart to replace it',
+    );
+  });
+
+  it('warns about a lock without build identity (older daemon) without --restart', async () => {
+    const status: string[] = [];
+    const deps = makeEnsureDeps({
+      readLiveDaemonLock: vi.fn(() => ({
+        pid: 4321,
+        started_at: '2026-06-10T00:00:00.000Z',
+        port: DEFAULT_DAEMON_PORT,
+      })),
+      currentBuild: vi.fn(() => ({ version: '2.0.0', entry: '/new/main.mjs' })),
+    });
+
+    await expect(
+      ensureDaemonRunning(parsedDefaults, deps, (m) => status.push(m)),
+    ).resolves.toMatchObject({ status: 'already-running' });
+    expect(deps.stopDaemon).not.toHaveBeenCalled();
+    expect(status).toContain(
+      'running daemon is a different build (running unknown build, current 2.0.0); rerun with --restart to replace it',
+    );
+  });
+
+  it('stops the running daemon and starts fresh with --restart (even on the same build)', async () => {
+    const status: string[] = [];
+    const deps = makeEnsureDeps();
+    const parsed = { ...parsedDefaults, restart: true };
+
+    await expect(
+      ensureDaemonRunning(parsed, deps, (m) => status.push(m)),
+    ).resolves.toMatchObject({ status: 'started', origin: DEFAULT_DAEMON_ORIGIN, pid: 9876 });
+
+    expect(deps.stopDaemon).toHaveBeenCalledWith(4321);
+    expect(deps.startDaemonBackground).toHaveBeenCalledWith(parsed);
+    expect(status).toContain('--restart: stopping daemon (pid 4321)');
+    expect(status).toContain('stopped daemon (pid 4321)');
+  });
+
+  it('keeps using the running daemon when --restart cannot stop it', async () => {
+    const status: string[] = [];
+    const deps = makeEnsureDeps({
+      stopDaemon: vi.fn(async () => false),
+    });
+
+    await expect(
+      ensureDaemonRunning({ ...parsedDefaults, restart: true }, deps, (m) => status.push(m)),
+    ).resolves.toMatchObject({
+      status: 'already-running',
+      origin: DEFAULT_DAEMON_ORIGIN,
+      pid: 4321,
+    });
+    expect(deps.startDaemonBackground).not.toHaveBeenCalled();
+    expect(status).toContain(
+      `could not stop daemon (pid 4321); using ${DEFAULT_DAEMON_ORIGIN} as-is`,
+    );
+  });
+
+  it('never stops a daemon whose lock does not match the requested port', async () => {
+    // e.g. a stub daemon occupying the port while the lock belongs to a daemon
+    // on another port — --restart must not SIGTERM the unrelated lock pid.
+    const deps = makeEnsureDeps({
+      readLiveDaemonLock: vi.fn(() => ({
+        pid: 4321,
+        started_at: '2026-06-10T00:00:00.000Z',
+        port: 9999,
+        host_version: '1.0.0',
+        entry: '/old/main.mjs',
+      })),
+    });
+
+    await expect(
+      ensureDaemonRunning({ ...parsedDefaults, restart: true }, deps),
+    ).resolves.toMatchObject({
+      status: 'already-running',
+      origin: DEFAULT_DAEMON_ORIGIN,
+      pid: undefined,
+    });
+    expect(deps.stopDaemon).not.toHaveBeenCalled();
+  });
+
+  it('restarts a daemon found via the lock on another port with --restart', async () => {
+    const deps = makeEnsureDeps({
+      isDaemonHealthy: vi.fn(async () => false),
+      waitForDaemonHealthy: vi.fn(async () => true),
+      readLiveDaemonLock: vi.fn(() => ({
+        pid: 4321,
+        started_at: '2026-06-10T00:00:00.000Z',
+        port: 9999,
+        host_version: '1.0.0',
+        entry: '/old/main.mjs',
+      })),
+    });
+    const parsed = { ...parsedDefaults, restart: true };
+
+    await expect(ensureDaemonRunning(parsed, deps)).resolves.toMatchObject({
+      status: 'started',
+      origin: DEFAULT_DAEMON_ORIGIN,
+    });
+    expect(deps.stopDaemon).toHaveBeenCalledWith(4321);
+    expect(deps.startDaemonBackground).toHaveBeenCalledWith(parsed);
+  });
+
+  it('warns but reuses a build-mismatched daemon on another port without --restart', async () => {
+    const status: string[] = [];
+    const deps = makeEnsureDeps({
+      isDaemonHealthy: vi.fn(async () => false),
+      waitForDaemonHealthy: vi.fn(async () => true),
+      readLiveDaemonLock: vi.fn(() => ({
+        pid: 4321,
+        started_at: '2026-06-10T00:00:00.000Z',
+        port: 9999,
+        host_version: '1.0.0',
+        entry: '/old/main.mjs',
+      })),
+      currentBuild: vi.fn(() => ({ version: '2.0.0', entry: '/new/main.mjs' })),
+    });
+
+    await expect(
+      ensureDaemonRunning(parsedDefaults, deps, (m) => status.push(m)),
+    ).resolves.toMatchObject({
+      status: 'already-running',
+      origin: 'http://127.0.0.1:9999',
+      pid: 4321,
+    });
+    expect(deps.stopDaemon).not.toHaveBeenCalled();
+    expect(status).toContain(
+      'running daemon is a different build (running 1.0.0, current 2.0.0); rerun with --restart to replace it',
+    );
   });
 });

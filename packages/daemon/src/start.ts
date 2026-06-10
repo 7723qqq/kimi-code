@@ -102,7 +102,14 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<RunningDaem
   const pinoLogger: DaemonLogger =
     opts.logger ?? createDaemonLogger({ level: opts.logLevel ?? 'info' });
 
-  const lockHandle = acquireLock({ port: opts.port, lockPath: opts.lockPath });
+  const lockHandle = acquireLock({
+    port: opts.port,
+    lockPath: opts.lockPath,
+    // Record the host build identity so `kimi web`/`kimi daemon` can detect a
+    // build-mismatched daemon and restart it instead of serving a stale build.
+    hostVersion: opts.coreProcessOptions?.identity?.version,
+    entry: process.argv[1],
+  });
 
   const app = Fastify({
     loggerInstance: pinoLogger,

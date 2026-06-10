@@ -43,6 +43,7 @@ export interface DaemonCliOptions {
   logLevel?: string;
   debugEndpoints?: boolean;
   foreground?: boolean;
+  restart?: boolean;
 }
 
 export interface ParsedDaemonOptions {
@@ -50,6 +51,8 @@ export interface ParsedDaemonOptions {
   port: number;
   logLevel: DaemonLogLevel;
   debugEndpoints: boolean;
+  /** Stop a running managed daemon and start a fresh one with this CLI build. */
+  restart: boolean;
 }
 
 export type EnsureDaemonResult =
@@ -71,15 +74,20 @@ export type DaemonStartupReporter = (message: string) => void;
 export interface EnsureDaemonRunningDeps {
   isDaemonHealthy(origin: string, timeoutMs: number): Promise<boolean>;
   waitForDaemonHealthy(origin: string, timeoutMs: number): Promise<boolean>;
-  readLiveDaemonLock():
-    | {
-        pid: number;
-        started_at: string;
-        port: number;
-      }
-    | undefined;
+  readLiveDaemonLock(): DaemonLockContents | undefined;
   startDaemonBackground(options: ParsedDaemonOptions): { pid: number; logPath: string };
   daemonLogPath(): string;
+  /** Identity of the CLI build that is executing right now. */
+  currentBuild(): BuildIdentity;
+  /** SIGTERM the daemon and wait for the pid to exit. Resolves false on timeout/EPERM. */
+  stopDaemon(pid: number): Promise<boolean>;
+}
+
+/** What identifies "the same build": the host version PLUS the entry path —
+    two pkg.pr.new installs of the same base version live at different paths. */
+export interface BuildIdentity {
+  version: string;
+  entry: string | undefined;
 }
 
 export interface DaemonCommandDeps {
@@ -114,6 +122,11 @@ export function registerDaemonCommand(parent: Command): void {
     .option(
       '--foreground',
       'Run the daemon in the foreground instead of starting a background daemon.',
+      false,
+    )
+    .option(
+      '--restart',
+      'Stop the running daemon (if this CLI manages it) and start a fresh one with this build.',
       false,
     )
     .option(
@@ -174,6 +187,7 @@ export function parseDaemonOptions(opts: DaemonCliOptions): ParsedDaemonOptions 
     port: parsePort(opts.port, '--port', DEFAULT_DAEMON_PORT),
     logLevel: parseLogLevel(opts.logLevel),
     debugEndpoints: opts.debugEndpoints === true,
+    restart: opts.restart === true,
   };
 }
 
@@ -205,36 +219,75 @@ export async function ensureDaemonRunning(
   report(`checking requested daemon at ${origin}`);
   if (await deps.isDaemonHealthy(origin, 1000)) {
     const lock = deps.readLiveDaemonLock();
-    report(`requested daemon is healthy; using ${origin}`);
-    return {
+    // Only a lock recorded for THIS port describes the daemon we just probed —
+    // a foreign healthy process on the port (or a daemon on another port
+    // holding the lock) is not ours to manage, so use it as-is.
+    const ownedLock = lock !== undefined && lock.port === options.port ? lock : undefined;
+    const reuse = (): EnsureDaemonResult => ({
       status: 'already-running',
       origin,
-      pid: lock?.pid,
+      pid: ownedLock?.pid,
       logPath: deps.daemonLogPath(),
-    };
-  }
-
-  report('requested daemon is not healthy');
-  report(`checking daemon lock at ${DEFAULT_LOCK_PATH}`);
-  const lock = deps.readLiveDaemonLock();
-  if (lock !== undefined) {
-    report(
-      `found live daemon lock (pid ${lock.pid}, port ${lock.port}, started ${lock.started_at})`,
-    );
-    const lockOrigin = daemonOrigin(options.host, lock.port);
-    report(`checking locked daemon at ${lockOrigin}`);
-    if (await deps.waitForDaemonHealthy(lockOrigin, 5000)) {
-      report(`locked daemon is healthy; reusing ${lockOrigin}`);
-      return {
-        status: 'already-running',
-        origin: lockOrigin,
-        pid: lock.pid,
-        logPath: deps.daemonLogPath(),
-      };
+    });
+    if (ownedLock === undefined) {
+      if (options.restart) {
+        report(`--restart: daemon at ${origin} is not managed by this CLI (no matching lock); using it as-is`);
+      }
+      report(`requested daemon is healthy; using ${origin}`);
+      return reuse();
     }
-    report(`locked daemon did not become healthy at ${lockOrigin}`);
+    if (!options.restart) {
+      // A daemon from another build keeps serving its OWN bundled web UI/API —
+      // surface the mismatch so the user knows the running daemon lags the CLI
+      // they just invoked, but never replace it without an explicit --restart.
+      if (!lockMatchesBuild(ownedLock, deps.currentBuild())) {
+        report(describeBuildMismatch(ownedLock, deps.currentBuild()));
+      }
+      report(`requested daemon is healthy; using ${origin}`);
+      return reuse();
+    }
+    report(`--restart: stopping daemon (pid ${ownedLock.pid})`);
+    if (!(await deps.stopDaemon(ownedLock.pid))) {
+      report(`could not stop daemon (pid ${ownedLock.pid}); using ${origin} as-is`);
+      return reuse();
+    }
+    report(`stopped daemon (pid ${ownedLock.pid})`);
   } else {
-    report('no live daemon lock found');
+    report('requested daemon is not healthy');
+    report(`checking daemon lock at ${DEFAULT_LOCK_PATH}`);
+    const lock = deps.readLiveDaemonLock();
+    if (lock !== undefined) {
+      report(
+        `found live daemon lock (pid ${lock.pid}, port ${lock.port}, started ${lock.started_at})`,
+      );
+      const lockOrigin = daemonOrigin(options.host, lock.port);
+      report(`checking locked daemon at ${lockOrigin}`);
+      if (await deps.waitForDaemonHealthy(lockOrigin, 5000)) {
+        const reuseLocked = (): EnsureDaemonResult => ({
+          status: 'already-running',
+          origin: lockOrigin,
+          pid: lock.pid,
+          logPath: deps.daemonLogPath(),
+        });
+        if (!options.restart) {
+          if (!lockMatchesBuild(lock, deps.currentBuild())) {
+            report(describeBuildMismatch(lock, deps.currentBuild()));
+          }
+          report(`locked daemon is healthy; reusing ${lockOrigin}`);
+          return reuseLocked();
+        }
+        report(`--restart: stopping daemon (pid ${lock.pid})`);
+        if (!(await deps.stopDaemon(lock.pid))) {
+          report(`could not stop daemon (pid ${lock.pid}); using ${lockOrigin} as-is`);
+          return reuseLocked();
+        }
+        report(`stopped daemon (pid ${lock.pid})`);
+      } else {
+        report(`locked daemon did not become healthy at ${lockOrigin}`);
+      }
+    } else {
+      report('no live daemon lock found');
+    }
   }
 
   report(`starting daemon in background at ${origin}`);
@@ -368,10 +421,52 @@ async function isDaemonHealthy(origin: string, timeoutMs: number): Promise<boole
   }
 }
 
-interface DaemonLockContents {
+export interface DaemonLockContents {
   pid: number;
   started_at: string;
   port: number;
+  /** Host CLI version that started the daemon (absent in locks from older builds). */
+  host_version?: string;
+  /** CLI entry path that spawned the daemon (absent in locks from older builds). */
+  entry?: string;
+}
+
+/** True when the locked daemon was started by the SAME build as this CLI.
+    Locks from older builds lack the identity fields → mismatch → restart. */
+function lockMatchesBuild(lock: DaemonLockContents, build: BuildIdentity): boolean {
+  return lock.host_version === build.version && lock.entry === build.entry;
+}
+
+function describeBuildMismatch(lock: DaemonLockContents, build: BuildIdentity): string {
+  const running = lock.host_version ?? 'unknown build';
+  if (running !== build.version) {
+    return `running daemon is a different build (running ${running}, current ${build.version}); rerun with --restart to replace it`;
+  }
+  return `running daemon is a different install of ${running} (${lock.entry ?? 'unknown entry'}); rerun with --restart to replace it`;
+}
+
+function currentBuild(): BuildIdentity {
+  return { version: getVersion(), entry: process.argv[1] };
+}
+
+/** SIGTERM the daemon and wait (≤5s) for the pid to exit. The daemon's signal
+    handler closes the server and releases the lock file, so a fresh background
+    start can take over cleanly. */
+async function stopDaemonProcess(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (error) {
+    // ESRCH: already gone — that's a successful stop. EPERM etc.: not ours to kill.
+    return (error as NodeJS.ErrnoException).code === 'ESRCH';
+  }
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (!pidAlive(pid)) return true;
+    await new Promise((resolve) => {
+      setTimeout(resolve, 150);
+    });
+  }
+  return false;
 }
 
 function readLiveDaemonLock(): DaemonLockContents | undefined {
@@ -433,4 +528,6 @@ const DEFAULT_ENSURE_DAEMON_RUNNING_DEPS: EnsureDaemonRunningDeps = {
   readLiveDaemonLock,
   startDaemonBackground,
   daemonLogPath,
+  currentBuild,
+  stopDaemon: stopDaemonProcess,
 };
