@@ -253,12 +253,14 @@ function processSummary(turn: ChatTurn): string {
           <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
             <span class="fold-lbl">{{ processSummary(turn) }}</span>
           </button>
-          <div v-show="!isFolded(turn.id)" class="fold-body">
-            <template v-for="(blk, bi) in processBlocks(turn)" :key="bi">
-              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="false" />
-              <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" /></div>
-              <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
-            </template>
+          <div class="fold-body" :class="{ open: !isFolded(turn.id) }">
+            <div class="fold-inner">
+              <template v-for="(blk, bi) in processBlocks(turn)" :key="bi">
+                <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="false" />
+                <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" /></div>
+                <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
+              </template>
+            </div>
           </div>
           <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
             <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="false" />
@@ -350,12 +352,14 @@ function processSummary(turn: ChatTurn): string {
             <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
               <span class="fold-lbl">{{ processSummary(turn) }}</span>
             </button>
-            <div v-show="!isFolded(turn.id)" class="fold-body">
-              <template v-for="(blk, bi) in processBlocks(turn)" :key="bi">
-                <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="false" />
-                <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" />
-                <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
-              </template>
+            <div class="fold-body" :class="{ open: !isFolded(turn.id) }">
+              <div class="fold-inner">
+                <template v-for="(blk, bi) in processBlocks(turn)" :key="bi">
+                  <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="false" />
+                  <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" />
+                  <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
+                </template>
+              </div>
             </div>
             <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
               <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="false" />
@@ -557,7 +561,17 @@ function processSummary(turn: ChatTurn): string {
   color: var(--muted);
 }
 .fold-body {
-  margin-bottom: 8px;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.28s ease, opacity 0.22s ease;
+}
+.fold-body.open {
+  max-height: 3000px;
+  opacity: 1;
+}
+.fold-inner {
+  padding-bottom: 8px;
 }
 
 .a-cpbtn {
