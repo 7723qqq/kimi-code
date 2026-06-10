@@ -578,6 +578,19 @@ html[data-theme="modern"] .toast.err .dot { background: var(--err); }
 html[data-theme="modern"] .toast.err .msg { color: var(--err); }
 html[data-theme="modern"] .toast .x { border-radius: var(--r-xs); }
 
+/* ---- Todo card (rounded + shadow under Modern) ---- */
+html[data-theme="modern"] .todo-card {
+  border-radius: var(--r-sm);
+  box-shadow: var(--shc);
+}
+html[data-theme="modern"] .tc-head { font-family: var(--sans); }
+html[data-theme="modern"] .tc-title { font-weight: 600; }
+
+/* ---- Context ring (softer track under Modern) ---- */
+html[data-theme="modern"] .ctx-ring-track {
+  stroke: var(--faint);
+}
+
 /* ---- Misc chrome ---- */
 html[data-theme="modern"] .lang-switch { border-radius: var(--r-sm); font-family: var(--sans); }
 html[data-theme="modern"] .ob-seg-btn { font-family: var(--sans); }

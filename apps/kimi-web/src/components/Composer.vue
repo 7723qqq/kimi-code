@@ -813,7 +813,6 @@ function selectModel(modelId: string): void {
                 fill="none"
                 stroke-width="2.5"
                 stroke-linecap="round"
-                stroke="var(--blue)"
                 :stroke-dasharray="`${2 * Math.PI * 7}`"
                 :stroke-dashoffset="`${2 * Math.PI * 7 * (1 - pct / 100)}`"
               />
@@ -1257,6 +1256,7 @@ function selectModel(modelId: string): void {
 }
 
 .ctx-ring-fill {
+  stroke: var(--blue);
   transition: stroke-dashoffset 0.3s ease, stroke 0.3s ease;
 }
 
