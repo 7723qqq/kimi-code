@@ -4,8 +4,8 @@
 
 import { Disposable, InstantiationType, registerSingleton } from '@moonshot-ai/agent-core';
 import type { KimiConfig } from '@moonshot-ai/agent-core';
-import { KimiAuthFacade } from '@moonshot-ai/kimi-code-sdk';
 import type { AuthSummary } from '@moonshot-ai/protocol';
+import { createManagedAuthFacade, type ServicesAuthFacade } from '../auth/managedAuth';
 import { IEnvironmentService } from '../environment/environment';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import {
@@ -23,17 +23,14 @@ export class AuthSummaryService
   implements IAuthSummaryService {
   readonly _serviceBrand: undefined;
 
-  private readonly _authFacade: KimiAuthFacade;
+  private readonly _authFacade: ServicesAuthFacade;
 
   constructor(
     @IEnvironmentService private readonly env: IEnvironmentService,
     @ICoreProcessService private readonly core: ICoreProcessService,
   ) {
     super();
-    this._authFacade = new KimiAuthFacade({
-      homeDir: env.homeDir,
-      configPath: env.configPath,
-    });
+    this._authFacade = createManagedAuthFacade(env);
   }
 
   async get(): Promise<AuthSummary> {

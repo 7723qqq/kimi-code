@@ -1,7 +1,7 @@
 /**
  * `OAuthService` (P2.7) unit tests.
  *
- * Hermetic: a mock `KimiAuthFacade` is injected so we don't need a real
+ * Hermetic: a mock managed auth facade is injected so we don't need a real
  * OAuth host on the network. The mock's `login()` exposes a deferred device
  * authorization + completion promise so tests can drive each transition
  * independently:
@@ -32,8 +32,8 @@ import {
   OAuthError,
   type DeviceAuthorization,
 } from '@moonshot-ai/kimi-code-oauth';
-import type { KimiAuthFacade } from '@moonshot-ai/kimi-code-sdk';
 
+import type { ServicesAuthFacade } from '../src/auth/managedAuth';
 import { IEnvironmentService } from '../src/environment/environment';
 import { OAuthService } from '../src/oauth/oauthService';
 
@@ -47,7 +47,7 @@ interface LoginCall {
 }
 
 interface MockFacade {
-  facade: KimiAuthFacade;
+  facade: ServicesAuthFacade;
   loginCalls: LoginCall[];
   logoutCalls: Array<{ providerName: string | undefined }>;
 }
@@ -81,7 +81,7 @@ function makeMockFacade(): MockFacade {
       logoutCalls.push({ providerName });
       return { providerName: providerName ?? 'managed:kimi-code', ok: true as const };
     }),
-  } as unknown as KimiAuthFacade;
+  } as unknown as ServicesAuthFacade;
 
   return { facade, loginCalls, logoutCalls };
 }

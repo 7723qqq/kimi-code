@@ -9,7 +9,6 @@ import {
   OAuthError,
   type DeviceAuthorization,
 } from '@moonshot-ai/kimi-code-oauth';
-import { KimiAuthFacade } from '@moonshot-ai/kimi-code-sdk';
 import type {
   OAuthFlowSnapshot,
   OAuthFlowStart,
@@ -19,6 +18,7 @@ import type {
 } from '@moonshot-ai/protocol';
 import { ulid } from 'ulid';
 
+import { createManagedAuthFacade, type ServicesAuthFacade } from '../auth/managedAuth';
 import { IEnvironmentService } from '../environment/environment';
 import { IOAuthService } from './oauth';
 
@@ -76,20 +76,17 @@ const TERMINAL_RETENTION_MS = 5 * 60 * 1000;
 export class OAuthService extends Disposable implements IOAuthService {
   readonly _serviceBrand: undefined;
 
-  private readonly _authFacade: KimiAuthFacade;
+  private readonly _authFacade: ServicesAuthFacade;
   private readonly _flows: DisposableMap<string, FlowState>;
 
   constructor(@IEnvironmentService private readonly env: IEnvironmentService) {
     super();
     this._flows = this._register(new DisposableMap<string, FlowState>());
-    this._authFacade = new KimiAuthFacade({
-      homeDir: env.homeDir,
-      configPath: env.configPath,
-    });
+    this._authFacade = createManagedAuthFacade(env);
   }
 
   /** @internal Test-only factory that injects a mock facade. */
-  static _createForTest(env: IEnvironmentService, facade: KimiAuthFacade): OAuthService {
+  static _createForTest(env: IEnvironmentService, facade: ServicesAuthFacade): OAuthService {
     const svc = new (OAuthService as any)(env) as OAuthService;
     (svc as any)._authFacade = facade;
     return svc;
@@ -108,7 +105,7 @@ export class OAuthService extends Disposable implements IOAuthService {
     const flowId = `oauth_${ulid()}`;
     const controller = new AbortController();
 
-    // Capture the device authorization via a deferred. `KimiAuthFacade.login`
+    // Capture the device authorization via a deferred. The managed auth facade
     // calls `onDeviceCode` exactly once, then starts polling. We resolve the
     // deferred from inside the callback so this method can return as soon as
     // the URLs are known — well before the polling completes.

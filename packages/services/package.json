@@ -35,7 +35,6 @@
   "dependencies": {
     "@moonshot-ai/agent-core": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
-    "@moonshot-ai/kimi-code-sdk": "workspace:^",
     "@moonshot-ai/protocol": "workspace:^",
     "chokidar": "^4.0.3",
     "ignore": "^5.3.2",

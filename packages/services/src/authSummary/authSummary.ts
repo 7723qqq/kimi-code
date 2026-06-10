@@ -22,14 +22,12 @@
  *
  * **Implementation** (`AuthSummaryService`): Reads the live config via
  * `ICoreProcessService.rpc.getKimiConfig({})` and the managed-OAuth credential
- * state via `KimiAuthFacade.status(...)`. Both are cheap (in-process RPC +
+ * state via a cached-token lookup. Both are cheap (in-process RPC +
  * a token-file existence probe), so we run them on every call instead of
  * caching — keeps the staleness window at zero.
  */
 
-import { createDecorator, Disposable } from '@moonshot-ai/agent-core';
-import type { KimiConfig } from '@moonshot-ai/agent-core';
-import { KimiAuthFacade } from '@moonshot-ai/kimi-code-sdk';
+import { createDecorator } from '@moonshot-ai/agent-core';
 import type { AuthSummary } from '@moonshot-ai/protocol';
 
 export interface IAuthSummaryService {
@@ -111,5 +109,3 @@ export class AuthModelNotResolvedError extends Error {
     this.providerId = providerId;
   }
 }
-
-

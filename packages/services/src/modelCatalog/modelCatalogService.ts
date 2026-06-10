@@ -4,13 +4,13 @@ import {
   registerSingleton,
 } from '@moonshot-ai/agent-core';
 import type { KimiConfig, ProviderConfig } from '@moonshot-ai/agent-core';
-import { KimiAuthFacade } from '@moonshot-ai/kimi-code-sdk';
 import type {
   ModelCatalogItem,
   ProviderCatalogItem,
   SetDefaultModelResponse,
 } from '@moonshot-ai/protocol';
 
+import { createManagedAuthFacade, type ServicesAuthFacade } from '../auth/managedAuth';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import { IEnvironmentService } from '../environment/environment';
 import {
@@ -26,17 +26,14 @@ export class ModelCatalogService
   implements IModelCatalogService {
   readonly _serviceBrand: undefined;
 
-  private readonly _authFacade: KimiAuthFacade;
+  private readonly _authFacade: ServicesAuthFacade;
 
   constructor(
     @IEnvironmentService env: IEnvironmentService,
     @ICoreProcessService private readonly core: ICoreProcessService,
   ) {
     super();
-    this._authFacade = new KimiAuthFacade({
-      homeDir: env.homeDir,
-      configPath: env.configPath,
-    });
+    this._authFacade = createManagedAuthFacade(env);
   }
 
   async listModels(): Promise<readonly ModelCatalogItem[]> {

@@ -12,9 +12,6 @@ export default defineConfig({
   clean: true,
   plugins: [rawTextPlugin()],
   alias: {
-    '@moonshot-ai/kimi-code-sdk': fileURLToPath(
-      new URL('../node-sdk/src/index.ts', import.meta.url),
-    ),
     '@moonshot-ai/agent-core': fileURLToPath(
       new URL('../agent-core/src/index.ts', import.meta.url),
     ),

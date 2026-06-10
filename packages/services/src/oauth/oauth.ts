@@ -29,7 +29,7 @@
  *     │
  *     ▼
  *   startLogin()  ──┐
- *                   │  KimiAuthFacade.login() runs in BACKGROUND
+ *                   │  managed auth facade login runs in BACKGROUND
  *                   ▼                                  │
  *           ┌─ onDeviceCode(auth) ◄────────────────────┘  (fires once)
  *           │       │
@@ -62,14 +62,7 @@
  * `DeviceCodeTimeoutError`.
  */
 
-import { createDecorator, Disposable } from '@moonshot-ai/agent-core';
-import {
-  DeviceCodeTimeoutError,
-  KIMI_CODE_PROVIDER_NAME,
-  OAuthError,
-  type DeviceAuthorization,
-} from '@moonshot-ai/kimi-code-oauth';
-import { KimiAuthFacade } from '@moonshot-ai/kimi-code-sdk';
+import { createDecorator } from '@moonshot-ai/agent-core';
 import type {
   OAuthFlowSnapshot,
   OAuthFlowStart,
@@ -77,7 +70,6 @@ import type {
   OAuthLoginCancelResponse,
   OAuthLogoutResponse,
 } from '@moonshot-ai/protocol';
-import { ulid } from 'ulid';
 
 export interface IOAuthService {
   readonly _serviceBrand: undefined;
@@ -114,5 +106,3 @@ export interface IOAuthService {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IOAuthService = createDecorator<IOAuthService>('oauthService');
-
-

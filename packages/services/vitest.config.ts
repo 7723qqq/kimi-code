@@ -27,12 +27,6 @@ export default defineConfig({
         ),
       },
       {
-        find: '@moonshot-ai/kimi-code-sdk',
-        replacement: fileURLToPath(
-          new URL('../node-sdk/src/index.ts', import.meta.url),
-        ),
-      },
-      {
         find: '@moonshot-ai/agent-core',
         replacement: fileURLToPath(
           new URL('../agent-core/src/index.ts', import.meta.url),
