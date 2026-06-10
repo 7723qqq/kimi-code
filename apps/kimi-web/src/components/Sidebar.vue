@@ -616,6 +616,7 @@ function blinkOnce(): void {
   width: auto;
   display: block;
   cursor: pointer;
+  user-select: none;
 }
 .ch-name {
   font-size: 12.5px;
