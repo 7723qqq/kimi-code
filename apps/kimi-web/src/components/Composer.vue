@@ -1259,7 +1259,6 @@ function selectModel(modelId: string): void {
   user-select: none;
   transition: background 0.1s;
   position: relative;
-  max-width: 120px;
   overflow: hidden;
 }
 .model-pill:hover {
@@ -1276,6 +1275,7 @@ function selectModel(modelId: string): void {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  max-width: 240px;
 }
 .model-pill .think-suffix {
   color: var(--blue);
@@ -1532,8 +1532,8 @@ function selectModel(modelId: string): void {
   .attach-btn {
     font-size: 12.5px;
   }
-  .model-pill {
-    max-width: 160px;
+  .model-pill b {
+    max-width: 200px;
   }
   .md-row {
     font-size: 13.5px;
