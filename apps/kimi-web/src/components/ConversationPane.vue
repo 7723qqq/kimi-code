@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ContentAlign, ConversationStatus, DiffViewLine, PaneKey, PermissionMode, TaskItem, UIQuestion } from '../types';
+import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ContentAlign, ConversationStatus, DiffViewLine, PaneKey, PermissionMode, QueuedPromptView, TaskItem, UIQuestion } from '../types';
 import type { AppModel, ApprovalDecision, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { FileData } from './FilePreview.vue';
@@ -33,7 +33,7 @@ const props = defineProps<{
   planMode?: boolean;
   questions?: UIQuestion[];
   running?: boolean;
-  queued?: string[];
+  queued?: QueuedPromptView[];
   searchFiles?: (q: string) => Promise<FileItem[]>;
   uploadImage?: (file: Blob, name?: string) => Promise<{ fileId: string; name: string; mediaType: string } | null>;
   connection?: ConnectionState;

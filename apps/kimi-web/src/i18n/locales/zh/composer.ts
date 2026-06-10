@@ -4,6 +4,8 @@ export default {
   queue: '排队',
   queueLabel: '队列',
   editQueued: '编辑（载入到输入框）',
+  queuedImageOnly: '图片 ×{n}',
+  queuedHasImage: '包含 {n} 张图片 — 只能移除，不能编辑',
   remove: '移除',
   removeNamed: '移除 {name}',
   uploading: '上传中',

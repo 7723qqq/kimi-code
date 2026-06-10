@@ -149,6 +149,13 @@ export interface ConversationStatus {
 // preview for unchanged ones). 'diff' is gone; 'files' is the merged key.
 export type PaneKey = 'chat' | 'files' | 'tasks';
 
+/** A queued prompt as shown in the composer's queue strip. */
+export interface QueuedPromptView {
+  text: string;
+  /** Number of image attachments waiting with this prompt. */
+  attachmentCount: number;
+}
+
 /** Horizontal alignment of the conversation reading column within the pane. */
 export type ContentAlign = 'left' | 'center';
 
