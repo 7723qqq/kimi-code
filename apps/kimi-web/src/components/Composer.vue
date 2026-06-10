@@ -7,7 +7,7 @@ import MentionMenu from './MentionMenu.vue';
 import type { SlashCommand } from '../lib/slashCommands';
 import { filterCommands, parseSlash } from '../lib/slashCommands';
 import type { FileItem } from './MentionMenu.vue';
-import type { ConversationStatus, PermissionMode } from '../types';
+import type { ConversationStatus, PermissionMode, QueuedPromptView } from '../types';
 import type { AppModel, ThinkingLevel } from '../api/types';
 
 // ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ interface Attachment {
 
 const props = withDefaults(defineProps<{
   running?: boolean;
-  queued?: string[];
+  queued?: QueuedPromptView[];
   searchFiles?: (q: string) => Promise<FileItem[]>;
   /** If undefined, attach button is hidden and paste/drag are no-ops. */
   uploadImage?: (file: Blob, name?: string) => Promise<{ fileId: string; name: string; mediaType: string } | null>;
@@ -592,7 +592,10 @@ function selectModel(modelId: string): void {
     @dragleave="handleDragLeave"
     @drop="handleDrop"
   >
-    <!-- Queued message strip -->
+    <!-- Queued message strip. Items carrying image attachments can't be
+         edited (the uploaded files can't be loaded back into the input);
+         they show an image badge and an "image ×N" placeholder when the
+         prompt has no text. -->
     <div v-if="queued && queued.length > 0" class="queue-strip">
       <span class="queue-label">{{ t('composer.queueLabel') }}</span>
       <div
@@ -603,9 +606,13 @@ function selectModel(modelId: string): void {
         <button
           class="queue-text"
           type="button"
-          :title="t('composer.editQueued')"
-          @click="editQueued(i, msg)"
-        >{{ msg }}</button>
+          :disabled="msg.attachmentCount > 0"
+          :title="msg.attachmentCount > 0 ? t('composer.queuedHasImage', { n: msg.attachmentCount }) : t('composer.editQueued')"
+          @click="msg.attachmentCount === 0 && editQueued(i, msg.text)"
+        >
+          <svg v-if="msg.attachmentCount > 0" class="queue-img" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5.5" cy="6.5" r="1.2"/><path d="M2.5 12l3.5-3.5 2.5 2.5 3-3 2 2"/></svg>
+          <span class="queue-text-inner" :class="{ placeholder: !msg.text }">{{ msg.text || t('composer.queuedImageOnly', { n: msg.attachmentCount }) }}</span>
+        </button>
         <button class="queue-rm" :title="t('composer.remove')" @click="emit('unqueue', i)">
           <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" xmlns="http://www.w3.org/2000/svg"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
         </button>
@@ -896,9 +903,10 @@ function selectModel(modelId: string): void {
 }
 
 .queue-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   background: none;
   border: none;
   padding: 0;
@@ -910,9 +918,19 @@ function selectModel(modelId: string): void {
   max-width: 168px;
   text-align: left;
 }
-.queue-text:hover {
+.queue-text:hover:not(:disabled) {
   color: var(--blue);
 }
+.queue-text:disabled {
+  cursor: default;
+}
+.queue-img { flex: none; color: var(--muted); }
+.queue-text-inner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-text-inner.placeholder { color: var(--muted); }
 
 .queue-rm {
   display: flex;

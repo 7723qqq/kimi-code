@@ -4,6 +4,8 @@ export default {
   queue: 'Queue',
   queueLabel: 'Queue',
   editQueued: 'Edit (load back into the input)',
+  queuedImageOnly: 'image ×{n}',
+  queuedHasImage: 'Contains {n} image(s) — remove only, not editable',
   remove: 'Remove',
   removeNamed: 'Remove {name}',
   uploading: 'Uploading',

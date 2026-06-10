@@ -34,6 +34,7 @@ import type {
   DiffLine,
   DiffViewLine,
   PermissionMode,
+  QueuedPromptView,
   Session,
   TaskItem,
   TaskState,
@@ -818,11 +819,16 @@ const permission = computed<PermissionMode>(() => rawState.permission);
 const thinking = computed<ThinkingLevel>(() => rawState.thinking);
 const planMode = computed<boolean>(() => rawState.planMode);
 
-/** Queued messages for the active session (display texts). */
-const queued = computed<string[]>(() => {
+/** Queued messages for the active session (text + attachment count for the
+    composer strip — an image-only prompt would otherwise render as an empty
+    string). */
+const queued = computed<QueuedPromptView[]>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
-  return (rawState.queuedBySession[sid] ?? []).map((q) => q.text);
+  return (rawState.queuedBySession[sid] ?? []).map((q) => ({
+    text: q.text,
+    attachmentCount: q.attachments?.length ?? 0,
+  }));
 });
 
 /** Pending warnings list */
