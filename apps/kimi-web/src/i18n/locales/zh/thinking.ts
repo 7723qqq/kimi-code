@@ -1,8 +1,8 @@
 export default {
   label: '思考过程',
   process: '处理过程',
-  calledTools: '已调用 {names}',
-  editedFiles: '修改 {names}',
-  tookTime: '耗时 {time}',
-  andMore: ' 等 {count} 个',
+  called: '已调用',
+  edited: '修改',
+  toolCount: '{count} 个工具',
+  fileCount: '{count} 个文件',
 } as const;
