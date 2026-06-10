@@ -1,10 +1,8 @@
-/**
- * `SessionClientsService` — implementation of `ISessionClientsService`.
- */
+
 
 import { Disposable } from '@moonshot-ai/agent-core';
 
-import { ILogService } from '#/services/logger';
+import { ILogService } from '@moonshot-ai/services';
 import { ISessionClientsService } from './sessionClients';
 import type { WsConnection } from '#/ws/connection';
 
@@ -13,12 +11,6 @@ export class SessionClientsService extends Disposable implements ISessionClients
 
   private readonly _bySession = new Map<string, Set<WsConnection>>();
 
-  /**
-   * `@ILogService` is auto-injected by the container. The service does not
-   * currently emit log lines (the subscription model is silent by
-   * design — service / event-publish call sites do the logging) but the dep is
-   * declared so future diagnostic work doesn't need a ctor reshuffle.
-   */
   constructor(@ILogService private readonly _logger: ILogService) {
     super();
     void this._logger;
@@ -45,8 +37,7 @@ export class SessionClientsService extends Disposable implements ISessionClients
     const set = this._bySession.get(sessionId);
     if (!set) return;
     set.delete(connection);
-    // Garbage-collect the bucket when empty so `subscriberCount` stays cheap
-    // and the map doesn't grow indefinitely with one-off session_ids.
+
     if (set.size === 0) this._bySession.delete(sessionId);
   }
 
@@ -65,9 +56,7 @@ export class SessionClientsService extends Disposable implements ISessionClients
   }
 
   forgetConnection(connection: WsConnection): void {
-    // Walk every session bucket and drop the connection. Cheaper than a
-    // reverse index (connId → sessionIds) for the expected daemon connection
-    // counts.
+
     for (const [sid, set] of this._bySession) {
       if (set.delete(connection) && set.size === 0) {
         this._bySession.delete(sid);
@@ -88,6 +77,6 @@ export class SessionClientsService extends Disposable implements ISessionClients
 
 const EMPTY_ITERABLE: Iterable<WsConnection> = Object.freeze({
   [Symbol.iterator]: function* (): Iterator<WsConnection> {
-    // empty
+
   },
 });

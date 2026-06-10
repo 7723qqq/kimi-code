@@ -1,6 +1,4 @@
-/**
- * `WSGateway` — implementation of `IWSGateway`.
- */
+
 
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Socket } from 'node:net';
@@ -9,7 +7,7 @@ import { Disposable } from '@moonshot-ai/agent-core';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import { IConnectionRegistry } from './connectionRegistry';
-import { ILogService } from '#/services/logger';
+import { ILogService } from '@moonshot-ai/services';
 import { IRestGateway } from './restGateway';
 import { ISessionClientsService } from './sessionClients';
 import { IWSBroadcastService } from './wsBroadcast';
@@ -27,12 +25,7 @@ export class WSGateway extends Disposable implements IWSGateway {
   private detached = false;
 
   constructor(
-    // VSCode-style ctor ordering — static-first, services-last with
-    // `@I*` decorators. `options` follows the static prefix; the four
-    // injected services trail. `@IWSBroadcastService` is the daemon-local
-    // transport service that holds the ring buffer + replay queries used
-    // by `WsConnection` during `client_hello.last_seq_by_session` replay
-    // and by the WS abort ack to populate `at_seq`.
+
     private readonly options: WSGatewayOptions,
     @IWSBroadcastService private readonly wsBroadcast: IWSBroadcastService,
     @IRestGateway private readonly restGateway: IRestGateway,
@@ -57,11 +50,11 @@ export class WSGateway extends Disposable implements IWSGateway {
   }
 
   private onUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): void {
-    // Restrict to `/api/v1/ws` (with optional query string per WS.md §1.1).
+
     const url = req.url ?? '';
     const path = url.split('?', 1)[0];
     if (path !== WS_PATH) {
-      // Other Fastify routes don't use WS; politely drop the handshake.
+
       socket.destroy();
       return;
     }
@@ -93,27 +86,24 @@ export class WSGateway extends Disposable implements IWSGateway {
 
   override dispose(): void {
     if (this._store.isDisposed) return;
-    // 1. Close every attached connection (WS code 1001 = going away).
+
     try {
       this.registry.closeAll('daemon shutting down');
     } catch {
-      // continue teardown
+
     }
-    // 2. Stop accepting new handshakes.
+
     try {
       this.wss.close();
     } catch {
-      // continue
+
     }
-    // 3. Detach upgrade listener so the raw http.Server's `close()` (run
-    //    earlier by RunningDaemon.close → app.close → server.close) doesn't
-    //    still funnel into us. Defensive — if the server is already shut down
-    //    `off` is a no-op.
+
     if (!this.detached) {
       try {
         this.server.off('upgrade', this.upgradeListener);
       } catch {
-        // ignore
+
       }
       this.detached = true;
     }

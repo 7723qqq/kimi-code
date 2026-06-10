@@ -10,7 +10,7 @@ import {
   type IDisposable,
   type IReference,
 } from '@moonshot-ai/agent-core';
-import { ISessionService } from '@moonshot-ai/services';
+import { ISessionService } from '../session/session';
 
 import type {
   FsChangeAction,
@@ -18,7 +18,7 @@ import type {
   FsChangeKind,
 } from '@moonshot-ai/protocol';
 
-import { ILogService } from '#/services/logger';
+import { ILogService } from '../logger/logger';
 import {
   IFsWatcher,
   FsWatchLimitError,

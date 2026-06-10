@@ -9,7 +9,24 @@ import type { ApprovalRequest, Event, QuestionRequest } from '@moonshot-ai/agent
 import {
   IApprovalService,
   IEventService,
+  IFileStore,
+  IFsGitService,
+  IFsSearchService,
+  IFsService,
+  IFsWatcher,
+  ILogService,
   IQuestionService,
+  IWorkspaceFsService,
+  IWorkspaceRegistry,
+  FileStore,
+  FsGitService,
+  FsSearchService,
+  FsService,
+  FsWatcherService,
+  WorkspaceFsService,
+  WorkspaceRegistryService,
+  parsePorcelain,
+  resolveSafePath,
   type ApprovalResponse,
   type QuestionResult,
 } from '../src';
@@ -172,5 +189,26 @@ describe('@moonshot-ai/services · interfaces', () => {
     const _typeProbe: ApprovalResponse | QuestionResult = null;
     void _typeProbe;
     vi.fn();
+  });
+
+  it('exports filesystem, file store, logger, and workspace service surfaces from the services package', () => {
+    expect(typeof ILogService).toBe('function');
+    expect(typeof IFileStore).toBe('function');
+    expect(typeof IFsService).toBe('function');
+    expect(typeof IFsSearchService).toBe('function');
+    expect(typeof IFsGitService).toBe('function');
+    expect(typeof IFsWatcher).toBe('function');
+    expect(typeof IWorkspaceRegistry).toBe('function');
+    expect(typeof IWorkspaceFsService).toBe('function');
+
+    expect(typeof FileStore).toBe('function');
+    expect(typeof FsService).toBe('function');
+    expect(typeof FsSearchService).toBe('function');
+    expect(typeof FsGitService).toBe('function');
+    expect(typeof FsWatcherService).toBe('function');
+    expect(typeof WorkspaceRegistryService).toBe('function');
+    expect(typeof WorkspaceFsService).toBe('function');
+    expect(typeof parsePorcelain).toBe('function');
+    expect(typeof resolveSafePath).toBe('function');
   });
 });

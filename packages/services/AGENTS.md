@@ -85,6 +85,10 @@ no new suffixes get reintroduced.
 | `approval/` | `approval.ts` | (impl lives in daemon) | `IApprovalService` |
 | `question/` | `question.ts` | (impl lives in daemon) | `IQuestionService` |
 | `environment/` | `environment.ts` | (impl lives in daemon) | `IEnvironmentService` |
+| `logger/` | `logger.ts` | (adapter lives in daemon) | `ILogService` |
+| `fileStore/` | `fileStore.ts` | `fileStoreService.ts` | `IFileStore` |
+| `fs/` | `fs.ts`, `fsSearch.ts`, `fsGit.ts`, `fsWatcher.ts`, `fsPathSafety.ts` | `fsService.ts`, `fsSearchService.ts`, `fsGitService.ts`, `fsWatcherService.ts` | `IFsService`, `IFsSearchService`, `IFsGitService`, `IFsWatcher` |
+| `workspace/` | `workspaceRegistry.ts`, `workspaceFs.ts` | `workspaceRegistryService.ts`, `workspaceFsService.ts` | `IWorkspaceRegistry`, `IWorkspaceFsService` |
 | `session/` | `session.ts` | `sessionService.ts` | `ISessionService` |
 | `message/` | `message.ts` | `messageService.ts` | `IMessageService` |
 | `prompt/` | `prompt.ts` | `promptService.ts` | `IPromptService` |
