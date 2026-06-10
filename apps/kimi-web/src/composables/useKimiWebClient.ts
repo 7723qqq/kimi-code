@@ -908,10 +908,18 @@ const status = computed<ConversationStatus>(() => {
     (activeSession ? activeSession.cwd.split('/').pop() ?? activeSession.cwd : 'main');
   // session.model is kept live by GET /status (on select/idle) and the WS
   // agent.status.updated event during a turn; fall back to the daemon default.
-  const displayModel =
+  const rawModel =
     (activeSession?.model && activeSession.model.length > 0
       ? activeSession.model
       : rawState.defaultModel) ?? '—';
+
+  // Use the friendly displayName from the models list; fall back to stripping
+  // the provider prefix (e.g. "moonshot/moonshot-v1-128k" → "moonshot-v1-128k").
+  const matched = models.value.find((m) => m.id === rawModel || m.model === rawModel);
+  const displayModel =
+    matched?.displayName ||
+    matched?.model ||
+    (rawModel.includes('/') ? rawModel.split('/').pop()! : rawModel);
 
   return {
     model: displayModel,
@@ -1239,11 +1247,12 @@ async function load(): Promise<void> {
   rawState.loading = true;
   try {
     const api = getKimiWebApi();
-    // Parallel: health + meta + sessions
+    // Parallel: health + meta + sessions + models
     const [, , sessionsPage] = await Promise.all([
       api.getHealth().catch(() => null),
       api.getMeta().then((m) => { rawState.daemonVersion = m.daemonVersion; }).catch(() => null),
       api.listSessions({ pageSize: 20 }).catch(() => ({ items: [], hasMore: false })),
+      loadModels(),
     ]);
 
     // Check auth readiness (separate call — defensive)

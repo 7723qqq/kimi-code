@@ -83,8 +83,8 @@ function autosize(): void {
   const el = textareaRef.value;
   if (!el) return;
   el.style.height = 'auto';
-  // Two lines tall by default (~48px); grows up to ~180px as the user types.
-  const next = Math.max(48, Math.min(180, el.scrollHeight));
+  // Two lines tall by default (~56px); grows up to ~180px as the user types.
+  const next = Math.max(56, Math.min(180, el.scrollHeight));
   el.style.height = `${next}px`;
 }
 
@@ -715,11 +715,7 @@ function selectModel(modelId: string): void {
             type="button"
             @click="openFilePicker"
           >
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
-              <rect x="2" y="3" width="12" height="10" rx="1.5"/>
-              <circle cx="5.5" cy="6.5" r="1"/>
-              <polyline points="2,13 5.5,9 8,11.5 10.5,8.5 14,13"/>
-            </svg>
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="5.5" cy="6.5" r="1"/><polyline points="2,13 5.5,9 8,11.5 10.5,8.5 14,13"/></svg>
           </button>
 
           <!-- Permission pill — click to open dropdown -->
@@ -733,7 +729,12 @@ function selectModel(modelId: string): void {
             @click.stop="togglePermDropdown"
             @keydown.enter="togglePermDropdown"
             @keydown.space.prevent="togglePermDropdown"
-          >{{ permLabel }}</span>
+          >
+            <svg v-if="status.permission === 'manual'" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M5.5 8l1.5 1.5 2.5-3"/></svg>
+            <svg v-else-if="status.permission === 'yolo'" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.5L5 9h3.5l-1 5.5 4.5-7H8.5l1-6z"/></svg>
+            <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5c-1.5 2-2.5 3.5-2.5 6 0 2 1 3.5 2.5 4 1.5-.5 2.5-2 2.5-4 0-2.5-1-4-2.5-6z"/></svg>
+            {{ permLabel }}
+          </span>
 
           <!-- Permission dropdown — anchored to the toolbar left side -->
           <div v-if="permDropdownOpen && status" class="perm-dropdown" role="menu" @click.stop>
@@ -746,6 +747,9 @@ function selectModel(modelId: string): void {
               @click="choosePermission(opt.mode)"
             >
               <span class="pd-check">{{ opt.mode === status.permission ? '✓' : '' }}</span>
+              <svg v-if="opt.mode === 'manual'" class="pd-icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M5.5 8l1.5 1.5 2.5-3"/></svg>
+              <svg v-else-if="opt.mode === 'yolo'" class="pd-icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.5L5 9h3.5l-1 5.5 4.5-7H8.5l1-6z"/></svg>
+              <svg v-else class="pd-icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5c-1.5 2-2.5 3.5-2.5 6 0 2 1 3.5 2.5 4 1.5-.5 2.5-2 2.5-4 0-2.5-1-4-2.5-6z"/></svg>
               <span class="pd-info">
                 <span class="pd-name" :style="{ color: opt.color }">{{ t(opt.labelKey) }}</span>
                 <span class="pd-desc">{{ t(opt.descKey) }}</span>
@@ -764,7 +768,10 @@ function selectModel(modelId: string): void {
             @click="emit('togglePlan')"
             @keydown.enter="emit('togglePlan')"
             @keydown.space.prevent="emit('togglePlan')"
-          >{{ t('status.planLabel') }}</span>
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="1.5" width="10" height="13" rx="1"/><path d="M6 5.5h4M6 8h4M6 10.5h2.5"/></svg>
+            {{ t('status.planLabel') }}
+          </span>
         </div>
 
         <!-- Right: ctx + model -->
@@ -772,18 +779,31 @@ function selectModel(modelId: string): void {
           <!-- Compact chip when context is high -->
           <button v-if="showCompact" class="compact-chip" @click.stop="emit('compact')">/compact</button>
 
-          <!-- Context meter — horizontal bar + token count -->
+          <!-- Context meter — circular ring + token count -->
           <span v-if="status" class="ctx-group" :title="ctxTooltip">
-            <span class="ctx-bar-track">
-              <span
-                class="ctx-bar-fill"
-                :style="{
-                  width: pct + '%',
-                  background: pct >= 80 ? 'var(--err)' : pct >= 50 ? 'var(--warn)' : 'var(--blue)',
-                }"
+            <svg class="ctx-ring" viewBox="0 0 20 20" aria-hidden="true">
+              <circle
+                class="ctx-ring-track"
+                cx="10"
+                cy="10"
+                r="7"
+                fill="none"
+                stroke-width="2.5"
               />
-            </span>
-            <span class="ctx-num">{{ kFmt(status.ctxUsed) }} / {{ kFmt(status.ctxMax) }}</span>
+              <circle
+                class="ctx-ring-fill"
+                cx="10"
+                cy="10"
+                r="7"
+                fill="none"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                :stroke="pct >= 80 ? 'var(--err)' : pct >= 50 ? 'var(--warn)' : 'var(--blue)'"
+                :stroke-dasharray="`${2 * Math.PI * 7}`"
+                :stroke-dashoffset="`${2 * Math.PI * 7 * (1 - pct / 100)}`"
+              />
+            </svg>
+            <span class="ctx-num">{{ kFmt(status.ctxUsed) }}/{{ kFmt(status.ctxMax) }}</span>
           </span>
 
           <!-- Model pill — click to open quick-switch dropdown -->
@@ -832,31 +852,6 @@ function selectModel(modelId: string): void {
             <span class="md-check">{{ thinkingOn ? '✓' : '' }}</span>
             <span class="md-name">{{ t('status.thinkingLabel') }}</span>
           </button>
-
-          <!-- Plan toggle -->
-          <button
-            class="md-row md-row-toggle"
-            role="menuitem"
-            :class="{ 'is-on': planOn }"
-            @click="emit('togglePlan'); closeDropdown();"
-          >
-            <span class="md-check">{{ planOn ? '✓' : '' }}</span>
-            <span class="md-name">{{ t('status.planLabel') }}</span>
-          </button>
-
-          <div class="md-divider" />
-
-          <!-- Permission (read-only info) -->
-          <div class="md-section">{{ t('status.permissionLabel') }}</div>
-          <div class="md-row md-row-info">
-            <span class="md-name" :style="{ color: permInfo?.color }">{{ permLabel }}</span>
-          </div>
-
-          <!-- Context (read-only info) -->
-          <div class="md-divider" />
-          <div class="md-row md-row-info">
-            <span class="md-name">{{ kFmt(status.ctxUsed) }} / {{ kFmt(status.ctxMax) }}</span>
-          </div>
 
           <div class="md-divider" />
 
@@ -1074,7 +1069,7 @@ function selectModel(modelId: string): void {
   font-family: var(--mono);
   font-size: 12.5px;
   background: transparent;
-  min-height: 40px;
+  min-height: 56px;
   max-height: 200px;
   overflow-y: auto;
   line-height: 1.5;
@@ -1091,11 +1086,11 @@ function selectModel(modelId: string): void {
   border-radius: 3px;
   color: var(--warn);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12.5px;
   padding: 0 4px;
   cursor: pointer;
-  height: 17px;
-  line-height: 15px;
+  height: 19px;
+  line-height: 17px;
   flex: none;
 }
 .compact-chip:hover { background: var(--panel2); }
@@ -1162,23 +1157,25 @@ function selectModel(modelId: string): void {
   overflow: hidden;
 }
 
-/* Attach button (in toolbar) */
+/* Attach button (pill style, matches permission/plan) */
 .attach-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--dim);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s, color 0.15s;
+  font-family: var(--sans);
   background: none;
   border: none;
-  padding: 4px;
-  cursor: pointer;
-  color: var(--muted);
-  border-radius: 5px;
   flex-shrink: 0;
-  transition: all 0.1s;
 }
 
 .attach-btn:hover {
-  color: var(--blue);
   background: var(--soft);
 }
 
@@ -1186,62 +1183,57 @@ function selectModel(modelId: string): void {
 .perm-pill {
   display: inline-flex;
   align-items: center;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 11.5px;
-  font-weight: 500;
-  font-family: var(--mono);
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--dim);
   cursor: pointer;
   user-select: none;
-  height: 18px;
-  line-height: 1;
-  transition: opacity 0.1s;
+  transition: background 0.1s, color 0.15s;
+  font-family: var(--sans);
 }
 .perm-pill:hover {
-  opacity: 0.85;
+  background: var(--soft);
 }
 .perm-pill.open {
-  opacity: 0.85;
+  background: var(--soft);
 }
 .perm-pill.perm-manual {
   color: var(--dim);
-  background: transparent;
 }
 .perm-pill.perm-yolo {
   color: var(--warn);
-  background: #fbf1dd;
 }
 .perm-pill.perm-auto {
   color: var(--err);
-  background: #fcebea;
 }
 
-/* Context group — horizontal bar + num */
+/* Context group — circular ring + num */
 .ctx-group {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
-.ctx-bar-track {
-  width: 36px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--line);
+.ctx-ring {
+  width: 16px;
+  height: 16px;
   flex: none;
-  overflow: hidden;
+  transform: rotate(-90deg);
 }
 
-.ctx-bar-fill {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.3s ease, background 0.3s ease;
+.ctx-ring-track {
+  stroke: var(--line);
+}
+
+.ctx-ring-fill {
+  transition: stroke-dashoffset 0.3s ease, stroke 0.3s ease;
 }
 
 .ctx-num {
-  font-size: 11.5px;
+  font-size: 13px;
   color: var(--muted);
   font-family: var(--mono);
 }
@@ -1253,7 +1245,7 @@ function selectModel(modelId: string): void {
   gap: 3px;
   padding: 2px 7px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--dim);
   cursor: pointer;
   user-select: none;
@@ -1270,7 +1262,7 @@ function selectModel(modelId: string): void {
 }
 .model-pill b {
   font-weight: 500;
-  color: var(--ink);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1310,7 +1302,7 @@ function selectModel(modelId: string): void {
 
 .md-section {
   padding: 4px 7px 2px;
-  font-size: 10px;
+  font-size: 11.5px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1326,7 +1318,7 @@ function selectModel(modelId: string): void {
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 13px;
   color: var(--text);
   padding: 5px 7px;
   border-radius: 6px;
@@ -1414,6 +1406,12 @@ function selectModel(modelId: string): void {
   margin-top: 1px;
 }
 
+.pd-icon {
+  flex: none;
+  color: var(--dim);
+  margin-top: 1px;
+}
+
 .pd-info {
   display: flex;
   flex-direction: column;
@@ -1424,13 +1422,13 @@ function selectModel(modelId: string): void {
 
 .pd-name {
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 500;
 }
 
 .pd-desc {
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--muted);
   line-height: 1.4;
 }
@@ -1442,7 +1440,7 @@ function selectModel(modelId: string): void {
   gap: 4px;
   padding: 2px 7px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--dim);
   cursor: pointer;
   user-select: none;
