@@ -598,12 +598,43 @@ async function loadMessagesForSession(sessionId: string): Promise<void> {
   }
 }
 
+async function loadTasksForSession(sessionId: string): Promise<void> {
+  try {
+    const api = getKimiWebApi();
+    const taskList = await api.listTasks(sessionId);
+    rawState.tasksBySession = {
+      ...rawState.tasksBySession,
+      [sessionId]: taskList,
+    };
+  } catch {
+    // Tasks are side data; old/stale sessions may fail without blocking messages.
+  }
+}
+
 async function reloadAndResubscribe(sessionId: string, currentSeq: number): Promise<void> {
   await loadMessagesForSession(sessionId);
   rawState.lastSeqBySession = { ...rawState.lastSeqBySession, [sessionId]: currentSeq };
   if (eventConn) {
     eventConn.subscribe(sessionId, currentSeq);
   }
+}
+
+function hasLoadedMessages(sessionId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(rawState.messagesBySession, sessionId);
+}
+
+function subscribeToSessionEvents(sessionId: string): void {
+  connectEventsIfNeeded();
+  if (eventConn) {
+    const lastSeq = rawState.lastSeqBySession[sessionId] ?? 0;
+    eventConn.subscribe(sessionId, lastSeq);
+  }
+}
+
+function refreshSessionSidecars(sessionId: string): void {
+  void loadTasksForSession(sessionId);
+  void loadGitStatus(sessionId);
+  void refreshSessionStatus(sessionId);
 }
 
 // ---------------------------------------------------------------------------
@@ -1470,8 +1501,9 @@ async function getFsHome(): Promise<{ home: string; recentRoots: string[] }> {
 }
 
 async function selectSession(sessionId: string): Promise<void> {
+  const messagesLoaded = hasLoadedMessages(sessionId);
   try {
-    rawState.sessionLoading = true;
+    rawState.sessionLoading = !messagesLoaded;
     rawState.activeSessionId = sessionId;
     // A diff belongs to the session it was loaded from — drop it on switch.
     clearFileDiff();
@@ -1486,37 +1518,18 @@ async function selectSession(sessionId: string): Promise<void> {
       if (rawState.activeWorkspaceId !== wid) selectWorkspace(wid);
     }
 
-    // Load messages, tasks, and git status concurrently
-    const api = getKimiWebApi();
-    const [messagesPage, taskList] = await Promise.all([
-      api.listMessages(sessionId, { pageSize: 100 }).catch(() => ({ items: [], hasMore: false })),
-      api.listTasks(sessionId).catch(() => [] as import('../api/types').AppTask[]),
-    ]);
+    refreshSessionSidecars(sessionId);
 
-    rawState.messagesBySession = {
-      ...rawState.messagesBySession,
-      [sessionId]: orderMessages(messagesPage.items),
-    };
-    rawState.tasksBySession = {
-      ...rawState.tasksBySession,
-      [sessionId]: taskList,
-    };
-
-    // Load git status (defensive — catch in loadGitStatus)
-    void loadGitStatus(sessionId);
-    // Load live runtime status (real model + context usage) for the status line.
-    void refreshSessionStatus(sessionId);
-
-    // Subscribe to WS events for this session (lazy connect)
-    connectEventsIfNeeded();
-    if (eventConn) {
-      const lastSeq = rawState.lastSeqBySession[sessionId] ?? 0;
-      eventConn.subscribe(sessionId, lastSeq);
+    if (!messagesLoaded) {
+      await loadMessagesForSession(sessionId);
     }
+    subscribeToSessionEvents(sessionId);
   } catch (err) {
     rawState.warnings = [...rawState.warnings, `selectSession failed: ${String(err)}`];
   } finally {
-    rawState.sessionLoading = false;
+    if (rawState.activeSessionId === sessionId) {
+      rawState.sessionLoading = false;
+    }
   }
 }
 
@@ -1561,6 +1574,7 @@ async function submitPromptInternal(sid: string, text: string, attachments?: { f
       role: 'user',
       content,
       createdAt: new Date().toISOString(),
+      metadata: { 'kimiWeb.optimisticUserMessage': true },
     };
     const existingMessages = rawState.messagesBySession[sid] ?? [];
     rawState.messagesBySession = {
@@ -1588,14 +1602,15 @@ async function submitPromptInternal(sid: string, text: string, attachments?: { f
     // lose to a fast turn.started and synthesize a `pr_…` id the daemon rejects).
     rawState.promptIdBySession = { ...rawState.promptIdBySession, [sid]: result.promptId };
 
-    // Reconcile: swap the temp id for the real userMessageId returned by the
-    // server.  This prevents a duplicate if the server ever echoes a
-    // messageCreated event with that id.
+    // Reconcile without changing the id: ChatPane keys user turns by message id,
+    // so replacing msg_opt_* with userMessageId remounts the bubble and flickers.
+    // If a daemon/stub later echoes the user message, the reducer merges it into
+    // this optimistic entry instead of appending a duplicate.
     const msgs = rawState.messagesBySession[sid] ?? [];
     const idx = msgs.findIndex((m) => m.id === tempId);
     if (idx !== -1) {
       const updated = [...msgs];
-      updated[idx] = { ...updated[idx]!, id: result.userMessageId, promptId: result.promptId };
+      updated[idx] = { ...updated[idx]!, promptId: updated[idx]!.promptId ?? result.promptId };
       rawState.messagesBySession = { ...rawState.messagesBySession, [sid]: updated };
     }
 

@@ -38,7 +38,9 @@ const isError = () => props.tool.status === 'error';
 <template>
   <div class="box" :class="{ open, err: isError(), mob: mobile }">
     <div class="bh" @click="toggle">
-      <span class="car">{{ open ? '▾' : '▸' }}</span>
+      <svg class="car" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline :points="open ? '4,6 8,10 12,6' : '6,4 10,8 6,12'"/>
+      </svg>
       <!-- inline SVG glyph -->
       <!-- eslint-disable-next-line vue/no-v-html -->
       <span v-if="glyph()" class="gl" v-html="glyph()" aria-hidden="true" />

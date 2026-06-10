@@ -19,6 +19,8 @@ import type {
 } from '../types';
 import { i18n } from '../../i18n';
 
+const OPTIMISTIC_USER_MESSAGE_METADATA_KEY = 'kimiWeb.optimisticUserMessage';
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -71,6 +73,27 @@ function advanceSeq(state: KimiClientState, sessionId: string | undefined, seq: 
       state.lastSeqBySession[sessionId] = seq;
     }
   }
+}
+
+function isOptimisticUserMessage(message: AppMessage): boolean {
+  return (
+    message.role === 'user' &&
+    message.metadata?.[OPTIMISTIC_USER_MESSAGE_METADATA_KEY] === true
+  );
+}
+
+function sameMessageContent(a: AppMessage, b: AppMessage): boolean {
+  return JSON.stringify(a.content) === JSON.stringify(b.content);
+}
+
+function findOptimisticUserEchoIndex(messages: AppMessage[], message: AppMessage): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const candidate = messages[i]!;
+    if (isOptimisticUserMessage(candidate) && sameMessageContent(candidate, message)) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +208,24 @@ export function reduceAppEvent(
       const msgs = next.messagesBySession[sid] ?? [];
       const exists = msgs.some((m) => m.id === event.message.id);
       if (!exists) {
+        if (event.message.role === 'user') {
+          const optimisticIndex = findOptimisticUserEchoIndex(msgs, event.message);
+          if (optimisticIndex !== -1) {
+            const updated = [...msgs];
+            const optimistic = updated[optimisticIndex]!;
+            updated[optimisticIndex] = {
+              ...event.message,
+              id: optimistic.id,
+              promptId: event.message.promptId ?? optimistic.promptId,
+              metadata: {
+                ...(event.message.metadata ?? {}),
+                ...(optimistic.metadata ?? {}),
+              },
+            };
+            next.messagesBySession[sid] = updated;
+            break;
+          }
+        }
         next.messagesBySession[sid] = [...msgs, event.message];
       }
       break;
