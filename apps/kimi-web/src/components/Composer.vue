@@ -729,12 +729,7 @@ function selectModel(modelId: string): void {
             @click.stop="togglePermDropdown"
             @keydown.enter="togglePermDropdown"
             @keydown.space.prevent="togglePermDropdown"
-          >
-            <svg v-if="status.permission === 'manual'" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M5.5 8l1.5 1.5 2.5-3"/></svg>
-            <svg v-else-if="status.permission === 'yolo'" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.5L5 9h3.5l-1 5.5 4.5-7H8.5l1-6z"/></svg>
-            <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5c-1.5 2-2.5 3.5-2.5 6 0 2 1 3.5 2.5 4 1.5-.5 2.5-2 2.5-4 0-2.5-1-4-2.5-6z"/></svg>
-            {{ permLabel }}
-          </span>
+          >{{ permLabel }}</span>
 
           <!-- Permission dropdown — anchored to the toolbar left side -->
           <div v-if="permDropdownOpen && status" class="perm-dropdown" role="menu" @click.stop>
@@ -747,9 +742,6 @@ function selectModel(modelId: string): void {
               @click="choosePermission(opt.mode)"
             >
               <span class="pd-check">{{ opt.mode === status.permission ? '✓' : '' }}</span>
-              <svg v-if="opt.mode === 'manual'" class="pd-icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M5.5 8l1.5 1.5 2.5-3"/></svg>
-              <svg v-else-if="opt.mode === 'yolo'" class="pd-icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.5L5 9h3.5l-1 5.5 4.5-7H8.5l1-6z"/></svg>
-              <svg v-else class="pd-icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5c-1.5 2-2.5 3.5-2.5 6 0 2 1 3.5 2.5 4 1.5-.5 2.5-2 2.5-4 0-2.5-1-4-2.5-6z"/></svg>
               <span class="pd-info">
                 <span class="pd-name" :style="{ color: opt.color }">{{ t(opt.labelKey) }}</span>
                 <span class="pd-desc">{{ t(opt.descKey) }}</span>
@@ -1403,12 +1395,6 @@ function selectModel(modelId: string): void {
   font-weight: 700;
   display: flex;
   justify-content: center;
-  margin-top: 1px;
-}
-
-.pd-icon {
-  flex: none;
-  color: var(--dim);
   margin-top: 1px;
 }
 
