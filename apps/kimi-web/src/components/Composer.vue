@@ -1177,8 +1177,6 @@ function selectModel(modelId: string): void {
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
-  padding: 3px 2px;
-  cursor: help;
 }
 
 .ctx-bar-track {

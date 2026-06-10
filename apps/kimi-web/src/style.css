@@ -260,9 +260,7 @@ html[data-theme="modern"] .ph {
   font-size: 13px;
   line-height: 1.5;
 }
-html[data-theme="modern"] .ctx-group {
-  padding-bottom: 2px;
-}
+
 html[data-theme="modern"] .send {
   width: 30px;
   min-width: 30px;
