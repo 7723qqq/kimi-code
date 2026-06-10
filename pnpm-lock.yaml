@@ -565,9 +565,6 @@ importers:
       '@moonshot-ai/kimi-code-oauth':
         specifier: workspace:^
         version: link:../oauth
-      '@moonshot-ai/kimi-code-sdk':
-        specifier: workspace:^
-        version: link:../node-sdk
       '@moonshot-ai/protocol':
         specifier: workspace:^
         version: link:../protocol

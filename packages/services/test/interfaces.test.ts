@@ -1,3 +1,7 @@
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -30,6 +34,35 @@ import {
   type ApprovalResponse,
   type QuestionResult,
 } from '../src';
+
+const packageRoot = fileURLToPath(new URL('..', import.meta.url));
+const sdkPackageName = ['@moonshot-ai', 'kimi-code-sdk'].join('/');
+
+function readPackageFiles(): string {
+  const files = [
+    'package.json',
+    'tsdown.config.ts',
+    'vitest.config.ts',
+    ...sourceFiles(join(packageRoot, 'src')),
+  ];
+  return files
+    .map((file) => readFileSync(join(packageRoot, file), 'utf8'))
+    .join('\n');
+}
+
+function sourceFiles(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const stat = statSync(full);
+    if (stat.isDirectory()) {
+      files.push(...sourceFiles(full));
+    } else if (entry.endsWith('.ts')) {
+      files.push(relative(packageRoot, full));
+    }
+  }
+  return files;
+}
 
 class FakeEventService implements IEventService {
   readonly _serviceBrand: undefined;
@@ -113,6 +146,10 @@ function makeFakeQuestion(): QuestionRequest & { sessionId: string; agentId: str
 }
 
 describe('@moonshot-ai/services · interfaces', () => {
+  it('does not depend on the node SDK package', () => {
+    expect(readPackageFiles()).not.toContain(sdkPackageName);
+  });
+
   it('registers all three peer services in a test instantiation service', () => {
     const events = new FakeEventService();
     const approvals = new FakeApprovalService();

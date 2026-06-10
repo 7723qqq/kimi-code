@@ -13,8 +13,7 @@
  *      `PromptService`, …) dispatch on through the proxy below.
  *
  * The result is wrapped in a small `SDKRpcClient`-shaped proxy so that
- * service impls get the same ergonomics as `@moonshot-ai/kimi-code-sdk`
- * (`SDKRpcClientBase` subclass). The proxy is exposed as `rpc` for in-package
+ * service impls get SDK-style RPC ergonomics. The proxy is exposed as `rpc` for in-package
  * consumers; the public package barrel does NOT re-export `SDKRpcClientBase`,
  * so daemon-side code stays one abstraction layer away.
  *

@@ -17,8 +17,8 @@ import {
   createKimiDefaultHeaders,
   type KimiHostIdentity,
 } from '@moonshot-ai/kimi-code-oauth';
-import { KimiAuthFacade } from '@moonshot-ai/kimi-code-sdk';
 
+import { createManagedAuthFacade } from '../auth/managedAuth';
 import { BridgeClientAPI } from './coreProcessClient';
 import { IApprovalService } from '../approval/approval';
 import { IEnvironmentService } from '../environment/environment';
@@ -78,7 +78,7 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
     // is a different code path (file existence on the credentials store) so
     // it stays green; the failure only surfaces inside the prompt turn, as
     // an `auth.login_required` error after `turn.step.started`. We bridge
-    // the gap by default-constructing a `KimiAuthFacade` against the same
+    // the gap by default-constructing a managed auth facade against the same
     // home + config paths KimiCore will use, and handing its
     // `resolveOAuthTokenProvider` into the core. Callers (e.g. node-sdk
     // tests) can still override via `options.resolveOAuthTokenProvider`.
@@ -197,7 +197,7 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
     homeDir: string,
     configPath: string,
   ): OAuthTokenProviderResolver {
-    const facade = new KimiAuthFacade({ homeDir, configPath });
+    const facade = createManagedAuthFacade({ homeDir, configPath });
     return facade.resolveOAuthTokenProvider;
   }
 
