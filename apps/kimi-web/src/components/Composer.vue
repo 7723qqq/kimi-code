@@ -1275,7 +1275,7 @@ function selectModel(modelId: string): void {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-  max-width: 240px;
+  max-width: 280px;
 }
 .model-pill .think-suffix {
   color: var(--blue);
@@ -1533,7 +1533,7 @@ function selectModel(modelId: string): void {
     font-size: 12.5px;
   }
   .model-pill b {
-    max-width: 200px;
+    max-width: 240px;
   }
   .md-row {
     font-size: 13.5px;
