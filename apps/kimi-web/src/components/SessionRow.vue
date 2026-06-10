@@ -107,7 +107,7 @@ defineExpose({ closeMenu, cancelDelete });
   <div class="se" :class="{ on: active }" @click="emit('select', session.id)">
     <!-- Delete confirm overlay -->
     <div v-if="confirming" class="del-confirm" @click.stop>
-      <span class="del-label">{{ t('sidebar.deleteConfirm') }}</span>
+      <span class="del-label">{{ t('sidebar.archiveConfirm') }}</span>
       <button class="btn-confirm" @click.stop="confirmDelete">{{ t('sidebar.confirm') }}</button>
       <button class="btn-cancel" @click.stop="cancelDelete">{{ t('sidebar.cancel') }}</button>
     </div>
@@ -166,7 +166,7 @@ defineExpose({ closeMenu, cancelDelete });
         </button>
         <div class="menu-divider" />
         <button class="menu-item" @click.stop="startRename">{{ t('sidebar.rename') }}</button>
-        <button class="menu-item del" @click.stop="startDelete">{{ t('sidebar.delete') }}</button>
+        <button class="menu-item archive" @click.stop="startDelete">{{ t('sidebar.archive') }}</button>
       </div>
     </template>
   </div>
@@ -296,7 +296,7 @@ defineExpose({ closeMenu, cancelDelete });
   padding: 6px 12px;
 }
 .menu-item:hover { background: var(--panel2); }
-.menu-item.del { color: var(--err); }
+.menu-item.archive { color: var(--err); }
 
 .menu-divider {
   height: 1px;
@@ -317,14 +317,14 @@ defineExpose({ closeMenu, cancelDelete });
   min-width: 0;
 }
 
-.del-confirm {
+.archive-confirm {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 4px 0;
   font-size: 11px;
 }
-.del-label { color: var(--err); flex: 1; }
+.archive-label { color: var(--err); flex: 1; }
 .btn-confirm {
   background: var(--err);
   color: #fff;

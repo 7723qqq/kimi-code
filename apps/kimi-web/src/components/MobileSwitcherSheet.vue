@@ -195,7 +195,7 @@ function onDelete(id: string): void {
             <!-- Kebab menu -->
             <div v-if="menuFor === s.id" class="kmenu" @click.stop>
               <button class="kitem" @click.stop="onRename(s)">{{ t('sidebar.rename') }}</button>
-              <button class="kitem del" @click.stop="onDelete(s.id)">{{ t('sidebar.delete') }}</button>
+              <button class="kitem archive" @click.stop="onDelete(s.id)">{{ t('sidebar.archive') }}</button>
             </div>
           </div>
         </div>
@@ -372,5 +372,5 @@ function onDelete(id: string): void {
   padding: 10px 14px;
 }
 .kitem:active { background: var(--panel2); }
-.kitem.del { color: var(--err); }
+.kitem.archive { color: var(--err); }
 </style>
