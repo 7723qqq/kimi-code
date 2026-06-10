@@ -120,6 +120,47 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   for (const tool of turn.tools ?? []) blocks.push({ kind: 'tool', tool });
   return blocks;
 }
+
+/** Index of the last text block in a turn, or -1 if none. */
+function lastTextIndex(blocks: TurnBlock[]): number {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i]!.kind === 'text') return i;
+  }
+  return -1;
+}
+
+/** Blocks before the final summary text (thinking + tools). */
+function processBlocks(turn: ChatTurn): TurnBlock[] {
+  const blocks = turnBlocks(turn);
+  const idx = lastTextIndex(blocks);
+  if (idx <= 0) return [];
+  return blocks.slice(0, idx);
+}
+
+/** Blocks from the final summary text onward. */
+function summaryBlocks(turn: ChatTurn): TurnBlock[] {
+  const blocks = turnBlocks(turn);
+  const idx = lastTextIndex(blocks);
+  if (idx <= 0) return blocks;
+  return blocks.slice(idx);
+}
+
+/** Whether this turn has a separable process + summary. */
+function canFoldTurn(turn: ChatTurn): boolean {
+  if (turn.id === streamingTurnId.value) return false;
+  return lastTextIndex(turnBlocks(turn)) > 0;
+}
+
+/** Per-turn collapsed state for the process fold. */
+const collapsedTurns = ref<Record<string, boolean>>({});
+
+function isFolded(turnId: string): boolean {
+  return collapsedTurns.value[turnId] ?? true;
+}
+
+function toggleTurnCollapse(turnId: string): void {
+  collapsedTurns.value = { ...collapsedTurns.value, [turnId]: !collapsedTurns.value[turnId] };
+}
 </script>
 
 <template>
@@ -157,13 +198,34 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
         <Markdown :text="turn.text" />
       </div>
 
-      <!-- Assistant turn → left-aligned, no name/role label. Thinking renders
-           inline in the block stream — a turn may carry several segments. -->
+      <!-- Assistant turn → left-aligned, no name/role label. When the turn ends
+           with a summary text, preceding process blocks (thinking + tools) are
+           folded behind a toggle. -->
       <div v-else class="a-msg">
-        <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
-          <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
-          <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" /></div>
-          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
+        <template v-if="canFoldTurn(turn)">
+          <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
+            <span class="fold-car">{{ isFolded(turn.id) ? '▸' : '▾' }}</span>
+            <span class="fold-lbl">{{ t('thinking.process') }}</span>
+          </button>
+          <div v-show="!isFolded(turn.id)" class="fold-body">
+            <template v-for="(blk, bi) in processBlocks(turn)" :key="bi">
+              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="false" />
+              <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" /></div>
+              <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
+            </template>
+          </div>
+          <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
+            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="false" />
+            <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="false" /></div>
+            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
+          </template>
+        </template>
+        <template v-else>
+          <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
+            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
+            <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" /></div>
+            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
+          </template>
         </template>
         <div class="a-msg-ft">
           <button
@@ -243,11 +305,32 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
           </div>
 
           <!-- Thinking + message text + tool cards, interleaved in original
-               call order (a turn may carry several thinking segments) -->
-          <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
-            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
-            <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
-            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
+               call order. When the turn ends with a summary text, preceding
+               process blocks are folded behind a toggle. -->
+          <template v-if="canFoldTurn(turn)">
+            <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
+              <span class="fold-car">{{ isFolded(turn.id) ? '▸' : '▾' }}</span>
+              <span class="fold-lbl">{{ t('thinking.process') }}</span>
+            </button>
+            <div v-show="!isFolded(turn.id)" class="fold-body">
+              <template v-for="(blk, bi) in processBlocks(turn)" :key="bi">
+                <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="false" />
+                <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" />
+                <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
+              </template>
+            </div>
+            <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
+              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="false" />
+              <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="false" />
+              <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
+            </template>
+          </template>
+          <template v-else>
+            <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
+              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
+              <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
+              <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
+            </template>
           </template>
         </div>
       </div>
@@ -413,6 +496,38 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   display: flex;
   margin-top: 6px;
 }
+
+/* Fold toggle: collapses process blocks (thinking + tools) before the final
+   summary text. Styled as a light inline label, not a surfaced button. */
+.fold-h {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-family: var(--mono);
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.fold-h:hover {
+  color: var(--text);
+}
+.fold-car {
+  color: var(--faint);
+  font-size: 10px;
+  flex: none;
+}
+.fold-lbl {
+  color: var(--muted);
+}
+.fold-body {
+  margin-bottom: 8px;
+}
+
 .a-cpbtn {
   display: inline-flex;
   align-items: center;
