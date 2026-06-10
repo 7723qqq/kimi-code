@@ -574,17 +574,14 @@ function toUiSessionStatus(status: string): 'running' | 'idle' {
 }
 
 /** Format createdAt/updatedAt into a short display string */
-function formatTime(iso: string, status: string): string {
-  if (status === 'running' || status === 'awaitingApproval' || status === 'awaitingQuestion') {
-    return `just now · ${i18n.global.t('status.runningShort')}`;
-  }
+function formatTime(iso: string, _status: string): string {
   try {
     const d = new Date(iso);
     const now = Date.now();
     const diffMs = now - d.getTime();
     const diffH = diffMs / 3600000;
-    if (diffH < 1) return `${Math.round(diffMs / 60000)}m ago`;
-    if (diffH < 24) return `${Math.round(diffH)}h ago`;
+    if (diffH < 1) return `${Math.round(diffMs / 60000)}m`;
+    if (diffH < 24) return `${Math.round(diffH)}h`;
     return d.toLocaleDateString(i18n.global.locale.value, {
       month: 'numeric',
       day: 'numeric',

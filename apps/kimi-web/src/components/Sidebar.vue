@@ -204,6 +204,41 @@ function startRenameFromMenu(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Workspace inline more-menu (kebab, hover-triggered)
+// ---------------------------------------------------------------------------
+const wsMenuOpenId = ref<string | null>(null);
+
+function onWsMenuDocClick(e: MouseEvent): void {
+  const target = e.target as Element;
+  if (target.closest('.gh-more') || target.closest('.ws-menu')) return;
+  closeWsMenu();
+}
+
+function toggleWsMenu(id: string): void {
+  if (wsMenuOpenId.value === id) {
+    closeWsMenu();
+  } else {
+    wsMenuOpenId.value = id;
+    document.addEventListener('mousedown', onWsMenuDocClick);
+  }
+}
+
+function closeWsMenu(): void {
+  wsMenuOpenId.value = null;
+  document.removeEventListener('mousedown', onWsMenuDocClick);
+}
+
+function copyWsPath(ws: WorkspaceView): void {
+  void navigator.clipboard.writeText(ws.root);
+  closeWsMenu();
+}
+
+function startRenameWs(ws: WorkspaceView): void {
+  startRenameWorkspace(ws.id, ws.name);
+  closeWsMenu();
+}
+
+// ---------------------------------------------------------------------------
 // Account popover (top-right of the column header)
 // ---------------------------------------------------------------------------
 const acctMenuOpen = ref(false);
@@ -252,6 +287,7 @@ function closeAccount(): void {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', positionMenu);
   document.removeEventListener('mousedown', onGhMenuDocClick, true);
+  document.removeEventListener('mousedown', onWsMenuDocClick);
 });
 
 function onLogin(): void {
@@ -390,6 +426,33 @@ function blinkOnce(): void {
                   <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M8 3v10M3 8h10"/>
                   </svg>
+                </button>
+
+                <button
+                  class="gh-more"
+                  :class="{ open: wsMenuOpenId === g.workspace.id }"
+                  :title="t('sidebar.options')"
+                  @click.stop="toggleWsMenu(g.workspace.id)"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+                    <circle cx="8" cy="3" r="1.3" />
+                    <circle cx="8" cy="8" r="1.3" />
+                    <circle cx="8" cy="13" r="1.3" />
+                  </svg>
+                </button>
+              </div>
+
+              <div
+                v-if="wsMenuOpenId === g.workspace.id"
+                class="ws-menu"
+                @click.stop
+              >
+                <button class="ws-menu-item" @click.stop="copyWsPath(g.workspace)">
+                  {{ t('sidebar.copyPath') }}
+                </button>
+                <div class="ws-menu-divider" />
+                <button class="ws-menu-item" @click.stop="startRenameWs(g.workspace)">
+                  {{ t('sidebar.rename') }}
                 </button>
               </div>
               <div class="gh-path" :title="g.workspace.root">{{ g.workspace.branch || g.workspace.shortPath }}</div>
@@ -707,6 +770,7 @@ function blinkOnce(): void {
   padding: 0 var(--sb-pad-x) 4px;
   font-size: 10.5px;
   user-select: none;
+  position: relative;
 }
 .gh-top {
   display: flex;
@@ -756,6 +820,59 @@ function blinkOnce(): void {
   flex: none;
 }
 .gh-add:hover { color: #666; }
+
+/* More button — hidden until hover */
+.gh-more {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--muted);
+  border-radius: 4px;
+}
+.gh:hover .gh-more,
+.gh-more.open {
+  display: inline-flex;
+}
+.gh-more:hover,
+.gh-more.open { color: var(--ink); background: var(--line2); }
+
+/* Workspace inline dropdown menu */
+.ws-menu {
+  position: absolute;
+  right: 8px;
+  top: 26px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  overflow: hidden;
+  min-width: 88px;
+}
+.ws-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  padding: 6px 12px;
+}
+.ws-menu-item:hover { background: var(--panel2); }
+
+.ws-menu-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 2px 0;
+}
 
 .group-empty {
   padding: 8px 10px 8px calc(var(--sb-gutter) + var(--sb-gap));
