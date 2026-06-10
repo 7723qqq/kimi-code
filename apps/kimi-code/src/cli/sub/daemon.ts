@@ -162,8 +162,10 @@ export async function handleDaemonCommand(
     return;
   }
 
+  // Trace lines are diagnostics → stderr; only the final result lines
+  // ("Kimi daemon started/already running …") belong on stdout.
   const result = await deps.ensureDaemonRunning(parsed, (message) => {
-    writeDaemonStartupStatus(deps.stdout, message);
+    writeDaemonStartupStatus(deps.stderr, message);
   });
   if (result.status === 'already-running') {
     deps.stdout.write(
@@ -508,10 +510,10 @@ function formatPid(pid: number | undefined): string {
 }
 
 function writeDaemonStartupStatus(
-  stdout: Pick<NodeJS.WriteStream, 'write'>,
+  stream: Pick<NodeJS.WriteStream, 'write'>,
   message: string,
 ): void {
-  stdout.write(`Daemon startup: ${message}\n`);
+  stream.write(`Daemon startup: ${message}\n`);
 }
 
 const DEFAULT_DAEMON_COMMAND_DEPS: DaemonCommandDeps = {

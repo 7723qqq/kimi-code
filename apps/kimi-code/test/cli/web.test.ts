@@ -114,8 +114,8 @@ describe('kimi web', () => {
     );
   });
 
-  it('prints daemon startup trace from the local daemon resolver', async () => {
-    const { deps, stdout } = makeDeps({
+  it('prints daemon startup trace to stderr, keeping stdout machine-readable', async () => {
+    const { deps, stdout, stderr } = makeDeps({
       ensureDaemonRunning: vi.fn(async (_options, report) => {
         report?.('checking requested daemon at http://127.0.0.1:7999');
         report?.('found live daemon lock (pid 4321, port 7880, started 2026-06-10T00:00:00.000Z)');
@@ -130,16 +130,17 @@ describe('kimi web', () => {
 
     await handleWebCommand({ port: '7999', open: false }, deps);
 
-    expect(stdout.join('')).toContain(
+    expect(stderr.join('')).toContain(
       'Daemon startup: checking requested daemon at http://127.0.0.1:7999',
     );
-    expect(stdout.join('')).toContain(
+    expect(stderr.join('')).toContain(
       'Daemon startup: found live daemon lock (pid 4321, port 7880, started 2026-06-10T00:00:00.000Z)',
     );
-    expect(stdout.join('')).toContain(
+    expect(stderr.join('')).toContain(
       'Daemon startup: locked daemon is healthy; reusing http://127.0.0.1:7880',
     );
-    expect(stdout.join('')).toContain('Kimi web: http://127.0.0.1:7880');
+    // stdout carries ONLY the machine-readable result line.
+    expect(stdout.join('')).toBe('Kimi web: http://127.0.0.1:7880\n');
   });
 
   it('respects --no-open while still printing the daemon-hosted web URL', async () => {

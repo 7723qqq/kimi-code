@@ -93,7 +93,9 @@ export async function handleWebCommand(
         restart: opts.restart === true,
       },
       (message) => {
-        deps.stdout.write(`Daemon startup: ${message}\n`);
+        // Diagnostics go to stderr: scripts capture `Kimi web: <origin>` from
+        // stdout and must not see trace lines interleaved on the same stream.
+        deps.stderr.write(`Daemon startup: ${message}\n`);
       },
     );
     webOrigin = daemon.origin;
