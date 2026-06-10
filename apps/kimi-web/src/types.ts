@@ -125,6 +125,15 @@ export interface ChatTurn {
   images?: { url: string; alt?: string }[];
 }
 
+/**
+ * One item of the model-maintained todo list (the TodoList tool). Each write
+ * replaces the whole list, so the latest tool call IS the current state.
+ */
+export interface TodoView {
+  title: string;
+  status: 'pending' | 'in_progress' | 'done';
+}
+
 export type TaskState = 'run' | 'done' | 'fail';
 
 export interface TaskItem {

@@ -10,6 +10,7 @@ import ToolCall from './ToolCall.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import Markdown from './Markdown.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
+import { toolLabel } from '../lib/toolMeta';
 
 const MOON_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
 const MOON_INTERVAL_MS = 120;
@@ -161,6 +162,80 @@ function isFolded(turnId: string): boolean {
 function toggleTurnCollapse(turnId: string): void {
   collapsedTurns.value = { ...collapsedTurns.value, [turnId]: !collapsedTurns.value[turnId] };
 }
+
+/** Extract a file path from a tool's JSON arg, if any. */
+function extractFilePath(arg: string): string | undefined {
+  try {
+    const d = JSON.parse(arg) as Record<string, unknown>;
+    const p =
+      (typeof d.path === 'string' ? d.path : undefined) ??
+      (typeof d.file_path === 'string' ? d.file_path : undefined) ??
+      (typeof d.filePath === 'string' ? d.filePath : undefined) ??
+      (typeof d.filename === 'string' ? d.filename : undefined) ??
+      (typeof d.dir === 'string' ? d.dir : undefined) ??
+      (typeof d.directory === 'string' ? d.directory : undefined) ??
+      (typeof d.cwd === 'string' ? d.cwd : undefined);
+    return p ? p.split('/').pop() ?? p : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Parse a timing string like "1.2s" or "0.8s" into seconds. */
+function parseTimingSeconds(timing: string | undefined): number {
+  if (!timing) return 0;
+  const m = timing.match(/([\d.]+)\s*s/);
+  if (m) return parseFloat(m[1]!);
+  return 0;
+}
+
+/** Build a friendly one-line summary of the process blocks. */
+function processSummary(turn: ChatTurn): string {
+  const blocks = processBlocks(turn);
+  const toolNames: string[] = [];
+  const filePaths: string[] = [];
+  let totalSeconds = 0;
+
+  for (const blk of blocks) {
+    if (blk.kind !== 'tool') continue;
+    toolNames.push(toolLabel(blk.tool.name));
+    const path = extractFilePath(blk.tool.arg);
+    if (path) filePaths.push(path);
+    totalSeconds += parseTimingSeconds(blk.tool.timing);
+  }
+
+  const uniqueTools = [...new Set(toolNames)];
+  const uniqueFiles = [...new Set(filePaths)];
+
+  if (uniqueTools.length === 0) return t('thinking.process');
+
+  const toolSep = t('thinking.process') === '处理过程' ? '、' : ', ';
+  const parts: string[] = [];
+
+  // Tool names
+  const toolStr = uniqueTools.join(toolSep);
+  parts.push(t('thinking.calledTools', { names: toolStr }));
+
+  // Files (cap at 2, add "and X more")
+  if (uniqueFiles.length > 0) {
+    const shown = uniqueFiles.slice(0, 2).join(toolSep);
+    const more =
+      uniqueFiles.length > 2
+        ? t('thinking.andMore', { count: uniqueFiles.length - 2 })
+        : '';
+    parts.push(t('thinking.editedFiles', { names: shown + more }));
+  }
+
+  // Timing
+  if (totalSeconds > 0) {
+    const timeStr = totalSeconds < 1
+      ? `${Math.round(totalSeconds * 1000)}ms`
+      : `${totalSeconds.toFixed(1)}s`;
+    parts.push(t('thinking.tookTime', { time: timeStr }));
+  }
+
+  return parts.join(t('thinking.process') === '处理过程' ? '，' : ' · ');
+}
 </script>
 
 <template>
@@ -205,7 +280,7 @@ function toggleTurnCollapse(turnId: string): void {
         <template v-if="canFoldTurn(turn)">
           <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
             <span class="fold-car">{{ isFolded(turn.id) ? '▸' : '▾' }}</span>
-            <span class="fold-lbl">{{ t('thinking.process') }}</span>
+            <span class="fold-lbl">{{ processSummary(turn) }}</span>
           </button>
           <div v-show="!isFolded(turn.id)" class="fold-body">
             <template v-for="(blk, bi) in processBlocks(turn)" :key="bi">
@@ -310,7 +385,7 @@ function toggleTurnCollapse(turnId: string): void {
           <template v-if="canFoldTurn(turn)">
             <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
               <span class="fold-car">{{ isFolded(turn.id) ? '▸' : '▾' }}</span>
-              <span class="fold-lbl">{{ t('thinking.process') }}</span>
+              <span class="fold-lbl">{{ processSummary(turn) }}</span>
             </button>
             <div v-show="!isFolded(turn.id)" class="fold-body">
               <template v-for="(blk, bi) in processBlocks(turn)" :key="bi">

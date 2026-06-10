@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ContentAlign, ConversationStatus, DiffViewLine, PaneKey, PermissionMode, QueuedPromptView, TaskItem, UIQuestion } from '../types';
+import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ContentAlign, ConversationStatus, DiffViewLine, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, UIQuestion } from '../types';
 import type { AppModel, ApprovalDecision, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { FileData } from './FilePreview.vue';
@@ -11,6 +11,7 @@ import ChatPane from './ChatPane.vue';
 import DiffView from './DiffView.vue';
 import ChangedTree from './ChangedTree.vue';
 import TasksPane from './TasksPane.vue';
+import TodoCard from './TodoCard.vue';
 import FileTree from './FileTree.vue';
 import FilePreview from './FilePreview.vue';
 import Composer from './Composer.vue';
@@ -28,6 +29,8 @@ const props = defineProps<{
   loadFileDiff?: (path: string) => Promise<void> | void;
   clearFileDiff?: () => void;
   tasks: TaskItem[];
+  /** Model-maintained todo list (TodoList tool) — shown as a floating card. */
+  todos?: TodoView[];
   status: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
@@ -469,6 +472,10 @@ onUnmounted(() => {
       @select="active = $event"
       @set-align="setAlign"
     />
+
+    <!-- Floating todo card, pinned top-right over the chat transcript -->
+    <TodoCard v-if="active === 'chat'" :todos="todos ?? []" :mobile="mobile" />
+
     <div
       ref="panesRef"
       class="panes"
