@@ -1158,6 +1158,8 @@ function selectModel(modelId: string): void {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* Attach button (in toolbar) */
@@ -1257,6 +1259,8 @@ function selectModel(modelId: string): void {
   user-select: none;
   transition: background 0.1s;
   position: relative;
+  max-width: 120px;
+  overflow: hidden;
 }
 .model-pill:hover {
   background: var(--soft);
@@ -1268,10 +1272,15 @@ function selectModel(modelId: string): void {
 .model-pill b {
   font-weight: 500;
   color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 .model-pill .think-suffix {
   color: var(--blue);
   font-weight: 500;
+  flex-shrink: 0;
 }
 .model-pill .cv {
   color: var(--faint);
@@ -1522,6 +1531,9 @@ function selectModel(modelId: string): void {
   .model-pill,
   .attach-btn {
     font-size: 12.5px;
+  }
+  .model-pill {
+    max-width: 160px;
   }
   .md-row {
     font-size: 13.5px;
