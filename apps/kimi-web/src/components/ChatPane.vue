@@ -247,9 +247,15 @@ function processSummary(turn: ChatTurn): string {
 
       <!-- Assistant turn → left-aligned, no name/role label. When the turn ends
            with a summary text, preceding process blocks (thinking + tools) are
-           folded behind a toggle. -->
+           folded behind a toggle placed AFTER the summary so expanding reads
+           downward. -->
       <div v-else class="a-msg">
         <template v-if="canFoldTurn(turn)">
+          <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
+            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="false" />
+            <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="false" /></div>
+            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
+          </template>
           <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
             <span class="fold-lbl">{{ processSummary(turn) }}</span>
           </button>
@@ -260,11 +266,6 @@ function processSummary(turn: ChatTurn): string {
               <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
             </template>
           </div>
-          <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
-            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="false" />
-            <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="false" /></div>
-            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
-          </template>
         </template>
         <div v-if="turn.id !== streamingTurnId" class="a-msg-ft">
           <button
@@ -345,8 +346,14 @@ function processSummary(turn: ChatTurn): string {
 
           <!-- Thinking + message text + tool cards, interleaved in original
                call order. When the turn ends with a summary text, preceding
-               process blocks are folded behind a toggle. -->
+               process blocks are folded behind a toggle placed AFTER the summary
+               so expanding reads downward. -->
           <template v-if="canFoldTurn(turn)">
+            <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
+              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="false" />
+              <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="false" />
+              <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
+            </template>
             <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
               <span class="fold-lbl">{{ processSummary(turn) }}</span>
             </button>
@@ -357,11 +364,6 @@ function processSummary(turn: ChatTurn): string {
                 <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
               </template>
             </div>
-            <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
-              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="false" />
-              <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="false" />
-              <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
-            </template>
           </template>
           <template v-else>
             <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
