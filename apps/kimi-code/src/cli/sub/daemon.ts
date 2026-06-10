@@ -66,6 +66,8 @@ export type EnsureDaemonResult =
       logPath: string;
     };
 
+export type DaemonStartupReporter = (message: string) => void;
+
 export interface EnsureDaemonRunningDeps {
   isDaemonHealthy(origin: string, timeoutMs: number): Promise<boolean>;
   waitForDaemonHealthy(origin: string, timeoutMs: number): Promise<boolean>;
@@ -81,7 +83,10 @@ export interface EnsureDaemonRunningDeps {
 }
 
 export interface DaemonCommandDeps {
-  ensureDaemonRunning(options: ParsedDaemonOptions): Promise<EnsureDaemonResult>;
+  ensureDaemonRunning(
+    options: ParsedDaemonOptions,
+    report?: DaemonStartupReporter,
+  ): Promise<EnsureDaemonResult>;
   startDaemonForeground(options: ParsedDaemonOptions): Promise<void>;
   stdout: Pick<NodeJS.WriteStream, 'write'>;
   stderr: Pick<NodeJS.WriteStream, 'write'>;
@@ -144,7 +149,9 @@ export async function handleDaemonCommand(
     return;
   }
 
-  const result = await deps.ensureDaemonRunning(parsed);
+  const result = await deps.ensureDaemonRunning(parsed, (message) => {
+    writeDaemonStartupStatus(deps.stdout, message);
+  });
   if (result.status === 'already-running') {
     deps.stdout.write(
       `Kimi daemon already running at ${result.origin}${formatPid(result.pid)}.\n`,
@@ -192,10 +199,13 @@ export function parseLogLevel(raw: string | undefined): DaemonLogLevel {
 export async function ensureDaemonRunning(
   options: ParsedDaemonOptions,
   deps: EnsureDaemonRunningDeps = DEFAULT_ENSURE_DAEMON_RUNNING_DEPS,
+  report: DaemonStartupReporter = () => {},
 ): Promise<EnsureDaemonResult> {
   const origin = daemonOrigin(options.host, options.port);
+  report(`checking requested daemon at ${origin}`);
   if (await deps.isDaemonHealthy(origin, 1000)) {
     const lock = deps.readLiveDaemonLock();
+    report(`requested daemon is healthy; using ${origin}`);
     return {
       status: 'already-running',
       origin,
@@ -204,10 +214,17 @@ export async function ensureDaemonRunning(
     };
   }
 
+  report('requested daemon is not healthy');
+  report(`checking daemon lock at ${DEFAULT_LOCK_PATH}`);
   const lock = deps.readLiveDaemonLock();
   if (lock !== undefined) {
+    report(
+      `found live daemon lock (pid ${lock.pid}, port ${lock.port}, started ${lock.started_at})`,
+    );
     const lockOrigin = daemonOrigin(options.host, lock.port);
+    report(`checking locked daemon at ${lockOrigin}`);
     if (await deps.waitForDaemonHealthy(lockOrigin, 5000)) {
+      report(`locked daemon is healthy; reusing ${lockOrigin}`);
       return {
         status: 'already-running',
         origin: lockOrigin,
@@ -215,15 +232,21 @@ export async function ensureDaemonRunning(
         logPath: deps.daemonLogPath(),
       };
     }
+    report(`locked daemon did not become healthy at ${lockOrigin}`);
+  } else {
+    report('no live daemon lock found');
   }
 
+  report(`starting daemon in background at ${origin}`);
   const started = deps.startDaemonBackground(options);
   const ready = await deps.waitForDaemonHealthy(origin, 15_000);
   if (!ready) {
+    report(`daemon did not become healthy at ${origin}`);
     throw new Error(
       `Kimi daemon did not become healthy at ${origin}. Check logs: ${started.logPath}`,
     );
   }
+  report(`daemon is healthy at ${origin}`);
   return {
     status: 'started',
     origin,
@@ -389,8 +412,16 @@ function formatPid(pid: number | undefined): string {
   return pid === undefined ? '' : ` (pid ${pid})`;
 }
 
+function writeDaemonStartupStatus(
+  stdout: Pick<NodeJS.WriteStream, 'write'>,
+  message: string,
+): void {
+  stdout.write(`Daemon startup: ${message}\n`);
+}
+
 const DEFAULT_DAEMON_COMMAND_DEPS: DaemonCommandDeps = {
-  ensureDaemonRunning,
+  ensureDaemonRunning: (options, report) =>
+    ensureDaemonRunning(options, DEFAULT_ENSURE_DAEMON_RUNNING_DEPS, report),
   startDaemonForeground,
   stdout: process.stdout,
   stderr: process.stderr,

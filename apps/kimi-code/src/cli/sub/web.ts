@@ -16,6 +16,7 @@ import {
   DEFAULT_DAEMON_PORT,
   ensureDaemonRunning,
   parsePort,
+  type DaemonStartupReporter,
   type EnsureDaemonResult,
 } from './daemon';
 
@@ -32,7 +33,7 @@ export interface WebCommandDeps {
     port: number;
     logLevel: 'info';
     debugEndpoints: false;
-  }): Promise<EnsureDaemonResult>;
+  }, report?: DaemonStartupReporter): Promise<EnsureDaemonResult>;
   ensureDaemonWebReady(origin: string): Promise<void>;
   openUrl(url: string): void;
   stdout: Pick<NodeJS.WriteStream, 'write'>;
@@ -76,12 +77,17 @@ export async function handleWebCommand(
   } else {
     const host = opts.host ?? DEFAULT_DAEMON_HOST;
     const port = parsePort(opts.port, '--port', DEFAULT_DAEMON_PORT);
-    const daemon = await deps.ensureDaemonRunning({
-      host,
-      port,
-      logLevel: 'info',
-      debugEndpoints: false,
-    });
+    const daemon = await deps.ensureDaemonRunning(
+      {
+        host,
+        port,
+        logLevel: 'info',
+        debugEndpoints: false,
+      },
+      (message) => {
+        deps.stdout.write(`Daemon startup: ${message}\n`);
+      },
+    );
     webOrigin = daemon.origin;
     if (daemon.status === 'started') {
       deps.stdout.write(
@@ -134,7 +140,7 @@ export async function ensureDaemonWebReady(origin: string): Promise<void> {
 }
 
 const DEFAULT_WEB_COMMAND_DEPS: WebCommandDeps = {
-  ensureDaemonRunning,
+  ensureDaemonRunning: (options, report) => ensureDaemonRunning(options, undefined, report),
   ensureDaemonWebReady,
   openUrl: defaultOpenUrl,
   stdout: process.stdout,
