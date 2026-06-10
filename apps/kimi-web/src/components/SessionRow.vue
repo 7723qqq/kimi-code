@@ -155,7 +155,6 @@ defineExpose({ closeMenu, cancelDelete });
           </svg>
         </button>
 
-        <span class="ts">{{ session.time }}</span>
       </div>
 
       <!-- Kebab dropdown -->
@@ -323,5 +322,5 @@ defineExpose({ closeMenu, cancelDelete });
 .btn-confirm:hover { opacity: 0.85; }
 .btn-cancel:hover { background: var(--panel2); }
 
-.ts { color: var(--muted); font-size: 10.5px; flex: none; }
+
 </style>
