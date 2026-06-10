@@ -386,7 +386,11 @@ function blinkOnce(): void {
                   class="gh-add"
                   :title="t('workspace.newInGroup')"
                   @click.stop="emit('createInWorkspace', g.workspace.id)"
-                >+</button>
+                >
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M11.5 2.5l2 2L4 14l-3 1 1-3L11.5 2.5z"/>
+                  </svg>
+                </button>
               </div>
               <div class="gh-path" :title="g.workspace.root">{{ g.workspace.branch || g.workspace.shortPath }}</div>
             </div>
@@ -744,10 +748,10 @@ function blinkOnce(): void {
   border: none;
   color: #bbb;
   cursor: pointer;
-  font-family: var(--mono);
-  font-size: 18px;
-  line-height: 1;
-  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
   flex: none;
 }
 .gh-add:hover { color: #666; }

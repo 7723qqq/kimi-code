@@ -387,6 +387,7 @@ let resizeObserver: ResizeObserver | null = null;
 let observedContent: Element | null = null;
 let scrollRaf = 0;
 let pillEligible = false;
+let muteFollowOnce = false;
 
 function scheduleFollow(allowPill: boolean): void {
   if (active.value !== 'chat') return;
@@ -397,9 +398,22 @@ function scheduleFollow(allowPill: boolean): void {
     scrollRaf = 0;
     const wantPill = pillEligible;
     pillEligible = false;
+    if (muteFollowOnce) {
+      muteFollowOnce = false;
+      return;
+    }
     if (following.value) scrollToBottom(false);
     else if (wantPill) showPill.value = true;
   }) as unknown as number;
+}
+
+/** The user toggled a turn's process fold. Stop following so the fold opens
+    in place — downward from the clicked line — instead of the auto-follow
+    pinning the bottom (which makes the content appear to grow upward). The
+    resulting mutation also must not raise the "new content" pill. */
+function handleFoldToggle(): void {
+  following.value = false;
+  muteFollowOnce = true;
 }
 
 /** Keep the ResizeObserver attached to the scroller's current content column
@@ -492,6 +506,7 @@ onUnmounted(() => {
           :sending="sending"
           :session-loading="sessionLoading"
           @approval-decide="handleApprovalDecide"
+          @fold-toggle="handleFoldToggle"
         />
       </div>
       <TasksPane
@@ -671,7 +686,14 @@ onUnmounted(() => {
   height: 100%;
   position: relative;
 }
-.panes { flex: 1; min-height: 0; overflow-y: auto; }
+.panes {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* The pane manages its own follow-to-bottom; native scroll anchoring would
+     otherwise pin content BELOW an expanding fold and make it open upward. */
+  overflow-anchor: none;
+}
 
 /* Chat reading column max-width + alignment. The max-width applies in both
    modes; align-left hugs the left gutter, align-center centers in the pane. */
