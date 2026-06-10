@@ -88,8 +88,21 @@ const emit = defineEmits<{
 // Per-turn copy button state (keyed by turn id)
 const copiedTurn = ref<string | null>(null);
 
+/** Assemble the full content of a turn for copying (thinking + text + tool output). */
+function turnPlainText(turn: ChatTurn): string {
+  const parts: string[] = [];
+  if (turn.thinking) parts.push(turn.thinking);
+  if (turn.text) parts.push(turn.text);
+  for (const tool of turn.tools ?? []) {
+    if (tool.output && tool.output.length > 0) {
+      parts.push(`[${tool.name}]\n${tool.output.join('\n')}`);
+    }
+  }
+  return parts.join('\n\n');
+}
+
 function copyTurn(turn: ChatTurn) {
-  navigator.clipboard.writeText(turn.text).then(() => {
+  navigator.clipboard.writeText(turnPlainText(turn)).then(() => {
     copiedTurn.value = turn.id;
     setTimeout(() => { copiedTurn.value = null; }, 1400);
   }).catch(() => {/* ignore */});
