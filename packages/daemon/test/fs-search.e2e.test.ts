@@ -1,25 +1,4 @@
-/**
- * `/api/v1/sessions/{sid}/fs:search` + `/api/v1/sessions/{sid}/fs:grep` end-to-end
- * tests (W11.1 / Chain 11 / P1.11).
- *
- * AC coverage (ROADMAP §Chain 11):
- *   1. rg present → grep finds matches with context
- *   2. rg absent (simulated) → fallback runs, warning emitted ONCE
- *   3. search 500-hit cap → truncated: true on overflow
- *   4. grep 30s timeout → 41305 fs.grep_timeout
- *
- * Plus:
- *   - search filename fuzzy
- *   - search filename match positions
- *   - search applies include/exclude globs
- *   - grep regex on / off
- *   - grep gitignore filtering
- *   - grep max_total_matches → truncated
- *   - 41304 path safety on hostile globs (n/a — globs aren't path-safe checked,
- *     they're filter-only; the request path itself isn't even on search/grep)
- *   - 40401 unknown session
- *   - 40001 unsupported action
- */
+
 
 import {
   mkdirSync,
@@ -36,8 +15,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ISessionService } from '@moonshot-ai/services';
 
 import { IRestGateway, startDaemon, type RunningDaemon } from '../src';
-import { FsSearchService } from '#/services/fs/fsSearchService';
-import { ILogService } from '#/services/logger';
+import { FsSearchService } from '@moonshot-ai/services';
+import { ILogService } from '@moonshot-ai/services';
 
 let tmpDir: string;
 let lockPath: string;
@@ -57,7 +36,7 @@ afterEach(async () => {
   try {
     await daemon?.close();
   } catch {
-    // ignore
+
   }
   daemon = undefined;
   rmSync(tmpDir, { recursive: true, force: true });
@@ -166,11 +145,7 @@ describe('POST /api/v1/sessions/{sid}/fs:search (W11.1)', () => {
   });
 
   it('500-hit cap with truncated: true', async () => {
-    // Generate 600 files. With limit=200 (default-cap clamps to 200) the
-    // truncated flag is set when there are >200 viable matches. To verify
-    // the SOFT 500-hit cap in particular (ROADMAP AC #3), explicitly
-    // request limit: 500 and create 600 candidates so the daemon's hard
-    // cap kicks in.
+
     for (let i = 0; i < 600; i++) {
       writeFileSync(join(workspace, `match_${i}.txt`), '');
     }
@@ -183,8 +158,7 @@ describe('POST /api/v1/sessions/{sid}/fs:search (W11.1)', () => {
     });
     const env = envelopeOf<{ items: unknown[]; truncated: boolean }>(res.json());
     expect(env.code).toBe(0);
-    // limit=200 means the response has 200 items; truncated true because
-    // 600 candidates > 200 cap.
+
     expect(env.data!.items.length).toBe(200);
     expect(env.data!.truncated).toBe(true);
   });
@@ -270,11 +244,7 @@ describe('POST /api/v1/sessions/{sid}/fs:grep (W11.1)', () => {
     expect(m.text).toContain('hello');
     expect(m.before).toContain('line 1');
     expect(m.after).toContain('line 3');
-    // Implementation note: when using rg, `files_scanned` reflects the
-    // count of files rg actually opened that had hits (rg's `begin`
-    // record stream). When using the Node fallback we count every file
-    // examined. Both implementations report >= 1 in this test (only
-    // a.txt has the literal match).
+
     expect(env.data!.files_scanned).toBeGreaterThanOrEqual(1);
     expect(env.data!.truncated).toBe(false);
     expect(env.data!.elapsed_ms).toBeGreaterThanOrEqual(0);
@@ -372,13 +342,6 @@ describe('POST /api/v1/sessions/{sid}/fs:grep (W11.1)', () => {
   });
 });
 
-// -----------------------------------------------------------------
-// Fallback / timeout — direct service tests (not via Fastify), since
-// (a) the fallback needs to override the rg probe deterministically
-// (b) the 30s timeout would make the test suite too slow if exercised
-//     against the real HTTP handler.
-// -----------------------------------------------------------------
-
 describe('FsSearchService direct: rg fallback + grep timeout (W11.1)', () => {
   function makeStubSession(cwd: string): ISessionService {
     return {
@@ -422,7 +385,6 @@ describe('FsSearchService direct: rg fallback + grep timeout (W11.1)', () => {
     return logger;
   }
 
-  /** Stub: pretends rg is missing AND records the warn-once invariant. */
   class StubMissingRg extends FsSearchService {
     public override probeRg(): Promise<string | null> {
       if (this.rgPath !== undefined) return Promise.resolve(this.rgPath);
@@ -456,7 +418,6 @@ describe('FsSearchService direct: rg fallback + grep timeout (W11.1)', () => {
     expect(first.files.length).toBe(1);
     expect(first.files[0]!.matches[0]!.text).toBe('needle');
 
-    // Second call: should NOT re-warn (warn-once invariant).
     await svc.grep('sess_stub', {
       pattern: 'needle',
       regex: false,
@@ -472,14 +433,10 @@ describe('FsSearchService direct: rg fallback + grep timeout (W11.1)', () => {
     svc.dispose();
   });
 
-  // The 30s timeout is hard to exercise without making the test slow.
-  // We test the timeout machinery by stubbing GREP_TIMEOUT_MS via a
-  // subclass that injects an immediate abort.
   it('grep timeout fires FsGrepTimeoutError → 41305', async () => {
     const sessions = makeStubSession(workspace);
     const logger = makeStubLogger();
 
-    // Use a class override that aborts the controller before any work runs.
     class StubTimeout extends FsSearchService {
       protected override async grepWithNode(
         _cwd: string,
@@ -487,13 +444,13 @@ describe('FsSearchService direct: rg fallback + grep timeout (W11.1)', () => {
         _signal: AbortSignal,
         startedAt: number,
       ): Promise<import('@moonshot-ai/protocol').FsGrepResponse> {
-        // Simulate the 30s deadline expiring with zero matches collected.
+
         throw new (
-          await import('#/services/fs/fsSearch')
+          await import('@moonshot-ai/services')
         ).FsGrepTimeoutError(Date.now() - startedAt);
       }
       public override probeRg(): Promise<string | null> {
-        // Force fallback path
+
         this.rgPath = null;
         return Promise.resolve(null);
       }

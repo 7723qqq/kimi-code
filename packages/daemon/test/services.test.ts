@@ -1,7 +1,6 @@
 
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FSWatcher } from 'chokidar';
 
 import {
   InstantiationService,
@@ -12,21 +11,23 @@ import {
 import type { Event } from '@moonshot-ai/protocol';
 import {
   EventService,
+  FsWatcherService,
   IApprovalService,
   IEventService,
+  ILogService,
   IQuestionService,
+  type FsWatcherServiceOptions,
+  type ILogService as ILoggerT,
+  type ISessionService,
 } from '@moonshot-ai/services';
 
 import { ApprovalService } from '#/services/approval/approvalService';
-import { FsWatcherService } from '#/services/fs/fsWatcherService';
-import { ILogService, type ILogService as ILoggerT } from '#/services/logger';
 import { QuestionService } from '#/services/question/questionService';
 import {
   ISessionClientsService,
   type ISessionClientsService as ISessionClientsServiceT,
 } from '#/services/gateway';
 import { WSBroadcastService } from '#/services/gateway/wsBroadcastService';
-import type { ISessionService } from '@moonshot-ai/services';
 import type { WsConnection } from '../src/ws/connection';
 
 class TestLogger implements ILoggerT {
@@ -114,6 +115,8 @@ class FakeWatcher {
     this.closeCalls += 1;
   }
 }
+
+type TestFsWatcher = ReturnType<NonNullable<FsWatcherServiceOptions['watcherFactory']>>;
 
 let ix: InstantiationService;
 let testLogger: TestLogger;
@@ -255,7 +258,7 @@ describe('FsWatcherService', () => {
     const watcher = new FakeWatcher();
     const service = new FsWatcherService(
       { resolve: () => undefined },
-      { watcherFactory: () => watcher as unknown as FSWatcher },
+      { watcherFactory: () => watcher as unknown as TestFsWatcher },
       testLogger,
       {} as ISessionService,
     );
@@ -288,7 +291,7 @@ describe('FsWatcherService', () => {
     const watcher = new FakeWatcher();
     const service = new FsWatcherService(
       { resolve: () => undefined },
-      { watcherFactory: () => watcher as unknown as FSWatcher },
+      { watcherFactory: () => watcher as unknown as TestFsWatcher },
       testLogger,
       {} as ISessionService,
     );

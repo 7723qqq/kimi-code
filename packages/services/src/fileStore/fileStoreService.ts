@@ -1,6 +1,4 @@
-/**
- * `FileStore` — implementation of `IFileStore`.
- */
+
 
 import { createWriteStream, promises as fsp } from 'node:fs';
 import { join } from 'node:path';
@@ -9,12 +7,12 @@ import type { Readable } from 'node:stream';
 
 import { ulid } from 'ulid';
 
-import { Disposable } from '@moonshot-ai/agent-core';
+import { Disposable, InstantiationType, registerSingleton } from '@moonshot-ai/agent-core';
 
 import type { FileMeta } from '@moonshot-ai/protocol';
-import { IEnvironmentService } from '@moonshot-ai/services';
+import { IEnvironmentService } from '../environment/environment';
 
-import { ILogService } from '#/services/logger';
+import { ILogService } from '../logger/logger';
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
   FileNotFoundError,
@@ -54,9 +52,6 @@ export class FileStore extends Disposable implements IFileStore {
     const fileId = `f_${ulid()}`;
     const blobPath = join(this.baseDir, fileId);
 
-    // Track bytes during streaming to enforce the size cap. We
-    // intercept on the source via `'data'`, abort the writable if the
-    // limit trips, and `unlink` the partial blob in the catch path.
     let bytes = 0;
     let aborted = false;
     let abortReason: Error | undefined;
@@ -69,7 +64,7 @@ export class FileStore extends Disposable implements IFileStore {
       if (!aborted && bytes > this.maxUploadBytes) {
         aborted = true;
         abortReason = new FileTooLargeError(bytes, this.maxUploadBytes);
-        // `destroy(err)` propagates the error through `pipeline`.
+
         source.destroy(abortReason);
       }
     });
@@ -77,18 +72,16 @@ export class FileStore extends Disposable implements IFileStore {
     try {
       await pipeline(source, writable);
     } catch (err) {
-      // Clean up any partial blob — best-effort, swallow ENOENT.
+
       try {
         await fsp.unlink(blobPath);
       } catch {
-        /* ignore */
+
       }
       if (abortReason) throw abortReason;
       throw err;
     }
 
-    // Re-stat to capture the final size on disk (the pipeline may have
-    // counted differently if upstream re-chunked).
     const stat = await fsp.stat(blobPath);
     const meta: FileMeta = {
       id: fileId,
@@ -117,9 +110,7 @@ export class FileStore extends Disposable implements IFileStore {
       throw new FileNotFoundError(fileId);
     }
     const blobPath = join(this.baseDir, fileId);
-    // Verify the blob actually exists; if it disappeared on disk we
-    // raise FileNotFoundError too (treat the missing blob as
-    // equivalent to a missing id from the client's POV).
+
     try {
       await fsp.access(blobPath);
     } catch {
@@ -146,23 +137,14 @@ export class FileStore extends Disposable implements IFileStore {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
-        // Restore the index entry so the next call can re-attempt.
-        // We don't have the meta here; re-throw to surface as 50001.
+
         throw err;
       }
-      // ENOENT — blob missing but index had it. Continue (we've
-      // already dropped the index entry); the writeIndex below makes
-      // the deletion stick.
+
     }
     await this.writeIndex();
   }
 
-  /* ----------------------------------------------------------- internals */
-
-  /**
-   * Lazy index loader. Concurrency-safe (a second call before the
-   * first resolves returns the same in-flight Promise).
-   */
   private ensureIndex(): Promise<void> {
     if (this.indexCache !== undefined) return Promise.resolve();
     if (this.indexLoadPromise !== undefined) return this.indexLoadPromise;
@@ -180,7 +162,7 @@ export class FileStore extends Disposable implements IFileStore {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') {
-        // First-run: empty index.
+
         this.indexCache = new Map();
         return;
       }
@@ -227,3 +209,5 @@ export class FileStore extends Disposable implements IFileStore {
     super.dispose();
   }
 }
+
+registerSingleton(IFileStore, FileStore, InstantiationType.Delayed);

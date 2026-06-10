@@ -1,27 +1,4 @@
-/**
- * `/workspaces/*` REST routes.
- *
- * 4 endpoints:
- *
- *   GET    /workspaces                                  → { items }
- *   POST   /workspaces      body: WorkspaceCreate       → Workspace (idempotent)
- *   PATCH  /workspaces/{workspace_id}   body: { name }  → Workspace
- *   DELETE /workspaces/{workspace_id}                   → { deleted: true }
- *
- * **Idempotent POST**: same `root` (post-realpath) always yields the same
- * `wd_<slug>_<hash12>` id; daemon touches `last_opened_at` on existing
- * records and returns the same Workspace. There is no separate
- * `409 already_exists` path — the wire is one of "ok with fresh-mint" or
- * "ok with touch". Callers don't need to distinguish.
- *
- * **Error mapping**:
- *   - `WorkspaceNotFoundError`         → envelope `code: 40410`
- *   - `WorkspaceRootNotFoundError`     → envelope `code: 40409`
- *   - other errors                     → global hook (→ 50001)
- *
- * **Anti-corruption**: zero SDK imports; workspaces are a pure daemon-OWN
- * concept (no agent-core surface).
- */
+
 
 import {
   ErrorCode,
@@ -42,7 +19,7 @@ import {
   IWorkspaceRegistry,
   WorkspaceNotFoundError,
   WorkspaceRootNotFoundError,
-} from '#/services/workspace';
+} from '@moonshot-ai/services';
 
 interface WorkspaceRouteHost {
   post(
@@ -83,7 +60,7 @@ export function registerWorkspacesRoutes(
   app: WorkspaceRouteHost,
   ix: IInstantiationService,
 ): void {
-  // GET /workspaces --------------------------------------------------------
+
   const listRoute = defineRoute(
     {
       method: 'GET',
@@ -108,7 +85,6 @@ export function registerWorkspacesRoutes(
     listRoute.handler as Parameters<WorkspaceRouteHost['get']>[2],
   );
 
-  // POST /workspaces -------------------------------------------------------
   const createRoute = defineRoute(
     {
       method: 'POST',
@@ -136,7 +112,6 @@ export function registerWorkspacesRoutes(
     createRoute.handler as Parameters<WorkspaceRouteHost['post']>[2],
   );
 
-  // PATCH /workspaces/{workspace_id} ---------------------------------------
   const updateRoute = defineRoute(
     {
       method: 'PATCH',
@@ -166,7 +141,6 @@ export function registerWorkspacesRoutes(
     updateRoute.handler as Parameters<WorkspaceRouteHost['patch']>[2],
   );
 
-  // DELETE /workspaces/{workspace_id} --------------------------------------
   const deleteRoute = defineRoute(
     {
       method: 'DELETE',

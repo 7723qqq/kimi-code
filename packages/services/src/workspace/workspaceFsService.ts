@@ -1,20 +1,10 @@
-/**
- * `WorkspaceFsService` — implementation of `IWorkspaceFsService`.
- *
- * See `workspaceFs.ts` for the contract + error mapping overview.
- *
- * **Realpath consistency**: macOS routes `/tmp` to `/private/tmp`; we
- * always `realpath` before `readdir` and report the resolved path back to
- * the client. The recent-roots list is sourced from
- * `IWorkspaceRegistry.list()`, which itself records realpath'd roots, so
- * the picker round-trips cleanly into `POST /workspaces { root }`.
- */
+
 
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 
-import { Disposable } from '@moonshot-ai/agent-core';
+import { Disposable, InstantiationType, registerSingleton } from '@moonshot-ai/agent-core';
 
 import type { FsBrowseEntry, FsBrowseResponse, FsHomeResponse } from '@moonshot-ai/protocol';
 
@@ -55,8 +45,7 @@ export class WorkspaceFsService extends Disposable implements IWorkspaceFsServic
       throw mapFsError(err, realTarget);
     }
     const dirOnly = dirents.filter((d) => d.isDirectory());
-    // Probe git for each in parallel. Cheap (lstat + readFile) — see
-    // `detectGit` in workspaceRegistryService.ts.
+
     const entries: FsBrowseEntry[] = await Promise.all(
       dirOnly.map(async (d) => {
         const childAbs = join(realTarget, d.name);
@@ -73,7 +62,7 @@ export class WorkspaceFsService extends Disposable implements IWorkspaceFsServic
         return base;
       }),
     );
-    // Sort: non-dot first, dot-prefixed last; alpha within each bucket.
+
     entries.sort(compareBrowseEntries);
 
     const parent = dirname(realTarget);
@@ -97,10 +86,6 @@ export class WorkspaceFsService extends Disposable implements IWorkspaceFsServic
   }
 }
 
-/* -------------------------------------------------------------------------
- * Helpers
- * ----------------------------------------------------------------------- */
-
 function mapFsError(err: unknown, path: string): Error {
   const code = (err as NodeJS.ErrnoException).code;
   if (code === 'ENOENT' || code === 'ENOTDIR') {
@@ -118,3 +103,5 @@ function compareBrowseEntries(a: FsBrowseEntry, b: FsBrowseEntry): number {
   if (aDot !== bDot) return aDot ? 1 : -1;
   return a.name.localeCompare(b.name);
 }
+
+registerSingleton(IWorkspaceFsService, WorkspaceFsService, InstantiationType.Delayed);

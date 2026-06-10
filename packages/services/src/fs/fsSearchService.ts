@@ -1,12 +1,10 @@
-/**
- * `FsSearchService` — implementation of `IFsSearchService`.
- */
+
 
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { Disposable } from '@moonshot-ai/agent-core';
+import { Disposable, InstantiationType, registerSingleton } from '@moonshot-ai/agent-core';
 import type {
   FsGrepFileHit,
   FsGrepMatch,
@@ -18,17 +16,16 @@ import type {
 } from '@moonshot-ai/protocol';
 import ignore, { type Ignore } from 'ignore';
 
-import { ISessionService, SessionNotFoundError } from '@moonshot-ai/services';
+import { ISessionService, SessionNotFoundError } from '../session/session';
 
-import { ILogService } from '#/services/logger';
+import { ILogService } from '../logger/logger';
 import { IFsSearchService, FsGrepTimeoutError } from './fsSearch';
 import { FsPathEscapesError, resolveSafePath } from './fsPathSafety';
 
-/** Hard cap on `:search` items. */
 const SEARCH_HARD_CAP = 500;
-/** Wall-clock cap for `:grep` (REST.md §3.9 line 645). */
+
 const GREP_TIMEOUT_MS = 30_000;
-/** Hard cap on directory traversal depth — defensive (real repos cap below). */
+
 const WALK_MAX_DEPTH = 64;
 
 export class FsSearchService
@@ -37,21 +34,10 @@ export class FsSearchService
 {
   readonly _serviceBrand: undefined;
 
-  /** Cached `.gitignore` matcher per realCwd. Same shape as IFsService. */
   protected gitignoreCache = new Map<string, Ignore>();
 
-  /**
-   * Cached rg availability. Populated lazily on the first grep call (kept
-   * lazy because `which` itself is a child spawn; we don't want to pay
-   * that at daemon boot if no client ever calls `:grep`).
-   *
-   * Value semantics:
-   *   - `undefined`           → not yet probed
-   *   - `null`                → probed, rg is missing
-   *   - `string` (path)       → probed, rg available at this path
-   */
   protected rgPath: string | null | undefined = undefined;
-  /** Tracks whether we've already emitted the "rg missing" warning. */
+
   protected rgMissingWarned = false;
 
   constructor(
@@ -66,14 +52,6 @@ export class FsSearchService
     super.dispose();
   }
 
-  // -----------------------------------------------------------------
-  // :search
-  //
-  // Fuzzy filename match. Walks `cwd` (gitignore-respecting), scores each
-  // candidate against `query`, sorts descending by score, caps to
-  // `min(limit, 500)` items.
-  // -----------------------------------------------------------------
-
   async search(
     sessionId: string,
     req: FsSearchRequest,
@@ -87,10 +65,6 @@ export class FsSearchService
 
     const candidates: FsSearchHit[] = [];
 
-    // We walk eagerly, score each file's name, and keep the top-scoring
-    // matches. We do NOT short-circuit at `limit` — that'd require a
-    // bounded heap; the simple full-walk approach is fine for repos up
-    // to ~100k files (REST.md §3.9 line 604 explicit target).
     const queryLower = req.query.toLowerCase();
     await this.walk(realCwd, '', matcher, async (relPath, name, kind) => {
       const score = computeFuzzyScore(name, queryLower);
@@ -110,7 +84,6 @@ export class FsSearchService
       });
     });
 
-    // Sort by score desc; tie-break alphabetically on path for stability.
     candidates.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return a.path.localeCompare(b.path);
@@ -123,13 +96,6 @@ export class FsSearchService
       truncated,
     };
   }
-
-  // -----------------------------------------------------------------
-  // :grep
-  //
-  // Content search. Prefers rg via spawn; falls back to pure-Node on
-  // missing rg.
-  // -----------------------------------------------------------------
 
   async grep(sessionId: string, req: FsGrepRequest): Promise<FsGrepResponse> {
     const session = await this.sessions.get(sessionId);
@@ -166,10 +132,6 @@ export class FsSearchService
     }
   }
 
-  // -----------------------------------------------------------------
-  // rg detection
-  // -----------------------------------------------------------------
-
   protected async probeRg(): Promise<string | null> {
     if (this.rgPath !== undefined) return this.rgPath;
     const found = await whichBinary('rg');
@@ -182,21 +144,6 @@ export class FsSearchService
     this.rgPath = found;
     return found;
   }
-
-  // -----------------------------------------------------------------
-  // rg-backed grep
-  //
-  // We spawn rg with `--json` for stable machine-parseable output. Each
-  // line of stdout is a JSON object whose `type` discriminator names the
-  // record (`begin` / `match` / `context` / `end` / `summary`). We only
-  // care about `match` and `context`; we accumulate per-file buffers and
-  // emit `FsGrepFileHit` when `end` arrives.
-  //
-  // Caps:
-  //   - `max_total_matches`     → kill rg early
-  //   - `max_matches_per_file`  → drop excess matches before pushing
-  //   - `max_files`             → don't open new files after the cap
-  // -----------------------------------------------------------------
 
   protected async grepWithRg(
     rgBinary: string,
@@ -212,13 +159,10 @@ export class FsSearchService
     if (!req.case_sensitive) args.push('--ignore-case');
     if (!req.regex) args.push('--fixed-strings');
     if (req.follow_gitignore) {
-      // Respect `.gitignore` even when cwd is not a git repo — many test
-      // workspaces and untracked subtrees still have a sentinel
-      // `.gitignore`. rg's default behavior gates `.gitignore` parsing
-      // on the presence of `.git`; `--no-require-git` lifts that.
+
       args.push('--no-require-git');
     } else {
-      // Client opted out of gitignore — disable all ignore handling.
+
       args.push('--no-ignore');
     }
     if (req.include_globs) {
@@ -252,7 +196,7 @@ export class FsSearchService
       try {
         child.kill('SIGKILL');
       } catch {
-        // child may have exited; ignore
+
       }
     };
     if (signal.aborted) onAbort();
@@ -279,7 +223,7 @@ export class FsSearchService
           const p = rgPath(rec.data?.path);
           if (p === undefined) continue;
           if (filesScanned >= req.max_files) {
-            // Cap reached — kill rg early.
+
             truncated = true;
             onAbort();
             return;
@@ -293,9 +237,7 @@ export class FsSearchService
           if (buf === undefined) continue;
           const text = rgText(rec.data?.lines);
           buf.pending.push(stripTrailingNewline(text));
-          // Bound the pending buffer to context_lines so the AFTER window
-          // for the last match doesn't grow unbounded if rg interleaves
-          // many trailing context lines.
+
           if (buf.pending.length > req.context_lines * 2) {
             buf.pending.shift();
           }
@@ -329,7 +271,7 @@ export class FsSearchService
           if (p === undefined) continue;
           const buf = fileBuf.get(p);
           if (buf === undefined) continue;
-          // Attach trailing context (if any) to the last match.
+
           if (buf.matches.length > 0 && buf.pending.length > 0) {
             const last = buf.matches[buf.matches.length - 1]!;
             last.after = buf.pending.slice(0, req.context_lines);
@@ -342,7 +284,6 @@ export class FsSearchService
       }
     });
 
-    // Capture stderr for diagnostics; we don't surface it to the wire.
     let stderrBuf = '';
     child.stderr.setEncoding('utf-8');
     child.stderr.on('data', (c: string) => {
@@ -355,17 +296,14 @@ export class FsSearchService
     });
 
     if (signal.aborted) {
-      // Abort was either a timeout (caller wraps the throw) or one of our
-      // own caps. The 30s timeout case sets totalMatches to whatever we
-      // accumulated before kill; we surface 41305 only if NO matches were
-      // collected (otherwise treat as a clean truncated response).
+
       if (totalMatches === 0 && filesScanned === 0) {
         throw new FsGrepTimeoutError(Date.now() - startedAt);
       }
-      // Cap-driven abort: keep accumulated state, set truncated.
+
       truncated = true;
     }
-    void stderrBuf; // available for logging via ILogService if needed
+    void stderrBuf;
 
     return {
       files,
@@ -374,14 +312,6 @@ export class FsSearchService
       elapsed_ms: Date.now() - startedAt,
     };
   }
-
-  // -----------------------------------------------------------------
-  // Pure-Node grep fallback
-  //
-  // Walks all gitignore-allowed files under cwd; reads each with a sync
-  // line-by-line scan. Slow on large repos but always available. Honors
-  // the same caps as the rg path.
-  // -----------------------------------------------------------------
 
   protected async grepWithNode(
     cwd: string,
@@ -478,10 +408,6 @@ export class FsSearchService
     };
   }
 
-  // -----------------------------------------------------------------
-  // Shared walker (re-implemented here so we don't pull IFsService in).
-  // -----------------------------------------------------------------
-
   protected async walk(
     rootAbs: string,
     rootRel: string,
@@ -505,8 +431,7 @@ export class FsSearchService
     }
     for (const d of entries) {
       const name = d.name;
-      // Always skip the literal `.git` directory — git-managed but never
-      // useful in either search or grep. Matches IFsService behavior.
+
       if (name === '.git') continue;
       const childRel = rootRel === '' ? name : `${rootRel}/${name}`;
       if (matcher) {
@@ -525,10 +450,6 @@ export class FsSearchService
     }
   }
 
-  // -----------------------------------------------------------------
-  // .gitignore matcher — same shape as IFsService.matcher.
-  // -----------------------------------------------------------------
-
   protected async matcher(realCwd: string): Promise<Ignore | undefined> {
     const cached = this.gitignoreCache.get(realCwd);
     if (cached !== undefined) return cached;
@@ -541,25 +462,13 @@ export class FsSearchService
       );
       ig.add(contents);
     } catch {
-      // No .gitignore — only the .git/ rule applies.
+
     }
     this.gitignoreCache.set(realCwd, ig);
     return ig;
   }
 }
 
-// ===========================================================================
-// Helpers
-// ===========================================================================
-
-/**
- * Fuzzy score: count the number of `query` characters that appear in
- * `name` in order (subsequence match), normalize by `query` length, and
- * boost for prefix matches.
- *
- * Range: 0 (no match) .. 1 (perfect prefix). Cheap to compute; no
- * Sublime-style stress on long names.
- */
 function computeFuzzyScore(name: string, queryLower: string): number {
   if (queryLower.length === 0) return 0;
   const nameLower = name.toLowerCase();
@@ -577,14 +486,10 @@ function computeFuzzyScore(name: string, queryLower: string): number {
   if (matched <= 0) return 0;
   let score = matched / queryLower.length;
   if (nameLower.startsWith(queryLower)) score = Math.min(1, score + 0.2);
-  // Bound at 1; never exceed (small float safety).
+
   return Math.min(1, Math.max(0, score));
 }
 
-/**
- * Compute match positions inside `path` (NOT name) for client highlighting.
- * We greedily walk `path.toLowerCase()` and record each query-char index.
- */
 function computeMatchPositions(
   pathStr: string,
   queryLower: string,
@@ -602,10 +507,6 @@ function computeMatchPositions(
   return out;
 }
 
-/**
- * Tiny glob → RegExp converter — same grammar as `fs.ts:globToRegExp`.
- * Inlined to avoid cross-module coupling (the helper there is private).
- */
 function matchesAnyGlob(rel: string, globs: readonly string[]): boolean {
   for (const g of globs) {
     if (globToRegExp(g).test(rel)) return true;
@@ -656,7 +557,6 @@ function stripTrailingNewline(s: string): string {
   return s;
 }
 
-// rg --json record shapes (subset we care about).
 interface RgPathField {
   text?: string;
   bytes?: string;
@@ -688,9 +588,7 @@ function rgPath(p: RgPathField | undefined): string | undefined {
     }
   }
   if (raw === undefined) return undefined;
-  // rg emits paths anchored at its search root (`.`) prefixed with `./`.
-  // Strip the leading `./` so we emit POSIX-relative paths consistent
-  // with the rest of the daemon fs surface (no leading `./`).
+
   if (raw.startsWith('./')) return raw.slice(2);
   return raw;
 }
@@ -708,11 +606,6 @@ function rgText(l: RgLinesField | undefined): string {
   return '';
 }
 
-/**
- * `which`-equivalent: probe PATH for a binary. Returns the absolute path on
- * success, `null` on miss. We avoid spawning `which` itself (extra process,
- * portability nightmare) and walk `PATH` manually.
- */
 async function whichBinary(name: string): Promise<string | null> {
   const PATH = process.env['PATH'] ?? '';
   const PATHEXT = process.platform === 'win32'
@@ -729,9 +622,11 @@ async function whichBinary(name: string): Promise<string | null> {
           return candidate;
         }
       } catch {
-        // ENOENT — keep looking
+
       }
     }
   }
   return null;
 }
+
+registerSingleton(IFsSearchService, FsSearchService, InstantiationType.Delayed);
