@@ -1121,7 +1121,16 @@ const server = http.createServer((req, res) => {
       const userMsgId = ulid('msg_');
       const effectiveText = userText || (imageCount > 0 ? `[${imageCount} image(s) attached]` : '你好');
       setTimeout(() => simulateReply(sid, effectiveText), 100);
-      return res.end(ok({ prompt_id: promptId, user_message_id: userMsgId }));
+      return res.end(ok({ prompt_id: promptId, user_message_id: userMsgId, status: 'running' }));
+    }
+    // POST /sessions/{sid}/prompts:steer — steer queued prompts into the
+    // active turn. The stub has no real queue: acknowledge so the web client's
+    // submit→steer two-step can be exercised end-to-end.
+    if (seg[0] === 'sessions' && seg[2] === 'prompts:steer' && seg.length === 3 && method === 'POST') {
+      const b = json();
+      const ids = Array.isArray(b.prompt_ids) ? b.prompt_ids : [];
+      if (ids.length === 0) return res.end(fail(40001, 'prompt_ids required'));
+      return res.end(ok({ steered: true, prompt_ids: ids }));
     }
     if (seg[0] === 'sessions' && seg[2] === 'prompts' && seg.length === 4 && method === 'POST' && seg[3].endsWith(':abort')) {
       return res.end(fail(40903, 'prompt already completed', { aborted: false }));

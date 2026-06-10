@@ -368,6 +368,7 @@ function handleCreateSession(): void {
       :workspace-empty="workspaceEmpty"
       :workspace-name="client.visibleWorkspace.value?.name"
       @submit="handleSubmit($event)"
+      @steer="client.steerPrompt($event.text, $event.attachments)"
       @approval="(approvalId, response) => client.respondApproval(approvalId, response)"
       @cancel-task="client.cancelTask($event)"
       @answer="(questionId, response) => client.respondQuestion(questionId, response)"

@@ -161,6 +161,9 @@ export interface PromptSubmission {
 export interface PromptSubmitResult {
   promptId: string;
   userMessageId: string;
+  /** 'running' when the prompt started a turn immediately; 'queued' when
+      another prompt is active and the daemon parked it (steerable). */
+  status?: 'running' | 'queued';
 }
 
 // ---------------------------------------------------------------------------
@@ -379,6 +382,8 @@ export interface KimiWebApi {
   deleteSession(sessionId: string): Promise<{ deleted: true }>;
   listMessages(sessionId: string, input?: PageRequest & { role?: AppMessageRole }): Promise<Page<AppMessage>>;
   submitPrompt(sessionId: string, input: PromptSubmission): Promise<PromptSubmitResult>;
+  /** Steer daemon-queued prompts into the active turn (TUI ctrl+s). */
+  steerPrompts(sessionId: string, promptIds: string[]): Promise<{ steered: boolean; promptIds: string[] }>;
   abortPrompt(sessionId: string, promptId: string): Promise<{ aborted: boolean; atSeq?: number }>;
   compactSession(sessionId: string, instruction?: string): Promise<void>;
   forkSession(sessionId: string, input?: { title?: string }): Promise<AppSession>;

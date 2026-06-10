@@ -1700,6 +1700,102 @@ async function sendPrompt(text: string, attachments?: { fileId: string }[]): Pro
 }
 
 /**
+ * steerPrompt() — TUI ctrl+s parity: merge any locally queued prompts with the
+ * live composer text and inject the result into the RUNNING turn instead of
+ * waiting for it to finish. Two-step against the daemon: submit (parks the
+ * prompt behind the active one) then POST /prompts:steer. Falls back to a
+ * normal send when the session is idle.
+ */
+async function steerPrompt(text: string, attachments?: { fileId: string }[]): Promise<void> {
+  const sid = rawState.activeSessionId;
+  if (!sid) return;
+
+  // Merge queued texts (oldest first) + the live text, like the TUI does.
+  const queue = rawState.queuedBySession[sid] ?? [];
+  const parts: string[] = [];
+  const mergedAttachments: { fileId: string }[] = [];
+  for (const q of queue) {
+    const trimmed = q.text.trim();
+    if (trimmed) parts.push(trimmed);
+    if (q.attachments?.length) mergedAttachments.push(...q.attachments);
+  }
+  const live = text.trim();
+  if (live) parts.push(live);
+  if (attachments?.length) mergedAttachments.push(...attachments);
+  if (parts.length === 0 && mergedAttachments.length === 0) return;
+  if (queue.length > 0) {
+    rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: [] };
+  }
+  const merged = parts.join('\n\n');
+
+  // Idle and nothing in flight — there is no turn to steer into; normal send.
+  if (activity.value === 'idle' && !inFlightPromptSessions.has(sid)) {
+    await submitPromptInternal(sid, merged, mergedAttachments);
+    return;
+  }
+
+  // Optimistic transcript echo (the daemon emits no user-message WS event).
+  const content: import('../api/types').AppMessageContent[] = [];
+  if (merged) content.push({ type: 'text', text: merged });
+  for (const att of mergedAttachments) {
+    content.push({ type: 'image', source: { kind: 'file', fileId: att.fileId } });
+  }
+  const tempId = `msg_opt_${Date.now().toString(36)}`;
+  const optimisticMsg: AppMessage = {
+    id: tempId,
+    sessionId: sid,
+    role: 'user',
+    content,
+    createdAt: new Date().toISOString(),
+    metadata: { 'kimiWeb.optimisticUserMessage': true },
+  };
+  rawState.messagesBySession = {
+    ...rawState.messagesBySession,
+    [sid]: [...(rawState.messagesBySession[sid] ?? []), optimisticMsg],
+  };
+
+  try {
+    const api = getKimiWebApi();
+    const promptSession = rawState.sessions.find((s) => s.id === sid);
+    const model =
+      (promptSession?.model && promptSession.model.length > 0
+        ? promptSession.model
+        : rawState.defaultModel) ?? undefined;
+    const result = await api.submitPrompt(sid, {
+      content,
+      model,
+      thinking: rawState.thinking,
+      permissionMode: rawState.permission,
+      planMode: rawState.planMode,
+    });
+
+    if (result.status !== 'queued') {
+      // The turn ended while the user was typing — the prompt started a turn
+      // of its own. Wire it up like a regular send so :abort keeps working.
+      rawState.promptIdBySession = { ...rawState.promptIdBySession, [sid]: result.promptId };
+      eventConn?.bindNextPromptId(sid, result.promptId);
+      return;
+    }
+
+    try {
+      await api.steerPrompts(sid, [result.promptId]);
+    } catch {
+      // The active turn finished between submit and steer — the daemon starts
+      // the parked prompt as its own turn. Nothing to roll back.
+    }
+  } catch (err) {
+    // Submit failed: drop the optimistic echo so the transcript doesn't show
+    // a delivered-looking message the daemon never received.
+    const msgs = rawState.messagesBySession[sid] ?? [];
+    rawState.messagesBySession = {
+      ...rawState.messagesBySession,
+      [sid]: msgs.filter((m) => m.id !== tempId),
+    };
+    rawState.warnings = [...rawState.warnings, `steer failed: ${String(err)}`];
+  }
+}
+
+/**
  * Upload an image file to the daemon's /api/v1/files endpoint.
  * Returns { fileId, name, mediaType } on success, or null on error (warning added to state).
  */
@@ -2292,6 +2388,7 @@ export function useKimiWebClient() {
     getFsHome,
 
     sendPrompt,
+    steerPrompt,
     uploadImage,
     abortCurrentPrompt,
     respondApproval,

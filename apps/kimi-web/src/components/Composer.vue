@@ -57,6 +57,9 @@ const placeholder = computed(() => t('composer.placeholder'));
 
 const emit = defineEmits<{
   submit: [payload: { text: string; attachments: { fileId: string }[] }];
+  /** Steer the composer text (+ any queued prompts, merged by the parent)
+      into the RUNNING turn — TUI ctrl+s. */
+  steer: [payload: { text: string; attachments: { fileId: string }[] }];
   command: [cmd: string];
   interrupt: [];
   unqueue: [index: number];
@@ -393,6 +396,33 @@ function handleSubmit(): void {
   emit('submit', payload);
 }
 
+/**
+ * Steer (TUI ctrl+s): push the current text — and the parent merges any queued
+ * prompts — straight into the running turn. With an empty composer it still
+ * fires when something is queued, so "queue a few thoughts, then ctrl+s" works.
+ */
+function handleSteer(): void {
+  if (!props.running) return;
+  if (attachments.value.some((a) => a.uploading)) return;
+
+  const trimmed = text.value.trim();
+  const readyAttachments = attachments.value.filter((a) => !a.uploading && !a.error && a.fileId);
+  if (!trimmed && readyAttachments.length === 0 && props.queued.length === 0) return;
+
+  const payload = {
+    text: trimmed,
+    attachments: readyAttachments.map((a) => ({ fileId: a.fileId! })),
+  };
+  for (const att of attachments.value) {
+    revokeAttachment(att);
+  }
+  attachments.value = [];
+  text.value = '';
+  slashOpen.value = false;
+  mentionOpen.value = false;
+  emit('steer', payload);
+}
+
 function handleKeydown(e: KeyboardEvent): void {
   // Close dropdowns on Escape
   if (e.key === 'Escape') {
@@ -456,6 +486,15 @@ function handleKeydown(e: KeyboardEvent): void {
       mentionOpen.value = false;
       return;
     }
+  }
+
+  // Ctrl+S / Cmd+S — steer into the running turn (TUI parity)
+  if (e.key === 's' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+    if (props.running) {
+      e.preventDefault();
+      handleSteer();
+    }
+    return;
   }
 
   // Normal Enter / Shift+Enter
@@ -617,6 +656,14 @@ function selectModel(modelId: string): void {
           <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" xmlns="http://www.w3.org/2000/svg"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
         </button>
       </div>
+      <!-- Steer the whole queue into the running turn right now (TUI ctrl+s) -->
+      <button
+        v-if="running"
+        class="queue-steer"
+        type="button"
+        :title="t('composer.steerTitle')"
+        @click="handleSteer()"
+      >{{ t('composer.steerNow') }}</button>
     </div>
 
     <!-- Attachment chips (above the input row) -->
@@ -931,6 +978,23 @@ function selectModel(modelId: string): void {
   font-size: 14px;
   color: var(--text);
   max-width: 200px;
+}
+
+/* "Steer now" — inject the queue into the running turn (TUI ctrl+s) */
+.queue-steer {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--blueln);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--blue2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.queue-steer:hover {
+  background: var(--bluebg);
 }
 
 .queue-text {

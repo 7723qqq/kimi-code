@@ -181,6 +181,13 @@ export interface WirePromptSubmission {
 export interface WirePromptSubmitResult {
   prompt_id: string;
   user_message_id: string;
+  /** 'running' = started immediately; 'queued' = parked behind the active prompt. */
+  status?: 'running' | 'queued';
+}
+
+export interface WirePromptSteerResult {
+  steered: boolean;
+  prompt_ids: string[];
 }
 
 // ---------------------------------------------------------------------------

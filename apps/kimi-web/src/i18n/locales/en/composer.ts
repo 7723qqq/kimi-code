@@ -13,6 +13,8 @@ export default {
   attachImage: 'Attach image',
   interrupt: 'Interrupt',
   interruptTitle: 'Interrupt current operation',
+  steerNow: 'Steer now ⌃S',
+  steerTitle: 'Inject into the running turn without waiting (Ctrl+S / ⌘S)',
   emptyConversation: 'No messages yet — type below to start the conversation.',
   quickStartPlaceholder: 'Type a message to start a new conversation…',
   thinkingSuffix: ' · thinking',

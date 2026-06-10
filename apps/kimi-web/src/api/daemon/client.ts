@@ -59,6 +59,7 @@ import type {
   WireOAuthLoginStartResult,
   WirePage,
   WirePromptSubmitResult,
+  WirePromptSteerResult,
   WireProvider,
   WireSession,
   WireSessionRuntimeStatus,
@@ -351,7 +352,23 @@ export class DaemonKimiWebApi implements KimiWebApi {
     return {
       promptId: data.prompt_id,
       userMessageId: data.user_message_id,
+      status: data.status,
     };
+  }
+
+  // POST /sessions/{id}/prompts:steer — steer daemon-queued prompts into the
+  // active turn (TUI ctrl+s). Throws PROMPT_NOT_FOUND when there is no active
+  // turn anymore (the queued prompt then starts its own turn — callers may
+  // treat that as success).
+  async steerPrompts(
+    sessionId: string,
+    promptIds: string[],
+  ): Promise<{ steered: boolean; promptIds: string[] }> {
+    const data = await this.http.post<WirePromptSteerResult>(
+      `/sessions/${encodeURIComponent(sessionId)}/prompts:steer`,
+      { prompt_ids: promptIds },
+    );
+    return { steered: data.steered, promptIds: data.prompt_ids };
   }
 
   async abortPrompt(

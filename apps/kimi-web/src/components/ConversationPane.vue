@@ -66,6 +66,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   submit: [payload: { text: string; attachments: { fileId: string }[] }];
+  steer: [payload: { text: string; attachments: { fileId: string }[] }];
   approval: [approvalId: string, response: { decision: 'approved' | 'rejected' | 'cancelled'; scope?: 'session'; feedback?: string }];
   cancelTask: [taskId: string];
   answer: [questionId: string, response: QuestionResponse];
@@ -542,6 +543,7 @@ onUnmounted(() => {
             :plan-mode="planMode"
             :models="models"
             @submit="handleComposerSubmit"
+            @steer="emit('steer', $event)"
             @command="emit('command', $event)"
             @interrupt="emit('interrupt')"
             @unqueue="emit('unqueue', $event)"
@@ -723,6 +725,7 @@ onUnmounted(() => {
         :plan-mode="planMode"
         :models="models"
         @submit="handleComposerSubmit"
+        @steer="emit('steer', $event)"
         @command="emit('command', $event)"
         @interrupt="emit('interrupt')"
         @unqueue="emit('unqueue', $event)"
