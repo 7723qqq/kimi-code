@@ -1154,6 +1154,7 @@ const workspaceGroups = computed<WorkspaceGroup[]>(() => {
       title: s.title,
       time: formatTime(s.updatedAt, s.status),
       status: toUiSessionStatus(s.status),
+      updatedAt: s.updatedAt,
     };
     const list = byId.get(wid) ?? [];
     list.push(view);

@@ -6,6 +6,8 @@ export interface Session {
   title: string;
   time: string;
   status: SessionStatus;
+  /** ISO timestamp for recency-based filtering (e.g. default visible sessions). */
+  updatedAt?: string;
 }
 
 export interface Workspace {

@@ -25,4 +25,5 @@ export default {
   tabTasks: 'tasks',
   tabTodo: 'todo',
   noSessions: 'No conversations yet',
+  showMore: 'Show more ({count})',
 } as const;

@@ -82,9 +82,51 @@ function isCollapsed(id: string): boolean {
 
 function toggleCollapse(id: string): void {
   const next = new Set(collapsedIds.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
+  if (next.has(id)) {
+    next.delete(id);
+    // Reset session expansion when workspace is expanded
+    const expandedNext = new Set(expandedWsIds.value);
+    expandedNext.delete(id);
+    expandedWsIds.value = expandedNext;
+  } else {
+    next.add(id);
+  }
   collapsedIds.value = next;
+}
+
+// ---------------------------------------------------------------------------
+// Session list truncation per workspace
+// ---------------------------------------------------------------------------
+const DEFAULT_VISIBLE_COUNT = 5;
+const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+
+/** workspace id → true = show all sessions */
+const expandedWsIds = ref<Set<string>>(new Set());
+
+function isExpanded(wsId: string): boolean {
+  return expandedWsIds.value.has(wsId);
+}
+
+function toggleExpand(wsId: string): void {
+  const next = new Set(expandedWsIds.value);
+  if (next.has(wsId)) next.delete(wsId);
+  else next.add(wsId);
+  expandedWsIds.value = next;
+}
+
+/** Default visible sessions = union of (first 5) and (updated within 5 days). */
+function visibleSessions(sessions: Session[], expanded: boolean): Session[] {
+  if (expanded || sessions.length <= DEFAULT_VISIBLE_COUNT) return sessions;
+  const now = Date.now();
+  const cutoff = now - FIVE_DAYS_MS;
+  const recent5 = sessions.slice(0, DEFAULT_VISIBLE_COUNT);
+  const recent5Ids = new Set(recent5.map((s) => s.id));
+  const within5Days = sessions.filter((s) => {
+    if (recent5Ids.has(s.id)) return false;
+    const ts = s.updatedAt ? Date.parse(s.updatedAt) : 0;
+    return ts > cutoff;
+  });
+  return [...recent5, ...within5Days];
 }
 
 // ---------------------------------------------------------------------------
@@ -468,7 +510,7 @@ function blinkOnce(): void {
             </div>
             <div v-show="!isCollapsed(g.workspace.id)" class="group-sessions">
               <SessionRow
-                v-for="s in g.sessions"
+                v-for="s in visibleSessions(g.sessions, isExpanded(g.workspace.id))"
                 :key="s.id"
                 :session="s"
                 :active="s.id === activeId"
@@ -477,6 +519,13 @@ function blinkOnce(): void {
                 @rename="(id, title) => emit('rename', id, title)"
                 @delete="emit('delete', $event)"
               />
+              <button
+                v-if="!isExpanded(g.workspace.id) && visibleSessions(g.sessions, false).length < g.sessions.length"
+                class="show-more"
+                @click.stop="toggleExpand(g.workspace.id)"
+              >
+                {{ t('sidebar.showMore', { count: g.sessions.length - visibleSessions(g.sessions, false).length }) }}
+              </button>
               <div v-if="g.sessions.length === 0" class="group-empty">{{ t('sidebar.noSessions') }}</div>
             </div>
           </div>
@@ -913,6 +962,22 @@ function blinkOnce(): void {
   font-size: 12.5px;
   color: var(--faint);
   font-family: var(--mono);
+}
+.show-more {
+  display: block;
+  width: 100%;
+  padding: 6px 10px 6px calc(var(--sb-gutter) + var(--sb-gap));
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 12.5px;
+  font-family: var(--mono);
+  cursor: pointer;
+  text-align: left;
+}
+.show-more:hover {
+  color: var(--blue2);
+  background: var(--soft);
 }
 
 /* Inline workspace rename input */
