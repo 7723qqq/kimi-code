@@ -5,4 +5,5 @@ export default {
   defaultDescription: 'Background task',
   timingRunning: 'Running · {time}',
   timingDone: 'Done · {sec}s',
+  todoTag: 'todos',
 } as const;

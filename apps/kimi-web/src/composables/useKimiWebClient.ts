@@ -25,6 +25,7 @@ import type { KimiClientState } from '../api/daemon/eventReducer';
 import { toAppEvent } from '../api/daemon/mappers';
 import { parseDiff } from '../lib/parseDiff';
 import { messagesToTurns } from './messagesToTurns';
+import { latestTodos } from './latestTodos';
 import type {
   ActivityState,
   ApprovalBlock,
@@ -38,6 +39,7 @@ import type {
   Session,
   TaskItem,
   TaskState,
+  TodoView,
   UIQuestion,
   Workspace,
   WorkspaceGroup,
@@ -808,6 +810,13 @@ const tasks = computed<TaskItem[]>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
   return (rawState.tasksBySession[sid] ?? []).map(toUiTask);
+});
+
+/** Current todo list of the active session (TodoList tool, latest write wins). */
+const todos = computed<TodoView[]>(() => {
+  const sid = rawState.activeSessionId;
+  if (!sid) return [];
+  return latestTodos(rawState.messagesBySession[sid] ?? []);
 });
 
 const connection = computed<ConnectionState>(() => rawState.connection);
@@ -2093,6 +2102,7 @@ export function useKimiWebClient() {
 
     turns,
     tasks,
+    todos,
     status,
     sessionCost,
     fileDiff,

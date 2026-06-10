@@ -5,4 +5,5 @@ export default {
   defaultDescription: '后台任务',
   timingRunning: '运行中 · {time}',
   timingDone: '完成 · {sec}s',
+  todoTag: '待办',
 };

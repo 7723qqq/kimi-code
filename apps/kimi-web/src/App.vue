@@ -336,6 +336,7 @@ function handleCreateSession(): void {
       :load-file-diff="client.loadFileDiff"
       :clear-file-diff="client.clearFileDiff"
       :tasks="client.tasks.value"
+      :todos="client.todos.value"
       :status="client.status.value"
       :thinking="client.thinking.value"
       :plan-mode="client.planMode.value"
