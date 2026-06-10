@@ -58,6 +58,7 @@ describe('kimi web', () => {
         port: DEFAULT_DAEMON_PORT,
         logLevel: 'info',
         debugEndpoints: false,
+        restart: false,
       },
       expect.any(Function),
     );
@@ -94,11 +95,23 @@ describe('kimi web', () => {
         port: 8899,
         logLevel: 'info',
         debugEndpoints: false,
+        restart: false,
       },
       expect.any(Function),
     );
     expect(deps.ensureDaemonWebReady).toHaveBeenCalledWith('http://127.0.0.1:8899');
     expect(deps.openUrl).toHaveBeenCalledWith('http://127.0.0.1:8899');
+  });
+
+  it('forwards --restart to the daemon resolver', async () => {
+    const { deps } = makeDeps();
+
+    await handleWebCommand({ restart: true }, deps);
+
+    expect(deps.ensureDaemonRunning).toHaveBeenCalledWith(
+      expect.objectContaining({ restart: true }),
+      expect.any(Function),
+    );
   });
 
   it('prints daemon startup trace from the local daemon resolver', async () => {

@@ -25,6 +25,7 @@ export interface WebCliOptions {
   port?: string;
   daemonHost?: string;
   open?: boolean;
+  restart?: boolean;
 }
 
 export interface WebCommandDeps {
@@ -33,6 +34,7 @@ export interface WebCommandDeps {
     port: number;
     logLevel: 'info';
     debugEndpoints: false;
+    restart: boolean;
   }, report?: DaemonStartupReporter): Promise<EnsureDaemonResult>;
   ensureDaemonWebReady(origin: string): Promise<void>;
   openUrl(url: string): void;
@@ -55,6 +57,11 @@ export function registerWebCommand(parent: Command): void {
     .option(
       '--daemon-host <url>',
       `Daemon URL to open instead of starting the local daemon (default ${DEFAULT_DAEMON_ORIGIN})`,
+    )
+    .option(
+      '--restart',
+      'Stop the running daemon (if this CLI manages it) and start a fresh one with this build.',
+      false,
     )
     .option('--no-open', 'Do not open the web UI in the default browser.')
     .action(async (opts: WebCliOptions) => {
@@ -83,6 +90,7 @@ export async function handleWebCommand(
         port,
         logLevel: 'info',
         debugEndpoints: false,
+        restart: opts.restart === true,
       },
       (message) => {
         deps.stdout.write(`Daemon startup: ${message}\n`);
