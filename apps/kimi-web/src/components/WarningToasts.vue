@@ -4,7 +4,7 @@
      failures were silently swallowed. -->
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import { watch, onUnmounted } from 'vue';
+import { ref, watch, onUnmounted } from 'vue';
 
 const props = defineProps<{ warnings: string[] }>();
 const emit = defineEmits<{ dismiss: [index: number] }>();
@@ -15,40 +15,111 @@ function isError(w: string): boolean {
   return w.startsWith(`${t('warnings.errorLabel')}:`) || /\b4\d\d\b|error|失败|failed/i.test(w);
 }
 
-/** Auto-dismiss timers keyed by warning text. */
-const timers = new Map<string, ReturnType<typeof setTimeout>>();
-
-function clearAllTimers(): void {
-  timers.forEach(clearTimeout);
-  timers.clear();
+/** One entry per visible toast. `id` is a unique per-instance key so that
+    repeated identical texts each get their own auto-dismiss timer. */
+interface ToastItem {
+  id: number;
+  text: string;
 }
 
+let nextId = 1;
+const toasts = ref<ToastItem[]>([]);
+
+/** Auto-dismiss timer per toast instance. `handle` is null while paused
+    (pointer over the toast); `remaining` then holds the leftover time. */
+interface ToastTimer {
+  handle: ReturnType<typeof setTimeout> | null;
+  deadline: number;
+  remaining: number;
+}
+const timers = new Map<number, ToastTimer>();
+
+function toastDuration(text: string): number {
+  const base = isError(text) ? 10000 : 6000;
+  // Touch screens have no hover-to-pause, so grant extra reading time.
+  const touch = typeof window !== 'undefined' && window.matchMedia?.('(hover: none)').matches === true;
+  return touch ? base + 4000 : base;
+}
+
+function runTimer(id: number, ms: number): void {
+  const entry = timers.get(id) ?? { handle: null, deadline: 0, remaining: 0 };
+  entry.handle = setTimeout(() => dismissById(id), ms);
+  entry.deadline = Date.now() + ms;
+  timers.set(id, entry);
+}
+
+function clearTimer(id: number): void {
+  const entry = timers.get(id);
+  if (entry && entry.handle !== null) clearTimeout(entry.handle);
+  timers.delete(id);
+}
+
+function pauseTimer(id: number): void {
+  const entry = timers.get(id);
+  if (!entry || entry.handle === null) return;
+  clearTimeout(entry.handle);
+  entry.handle = null;
+  entry.remaining = Math.max(0, entry.deadline - Date.now());
+}
+
+function resumeTimer(id: number): void {
+  const entry = timers.get(id);
+  if (!entry || entry.handle !== null) return;
+  runTimer(id, entry.remaining);
+}
+
+/** Used by both the timer expiry and the manual close button. Removes the
+    toast locally first so a later reconcile can't mismatch duplicate texts. */
+function dismissById(id: number): void {
+  clearTimer(id);
+  const idx = toasts.value.findIndex((item) => item.id === id);
+  if (idx === -1) return;
+  toasts.value = toasts.value.filter((item) => item.id !== id);
+  emit('dismiss', idx);
+}
+
+// Reconcile local toast instances with the warnings prop: reuse instances
+// (and their running timers) for texts still present, create fresh instances
+// with fresh timers for new texts, and clear timers of removed ones — so a
+// re-appearing identical text is never killed by a stale timer.
 watch(
   () => props.warnings,
-  () => {
-    props.warnings.forEach((w) => {
-      if (timers.has(w)) return;
-      const duration = isError(w) ? 10000 : 6000;
-      const timer = setTimeout(() => {
-        timers.delete(w);
-        const idx = props.warnings.indexOf(w);
-        if (idx !== -1) emit('dismiss', idx);
-      }, duration);
-      timers.set(w, timer);
+  (next) => {
+    const unmatched = [...toasts.value];
+    toasts.value = next.map((text) => {
+      const at = unmatched.findIndex((item) => item.text === text);
+      const reused = at === -1 ? undefined : unmatched.splice(at, 1)[0];
+      if (reused) return reused;
+      const item: ToastItem = { id: nextId++, text };
+      runTimer(item.id, toastDuration(text));
+      return item;
     });
+    for (const gone of unmatched) clearTimer(gone.id);
   },
-  { flush: 'post' },
+  { immediate: true, flush: 'post' },
 );
 
-onUnmounted(clearAllTimers);
+onUnmounted(() => {
+  timers.forEach((entry) => {
+    if (entry.handle !== null) clearTimeout(entry.handle);
+  });
+  timers.clear();
+});
 </script>
 
 <template>
-  <div v-if="warnings.length" class="toasts" role="status" aria-live="polite">
-    <div v-for="(w, i) in warnings" :key="i" class="toast" :class="{ err: isError(w) }">
+  <div v-if="toasts.length" class="toasts" role="status" aria-live="polite">
+    <div
+      v-for="toast in toasts"
+      :key="toast.id"
+      class="toast"
+      :class="{ err: isError(toast.text) }"
+      @pointerenter="pauseTimer(toast.id)"
+      @pointerleave="resumeTimer(toast.id)"
+    >
       <span class="dot" aria-hidden="true"></span>
-      <span class="msg">{{ w }}</span>
-      <button class="x" type="button" :aria-label="t('warnings.dismiss')" @click="emit('dismiss', i)">
+      <span class="msg">{{ toast.text }}</span>
+      <button class="x" type="button" :aria-label="t('warnings.dismiss')" @click="dismissById(toast.id)">
         <svg viewBox="0 0 16 16" width="12" height="12">
           <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" />
         </svg>

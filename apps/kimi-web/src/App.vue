@@ -365,7 +365,6 @@ function handleCreateSession(): void {
       :file-reload-key="client.activeSessionId.value"
       :session-loading="client.sessionLoading.value"
       :compaction="client.compaction.value"
-      :workspace-empty="workspaceEmpty"
       :workspace-name="client.visibleWorkspace.value?.name"
       @submit="handleSubmit($event)"
       @steer="client.steerPrompt($event.text, $event.attachments)"
@@ -395,7 +394,7 @@ function handleCreateSession(): void {
     <ModelPicker
       v-if="showModelPicker"
       :models="client.models.value"
-      :current="client.status.value.model"
+      :current="client.status.value.modelId"
       :loading="modelsLoading"
       :unavailable="modelsUnavailable"
       @select="handleSelectModel($event)"
@@ -512,6 +511,7 @@ function handleCreateSession(): void {
       @add-workspace="showAddWorkspace = true"
       @rename="(id, title) => client.renameSession(id, title)"
       @delete="(id) => client.deleteSession(id)"
+      @delete-workspace="(id) => client.deleteWorkspace(id)"
     />
 
     <!-- Mobile settings bottom-sheet: session controls + app prefs + auth -->

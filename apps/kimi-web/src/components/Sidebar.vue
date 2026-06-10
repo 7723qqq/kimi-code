@@ -3,7 +3,7 @@
      The old workspace rail and workspace tabs have been removed;
      workspace switching, folding and renaming all live in the group header. -->
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
+import { nextTick, onBeforeUnmount, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { Session, WorkspaceGroup, WorkspaceView } from '../types';
 import type { Accent, ColorScheme, Theme } from '../composables/useKimiWebClient';
@@ -16,7 +16,7 @@ const { t } = useI18n();
 /** Address of the real daemon this client connects to (shown in the settings popover). */
 const daemonEndpoint = daemonEndpointLabel();
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     activeWorkspace: WorkspaceView | null;
     activeWorkspaceId: string | null;
@@ -67,8 +67,6 @@ const emit = defineEmits<{
   openOnboarding: [];
 }>();
 
-const totalSessionCount = computed(() => props.sessions.length);
-
 
 
 // ---------------------------------------------------------------------------
@@ -114,8 +112,10 @@ function toggleExpand(wsId: string): void {
   expandedWsIds.value = next;
 }
 
-/** Default visible sessions = union of (first 5) and (updated within 5 days). */
-function visibleSessions(sessions: Session[], expanded: boolean): Session[] {
+/** Default visible sessions = union of (first 5) and (updated within 5 days).
+    The active session is always kept visible so its highlight never disappears
+    when an old session is selected (e.g. from the sessions dialog). */
+function visibleSessions(sessions: Session[], expanded: boolean, activeId?: string): Session[] {
   if (expanded || sessions.length <= DEFAULT_VISIBLE_COUNT) return sessions;
   const now = Date.now();
   const cutoff = now - FIVE_DAYS_MS;
@@ -126,7 +126,12 @@ function visibleSessions(sessions: Session[], expanded: boolean): Session[] {
     const ts = s.updatedAt ? Date.parse(s.updatedAt) : 0;
     return ts > cutoff;
   });
-  return [...recent5, ...within5Days];
+  const visible = [...recent5, ...within5Days];
+  if (activeId && !visible.some((s) => s.id === activeId)) {
+    const active = sessions.find((s) => s.id === activeId);
+    if (active) visible.push(active);
+  }
+  return visible;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +227,7 @@ function closeGhMenu(): void {
   ghMenuOpen.value = false;
   document.removeEventListener('mousedown', onGhMenuDocClick, true);
   ghMenuTarget.value = null;
+  disarmDeleteWs();
 }
 
 function copyPathFromMenu(): void {
@@ -239,16 +245,49 @@ function startRenameFromMenu(): void {
 }
 
 function deleteFromMenu(): void {
-  if (ghMenuTarget.value) {
-    emit('deleteWorkspace', ghMenuTarget.value.id);
-  }
+  const ws = ghMenuTarget.value;
+  if (!ws) return;
+  if (!armDeleteWs(ws.id)) return; // first click arms ("confirm?"), keep menu open
+  emit('deleteWorkspace', ws.id);
   closeGhMenu();
 }
 
 // ---------------------------------------------------------------------------
-// Workspace inline more-menu (kebab, hover-triggered)
+// Two-step workspace delete (shared by the kebab menu and the context menu):
+// the first click arms the item — it turns into a "confirm" label — and a
+// second click within 2.5s actually deletes; otherwise the item reverts.
+// ---------------------------------------------------------------------------
+const deleteArmedWsId = ref<string | null>(null);
+let deleteArmTimer: ReturnType<typeof setTimeout> | undefined;
+
+function disarmDeleteWs(): void {
+  clearTimeout(deleteArmTimer);
+  deleteArmedWsId.value = null;
+}
+
+/** Returns true when the delete is confirmed (second click while armed). */
+function armDeleteWs(id: string): boolean {
+  if (deleteArmedWsId.value === id) {
+    disarmDeleteWs();
+    return true;
+  }
+  clearTimeout(deleteArmTimer);
+  deleteArmedWsId.value = id;
+  deleteArmTimer = setTimeout(() => {
+    deleteArmedWsId.value = null;
+  }, 2500);
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Workspace inline more-menu (kebab, hover-triggered). Rendered position:fixed
+// and anchored to the ⋯ button so the scrolling session list can't clip it;
+// it doesn't follow the anchor, so scroll/resize simply close it.
 // ---------------------------------------------------------------------------
 const wsMenuOpenId = ref<string | null>(null);
+const wsMenuTarget = ref<WorkspaceView | null>(null);
+const wsMenuStyle = ref<Record<string, string>>({});
+const wsMenuRef = ref<HTMLElement | null>(null);
 
 function onWsMenuDocClick(e: MouseEvent): void {
   const target = e.target as Element;
@@ -256,18 +295,43 @@ function onWsMenuDocClick(e: MouseEvent): void {
   closeWsMenu();
 }
 
-function toggleWsMenu(id: string): void {
-  if (wsMenuOpenId.value === id) {
+async function toggleWsMenu(ws: WorkspaceView, e: MouseEvent): Promise<void> {
+  if (wsMenuOpenId.value === ws.id) {
     closeWsMenu();
-  } else {
-    wsMenuOpenId.value = id;
-    document.addEventListener('mousedown', onWsMenuDocClick);
+    return;
   }
+  const btn = e.currentTarget as HTMLElement;
+  wsMenuTarget.value = ws;
+  wsMenuOpenId.value = ws.id;
+  document.addEventListener('mousedown', onWsMenuDocClick);
+  document.addEventListener('scroll', closeWsMenu, true);
+  window.addEventListener('resize', closeWsMenu);
+  await nextTick();
+  const menu = wsMenuRef.value;
+  const r = btn.getBoundingClientRect();
+  const gap = 4;
+  const margin = 8;
+  const menuH = menu?.offsetHeight ?? 0;
+  const menuW = menu?.offsetWidth ?? 0;
+  let top = r.bottom + gap;
+  if (top + menuH > window.innerHeight - margin) {
+    top = Math.max(margin, r.top - menuH - gap);
+  }
+  let left = r.right - menuW;
+  if (left < margin) left = margin;
+  wsMenuStyle.value = {
+    top: `${Math.round(top)}px`,
+    left: `${Math.round(left)}px`,
+  };
 }
 
 function closeWsMenu(): void {
   wsMenuOpenId.value = null;
+  wsMenuTarget.value = null;
+  disarmDeleteWs();
   document.removeEventListener('mousedown', onWsMenuDocClick);
+  document.removeEventListener('scroll', closeWsMenu, true);
+  window.removeEventListener('resize', closeWsMenu);
 }
 
 function copyWsPath(ws: WorkspaceView): void {
@@ -281,6 +345,7 @@ function startRenameWs(ws: WorkspaceView): void {
 }
 
 function deleteWs(ws: WorkspaceView): void {
+  if (!armDeleteWs(ws.id)) return; // first click arms ("confirm?"), keep menu open
   emit('deleteWorkspace', ws.id);
   closeWsMenu();
 }
@@ -335,6 +400,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', positionMenu);
   document.removeEventListener('mousedown', onGhMenuDocClick, true);
   document.removeEventListener('mousedown', onWsMenuDocClick);
+  document.removeEventListener('scroll', closeWsMenu, true);
+  window.removeEventListener('resize', closeWsMenu);
+  clearTimeout(deleteArmTimer);
 });
 
 function onLogin(): void {
@@ -413,9 +481,10 @@ function blinkOnce(): void {
 
       <!-- Session list — grouped by workspace -->
       <div class="sessions">
-        <!-- Empty state -->
-        <div v-if="totalSessionCount === 0" class="empty">
-          {{ t('sidebar.emptyState') }}
+        <!-- Empty state — only when no workspace is registered at all; empty
+             workspaces still render their group header (with the + button). -->
+        <div v-if="groups.length === 0" class="empty">
+          {{ t('workspace.noWorkspace') }}
         </div>
 
         <template v-else>
@@ -469,7 +538,7 @@ function blinkOnce(): void {
                   class="gh-more"
                   :class="{ open: wsMenuOpenId === g.workspace.id }"
                   :title="t('sidebar.options')"
-                  @click.stop="toggleWsMenu(g.workspace.id)"
+                  @click.stop="toggleWsMenu(g.workspace, $event)"
                 >
                   <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
                     <circle cx="8" cy="3" r="1.3" />
@@ -489,28 +558,11 @@ function blinkOnce(): void {
                 </button>
               </div>
 
-              <div
-                v-if="wsMenuOpenId === g.workspace.id"
-                class="ws-menu"
-                @click.stop
-              >
-                <button class="ws-menu-item" @click.stop="copyWsPath(g.workspace)">
-                  {{ t('sidebar.copyPath') }}
-                </button>
-                <div class="ws-menu-divider" />
-                <button class="ws-menu-item" @click.stop="startRenameWs(g.workspace)">
-                  {{ t('sidebar.rename') }}
-                </button>
-                <div class="ws-menu-divider" />
-                <button class="ws-menu-item del" @click.stop="deleteWs(g.workspace)">
-                  {{ t('sidebar.delete') }}
-                </button>
-              </div>
               <div class="gh-path" :title="g.workspace.root">{{ g.workspace.branch || g.workspace.shortPath }}</div>
             </div>
             <div v-show="!isCollapsed(g.workspace.id)" class="group-sessions">
               <SessionRow
-                v-for="s in visibleSessions(g.sessions, isExpanded(g.workspace.id))"
+                v-for="s in visibleSessions(g.sessions, isExpanded(g.workspace.id), activeId)"
                 :key="s.id"
                 :session="s"
                 :active="s.id === activeId"
@@ -520,11 +572,11 @@ function blinkOnce(): void {
                 @delete="emit('delete', $event)"
               />
               <button
-                v-if="!isExpanded(g.workspace.id) && visibleSessions(g.sessions, false).length < g.sessions.length"
+                v-if="!isExpanded(g.workspace.id) && visibleSessions(g.sessions, false, activeId).length < g.sessions.length"
                 class="show-more"
                 @click.stop="toggleExpand(g.workspace.id)"
               >
-                {{ t('sidebar.showMore', { count: g.sessions.length - visibleSessions(g.sessions, false).length }) }}
+                {{ t('sidebar.showMore', { count: g.sessions.length - visibleSessions(g.sessions, false, activeId).length }) }}
               </button>
               <div v-if="g.sessions.length === 0" class="group-empty">{{ t('sidebar.noSessions') }}</div>
             </div>
@@ -720,7 +772,29 @@ function blinkOnce(): void {
         {{ t('sidebar.rename') }}
       </button>
       <button type="button" class="ghm-item del" @click="deleteFromMenu">
-        {{ t('sidebar.delete') }}
+        {{ ghMenuTarget && deleteArmedWsId === ghMenuTarget.id ? t('sidebar.confirm') : t('sidebar.delete') }}
+      </button>
+    </div>
+
+    <!-- Workspace kebab menu (position:fixed, anchored to the ⋯ button so the
+         scrolling session list cannot clip it) -->
+    <div
+      v-if="wsMenuOpenId !== null && wsMenuTarget"
+      ref="wsMenuRef"
+      class="ws-menu"
+      :style="wsMenuStyle"
+      @click.stop
+    >
+      <button class="ws-menu-item" @click.stop="copyWsPath(wsMenuTarget)">
+        {{ t('sidebar.copyPath') }}
+      </button>
+      <div class="ws-menu-divider" />
+      <button class="ws-menu-item" @click.stop="startRenameWs(wsMenuTarget)">
+        {{ t('sidebar.rename') }}
+      </button>
+      <div class="ws-menu-divider" />
+      <button class="ws-menu-item del" @click.stop="deleteWs(wsMenuTarget)">
+        {{ deleteArmedWsId === wsMenuTarget.id ? t('sidebar.confirm') : t('sidebar.delete') }}
       </button>
     </div>
   </aside>
@@ -924,15 +998,16 @@ function blinkOnce(): void {
 .gh-more:hover,
 .gh-more.open { color: var(--ink); background: var(--line2); }
 
-/* Workspace inline dropdown menu */
+/* Workspace kebab dropdown menu — fixed so the scroll container can't clip it;
+   anchored to the ⋯ trigger from toggleWsMenu(). */
 .ws-menu {
-  position: absolute;
-  right: 8px;
-  top: 26px;
+  position: fixed;
+  top: 0;
+  left: 0;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 4px;
-  z-index: 10;
+  z-index: 200;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   overflow: hidden;
   min-width: 88px;
@@ -950,6 +1025,14 @@ function blinkOnce(): void {
   padding: 6px 12px;
 }
 .ws-menu-item:hover { background: var(--panel2); }
+
+/* Danger items (delete workspace) — red in both light and dark schemes. */
+.ws-menu-item.del,
+.ghm-item.del { color: var(--err); }
+.ws-menu-item.del:hover,
+.ghm-item.del:hover {
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+}
 
 .ws-menu-divider {
   height: 1px;

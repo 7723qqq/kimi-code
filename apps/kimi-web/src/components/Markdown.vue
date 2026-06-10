@@ -1,6 +1,6 @@
 <!-- apps/kimi-web/src/components/Markdown.vue -->
 <script setup lang="ts">
-import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, inject, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { MarkdownRender } from 'markstream-vue';
 // px-based CSS build (our app is px, not rem). Imported here so the styles
@@ -12,46 +12,6 @@ import 'markstream-vue/index.px.css';
 const { t } = useI18n();
 
 const resolveImage = inject<(src: string) => Promise<string>>('resolveImage');
-
-const mdRef = ref<HTMLElement | null>(null);
-const processedImages = new Set<string>();
-
-async function processImages(): Promise<void> {
-  if (!resolveImage || !mdRef.value) return;
-  const imgs = mdRef.value.querySelectorAll('img');
-  for (const img of imgs) {
-    const src = img.getAttribute('src');
-    if (!src) continue;
-    // Skip already processed or addressable URLs
-    if (processedImages.has(src)) continue;
-    if (/^(https?:|data:)/i.test(src)) {
-      processedImages.add(src);
-      continue;
-    }
-    processedImages.add(src);
-    try {
-      const url = await resolveImage(src);
-      if (url !== src) img.setAttribute('src', url);
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-let observer: MutationObserver | null = null;
-onMounted(() => {
-  void processImages();
-  if (mdRef.value) {
-    observer = new MutationObserver(() => {
-      void processImages();
-    });
-    observer.observe(mdRef.value, { childList: true, subtree: true });
-  }
-});
-onUnmounted(() => {
-  observer?.disconnect();
-  processedImages.clear();
-});
 
 const props = withDefaults(
   defineProps<{
@@ -70,15 +30,92 @@ const props = withDefaults(
   { streaming: false },
 );
 
-// Process images after content changes (markstream streaming + static).
-// MUST come after defineProps: watch() invokes its getter synchronously to
-// collect dependencies, so referencing `props` above its declaration throws
-// a TDZ ReferenceError and crashes the component on mount.
-watch(() => props.text, () => {
-  void nextTick().then(() => processImages());
-});
-
 const final = computed(() => !props.streaming);
+
+// ---------------------------------------------------------------------------
+// Local image resolution — rewrite the SOURCE TEXT before markstream sees it.
+//
+// The old approach (let markstream render <img src="local/path">, then swap
+// the src via DOM after a daemon readFile round-trip) raced the browser: the
+// local path 404s immediately, markstream's ImageNode flips to its "failed"
+// state and unmounts the <img>, and the late setAttribute lands on a detached
+// element — the image stays broken forever. Rewriting the markdown text means
+// the parser only ever sees a loadable src: a 1×1 transparent GIF while the
+// daemon read is in flight, then the data URL (a src change resets ImageNode).
+//
+// Note: the parser's sanitizer only allows BITMAP data URIs on <img>
+// (png/gif/jpeg/webp/avif/bmp) — svg images stay on their original src.
+// ---------------------------------------------------------------------------
+
+const IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+// src → resolved data URL, or '' when resolution failed (keep the original
+// src so the user at least sees an honest broken-image state).
+const resolvedImages = reactive(new Map<string, string>());
+const pendingImages = new Set<string>();
+
+// ![alt](src) — src up to the first whitespace/closing paren (optional title
+// stays in place). <img src="..."> for raw-HTML images.
+const MD_IMG_RE = /(!\[[^\]]*\]\()\s*([^)\s]+)([^)]*\))/g;
+const HTML_IMG_RE = /(<img\b[^>]*?\bsrc=")([^"]+)(")/gi;
+
+function isLocalImageSrc(src: string): boolean {
+  return !/^(https?:|data:|blob:)/i.test(src);
+}
+
+function queueImageResolution(text: string): void {
+  if (!resolveImage) return;
+  const srcs: string[] = [];
+  for (const re of [MD_IMG_RE, HTML_IMG_RE]) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) srcs.push(m[2] ?? '');
+  }
+  for (const src of srcs) {
+    if (!src || !isLocalImageSrc(src)) continue;
+    if (resolvedImages.has(src) || pendingImages.has(src)) continue;
+    pendingImages.add(src);
+    resolveImage(src)
+      .then((url) => {
+        resolvedImages.set(src, url !== src ? url : '');
+      })
+      .catch(() => {
+        resolvedImages.set(src, '');
+      })
+      .finally(() => {
+        pendingImages.delete(src);
+      });
+  }
+}
+
+/** Substitute local image srcs: resolved → data URL, in-flight → placeholder,
+    failed → original (browser shows its normal broken state). */
+function rewriteImageSrcs(text: string): string {
+  if (!resolveImage) return text;
+  const sub = (src: string): string | null => {
+    if (!isLocalImageSrc(src)) return null;
+    const resolved = resolvedImages.get(src);
+    if (resolved === undefined) return IMG_PLACEHOLDER;
+    return resolved === '' ? null : resolved;
+  };
+  return text
+    .replace(MD_IMG_RE, (full, pre: string, src: string, post: string) => {
+      const next = sub(src);
+      return next === null ? full : `${pre}${next}${post}`;
+    })
+    .replace(HTML_IMG_RE, (full, pre: string, src: string, post: string) => {
+      const next = sub(src);
+      return next === null ? full : `${pre}${next}${post}`;
+    });
+}
+
+// NOTE: comes after defineProps — watch() invokes its getter synchronously, so
+// referencing `props` above its declaration would throw a TDZ ReferenceError.
+watch(
+  () => props.text,
+  (text) => queueImageResolution(text ?? ''),
+  { immediate: true },
+);
 
 // Light Shiki theme for code blocks. `github-light` matches Terminal Pro's
 // light surface (markstream's default is vitesse-dark/light; we force a light
@@ -118,7 +155,7 @@ type Segment =
 const DIFF_FENCE_RE = /(^|\n)(?:```|~~~)diff\b[^\n]*\n([\s\S]*?)(?:\n)?(?:```|~~~)(?=\n|$)/g;
 
 const segments = computed<Segment[]>(() => {
-  const text = props.text ?? '';
+  const text = rewriteImageSrcs(props.text ?? '');
   const out: Segment[] = [];
   let lastIndex = 0;
   DIFF_FENCE_RE.lastIndex = 0;
@@ -166,7 +203,7 @@ function copyDiff(code: string, idx: number) {
 </script>
 
 <template>
-  <div ref="mdRef" class="md">
+  <div class="md">
     <template v-for="(seg, i) in segments" :key="i">
       <!-- Non-diff markdown → markstream (smooth streaming + shiki) -->
       <MarkdownRender

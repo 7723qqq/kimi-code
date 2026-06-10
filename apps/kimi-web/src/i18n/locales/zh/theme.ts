@@ -9,12 +9,4 @@ export default {
   accentLabel: '主题色',
   accentBlue: 'Kimi 蓝',
   accentMono: '黑白',
-  codeFontLabel: '字体',
-  codeFontSfMono: '系统默认',
-  codeFontFiraCode: 'Fira Code',
-  codeFontJetBrainsMono: 'JetBrains Mono',
-  codeFontSourceCodePro: 'Source Code Pro',
-  codeFontIbmPlexMono: 'IBM Plex Mono',
-  codeFontSpaceMono: 'Space Mono',
-  codeFontUbuntuMono: 'Ubuntu Mono',
 } as const;

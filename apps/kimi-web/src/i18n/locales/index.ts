@@ -13,7 +13,6 @@ import en_sessions from './en/sessions';
 import en_approval from './en/approval';
 import en_question from './en/question';
 import en_tasks from './en/tasks';
-import en_thinking from './en/thinking';
 import en_diff from './en/diff';
 import en_fileTree from './en/fileTree';
 import en_filePreview from './en/filePreview';
@@ -40,7 +39,6 @@ import zh_sessions from './zh/sessions';
 import zh_approval from './zh/approval';
 import zh_question from './zh/question';
 import zh_tasks from './zh/tasks';
-import zh_thinking from './zh/thinking';
 import zh_diff from './zh/diff';
 import zh_fileTree from './zh/fileTree';
 import zh_filePreview from './zh/filePreview';
@@ -71,7 +69,6 @@ export const messages = {
     approval: en_approval,
     question: en_question,
     tasks: en_tasks,
-    thinking: en_thinking,
     diff: en_diff,
     fileTree: en_fileTree,
     filePreview: en_filePreview,
@@ -100,7 +97,6 @@ export const messages = {
     approval: zh_approval,
     question: zh_question,
     tasks: zh_tasks,
-    thinking: zh_thinking,
     diff: zh_diff,
     fileTree: zh_fileTree,
     filePreview: zh_filePreview,

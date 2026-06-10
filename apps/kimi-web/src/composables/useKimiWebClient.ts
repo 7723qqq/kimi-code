@@ -68,49 +68,12 @@ export type Theme = 'terminal' | 'modern';
 /** Color scheme: 'light', 'dark', or follow the OS preference ('system'). */
 export type ColorScheme = 'light' | 'dark' | 'system';
 
-/** Code font choices (all free / open-source). */
-export type CodeFont =
-  | 'sf-mono'
-  | 'fira-code'
-  | 'jetbrains-mono'
-  | 'source-code-pro'
-  | 'ibm-plex-mono'
-  | 'space-mono'
-  | 'ubuntu-mono';
-
-const CODE_FONT_STORAGE_KEY = 'kimi-web.code-font';
-const CODE_FONT_VALUES: readonly string[] = [
-  'sf-mono',
-  'fira-code',
-  'jetbrains-mono',
-  'source-code-pro',
-  'ibm-plex-mono',
-  'space-mono',
-  'ubuntu-mono',
-];
-
-function loadCodeFontFromStorage(): CodeFont {
-  try {
-    const v = localStorage.getItem(CODE_FONT_STORAGE_KEY);
-    if (v && CODE_FONT_VALUES.includes(v)) return v as CodeFont;
-  } catch {
-    // ignore
-  }
-  return 'sf-mono';
-}
-
-function saveCodeFontToStorage(v: CodeFont): void {
-  try {
-    localStorage.setItem(CODE_FONT_STORAGE_KEY, v);
-  } catch {
-    // ignore
-  }
-}
-
-/** Reflect the chosen code font onto <html data-code-font>. jsdom-safe. */
-function applyCodeFontToDocument(f: CodeFont): void {
-  if (typeof document === 'undefined' || !document.documentElement) return;
-  document.documentElement.dataset.codeFont = f;
+// The code-font setting was removed with its UI (b8a9e83). Clear the old
+// persisted key so users who once picked a font aren't frozen on it forever.
+try {
+  localStorage.removeItem('kimi-web.code-font');
+} catch {
+  // ignore
 }
 
 // Accent / colour scheme: 'blue' (Kimi blue, default) or 'mono' (black/white,
@@ -428,22 +391,6 @@ function setColorScheme(c: ColorScheme): void {
   if (!COLOR_SCHEME_VALUES.includes(c)) return;
   colorScheme.value = c;
   saveColorSchemeToStorage(c);
-}
-
-// ---------------------------------------------------------------------------
-// Code font (free/OFL options loaded from Google Fonts). Persisted and mirrored
-// onto <html data-code-font> so every --mono consumer picks it up.
-// ---------------------------------------------------------------------------
-const codeFont = ref<CodeFont>(loadCodeFontFromStorage());
-
-// Sync on every change AND immediately.
-watch(codeFont, applyCodeFontToDocument, { immediate: true });
-
-/** Set the code font and persist it. */
-function setCodeFont(f: CodeFont): void {
-  if (!CODE_FONT_VALUES.includes(f)) return;
-  codeFont.value = f;
-  saveCodeFontToStorage(f);
 }
 
 const accent = ref<Accent>(loadAccentFromStorage());
@@ -1044,6 +991,8 @@ const status = computed<ConversationStatus>(() => {
 
   return {
     model: displayModel,
+    // Raw id for exact comparison in pickers (display name diverges from id).
+    modelId: matched?.id ?? rawModel,
     ctxUsed: activeSession?.usage.contextTokens ?? 0,
     ctxMax: activeSession?.usage.contextLimit ?? 0,
     permission: rawState.permission,
@@ -2085,6 +2034,16 @@ function renameWorkspace(id: string, name: string): void {
 
 /** Delete a workspace — calls API, removes locally */
 async function deleteWorkspace(id: string): Promise<void> {
+  // A workspace with sessions can't actually disappear: the daemon's DELETE is
+  // registry-only (it does not cascade to sessions), and mergedWorkspaces
+  // re-derives the workspace from any session cwd that still points at it —
+  // so it would pop right back. Refuse with an explanation instead of letting
+  // the delete LOOK like it did nothing.
+  const hasSessions = rawState.sessions.some((s) => workspaceIdForSession(s) === id);
+  if (hasSessions) {
+    rawState.warnings = [...rawState.warnings, i18n.global.t('workspace.deleteHasSessions')];
+    return;
+  }
   try {
     const api = getKimiWebApi();
     await api.deleteWorkspace(id);
@@ -2366,31 +2325,52 @@ async function readFileContent(path: string): Promise<{
   }
 }
 
-/**
- * Search files in the active session using the daemon searchFiles endpoint.
- * Returns {path, name}[] — defensive, returns [] on error or no active session.
- */
+// Matches the daemon's FS_READ_MAX_BYTES. Without an explicit length the
+// protocol defaults to 1MiB and silently truncates — half a PNG decodes as a
+// broken image, which is worse than falling back to the original src.
+const IMAGE_READ_MAX_BYTES = 10_485_760;
+
 /**
  * Resolve a local image path to a displayable data URL.
  * Non-local URLs (http/https/data) pass through unchanged.
  * Local paths are read via the daemon's readFile endpoint and returned as
- * data:{mime};base64,{content} URLs so they render in the browser.
+ * data:{mime};base64,{content} URLs so they render in the browser. Absolute
+ * paths are made cwd-relative first (the daemon rejects absolute paths), and
+ * truncated/non-binary reads fall back to the original src.
  */
 async function resolveImageUrl(src: string): Promise<string> {
   // Pass through already-addressable URLs
-  if (/^(https?:|data:)/i.test(src)) return src;
+  if (/^(https?:|data:|blob:)/i.test(src)) return src;
   const sid = rawState.activeSessionId;
   if (!sid) return src;
+
+  // The daemon's path resolution only accepts session-relative paths, but the
+  // model usually references images by absolute path. Strip the session cwd.
+  let path = src;
+  if (path.startsWith('/')) {
+    const cwd = rawState.sessions.find((s) => s.id === sid)?.cwd;
+    if (cwd && (path === cwd || path.startsWith(cwd.endsWith('/') ? cwd : `${cwd}/`))) {
+      path = path.slice(cwd.length).replace(/^\//, '');
+      if (!path) return src;
+    } else {
+      return src; // absolute path outside the workspace — unreadable
+    }
+  }
+
   try {
     const api = getKimiWebApi();
-    const result = await api.readFile(sid, { path: src });
-    if (!result.isBinary || result.encoding !== 'base64') return src;
+    const result = await api.readFile(sid, { path, length: IMAGE_READ_MAX_BYTES });
+    if (!result.isBinary || result.encoding !== 'base64' || result.truncated) return src;
     return `data:${result.mime};base64,${result.content}`;
   } catch {
     return src;
   }
 }
 
+/**
+ * Search files in the active session using the daemon searchFiles endpoint.
+ * Returns {path, name}[] — defensive, returns [] on error or no active session.
+ */
 async function searchFiles(query: string): Promise<Array<{ path: string; name: string }>> {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
@@ -2466,9 +2446,6 @@ export function useKimiWebClient() {
     colorScheme,
     setColorScheme,
 
-    // Code font
-    codeFont,
-    setCodeFont,
     accent,
     setAccent,
     onboarded,

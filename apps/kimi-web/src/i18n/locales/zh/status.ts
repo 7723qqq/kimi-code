@@ -5,7 +5,6 @@ export default {
   ctxTooltip: '使用 {used} / {max} tokens ({pct}%)',
   modelLabel: '模型',
   modelTooltip: '点击切换模型',
-  permissionLabel: '权限',
   permissionManual: '逐条确认',
   permissionAuto: '完全自主',
   permissionYolo: '自动通过',

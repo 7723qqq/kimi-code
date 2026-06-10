@@ -10,6 +10,7 @@ export default {
   currentWorkspace: '仅当前工作区',
   addWorkspace: '添加工作区…',
   noWorkspace: '暂无工作区',
+  deleteHasSessions: '工作区内还有会话，请先归档这些会话再删除',
   // Column-header scope toggle
   scopeCurrent: '当前工作区',
   scopeAll: '全部工作区',

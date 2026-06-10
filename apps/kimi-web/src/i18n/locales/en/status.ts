@@ -5,7 +5,6 @@ export default {
   ctxTooltip: 'Used {used} / {max} tokens ({pct}%)',
   modelLabel: 'Model',
   modelTooltip: 'Click to switch model',
-  permissionLabel: 'Permission',
   permissionManual: 'Manual',
   permissionAuto: 'Auto',
   permissionYolo: 'YOLO',
