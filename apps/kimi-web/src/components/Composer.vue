@@ -1091,11 +1091,11 @@ function selectModel(modelId: string): void {
   border-radius: 3px;
   color: var(--warn);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 11px;
   padding: 0 4px;
   cursor: pointer;
-  height: 15px;
-  line-height: 13px;
+  height: 17px;
+  line-height: 15px;
   flex: none;
 }
 .compact-chip:hover { background: var(--panel2); }
@@ -1188,7 +1188,7 @@ function selectModel(modelId: string): void {
   align-items: center;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 500;
   font-family: var(--mono);
   cursor: pointer;
@@ -1241,7 +1241,7 @@ function selectModel(modelId: string): void {
 }
 
 .ctx-num {
-  font-size: 10px;
+  font-size: 11.5px;
   color: var(--muted);
   font-family: var(--mono);
 }
@@ -1253,7 +1253,7 @@ function selectModel(modelId: string): void {
   gap: 3px;
   padding: 2px 7px;
   border-radius: 6px;
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--dim);
   cursor: pointer;
   user-select: none;
@@ -1442,7 +1442,7 @@ function selectModel(modelId: string): void {
   gap: 4px;
   padding: 2px 7px;
   border-radius: 6px;
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--dim);
   cursor: pointer;
   user-select: none;
@@ -1530,7 +1530,7 @@ function selectModel(modelId: string): void {
   }
   .model-pill,
   .attach-btn {
-    font-size: 12.5px;
+    font-size: 13.5px;
   }
   .model-pill b {
     max-width: 240px;
