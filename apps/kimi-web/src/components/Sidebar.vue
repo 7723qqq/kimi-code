@@ -58,6 +58,7 @@ const emit = defineEmits<{
   rename: [id: string, title: string];
   delete: [id: string];
   renameWorkspace: [id: string, name: string];
+  deleteWorkspace: [id: string];
   login: [];
   logout: [];
   setTheme: [theme: Theme];
@@ -203,6 +204,13 @@ function startRenameFromMenu(): void {
   closeGhMenu();
 }
 
+function deleteFromMenu(): void {
+  if (ghMenuTarget.value) {
+    emit('deleteWorkspace', ghMenuTarget.value.id);
+  }
+  closeGhMenu();
+}
+
 // ---------------------------------------------------------------------------
 // Workspace inline more-menu (kebab, hover-triggered)
 // ---------------------------------------------------------------------------
@@ -235,6 +243,11 @@ function copyWsPath(ws: WorkspaceView): void {
 
 function startRenameWs(ws: WorkspaceView): void {
   startRenameWorkspace(ws.id, ws.name);
+  closeWsMenu();
+}
+
+function deleteWs(ws: WorkspaceView): void {
+  emit('deleteWorkspace', ws.id);
   closeWsMenu();
 }
 
@@ -419,16 +432,6 @@ function blinkOnce(): void {
                 />
 
                 <button
-                  class="gh-add"
-                  :title="t('workspace.newInGroup')"
-                  @click.stop="emit('createInWorkspace', g.workspace.id)"
-                >
-                  <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M8 3v10M3 8h10"/>
-                  </svg>
-                </button>
-
-                <button
                   class="gh-more"
                   :class="{ open: wsMenuOpenId === g.workspace.id }"
                   :title="t('sidebar.options')"
@@ -438,6 +441,16 @@ function blinkOnce(): void {
                     <circle cx="8" cy="3" r="1.3" />
                     <circle cx="8" cy="8" r="1.3" />
                     <circle cx="8" cy="13" r="1.3" />
+                  </svg>
+                </button>
+
+                <button
+                  class="gh-add"
+                  :title="t('workspace.newInGroup')"
+                  @click.stop="emit('selectWorkspace', g.workspace.id)"
+                >
+                  <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M8 3v10M3 8h10"/>
                   </svg>
                 </button>
               </div>
@@ -453,6 +466,10 @@ function blinkOnce(): void {
                 <div class="ws-menu-divider" />
                 <button class="ws-menu-item" @click.stop="startRenameWs(g.workspace)">
                   {{ t('sidebar.rename') }}
+                </button>
+                <div class="ws-menu-divider" />
+                <button class="ws-menu-item del" @click.stop="deleteWs(g.workspace)">
+                  {{ t('sidebar.delete') }}
                 </button>
               </div>
               <div class="gh-path" :title="g.workspace.root">{{ g.workspace.branch || g.workspace.shortPath }}</div>
@@ -638,6 +655,9 @@ function blinkOnce(): void {
       </button>
       <button type="button" class="ghm-item" @click="startRenameFromMenu">
         {{ t('sidebar.rename') }}
+      </button>
+      <button type="button" class="ghm-item del" @click="deleteFromMenu">
+        {{ t('sidebar.delete') }}
       </button>
     </div>
   </aside>
