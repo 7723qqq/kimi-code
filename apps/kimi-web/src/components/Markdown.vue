@@ -38,11 +38,6 @@ async function processImages(): Promise<void> {
   }
 }
 
-// Process images after content changes (markstream streaming + static)
-watch(() => props.text, () => {
-  void nextTick().then(() => processImages());
-});
-
 let observer: MutationObserver | null = null;
 onMounted(() => {
   void processImages();
@@ -74,6 +69,14 @@ const props = withDefaults(
   }>(),
   { streaming: false },
 );
+
+// Process images after content changes (markstream streaming + static).
+// MUST come after defineProps: watch() invokes its getter synchronously to
+// collect dependencies, so referencing `props` above its declaration throws
+// a TDZ ReferenceError and crashes the component on mount.
+watch(() => props.text, () => {
+  void nextTick().then(() => processImages());
+});
 
 const final = computed(() => !props.streaming);
 
