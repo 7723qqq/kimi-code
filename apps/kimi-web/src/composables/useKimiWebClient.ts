@@ -2028,6 +2028,27 @@ async function readFileContent(path: string): Promise<{
  * Search files in the active session using the daemon searchFiles endpoint.
  * Returns {path, name}[] — defensive, returns [] on error or no active session.
  */
+/**
+ * Resolve a local image path to a displayable data URL.
+ * Non-local URLs (http/https/data) pass through unchanged.
+ * Local paths are read via the daemon's readFile endpoint and returned as
+ * data:{mime};base64,{content} URLs so they render in the browser.
+ */
+async function resolveImageUrl(src: string): Promise<string> {
+  // Pass through already-addressable URLs
+  if (/^(https?:|data:)/i.test(src)) return src;
+  const sid = rawState.activeSessionId;
+  if (!sid) return src;
+  try {
+    const api = getKimiWebApi();
+    const result = await api.readFile(sid, { path: src });
+    if (!result.isBinary || result.encoding !== 'base64') return src;
+    return `data:${result.mime};base64,${result.content}`;
+  } catch {
+    return src;
+  }
+}
+
 async function searchFiles(query: string): Promise<Array<{ path: string; name: string }>> {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
@@ -2150,6 +2171,7 @@ export function useKimiWebClient() {
     // File system actions
     listDir,
     readFileContent,
+    resolveImageUrl,
 
     // Model + Provider actions
     loadModels,
