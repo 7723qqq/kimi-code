@@ -41,7 +41,7 @@ const isError = () => props.tool.status === 'error';
       <span class="car">{{ open ? '▾' : '▸' }}</span>
       <!-- inline SVG glyph -->
       <!-- eslint-disable-next-line vue/no-v-html -->
-      <span class="gl" v-html="glyph()" aria-hidden="true" />
+      <span v-if="glyph()" class="gl" v-html="glyph()" aria-hidden="true" />
       <span class="a">{{ label() }}</span>
       <span class="p" :title="summary()">{{ summary() }}</span>
       <span class="rt">

@@ -93,8 +93,10 @@ const GLYPH_LS = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" st
 const GLYPH_WEB = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="6"/><path d="M8 2c-2 2-3 3.6-3 6s1 4 3 6"/><path d="M8 2c2 2 3 3.6 3 6s-1 4-3 6"/><line x1="2" y1="8" x2="14" y2="8"/></svg>`;
 // todo / task → checklist.
 const GLYPH_TODO = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" xmlns="http://www.w3.org/2000/svg"><polyline points="2,4.5 3.5,6 5.5,3"/><polyline points="2,11 3.5,12.5 5.5,9.5"/><line x1="8" y1="4.5" x2="14" y2="4.5"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`;
-// default → dot.
-const GLYPH_DEFAULT = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="2.5" fill="currentColor" stroke="none"/></svg>`;
+// skill → lightning bolt.
+const GLYPH_SKILL = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M8.5 1L3 9h4l-1.5 6 5.5-8h-4l1.5-6z"/></svg>`;
+// default → empty (no glyph for unknown tools).
+const GLYPH_DEFAULT = '';
 
 export function toolGlyph(name: string): string {
   switch (normalizeToolName(name)) {
@@ -110,7 +112,11 @@ export function toolGlyph(name: string): string {
     case 'web_fetch':  return GLYPH_WEB;
     case 'todo':       return GLYPH_TODO;
     case 'task':       return GLYPH_TODO;
-    default:           return GLYPH_DEFAULT;
+    default: {
+      const lower = (name ?? '').trim().toLowerCase();
+      if (lower.includes('skill')) return GLYPH_SKILL;
+      return GLYPH_DEFAULT;
+    }
   }
 }
 
