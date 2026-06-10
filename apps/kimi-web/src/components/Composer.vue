@@ -1514,6 +1514,27 @@ function selectModel(modelId: string): void {
     min-width: 200px;
     max-width: calc(100vw - 40px);
   }
+
+  /* Bump mobile font sizes +2px and pin input at 16px to prevent iOS zoom. */
+  .ph {
+    font-size: 16px;
+  }
+  .model-pill,
+  .attach-btn {
+    font-size: 12.5px;
+  }
+  .md-row {
+    font-size: 13.5px;
+  }
+  .md-section {
+    font-size: 12px;
+  }
+  .pd-name {
+    font-size: 14px;
+  }
+  .pd-desc {
+    font-size: 12.5px;
+  }
 }
 
 /* NOTE: Modern-theme composer overrides live in src/style.css (global), NOT here.

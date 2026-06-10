@@ -144,7 +144,7 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
   gap: 5px;
   padding: 0;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 14.5px;
   color: var(--muted);
   border-right: none;
   border-bottom: none;
@@ -157,8 +157,8 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
 }
 /* Tasks → solid blue count pill (prototype .bdg). */
 .tabs.mobile .cnt {
-  min-width: 16px;
-  height: 16px;
+  min-width: 18px;
+  height: 18px;
   padding: 0 4px;
   display: flex;
   align-items: center;
@@ -166,7 +166,7 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
   background: var(--blue);
   color: #fff;
   border-radius: 9px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 /* Diff → small warn dot (prototype .dt). */
