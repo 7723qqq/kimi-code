@@ -245,8 +245,8 @@ const dockRef = ref<HTMLElement | null>(null);
 const following = ref(true);
 const showPill = ref(false);
 
-/** Within this many pixels from the bottom counts as "at the bottom" — small
-    upward drifts inside this zone never break the follow. */
+/** Within this many pixels from the bottom counts as "at the bottom" —
+    scrolling DOWN into this zone re-enables the follow. */
 const BOTTOM_THRESHOLD = 80;
 
 function distanceFromBottom(): number {
@@ -261,14 +261,21 @@ function onPanesScroll(): void {
   const el = panesRef.value;
   if (!el) return;
   const top = el.scrollTop;
-  const nearBottom = distanceFromBottom() <= BOTTOM_THRESHOLD;
-  if (nearBottom) {
-    // Back in the bottom zone (user scroll or our own pin) → follow again.
+  const dist = distanceFromBottom();
+  if (top < lastScrollTop - 1 && dist > 1) {
+    // ANY upward move is user intent — stop following immediately, even inside
+    // the bottom zone. Content that mutates on a fast cadence (e.g. the moon
+    // spinner re-renders every 120ms) re-pins on every change; if upward moves
+    // inside the zone didn't break the follow, each wheel tick (~20-60px, less
+    // than the 80px zone) would be yanked back before the user could escape.
+    // `dist > 1` exempts the browser CLAMPING scrollTop when content shrinks
+    // (e.g. a turn auto-folding) — that lands exactly at the bottom and is not
+    // a user scroll.
+    following.value = false;
+  } else if (dist <= BOTTOM_THRESHOLD && top >= lastScrollTop) {
+    // Downward (user or our own pin) arrival in the bottom zone → follow again.
     following.value = true;
     showPill.value = false;
-  } else if (top < lastScrollTop - 1) {
-    // Upward move OUT of the bottom zone — always user intent; stop following.
-    following.value = false;
   }
   lastScrollTop = top;
 }
@@ -698,6 +705,11 @@ onUnmounted(() => {
   /* The pane manages its own follow-to-bottom; native scroll anchoring would
      otherwise pin content BELOW an expanding fold and make it open upward. */
   overflow-anchor: none;
+  /* Reserve the scrollbar gutter permanently. The composer growing (e.g. a
+     multi-line paste) shrinks this viewport and can flip the scrollbar
+     in/out of existence — without a stable gutter every flip shifts the
+     centered reading column sideways. */
+  scrollbar-gutter: stable;
 }
 
 /* Chat reading column max-width + alignment. The max-width applies in both

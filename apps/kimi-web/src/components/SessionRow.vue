@@ -125,7 +125,9 @@ defineExpose({ closeMenu, cancelDelete });
           @keydown.esc.stop="cancelRename"
           @blur="commitRename"
         />
-        <span v-else class="t" @dblclick.stop="startRename">{{ session.title }}</span>
+        <span v-else :class="['t', { run: session.status === 'running' }]" @dblclick.stop="startRename">{{ session.title }}</span>
+
+        <span class="ts">{{ session.time }}</span>
 
         <!-- Attention pill — shown even when the row isn't active -->
         <span
@@ -207,6 +209,30 @@ defineExpose({ closeMenu, cancelDelete });
   white-space: nowrap;
 }
 .se.on .t { font-weight: 500; }
+
+.ts { color: var(--muted); font-size: 10.5px; flex: none; }
+
+/* Running indicator — pulse dot absolutely positioned left of title,
+   so the text start position does not shift. */
+.t.run {
+  position: relative;
+}
+.t.run::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blue);
+  animation: runPulse 1.4s ease-in-out infinite;
+}
+@keyframes runPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 
 /* Attention pill — small Kimi-blue badge with count */
 .attn {

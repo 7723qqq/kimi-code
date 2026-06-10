@@ -676,7 +676,7 @@ function processSummary(turn: ChatTurn): string {
   max-height: 0;
   overflow: hidden;
   opacity: 0;
-  transition: max-height 0.28s ease, opacity 0.22s ease;
+  transition: max-height 0.12s ease-out, opacity 0.08s ease-out;
 }
 .fold-body.open {
   max-height: 3000px;

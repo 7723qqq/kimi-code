@@ -67,6 +67,15 @@ body,
   inset: 0;
 }
 
+/* The app is a fixed full-viewport shell with its own internal scrollers; the
+   document itself must never scroll. Without this, any transient overflow
+   (e.g. the composer growing for a frame on a multi-line paste) pops a window
+   scrollbar in and out and jolts the whole layout. */
+html,
+body {
+  overflow: hidden;
+}
+
 body {
   font-family: var(--mono);
   color: var(--text);
