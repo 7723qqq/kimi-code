@@ -1,10 +1,10 @@
 <!-- apps/kimi-web/src/components/TabBar.vue -->
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import type { ContentAlign, PaneKey } from '../types';
+import type { PaneKey, TodoView } from '../types';
 
-defineProps<{ active: PaneKey; runningTasks: number; changesCount?: number; align?: ContentAlign; mobile?: boolean }>();
-const emit = defineEmits<{ select: [pane: PaneKey]; setAlign: [align: ContentAlign] }>();
+defineProps<{ active: PaneKey; runningTasks: number; changesCount?: number; todos?: TodoView[]; mobile?: boolean }>();
+const emit = defineEmits<{ select: [pane: PaneKey] }>();
 
 const { t } = useI18n();
 
@@ -30,38 +30,7 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
       <!-- TODO: restore when files tab is re-enabled -->
       <!-- <span v-if="tab.key === 'files' && (changesCount ?? 0) > 0" class="d"></span> -->
       <span v-if="tab.key === 'tasks'" class="cnt">{{ runningTasks }}</span>
-    </div>
-
-    <!-- Content alignment toggle (right side): left-aligned vs centered.
-         Hidden on mobile — the strip is full-width and alignment is desktop-only. -->
-
-    <div v-if="!mobile" class="align" role="group" :aria-label="t('layout.alignLabel')">
-      <button
-        type="button"
-        class="align-btn"
-        :class="{ on: (align ?? 'center') === 'left' }"
-        :title="t('layout.alignLeft')"
-        :aria-label="t('layout.alignLeft')"
-        :aria-pressed="(align ?? 'center') === 'left'"
-        @click="emit('setAlign', 'left')"
-      >
-        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
-          <path d="M2 4h12M2 8h8M2 12h10" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        class="align-btn"
-        :class="{ on: (align ?? 'center') === 'center' }"
-        :title="t('layout.alignCenter')"
-        :aria-label="t('layout.alignCenter')"
-        :aria-pressed="(align ?? 'center') === 'center'"
-        @click="emit('setAlign', 'center')"
-      >
-        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
-          <path d="M2 4h12M4 8h8M3 12h10" />
-        </svg>
-      </button>
+      <span v-if="tab.key === 'todo' && (todos?.length ?? 0) > 0" class="cnt">{{ (todos?.filter((t) => t.status === 'done').length ?? 0) }}/{{ todos!.length }}</span>
     </div>
   </div>
 </template>
@@ -105,35 +74,6 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
   padding: 0 6px;
   font-size: 10px;
   font-weight: 600;
-}
-
-/* Content alignment toggle — small segmented control, pushed to the right */
-.align {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-}
-.align-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 22px;
-  background: none;
-  border: 1px solid var(--line);
-  color: var(--faint);
-  cursor: pointer;
-  padding: 0;
-}
-.align-btn:first-child { border-radius: 3px 0 0 3px; }
-.align-btn:last-child { border-radius: 0 3px 3px 0; margin-left: -1px; }
-.align-btn:hover { color: var(--ink); border-color: var(--bd); z-index: 1; }
-.align-btn.on {
-  color: var(--blue2);
-  border-color: var(--bd);
-  background: var(--soft);
-  z-index: 1;
 }
 
 /* ---- Mobile swap-strip: full-width mono tabs, 46px tall (≥44px tap) ---- */

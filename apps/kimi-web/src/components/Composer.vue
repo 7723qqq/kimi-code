@@ -1212,7 +1212,6 @@ function selectModel(modelId: string): void {
   border-radius: 6px;
   font-size: 14px;
   color: var(--dim);
-  background: var(--soft);
   cursor: pointer;
   user-select: none;
   transition: background 0.1s, color 0.15s;
