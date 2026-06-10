@@ -92,6 +92,8 @@ const emit = defineEmits<{
 // Per-turn copy button state (keyed by turn id)
 const copiedTurn = ref<string | null>(null);
 
+
+
 /** Assemble the full content of a turn for copying — follows the ordered
     blocks so thinking/text/tool output copy in the order they happened. */
 function turnPlainText(turn: ChatTurn): string {
@@ -147,6 +149,46 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   for (const tool of turn.tools ?? []) blocks.push({ kind: 'tool', tool });
   return blocks;
 }
+
+/** Extract a file path from a tool argument string (JSON or plain). */
+function extractFilePath(arg: string): string | undefined {
+  try {
+    const d = JSON.parse(arg) as Record<string, unknown>;
+    const p =
+      (typeof d.path === 'string' ? d.path : undefined) ??
+      (typeof d.file_path === 'string' ? d.file_path : undefined) ??
+      (typeof d.filePath === 'string' ? d.filePath : undefined) ??
+      (typeof d.filename === 'string' ? d.filename : undefined) ??
+      (typeof d.dir === 'string' ? d.dir : undefined) ??
+      (typeof d.directory === 'string' ? d.directory : undefined) ??
+      (typeof d.cwd === 'string' ? d.cwd : undefined);
+    return p ? p.split('/').pop() ?? p : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Count tools and unique files touched in a turn. */
+function countToolsAndFiles(turn: ChatTurn): { toolCount: number; fileCount: number } {
+  let toolCount = 0;
+  const filePaths = new Set<string>();
+  for (const blk of turnBlocks(turn)) {
+    if (blk.kind !== 'tool') continue;
+    toolCount++;
+    const path = extractFilePath(blk.tool.arg);
+    if (path) filePaths.add(path);
+  }
+  return { toolCount, fileCount: filePaths.size };
+}
+
+/** Turn-end summary: "已调用 3 个工具，修改 5 个文件". */
+function turnSummary(turn: ChatTurn): string {
+  const { toolCount, fileCount } = countToolsAndFiles(turn);
+  const parts: string[] = [];
+  if (toolCount > 0) parts.push(`已调用 ${toolCount} 个工具`);
+  if (fileCount > 0) parts.push(`修改 ${fileCount} 个文件`);
+  return parts.join('，');
+}
 </script>
 
 <template>
@@ -186,6 +228,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
           <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" /></div>
           <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
         </template>
+        <div v-if="turn.id !== streamingTurnId && turnSummary(turn)" class="turn-summary">{{ turnSummary(turn) }}</div>
         <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)" class="a-msg-ft">
           <button
             class="a-cpbtn"
@@ -266,6 +309,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
             <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
             <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
           </template>
+          <div v-if="turn.id !== streamingTurnId && turnSummary(turn)" class="turn-summary">{{ turnSummary(turn) }}</div>
         </div>
       </div>
     </template>
@@ -365,7 +409,6 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 
 /* Copy button: hidden by default, shown on hover of .ln */
 .cpbtn {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   background: none;
@@ -377,6 +420,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   padding: 0 4px;
   opacity: 0;
   transition: opacity 0.1s;
+  margin-left: 8px;
 }
 .ln:hover .cpbtn {
   opacity: 1;
@@ -427,10 +471,17 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   max-width: 94%;
   width: 94%;
 }
+.turn-summary {
+  color: var(--faint);
+  font-size: 13px;
+  font-family: var(--mono);
+  margin-top: 8px;
+  line-height: 1.4;
+}
 .a-msg-ft {
   display: flex;
-  height: 0;
-  margin-top: 0;
+  height: auto;
+  margin-top: 10px;
   opacity: 0;
   overflow: visible;
   pointer-events: none;
@@ -465,7 +516,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 @media (hover: none) {
   .a-msg-ft {
     height: auto;
-    margin-top: 6px;
+    margin-top: 10px;
     opacity: 1;
     pointer-events: auto;
   }

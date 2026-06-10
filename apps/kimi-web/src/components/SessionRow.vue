@@ -127,20 +127,6 @@ defineExpose({ closeMenu, cancelDelete });
         />
         <span v-else :class="['t', { run: session.status === 'running' }]" @dblclick.stop="startRename">{{ session.title }}</span>
 
-        <span class="ts">{{ session.time }}</span>
-
-        <!-- Attention pill — shown even when the row isn't active -->
-        <span
-          v-if="!renaming && attention > 0"
-          class="attn"
-          :title="t('workspace.attentionTitle', attention)"
-        >
-          <svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2">
-            <path d="M8 4v5" /><circle cx="8" cy="12" r="0.6" fill="currentColor" stroke="none" />
-          </svg>
-          {{ attention }}
-        </span>
-
         <!-- Kebab button (visible on hover) -->
         <button
           ref="kebabRef"
@@ -156,6 +142,20 @@ defineExpose({ closeMenu, cancelDelete });
             <circle cx="8" cy="13" r="1.3" />
           </svg>
         </button>
+
+        <span class="ts">{{ session.time }}</span>
+
+        <!-- Attention pill — shown even when the row isn't active -->
+        <span
+          v-if="!renaming && attention > 0"
+          class="attn"
+          :title="t('workspace.attentionTitle', attention)"
+        >
+          <svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M8 4v5" /><circle cx="8" cy="12" r="0.6" fill="currentColor" stroke="none" />
+          </svg>
+          {{ attention }}
+        </span>
 
       </div>
 
