@@ -94,7 +94,7 @@ watch(
 
 <style scoped>
 .think {
-  margin: 6px 0 10px 0;
+  margin: 6px 0 18px 0;
 }
 
 .th {
@@ -153,7 +153,7 @@ watch(
 
 /* ===================== Mobile / Codex style ===================== */
 .mthink {
-  margin: 0 0 2px 0;
+  margin: 10px 0;
 }
 .mthink .h {
   display: inline-flex;
