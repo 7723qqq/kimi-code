@@ -3,7 +3,6 @@
  */
 
 import { Disposable, InstantiationType, registerSingleton } from '@moonshot-ai/agent-core';
-import type { BackgroundTaskInfo } from '@moonshot-ai/agent-core';
 import type { BackgroundTask } from '@moonshot-ai/protocol';
 
 import { ICoreProcessService } from '../coreProcess/coreProcess';

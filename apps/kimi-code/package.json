@@ -27,6 +27,7 @@
   },
   "files": [
     "dist",
+    "dist-web",
     "scripts/postinstall.mjs",
     "scripts/postinstall",
     "README.md"
@@ -44,7 +45,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node scripts/copy-web-assets.mjs",
     "catalog:update": "node scripts/update-catalog.mjs --out dist/built-in-catalog.json",
     "smoke": "node scripts/smoke.mjs",
     "build:native:js": "node scripts/native/01-bundle.mjs",
@@ -56,7 +57,7 @@
     "test:native:smoke": "node scripts/native/smoke.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:cli-only": "tsx --import ../../build/register-raw-text-loader.mjs ./src/main.ts",
-    "dev:daemon": "tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts daemon",
+    "dev:daemon": "tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts daemon --foreground",
     "dev:daemon:restart": "node scripts/dev-daemon-restart.mjs",
     "dev:plugin-marketplace": "node scripts/dev-plugin-marketplace-server.mjs",
     "build:plugin-marketplace": "node scripts/build-plugin-marketplace-cdn.mjs",
@@ -81,10 +82,11 @@
   },
   "devDependencies": {
     "@moonshot-ai/acp-adapter": "workspace:^",
+    "@moonshot-ai/daemon": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-code-sdk": "workspace:^",
-    "@moonshot-ai/daemon": "workspace:^",
     "@moonshot-ai/kimi-telemetry": "workspace:^",
+    "@moonshot-ai/kimi-web": "workspace:^",
     "@moonshot-ai/migration-legacy": "workspace:^",
     "@types/semver": "^7.7.0",
     "@types/yazl": "^2.4.6",

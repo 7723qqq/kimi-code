@@ -24,6 +24,7 @@ import {
   buildServerHello,
   type EventEnvelope,
 } from './protocol';
+import { rawDataToString } from './rawData';
 
 export interface BufferReplaySource {
   getBufferedSince(
@@ -142,7 +143,7 @@ export class WsConnection {
     if (this.closed) return;
     let parsed: unknown;
     try {
-      parsed = JSON.parse(String(data));
+      parsed = JSON.parse(rawDataToString(data));
     } catch {
       this.logger.warn('non-json ws frame; ignoring');
       return;

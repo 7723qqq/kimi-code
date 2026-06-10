@@ -128,7 +128,7 @@ export class ApprovalService extends Disposable implements IApprovalService {
       'approval requested',
     );
 
-    return await new Promise<ApprovalResponse>((resolve, reject) => {
+    return new Promise<ApprovalResponse>((resolve, reject) => {
       const timer = setTimeout(() => this._expire(approvalId), this._timeoutMs);
       timer.unref?.();
       this._pending.set(

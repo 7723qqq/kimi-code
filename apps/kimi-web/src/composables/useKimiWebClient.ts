@@ -678,7 +678,7 @@ function buildApprovalBlock(a: AppApprovalRequest): ApprovalBlock {
     const items = rawItems.map((item: unknown) => {
       const it = (item ?? {}) as Record<string, unknown>;
       return {
-        title: typeof it.title === 'string' ? it.title : String(it.title ?? ''),
+        title: typeof it.title === 'string' ? it.title : '',
         status: typeof it.status === 'string' ? it.status : 'pending',
       };
     });

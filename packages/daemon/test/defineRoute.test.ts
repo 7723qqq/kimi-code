@@ -278,14 +278,14 @@ describe('defineRoute', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Handler type inference (compile-time only — no runtime assertion needed)
+  // Handler type inference
   // -------------------------------------------------------------------------
   it('infers body/params/query types for the handler (compile-time)', () => {
     const bodySchema = z.object({ name: z.string() });
     const paramsSchema = z.object({ id: z.string() });
     const querySchema = z.object({ page: z.string() });
 
-    defineRoute(
+    const route = defineRoute(
       {
         method: 'POST',
         path: '/items/{id}',
@@ -306,5 +306,6 @@ describe('defineRoute', () => {
         void _page;
       },
     );
+    expect(route.path).toBe('/items/:id');
   });
 });

@@ -42,6 +42,7 @@ import {
   startDaemon,
   type RunningDaemon,
 } from '../src';
+import { rawDataToString } from '../src/ws/rawData';
 import { WSBroadcastService } from '#/services/gateway/wsBroadcastService';
 
 let tmpDir: string;
@@ -108,7 +109,7 @@ function openConn(url: string): Promise<Conn> {
     ws.on('message', (data) => {
       let parsed: WsFrame;
       try {
-        parsed = JSON.parse(String(data)) as WsFrame;
+        parsed = JSON.parse(rawDataToString(data)) as WsFrame;
       } catch {
         return;
       }

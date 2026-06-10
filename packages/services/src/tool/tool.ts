@@ -15,10 +15,10 @@
  * per-session knob. Documented gap in `ToolService`.
  *
  * **Anti-corruption**: imports `@moonshot-ai/agent-core` only for the
- * `createDecorator` / `Disposable` values.
+ * `createDecorator` value.
  */
 
-import { createDecorator, Disposable } from '@moonshot-ai/agent-core';
+import { createDecorator } from '@moonshot-ai/agent-core';
 import type { ToolDescriptor, ToolSource } from '@moonshot-ai/protocol';
 
 // ---------------------------------------------------------------------------

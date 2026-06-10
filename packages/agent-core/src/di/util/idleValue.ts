@@ -122,7 +122,10 @@ export class GlobalIdleValue<T> {
       this._executor();
     }
     if (this._error) {
-      throw this._error;
+      if (this._error instanceof Error) {
+        throw this._error;
+      }
+      throw new Error('Lazy value initialization failed');
     }
     return this._value!;
   }

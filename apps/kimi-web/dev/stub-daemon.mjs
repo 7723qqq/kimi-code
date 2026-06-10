@@ -395,14 +395,6 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function scheduleSteps(steps) {
-  let p = Promise.resolve();
-  for (const [ms, fn] of steps) {
-    p = p.then(() => delay(ms)).then(() => fn());
-  }
-  return p;
-}
-
 async function streamMarkdown(sessionId, msgId, contentIndex, text, chunkSize = 40) {
   const chunks = [];
   for (let i = 0; i < text.length; i += chunkSize) {
@@ -1478,7 +1470,6 @@ const server = http.createServer((req, res) => {
       if (!session) return res.end(fail(40401, `session ${sid} does not exist`));
       const b = json();
       const reqPath = b.path || 'README.md';
-      const modifiedNow = now();
 
       // Tiny 1×1 transparent PNG (base64)
       const PNG_1X1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -1702,7 +1693,6 @@ const server = http.createServer((req, res) => {
     if (stripped === '/files' && method === 'POST') {
       const fileId = ulid('file_');
       // Try to extract filename from Content-Disposition if possible; fall back to generic name.
-      const contentType = req.headers['content-type'] || '';
       const nameMatch = body.match(/filename="([^"]+)"/);
       const fileName = nameMatch ? nameMatch[1] : 'upload.png';
       const fileMeta = {

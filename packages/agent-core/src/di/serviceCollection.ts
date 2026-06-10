@@ -10,11 +10,11 @@ import type { ServiceIdentifier } from './instantiation';
 
 export class ServiceCollection {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly _entries = new Map<ServiceIdentifier<any>, SyncDescriptor<any> | any>();
+  private readonly _entries = new Map<ServiceIdentifier<any>, unknown>();
 
   constructor(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ...entries: ReadonlyArray<readonly [ServiceIdentifier<any>, SyncDescriptor<any> | any]>
+    ...entries: ReadonlyArray<readonly [ServiceIdentifier<any>, unknown]>
   ) {
     for (const [id, value] of entries) {
       this._entries.set(id, value);
@@ -31,7 +31,7 @@ export class ServiceCollection {
   ): T | SyncDescriptor<T> | undefined {
     const prev = this._entries.get(id);
     this._entries.set(id, instanceOrDescriptor);
-    return prev;
+    return prev as T | SyncDescriptor<T> | undefined;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,7 +40,7 @@ export class ServiceCollection {
   }
 
   get<T>(id: ServiceIdentifier<T>): T | SyncDescriptor<T> | undefined {
-    return this._entries.get(id);
+    return this._entries.get(id) as T | SyncDescriptor<T> | undefined;
   }
 
   /** Iterate all entries. Order is insertion-order (Map semantics). */
@@ -48,8 +48,7 @@ export class ServiceCollection {
     callback: (
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       id: ServiceIdentifier<any>,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      value: SyncDescriptor<any> | any,
+      value: unknown,
     ) => void,
   ): void {
     this._entries.forEach((value, id) => callback(id, value));

@@ -22,7 +22,7 @@
 
 import type { Server as HttpServer } from 'node:http';
 
-import { Disposable, createDecorator } from '@moonshot-ai/agent-core';
+import { createDecorator } from '@moonshot-ai/agent-core';
 
 /**
  * Minimum shape we need from a Fastify instance. Avoids the strict-generic
@@ -51,6 +51,5 @@ export interface IRestGateway {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IRestGateway = createDecorator<IRestGateway>('restGateway');
-
 
 

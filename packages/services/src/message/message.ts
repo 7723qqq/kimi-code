@@ -43,12 +43,8 @@
  * at the route layer. This impl receives a fully-validated query.
  */
 
-import { createDecorator, Disposable } from '@moonshot-ai/agent-core';
-import type {
-  AgentContextData,
-  ContextMessage,
-  SessionSummary,
-} from '@moonshot-ai/agent-core';
+import { createDecorator } from '@moonshot-ai/agent-core';
+import type { ContextMessage } from '@moonshot-ai/agent-core';
 import type {
   CursorQuery,
   Message,
@@ -57,8 +53,6 @@ import type {
   PageResponse,
   ToolUseContent,
 } from '@moonshot-ai/protocol';
-
-import { SessionNotFoundError } from '../session/session';
 
 /**
  * Listing query — `before_id`/`after_id` + `page_size` mutex is enforced

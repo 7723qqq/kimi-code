@@ -1,8 +1,5 @@
 
-
-import { Disposable, createDecorator } from '@moonshot-ai/agent-core';
-
-import { ILogService } from '@moonshot-ai/services';
+import { createDecorator } from '@moonshot-ai/agent-core';
 import type { WsConnection } from '#/ws/connection';
 
 export interface ISessionClientsService {
@@ -23,4 +20,3 @@ export interface ISessionClientsService {
 export const ISessionClientsService = createDecorator<ISessionClientsService>(
   'sessionClientsService',
 );
-

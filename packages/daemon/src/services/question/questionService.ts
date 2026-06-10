@@ -127,7 +127,7 @@ export class QuestionService extends Disposable implements IQuestionService {
       'question requested',
     );
 
-    return await new Promise<QuestionResult>((resolve, reject) => {
+    return new Promise<QuestionResult>((resolve, reject) => {
       const timer = setTimeout(() => this._expire(questionId), this._timeoutMs);
       timer.unref?.();
       this._pending.set(

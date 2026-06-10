@@ -33,7 +33,7 @@ export interface UseResizable {
 function readStored(key: string): number | null {
   try {
     const raw = localStorage.getItem(key);
-    if (raw == null) return null;
+    if (raw === null) return null;
     const n = Number(raw);
     return Number.isFinite(n) ? n : null;
   } catch {

@@ -19,7 +19,7 @@
  *     `McpServerNotFoundError`. The route maps it to envelope code 40408.
  *
  * **Anti-corruption**: imports `@moonshot-ai/agent-core` only for the
- * `createDecorator` / `Disposable` values and the `McpServerInfo` type.
+ * `createDecorator` value and the `McpServerInfo` type.
  *
  * **MCP status mapping** (`McpServerInfo.status` → `McpServer.status`):
  *   agent-core 'pending'    → wire 'connecting'
@@ -32,7 +32,7 @@
  * name-as-id at the wire boundary. Both are 1:1 within a daemon process.
  */
 
-import { createDecorator, Disposable } from '@moonshot-ai/agent-core';
+import { createDecorator } from '@moonshot-ai/agent-core';
 import type { McpServerInfo } from '@moonshot-ai/agent-core';
 import type {
   McpServer,

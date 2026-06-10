@@ -613,14 +613,26 @@ export function createAgentProjector(): AgentProjector {
         const info = (p?.info ?? {}) as Record<string, unknown>;
         const startedAt =
           typeof info.startedAt === 'number' ? new Date(info.startedAt).toISOString() : undefined;
+        const taskId =
+          typeof info.taskId === 'string'
+            ? info.taskId
+            : typeof info.taskId === 'number'
+              ? String(info.taskId)
+              : ulid('task_');
+        const description =
+          typeof info.description === 'string'
+            ? info.description
+            : typeof info.command === 'string'
+              ? info.command
+              : i18n.global.t('tasks.defaultDescription');
         out.push({
           type: 'taskCreated',
           sessionId,
           task: {
-            id: String(info.taskId ?? ulid('task_')),
+            id: taskId,
             sessionId,
             kind: 'bash',
-            description: String(info.description ?? info.command ?? i18n.global.t('tasks.defaultDescription')),
+            description,
             status: 'running',
             createdAt: startedAt ?? new Date().toISOString(),
             startedAt,
@@ -637,7 +649,12 @@ export function createAgentProjector(): AgentProjector {
         out.push({
           type: 'taskCompleted',
           sessionId,
-          taskId: String(info.taskId ?? ''),
+          taskId:
+            typeof info.taskId === 'string'
+              ? info.taskId
+              : typeof info.taskId === 'number'
+                ? String(info.taskId)
+                : '',
           status: failed ? 'failed' : 'completed',
           outputPreview: typeof info.command === 'string' ? `$ ${info.command}` : undefined,
         });

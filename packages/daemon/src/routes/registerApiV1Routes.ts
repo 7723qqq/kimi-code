@@ -23,7 +23,7 @@ interface ApiV1AppHost {
   register(
     plugin: (apiV1: ApiV1RouteHost) => Promise<void> | void,
     opts: { prefix: string },
-  ): Promise<unknown> | unknown;
+  ): unknown;
 }
 
 interface ApiV1RouteHost {
@@ -33,7 +33,7 @@ interface ApiV1RouteHost {
     handler: (
       req: { id: string },
       reply: { send(payload: unknown): unknown },
-    ) => Promise<unknown> | unknown,
+    ) => unknown,
   ): unknown;
 }
 

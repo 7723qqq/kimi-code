@@ -1,17 +1,5 @@
 
-
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-
-import {
-  createDecorator,
-  Disposable,
-  type IDisposable,
-} from '@moonshot-ai/agent-core';
-import {
-  ISessionService,
-  SessionNotFoundError,
-} from '../session/session';
+import { createDecorator, type IDisposable } from '@moonshot-ai/agent-core';
 import type {
   FsEntry,
   FsListManyRequest,
@@ -24,12 +12,6 @@ import type {
   FsStatManyResponse,
   FsStatRequest,
 } from '@moonshot-ai/protocol';
-import ignore, { type Ignore } from 'ignore';
-
-import {
-  FsPathEscapesError,
-  resolveSafePath,
-} from './fsPathSafety';
 
 export class FsPathNotFoundError extends Error {
   readonly inputPath: string;
@@ -119,5 +101,3 @@ export interface FsDownloadResolved {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IFsService = createDecorator<IFsService>('fsService');
-
-void SessionNotFoundError;

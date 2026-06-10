@@ -11,7 +11,14 @@
  * service, wrong ctor args) would surface as a startDaemon reject.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -105,6 +112,39 @@ describe('startDaemon — lock + healthz smoke', () => {
   });
 });
 
+describe('startDaemon — web assets', () => {
+  it('serves web assets from the daemon root without shadowing API routes', async () => {
+    const assetsDir = join(tmpDir, 'web-assets');
+    rmSync(assetsDir, { recursive: true, force: true });
+    mkdirSync(assetsDir);
+    writeFileSync(join(assetsDir, 'index.html'), '<html><div id="app"></div></html>', 'utf8');
+    writeFileSync(join(assetsDir, 'app.js'), 'console.log("kimi web");', 'utf8');
+
+    const r = await startDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      lockPath,
+      logger: silentLogger(),
+      coreProcessOptions: { homeDir: bridgeHome },
+      webAssetsDir: assetsDir,
+    });
+    running.push(r);
+
+    await expect(fetch(`${r.address}/`).then((res) => res.text())).resolves.toContain(
+      '<div id="app"></div>',
+    );
+    await expect(fetch(`${r.address}/sessions/abc`).then((res) => res.text())).resolves.toContain(
+      '<div id="app"></div>',
+    );
+    await expect(fetch(`${r.address}/app.js`).then((res) => res.text())).resolves.toBe(
+      'console.log("kimi web");',
+    );
+
+    const health = await fetch(`${r.address}/api/v1/healthz`);
+    await expect(health.json()).resolves.toMatchObject({ code: 0 });
+  });
+});
+
 describe('startDaemon — DI container wiring', () => {
   it('exposes all DI services through running.services', async () => {
     const r = await spawn();
@@ -136,4 +176,3 @@ describe('startDaemon — DI container wiring', () => {
     await expect(bridge.rpc.getCoreInfo({})).rejects.toThrow(/disposed/);
   });
 });
-

@@ -66,7 +66,6 @@ import { createDecorator } from '@moonshot-ai/agent-core';
 import type {
   OAuthFlowSnapshot,
   OAuthFlowStart,
-  OAuthFlowStatus,
   OAuthLoginCancelResponse,
   OAuthLogoutResponse,
 } from '@moonshot-ai/protocol';

@@ -93,7 +93,7 @@ function diffLines(code: string): { cls: string; text: string }[] {
   return code.split('\n').map((line) => {
     if (/^\+(?!\+\+)/.test(line)) return { cls: 'diff-add', text: line };
     if (/^-(?!--)/.test(line)) return { cls: 'diff-del', text: line };
-    if (/^@@/.test(line)) return { cls: 'diff-hunk', text: line };
+    if (line.startsWith('@@')) return { cls: 'diff-hunk', text: line };
     return { cls: 'diff-ctx', text: line };
   });
 }

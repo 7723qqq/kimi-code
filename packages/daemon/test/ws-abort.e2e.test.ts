@@ -32,6 +32,7 @@ import { WebSocket } from 'ws';
 import { IPromptService, PromptService } from '@moonshot-ai/services';
 
 import { IRestGateway, startDaemon, type RunningDaemon } from '../src';
+import { rawDataToString } from '../src/ws/rawData';
 
 let tmpDir: string;
 let lockPath: string;
@@ -131,7 +132,7 @@ async function openSubscriber(r: RunningDaemon, sid: string): Promise<Subscriber
     const sock = new WebSocket(wsUrl);
     sock.on('message', (data) => {
       try {
-        received.push(JSON.parse(String(data)) as Record<string, unknown>);
+        received.push(JSON.parse(rawDataToString(data)) as Record<string, unknown>);
       } catch {
         // ignore
       }
