@@ -22,6 +22,7 @@ import type {
   ThinkingLevel,
 } from '../api/types';
 import { createInitialState, reduceAppEvent } from '../api/daemon/eventReducer';
+import type { CompactionStatus } from '../api/daemon/eventReducer';
 import type { KimiClientState } from '../api/daemon/eventReducer';
 import { toAppEvent } from '../api/daemon/mappers';
 import { parseDiff } from '../lib/parseDiff';
@@ -497,6 +498,7 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
     questionsBySession: rawState.questionsBySession,
     tasksBySession: rawState.tasksBySession,
     lastSeqBySession: rawState.lastSeqBySession,
+    compactionBySession: rawState.compactionBySession,
     warnings: rawState.warnings,
   };
   const next = reduceAppEvent(snapshot, event, { sessionId, seq });
@@ -508,7 +510,29 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   rawState.questionsBySession = next.questionsBySession;
   rawState.tasksBySession = next.tasksBySession;
   rawState.lastSeqBySession = next.lastSeqBySession;
+  rawState.compactionBySession = next.compactionBySession;
   rawState.warnings = next.warnings;
+}
+
+// Auto-dismiss the "compaction complete (X → Y tokens)" note a few seconds
+// after it appears. One timer per session; restarted on every completion.
+const compactionClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const COMPACTION_NOTE_MS = 5000;
+
+function scheduleCompactionNoteDismiss(sessionId: string): void {
+  const existing = compactionClearTimers.get(sessionId);
+  if (existing !== undefined) clearTimeout(existing);
+  compactionClearTimers.set(
+    sessionId,
+    setTimeout(() => {
+      compactionClearTimers.delete(sessionId);
+      const entry = rawState.compactionBySession[sessionId];
+      if (entry?.status === 'completed') {
+        const { [sessionId]: _gone, ...rest } = rawState.compactionBySession;
+        rawState.compactionBySession = rest;
+      }
+    }, COMPACTION_NOTE_MS),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -531,6 +555,12 @@ function connectEventsIfNeeded(): void {
       // by onResync (the client routes it there); here we only let the reducer
       // run so lastSeqBySession stays current.
       applyEvent(appEvent, meta.sessionId, meta.seq);
+
+      // Compaction completion note self-dismisses (TUI keeps a transcript
+      // line; the web shows a transient banner instead).
+      if (appEvent.type === 'compactionCompleted') {
+        scheduleCompactionNoteDismiss(appEvent.sessionId);
+      }
 
       // Turn-end cleanup for the session the event belongs to — including
       // sessions running in the background (see onSessionIdle).
@@ -890,6 +920,13 @@ const todos = computed<TodoView[]>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
   return latestTodos(rawState.messagesBySession[sid] ?? []);
+});
+
+/** Live compaction state of the active session (running banner / done note). */
+const compaction = computed<CompactionStatus | null>(() => {
+  const sid = rawState.activeSessionId;
+  if (!sid) return null;
+  return rawState.compactionBySession[sid] ?? null;
 });
 
 const connection = computed<ConnectionState>(() => rawState.connection);
@@ -2193,6 +2230,7 @@ export function useKimiWebClient() {
     turns,
     tasks,
     todos,
+    compaction,
     status,
     sessionCost,
     fileDiff,

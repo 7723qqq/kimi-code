@@ -286,6 +286,9 @@ export type AppEvent =
   | { type: 'sessionMetaUpdated'; sessionId: string; title: string }
   | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string }
   | { type: 'historyCompacted'; sessionId: string; beforeSeq: number; reason: string; summaryMessageId?: string }
+  | { type: 'compactionStarted'; sessionId: string; trigger: 'manual' | 'auto'; instruction?: string }
+  | { type: 'compactionCompleted'; sessionId: string; tokensBefore?: number; tokensAfter?: number }
+  | { type: 'compactionCancelled'; sessionId: string }
   | { type: 'messageCreated'; message: AppMessage }
   | { type: 'messageUpdated'; sessionId: string; messageId: string; content: AppMessageContent[]; status: 'pending' | 'completed' | 'error' }
   | { type: 'assistantDelta'; sessionId: string; messageId: string; contentIndex: number; delta: { text?: string; thinking?: string } }

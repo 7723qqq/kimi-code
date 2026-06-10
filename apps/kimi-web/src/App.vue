@@ -364,6 +364,7 @@ function handleCreateSession(): void {
       :changes-by-path="client.changesByPath.value"
       :file-reload-key="client.activeSessionId.value"
       :session-loading="client.sessionLoading.value"
+      :compaction="client.compaction.value"
       :workspace-empty="workspaceEmpty"
       :workspace-name="client.visibleWorkspace.value?.name"
       @submit="handleSubmit($event)"

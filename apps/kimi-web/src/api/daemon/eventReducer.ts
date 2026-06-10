@@ -25,6 +25,15 @@ const OPTIMISTIC_USER_MESSAGE_METADATA_KEY = 'kimiWeb.optimisticUserMessage';
 // State
 // ---------------------------------------------------------------------------
 
+/** Live compaction progress for a session (TUI parity: "Compacting context…"
+    while running, then a one-shot "complete (X → Y tokens)" note). */
+export interface CompactionStatus {
+  status: 'running' | 'completed';
+  trigger: 'manual' | 'auto';
+  tokensBefore?: number;
+  tokensAfter?: number;
+}
+
 export interface KimiClientState {
   sessions: AppSession[];
   activeSessionId?: string;
@@ -33,6 +42,7 @@ export interface KimiClientState {
   questionsBySession: Record<string, AppQuestionRequest[]>;
   tasksBySession: Record<string, AppTask[]>;
   lastSeqBySession: Record<string, number>;
+  compactionBySession: Record<string, CompactionStatus>;
   warnings: string[];
 }
 
@@ -45,6 +55,7 @@ export function createInitialState(): KimiClientState {
     questionsBySession: {},
     tasksBySession: {},
     lastSeqBySession: {},
+    compactionBySession: {},
     warnings: [],
   };
 }
@@ -62,6 +73,7 @@ function cloneState(s: KimiClientState): KimiClientState {
     questionsBySession: { ...s.questionsBySession },
     tasksBySession: { ...s.tasksBySession },
     lastSeqBySession: { ...s.lastSeqBySession },
+    compactionBySession: { ...s.compactionBySession },
     warnings: [...s.warnings],
   };
 }
@@ -199,6 +211,35 @@ export function reduceAppEvent(
       // Only advance lastSeqBySession; actual reload is triggered by client wrapper
       // when it sees this event type (before_seq is in event.beforeSeq).
       // The advanceSeq at top already handled seq update.
+      break;
+    }
+
+    // -------------------------------------------------------------------------
+    case 'compactionStarted': {
+      next.compactionBySession = {
+        ...next.compactionBySession,
+        [event.sessionId]: { status: 'running', trigger: event.trigger },
+      };
+      break;
+    }
+
+    case 'compactionCompleted': {
+      const prev = next.compactionBySession[event.sessionId];
+      next.compactionBySession = {
+        ...next.compactionBySession,
+        [event.sessionId]: {
+          status: 'completed',
+          trigger: prev?.trigger ?? 'auto',
+          tokensBefore: event.tokensBefore,
+          tokensAfter: event.tokensAfter,
+        },
+      };
+      break;
+    }
+
+    case 'compactionCancelled': {
+      const { [event.sessionId]: _gone, ...rest } = next.compactionBySession;
+      next.compactionBySession = rest;
       break;
     }
 

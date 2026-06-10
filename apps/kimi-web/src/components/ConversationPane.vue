@@ -53,6 +53,8 @@ const props = defineProps<{
   modern?: boolean;
   /** True while switching sessions and the turns array is not yet loaded. */
   sessionLoading?: boolean;
+  /** Live compaction state of the active session (running banner / done note). */
+  compaction?: { status: 'running' | 'completed'; tokensBefore?: number; tokensAfter?: number } | null;
   /** Available models for the quick-switch dropdown in the composer toolbar. */
   models?: AppModel[];
   /** True when the active workspace has no sessions — shows a centred input
@@ -563,6 +565,7 @@ onUnmounted(() => {
             :running="running"
             :sending="sending"
             :session-loading="sessionLoading"
+            :compaction="compaction"
             @approval-decide="handleApprovalDecide"
           />
         </template>

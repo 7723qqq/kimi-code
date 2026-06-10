@@ -639,11 +639,18 @@ export function createAgentProjector(): AgentProjector {
 
       // -----------------------------------------------------------------------
       case 'compaction.completed': {
-        // Auto-compaction replaced a batch of old messages with a summary on the
+        // Compaction replaced a batch of old messages with a summary on the
         // daemon side. The in-memory transcript is now stale, so signal a reload.
         // beforeSeq is patched to the real frame.seq by the client (the projector
         // does not receive the wire seq); the client routes historyCompacted to
         // onResync to refetch /messages.
+        const result = (p?.result ?? {}) as Record<string, unknown>;
+        out.push({
+          type: 'compactionCompleted',
+          sessionId,
+          tokensBefore: typeof result.tokensBefore === 'number' ? result.tokensBefore : undefined,
+          tokensAfter: typeof result.tokensAfter === 'number' ? result.tokensAfter : undefined,
+        });
         out.push({
           type: 'historyCompacted',
           sessionId,
@@ -653,11 +660,24 @@ export function createAgentProjector(): AgentProjector {
         break;
       }
 
+      case 'compaction.started': {
+        out.push({
+          type: 'compactionStarted',
+          sessionId,
+          trigger: p?.trigger === 'manual' ? 'manual' : 'auto',
+          instruction: typeof p?.instruction === 'string' ? p.instruction : undefined,
+        });
+        break;
+      }
+
+      case 'compaction.cancelled': {
+        out.push({ type: 'compactionCancelled', sessionId });
+        break;
+      }
+
       // -----------------------------------------------------------------------
       // Explicitly known but not projected
-      case 'compaction.started':
       case 'compaction.blocked':
-      case 'compaction.cancelled':
       case 'cron.fired':
       case 'goal.updated':
       case 'hook.result':
@@ -726,7 +746,9 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'agent.status.updated',
   'prompt.completed',
   'session.meta.updated',
+  'compaction.started',
   'compaction.completed',
+  'compaction.cancelled',
   'error',
   'warning',
   'subagent.spawned',

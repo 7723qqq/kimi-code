@@ -66,10 +66,16 @@ const props = withDefaults(
      */
     sessionLoading?: boolean;
     /**
+     * Live compaction state of the session: a "compacting…" banner while the
+     * daemon rewrites history, then a transient "compacted (X → Y tokens)" note
+     * (auto-dismissed by the composable).
+     */
+    compaction?: { status: 'running' | 'completed'; tokensBefore?: number; tokensAfter?: number } | null;
+    /**
      * @deprecated No longer used — Composer is rendered by ConversationPane.
      */
   }>(),
-  { approvals: () => [], bubble: false, mobile: false, running: false, sending: false },
+  { approvals: () => [], bubble: false, mobile: false, running: false, sending: false, compaction: null },
 );
 
 // Bubble layout is active on phones AND on the Modern desktop theme. ThinkingBlock
@@ -88,6 +94,16 @@ const streamingTurnId = computed<string | null>(() => {
 const emit = defineEmits<{
   approvalDecide: [approvalId: string, response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string }];
 }>();
+
+const compactionLabel = computed<string>(() => {
+  const c = props.compaction;
+  if (!c) return '';
+  if (c.status === 'running') return t('conversation.compacting');
+  if (typeof c.tokensBefore === 'number' && typeof c.tokensAfter === 'number') {
+    return t('conversation.compacted', { before: c.tokensBefore, after: c.tokensAfter });
+  }
+  return t('conversation.compactedPlain');
+});
 
 // Per-turn copy button state (keyed by turn id)
 const copiedTurn = ref<string | null>(null);
@@ -262,6 +278,12 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
       @decide="(response) => emit('approvalDecide', a.approvalId, response)"
     />
 
+    <!-- Compaction banner — running ("compacting…") or transient done note -->
+    <div v-if="compaction" class="compaction-note" :class="compaction.status">
+      <span v-if="compaction.status === 'running'" class="dot-pulse" aria-hidden="true" />
+      <span>{{ compactionLabel }}</span>
+    </div>
+
     <!-- Sending placeholder — moon spinner while the request is in flight -->
     <div v-if="sending" class="sending-placeholder">
       <span class="moon-spin" aria-label="Sending…">{{ MOON_FRAMES[moonFrame] }}</span>
@@ -330,6 +352,12 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
       :agent-name="a.agentName"
       @decide="(response) => emit('approvalDecide', a.approvalId, response)"
     />
+
+    <!-- Compaction banner — running ("compacting…") or transient done note -->
+    <div v-if="compaction" class="compaction-note" :class="compaction.status">
+      <span v-if="compaction.status === 'running'" class="dot-pulse" aria-hidden="true" />
+      <span>{{ compactionLabel }}</span>
+    </div>
 
     <!-- Sending placeholder — moon spinner while the request is in flight -->
     <div v-if="sending" class="ln sending-line">
@@ -471,6 +499,19 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   padding: 1px 5px;
   color: var(--blue2);
 }
+
+/* Compaction banner — "compacting…" while running, transient done note after. */
+.compaction-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  margin: 6px 0;
+  font-size: 12.5px;
+  font-family: var(--mono);
+  color: var(--faint);
+}
+.compaction-note.completed { color: var(--ok); }
 
 /* Assistant message → left-aligned plain column, no role label */
 .a-msg {

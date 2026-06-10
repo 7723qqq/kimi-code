@@ -3,4 +3,7 @@ export default {
   newMessages: 'Latest messages',
   loading: 'Loading…',
   emptyWorkspaceHint: 'Send in {name}',
+  compacting: 'Compacting context…',
+  compacted: 'Context compacted ({before} → {after} tokens)',
+  compactedPlain: 'Context compacted',
 } as const;
