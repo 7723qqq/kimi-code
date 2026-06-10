@@ -1,17 +1,4 @@
-/**
- * `fs-path-safety` unit tests (W10.1 / Chain 9).
- *
- * Covers each branch of the safety algorithm:
- *   - empty string / literal '/'
- *   - absolute POSIX path
- *   - relative path containing '..' (lexically inside cwd, still rejected)
- *   - relative path that resolves to a sibling via `cwd/../something`
- *   - symlink target outside cwd
- *   - happy path: '.' / 'src/index.ts' / nested existing path
- *
- * Uses `os.tmpdir()`-anchored sandboxes — macOS-realpath-safe because the
- * algorithm realpaths the cwd before containment.
- */
+
 
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   FsPathEscapesError,
   resolveSafePath,
-} from '#/services/fs/fsPathSafety';
+} from '@moonshot-ai/services';
 
 let tmpDir: string;
 let cwd: string;
@@ -83,8 +70,7 @@ describe('resolveSafePath', () => {
   });
 
   it('rejects any input containing a ".." segment (even when lexically inside cwd)', async () => {
-    // 'a/../hello.txt' would resolve to cwd/hello.txt lexically, but
-    // SCHEMAS §4.4 line 755 says "拒绝包含 `..` 段" regardless.
+
     try {
       await resolveSafePath(cwd, 'a/../hello.txt');
     } catch (err) {
@@ -116,7 +102,7 @@ describe('resolveSafePath', () => {
   it('accepts a symlink that targets a path INSIDE cwd', async () => {
     symlinkSync(join(cwd, 'hello.txt'), join(cwd, 'alias'));
     const r = await resolveSafePath(cwd, 'alias');
-    // Realpath collapses to the real file inside cwd.
+
     expect(r.relative).toBe('hello.txt');
   });
 

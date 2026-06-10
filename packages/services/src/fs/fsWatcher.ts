@@ -4,8 +4,6 @@ import { createDecorator } from '@moonshot-ai/agent-core';
 
 import type { FsChangeEntry } from '@moonshot-ai/protocol';
 
-import type { WsConnection } from '#/ws/connection';
-
 export class FsWatchLimitError extends Error {
   readonly connectionId: string;
   readonly attempted: number;
@@ -76,17 +74,9 @@ export interface FsWatcherServiceOptions {
 }
 
 export function createConnectionLookup(
-  getConnection: (connId: string) => WsConnection | undefined,
+  getConnection: (connId: string) => FsWatcherDeliverySink | undefined,
 ): FsWatcherConnectionLookup {
   return {
-    resolve(connectionId: string): FsWatcherDeliverySink | undefined {
-      const conn = getConnection(connectionId);
-      if (!conn) return undefined;
-      return {
-        send(frame): void {
-          conn.send(frame);
-        },
-      };
-    },
+    resolve: getConnection,
   };
 }

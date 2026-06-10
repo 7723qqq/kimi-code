@@ -1,18 +1,40 @@
-/**
- * `PinoLogger` — implementation of `ILogService`.
- */
-
 import { Disposable } from '@moonshot-ai/agent-core';
+import { ILogService } from '@moonshot-ai/services';
+import { pino, type Logger, type LoggerOptions } from 'pino';
 
-import type { DaemonLogger } from '../../logger';
-import { ILogService } from './logger';
+export type DaemonLogger = Logger;
 
-/**
- * Adapter that satisfies `ILogService` by delegating to a `DaemonLogger` (pino).
- * No-op `dispose()`: pino's lifetime is managed by Fastify / the host process,
- * NOT by the DI container. Disposing here would close stdout writer streams
- * that other components still need during teardown.
- */
+export type DaemonLogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
+
+export interface CreateLoggerOptions {
+  level: DaemonLogLevel;
+  pretty?: boolean;
+}
+
+export function createDaemonLogger(opts: CreateLoggerOptions): DaemonLogger {
+  const pretty = opts.pretty ?? process.stdout.isTTY === true;
+  const base: LoggerOptions = {
+    level: opts.level,
+    base: { name: 'kimi-daemon' },
+    timestamp: pino.stdTimeFunctions.isoTime,
+  };
+  if (pretty) {
+    return pino({
+      ...base,
+      transport: {
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'SYS:HH:MM:ss.l o',
+          ignore: 'pid,hostname',
+          singleLine: false,
+        },
+      },
+    });
+  }
+  return pino(base);
+}
+
 export class PinoLogger extends Disposable implements ILogService {
   readonly _serviceBrand: undefined;
 

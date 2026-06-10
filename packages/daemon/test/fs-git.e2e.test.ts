@@ -1,18 +1,4 @@
-/**
- * `/api/v1/sessions/{sid}/fs:git_status` end-to-end tests (W11.2 / Chain 12 / P1.12).
- *
- * AC coverage (ROADMAP §Chain 12):
- *   1. e2e: git repo / non-git repo / dirty / clean
- *   2. (perf bench is implicit — covered by W6 smoke run)
- *
- * Plus:
- *   - branch / ahead / behind parsing
- *   - rename surfaced as `renamed`
- *   - paths filter applied
- *   - path safety on filter inputs (41304)
- *   - 40401 unknown session
- *   - parsePorcelain unit tests (header variants + XY collapse priority)
- */
+
 
 import { execFileSync } from 'node:child_process';
 import {
@@ -28,7 +14,7 @@ import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IRestGateway, startDaemon, type RunningDaemon } from '../src';
-import { parsePorcelain } from '#/services/fs/fsGit';
+import { parsePorcelain } from '@moonshot-ai/services';
 
 let tmpDir: string;
 let lockPath: string;
@@ -48,7 +34,7 @@ afterEach(async () => {
   try {
     await daemon?.close();
   } catch {
-    // ignore
+
   }
   daemon = undefined;
   rmSync(tmpDir, { recursive: true, force: true });
@@ -159,9 +145,9 @@ describe('POST /api/v1/sessions/{sid}/fs:git_status (W11.2)', () => {
 
   it('dirty repo: modified + untracked + deleted entries', async () => {
     initRepo();
-    // Modify the tracked file.
+
     writeFileSync(join(workspace, 'seed.txt'), 'changed\n');
-    // Add an untracked file.
+
     writeFileSync(join(workspace, 'new.txt'), 'new\n');
 
     const r = await bootDaemon();
@@ -183,7 +169,7 @@ describe('POST /api/v1/sessions/{sid}/fs:git_status (W11.2)', () => {
 
   it('renamed entry surfaces as `renamed`', async () => {
     initRepo();
-    // Stage a rename.
+
     git(['mv', 'seed.txt', 'renamed.txt']);
 
     const r = await bootDaemon();
@@ -195,9 +181,7 @@ describe('POST /api/v1/sessions/{sid}/fs:git_status (W11.2)', () => {
     });
     const env = envelopeOf<{ entries: Record<string, string> }>(res.json());
     expect(env.code).toBe(0);
-    // Either 'renamed' (if git detected the rename) or 'deleted' + 'added'
-    // (if rename detection was off). Both shapes are spec-valid; assert at
-    // least one of the new paths reports a status.
+
     const statuses = Object.values(env.data!.entries);
     expect(statuses.length).toBeGreaterThan(0);
     expect(
@@ -225,7 +209,6 @@ describe('POST /api/v1/sessions/{sid}/fs:git_status (W11.2)', () => {
   });
 
   it('non-git workspace → 40908', async () => {
-    // workspace is a plain tmpdir; no `git init`.
 
     const r = await bootDaemon();
     const sid = await createSession(r);
@@ -263,10 +246,6 @@ describe('POST /api/v1/sessions/{sid}/fs:git_status (W11.2)', () => {
     expect(env.code).toBe(40401);
   });
 });
-
-// -----------------------------------------------------------------
-// Unit: porcelain parser
-// -----------------------------------------------------------------
 
 describe('parsePorcelain (W11.2)', () => {
   it('parses a clean tree', () => {

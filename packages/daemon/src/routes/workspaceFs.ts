@@ -1,24 +1,4 @@
-/**
- * `/fs:browse` + `/fs:home` REST routes (daemon-OWN folder picker).
- *
- * **URL convention**: find-my-way's `::` escape collapses the two colons
- * into a literal `:` STATIC path segment. The Fastify routes therefore
- * use the literal-colon form `'/fs::browse'` + `'/fs::home'` — each
- * registers as a single static path that matches a request for
- * `/fs:browse` / `/fs:home` exactly. See REST.md §3 (`:action` URL
- * convention).
- *
- * Endpoints:
- *
- *   GET /fs:browse?path=<abs>  → FsBrowseResponse
- *   GET /fs:home               → FsHomeResponse
- *
- * **Error mapping**:
- *   - `WorkspaceFsNotAbsoluteError`   → envelope `code: 40001`
- *   - `WorkspaceFsNotFoundError`      → envelope `code: 40409`
- *   - `WorkspaceFsPermissionError`    → envelope `code: 40411`
- *   - other errors                    → global hook (→ 50001)
- */
+
 
 import {
   ErrorCode,
@@ -36,7 +16,7 @@ import {
   WorkspaceFsNotAbsoluteError,
   WorkspaceFsNotFoundError,
   WorkspaceFsPermissionError,
-} from '#/services/workspace';
+} from '@moonshot-ai/services';
 
 interface WorkspaceFsRouteHost {
   get(
@@ -53,8 +33,7 @@ export function registerWorkspaceFsRoutes(
   app: WorkspaceFsRouteHost,
   ix: IInstantiationService,
 ): void {
-  // GET /fs:browse  → registered as the static literal `/fs::browse`
-  // because find-my-way's `::` escape collapses to a literal `:`.
+
   const browseRoute = defineRoute(
     {
       method: 'GET',
@@ -79,7 +58,6 @@ export function registerWorkspaceFsRoutes(
   );
   app.get(browseRoute.path, browseRoute.options, browseRoute.handler as Parameters<WorkspaceFsRouteHost['get']>[2]);
 
-  // GET /fs:home  → registered as the static literal `/fs::home`.
   const homeRoute = defineRoute(
     {
       method: 'GET',
