@@ -40,11 +40,9 @@ import { ErrorCode } from '@moonshot-ai/protocol';
 import Fastify from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { ulid } from 'ulid';
 import { promises as fspPromises } from 'node:fs';
 import { sep as nodePathSep, relative as nodePathRelativeNative } from 'node:path';
 
-import { okEnvelope } from './envelope';
 import { installErrorHandler } from './error-handler';
 import { transformOpenApiDocument } from './openapi/transforms';
 import { acquireLock, DaemonLockedError } from './lock';
@@ -54,22 +52,7 @@ import {
   type DaemonLogger,
 } from './services/pinoLoggerService';
 import { resolveRequestId } from './request-id';
-import { registerFsRoutes } from './routes/fs';
-import { registerFilesRoutes } from './routes/files';
-import { registerMessagesRoutes } from './routes/messages';
-import { registerMetaRoute } from './routes/meta';
-import { registerModelCatalogRoutes } from './routes/modelCatalog';
-import { registerPromptsRoutes } from './routes/prompts';
-import { registerApprovalsRoutes } from './routes/approvals';
-import { registerAuthRoute } from './routes/auth';
-import { registerOAuthRoutes } from './routes/oauth';
-import { registerQuestionsRoutes } from './routes/questions';
-import { registerSessionsRoutes } from './routes/sessions';
-import { registerTasksRoutes } from './routes/tasks';
-import { registerToolsRoutes } from './routes/tools';
-import { registerDebugRoutes } from './routes/debug';
-import { registerWorkspacesRoutes } from './routes/workspaces';
-import { registerWorkspaceFsRoutes } from './routes/workspaceFs';
+import { registerApiV1Routes } from './routes/registerApiV1Routes';
 import { IConnectionRegistry } from '#/services/gateway';
 import { IRestGateway } from '#/services/gateway';
 import { ISessionClientsService } from '#/services/gateway';
@@ -176,99 +159,10 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<RunningDaem
   });
   const ix = new InstantiationService(services);
 
-  await app.register(async (apiV1) => {
-    apiV1.get('/healthz', {
-      schema: {
-        description: 'Health check',
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              code: { type: 'number' },
-              msg: { type: 'string' },
-              data: {
-                type: 'object',
-                properties: { ok: { type: 'boolean' } },
-              },
-              request_id: { type: 'string' },
-            },
-          },
-        },
-      },
-    }, async (req, reply) => {
-      return reply.send(okEnvelope({ ok: true }, req.id));
-    });
-
-    const daemonId = ulid();
-    const startedAt = new Date().toISOString();
-    registerMetaRoute(apiV1, {
-      daemonVersion,
-      daemonId,
-      startedAt,
-    });
-
-    registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], ix);
-
-    registerOAuthRoutes(apiV1 as unknown as Parameters<typeof registerOAuthRoutes>[0], ix);
-
-    registerModelCatalogRoutes(
-      apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],
-      ix,
-    );
-
-    registerSessionsRoutes(apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0], ix);
-
-    registerMessagesRoutes(apiV1 as unknown as Parameters<typeof registerMessagesRoutes>[0], ix);
-
-    registerPromptsRoutes(apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0], ix);
-
-    registerApprovalsRoutes(
-      apiV1 as unknown as Parameters<typeof registerApprovalsRoutes>[0],
-      ix,
-    );
-
-    registerQuestionsRoutes(
-      apiV1 as unknown as Parameters<typeof registerQuestionsRoutes>[0],
-      ix,
-    );
-
-    registerToolsRoutes(
-      apiV1 as unknown as Parameters<typeof registerToolsRoutes>[0],
-      ix,
-    );
-
-    registerTasksRoutes(
-      apiV1 as unknown as Parameters<typeof registerTasksRoutes>[0],
-      ix,
-    );
-
-    registerFsRoutes(
-      apiV1 as unknown as Parameters<typeof registerFsRoutes>[0],
-      ix,
-    );
-
-    registerFilesRoutes(
-      apiV1 as unknown as Parameters<typeof registerFilesRoutes>[0],
-      ix,
-    );
-
-    registerWorkspacesRoutes(
-      apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],
-      ix,
-    );
-
-    registerWorkspaceFsRoutes(
-      apiV1 as unknown as Parameters<typeof registerWorkspaceFsRoutes>[0],
-      ix,
-    );
-
-    if (opts.debugEndpoints === true) {
-      registerDebugRoutes(
-        apiV1 as unknown as Parameters<typeof registerDebugRoutes>[0],
-        ix,
-      );
-    }
-  }, { prefix: '/api/v1' });
+  await registerApiV1Routes(app, ix, {
+    daemonVersion,
+    debugEndpoints: opts.debugEndpoints,
+  });
 
   await app.register(swaggerUi, {
     routePrefix: '/documentation',
