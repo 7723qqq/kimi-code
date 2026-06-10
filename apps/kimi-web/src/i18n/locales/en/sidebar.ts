@@ -5,7 +5,6 @@ export default {
   newWorkspace: 'New Workspace',
   emptyState: 'No sessions yet · click New Session to start',
   archiveConfirm: 'Archive session?',
-  deleteConfirm: 'Delete session?',
   confirm: 'Confirm',
   cancel: 'Cancel',
   options: 'Options',

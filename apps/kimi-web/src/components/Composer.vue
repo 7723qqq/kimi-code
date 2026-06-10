@@ -80,7 +80,6 @@ const { t } = useI18n();
 
 const text = ref('');
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
-const isFocused = ref(false);
 
 function autosize(): void {
   const el = textareaRef.value;
@@ -566,7 +565,13 @@ onUnmounted(() => {
 
 // Context formatting
 const kFmt = (n: number) => `${Math.round(n / 1000)}k`;
-const pct = computed(() => Math.round(((props.status?.ctxUsed ?? 0) / (props.status?.ctxMax ?? 1)) * 100) || 0);
+// Clamped to 0–100: ctxUsed can momentarily exceed ctxMax (estimates), and
+// ctxMax can be 0 before the first status fetch — both broke the ring.
+const pct = computed(() => {
+  const max = props.status?.ctxMax ?? 0;
+  if (max <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round(((props.status?.ctxUsed ?? 0) / max) * 100)));
+});
 
 const ctxTooltip = computed(() => {
   const used = (props.status?.ctxUsed ?? 0).toLocaleString();
@@ -694,7 +699,7 @@ function selectModel(modelId: string): void {
     </div>
 
     <!-- Main composer card -->
-    <div class="composer-card" :class="{ focused: isFocused }">
+    <div class="composer-card">
       <!-- Input row with popup menus -->
       <div class="cin-wrap">
         <!-- Slash menu (above textarea) -->
@@ -725,8 +730,6 @@ function selectModel(modelId: string): void {
             rows="1"
             @keydown="handleKeydown"
             @input="handleInput"
-            @focus="isFocused = true"
-            @blur="isFocused = false"
           />
 
           <button
@@ -893,7 +896,7 @@ function selectModel(modelId: string): void {
             v-for="m in providerModels"
             :key="m.id"
             class="md-row"
-            :class="{ 'is-current': m.id === status.model || m.model === status.model || m.displayName === status.model }"
+            :class="{ 'is-current': m.id === status.modelId }"
             role="menuitem"
             @click="selectModel(m.id)"
           >
@@ -1170,8 +1173,7 @@ function selectModel(modelId: string): void {
 }
 .compact-chip:hover { background: var(--panel2); }
 
-/* Interrupt button */
-/* Send button — circular icon */
+/* Send button — circular icon (morphs into the abort square while running) */
 .send {
   width: 30px;
   height: 30px;
@@ -1216,7 +1218,7 @@ function selectModel(modelId: string): void {
   background: var(--err);
 }
 .send.aborting:hover {
-  background: #b91c1c;
+  background: color-mix(in srgb, var(--err) 85%, #000);
 }
 
 /* Bottom toolbar */
@@ -1425,14 +1427,6 @@ function selectModel(modelId: string): void {
   background: var(--soft);
 }
 
-.md-row-info {
-  cursor: default;
-  pointer-events: none;
-}
-.md-row-info .md-name {
-  font-weight: 500;
-}
-
 .md-check {
   width: 14px;
   flex: none;
@@ -1581,11 +1575,12 @@ function selectModel(modelId: string): void {
   }
 
   /* Mobile toolbar: hide secondary controls; only attach + model stay visible.
-     Permission, plan, context, compact chip move into the model dropdown. */
+     Permission / plan / context live in the MobileSettingsSheet. The /compact
+     chip stays: it is the ONLY context-pressure signal on a phone (it appears
+     at ≥80% usage) and tapping it triggers compaction directly. */
   .perm-pill,
   .toggle-pill,
-  .ctx-group,
-  .compact-chip {
+  .ctx-group {
     display: none;
   }
 
@@ -1596,17 +1591,11 @@ function selectModel(modelId: string): void {
     min-width: 180px;
   }
 
-  /* Permission dropdown on mobile → anchored left with padding */
-  .perm-dropdown {
-    left: 10px;
-    right: auto;
-    min-width: 200px;
-    max-width: calc(100vw - 40px);
-  }
-
-  /* Bump mobile font sizes +2px and pin input at 16px to prevent iOS zoom. */
+  /* Bump mobile font sizes +2px and pin input at 16px to prevent iOS zoom.
+     Single-line-friendly height: 56px desktop default → 44px touch target. */
   .ph {
     font-size: 16px;
+    min-height: 44px;
   }
   .model-pill,
   .attach-btn {

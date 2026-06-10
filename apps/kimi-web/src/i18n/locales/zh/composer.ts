@@ -1,7 +1,6 @@
 export default {
   placeholder: '输入消息…',
   send: '发送 ↵',
-  queue: '排队',
   queueLabel: '队列',
   editQueued: '编辑（载入到输入框）',
   queuedImageOnly: '图片 ×{n}',

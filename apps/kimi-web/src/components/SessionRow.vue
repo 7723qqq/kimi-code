@@ -106,8 +106,8 @@ defineExpose({ closeMenu, cancelDelete });
 <template>
   <div class="se" :class="{ on: active }" @click="emit('select', session.id)">
     <!-- Delete confirm overlay -->
-    <div v-if="confirming" class="del-confirm" @click.stop>
-      <span class="del-label">{{ t('sidebar.archiveConfirm') }}</span>
+    <div v-if="confirming" class="archive-confirm" @click.stop>
+      <span class="archive-label">{{ t('sidebar.archiveConfirm') }}</span>
       <button class="btn-confirm" @click.stop="confirmDelete">{{ t('sidebar.confirm') }}</button>
       <button class="btn-cancel" @click.stop="cancelDelete">{{ t('sidebar.cancel') }}</button>
     </div>
@@ -181,7 +181,7 @@ defineExpose({ closeMenu, cancelDelete });
   cursor: pointer;
   position: relative;
 }
-.se:hover { background: #f2f2f2; }
+.se:hover { background: var(--panel2); }
 .se.on { background: rgba(21, 101, 192, 0.07); }
 
 .row {

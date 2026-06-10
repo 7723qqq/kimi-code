@@ -5,7 +5,6 @@ export default {
   newWorkspace: '新建工作区',
   emptyState: '还没有会话 · 点击 新建会话 开始',
   archiveConfirm: '归档会话?',
-  deleteConfirm: '删除会话?',
   confirm: '确认',
   cancel: '取消',
   options: '选项',

@@ -10,6 +10,7 @@ export default {
   currentWorkspace: 'Current workspace only',
   addWorkspace: 'Add workspace…',
   noWorkspace: 'No workspace',
+  deleteHasSessions: 'This workspace still has sessions — archive them before deleting it',
   // Column-header scope toggle
   scopeCurrent: 'this workspace',
   scopeAll: 'all workspaces',

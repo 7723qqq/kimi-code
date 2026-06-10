@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ContentAlign, ConversationStatus, DiffViewLine, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, UIQuestion } from '../types';
+import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ConversationStatus, DiffViewLine, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, UIQuestion } from '../types';
 import type { AppModel, ApprovalDecision, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { FileData } from './FilePreview.vue';
@@ -58,9 +58,6 @@ const props = defineProps<{
   compaction?: { status: 'running' | 'completed'; tokensBefore?: number; tokensAfter?: number } | null;
   /** Available models for the quick-switch dropdown in the composer toolbar. */
   models?: AppModel[];
-  /** True when the active workspace has no sessions — shows a centred input
-      placeholder so the user can start typing immediately. */
-  workspaceEmpty?: boolean;
   /** Workspace name shown in the empty-session hint above the centred composer. */
   workspaceName?: string;
 }>();
@@ -86,23 +83,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-// ---------------------------------------------------------------------------
-// Content alignment (left vs centered) + max reading width. Persisted so the
-// reading layout sticks across reloads. The max-width applies in both modes.
-// ---------------------------------------------------------------------------
-const CONTENT_ALIGN_KEY = 'kimi-web.content-align';
-
-function loadAlignFromStorage(): ContentAlign {
-  try {
-    const v = localStorage.getItem(CONTENT_ALIGN_KEY);
-    if (v === 'left' || v === 'center') return v;
-  } catch {
-    // localStorage unavailable — fall back to default
-  }
-  return 'center';
+// The align toggle was removed with its UI (6e50cb7) — reading layout is
+// always centered now. Drop the old persisted preference so users who once
+// picked 'left' aren't frozen on it with no way back.
+try {
+  localStorage.removeItem('kimi-web.content-align');
+} catch {
+  // localStorage unavailable
 }
-
-const contentAlign = ref<ContentAlign>(loadAlignFromStorage());
 
 // expose a way for App.vue to imperatively switch to tasks tab
 const active = ref<PaneKey>('chat');
@@ -112,6 +100,17 @@ function switchTab(tab: PaneKey): void {
   active.value = tab;
 }
 defineExpose({ switchTab });
+
+// The TabBar is hidden for an empty session (the centred quick-start composer
+// takes the whole pane) — if the user was parked on tasks/todo/files when the
+// session emptied out, they'd be trapped with no tabs AND no composer. Snap
+// back to chat whenever the tab chrome disappears.
+watch(
+  () => props.turns.length === 0 && !props.sessionLoading,
+  (chromeHidden) => {
+    if (chromeHidden && active.value !== 'chat') active.value = 'chat';
+  },
+);
 
 // Bubble chat layout: always on mobile, and on desktop under the Modern theme.
 const bubble = computed(() => props.mobile === true || props.modern === true);
@@ -537,12 +536,12 @@ onUnmounted(() => {
     >
       <!-- Chat reading column: constrained to a comfortable max width and
            aligned left or centered within the pane. -->
-      <div v-if="active === 'chat'" class="content-wrap" :class="[mobile ? 'align-mobile' : `align-${contentAlign}`]">
+      <div v-if="active === 'chat'" class="content-wrap" :class="[mobile ? 'align-mobile' : 'align-center']">
         <template v-if="turns.length === 0 && !sessionLoading">
           <!-- Empty session: Composer rendered in the centre of the pane -->
           <div class="empty-spacer" />
           <div class="empty-hint">
-            <span class="empty-hint-text">{{ t('conversation.emptyWorkspaceHint', { name: workspaceName || '' }) }}</span>
+            <span class="empty-hint-text">{{ workspaceName ? t('conversation.emptyWorkspaceHint', { name: workspaceName }) : t('composer.emptyConversation') }}</span>
           </div>
           <Composer
             class="empty-composer"
@@ -717,7 +716,7 @@ onUnmounted(() => {
          edge-to-edge on wide screens. The composer/input sits on top; the status
          line is a quiet footer BELOW it (model/thinking/plan/permission left,
          ctx far right). -->
-    <div ref="dockRef" class="dock" :class="[mobile ? 'align-mobile' : `align-${contentAlign}`]">
+    <div ref="dockRef" class="dock" :class="[mobile ? 'align-mobile' : 'align-center']">
       <!-- QuestionCard replaces Composer while a question is pending -->
       <QuestionCard
         v-if="pendingQuestion"

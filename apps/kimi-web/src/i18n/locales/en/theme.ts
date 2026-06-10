@@ -9,12 +9,4 @@ export default {
   accentLabel: 'Accent',
   accentBlue: 'Kimi Blue',
   accentMono: 'Mono',
-  codeFontLabel: 'Font',
-  codeFontSfMono: 'System',
-  codeFontFiraCode: 'Fira Code',
-  codeFontJetBrainsMono: 'JetBrains Mono',
-  codeFontSourceCodePro: 'Source Code Pro',
-  codeFontIbmPlexMono: 'IBM Plex Mono',
-  codeFontSpaceMono: 'Space Mono',
-  codeFontUbuntuMono: 'Ubuntu Mono',
 } as const;

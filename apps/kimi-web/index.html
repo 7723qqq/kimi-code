@@ -6,11 +6,26 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)" />
-    <!-- Free coding fonts (OFL/UFL licensed): Fira Code, JetBrains Mono, Source Code Pro,
-         IBM Plex Mono, Space Mono, Ubuntu Mono. Loaded once; switched via CSS variable. -->
+    <!-- Apply the persisted colour scheme BEFORE the bundle loads: without
+         this, dark-mode users get a white flash on every load (the data
+         attribute only lands once useKimiWebClient executes). Mirrors the
+         logic in applyColorSchemeToDocument. -->
+    <script>
+      (function () {
+        try {
+          var v = localStorage.getItem('kimi-web.color-scheme');
+          if (v === 'light' || v === 'dark' || v === 'system') {
+            document.documentElement.dataset.colorScheme = v;
+          }
+        } catch (e) {
+          /* ignore */
+        }
+      })();
+    </script>
+    <!-- Inter for the Modern theme prose/chrome. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Source+Code+Pro:wght@400;500;600&family=Space+Mono:wght@400;700&family=Ubuntu+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <title>Kimi Web</title>
   </head>
   <body>

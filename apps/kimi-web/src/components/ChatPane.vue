@@ -29,6 +29,10 @@ onUnmounted(() => {
     clearInterval(moonInterval);
     moonInterval = null;
   }
+  if (copiedTimer !== null) {
+    clearTimeout(copiedTimer);
+    copiedTimer = null;
+  }
 });
 
 const props = withDefaults(
@@ -141,6 +145,9 @@ function isAssistantRunEnd(index: number): boolean {
   return !next || next.role !== 'assistant';
 }
 
+// One shared timer: copying B within 1.4s of copying A must not let A's stale
+// timer hide B's checkmark early. Cleared on unmount.
+let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 function copyAssistantRun(index: number): void {
   const turn = props.turns[index];
   if (!turn) return;
@@ -150,7 +157,11 @@ function copyAssistantRun(index: number): void {
     .join('\n\n');
   navigator.clipboard.writeText(text).then(() => {
     copiedTurn.value = turn.id;
-    setTimeout(() => { copiedTurn.value = null; }, 1400);
+    if (copiedTimer !== null) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedTimer = null;
+      copiedTurn.value = null;
+    }, 1400);
   }).catch(() => {/* ignore */});
 }
 
@@ -166,48 +177,9 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   return blocks;
 }
 
-/** Extract a file path from a tool argument string (JSON or plain).
-    TODO: temporarily unused with turn-summary hidden. */
-// function extractFilePath(arg: string): string | undefined {
-//   try {
-//     const d = JSON.parse(arg) as Record<string, unknown>;
-//     const p =
-//       (typeof d.path === 'string' ? d.path : undefined) ??
-//       (typeof d.file_path === 'string' ? d.file_path : undefined) ??
-//       (typeof d.filePath === 'string' ? d.filePath : undefined) ??
-//       (typeof d.filename === 'string' ? d.filename : undefined) ??
-//       (typeof d.dir === 'string' ? d.dir : undefined) ??
-//       (typeof d.directory === 'string' ? d.directory : undefined) ??
-//       (typeof d.cwd === 'string' ? d.cwd : undefined);
-//     return p ? p.split('/').pop() ?? p : undefined;
-//   } catch {
-//     return undefined;
-//   }
-// }
-
-/** Count tools and unique files touched in a turn.
-    TODO: temporarily unused with turn-summary hidden. */
-// function countToolsAndFiles(turn: ChatTurn): { toolCount: number; fileCount: number } {
-//   let toolCount = 0;
-//   const filePaths = new Set<string>();
-//   for (const blk of turnBlocks(turn)) {
-//     if (blk.kind !== 'tool') continue;
-//     toolCount++;
-//     const path = extractFilePath(blk.tool.arg);
-//     if (path) filePaths.add(path);
-//   }
-//   return { toolCount, fileCount: filePaths.size };
-// }
-
-/** Turn-end summary: "已调用 3 个工具，修改 5 个文件".
-    TODO: temporarily hidden — uncomment when turn-summary UI is ready. */
-// function turnSummary(turn: ChatTurn): string {
-//   const { toolCount, fileCount } = countToolsAndFiles(turn);
-//   const parts: string[] = [];
-//   if (toolCount > 0) parts.push(`已调用 ${toolCount} 个工具`);
-//   if (fileCount > 0) parts.push(`修改 ${fileCount} 个文件`);
-//   return parts.join('，');
-// }
+// NOTE: the turn-summary line ("已调用 N 个工具…") was removed in f9417af. If it
+// comes back, rebuild it from turnBlocks() with i18n strings — the old
+// implementation lives in git history at f9417af^.
 </script>
 
 <template>
@@ -248,9 +220,6 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
           <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" /></div>
           <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
         </template>
-        <!-- TODO: temporarily hidden turn-summary
-        <div v-if="turn.id !== streamingTurnId && turnSummary(turn)" class="turn-summary">{{ turnSummary(turn) }}</div>
-        -->
         <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)" class="a-msg-ft">
           <button
             class="a-cpbtn"
@@ -342,9 +311,6 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
               <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
             </template>
           </template>
-          <!-- TODO: temporarily hidden turn-summary
-        <div v-if="turn.id !== streamingTurnId && turnSummary(turn)" class="turn-summary">{{ turnSummary(turn) }}</div>
-        -->
         </div>
       </div>
     </template>
@@ -518,13 +484,6 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   max-width: 94%;
   width: 94%;
 }
-.turn-summary {
-  color: var(--faint);
-  font-size: 13px;
-  font-family: var(--mono);
-  margin-top: 8px;
-  line-height: 1.4;
-}
 .a-msg-ft {
   display: flex;
   height: auto;
@@ -559,11 +518,23 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 .a-cpbtn svg {
   flex: none;
 }
-/* Touch devices: always show copy button for easier tapping */
+/* Touch devices: always show the copy buttons (no hover to reveal them) and
+   give the bubble-layout button a comfortable tap size. */
 @media (hover: none) {
   .a-msg-ft {
     height: auto;
     margin-top: 10px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .a-cpbtn {
+    font-size: 13px;
+    padding: 8px 10px;
+    margin: -4px -6px;
+  }
+  /* Desktop line-turns layout on a touch screen (tablets): the hover-revealed
+     copy button would otherwise be permanently invisible. */
+  .cpbtn {
     opacity: 1;
     pointer-events: auto;
   }

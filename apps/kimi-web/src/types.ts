@@ -149,7 +149,10 @@ export interface TaskItem {
 }
 
 export interface ConversationStatus {
+  /** Friendly display name of the live model (for the toolbar pill). */
   model: string;
+  /** Raw model id — the value selection lists compare against. */
+  modelId: string;
   ctxUsed: number;
   ctxMax: number;
   permission: 'manual' | 'auto' | 'yolo';
@@ -173,7 +176,6 @@ export interface QueuedPromptView {
 }
 
 /** Horizontal alignment of the conversation reading column within the pane. */
-export type ContentAlign = 'left' | 'center';
 
 /**
  * UI-facing question type, mapped from AppQuestionRequest in the composable.
