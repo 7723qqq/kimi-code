@@ -318,10 +318,6 @@ function truncatePath(path: string, maxLen = 55): string {
   display: table-row;
 }
 
-.fp-line-row:hover {
-  background: var(--panel2);
-}
-
 .fp-gutter {
   display: table-cell;
   width: 44px;

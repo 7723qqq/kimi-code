@@ -87,9 +87,6 @@ const streamingTurnId = computed<string | null>(() => {
 
 const emit = defineEmits<{
   approvalDecide: [approvalId: string, response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string }];
-  /** The user toggled a process fold — the scroller must NOT auto-follow to
-      the bottom, or the fold visually expands upward from a pinned bottom. */
-  foldToggle: [];
 }>();
 
 // Per-turn copy button state (keyed by turn id)
@@ -109,8 +106,31 @@ function turnPlainText(turn: ChatTurn): string {
   return parts.join('\n\n');
 }
 
-function copyTurn(turn: ChatTurn) {
-  navigator.clipboard.writeText(turnPlainText(turn)).then(() => {
+function assistantRunEndingAt(index: number): ChatTurn[] {
+  const run: ChatTurn[] = [];
+  for (let i = index; i >= 0; i--) {
+    const turn = props.turns[i];
+    if (!turn || turn.role !== 'assistant') break;
+    run.unshift(turn);
+  }
+  return run;
+}
+
+function isAssistantRunEnd(index: number): boolean {
+  const turn = props.turns[index];
+  if (!turn || turn.role !== 'assistant') return false;
+  const next = props.turns[index + 1];
+  return !next || next.role !== 'assistant';
+}
+
+function copyAssistantRun(index: number): void {
+  const turn = props.turns[index];
+  if (!turn) return;
+  const text = assistantRunEndingAt(index)
+    .map((t) => turnPlainText(t))
+    .filter(Boolean)
+    .join('\n\n');
+  navigator.clipboard.writeText(text).then(() => {
     copiedTurn.value = turn.id;
     setTimeout(() => { copiedTurn.value = null; }, 1400);
   }).catch(() => {/* ignore */});
@@ -127,94 +147,6 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   for (const tool of turn.tools ?? []) blocks.push({ kind: 'tool', tool });
   return blocks;
 }
-
-/** Index of the last text block in a turn, or -1 if none. */
-function lastTextIndex(blocks: TurnBlock[]): number {
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    if (blocks[i]!.kind === 'text') return i;
-  }
-  return -1;
-}
-
-/** Blocks before the final summary text (thinking + tools). */
-function processBlocks(turn: ChatTurn): TurnBlock[] {
-  const blocks = turnBlocks(turn);
-  const idx = lastTextIndex(blocks);
-  if (idx <= 0) return [];
-  return blocks.slice(0, idx);
-}
-
-/** Blocks from the final summary text onward. */
-function summaryBlocks(turn: ChatTurn): TurnBlock[] {
-  const blocks = turnBlocks(turn);
-  const idx = lastTextIndex(blocks);
-  if (idx <= 0) return blocks;
-  return blocks.slice(idx);
-}
-
-/** Whether this turn has a separable process + summary. */
-function canFoldTurn(turn: ChatTurn): boolean {
-  if (turn.id === streamingTurnId.value) return false;
-  return lastTextIndex(turnBlocks(turn)) > 0;
-}
-
-/** Per-turn collapsed state for the process fold. */
-const collapsedTurns = ref<Record<string, boolean>>({});
-
-function isFolded(turnId: string): boolean {
-  return collapsedTurns.value[turnId] ?? true;
-}
-
-function toggleTurnCollapse(turnId: string): void {
-  collapsedTurns.value = { ...collapsedTurns.value, [turnId]: !collapsedTurns.value[turnId] };
-  emit('foldToggle');
-}
-
-/** Extract a file path from a tool's JSON arg, if any. */
-function extractFilePath(arg: string): string | undefined {
-  try {
-    const d = JSON.parse(arg) as Record<string, unknown>;
-    const p =
-      (typeof d.path === 'string' ? d.path : undefined) ??
-      (typeof d.file_path === 'string' ? d.file_path : undefined) ??
-      (typeof d.filePath === 'string' ? d.filePath : undefined) ??
-      (typeof d.filename === 'string' ? d.filename : undefined) ??
-      (typeof d.dir === 'string' ? d.dir : undefined) ??
-      (typeof d.directory === 'string' ? d.directory : undefined) ??
-      (typeof d.cwd === 'string' ? d.cwd : undefined);
-    return p ? p.split('/').pop() ?? p : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Build a friendly summary: "已调用 3 个工具，修改 5 个文件". */
-function processSummary(turn: ChatTurn): string {
-  const blocks = processBlocks(turn);
-  let toolCount = 0;
-  const filePaths: string[] = [];
-
-  for (const blk of blocks) {
-    if (blk.kind !== 'tool') continue;
-    toolCount++;
-    const path = extractFilePath(blk.tool.arg);
-    if (path) filePaths.push(path);
-  }
-
-  const uniqueFiles = [...new Set(filePaths)];
-  const isZh = t('thinking.process') === '处理过程';
-  const sep = isZh ? '，' : ' · ';
-  const parts: string[] = [];
-
-  if (toolCount > 0) {
-    parts.push(`${t('thinking.called')} ${t('thinking.toolCount', { count: toolCount })}`);
-  }
-  if (uniqueFiles.length > 0) {
-    parts.push(`${t('thinking.edited')} ${t('thinking.fileCount', { count: uniqueFiles.length })}`);
-  }
-
-  return parts.length > 0 ? parts.join(sep) : t('thinking.process');
-}
 </script>
 
 <template>
@@ -230,7 +162,7 @@ function processSummary(turn: ChatTurn): string {
     </div>
     <div v-else-if="turns.length === 0 && (!approvals || approvals.length === 0)" class="chat-empty" />
 
-    <template v-for="turn in turns" :key="turn.id">
+    <template v-for="(turn, ti) in turns" :key="turn.id">
       <!-- User turn → right-aligned soft-blue bubble -->
       <div v-if="turn.role === 'user'" class="u-bub">
         <!-- Image attachments -->
@@ -247,35 +179,19 @@ function processSummary(turn: ChatTurn): string {
         <Markdown :text="turn.text" />
       </div>
 
-      <!-- Assistant turn → left-aligned, no name/role label. Process blocks
-           (thinking + tools) are folded behind a toggle placed BEFORE the final
-           summary text so expanding reads downward. -->
+      <!-- Assistant turn → left-aligned, no name/role label. -->
       <div v-else class="a-msg">
-        <template v-if="canFoldTurn(turn)">
-          <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
-            <span class="fold-lbl">{{ processSummary(turn) }}</span>
-          </button>
-          <div class="fold-body" :class="{ open: !isFolded(turn.id) }">
-            <div class="fold-inner">
-              <template v-for="(blk, bi) in processBlocks(turn)" :key="bi">
-                <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="false" />
-                <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" /></div>
-                <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
-              </template>
-            </div>
-          </div>
-          <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
-            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="false" />
-            <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="false" /></div>
-            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
-          </template>
+        <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
+          <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
+          <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" /></div>
+          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
         </template>
-        <div v-if="turn.id !== streamingTurnId" class="a-msg-ft">
+        <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)" class="a-msg-ft">
           <button
             class="a-cpbtn"
             :title="t('filePreview.copy')"
             tabindex="-1"
-            @click="copyTurn(turn)"
+            @click="copyAssistantRun(ti)"
           >
             <svg v-if="copiedTurn !== turn.id" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="3" y="3" width="9" height="9" rx="1.5"/>
@@ -315,7 +231,7 @@ function processSummary(turn: ChatTurn): string {
          the dock, moved here by ConversationPane when workspaceEmpty). -->
     <div v-else-if="turns.length === 0 && (!approvals || approvals.length === 0)" class="chat-empty" />
 
-    <template v-for="turn in turns" :key="turn.id">
+    <template v-for="(turn, ti) in turns" :key="turn.id">
       <div class="ln" :class="turn.role === 'user' ? 'userline' : 'ai'">
         <!-- Line-number gutter -->
         <span class="no">{{ turn.no }}</span>
@@ -333,7 +249,7 @@ function processSummary(turn: ChatTurn): string {
             </template>
 
             <!-- Per-message copy button (shown on hover, only when turn is complete) -->
-            <button v-if="turn.id !== streamingTurnId" class="cpbtn" @click="copyTurn(turn)" :title="t('filePreview.copy')" tabindex="-1">
+            <button v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)" class="cpbtn" @click="copyAssistantRun(ti)" :title="t('filePreview.copy')" tabindex="-1">
               <svg v-if="copiedTurn !== turn.id" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="3" width="9" height="9" rx="1.5"/>
                 <path d="M6 1h7a1 1 0 0 1 1 1v7"/>
@@ -344,34 +260,11 @@ function processSummary(turn: ChatTurn): string {
             </button>
           </div>
 
-          <!-- Thinking + message text + tool cards, interleaved in original
-               call order. Process blocks are folded behind a toggle placed
-               BEFORE the final summary so expanding reads downward. -->
-          <template v-if="canFoldTurn(turn)">
-            <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
-              <span class="fold-lbl">{{ processSummary(turn) }}</span>
-            </button>
-            <div class="fold-body" :class="{ open: !isFolded(turn.id) }">
-              <div class="fold-inner">
-                <template v-for="(blk, bi) in processBlocks(turn)" :key="bi">
-                  <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="false" />
-                  <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" />
-                  <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
-                </template>
-              </div>
-            </div>
-            <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
-              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="false" />
-              <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="false" />
-              <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
-            </template>
-          </template>
-          <template v-else>
-            <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
-              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
-              <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
-              <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
-            </template>
+          <!-- Thinking + message text + tool cards, interleaved in original call order. -->
+          <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
+            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
+            <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
+            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
           </template>
         </div>
       </div>
@@ -549,40 +442,6 @@ function processSummary(turn: ChatTurn): string {
   pointer-events: auto;
 }
 
-/* Fold toggle: collapses process blocks (thinking + tools) before the final
-   summary text. Styled as a light inline label, not a surfaced button. */
-.fold-h {
-  display: inline-flex;
-  align-items: center;
-  background: none;
-  border: none;
-  padding: 2px 0;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 14px;
-  font-family: var(--mono);
-  line-height: 1.4;
-}
-.fold-h:hover {
-  color: var(--text);
-}
-.fold-lbl {
-  color: var(--muted);
-}
-.fold-body {
-  max-height: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: max-height 0.12s ease-out, opacity 0.08s ease-out;
-}
-.fold-body.open {
-  max-height: 3000px;
-  opacity: 1;
-}
-.fold-inner {
-  padding-bottom: 8px;
-}
-
 .a-cpbtn {
   display: inline-flex;
   align-items: center;
@@ -672,9 +531,6 @@ function processSummary(turn: ChatTurn): string {
 @media (max-width: 640px) {
   .u-bub .msg,
   .a-msg .msg {
-    font-size: 16px;
-  }
-  .fold-h {
     font-size: 16px;
   }
   .userline .pr,

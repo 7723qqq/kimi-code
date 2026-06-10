@@ -365,6 +365,7 @@ function handleCreateSession(): void {
       :file-reload-key="client.activeSessionId.value"
       :session-loading="client.sessionLoading.value"
       :workspace-empty="workspaceEmpty"
+      :workspace-name="client.visibleWorkspace.value?.name"
       @submit="handleSubmit($event)"
       @approval="(approvalId, response) => client.respondApproval(approvalId, response)"
       @cancel-task="client.cancelTask($event)"
