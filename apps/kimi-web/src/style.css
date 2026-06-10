@@ -514,7 +514,6 @@ html[data-theme="modern"] .box .chip { border-radius: var(--r-xs); font-family: 
 html[data-theme="modern"] .box.err { border-color: color-mix(in srgb, var(--err) 25%, #fff); }
 html[data-theme="modern"] .box.err .bh { background: color-mix(in srgb, var(--err) 4%, #fff); }
 html[data-theme="modern"] .box.err .bh:hover { background: color-mix(in srgb, var(--err) 7%, #fff); }
-html[data-theme="modern"] .u-bub code { background: color-mix(in srgb, var(--blue) 9%, transparent); }
 html[data-theme="modern"] .newmsg-pill { font-family: var(--sans); }
 html[data-theme="modern"] .seg-btn { font-family: var(--sans); }
 html[data-theme="modern"] .files-back { font-family: var(--sans); }

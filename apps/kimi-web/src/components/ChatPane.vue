@@ -237,7 +237,8 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
             loading="lazy"
           />
         </div>
-        <Markdown :text="turn.text" />
+        <!-- User input renders verbatim (pre-wrap), never through Markdown -->
+        <div class="u-text">{{ turn.text }}</div>
       </div>
 
       <!-- Assistant turn → left-aligned, no name/role label. -->
@@ -330,11 +331,16 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
             </button>
           </div>
 
+          <!-- User input renders verbatim (pre-wrap), never through Markdown -->
+          <div v-if="turn.role === 'user'" class="u-text">{{ turn.text }}</div>
+
           <!-- Thinking + message text + tool cards, interleaved in original call order. -->
-          <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
-            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
-            <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
-            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
+          <template v-else>
+            <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
+              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
+              <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
+              <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
+            </template>
           </template>
           <!-- TODO: temporarily hidden turn-summary
         <div v-if="turn.id !== streamingTurnId && turnSummary(turn)" class="turn-summary">{{ turnSummary(turn) }}</div>
@@ -487,17 +493,10 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   font-size: 14px;
   line-height: 1.55;
 }
-/* Markdown inside a user bubble: tighten margins + tint inline code. */
-.u-bub :deep(p) { margin: 0; }
-.u-bub :deep(p + p) { margin-top: 6px; }
-.u-bub :deep(code) {
-  font-family: var(--mono);
-  font-size: 13px;
-  background: rgba(21, 101, 192, 0.09);
-  border: none;
-  border-radius: 5px;
-  padding: 1px 5px;
-  color: var(--blue2);
+/* User input is shown verbatim — preserve newlines, break long tokens. */
+.u-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Compaction banner — "compacting…" while running, transient done note after. */
@@ -628,7 +627,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 
 /* Mobile font bump (+2px) */
 @media (max-width: 640px) {
-  .u-bub .msg,
+  .u-bub .u-text,
   .a-msg .msg {
     font-size: 16px;
   }
