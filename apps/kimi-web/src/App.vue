@@ -71,7 +71,7 @@ onMounted(() => {
 // localStorage persistence); we mirror it here to drive the App grid.
 // ---------------------------------------------------------------------------
 const SIDEBAR_WIDTH_KEY = 'kimi-web.sidebar-width';
-const SIDEBAR_DEFAULT = 220;
+const SIDEBAR_DEFAULT = 270;
 const SIDEBAR_MIN = 170;
 const SIDEBAR_MAX = 420;
 
