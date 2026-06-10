@@ -1,8 +1,8 @@
 <!-- apps/kimi-web/src/components/TodoCard.vue -->
-<!-- Floating todo card pinned to the top-right of the conversation pane.
-     Driven by the model's TodoList tool (latest full-list write wins); stays
-     visible across turns until the list is cleared. Collapsible to a slim
-     header so it doesn't cover the transcript while reading. -->
+<!-- Todo list driven by the model's TodoList tool (latest full-list write
+     wins). Two render modes: a bordered card (used inside the wide-screen
+     floating stack — the PARENT positions it) and `inline` for the ~/todo tab.
+     Collapsible to a slim header so it doesn't cover the transcript. -->
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -10,9 +10,7 @@ import type { TodoView } from '../types';
 
 const props = defineProps<{
   todos: TodoView[];
-  /** Mobile shell: clear the taller mobile TabBar. */
-  mobile?: boolean;
-  /** Render as a normal block (tab content) instead of a floating card. */
+  /** Render as a normal block (tab content) instead of a bordered card. */
   inline?: boolean;
 }>();
 
@@ -28,7 +26,7 @@ function glyph(status: TodoView['status']): string {
 </script>
 
 <template>
-  <div class="todo-card" :class="{ mobile, 'tab-mode': inline }">
+  <div class="todo-card" :class="{ 'tab-mode': inline }">
     <button class="tc-head" type="button" @click="collapsed = !collapsed">
       <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
         <polyline points="2,4.5 3.5,6 5.5,3" />
@@ -55,31 +53,19 @@ function glyph(status: TodoView['status']): string {
 
 <style scoped>
 .todo-card {
-  position: absolute;
-  /* Below the 32px desktop TabBar */
-  top: 42px;
-  right: 16px;
-  z-index: 5;
-  width: 260px;
-  max-width: calc(100% - 32px);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 3px;
   font-size: 13px;
   overflow: hidden;
 }
-/* Below the 46px mobile TabBar */
-.todo-card.mobile { top: 56px; right: 10px; width: 220px; }
 
-/* Tab mode: static block instead of floating card */
+/* Tab mode: plain block instead of a bordered card */
 .todo-card.tab-mode {
-  position: static;
   width: 100%;
-  max-width: none;
   border: none;
   border-radius: 0;
   background: transparent;
-  z-index: auto;
 }
 .todo-card.tab-mode .tc-head {
   padding: 8px 14px;

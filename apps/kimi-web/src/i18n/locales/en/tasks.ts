@@ -8,4 +8,5 @@ export default {
   todoTag: 'todos',
   emptyTasks: 'No background tasks running',
   emptyTodo: 'No todos yet',
+  openTab: 'Open the tasks tab',
 } as const;

@@ -8,6 +8,7 @@ import type { FileItem } from './MentionMenu.vue';
 import type { FileData } from './FilePreview.vue';
 import TabBar from './TabBar.vue';
 import ChatPane from './ChatPane.vue';
+import TasksCard from './TasksCard.vue';
 import DiffView from './DiffView.vue';
 import ChangedTree from './ChangedTree.vue';
 import TasksPane from './TasksPane.vue';
@@ -517,6 +518,17 @@ onUnmounted(() => {
       @select="active = $event"
     />
 
+    <!-- Wide-screen floating stack (codex-style): todos + running background
+         tasks pinned to the top-right of the chat tab. Hidden under 1200px —
+         the TabBar counters stay the entry point there. -->
+    <div
+      v-if="active === 'chat' && turns.length > 0 && ((todos?.length ?? 0) > 0 || runningTasks > 0)"
+      class="float-stack"
+    >
+      <TodoCard v-if="(todos?.length ?? 0) > 0" :todos="todos ?? []" />
+      <TasksCard v-if="runningTasks > 0" :tasks="tasks" @open="active = 'tasks'" />
+    </div>
+
     <div
       ref="panesRef"
       class="panes"
@@ -578,11 +590,10 @@ onUnmounted(() => {
         @cancel="emit('cancelTask', $event)"
       />
 
-      <!-- ~/todo tab: inline todo list (replaces the floating card). -->
+      <!-- ~/todo tab: inline todo list. -->
       <TodoCard
         v-else-if="active === 'todo'"
         :todos="todos ?? []"
-        :mobile="mobile"
         inline
       />
 
@@ -749,6 +760,22 @@ onUnmounted(() => {
   min-width: 0;
   height: 100%;
   position: relative;
+}
+
+/* Wide-screen floating stack: todo + background-task cards pinned top-right
+   (below the 32px TabBar). Width-gated — narrow screens use the tabs. */
+.float-stack {
+  position: absolute;
+  top: 42px;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 260px;
+}
+@media (max-width: 1199px) {
+  .float-stack { display: none; }
 }
 .panes {
   flex: 1;
