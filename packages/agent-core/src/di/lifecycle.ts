@@ -1,55 +1,9 @@
-/**
- * Lifecycle primitives for DI-managed services: `IDisposable` interface, a
- * `Disposable` base class, plus the helper primitives (`DisposableStore`,
- * `MutableDisposable`, `DisposableMap`, `DisposableSet`, `toDisposable`,
- * `combinedDisposable`, `dispose`, `disposeOnReturn`, `Disposable.None`) that
- * `Event<T>` / `Emitter<T>` (in `base/common/event.ts`) build on top of.
- *
- * Modelled after VSCode's `base/common/lifecycle.ts`. Two intentional
- * deviations from upstream:
- *
- * 1. **Error policy** — VSCode's iterable `dispose(...)` collects per-child
- *    errors and throws an `AggregateError` at the end. Here every dispose
- *    path routes failures through `onUnexpectedError` and continues, so a
- *    single misbehaving child cannot abort sibling teardown. Same policy
- *    `Emitter.fire()` uses; keep it consistent.
- * 2. **Disposable tracker** — `IDisposableTracker` interface and the
- *    plumbing (`trackDisposable` / `markAsDisposed` / `setParentOfDisposable`)
- *    are present, but `disposableTracker` defaults to `null` so there is
- *    zero overhead. Install a `DisposableTracker` in test setup (or a custom
- *    one in a debug build) when leak hunting. We do not ship the
- *    `GCBasedDisposableTracker` variant — `FinalizationRegistry` timing is
- *    non-deterministic enough to produce noisy reports.
- *
- * Sibling teardown order is **insertion order** (`Set` iteration). Subclasses
- * that need a specific order must sequence teardown explicitly inside
- * `override dispose()` before calling `super.dispose()`.
- */
-
 import { onUnexpectedError } from '../errors/unexpectedError';
 
-// #region Disposable Tracking
-
-/**
- * Hook surface for tracking living disposables, parentage, and lifecycle
- * transitions. Install via `setDisposableTracker`. Defaults to `null`
- * (zero overhead).
- */
 export interface IDisposableTracker {
-  /** Called on construction of every disposable. */
   trackDisposable(disposable: IDisposable): void;
-  /**
-   * Called when a disposable is registered as child of another. If `parent`
-   * is `null`, the disposable was detached from its former parent (e.g. by
-   * `DisposableStore.deleteAndLeak`).
-   */
   setParent(child: IDisposable, parent: IDisposable | null): void;
-  /** Called after a disposable's `dispose()` runs. */
   markAsDisposed(disposable: IDisposable): void;
-  /**
-   * Mark a disposable as a singleton (lives for the lifetime of the process)
-   * so it isn't reported as a leak.
-   */
   markAsSingleton(disposable: IDisposable): void;
 }
 
@@ -61,15 +15,6 @@ interface DisposableInfo {
   idx: number;
 }
 
-/**
- * Default tracker for test / dev use. Records a constructor stack on each
- * `trackDisposable` call and removes the entry on `markAsDisposed`. After a
- * suspected leak window (e.g. an `afterAll` hook), call
- * `getTrackedDisposables()` to inspect what's still alive.
- *
- * Roots whose ancestor was marked as a singleton are filtered out (they
- * intentionally live for the process).
- */
 export class DisposableTracker implements IDisposableTracker {
   private static idx = 0;
   private readonly livingDisposables = new Map<IDisposable, DisposableInfo>();
@@ -91,9 +36,7 @@ export class DisposableTracker implements IDisposableTracker {
 
   trackDisposable(d: IDisposable): void {
     const data = this.getDisposableData(d);
-    if (!data.source) {
-      data.source = new Error().stack ?? null;
-    }
+    data.source ??= new Error('Disposable tracking').stack ?? null;
   }
 
   setParent(child: IDisposable, parent: IDisposable | null): void {
@@ -121,10 +64,6 @@ export class DisposableTracker implements IDisposableTracker {
     return result;
   }
 
-  /**
-   * All currently-living disposables whose root ancestor is NOT a singleton.
-   * Use as the post-condition assertion in test teardown.
-   */
   getTrackedDisposables(): IDisposable[] {
     const cache = new Map<DisposableInfo, DisposableInfo>();
     return [...this.livingDisposables.entries()]
@@ -167,25 +106,15 @@ function setParentOfDisposables(
   }
 }
 
-/**
- * Indicates that the given object lives for the lifetime of the process so
- * the tracker should not report it as a leak.
- */
 export function markAsSingleton<T extends IDisposable>(singleton: T): T {
   disposableTracker?.markAsSingleton(singleton);
   return singleton;
 }
 
-// #endregion
-
 export interface IDisposable {
   dispose(): void;
 }
 
-/**
- * Type guard for heterogeneous collections. Matches VSCode `isDisposable`:
- * accepts any object with a zero-arg `dispose()` method.
- */
 export function isDisposable<E>(thing: E): thing is E & IDisposable {
   return (
     typeof thing === 'object' &&
@@ -195,14 +124,6 @@ export function isDisposable<E>(thing: E): thing is E & IDisposable {
   );
 }
 
-/**
- * Dispose one or many `IDisposable`s. Per-child errors are routed through
- * `onUnexpectedError` and do not abort the loop (kimi-code policy — VSCode
- * collects errors into an `AggregateError` and throws; we do not, to keep
- * a single misbehaving child from breaking sibling teardown).
- *
- * Overloads mirror VSCode for ergonomic call sites.
- */
 export function dispose<T extends IDisposable>(disposable: T): T;
 export function dispose<T extends IDisposable>(
   disposable: T | undefined,
@@ -219,22 +140,30 @@ export function dispose<T extends IDisposable>(
 ): unknown {
   if (arg === undefined || arg === null) return arg;
   if (isIterable<T>(arg)) {
+    const errors: unknown[] = [];
     for (const d of arg) {
       if (d) {
         try {
           d.dispose();
-        } catch (err) {
-          onUnexpectedError(err);
+        } catch (error) {
+          errors.push(error);
         }
       }
     }
+
+    if (errors.length === 1) {
+      throw errors[0];
+    }
+    if (errors.length > 1) {
+      throw new AggregateError(
+        errors,
+        'Encountered errors while disposing of store',
+      );
+    }
+
     return Array.isArray(arg) ? [] : arg;
   }
-  try {
-    (arg as T).dispose();
-  } catch (err) {
-    onUnexpectedError(err);
-  }
+  (arg).dispose();
   return arg;
 }
 
@@ -246,35 +175,19 @@ function isIterable<T>(arg: unknown): arg is Iterable<T> {
   );
 }
 
-/**
- * Dispose only the entries in `disposables` that pass the `isDisposable`
- * type guard. Mirrors VSCode helper of the same name; useful when holding
- * mixed collections (e.g. legacy code that may or may not implement the
- * interface).
- */
 export function disposeIfDisposable<T extends IDisposable | object>(
   disposables: Array<T>,
 ): Array<T> {
+  const disposableValues: IDisposable[] = [];
   for (const d of disposables) {
     if (isDisposable(d)) {
-      try {
-        d.dispose();
-      } catch (err) {
-        onUnexpectedError(err);
-      }
+      disposableValues.push(d);
     }
   }
+  dispose(disposableValues);
   return [];
 }
 
-/**
- * Wrap a function as an `IDisposable`. The returned object's `dispose()`
- * invokes `fn` at most once — repeated calls are a no-op (idempotent).
- *
- * Implemented as a class so the returned object has a stable shape for
- * debuggers / V8 hidden-class optimisation, and so the tracker can record
- * a construction stack.
- */
 class FunctionDisposable implements IDisposable {
   private _isDisposed = false;
   private readonly _fn: () => void;
@@ -288,11 +201,7 @@ class FunctionDisposable implements IDisposable {
     if (this._isDisposed) return;
     this._isDisposed = true;
     markAsDisposed(this);
-    try {
-      this._fn();
-    } catch (err) {
-      onUnexpectedError(err);
-    }
+    this._fn();
   }
 }
 
@@ -300,22 +209,12 @@ export function toDisposable(fn: () => void): IDisposable {
   return new FunctionDisposable(fn);
 }
 
-/**
- * Aggregate multiple disposables into a single `IDisposable`. Children are
- * disposed in insertion order via the iterable `dispose(...)` helper, so
- * one throwing child does not skip its siblings.
- */
 export function combinedDisposable(...disposables: IDisposable[]): IDisposable {
   const parent = toDisposable(() => dispose(disposables));
   setParentOfDisposables(disposables, parent);
   return parent;
 }
 
-/**
- * Container that owns multiple `IDisposable`s. Iteration / disposal order is
- * **insertion order** (`Set` semantics). Mirrors VSCode
- * `base/common/lifecycle.ts DisposableStore`.
- */
 export class DisposableStore implements IDisposable {
   private readonly _toDispose = new Set<IDisposable>();
   private _isDisposed = false;
@@ -324,51 +223,28 @@ export class DisposableStore implements IDisposable {
     trackDisposable(this);
   }
 
-  /**
-   * Take ownership of `d`. Returns `d` for ergonomic chaining
-   * (`const x = store.add(new Foo())`). After the store has been disposed,
-   * `add` disposes the incoming child immediately and still returns it.
-   * Adding the store to itself throws.
-   */
   add<T extends IDisposable>(d: T): T {
     if ((d as unknown as DisposableStore) === this) {
       throw new Error('Cannot register a disposable on itself!');
     }
     setParentOfDisposable(d, this);
     if (this._isDisposed) {
-      try {
-        d.dispose();
-      } catch (err) {
-        onUnexpectedError(err);
-      }
+      d.dispose();
       return d;
     }
     this._toDispose.add(d);
     return d;
   }
 
-  /**
-   * Remove `d` from the store AND dispose it. Matches VSCode
-   * `DisposableStore.delete`. Use `deleteAndLeak` to detach without
-   * disposing.
-   */
   delete<T extends IDisposable>(d: T): void {
     if (this._isDisposed) return;
     if ((d as unknown as DisposableStore) === this) {
       throw new Error('Cannot dispose a disposable on itself!');
     }
     this._toDispose.delete(d);
-    try {
-      d.dispose();
-    } catch (err) {
-      onUnexpectedError(err);
-    }
+    d.dispose();
   }
 
-  /**
-   * Remove `d` from the store WITHOUT disposing. Caller takes ownership of
-   * `d`'s lifetime. Matches VSCode `DisposableStore.deleteAndLeak`.
-   */
   deleteAndLeak<T extends IDisposable>(d: T): void {
     if (this._isDisposed) return;
     if (this._toDispose.delete(d)) {
@@ -376,42 +252,33 @@ export class DisposableStore implements IDisposable {
     }
   }
 
-  /**
-   * Dispose every currently-held child but keep the store usable.
-   */
   clear(): void {
-    if (this._isDisposed) return;
     if (this._toDispose.size === 0) return;
-    const items = Array.from(this._toDispose);
-    this._toDispose.clear();
-    dispose(items);
+    try {
+      dispose(this._toDispose);
+    } finally {
+      this._toDispose.clear();
+    }
   }
 
-  /**
-   * Dispose every currently-held child and mark the store as disposed.
-   * Idempotent.
-   */
   dispose(): void {
     if (this._isDisposed) return;
     this._isDisposed = true;
     markAsDisposed(this);
-    const items = Array.from(this._toDispose);
-    this._toDispose.clear();
-    dispose(items);
+    this.clear();
   }
 
   get isDisposed(): boolean {
     return this._isDisposed;
   }
+
+  assertNotDisposed(): void {
+    if (this._isDisposed) {
+      onUnexpectedError(new Error('Object disposed'));
+    }
+  }
 }
 
-/**
- * Base class for services that own other disposables. Subclasses call
- * `this._register(child)` to take ownership; `dispose()` tears children down
- * in **insertion order** (matching VSCode) and is idempotent.
- *
- * Subclasses inspect "have I been disposed yet?" via `this._store.isDisposed`.
- */
 export abstract class Disposable implements IDisposable {
   protected readonly _store = new DisposableStore();
 
@@ -433,32 +300,13 @@ export abstract class Disposable implements IDisposable {
   }
 }
 
-/**
- * Static zero-value disposable. `Disposable.None.dispose()` is a no-op and
- * is safe to call repeatedly. The object is frozen so callers can't mutate
- * the shared instance. Modelled after VSCode `base/common/lifecycle.ts`.
- *
- * Declared as a namespace merger rather than a static class property so we
- * don't pull `DisposableStore` allocation into module load just to read
- * `Disposable.None`.
- */
 // eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace Disposable {
   export const None: IDisposable = Object.freeze({
-    dispose(): void {
-      /* no-op */
-    },
+    dispose(): void {},
   });
 }
 
-/**
- * Mutable slot that owns a single `IDisposable`. Assigning a new value
- * disposes the previous one; assigning `undefined` disposes the current
- * value. After this store has itself been disposed any subsequent value
- * is disposed immediately on assignment.
- *
- * Mirrors VSCode `base/common/lifecycle.ts MutableDisposable`.
- */
 export class MutableDisposable<T extends IDisposable> implements IDisposable {
   private _value: T | undefined;
   private _isDisposed = false;
@@ -474,25 +322,14 @@ export class MutableDisposable<T extends IDisposable> implements IDisposable {
   set value(value: T | undefined) {
     if (this._isDisposed) {
       if (value !== undefined) {
-        try {
-          value.dispose();
-        } catch (err) {
-          onUnexpectedError(err);
-        }
+        value.dispose();
       }
       return;
     }
     if (this._value === value) return;
-    const prev = this._value;
-    this._value = value;
+    this._value?.dispose();
     if (value) setParentOfDisposable(value, this);
-    if (prev !== undefined) {
-      try {
-        prev.dispose();
-      } catch (err) {
-        onUnexpectedError(err);
-      }
-    }
+    this._value = value;
   }
 
   dispose(): void {
@@ -500,37 +337,17 @@ export class MutableDisposable<T extends IDisposable> implements IDisposable {
     this._isDisposed = true;
     markAsDisposed(this);
     const prev = this._value;
-    this._value = undefined;
     if (prev !== undefined) {
-      try {
-        prev.dispose();
-      } catch (err) {
-        onUnexpectedError(err);
-      }
+      prev.dispose();
     }
+    this._value = undefined;
   }
 
-  /**
-   * Clear the held value (dispose if present) without disposing the store
-   * itself — subsequent assignments still work.
-   */
   clear(): void {
     if (this._isDisposed) return;
-    const prev = this._value;
-    this._value = undefined;
-    if (prev !== undefined) {
-      try {
-        prev.dispose();
-      } catch (err) {
-        onUnexpectedError(err);
-      }
-    }
+    this.value = undefined;
   }
 
-  /**
-   * Clear the slot WITHOUT disposing the current value; returns the old
-   * value. Caller takes ownership of its lifetime.
-   */
   clearAndLeak(): T | undefined {
     if (this._isDisposed) return undefined;
     const prev = this._value;
@@ -540,15 +357,114 @@ export class MutableDisposable<T extends IDisposable> implements IDisposable {
   }
 }
 
-/**
- * Map whose values are `IDisposable`. Overwriting a key disposes the previous
- * value; `deleteAndDispose(key)` removes and disposes; `dispose()` disposes
- * every value and marks the map as disposed. Mirrors VSCode
- * `base/common/lifecycle.ts DisposableMap`.
- *
- * Use this to collapse the "Map of per-entity state + manual teardown loop in
- * `override dispose()`" pattern that recurs across daemon services.
- */
+export class MandatoryMutableDisposable<T extends IDisposable> implements IDisposable {
+  private readonly _disposable = new MutableDisposable<T>();
+  private _isDisposed = false;
+
+  constructor(initialValue: T) {
+    this._disposable.value = initialValue;
+  }
+
+  get value(): T {
+    return this._disposable.value!;
+  }
+
+  set value(value: T) {
+    if (this._isDisposed || value === this._disposable.value) return;
+    this._disposable.value = value;
+  }
+
+  dispose(): void {
+    if (this._isDisposed) return;
+    this._isDisposed = true;
+    this._disposable.dispose();
+  }
+}
+
+export class RefCountedDisposable {
+  private _counter = 1;
+
+  constructor(private readonly _disposable: IDisposable) {}
+
+  acquire(): this {
+    this._counter += 1;
+    return this;
+  }
+
+  release(): this {
+    this._counter -= 1;
+    if (this._counter === 0) {
+      this._disposable.dispose();
+    }
+    return this;
+  }
+}
+
+export interface IReference<T> extends IDisposable {
+  readonly object: T;
+}
+
+export abstract class ReferenceCollection<T> {
+  private readonly references = new Map<
+    string,
+    { readonly object: T; counter: number }
+  >();
+
+  acquire(key: string, ...args: unknown[]): IReference<T> {
+    let reference = this.references.get(key);
+    if (!reference) {
+      reference = {
+        counter: 0,
+        object: this.createReferencedObject(key, ...args),
+      };
+      this.references.set(key, reference);
+    }
+
+    const { object } = reference;
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      reference.counter -= 1;
+      if (reference.counter === 0) {
+        this.destroyReferencedObject(key, reference.object);
+        this.references.delete(key);
+      }
+    };
+
+    reference.counter += 1;
+    return { object, dispose };
+  }
+
+  protected abstract createReferencedObject(key: string, ...args: unknown[]): T;
+  protected abstract destroyReferencedObject(key: string, object: T): void;
+}
+
+export class AsyncReferenceCollection<T> {
+  constructor(private readonly referenceCollection: ReferenceCollection<Promise<T>>) {}
+
+  async acquire(key: string, ...args: unknown[]): Promise<IReference<T>> {
+    const ref = this.referenceCollection.acquire(key, ...args);
+
+    try {
+      const object = await ref.object;
+      return {
+        object,
+        dispose: () => { ref.dispose(); },
+      };
+    } catch (error) {
+      ref.dispose();
+      throw error;
+    }
+  }
+}
+
+export class ImmortalReference<T> implements IReference<T> {
+  constructor(public readonly object: T) {}
+
+  dispose(): void {}
+}
+
 export class DisposableMap<K, V extends IDisposable = IDisposable>
   implements IDisposable
 {
@@ -560,10 +476,6 @@ export class DisposableMap<K, V extends IDisposable = IDisposable>
     trackDisposable(this);
   }
 
-  /**
-   * Dispose every stored value and mark this object as disposed. Subsequent
-   * mutation (`set`) is a no-op + warning.
-   */
   dispose(): void {
     if (this._isDisposed) return;
     this._isDisposed = true;
@@ -571,10 +483,6 @@ export class DisposableMap<K, V extends IDisposable = IDisposable>
     this.clearAndDisposeAll();
   }
 
-  /**
-   * Dispose every stored value and clear the map, but DO NOT mark the map
-   * itself as disposed (subsequent `set` calls still work).
-   */
   clearAndDisposeAll(): void {
     if (this._store.size === 0) return;
     try {
@@ -596,10 +504,6 @@ export class DisposableMap<K, V extends IDisposable = IDisposable>
     return this._store.get(key);
   }
 
-  /**
-   * Insert `value` at `key`. If `key` already has a value, that previous
-   * value is disposed unless `skipDisposeOnOverwrite` is set.
-   */
   set(key: K, value: V, skipDisposeOnOverwrite = false): void {
     if (this._isDisposed) {
       // eslint-disable-next-line no-console
@@ -613,36 +517,21 @@ export class DisposableMap<K, V extends IDisposable = IDisposable>
     if (!skipDisposeOnOverwrite) {
       const prev = this._store.get(key);
       if (prev !== undefined && prev !== value) {
-        try {
-          prev.dispose();
-        } catch (err) {
-          onUnexpectedError(err);
-        }
+        prev.dispose();
       }
     }
     this._store.set(key, value);
     setParentOfDisposable(value, this);
   }
 
-  /**
-   * Remove the value stored for `key` AND dispose it.
-   */
   deleteAndDispose(key: K): void {
     const value = this._store.get(key);
     if (value !== undefined) {
-      try {
-        value.dispose();
-      } catch (err) {
-        onUnexpectedError(err);
-      }
+      value.dispose();
     }
     this._store.delete(key);
   }
 
-  /**
-   * Remove the value stored for `key` and return it. Caller takes
-   * ownership of the lifetime.
-   */
   deleteAndLeak(key: K): V | undefined {
     const value = this._store.get(key);
     if (value !== undefined) setParentOfDisposable(value, null);
@@ -663,11 +552,6 @@ export class DisposableMap<K, V extends IDisposable = IDisposable>
   }
 }
 
-/**
- * Set whose values are `IDisposable`. `add(v)` takes ownership;
- * `deleteAndDispose(v)` removes and disposes; `dispose()` disposes every
- * value. Mirrors VSCode `base/common/lifecycle.ts DisposableSet`.
- */
 export class DisposableSet<V extends IDisposable = IDisposable>
   implements IDisposable
 {
@@ -719,11 +603,7 @@ export class DisposableSet<V extends IDisposable = IDisposable>
 
   deleteAndDispose(value: V): void {
     if (this._store.delete(value)) {
-      try {
-        value.dispose();
-      } catch (err) {
-        onUnexpectedError(err);
-      }
+      value.dispose();
     }
   }
 
@@ -744,17 +624,6 @@ export class DisposableSet<V extends IDisposable = IDisposable>
   }
 }
 
-/**
- * Scoped `using` helper: construct a `DisposableStore`, run `fn(store)`, then
- * tear the store down in a `finally`. Lets callers register transient
- * disposables for the duration of a function without writing
- * `try { ... } finally { store.dispose(); }` by hand.
- *
- *   disposeOnReturn(store => {
- *     const a = store.add(new Foo());
- *     doStuff(a);
- *   });
- */
 export function disposeOnReturn(fn: (store: DisposableStore) => void): void {
   const store = new DisposableStore();
   try {
@@ -762,4 +631,32 @@ export function disposeOnReturn(fn: (store: DisposableStore) => void): void {
   } finally {
     store.dispose();
   }
+}
+
+export function thenIfNotDisposed<T>(
+  promise: Promise<T>,
+  then: (result: T) => void,
+): IDisposable {
+  let disposed = false;
+  void promise.then((result) => {
+    if (disposed) return;
+    then(result);
+  });
+  return toDisposable(() => {
+    disposed = true;
+  });
+}
+
+export function thenRegisterOrDispose<T extends IDisposable>(
+  promise: Promise<T>,
+  store: DisposableStore,
+): Promise<T> {
+  return promise.then((disposable) => {
+    if (store.isDisposed) {
+      disposable.dispose();
+    } else {
+      store.add(disposable);
+    }
+    return disposable;
+  });
 }

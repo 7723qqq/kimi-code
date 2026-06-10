@@ -1,15 +1,22 @@
-/**
- * `FsWatcherService` — implementation of `IFsWatcher`.
- */
-
 import nodePath from 'node:path';
 
 import { FSWatcher } from 'chokidar';
 
-import { Disposable, DisposableMap, type IDisposable } from '@moonshot-ai/agent-core';
+import {
+  Disposable,
+  DisposableMap,
+  ReferenceCollection,
+  dispose,
+  type IDisposable,
+  type IReference,
+} from '@moonshot-ai/agent-core';
 import { ISessionService } from '@moonshot-ai/services';
 
-import type { FsChangeEntry, FsChangeAction, FsChangeKind } from '@moonshot-ai/protocol';
+import type {
+  FsChangeAction,
+  FsChangeEntry,
+  FsChangeKind,
+} from '@moonshot-ai/protocol';
 
 import { ILogService } from '#/services/logger';
 import {
@@ -20,49 +27,48 @@ import {
   type FsWatcherServiceOptions,
 } from './fsWatcher';
 
-/** WS.md §4.9 — 200ms coalesce window. */
 const DEFAULT_DEBOUNCE_MS = 200;
 
-/**
- * When a single window collects more than this many raw change events, we
- * flip to `truncated:true` mode and stop accumulating
- * per-entry detail. The client is expected to throw away local fs state
- * and re-`:list` to resync. WS.md §4.9 mentions "单窗口 changes 超 500
- * 时 true" — 500 is the spec threshold.
- */
 const DEFAULT_MAX_CHANGES_PER_WINDOW = 500;
 
-/** Per-connection total watched-path cap. */
 const DEFAULT_MAX_PATHS_PER_CONNECTION = 100;
 
 interface PendingChange {
-  /** Absolute path of the affected entry. */
   absPath: string;
   action: FsChangeAction;
   kind: FsChangeKind;
 }
 
-/**
- * Per-session watcher state. Owns the chokidar `FSWatcher` + active debounce
- * timer; `dispose()` clears the timer and fire-and-forgets `watcher.close()`.
- * Stored in `FsWatcherService.sessions` (a `DisposableMap`) so removal via
- * `sessions.deleteAndDispose(sessionId)` and service-wide teardown via
- * `super.dispose()` both flow through `dispose()` automatically.
- */
+class PathReferenceCollection extends ReferenceCollection<string> {
+  private readonly activePaths = new Set<string>();
+
+  constructor(private readonly watcher: FSWatcher) {
+    super();
+  }
+
+  get size(): number {
+    return this.activePaths.size;
+  }
+
+  protected createReferencedObject(absPath: string): string {
+    this.watcher.add(absPath);
+    this.activePaths.add(absPath);
+    return absPath;
+  }
+
+  protected destroyReferencedObject(absPath: string): void {
+    this.activePaths.delete(absPath);
+    this.watcher.unwatch(absPath);
+  }
+}
+
 class SessionEntry implements IDisposable {
-  /** `absPath → refCount` across all connections subscribed to this session. */
-  readonly pathRefs = new Map<string, number>();
-  /** `connectionId → Set<absPath>` for overlap filtering on emit. */
-  readonly connectionPaths = new Map<string, Set<string>>();
-  /** Accumulating changes for the current 200ms window. */
+  readonly pathRefs: PathReferenceCollection;
+  readonly connectionPathRefs = new Map<string, Map<string, IReference<string>>>();
   pendingChanges: PendingChange[] = [];
-  /** Raw event count (used for `truncated.count`). */
   pendingRawCount = 0;
-  /** True once `pendingChanges.length > maxChangesPerWindow`. */
   truncated = false;
-  /** Timer for the active debounce window; `undefined` between windows. */
   debounceTimer: NodeJS.Timeout | undefined = undefined;
-  /** Per-session seq counter, monotonic, starts at 1. */
   seq = 0;
   private _disposed = false;
 
@@ -71,7 +77,9 @@ class SessionEntry implements IDisposable {
     public readonly watcher: FSWatcher,
     public cwd: string,
     private readonly logger: ILogService,
-  ) {}
+  ) {
+    this.pathRefs = new PathReferenceCollection(watcher);
+  }
 
   dispose(): void {
     if (this._disposed) return;
@@ -80,9 +88,9 @@ class SessionEntry implements IDisposable {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = undefined;
     }
-    void this.watcher.close().catch((err) => {
+    void this.watcher.close().catch((error) => {
       this.logger.warn(
-        { sessionId: this.sessionId, err: String(err) },
+        { sessionId: this.sessionId, err: String(error) },
         'fs-watcher close failed',
       );
     });
@@ -97,18 +105,13 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
   private readonly maxPathsPerConnection: number;
   private readonly makeWatcher: () => FSWatcher;
   private readonly sessions: DisposableMap<string, SessionEntry>;
-  /** `connectionId → Map<sessionId, Set<absPath>>`. */
-  private readonly connections = new Map<string, Map<string, Set<string>>>();
+
+  private readonly connections = new Map<
+    string,
+    Map<string, Map<string, IReference<string>>>
+  >();
 
   constructor(
-    // VSCode-style static-first / services-last. `lookup` is a closure
-    // built at start.ts so it stays a positional static dep;
-    // `options` is the config bag. `logger` + `_sessionService` are
-    // auto-injected via @ILogService / @ISessionService. The
-    // `_sessionService` parameter is intentionally unused (reserved to
-    // lock construction order so IFsWatcher disposes BEFORE
-    // ISessionService — see field doc above) — the leading underscore
-    // keeps the linter quiet.
     private readonly lookup: FsWatcherConnectionLookup,
     options: FsWatcherServiceOptions,
     @ILogService private readonly logger: ILogService,
@@ -127,8 +130,6 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
         new FSWatcher({
           ignoreInitial: true,
           persistent: false,
-          // WS.md §4.9: filter `.git/` noise. Regex matches a `.git` segment
-          // anywhere in the absolute path.
           ignored: (p: string) => /(?:^|[/\\])\.git(?:$|[/\\])/.test(p),
         }));
   }
@@ -140,8 +141,6 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
   ): readonly string[] {
     if (this._store.isDisposed) return [];
 
-    // Project the new total for this connection (assuming all `absPaths` are
-    // additions). Dedup against existing first.
     const connSessions = this.getOrCreateConnection(connectionId);
     let existingForSession = connSessions.get(sessionId);
     const newlyAdded: string[] = [];
@@ -159,20 +158,9 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
       );
     }
     if (newlyAdded.length === 0) {
-      // Nothing to do; return current set.
-      return existingForSession ? Array.from(existingForSession) : [];
+      return existingForSession ? Array.from(existingForSession.keys()) : [];
     }
 
-    // Lazy-create session entry. cwd is best-effort: we trust the caller
-    // resolved absPaths against the session's real cwd, so any one of
-    // the absPaths' shared prefix would do — but we don't have the cwd
-    // in hand here. The caller is expected to pre-call
-    // `bindSessionCwd` (see `_bindCwd` below) OR the lookup callback
-    // will pass it on first add. We use the longest absolute-path
-    // segment that is a prefix of all absPaths; failing that, fall back
-    // to the first absPath's dirname. This is only used for
-    // wire-path conversion at emit time and the WS handler will
-    // override via `bindSessionCwd` before any emit can happen.
     let entry = this.sessions.get(sessionId);
     if (!entry) {
       entry = this.createSessionEntry(sessionId, deriveSharedCwd(newlyAdded));
@@ -180,30 +168,14 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     }
 
     if (!existingForSession) {
-      existingForSession = new Set();
+      existingForSession = new Map();
       connSessions.set(sessionId, existingForSession);
+      entry.connectionPathRefs.set(connectionId, existingForSession);
     }
-    const adds: string[] = [];
     for (const abs of newlyAdded) {
-      existingForSession.add(abs);
-      const ref = entry.pathRefs.get(abs) ?? 0;
-      entry.pathRefs.set(abs, ref + 1);
-      // Add to chokidar only on first refcount.
-      if (ref === 0) {
-        adds.push(abs);
-      }
-      // Always tracked in per-connection set.
-      let cps = entry.connectionPaths.get(connectionId);
-      if (!cps) {
-        cps = new Set();
-        entry.connectionPaths.set(connectionId, cps);
-      }
-      cps.add(abs);
+      existingForSession.set(abs, entry.pathRefs.acquire(abs));
     }
-    if (adds.length > 0) {
-      entry.watcher.add(adds);
-    }
-    return Array.from(existingForSession);
+    return Array.from(existingForSession.keys());
   }
 
   removePaths(
@@ -215,72 +187,66 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     const entry = this.sessions.get(sessionId);
     if (!entry) return [];
     const connSessions = this.connections.get(connectionId);
-    const connSessionPaths = connSessions?.get(sessionId);
-    if (!connSessionPaths) return [];
+    const connSessionRefs = connSessions?.get(sessionId);
+    if (!connSessionRefs) return [];
 
-    const unwatch: string[] = [];
+    const refsToDispose: IReference<string>[] = [];
     for (const abs of absPaths) {
-      if (!connSessionPaths.has(abs)) continue;
-      connSessionPaths.delete(abs);
-      const cps = entry.connectionPaths.get(connectionId);
-      cps?.delete(abs);
-      if (cps && cps.size === 0) entry.connectionPaths.delete(connectionId);
-      const ref = (entry.pathRefs.get(abs) ?? 1) - 1;
-      if (ref <= 0) {
-        entry.pathRefs.delete(abs);
-        unwatch.push(abs);
-      } else {
-        entry.pathRefs.set(abs, ref);
+      const ref = connSessionRefs.get(abs);
+      if (!ref) continue;
+      connSessionRefs.delete(abs);
+      refsToDispose.push(ref);
+    }
+
+    try {
+      dispose(refsToDispose);
+    } finally {
+      if (connSessionRefs.size === 0) {
+        connSessions?.delete(sessionId);
+        entry.connectionPathRefs.delete(connectionId);
+        if (connSessions && connSessions.size === 0) {
+          this.connections.delete(connectionId);
+        }
+      }
+
+      if (entry.pathRefs.size === 0) {
+        this.sessions.deleteAndDispose(sessionId);
       }
     }
-    if (unwatch.length > 0) {
-      entry.watcher.unwatch(unwatch);
-    }
-    // Per-connection cleanup.
-    if (connSessionPaths.size === 0) {
-      connSessions?.delete(sessionId);
-      if (connSessions && connSessions.size === 0) {
-        this.connections.delete(connectionId);
-      }
-    }
-    // Per-session cleanup: if no path references remain, close the watcher.
-    if (entry.pathRefs.size === 0) {
-      this.sessions.deleteAndDispose(sessionId);
-    }
-    return connSessionPaths ? Array.from(connSessionPaths) : [];
+    return connSessionRefs ? Array.from(connSessionRefs.keys()) : [];
   }
 
   countForConnection(connectionId: string): number {
     const m = this.connections.get(connectionId);
     if (!m) return 0;
     let total = 0;
-    for (const set of m.values()) total += set.size;
+    for (const refs of m.values()) total += refs.size;
     return total;
   }
 
   forgetConnection(connectionId: string): void {
     const sessionMap = this.connections.get(connectionId);
     if (!sessionMap) return;
-    // Snapshot to avoid mutation-during-iteration.
+
     const entries = Array.from(sessionMap.entries());
-    for (const [sid, paths] of entries) {
-      this.removePaths(sid, connectionId, Array.from(paths));
+    const removals = entries.map(([sid, refs]) => ({
+      dispose: () => {
+        this.removePaths(sid, connectionId, Array.from(refs.keys()));
+      },
+    }));
+    try {
+      dispose(removals);
+    } finally {
+      this.connections.delete(connectionId);
     }
-    this.connections.delete(connectionId);
   }
 
   watchedPaths(connectionId: string, sessionId: string): readonly string[] {
-    const set = this.connections.get(connectionId)?.get(sessionId);
-    if (!set) return [];
-    return Array.from(set);
+    const refs = this.connections.get(connectionId)?.get(sessionId);
+    if (!refs) return [];
+    return Array.from(refs.keys());
   }
 
-  /**
-   * WS adapter calls this AFTER resolving the session's cwd so the
-   * watcher can map absolute → POSIX-relative paths on emit. Idempotent —
-   * subsequent calls with a different cwd overwrite (which would be a bug
-   * but we log + accept).
-   */
   bindSessionCwd(sessionId: string, cwd: string): void {
     let entry = this.sessions.get(sessionId);
     if (!entry) {
@@ -297,11 +263,9 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     }
   }
 
-  /* ------------------------------------------------------------- internals */
-
   private getOrCreateConnection(
     connectionId: string,
-  ): Map<string, Set<string>> {
+  ): Map<string, Map<string, IReference<string>>> {
     let m = this.connections.get(connectionId);
     if (!m) {
       m = new Map();
@@ -336,24 +300,20 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
   ): void {
     if (this._store.isDisposed) return;
     const action = mapChokidarEventToAction(eventName);
-    if (action === undefined) return; // 'ready', 'raw', 'all', 'error'
+    if (action === undefined) return;
     const kind = mapChokidarEventToKind(eventName);
 
     entry.pendingRawCount += 1;
-    if (entry.truncated) {
-      // Already over threshold — keep counting but don't accumulate per-entry.
-    } else {
+    if (!entry.truncated) {
       entry.pendingChanges.push({ absPath, action, kind });
       if (entry.pendingChanges.length > this.maxChangesPerWindow) {
         entry.truncated = true;
-        // Drop accumulated detail to free memory; we only emit the count.
         entry.pendingChanges = [];
       }
     }
 
     if (entry.debounceTimer === undefined) {
-      const timer = setTimeout(() => this.flushWindow(sessionId), this.debounceMs);
-      // Unref so tests don't keep the loop alive on lingering windows.
+      const timer = setTimeout(() => { this.flushWindow(sessionId); }, this.debounceMs);
       timer.unref?.();
       entry.debounceTimer = timer;
     }
@@ -367,14 +327,12 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     const truncated = entry.truncated;
     const rawCount = entry.pendingRawCount;
     const pending = entry.pendingChanges;
-    // Reset for next window BEFORE emit (defensive: emit could schedule a
-    // synchronous re-fire if the consumer turns around and writes a file).
+
     entry.pendingChanges = [];
     entry.pendingRawCount = 0;
     entry.truncated = false;
 
-    // Build per-connection filtered payload.
-    for (const [connectionId, connPaths] of entry.connectionPaths) {
+    for (const [connectionId, connPathRefs] of entry.connectionPathRefs) {
       const sink = this.lookup.resolve(connectionId);
       if (!sink) continue;
       let perConnChanges: FsChangeEntry[];
@@ -383,7 +341,7 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
       } else {
         perConnChanges = [];
         for (const ch of pending) {
-          if (!isUnderAny(ch.absPath, connPaths)) continue;
+          if (!isUnderAny(ch.absPath, connPathRefs.keys())) continue;
           const relPath = toPosixRelative(entry.cwd, ch.absPath);
           perConnChanges.push({
             path: relPath,
@@ -407,9 +365,9 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
       };
       try {
         sink.send(frame);
-      } catch (err) {
+      } catch (error) {
         this.logger.warn(
-          { connectionId, err: String(err) },
+          { connectionId, err: String(error) },
           'fs-watcher send failed',
         );
       }
@@ -422,10 +380,6 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     super.dispose();
   }
 }
-
-/* -------------------------------------------------------------------------
- * Helpers
- * ----------------------------------------------------------------------- */
 
 function mapChokidarEventToAction(name: string): FsChangeAction | undefined {
   switch (name) {
@@ -447,23 +401,16 @@ function mapChokidarEventToKind(name: string): FsChangeKind {
     case 'addDir':
     case 'unlinkDir':
       return 'directory';
-    // `add` / `change` / `unlink` are file events in chokidar 4. Symlinks
-    // emit as `add` with no separate event; consumers that need to
-    // distinguish should call `:stat`. We classify as `file` here; the
-    // wire schema also accepts `symlink` but we don't generate it.
     default:
       return 'file';
   }
 }
 
-function isUnderAny(absPath: string, parents: Set<string>): boolean {
+function isUnderAny(absPath: string, parents: Iterable<string>): boolean {
   for (const parent of parents) {
     if (absPath === parent) return true;
-    // Must check with separator to avoid '/foo/bar2' under '/foo/bar'
-    // false-positive. We add `path.sep` once.
     const sep = nodePath.sep;
     if (absPath.startsWith(parent + sep)) return true;
-    // POSIX cross-check (some test paths may pre-canonicalize separators).
     if (sep !== '/' && absPath.startsWith(parent + '/')) return true;
   }
   return false;
@@ -479,7 +426,7 @@ function toPosixRelative(cwd: string, abs: string): string {
 function deriveSharedCwd(absPaths: readonly string[]): string {
   if (absPaths.length === 0) return '/';
   if (absPaths.length === 1) return nodePath.dirname(absPaths[0]!);
-  // Common prefix path-segment walk.
+
   let prefix = absPaths[0]!.split(nodePath.sep);
   for (let i = 1; i < absPaths.length; i++) {
     const segs = absPaths[i]!.split(nodePath.sep);

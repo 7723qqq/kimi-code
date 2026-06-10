@@ -19,6 +19,15 @@ interface IAsyncService {
 }
 const IAsyncService = createDecorator<IAsyncService>('p1.3-IAsyncService');
 
+function captureThrown(fn: () => void): unknown {
+  try {
+    fn();
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 describe('TestInstantiationService (P1.3)', () => {
   it('`.stub(id, impl)` registers a pre-built instance and `.get(id)` returns it', () => {
     const ix = new TestInstantiationService();
@@ -188,5 +197,42 @@ describe('TestInstantiationService (P1.3)', () => {
     disposables.dispose();
 
     expect(logger.disposeCount).toBe(1);
+  });
+
+  it('`createServices` disposes all prebuilt services before throwing AggregateError', () => {
+    interface IOtherLogger {
+      log(msg: string): void;
+    }
+    const IOtherLogger = createDecorator<IOtherLogger>('p1.3-IOtherLogger');
+    const events: string[] = [];
+    class FirstLogger implements ILogger {
+      log = sinon.stub();
+      dispose(): void {
+        events.push('first');
+        throw new Error('first-dispose');
+      }
+    }
+    class SecondLogger implements IOtherLogger {
+      log = sinon.stub();
+      dispose(): void {
+        events.push('second');
+        throw new Error('second-dispose');
+      }
+    }
+
+    const disposables = new DisposableStore();
+    createServices(disposables, [
+      [ILogger, new FirstLogger()],
+      [IOtherLogger, new SecondLogger()],
+    ]);
+
+    const error = captureThrown(() => { disposables.dispose(); });
+
+    expect(events).toEqual(['first', 'second']);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors.map((err) => (err as Error).message)).toEqual([
+      'first-dispose',
+      'second-dispose',
+    ]);
   });
 });

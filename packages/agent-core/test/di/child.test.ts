@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/di/descriptors';
 import { InstantiationService } from '#/di/instantiationService';
-import { IInstantiationService, createDecorator, type IInstantiationService as IInstantiationServiceType } from '#/di/instantiation';
+import {
+  IInstantiationService,
+  createDecorator,
+  type IInstantiationService as IInstantiationServiceType,
+} from '#/di/instantiation';
 import { Disposable, type IDisposable } from '#/di/lifecycle';
 import { ServiceCollection } from '#/di/serviceCollection';
 
@@ -14,15 +18,11 @@ const ILogger = createDecorator<ILogger>('logger');
 
 class ConsoleLogger implements ILogger {
   name = 'console';
-  log(_m: string): void {
-    /* noop */
-  }
+  log(_m: string): void {}
 }
 class ChildLogger implements ILogger {
   name = 'child';
-  log(_m: string): void {
-    /* noop */
-  }
+  log(_m: string): void {}
 }
 
 describe('InstantiationService.createChild', () => {
@@ -33,7 +33,7 @@ describe('InstantiationService.createChild', () => {
     const child = parent.createChild(new ServiceCollection());
     const fromChild = child.invokeFunction((a) => a.get(ILogger));
     expect(fromChild).toBeInstanceOf(ConsoleLogger);
-    // Same singleton — child resolution doesn't double-construct.
+
     const fromParent = parent.invokeFunction((a) => a.get(ILogger));
     expect(fromChild).toBe(fromParent);
   });
@@ -134,8 +134,7 @@ describe('InstantiationService.createChild', () => {
 
     expect(childA.invokeFunction((a) => a.get(IScoped).tag)).toBe('A');
     expect(childB.invokeFunction((a) => a.get(IScoped).tag)).toBe('B');
-    // Parent has no registration; non-strict resolution follows VS Code and
-    // returns undefined.
+
     expect(parent.invokeFunction((a) => a.get(IScoped))).toBeUndefined();
   });
 
@@ -255,7 +254,7 @@ describe('InstantiationService.createChild', () => {
     child.invokeFunction((a) => a.get(IChildSvc));
 
     parent.dispose();
-    // Child instances dispose before parent instances (children first).
+
     expect(events).toEqual(['disposed child svc', 'disposed parent svc']);
   });
 
@@ -285,9 +284,17 @@ describe('InstantiationService.createChild', () => {
   it('use-after-dispose: invokeFunction / createInstance / createChild throw', () => {
     const ix = new InstantiationService();
     ix.dispose();
-    expect(() => ix.invokeFunction((_a) => undefined)).toThrowError(/disposed/);
-    expect(() => ix.createInstance(class A {})).toThrowError(/disposed/);
-    expect(() => ix.createChild(new ServiceCollection())).toThrowError(/disposed/);
+    expect(() => {
+      ix.invokeFunction((_a) => undefined);
+    }).toThrowError(/disposed/);
+    expect(() => {
+      ix.createInstance(class A {
+        value = 'a';
+      });
+    }).toThrowError(/disposed/);
+    expect(() => {
+      ix.createChild(new ServiceCollection());
+    }).toThrowError(/disposed/);
   });
 });
 
@@ -350,7 +357,7 @@ describe('Disposable base class', () => {
     expect(events).toEqual(['disposed']);
   });
 
-  it('continues teardown even if one child throws', () => {
+  it('continues teardown and rethrows if one child throws', () => {
     const events: string[] = [];
     class GoodChild implements IDisposable {
       dispose(): void {
@@ -363,17 +370,21 @@ describe('Disposable base class', () => {
         throw new Error('boom');
       }
     }
+    class TailChild implements IDisposable {
+      dispose(): void {
+        events.push('tail');
+      }
+    }
     class Owner extends Disposable {
       constructor() {
         super();
         this._register(new GoodChild());
         this._register(new BadChild());
+        this._register(new TailChild());
       }
     }
     const o = new Owner();
-    expect(() => o.dispose()).not.toThrow();
-    // GoodChild is registered first, so it tears down first (insertion order);
-    // BadChild throws but the loop continues.
-    expect(events).toEqual(['good', 'bad-attempted']);
+    expect(() => { o.dispose(); }).toThrow('boom');
+    expect(events).toEqual(['good', 'bad-attempted', 'tail']);
   });
 });

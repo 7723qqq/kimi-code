@@ -1,26 +1,7 @@
-/**
- * Peer service + event/broadcast service unit tests.
- *
- * Hermetic: we wire a real `InstantiationService` with stub `ILogService` impl,
- * exercise `request` / `resolve` / `dismiss` / `dispose` directly, and use a
- * stub `ISessionClientsService` (no real sockets) so the daemon-side
- * `WSBroadcastService` can fan out to recorded fake connections.
- *
- * Timing: we override `timeoutMs` to a small value (50ms) so a real timer
- * fires within the test rather than waiting 60s. `vi.useFakeTimers` would
- * also work but is heavier and forces every consumer's Promise into manual
- * flushing.
- *
- * **Phase split**: `IEventService` (services pkg) is now a pure in-process
- * pub-sub bus — no sessionId extraction, no per-session seq, no ring buffer,
- * no WS fan-out. Those daemon transport concerns live on
- * `WSBroadcastService` (daemon pkg), which subscribes to
- * `IEventService.onDidPublish` in its constructor. Tests in this file
- * construct both: `bus = new EventService()`, then
- * `broadcast = new WSBroadcastService(bus, ...)`.
- */
+
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FSWatcher } from 'chokidar';
 
 import {
   InstantiationService,
@@ -37,6 +18,7 @@ import {
 } from '@moonshot-ai/services';
 
 import { ApprovalService } from '#/services/approval/approvalService';
+import { FsWatcherService } from '#/services/fs/fsWatcherService';
 import { ILogService, type ILogService as ILoggerT } from '#/services/logger';
 import { QuestionService } from '#/services/question/questionService';
 import {
@@ -44,9 +26,9 @@ import {
   type ISessionClientsService as ISessionClientsServiceT,
 } from '#/services/gateway';
 import { WSBroadcastService } from '#/services/gateway/wsBroadcastService';
+import type { ISessionService } from '@moonshot-ai/services';
 import type { WsConnection } from '../src/ws/connection';
 
-/** No-op logger that satisfies `ILogService` without pulling pino. */
 class TestLogger implements ILoggerT {
   readonly _serviceBrand: undefined;
 
@@ -59,10 +41,6 @@ class TestLogger implements ILoggerT {
   }
 }
 
-/**
- * In-memory subscriber index. Same shape as `SessionClientsService` but with
- * Set-based bookkeeping inlined so the test doesn't depend on the real impl.
- */
 class FakeSessionClients implements ISessionClientsServiceT {
   readonly _serviceBrand: undefined;
 
@@ -89,7 +67,6 @@ class FakeSessionClients implements ISessionClientsServiceT {
   }
 }
 
-/** Side-effect-recording `WsConnection`-shaped fake — only `.send` is used by the bus. */
 function fakeConn(id = 'conn_x'): { id: string; sent: unknown[]; send(m: unknown): void } & WsConnection {
   const sent: unknown[] = [];
   return {
@@ -99,6 +76,43 @@ function fakeConn(id = 'conn_x'): { id: string; sent: unknown[]; send(m: unknown
       sent.push(m);
     },
   } as unknown as { id: string; sent: unknown[]; send(m: unknown): void } & WsConnection;
+}
+
+function captureThrown(fn: () => void): unknown {
+  try {
+    fn();
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
+class FakeWatcher {
+  readonly added: string[][] = [];
+  readonly unwatched: string[][] = [];
+  readonly unwatchErrors = new Map<string, Error>();
+  closeCalls = 0;
+
+  add(paths: string | string[]): this {
+    this.added.push(Array.isArray(paths) ? paths : [paths]);
+    return this;
+  }
+
+  unwatch(paths: string | string[]): this {
+    const items = Array.isArray(paths) ? paths : [paths];
+    this.unwatched.push(items);
+    const error = items.map((path) => this.unwatchErrors.get(path)).find(Boolean);
+    if (error) throw error;
+    return this;
+  }
+
+  on(): this {
+    return this;
+  }
+
+  async close(): Promise<void> {
+    this.closeCalls += 1;
+  }
 }
 
 let ix: InstantiationService;
@@ -236,6 +250,69 @@ describe('WSBroadcastService (WS transport pump)', () => {
   });
 });
 
+describe('FsWatcherService', () => {
+  it('shares watched paths and releases the underlying watcher on the last reference', () => {
+    const watcher = new FakeWatcher();
+    const service = new FsWatcherService(
+      { resolve: () => undefined },
+      { watcherFactory: () => watcher as unknown as FSWatcher },
+      testLogger,
+      {} as ISessionService,
+    );
+    const path = '/workspace/src';
+
+    service.addPaths('sid', 'conn-a', [path]);
+    service.addPaths('sid', 'conn-b', [path]);
+
+    expect(watcher.added).toEqual([[path]]);
+    expect(service.watchedPaths('conn-a', 'sid')).toEqual([path]);
+    expect(service.watchedPaths('conn-b', 'sid')).toEqual([path]);
+
+    service.removePaths('sid', 'conn-a', [path]);
+
+    expect(watcher.unwatched).toEqual([]);
+    expect(watcher.closeCalls).toBe(0);
+    expect(service.watchedPaths('conn-a', 'sid')).toEqual([]);
+    expect(service.watchedPaths('conn-b', 'sid')).toEqual([path]);
+
+    service.removePaths('sid', 'conn-b', [path]);
+
+    expect(watcher.unwatched).toEqual([[path]]);
+    expect(watcher.closeCalls).toBe(1);
+    expect(service.countForConnection('conn-a')).toBe(0);
+    expect(service.countForConnection('conn-b')).toBe(0);
+    service.dispose();
+  });
+
+  it('releases all removed path references before throwing aggregate unwatch errors', () => {
+    const watcher = new FakeWatcher();
+    const service = new FsWatcherService(
+      { resolve: () => undefined },
+      { watcherFactory: () => watcher as unknown as FSWatcher },
+      testLogger,
+      {} as ISessionService,
+    );
+    const paths = ['/workspace/src', '/workspace/docs', '/workspace/notes'];
+    watcher.unwatchErrors.set(paths[0]!, new Error('unwatch-src'));
+    watcher.unwatchErrors.set(paths[1]!, new Error('unwatch-docs'));
+
+    service.addPaths('sid', 'conn', paths);
+    const error = captureThrown(() => {
+      service.removePaths('sid', 'conn', paths.slice(0, 2));
+    });
+
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors.map((err) => (err as Error).message)).toEqual([
+      'unwatch-src',
+      'unwatch-docs',
+    ]);
+    expect(watcher.unwatched).toEqual([[paths[0]!], [paths[1]!]]);
+    expect(service.watchedPaths('conn', 'sid')).toEqual([paths[2]!]);
+    expect(watcher.closeCalls).toBe(0);
+    service.dispose();
+  });
+});
+
 describe('ApprovalService (broadcasts + resolve-by-approval_id)', () => {
   function makeBrokerWithBus(): {
     broker: ApprovalService;
@@ -274,7 +351,6 @@ describe('ApprovalService (broadcasts + resolve-by-approval_id)', () => {
       display: { kind: 'generic', summary: 'test' },
     } as Parameters<typeof broker.request>[0]);
 
-    // Subscriber sees the broadcast — extract the daemon-minted approval_id.
     const approvalId = extractApprovalId(conn.sent);
     expect(approvalId).toBeDefined();
     expect(broker.isPending(approvalId!)).toBe(true);
@@ -283,7 +359,6 @@ describe('ApprovalService (broadcasts + resolve-by-approval_id)', () => {
     broker.resolve(approvalId!, response);
     await expect(pending).resolves.toEqual(response);
 
-    // Resolved broadcast must follow.
     const resolvedFrame = conn.sent.find(
       (f) => (f as { type: string }).type === 'event.approval.resolved',
     );
@@ -492,7 +567,6 @@ describe('DI graph — broker resolution through the container', () => {
     const approval = new ApprovalService(testLogger, eventBus);
     const question = new QuestionService(testLogger, eventBus);
 
-    // We don't need a CoreProcessService for this — just check the wiring symmetry.
     const collection = new ServiceCollection(
       [ILogService, testLogger],
       [ISessionClientsService, clients],

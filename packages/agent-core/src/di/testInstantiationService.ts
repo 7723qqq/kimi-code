@@ -7,7 +7,7 @@ import {
   type ServicesAccessor,
 } from './instantiation';
 import { InstantiationService, Trace } from './instantiationService';
-import { DisposableStore, isDisposable, toDisposable, type IDisposable } from './lifecycle';
+import { DisposableStore, dispose, isDisposable, toDisposable, type IDisposable } from './lifecycle';
 import { ServiceCollection } from './serviceCollection';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -322,12 +322,14 @@ export function createServices(
 
   const instantiationService = disposables.add(new TestInstantiationService(serviceCollection, true));
   disposables.add(toDisposable(() => {
+    const serviceDisposables: IDisposable[] = [];
     for (const id of serviceIdentifiers) {
       const instanceOrDescriptor = serviceCollection.get(id);
       if (isDisposable(instanceOrDescriptor)) {
-        instanceOrDescriptor.dispose();
+        serviceDisposables.push(instanceOrDescriptor);
       }
     }
+    dispose(serviceDisposables);
   }));
   return instantiationService;
 }
