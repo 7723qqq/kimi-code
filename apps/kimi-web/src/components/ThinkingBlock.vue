@@ -48,21 +48,20 @@ watch(
 </script>
 
 <template>
-  <div class="think" :class="{ open, 'is-long': isLong, mob: mobile }">
-    <!-- OPEN: render the full text; only long blocks get a fold button. -->
-    <template v-if="open">
-      <pre ref="bodyEl" class="tc">{{ text }}</pre>
-      <button v-if="isLong" class="fold-btn" @click="toggle">
-        <span class="fold-car">▾</span>
-        <span class="fold-lbl">{{ t('thinking.label') }}</span>
+  <div class="think" :class="{ 'is-long': isLong, mob: mobile }">
+    <Transition name="think" mode="out-in">
+      <div v-if="open" key="open">
+        <pre ref="bodyEl" class="tc">{{ text }}</pre>
+        <button v-if="isLong" class="fold-btn" @click="toggle">
+          <span class="fold-car">▾</span>
+          <span class="fold-lbl">{{ t('thinking.label') }}</span>
+        </button>
+      </div>
+      <button v-else key="closed" class="th" @click="toggle">
+        <span class="label">{{ t('thinking.label') }}</span>
+        <span class="prev">{{ preview }}</span>
       </button>
-    </template>
-
-    <!-- COLLAPSED: a single clickable teaser line. -->
-    <button v-else class="th" @click="toggle">
-      <span class="label">{{ t('thinking.label') }}</span>
-      <span class="prev">{{ preview }}</span>
-    </button>
+    </Transition>
   </div>
 </template>
 
@@ -107,8 +106,8 @@ watch(
 /* ---- Expanded body ---- */
 .tc {
   font-family: var(--mono);
-  font-size: 11.5px;
-  font-style: italic;
+  font-size: 12.5px;
+  font-style: normal;
   color: var(--muted);
   white-space: pre-wrap;
   word-break: break-word;
@@ -143,13 +142,22 @@ watch(
   color: inherit;
 }
 
+/* ---- Transition ---- */
+.think-enter-active,
+.think-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.think-enter-from,
+.think-leave-to {
+  opacity: 0;
+  transform: translateY(-3px);
+}
+
 /* ---- Mobile tweaks ---- */
 .mob {
   margin: 10px 0;
 }
 .mob .tc {
-  font-size: 12.5px;
-  font-style: normal;
   color: var(--faint);
   line-height: 1.6;
   max-height: calc(1.6em * 9.5);

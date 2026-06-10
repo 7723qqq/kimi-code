@@ -61,9 +61,8 @@ function glyph(status: TodoView['status']): string {
   max-width: calc(100% - 32px);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  font-size: 12px;
+  border-radius: 3px;
+  font-size: 13px;
   overflow: hidden;
 }
 /* Below the 46px mobile TabBar */
@@ -74,14 +73,14 @@ function glyph(status: TodoView['status']): string {
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 7px 10px;
+  padding: 6px 10px;
   background: none;
   border: none;
   cursor: pointer;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1;
+  font-size: 12px;
+  line-height: 1.4;
 }
 .tc-head:hover { color: var(--ink); }
 .tc-title { font-weight: 700; letter-spacing: 0.04em; }
@@ -95,7 +94,7 @@ function glyph(status: TodoView['status']): string {
 
 .tc-list {
   border-top: 1px solid var(--line);
-  padding: 6px 10px 8px;
+  padding: 4px 10px 6px;
   max-height: 40vh;
   overflow-y: auto;
 }
@@ -103,8 +102,8 @@ function glyph(status: TodoView['status']): string {
   display: flex;
   align-items: baseline;
   gap: 7px;
-  padding: 3px 0;
-  line-height: 1.4;
+  padding: 2px 0;
+  line-height: 1.5;
 }
 .tc-glyph { flex: none; font-family: var(--mono); }
 .tc-name { min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
