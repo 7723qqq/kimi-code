@@ -22,4 +22,5 @@ export default {
   tabFiles: 'files',
   tabTasks: 'tasks',
   tabTodo: 'todo',
+  noSessions: 'No conversations yet',
 } as const;

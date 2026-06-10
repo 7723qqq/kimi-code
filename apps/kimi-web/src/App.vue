@@ -45,6 +45,10 @@ const activeWorkspaceSessionCount = computed<number>(
   () => client.sessionsForView.value.length,
 );
 
+// True when the active workspace has no sessions — drives the centred input
+// placeholder in ChatPane so the user can start typing immediately.
+const workspaceEmpty = computed<boolean>(() => activeWorkspaceSessionCount.value === 0);
+
 // Thinking is on/off (TUI parity — no effort-level cycling). The /thinking
 // command flips between off and the backend default effort ('high').
 function nextThinkingLevel(current: ThinkingLevel): ThinkingLevel {
@@ -250,7 +254,11 @@ function handleEditQueued(index: number): void {
   client.unqueue(index);
 }
 
-function handleSubmit(payload: { text: string; attachments: { fileId: string }[] }): void {
+async function handleSubmit(payload: { text: string; attachments: { fileId: string }[] }): Promise<void> {
+  const wsId = client.activeWorkspaceId.value;
+  if (wsId && workspaceEmpty.value) {
+    await client.createSessionInWorkspace(wsId);
+  }
   void client.sendPrompt(payload.text, payload.attachments);
 }
 
@@ -354,6 +362,7 @@ function handleCreateSession(): void {
       :changes-by-path="client.changesByPath.value"
       :file-reload-key="client.activeSessionId.value"
       :session-loading="client.sessionLoading.value"
+      :workspace-empty="workspaceEmpty"
       @submit="handleSubmit($event)"
       @approval="(approvalId, response) => client.respondApproval(approvalId, response)"
       @cancel-task="client.cancelTask($event)"

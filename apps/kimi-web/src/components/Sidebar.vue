@@ -405,6 +405,7 @@ function blinkOnce(): void {
                 @rename="(id, title) => emit('rename', id, title)"
                 @delete="emit('delete', $event)"
               />
+              <div v-if="g.sessions.length === 0" class="group-empty">{{ t('sidebar.noSessions') }}</div>
             </div>
           </div>
         </template>
@@ -755,6 +756,13 @@ function blinkOnce(): void {
   flex: none;
 }
 .gh-add:hover { color: #666; }
+
+.group-empty {
+  padding: 8px 10px 8px calc(var(--sb-gutter) + var(--sb-gap));
+  font-size: 12.5px;
+  color: var(--faint);
+  font-family: var(--mono);
+}
 
 /* Inline workspace rename input */
 .gh-rename {

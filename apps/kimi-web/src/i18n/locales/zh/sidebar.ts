@@ -22,4 +22,5 @@ export default {
   tabFiles: '文件',
   tabTasks: '后台任务',
   tabTodo: '待办',
+  noSessions: '暂无对话',
 };
