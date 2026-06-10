@@ -388,7 +388,8 @@ function blinkOnce(): void {
                   @click.stop="emit('createInWorkspace', g.workspace.id)"
                 >
                   <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M11.5 2.5l2 2L4 14l-3 1 1-3L11.5 2.5z"/>
+                    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
+                    <path d="M8 5v6M5 8h6"/>
                   </svg>
                 </button>
               </div>
