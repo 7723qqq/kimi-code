@@ -21,19 +21,26 @@ export {
   DisposableMap,
   DisposableSet,
   MutableDisposable,
+  MandatoryMutableDisposable,
+  RefCountedDisposable,
+  ReferenceCollection,
+  AsyncReferenceCollection,
+  ImmortalReference,
   DisposableTracker,
   combinedDisposable,
   toDisposable,
   dispose,
   disposeIfDisposable,
   disposeOnReturn,
+  thenIfNotDisposed,
+  thenRegisterOrDispose,
   isDisposable,
   markAsSingleton,
   setDisposableTracker,
   trackDisposable,
   markAsDisposed,
 } from './lifecycle';
-export type { IDisposable, IDisposableTracker } from './lifecycle';
+export type { IDisposable, IDisposableTracker, IReference } from './lifecycle';
 export { CyclicDependencyError } from './errors';
 export {
   InstantiationType,

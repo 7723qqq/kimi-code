@@ -8,12 +8,22 @@ import {
   type IConstructorSignature,
   type ServicesAccessor,
 } from '#/di/instantiation';
+import type { IDisposable } from '#/di/lifecycle';
 import { ServiceCollection } from '#/di/serviceCollection';
 
 interface ILogger {
   log(msg: string): void;
 }
 const ILogger = createDecorator<ILogger>('logger');
+
+function captureThrown(fn: () => void): unknown {
+  try {
+    fn();
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
 
 describe('InstantiationService (basic)', () => {
   it('constructs an impl from SyncDescriptor on first get', () => {
@@ -27,7 +37,9 @@ describe('InstantiationService (basic)', () => {
     const ix = new InstantiationService(
       new ServiceCollection([ILogger, new SyncDescriptor(ConsoleLogger)]),
     );
-    ix.invokeFunction((a) => a.get(ILogger).log('hi'));
+    ix.invokeFunction((a) => {
+      a.get(ILogger).log('hi');
+    });
     expect(logSpy).toHaveBeenCalledWith('hi');
     logSpy.mockRestore();
   });
@@ -155,6 +167,8 @@ describe('InstantiationService (basic)', () => {
   it('eagerly constructs on first get (ctor side-effect runs during get)', () => {
     let ctorCount = 0;
     class CountingService {
+      readonly tag = 'counting';
+
       constructor() {
         ctorCount++;
       }
@@ -258,6 +272,57 @@ describe('InstantiationService (basic)', () => {
     const ix = new InstantiationService();
     const child = ix.createChild(new ServiceCollection());
     expect(child).toBeDefined();
-    expect(() => ix.dispose()).not.toThrow();
+    expect(() => { ix.dispose(); }).not.toThrow();
+  });
+
+  it('disposes all constructed services before throwing AggregateError', () => {
+    interface IService {
+      tag: string;
+    }
+    const IA = createDecorator<IService>('dispose-a');
+    const IB = createDecorator<IService>('dispose-b');
+    const IC = createDecorator<IService>('dispose-c');
+    const events: string[] = [];
+    class A implements IService, IDisposable {
+      tag = 'a';
+      dispose(): void {
+        events.push('A');
+        throw new Error('dispose-a');
+      }
+    }
+    class B implements IService, IDisposable {
+      tag = 'b';
+      dispose(): void {
+        events.push('B');
+      }
+    }
+    class C implements IService, IDisposable {
+      tag = 'c';
+      dispose(): void {
+        events.push('C');
+        throw new Error('dispose-c');
+      }
+    }
+    const ix = new InstantiationService(
+      new ServiceCollection(
+        [IA, new SyncDescriptor(A)],
+        [IB, new SyncDescriptor(B)],
+        [IC, new SyncDescriptor(C)],
+      ),
+    );
+
+    ix.invokeFunction((a) => {
+      a.get(IA);
+      a.get(IB);
+      a.get(IC);
+    });
+    const error = captureThrown(() => { ix.dispose(); });
+
+    expect(events).toEqual(['C', 'B', 'A']);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors.map((err) => (err as Error).message)).toEqual([
+      'dispose-c',
+      'dispose-a',
+    ]);
   });
 });

@@ -11,6 +11,15 @@ afterEach(() => {
   resetUnexpectedErrorHandler();
 });
 
+function captureThrown(fn: () => void): unknown {
+  try {
+    fn();
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 describe('Emitter / Event', () => {
   it('fire delivers to all listeners in subscribe order', () => {
     const emitter = new Emitter<number>();
@@ -80,8 +89,7 @@ describe('Emitter / Event', () => {
     emitter.fire(2);
     expect(seen).toEqual([]);
     expect(sub).toBe(Disposable.None);
-    // Disposing the None handle must not throw.
-    expect(() => sub.dispose()).not.toThrow();
+    expect(() => { sub.dispose(); }).not.toThrow();
   });
 
   it('dispose is idempotent', () => {
@@ -121,8 +129,6 @@ describe('Emitter / Event', () => {
       emitter.event(() => seen.push('late'));
     });
     emitter.fire(1);
-    // The "late" listener was added during fire; the snapshot used for the
-    // initial fire doesn't include it.
     expect(seen).toEqual(['a']);
     emitter.fire(2);
     expect(seen).toEqual(['a', 'a', 'late']);
@@ -219,5 +225,32 @@ describe('Event.any', () => {
     expect(seen).toEqual(['A']);
     a.dispose();
     b.dispose();
+  });
+
+  it('disposing the combined subscription disposes all source subscriptions before throwing AggregateError', () => {
+    const order: string[] = [];
+    const first: Event<string> = () => ({
+      dispose: () => {
+        order.push('first');
+        throw new Error('first-dispose');
+      },
+    });
+    const second: Event<string> = () => ({
+      dispose: () => {
+        order.push('second');
+        throw new Error('second-dispose');
+      },
+    });
+
+    const error = captureThrown(() => {
+      Event.any(first, second)(() => undefined).dispose();
+    });
+
+    expect(order).toEqual(['first', 'second']);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors.map((err) => (err as Error).message)).toEqual([
+      'first-dispose',
+      'second-dispose',
+    ]);
   });
 });
