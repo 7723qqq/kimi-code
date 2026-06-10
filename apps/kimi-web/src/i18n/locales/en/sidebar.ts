@@ -21,4 +21,5 @@ export default {
   tabChat: 'chat',
   tabFiles: 'files',
   tabTasks: 'tasks',
+  tabTodo: 'todo',
 } as const;

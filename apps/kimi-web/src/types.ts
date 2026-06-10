@@ -161,7 +161,7 @@ export interface ConversationStatus {
 // ~/diff and ~/files were merged into a single ~/files tab (changed-first list +
 // a Changed|All toggle + an adaptive content pane: diff for changed files, content
 // preview for unchanged ones). 'diff' is gone; 'files' is the merged key.
-export type PaneKey = 'chat' | 'files' | 'tasks';
+export type PaneKey = 'chat' | 'files' | 'tasks' | 'todo';
 
 /** A queued prompt as shown in the composer's queue strip. */
 export interface QueuedPromptView {

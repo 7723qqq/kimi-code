@@ -20,5 +20,6 @@ export default {
   daemon: '后台',
   tabChat: '对话',
   tabFiles: '文件',
-  tabTasks: '任务',
+  tabTasks: '后台任务',
+  tabTodo: '待办',
 };
