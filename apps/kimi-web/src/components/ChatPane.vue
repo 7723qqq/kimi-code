@@ -546,7 +546,7 @@ function processSummary(turn: ChatTurn): string {
   padding: 2px 0;
   cursor: pointer;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   font-family: var(--mono);
   line-height: 1.4;
   margin-bottom: 4px;
@@ -641,6 +641,9 @@ function processSummary(turn: ChatTurn): string {
 @media (max-width: 640px) {
   .u-bub .msg,
   .a-msg .msg {
+    font-size: 16px;
+  }
+  .fold-h {
     font-size: 16px;
   }
   .userline .pr,
