@@ -41,7 +41,7 @@ const props = withDefaults(
     attentionBySession: () => ({}),
     authReady: false,
     accountModel: null,
-    colWidth: 196,
+    colWidth: 220,
     theme: 'terminal',
     codeFont: 'sf-mono',
     accent: 'blue',
