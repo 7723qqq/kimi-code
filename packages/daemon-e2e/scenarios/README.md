@@ -41,6 +41,7 @@ somewhere else.
 | `07-session-children.ts` | Direct child session creation, child prompt execution, direct-child listing, and missing-parent `40401`. |
 | `08-pending-recovery.ts` | Pending approval and pending question recovery APIs, including resolve and pending-list cleanup. |
 | `09-image-file-prompts.ts` | Uploaded file prompt references: missing file, non-image validation, and PNG prompt submission. |
+| `10-prompt-queue-steer.ts` | Prompt queue steer: debug-inject an active prompt, queue two prompts, steer them through `POST /prompts:steer`, and assert REST, WS, content, and queue-drain behavior. |
 
 ## Writing a new scenario
 
