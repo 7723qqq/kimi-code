@@ -150,45 +150,48 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   return blocks;
 }
 
-/** Extract a file path from a tool argument string (JSON or plain). */
-function extractFilePath(arg: string): string | undefined {
-  try {
-    const d = JSON.parse(arg) as Record<string, unknown>;
-    const p =
-      (typeof d.path === 'string' ? d.path : undefined) ??
-      (typeof d.file_path === 'string' ? d.file_path : undefined) ??
-      (typeof d.filePath === 'string' ? d.filePath : undefined) ??
-      (typeof d.filename === 'string' ? d.filename : undefined) ??
-      (typeof d.dir === 'string' ? d.dir : undefined) ??
-      (typeof d.directory === 'string' ? d.directory : undefined) ??
-      (typeof d.cwd === 'string' ? d.cwd : undefined);
-    return p ? p.split('/').pop() ?? p : undefined;
-  } catch {
-    return undefined;
-  }
-}
+/** Extract a file path from a tool argument string (JSON or plain).
+    TODO: temporarily unused with turn-summary hidden. */
+// function extractFilePath(arg: string): string | undefined {
+//   try {
+//     const d = JSON.parse(arg) as Record<string, unknown>;
+//     const p =
+//       (typeof d.path === 'string' ? d.path : undefined) ??
+//       (typeof d.file_path === 'string' ? d.file_path : undefined) ??
+//       (typeof d.filePath === 'string' ? d.filePath : undefined) ??
+//       (typeof d.filename === 'string' ? d.filename : undefined) ??
+//       (typeof d.dir === 'string' ? d.dir : undefined) ??
+//       (typeof d.directory === 'string' ? d.directory : undefined) ??
+//       (typeof d.cwd === 'string' ? d.cwd : undefined);
+//     return p ? p.split('/').pop() ?? p : undefined;
+//   } catch {
+//     return undefined;
+//   }
+// }
 
-/** Count tools and unique files touched in a turn. */
-function countToolsAndFiles(turn: ChatTurn): { toolCount: number; fileCount: number } {
-  let toolCount = 0;
-  const filePaths = new Set<string>();
-  for (const blk of turnBlocks(turn)) {
-    if (blk.kind !== 'tool') continue;
-    toolCount++;
-    const path = extractFilePath(blk.tool.arg);
-    if (path) filePaths.add(path);
-  }
-  return { toolCount, fileCount: filePaths.size };
-}
+/** Count tools and unique files touched in a turn.
+    TODO: temporarily unused with turn-summary hidden. */
+// function countToolsAndFiles(turn: ChatTurn): { toolCount: number; fileCount: number } {
+//   let toolCount = 0;
+//   const filePaths = new Set<string>();
+//   for (const blk of turnBlocks(turn)) {
+//     if (blk.kind !== 'tool') continue;
+//     toolCount++;
+//     const path = extractFilePath(blk.tool.arg);
+//     if (path) filePaths.add(path);
+//   }
+//   return { toolCount, fileCount: filePaths.size };
+// }
 
-/** Turn-end summary: "已调用 3 个工具，修改 5 个文件". */
-function turnSummary(turn: ChatTurn): string {
-  const { toolCount, fileCount } = countToolsAndFiles(turn);
-  const parts: string[] = [];
-  if (toolCount > 0) parts.push(`已调用 ${toolCount} 个工具`);
-  if (fileCount > 0) parts.push(`修改 ${fileCount} 个文件`);
-  return parts.join('，');
-}
+/** Turn-end summary: "已调用 3 个工具，修改 5 个文件".
+    TODO: temporarily hidden — uncomment when turn-summary UI is ready. */
+// function turnSummary(turn: ChatTurn): string {
+//   const { toolCount, fileCount } = countToolsAndFiles(turn);
+//   const parts: string[] = [];
+//   if (toolCount > 0) parts.push(`已调用 ${toolCount} 个工具`);
+//   if (fileCount > 0) parts.push(`修改 ${fileCount} 个文件`);
+//   return parts.join('，');
+// }
 </script>
 
 <template>
@@ -228,7 +231,9 @@ function turnSummary(turn: ChatTurn): string {
           <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" /></div>
           <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
         </template>
+        <!-- TODO: temporarily hidden turn-summary
         <div v-if="turn.id !== streamingTurnId && turnSummary(turn)" class="turn-summary">{{ turnSummary(turn) }}</div>
+        -->
         <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)" class="a-msg-ft">
           <button
             class="a-cpbtn"
@@ -309,7 +314,9 @@ function turnSummary(turn: ChatTurn): string {
             <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
             <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
           </template>
-          <div v-if="turn.id !== streamingTurnId && turnSummary(turn)" class="turn-summary">{{ turnSummary(turn) }}</div>
+          <!-- TODO: temporarily hidden turn-summary
+        <div v-if="turn.id !== streamingTurnId && turnSummary(turn)" class="turn-summary">{{ turnSummary(turn) }}</div>
+        -->
         </div>
       </div>
     </template>
