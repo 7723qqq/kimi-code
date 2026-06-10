@@ -1,8 +1,8 @@
 export default {
   label: 'Thinking',
   process: 'Process',
-  calledTools: 'Called {names}',
-  editedFiles: 'edited {names}',
-  tookTime: 'took {time}',
-  andMore: ' and {count} more',
+  called: 'Called',
+  edited: 'edited',
+  toolCount: '{count} tools',
+  fileCount: '{count} files',
 } as const;

@@ -708,12 +708,12 @@ function selectModel(modelId: string): void {
               class="send-icon"
               :class="{ hidden: !running }"
               viewBox="0 0 16 16"
-              width="12"
-              height="12"
+              width="14"
+              height="14"
               fill="currentColor"
               aria-hidden="true"
             >
-              <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
+              <rect x="3" y="3" width="10" height="10" rx="1.5" />
             </svg>
           </button>
         </div>

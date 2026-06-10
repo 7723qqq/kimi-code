@@ -10,7 +10,7 @@ import ToolCall from './ToolCall.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import Markdown from './Markdown.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
-import { toolLabel } from '../lib/toolMeta';
+
 
 const MOON_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
 const MOON_INTERVAL_MS = 120;
@@ -181,60 +181,32 @@ function extractFilePath(arg: string): string | undefined {
   }
 }
 
-/** Parse a timing string like "1.2s" or "0.8s" into seconds. */
-function parseTimingSeconds(timing: string | undefined): number {
-  if (!timing) return 0;
-  const m = timing.match(/([\d.]+)\s*s/);
-  if (m) return parseFloat(m[1]!);
-  return 0;
-}
-
-/** Build a friendly one-line summary of the process blocks. */
+/** Build a friendly summary: "已调用 3 个工具，修改 5 个文件". */
 function processSummary(turn: ChatTurn): string {
   const blocks = processBlocks(turn);
-  const toolNames: string[] = [];
+  let toolCount = 0;
   const filePaths: string[] = [];
-  let totalSeconds = 0;
 
   for (const blk of blocks) {
     if (blk.kind !== 'tool') continue;
-    toolNames.push(toolLabel(blk.tool.name));
+    toolCount++;
     const path = extractFilePath(blk.tool.arg);
     if (path) filePaths.push(path);
-    totalSeconds += parseTimingSeconds(blk.tool.timing);
   }
 
-  const uniqueTools = [...new Set(toolNames)];
   const uniqueFiles = [...new Set(filePaths)];
-
-  if (uniqueTools.length === 0) return t('thinking.process');
-
-  const toolSep = t('thinking.process') === '处理过程' ? '、' : ', ';
+  const isZh = t('thinking.process') === '处理过程';
+  const sep = isZh ? '，' : ' · ';
   const parts: string[] = [];
 
-  // Tool names
-  const toolStr = uniqueTools.join(toolSep);
-  parts.push(t('thinking.calledTools', { names: toolStr }));
-
-  // Files (cap at 2, add "and X more")
+  if (toolCount > 0) {
+    parts.push(`${t('thinking.called')} ${t('thinking.toolCount', { count: toolCount })}`);
+  }
   if (uniqueFiles.length > 0) {
-    const shown = uniqueFiles.slice(0, 2).join(toolSep);
-    const more =
-      uniqueFiles.length > 2
-        ? t('thinking.andMore', { count: uniqueFiles.length - 2 })
-        : '';
-    parts.push(t('thinking.editedFiles', { names: shown + more }));
+    parts.push(`${t('thinking.edited')} ${t('thinking.fileCount', { count: uniqueFiles.length })}`);
   }
 
-  // Timing
-  if (totalSeconds > 0) {
-    const timeStr = totalSeconds < 1
-      ? `${Math.round(totalSeconds * 1000)}ms`
-      : `${totalSeconds.toFixed(1)}s`;
-    parts.push(t('thinking.tookTime', { time: timeStr }));
-  }
-
-  return parts.join(t('thinking.process') === '处理过程' ? '，' : ' · ');
+  return parts.length > 0 ? parts.join(sep) : t('thinking.process');
 }
 </script>
 
@@ -279,7 +251,6 @@ function processSummary(turn: ChatTurn): string {
       <div v-else class="a-msg">
         <template v-if="canFoldTurn(turn)">
           <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
-            <span class="fold-car">{{ isFolded(turn.id) ? '▸' : '▾' }}</span>
             <span class="fold-lbl">{{ processSummary(turn) }}</span>
           </button>
           <div v-show="!isFolded(turn.id)" class="fold-body">
@@ -292,13 +263,6 @@ function processSummary(turn: ChatTurn): string {
           <template v-for="(blk, bi) in summaryBlocks(turn)" :key="`s-${bi}`">
             <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="false" />
             <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="false" /></div>
-            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
-          </template>
-        </template>
-        <template v-else>
-          <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
-            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
-            <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" /></div>
             <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
           </template>
         </template>
@@ -384,7 +348,6 @@ function processSummary(turn: ChatTurn): string {
                process blocks are folded behind a toggle. -->
           <template v-if="canFoldTurn(turn)">
             <button class="fold-h" @click="toggleTurnCollapse(turn.id)">
-              <span class="fold-car">{{ isFolded(turn.id) ? '▸' : '▾' }}</span>
               <span class="fold-lbl">{{ processSummary(turn) }}</span>
             </button>
             <div v-show="!isFolded(turn.id)" class="fold-body">
@@ -578,24 +541,18 @@ function processSummary(turn: ChatTurn): string {
 .fold-h {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
   background: none;
   border: none;
   padding: 2px 0;
   cursor: pointer;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13px;
   font-family: var(--mono);
-  line-height: 1;
+  line-height: 1.4;
   margin-bottom: 4px;
 }
 .fold-h:hover {
   color: var(--text);
-}
-.fold-car {
-  color: var(--faint);
-  font-size: 10px;
-  flex: none;
 }
 .fold-lbl {
   color: var(--muted);
