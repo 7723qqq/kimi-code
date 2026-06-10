@@ -302,7 +302,7 @@ function processSummary(turn: ChatTurn): string {
             <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
           </template>
         </template>
-        <div class="a-msg-ft">
+        <div v-if="turn.id !== streamingTurnId" class="a-msg-ft">
           <button
             class="a-cpbtn"
             :title="t('filePreview.copy')"
@@ -315,7 +315,7 @@ function processSummary(turn: ChatTurn): string {
             <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polyline points="3,8 6.5,11.5 13,5"/>
             </svg>
-            {{ t('filePreview.copy') }}
+            <span>{{ t('filePreview.copy') }}</span>
           </button>
         </div>
       </div>
@@ -367,8 +367,8 @@ function processSummary(turn: ChatTurn): string {
               <span class="who"> &gt; </span>
             </template>
 
-            <!-- Per-message copy button (shown on hover) -->
-            <button class="cpbtn" @click="copyTurn(turn)" :title="t('filePreview.copy')" tabindex="-1">
+            <!-- Per-message copy button (shown on hover, only when turn is complete) -->
+            <button v-if="turn.id !== streamingTurnId" class="cpbtn" @click="copyTurn(turn)" :title="t('filePreview.copy')" tabindex="-1">
               <svg v-if="copiedTurn !== turn.id" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="3" width="9" height="9" rx="1.5"/>
                 <path d="M6 1h7a1 1 0 0 1 1 1v7"/>
@@ -507,6 +507,8 @@ function processSummary(turn: ChatTurn): string {
 /* Copy button: hidden by default, shown on hover of .ln */
 .cpbtn {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
   background: none;
   border: none;
   cursor: pointer;
@@ -514,7 +516,6 @@ function processSummary(turn: ChatTurn): string {
   font-size: 13px;
   font-family: var(--mono);
   padding: 0 4px;
-  line-height: 1;
   opacity: 0;
   transition: opacity 0.1s;
 }
@@ -614,7 +615,6 @@ function processSummary(turn: ChatTurn): string {
   font-size: 11px;
   padding: 2px 6px;
   border-radius: 4px;
-  line-height: 1;
 }
 .a-cpbtn:hover {
   background: var(--soft);

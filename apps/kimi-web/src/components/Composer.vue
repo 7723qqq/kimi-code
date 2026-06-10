@@ -813,7 +813,7 @@ function selectModel(modelId: string): void {
                 fill="none"
                 stroke-width="2.5"
                 stroke-linecap="round"
-                :stroke="pct >= 80 ? 'var(--err)' : pct >= 50 ? 'var(--warn)' : 'var(--blue)'"
+                stroke="var(--blue)"
                 :stroke-dasharray="`${2 * Math.PI * 7}`"
                 :stroke-dashoffset="`${2 * Math.PI * 7 * (1 - pct / 100)}`"
               />
