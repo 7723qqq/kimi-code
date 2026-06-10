@@ -10,7 +10,8 @@ const { t } = useI18n();
 
 const tabs: { key: PaneKey; labelKey: string }[] = [
   { key: 'chat', labelKey: 'sidebar.tabChat' },
-  { key: 'files', labelKey: 'sidebar.tabFiles' },
+  // TODO: temporarily hide the files tab until the feature is ready
+  // { key: 'files', labelKey: 'sidebar.tabFiles' },
   { key: 'tasks', labelKey: 'sidebar.tabTasks' },
   { key: 'todo', labelKey: 'sidebar.tabTodo' },
 ];
@@ -26,7 +27,8 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
       @click="emit('select', tab.key)"
     >
       {{ t(tab.labelKey) }}
-      <span v-if="tab.key === 'files' && (changesCount ?? 0) > 0" class="d"></span>
+      <!-- TODO: restore when files tab is re-enabled -->
+      <!-- <span v-if="tab.key === 'files' && (changesCount ?? 0) > 0" class="d"></span> -->
       <span v-if="tab.key === 'tasks'" class="cnt">{{ runningTasks }}</span>
     </div>
 
