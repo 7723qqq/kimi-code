@@ -549,7 +549,6 @@ function processSummary(turn: ChatTurn): string {
   font-size: 14px;
   font-family: var(--mono);
   line-height: 1.4;
-  margin-bottom: 4px;
 }
 .fold-h:hover {
   color: var(--text);
