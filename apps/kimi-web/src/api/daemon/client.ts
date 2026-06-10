@@ -252,6 +252,15 @@ export class DaemonKimiWebApi implements KimiWebApi {
     return toAppSession(data);
   }
 
+  // GET /sessions/{id} — fetch one session (deep links to sessions outside the
+  // first listSessions page).
+  async getSession(sessionId: string): Promise<AppSession> {
+    const data = await this.http.get<WireSession>(
+      `/sessions/${encodeURIComponent(sessionId)}`,
+    );
+    return toAppSession(data);
+  }
+
   // The daemon has no PATCH on sessions; mutating title/metadata/agent_config
   // (model + runtime controls) goes through POST /sessions/{id}/profile with a
   // SessionUpdate body { title?, metadata?, agent_config? }. Runtime controls in

@@ -23,6 +23,8 @@ import type {
 } from '../api/types';
 import { createInitialState, reduceAppEvent } from '../api/daemon/eventReducer';
 import type { CompactionStatus } from '../api/daemon/eventReducer';
+import { readSessionIdFromLocation, sessionUrl } from '../lib/sessionRoute';
+import type { SessionUrlMode } from '../lib/sessionRoute';
 import type { KimiClientState } from '../api/daemon/eventReducer';
 import { toAppEvent } from '../api/daemon/mappers';
 import { parseDiff } from '../lib/parseDiff';
@@ -1393,9 +1395,25 @@ async function load(): Promise<void> {
       selectWorkspace(workspaceIdForSession(mostRecent));
     }
 
-    // Auto-select first session if none selected
+    // URL deep link (/sessions/<id>) takes priority over auto-select. The
+    // session may live beyond the first listSessions page — fetch it then.
+    // selectSession syncs the active workspace off the (now present) entry.
+    bindSessionRoute();
+    const urlSessionId =
+      typeof window !== 'undefined' ? readSessionIdFromLocation(window.location) : undefined;
+    if (!rawState.activeSessionId && urlSessionId !== undefined) {
+      const available =
+        rawState.sessions.some((s) => s.id === urlSessionId) ||
+        (await fetchSessionIntoList(urlSessionId));
+      if (available) {
+        await selectSession(urlSessionId, { urlMode: 'replace' });
+      }
+    }
+
+    // Auto-select first session if none selected (also the fallback for a dead
+    // deep link — 'replace' rewrites the URL to the session actually shown).
     if (!rawState.activeSessionId && sessionsPage.items.length > 0) {
-      await selectSession(sessionsPage.items[0]!.id);
+      await selectSession(sessionsPage.items[0]!.id, { urlMode: 'replace' });
     }
   } catch (err) {
     rawState.warnings = [...rawState.warnings, `load() failed: ${String(err)}`];
@@ -1437,10 +1455,12 @@ function openWorkspace(id: string): void {
   if (sessionsInWs.length > 0) {
     const mostRecent = sessionsInWs[0];
     if (mostRecent && mostRecent.id !== rawState.activeSessionId) {
+      // One user action (clicking the workspace) = one history entry.
       void selectSession(mostRecent.id);
     }
   } else {
     rawState.activeSessionId = undefined;
+    writeSessionUrl(undefined, 'push');
   }
 }
 
@@ -1538,9 +1558,88 @@ async function getFsHome(): Promise<{ home: string; recentRoots: string[] }> {
   }
 }
 
-async function selectSession(sessionId: string): Promise<void> {
+// ---------------------------------------------------------------------------
+// URL ↔ session binding (no router): '/' ↔ /sessions/<id>
+// urlMode semantics: 'push' = user navigation (new history entry); 'replace' =
+// programmatic/auto selection (first load, fallback after delete); 'none' =
+// popstate-driven (the URL is already correct — writing it again would loop).
+// ---------------------------------------------------------------------------
+
+function writeSessionUrl(sessionId: string | undefined, mode: SessionUrlMode): void {
+  if (mode === 'none') return;
+  if (typeof window === 'undefined' || !window.history) return;
+  const target = sessionUrl(sessionId);
+  if (window.location.pathname === target) return;
+  try {
+    if (mode === 'push') window.history.pushState(null, '', target);
+    else window.history.replaceState(null, '', target);
+  } catch {
+    // history API unavailable (e.g. sandboxed iframe) — URL sync is best-effort
+  }
+}
+
+/** Fetch a session that is not in the loaded list (deep link beyond the first
+    page) and append it. Returns false when the daemon doesn't know it. */
+async function fetchSessionIntoList(sessionId: string): Promise<boolean> {
+  try {
+    const session = await getKimiWebApi().getSession(sessionId);
+    if (!rawState.sessions.some((s) => s.id === session.id)) {
+      // Append, not prepend: the list is recency-ordered and a deep-linked old
+      // session shouldn't displace the most-recent ones at the top.
+      rawState.sessions = [...rawState.sessions, session];
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function onSessionRoutePopState(): void {
+  const id = readSessionIdFromLocation(window.location);
+  if (id === undefined) {
+    // Back/forward landed on '/' — no active session.
+    rawState.activeSessionId = undefined;
+    return;
+  }
+  if (id === rawState.activeSessionId) return;
+  if (rawState.sessions.some((s) => s.id === id)) {
+    void selectSession(id, { urlMode: 'none' });
+    return;
+  }
+  // A history entry can point at a session that has since been deleted (or one
+  // outside the loaded page): try to fetch it; on failure fall back to the most
+  // recent session and FIX the URL so the bad entry doesn't stick around.
+  void (async () => {
+    if (await fetchSessionIntoList(id)) {
+      await selectSession(id, { urlMode: 'none' });
+      return;
+    }
+    const next = rawState.sessions[0];
+    if (next) {
+      await selectSession(next.id, { urlMode: 'replace' });
+    } else {
+      rawState.activeSessionId = undefined;
+      writeSessionUrl(undefined, 'replace');
+    }
+  })();
+}
+
+let sessionRouteBound = false;
+function bindSessionRoute(): void {
+  if (sessionRouteBound || typeof window === 'undefined') return;
+  sessionRouteBound = true;
+  window.addEventListener('popstate', onSessionRoutePopState);
+}
+
+async function selectSession(
+  sessionId: string,
+  opts?: { urlMode?: SessionUrlMode },
+): Promise<void> {
   const messagesLoaded = hasLoadedMessages(sessionId);
   try {
+    // Write the URL synchronously (before any await) so rapid clicks lay down
+    // history entries in click order.
+    writeSessionUrl(sessionId, opts?.urlMode ?? 'push');
     rawState.sessionLoading = !messagesLoaded;
     rawState.activeSessionId = sessionId;
     // A diff belongs to the session it was loaded from — drop it on switch.
@@ -2007,13 +2106,15 @@ async function deleteSession(id: string): Promise<void> {
     await api.deleteSession(id);
     rawState.sessions = rawState.sessions.filter((s) => s.id !== id);
 
-    // If deleted session was active, pick another
+    // If deleted session was active, pick another. 'replace' so the address
+    // bar doesn't keep pointing at (and back doesn't return to) a dead session.
     if (rawState.activeSessionId === id) {
       const next = rawState.sessions[0];
       if (next) {
-        await selectSession(next.id);
+        await selectSession(next.id, { urlMode: 'replace' });
       } else {
         rawState.activeSessionId = undefined;
+        writeSessionUrl(undefined, 'replace');
       }
     }
   } catch (err) {

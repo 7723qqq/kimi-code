@@ -377,6 +377,8 @@ export interface KimiWebApi {
   getMeta(): Promise<{ daemonVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean> }>;
   listSessions(input?: PageRequest & { status?: AppSessionStatus; workspaceId?: string }): Promise<Page<AppSession>>;
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
+  /** Fetch one session by id (deep links beyond the first listSessions page). */
+  getSession(sessionId: string): Promise<AppSession>;
   updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; thinking?: string }): Promise<AppSession>;
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
   deleteSession(sessionId: string): Promise<{ deleted: true }>;
