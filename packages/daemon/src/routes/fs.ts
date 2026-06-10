@@ -1,44 +1,4 @@
-/**
- * `/sessions/{sid}/fs:*` REST routes.
- *
- * Supported POST actions:
- *
- *   POST /sessions/{sid}/fs:list        → FsListResponse
- *   POST /sessions/{sid}/fs:read        → FsReadResponse
- *   POST /sessions/{sid}/fs:list_many   → FsListManyResponse
- *   POST /sessions/{sid}/fs:stat        → FsEntry
- *   POST /sessions/{sid}/fs:stat_many   → FsStatManyResponse
- *   POST /sessions/{sid}/fs:search      → FsSearchResponse
- *   POST /sessions/{sid}/fs:grep        → FsGrepResponse
- *   POST /sessions/{sid}/fs:git_status  → FsGitStatusResponse
- *
- * **URL convention**: Fastify can't disambiguate `:resource_id` from a
- * `:action` suffix at the same path prefix. find-my-way's `::` colon
- * escape (see `find-my-way/index.js:184`) collapses both colons into a
- * STATIC literal `:`, so `fs::tail` becomes the static literal `fs:tail`
- * NOT the parametric tail we want. We therefore capture the full final
- * segment as `:tail` and split locally on the literal `fs:` prefix.
- *
- * The parametric `:tail` route is registered AFTER all sibling static
- * routes (`messages`, `prompts`, `tasks`, ...) so find-my-way's
- * static-beats-parametric tiebreak picks the correct handler. POSTs that
- * don't start with `fs:` reach this handler and bounce as 40001 — they
- * would have 404'd otherwise (which is fine; either path tells the client
- * the route is wrong).
- *
- * **Error mapping** (see also `services/fs/fs.ts`):
- *
- *   FsPathEscapesError      → 41304 fs.path_escapes_session
- *   FsPathNotFoundError     → 40409 fs.path_not_found
- *   FsIsDirectoryError      → 40906 fs.is_directory
- *   FsIsBinaryError         → 40907 fs.is_binary
- *   FsTooLargeError         → 41302 fs.too_large
- *   FsTooManyResultsError   → 41303 fs.too_many_results
- *   SessionNotFoundError    → 40401 session.not_found
- *
- * **Anti-corruption**: route resolves `IFsService` via the DI accessor;
- * zero SDK imports.
- */
+
 
 import { createReadStream } from 'node:fs';
 
@@ -75,16 +35,16 @@ import {
   FsTooLargeError,
   FsTooManyResultsError,
   IFsService,
-} from '#/services/fs';
+} from '@moonshot-ai/services';
 import {
   FsGrepTimeoutError,
   IFsSearchService,
-} from '#/services/fs';
+} from '@moonshot-ai/services';
 import {
   FsGitUnavailableError,
   IFsGitService,
-} from '#/services/fs';
-import { FsPathEscapesError } from '#/services/fs';
+} from '@moonshot-ai/services';
+import { FsPathEscapesError } from '@moonshot-ai/services';
 
 interface FsRouteHost {
   post(
@@ -110,12 +70,6 @@ interface FsRouteHost {
   ): unknown;
 }
 
-/**
- * Reply surface for `:download`. Fastify supports `.type()`, `.header()`,
- * `.code()`, `.send()` (with a stream argument), and `.raw` (underlying
- * ServerResponse) for backpressure-aware streaming. We narrow to the
- * subset we actually call.
- */
 interface FsDownloadReply {
   type(mime: string): FsDownloadReply;
   header(name: string, value: string | number): FsDownloadReply;
@@ -125,8 +79,7 @@ interface FsDownloadReply {
 
 const sessionIdAndTailParamSchema = z.object({
   session_id: z.string().min(1),
-  // `tail` captures the whole `fs:<action>` segment. We split locally on
-  // the literal `fs:` prefix.
+
   tail: z.string().min(1),
 });
 
@@ -147,17 +100,7 @@ export function registerFsRoutes(
   app: FsRouteHost,
   ix: IInstantiationService,
 ): void {
-  // POST /sessions/{sid}/fs:<action>
-  //
-  // Fastify path: `/sessions/:session_id/:tail`. We capture the FULL
-  // final segment (`fs:list`, `fs:read`, ...) and split locally — Fastify's
-  // `::` colon-escape collapses both colons into a literal `:` STATIC
-  // path, NOT a literal `:` followed by a param, so we isolate the action
-  // after Fastify routes the request here.
-  //
-  // The tail's `fs:` prefix is enforced here; non-`fs:` tails 404 from
-  // this route — sibling routes (`messages`, `prompts`, `tasks`, etc.)
-  // claim the bare-segment paths.
+
   const fsActionRoute = defineRoute(
     {
       method: 'POST',
@@ -183,15 +126,8 @@ export function registerFsRoutes(
     async (req, reply) => {
       const { session_id, tail } = req.params;
 
-      // Sibling routes use the same prefix; this handler is only valid for
-      // `fs:<action>` tails. Forward all others by failing as 40001 — the
-      // catch-all 404 would have been more semantic but Fastify can't
-      // dispatch BETWEEN handlers on the same path; we own the segment.
       if (!tail.startsWith(FS_TAIL_PREFIX)) {
-        // Defer to Fastify's 404 by sending the standard `Route not found`
-        // shape — but we're already in the handler, so we synthesize the
-        // equivalent envelope. In practice no other route registers the
-        // same `:tail` slot so this branch is only hit by a typo.
+
         reply.send(
           errEnvelope(
             ErrorCode.VALIDATION_FAILED,
@@ -253,31 +189,6 @@ export function registerFsRoutes(
     fsActionRoute.handler as unknown as Parameters<FsRouteHost['post']>[2],
   );
 
-  // ---------------------------------------------------------------------
-  // GET /sessions/{sid}/fs/*  — streaming download.
-  //
-  // **Architectural exception**: REST.md §3.9 line 558 — the ONLY GET in
-  // the daemon's REST surface with a verb in the URL (`:download`
-  // suffix). HTTP semantics dictate GET for downloads.
-  //
-  // URL pattern (REST.md §3.9 line 562): `GET /sessions/{sid}/fs/{path}:download`
-  // `{path}` retains forward slashes; Fastify's `*` wildcard captures
-  // everything after `fs/`. We then peel off the `:download` action
-  // suffix and validate the path through `IFsService.resolveDownload`.
-  //
-  // Success: HTTP 200 + `application/octet-stream` (or extension-based
-  // mime) + `Content-Length` + `ETag` + `Content-Disposition` + raw
-  // bytes via `fs.createReadStream`. Fastify handles backpressure +
-  // client-abort cleanup natively when given a Readable stream.
-  //
-  // 206 (Range): when client passes `Range: bytes=A-B`, we stream the
-  // requested window with `Content-Range`.
-  //
-  // 304: when `If-None-Match` matches the etag.
-  //
-  // Error paths return HTTP 200 + `application/json` envelope (the
-  // documented one-way escape hatch per REST.md §3.9 line 571).
-  // ---------------------------------------------------------------------
   const downloadHandler: Parameters<FsRouteHost['get']>[2] = async (
     req,
     reply,
@@ -285,8 +196,6 @@ export function registerFsRoutes(
     const { session_id } = req.params as { session_id: string };
     const wildcard = (req.params as Record<string, unknown>)['*'] as string;
 
-    // Strip the `:download` suffix (the only verb we support on this
-    // route). Anything else is a 40001.
     const DOWNLOAD_SUFFIX = ':download';
     if (!wildcard.endsWith(DOWNLOAD_SUFFIX)) {
       return reply.send(
@@ -308,11 +217,7 @@ export function registerFsRoutes(
       );
     }
 
-    // Resolve through IFsService. Surfaced errors go through the
-    // central sendMappedError (which writes a JSON envelope per the
-    // download exception). Success path leaves the response body free
-    // for the stream.
-    let resolved: import('#/services/fs').FsDownloadResolved;
+    let resolved: import('@moonshot-ai/services').FsDownloadResolved;
     try {
       resolved = await ix.invokeFunction((a) =>
         a.get(IFsService).resolveDownload(session_id, relPath),
@@ -322,7 +227,6 @@ export function registerFsRoutes(
       return reply;
     }
 
-    // If-None-Match negotiation (REST.md §3.9 line 567).
     const ifNoneMatch = pickHeader(req.headers, 'if-none-match');
     if (ifNoneMatch !== undefined && ifNoneMatch === resolved.etag) {
       return reply.code(304).header('etag', resolved.etag).send('');
@@ -339,7 +243,6 @@ export function registerFsRoutes(
     );
     reply.type(resolved.mime);
 
-    // Range negotiation (REST.md §3.9 line 565).
     const rangeHeader = pickHeader(req.headers, 'range');
     const range = parseRangeHeader(rangeHeader, resolved.size);
     if (range !== null) {
@@ -354,39 +257,28 @@ export function registerFsRoutes(
         start: range.start,
         end: range.end,
       });
-      // Fastify's reply.send(stream) handles backpressure + client
-      // abort. We additionally attach an explicit error handler so a
-      // mid-stream EIO surfaces in daemon logs instead of crashing
-      // the worker.
+
       stream.on('error', () => {
-        // Already-started stream can't be replaced with an envelope;
-        // best we can do is close cleanly.
+
         try {
           stream.destroy();
         } catch {
-          // ignore
+
         }
       });
       return reply.send(stream);
     }
 
-    // Full-file path. Set content-length explicitly so HTTP keep-alive
-    // can frame the response without chunked encoding (Fastify would
-    // pick chunked otherwise for streams).
     reply.code(200).header('content-length', String(resolved.size));
     const stream = createReadStream(resolved.absolute);
     stream.on('error', () => {
       try {
         stream.destroy();
       } catch {
-        // ignore
+
       }
     });
-    // CRITICAL: return reply.send(stream). Fastify v5 async handlers
-    // that fall off the end (returning undefined) will OVERWRITE the
-    // already-piped stream body with the undefined return — content-length
-    // collapses to 0. Returning the reply (after calling send) keeps the
-    // stream as the response body. Same pattern as Fastify docs §"Streams".
+
     return reply.send(stream);
   };
 
@@ -415,11 +307,6 @@ export function registerFsRoutes(
     downloadRoute.handler as unknown as Parameters<FsRouteHost['get']>[2],
   );
 }
-
-// ---------------------------------------------------------------------------
-// Per-action handlers — each validates its body shape, dispatches against
-// IFsService, and re-throws errors for the central mapper.
-// ---------------------------------------------------------------------------
 
 async function handleList(
   ix: IInstantiationService,
@@ -559,10 +446,6 @@ async function handleGitStatus(
   reply.send(okEnvelope(data, req.id));
 }
 
-// ---------------------------------------------------------------------------
-// Error mapping
-// ---------------------------------------------------------------------------
-
 function sendMappedError(
   reply: { send(payload: unknown): unknown },
   requestId: string,
@@ -607,12 +490,6 @@ function sendMappedError(
   throw err;
 }
 
-// ---------------------------------------------------------------------------
-// Validation envelope helper (mirrors middleware/validate.ts shape but
-// runs inline so each handler can pick its own schema based on the action
-// the route dispatched to).
-// ---------------------------------------------------------------------------
-
 function buildValidationEnvelope(
   issues: readonly { path: readonly PropertyKey[]; message: string }[],
   requestId: string,
@@ -642,15 +519,6 @@ function buildValidationEnvelope(
   };
 }
 
-// ---------------------------------------------------------------------------
-// :download helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Read a single header value from the request headers map, normalizing
- * the `string | string[] | undefined` shape to `string | undefined`. If
- * the client sent multiple values we take the first.
- */
 function pickHeader(
   headers: Record<string, string | string[] | undefined>,
   name: string,
@@ -660,17 +528,6 @@ function pickHeader(
   return Array.isArray(v) ? v[0] : v;
 }
 
-/**
- * Parse an HTTP `Range: bytes=A-B` header. Supports the most common
- * formats:
- *   - `bytes=0-65535`   first 64 KB
- *   - `bytes=1024-`     from offset 1024 to EOF
- *   - `bytes=-1024`     last 1024 bytes
- *
- * Returns `null` when there's no valid Range. We do NOT implement the
- * multi-range comma-separated form — REST.md §3.9 line 565 only
- * specifies single-range, and clients overwhelmingly use single ranges.
- */
 function parseRangeHeader(
   raw: string | undefined,
   size: number,
@@ -687,7 +544,7 @@ function parseRangeHeader(
   let start: number;
   let end: number;
   if (leftRaw === '') {
-    // Suffix range: last N bytes.
+
     const suffix = Number.parseInt(rightRaw, 10);
     if (!Number.isFinite(suffix) || suffix <= 0) return null;
     start = Math.max(0, size - suffix);
@@ -708,11 +565,6 @@ function parseRangeHeader(
   return { start, end, length: end - start + 1 };
 }
 
-/**
- * Sanitize a relative path for use in a `Content-Disposition` filename.
- * We keep only the base name and escape double quotes; clients render
- * this as the suggested save filename.
- */
 function sanitizeFilename(rel: string): string {
   const segs = rel.split('/');
   const base = segs[segs.length - 1] ?? rel;

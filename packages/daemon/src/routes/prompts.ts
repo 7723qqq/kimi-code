@@ -1,39 +1,4 @@
-/**
- * `/sessions/{sid}/prompts*` REST routes.
- *
- * Prompt endpoints (REST.md §3.5):
- *
- *   GET    /sessions/{sid}/prompts              body: empty             data: PromptListResponse
- *   POST   /sessions/{sid}/prompts              body: PromptSubmission  data: PromptSubmitResult
- *   POST   /sessions/{sid}/prompts/{pid}:steer  body: empty             data: { steered, prompt_ids }
- *   POST   /sessions/{sid}/prompts:steer        body: { prompt_ids }    data: { steered, prompt_ids }
- *   POST   /sessions/{sid}/prompts/{pid}:abort  body: empty             data: { aborted, at_seq? }
- *
- * **Stateful session, optional per-turn overrides**: `PromptSubmission`
- * carries `content` (required) plus `metadata?`, `model?`, `thinking?`,
- * `permission_mode?`, `plan_mode?`. The four runtime controls default to
- * the session's shadow state — the canonical mutation path is
- * `POST /sessions/{sid}/profile`. When the body carries any of the four, the
- * services layer diff-dispatches the matching setter (`source='prompt'`)
- * BEFORE running the prompt, so an override is also a state change for
- * the session.
- *
- * **Error mapping**:
- *   - `SessionNotFoundError`        → 40401
- *   - `SessionBusyError`            → 40901 (legacy mapping; normal submit
- *                                      now queues instead of throwing busy)
- *   - `PromptNotFoundError`         → 40402
- *   - `PromptAlreadyCompletedError` → 40903 with data `{aborted: false}`
- *     per REST.md §3.5 (idempotent — wire data, non-zero code)
- *   - Other errors → 50001 via the global `installErrorHandler`.
- *
- * **Shared prompt actions**: abort logic lives in `IPromptService.abort`, and
- * steer logic lives in `IPromptService.steer`. The route is just a thin
- * envelope layer.
- *
- * **Anti-corruption**: routes go through `accessor.get(IPromptService)`;
- * no SDK package imports.
- */
+
 
 import { readFile } from 'node:fs/promises';
 
@@ -64,7 +29,7 @@ import type { IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
-import { FileNotFoundError, IFileStore, type GetResult } from '#/services/fileStore';
+import { FileNotFoundError, IFileStore, type GetResult } from '@moonshot-ai/services';
 import { parseActionSuffix } from './action-suffix';
 
 interface PromptRouteHost {
@@ -86,8 +51,6 @@ interface PromptRouteHost {
   ): unknown;
 }
 
-// --- Params -----------------------------------------------------------------
-
 const sessionIdParamSchema = z.object({
   session_id: z.string().min(1),
 });
@@ -102,13 +65,11 @@ class PromptImageFileTypeError extends Error {
   }
 }
 
-// --- Registration -----------------------------------------------------------
-
 export function registerPromptsRoutes(
   app: PromptRouteHost,
   ix: IInstantiationService,
 ): void {
-  // GET /sessions/{session_id}/prompts ----------------------------------
+
   const listRoute = defineRoute(
     {
       method: 'GET',
@@ -141,7 +102,6 @@ export function registerPromptsRoutes(
     listRoute.handler as Parameters<PromptRouteHost['get']>[2],
   );
 
-  // POST /sessions/{session_id}/prompts ---------------------------------
   const submitRoute = defineRoute(
     {
       method: 'POST',
@@ -188,15 +148,12 @@ export function registerPromptsRoutes(
     },
   );
 
-  // Cast handler back to the loose shape PromptRouteHost expects so the
-  // structural type lines up (TypeScript function params are contravariant).
   app.post(
     submitRoute.path,
     submitRoute.options,
     submitRoute.handler as Parameters<PromptRouteHost['post']>[2],
   );
 
-  // POST /sessions/{session_id}/prompts:steer ---------------------------
   const steerManyRoute = defineRoute(
     {
       method: 'POST',
@@ -232,12 +189,6 @@ export function registerPromptsRoutes(
     steerManyRoute.handler as Parameters<PromptRouteHost['post']>[2],
   );
 
-  // POST /sessions/{session_id}/prompts/{prompt_id}:abort|steer ---------
-  // Fastify's path syntax doesn't allow a literal `:abort` suffix on a
-  // colon-prefixed param (`:prompt_id:abort` parses ambiguously). REST.md
-  // §3.5 specifies the action-suffix syntax `{prompt_id}:abort`. We register
-  // the route by capturing the tail segment (`:tail`) and verifying it ends
-  // with `:abort` via the shared `parseActionSuffix` helper.
   const abortRoute = defineRoute(
     {
       method: 'POST',
@@ -270,7 +221,7 @@ export function registerPromptsRoutes(
           );
           return;
         }
-        // The prompts route does not accept a bare prompt_id; only :abort.
+
         if (parsed.kind === 'bare') {
           reply.send(
             errEnvelope(
@@ -340,14 +291,6 @@ function assertImageFile(file: GetResult): void {
   throw new PromptImageFileTypeError(file.meta.id, file.meta.media_type);
 }
 
-/**
- * Map a thrown error to the right envelope. See module header for the table.
- *
- * NOTE: `PromptAlreadyCompletedError` is a SPECIAL case — REST.md §3.5
- * mandates `envelope.code = 40903 + envelope.data = {aborted: false}`. We
- * compose that here rather than using `errEnvelope` (which would set
- * `data: null`).
- */
 function sendMappedError(
   reply: { send(payload: unknown): unknown },
   requestId: string,
@@ -388,9 +331,7 @@ function sendMappedError(
     reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId));
     return;
   }
-  // Readiness gate failures. The envelope shape uses the auth sub-code,
-  // `data: null`, and `details` carrying `{provider_id?, model_id?}` so
-  // clients can route onboarding without parsing `msg`.
+
   if (err instanceof AuthProvisioningRequiredError) {
     reply.send({
       code: ErrorCode.AUTH_PROVISIONING_REQUIRED,

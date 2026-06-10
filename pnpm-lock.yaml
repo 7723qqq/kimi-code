@@ -408,15 +408,9 @@ importers:
       '@moonshot-ai/services':
         specifier: workspace:^
         version: link:../services
-      chokidar:
-        specifier: ^4.0.3
-        version: 4.0.3
       fastify:
         specifier: ^5.1.0
         version: 5.8.5
-      ignore:
-        specifier: ^5.3.2
-        version: 5.3.2
       pino:
         specifier: ^9.5.0
         version: 9.14.0
@@ -577,6 +571,12 @@ importers:
       '@moonshot-ai/protocol':
         specifier: workspace:^
         version: link:../protocol
+      chokidar:
+        specifier: ^4.0.3
+        version: 4.0.3
+      ignore:
+        specifier: ^5.3.2
+        version: 5.3.2
       ulid:
         specifier: ^3.0.1
         version: 3.0.2

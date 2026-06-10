@@ -37,6 +37,8 @@
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-code-sdk": "workspace:^",
     "@moonshot-ai/protocol": "workspace:^",
+    "chokidar": "^4.0.3",
+    "ignore": "^5.3.2",
     "ulid": "^3.0.1"
   }
 }
