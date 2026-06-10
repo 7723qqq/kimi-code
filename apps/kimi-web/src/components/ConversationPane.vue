@@ -100,15 +100,6 @@ function loadAlignFromStorage(): ContentAlign {
 
 const contentAlign = ref<ContentAlign>(loadAlignFromStorage());
 
-function setAlign(align: ContentAlign): void {
-  contentAlign.value = align;
-  try {
-    localStorage.setItem(CONTENT_ALIGN_KEY, align);
-  } catch {
-    // ignore
-  }
-}
-
 // expose a way for App.vue to imperatively switch to tasks tab
 const active = ref<PaneKey>('chat');
 
@@ -518,10 +509,9 @@ onUnmounted(() => {
       :active="active"
       :running-tasks="runningTasks"
       :changes-count="changesCount"
-      :align="contentAlign"
+      :todos="todos ?? []"
       :mobile="mobile"
       @select="active = $event"
-      @set-align="setAlign"
     />
 
     <div
