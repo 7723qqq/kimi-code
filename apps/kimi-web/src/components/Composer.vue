@@ -1465,7 +1465,7 @@ function selectModel(modelId: string): void {
     gap: 6px;
   }
 
-  /* Send → 36px round */
+  /* Send → 36px round (hide the SVG arrow, show only the ::after glyph) */
   .send {
     width: 36px;
     height: 36px;
@@ -1475,6 +1475,9 @@ function selectModel(modelId: string): void {
     font-size: 0;
     align-self: flex-end;
     position: relative;
+  }
+  .send svg {
+    display: none;
   }
   .send::after {
     content: "↑";
