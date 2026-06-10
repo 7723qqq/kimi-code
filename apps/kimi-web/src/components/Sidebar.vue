@@ -387,9 +387,9 @@ function blinkOnce(): void {
                   :title="t('workspace.newInGroup')"
                   @click.stop="emit('createInWorkspace', g.workspace.id)"
                 >
-                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
-                    <path d="M8 5v6M5 8h6"/>
+                  <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-2 2.5V12H4a2 2 0 0 1-2-2V4z"/>
+                    <path d="M8 6v4M6 8h4"/>
                   </svg>
                 </button>
               </div>
