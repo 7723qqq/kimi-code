@@ -52,12 +52,15 @@ describe('kimi daemon', () => {
 
     await handleDaemonCommand({}, deps);
 
-    expect(deps.ensureDaemonRunning).toHaveBeenCalledWith({
-      host: DEFAULT_DAEMON_HOST,
-      port: DEFAULT_DAEMON_PORT,
-      logLevel: 'info',
-      debugEndpoints: false,
-    });
+    expect(deps.ensureDaemonRunning).toHaveBeenCalledWith(
+      {
+        host: DEFAULT_DAEMON_HOST,
+        port: DEFAULT_DAEMON_PORT,
+        logLevel: 'info',
+        debugEndpoints: false,
+      },
+      expect.any(Function),
+    );
     expect(deps.startDaemonForeground).not.toHaveBeenCalled();
     expect(stderr.join('')).toBe('');
     expect(stdout.join('')).toContain('Kimi daemon started in background');
@@ -76,6 +79,15 @@ describe('kimi daemon', () => {
     await handleDaemonCommand({}, deps);
 
     expect(deps.ensureDaemonRunning).toHaveBeenCalledTimes(1);
+    expect(deps.ensureDaemonRunning).toHaveBeenCalledWith(
+      {
+        host: DEFAULT_DAEMON_HOST,
+        port: DEFAULT_DAEMON_PORT,
+        logLevel: 'info',
+        debugEndpoints: false,
+      },
+      expect.any(Function),
+    );
     expect(deps.startDaemonForeground).not.toHaveBeenCalled();
     expect(stderr.join('')).toBe('');
     expect(stdout.join('')).toContain('Kimi daemon already running');
@@ -135,5 +147,47 @@ describe('kimi daemon', () => {
       DEFAULT_DAEMON_ORIGIN,
       15_000,
     );
+  });
+
+  it('reports when a live daemon lock redirects to another daemon port', async () => {
+    const parsedOptions = {
+      host: DEFAULT_DAEMON_HOST,
+      port: 7999,
+      logLevel: 'info' as const,
+      debugEndpoints: false,
+    };
+    const status: string[] = [];
+    const deps: EnsureDaemonRunningDeps = {
+      isDaemonHealthy: vi.fn(async () => false),
+      waitForDaemonHealthy: vi.fn(async () => true),
+      readLiveDaemonLock: vi.fn(() => ({
+        pid: 4321,
+        started_at: '2026-06-10T00:00:00.000Z',
+        port: 7880,
+      })),
+      startDaemonBackground: vi.fn(() => ({
+        pid: 9876,
+        logPath: '/tmp/kimi-daemon.log',
+      })),
+      daemonLogPath: vi.fn(() => '/tmp/kimi-daemon.log'),
+    };
+
+    await expect(
+      ensureDaemonRunning(parsedOptions, deps, (message) => status.push(message)),
+    ).resolves.toMatchObject({
+      status: 'already-running',
+      origin: 'http://127.0.0.1:7880',
+      pid: 4321,
+    });
+
+    expect(status).toEqual([
+      'checking requested daemon at http://127.0.0.1:7999',
+      'requested daemon is not healthy',
+      expect.stringContaining('checking daemon lock at '),
+      'found live daemon lock (pid 4321, port 7880, started 2026-06-10T00:00:00.000Z)',
+      'checking locked daemon at http://127.0.0.1:7880',
+      'locked daemon is healthy; reusing http://127.0.0.1:7880',
+    ]);
+    expect(deps.startDaemonBackground).not.toHaveBeenCalled();
   });
 });

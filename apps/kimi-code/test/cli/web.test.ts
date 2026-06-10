@@ -52,12 +52,15 @@ describe('kimi web', () => {
 
     await handleWebCommand({}, deps);
 
-    expect(deps.ensureDaemonRunning).toHaveBeenCalledWith({
-      host: DEFAULT_DAEMON_HOST,
-      port: DEFAULT_DAEMON_PORT,
-      logLevel: 'info',
-      debugEndpoints: false,
-    });
+    expect(deps.ensureDaemonRunning).toHaveBeenCalledWith(
+      {
+        host: DEFAULT_DAEMON_HOST,
+        port: DEFAULT_DAEMON_PORT,
+        logLevel: 'info',
+        debugEndpoints: false,
+      },
+      expect.any(Function),
+    );
     expect(deps.ensureDaemonWebReady).toHaveBeenCalledWith(DEFAULT_DAEMON_ORIGIN);
     expect(deps.openUrl).toHaveBeenCalledWith(DEFAULT_DAEMON_ORIGIN);
     expect(stderr.join('')).toBe('');
@@ -85,14 +88,45 @@ describe('kimi web', () => {
 
     await handleWebCommand({ host: '0.0.0.0', port: '8899' }, deps);
 
-    expect(deps.ensureDaemonRunning).toHaveBeenCalledWith({
-      host: '0.0.0.0',
-      port: 8899,
-      logLevel: 'info',
-      debugEndpoints: false,
-    });
+    expect(deps.ensureDaemonRunning).toHaveBeenCalledWith(
+      {
+        host: '0.0.0.0',
+        port: 8899,
+        logLevel: 'info',
+        debugEndpoints: false,
+      },
+      expect.any(Function),
+    );
     expect(deps.ensureDaemonWebReady).toHaveBeenCalledWith('http://127.0.0.1:8899');
     expect(deps.openUrl).toHaveBeenCalledWith('http://127.0.0.1:8899');
+  });
+
+  it('prints daemon startup trace from the local daemon resolver', async () => {
+    const { deps, stdout } = makeDeps({
+      ensureDaemonRunning: vi.fn(async (_options, report) => {
+        report?.('checking requested daemon at http://127.0.0.1:7999');
+        report?.('found live daemon lock (pid 4321, port 7880, started 2026-06-10T00:00:00.000Z)');
+        report?.('locked daemon is healthy; reusing http://127.0.0.1:7880');
+        return {
+          status: 'already-running' as const,
+          origin: 'http://127.0.0.1:7880',
+          pid: 4321,
+        };
+      }),
+    });
+
+    await handleWebCommand({ port: '7999', open: false }, deps);
+
+    expect(stdout.join('')).toContain(
+      'Daemon startup: checking requested daemon at http://127.0.0.1:7999',
+    );
+    expect(stdout.join('')).toContain(
+      'Daemon startup: found live daemon lock (pid 4321, port 7880, started 2026-06-10T00:00:00.000Z)',
+    );
+    expect(stdout.join('')).toContain(
+      'Daemon startup: locked daemon is healthy; reusing http://127.0.0.1:7880',
+    );
+    expect(stdout.join('')).toContain('Kimi web: http://127.0.0.1:7880');
   });
 
   it('respects --no-open while still printing the daemon-hosted web URL', async () => {
