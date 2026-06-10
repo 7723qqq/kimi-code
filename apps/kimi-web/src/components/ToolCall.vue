@@ -149,7 +149,7 @@ const isError = () => props.tool.status === 'error';
 
 /* Mobile bubble layout: no left gutter indent, softer corners (prototype .tool). */
 .box.mob {
-  margin: 8px 0 0 0;
+  margin: 8px 0;
   border-radius: 9px;
 }
 .box.mob .bh { border-radius: 8px; }
