@@ -121,7 +121,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
+`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `daemon` (local REST and WebSocket service), `web` (local browser UI), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
 
 ### `kimi login`
 
@@ -139,6 +139,48 @@ Switch Kimi Code CLI to ACP (Agent Client Protocol) mode, communicating with an 
 
 ```sh
 kimi acp
+```
+
+### `kimi daemon`
+
+Run the local daemon that exposes Kimi Code over REST and WebSocket, and serves the web UI from the same origin. By default, the command starts the daemon in the background, waits until it is healthy, prints the endpoint and log path, then exits. If a daemon is already running, the command reports the existing process instead of starting another one.
+
+```sh
+kimi daemon
+```
+
+| Option | Description |
+| --- | --- |
+| `--host <host>` | Bind host for the daemon; defaults to `127.0.0.1` |
+| `--port <port>` | Bind port for the daemon; defaults to `7878` |
+| `--log-level <level>` | Daemon log level; defaults to `info` |
+| `--foreground` | Keep the daemon attached to the current terminal instead of starting it in the background |
+
+Use foreground mode when you want logs in the current terminal or when another process manager owns the daemon lifecycle:
+
+```sh
+kimi daemon --foreground
+```
+
+### `kimi web`
+
+Open the daemon-hosted browser UI. Without `--daemon-host`, `kimi web` checks the local daemon at `http://127.0.0.1:7878`; if it is not running, it starts `kimi daemon` in the background first, then opens the daemon URL. The web assets and `/api/v1/*` routes are served by the daemon from the same origin.
+
+```sh
+kimi web
+```
+
+| Option | Description |
+| --- | --- |
+| `--host <host>` | Bind host when starting the local daemon; defaults to `127.0.0.1` |
+| `--port <port>` | Port when starting the local daemon; defaults to `7878` |
+| `--daemon-host <url>` | Open an existing daemon directly instead of starting the local daemon |
+| `--no-open` | Do not open the browser automatically |
+
+Point the web UI at an existing daemon when the daemon runs on another machine or is managed by a separate process. In this mode, `kimi web` does not start any local service:
+
+```sh
+kimi web --daemon-host=http://daemon.example.test:7878
 ```
 
 ### `kimi doctor`

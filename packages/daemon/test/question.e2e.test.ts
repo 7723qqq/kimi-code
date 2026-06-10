@@ -25,6 +25,7 @@ import {
 } from '@moonshot-ai/services';
 
 import { IRestGateway, startDaemon, type RunningDaemon } from '../src';
+import { rawDataToString } from '../src/ws/rawData';
 import {
   QuestionService,
   QuestionExpiredError,
@@ -117,7 +118,7 @@ async function openSubscriber(
     const sock = new WebSocket(wsUrl);
     sock.on('message', (data) => {
       try {
-        received.push(JSON.parse(String(data)) as Record<string, unknown>);
+        received.push(JSON.parse(rawDataToString(data)) as Record<string, unknown>);
       } catch {
         // ignore
       }

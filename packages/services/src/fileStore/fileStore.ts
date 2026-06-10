@@ -1,21 +1,9 @@
 
-
-import { createWriteStream, promises as fsp } from 'node:fs';
-import { join } from 'node:path';
-import { pipeline } from 'node:stream/promises';
 import type { Readable } from 'node:stream';
 
-import { ulid } from 'ulid';
-
-import {
-  Disposable,
-  createDecorator,
-  resolveKimiHome,
-} from '@moonshot-ai/agent-core';
+import { createDecorator } from '@moonshot-ai/agent-core';
 
 import type { FileMeta } from '@moonshot-ai/protocol';
-
-import { ILogService } from '../logger/logger';
 
 export const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
@@ -65,9 +53,3 @@ export interface IFileStore {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IFileStore = createDecorator<IFileStore>('fileStore');
-
-interface IndexFile {
-  version: 1;
-  files: FileMeta[];
-}
-

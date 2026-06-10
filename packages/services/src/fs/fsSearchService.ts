@@ -16,11 +16,10 @@ import type {
 } from '@moonshot-ai/protocol';
 import ignore, { type Ignore } from 'ignore';
 
-import { ISessionService, SessionNotFoundError } from '../session/session';
+import { ISessionService } from '../session/session';
 
 import { ILogService } from '../logger/logger';
 import { IFsSearchService, FsGrepTimeoutError } from './fsSearch';
-import { FsPathEscapesError, resolveSafePath } from './fsPathSafety';
 
 const SEARCH_HARD_CAP = 500;
 
@@ -242,6 +241,11 @@ export class FsSearchService
             buf.pending.shift();
           }
         } else if (t === 'match') {
+          if (totalMatches >= req.max_total_matches) {
+            truncated = true;
+            onAbort();
+            return;
+          }
           const p = rgPath(rec.data?.path);
           if (p === undefined) continue;
           const buf = fileBuf.get(p);
@@ -294,6 +298,17 @@ export class FsSearchService
       child.once('close', () => resolve());
       child.once('error', () => resolve());
     });
+
+    for (const [p, buf] of fileBuf) {
+      if (buf.matches.length > 0 && buf.pending.length > 0) {
+        const last = buf.matches[buf.matches.length - 1]!;
+        last.after = buf.pending.slice(0, req.context_lines);
+      }
+      if (buf.matches.length > 0) {
+        files.push({ path: p, matches: buf.matches });
+      }
+    }
+    fileBuf.clear();
 
     if (signal.aborted) {
 

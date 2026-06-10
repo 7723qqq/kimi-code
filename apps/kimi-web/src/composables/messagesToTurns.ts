@@ -20,7 +20,7 @@ import type { ApprovalBlock, ChatTurn, DiffLine, ToolCall, TurnBlock } from '../
  * of dumping raw `[{"type":"text",...}]` JSON into the UI.
  */
 function normalizeToolOutput(output: unknown): string[] | undefined {
-  if (output == null) return undefined;
+  if (output === null || output === undefined) return undefined;
   if (typeof output === 'string') return output.split('\n');
   if (Array.isArray(output)) {
     const lines: string[] = [];
@@ -137,7 +137,7 @@ function buildApprovalBlock(a: AppApprovalRequest): ApprovalBlock {
     const items = rawItems.map((item: unknown) => {
       const it = (item ?? {}) as Record<string, unknown>;
       return {
-        title: typeof it['title'] === 'string' ? it['title'] : String(it['title'] ?? ''),
+        title: typeof it['title'] === 'string' ? it['title'] : '',
         status: typeof it['status'] === 'string' ? it['status'] : 'pending',
       };
     });

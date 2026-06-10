@@ -121,7 +121,6 @@ export function registerApprovalsRoutes(
       tags: ['approvals'],
     },
     async (req, reply) => {
-      try {
         const { approval_id } = req.params;
         const body = req.body;
 
@@ -175,10 +174,6 @@ export function registerApprovalsRoutes(
           resolved_at: new Date().toISOString(),
         };
         reply.send(okEnvelope(result, req.id));
-      } catch (err) {
-        // Unknown errors → 50001 via the global error handler.
-        throw err;
-      }
     },
   );
 

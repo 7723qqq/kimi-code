@@ -14,7 +14,7 @@ export class FastifyRestGateway extends Disposable implements IRestGateway {
   }
 
   async listen(host: string, port: number): Promise<string> {
-    return await this.app.listen({ host, port });
+    return this.app.listen({ host, port });
   }
 
   override dispose(): void {

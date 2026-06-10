@@ -17,7 +17,6 @@ import { SessionNotFoundError } from '../session/session';
 import {
   IMessageService,
   MessageNotFoundError,
-  deriveMessageId,
   parseMessageId,
   toProtocolMessage,
   type MessageListQuery,
@@ -105,7 +104,7 @@ export class MessageService extends Disposable implements IMessageService {
     try {
       await this.core.rpc.resumeSession({ sessionId: sid });
       return await this.core.rpc.getContext({ sessionId: sid, agentId: MAIN_AGENT_ID });
-    } catch (err) {
+    } catch {
       throw new SessionNotFoundError(sid);
     }
   }

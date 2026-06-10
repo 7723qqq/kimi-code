@@ -115,6 +115,9 @@ importers:
       '@moonshot-ai/kimi-telemetry':
         specifier: workspace:^
         version: link:../../packages/telemetry
+      '@moonshot-ai/kimi-web':
+        specifier: workspace:^
+        version: link:../kimi-web
       '@moonshot-ai/migration-legacy':
         specifier: workspace:^
         version: link:../../packages/migration-legacy

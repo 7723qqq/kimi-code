@@ -64,14 +64,17 @@
       workspacePaths = [
         ./packages/acp-adapter
         ./packages/agent-core
+        ./packages/daemon
         ./packages/kaos
         ./packages/kosong
         ./packages/migration-legacy
         ./packages/node-sdk
         ./packages/oauth
         ./packages/protocol
+        ./packages/services
         ./packages/telemetry
         ./apps/kimi-code
+        ./apps/kimi-web
         ./apps/vis
         ./apps/vis/server
         ./apps/vis/web
@@ -81,14 +84,17 @@
       workspaceNames = [
         "@moonshot-ai/acp-adapter"
         "@moonshot-ai/agent-core"
+        "@moonshot-ai/daemon"
         "@moonshot-ai/kaos"
         "@moonshot-ai/kosong"
         "@moonshot-ai/migration-legacy"
         "@moonshot-ai/kimi-code-sdk"
         "@moonshot-ai/kimi-code-oauth"
         "@moonshot-ai/protocol"
+        "@moonshot-ai/services"
         "@moonshot-ai/kimi-telemetry"
         "@moonshot-ai/kimi-code"
+        "@moonshot-ai/kimi-web"
         "@moonshot-ai/vis"
         "@moonshot-ai/vis-server"
         "@moonshot-ai/vis-web"

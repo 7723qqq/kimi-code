@@ -5,10 +5,10 @@ import { promises as fs } from 'node:fs';
 
 import { Disposable, InstantiationType, registerSingleton } from '@moonshot-ai/agent-core';
 import type { FsGitStatusRequest, FsGitStatusResponse } from '@moonshot-ai/protocol';
-import { ISessionService, SessionNotFoundError } from '../session/session';
+import { ISessionService } from '../session/session';
 
 import { IFsGitService, FsGitUnavailableError, parsePorcelain } from './fsGit';
-import { FsPathEscapesError, resolveSafePath } from './fsPathSafety';
+import { resolveSafePath } from './fsPathSafety';
 
 export class FsGitService extends Disposable implements IFsGitService {
   readonly _serviceBrand: undefined;
@@ -70,7 +70,7 @@ async function runCommand(
   args: readonly string[],
   cwd: string,
 ): Promise<RunResult> {
-  return await new Promise<RunResult>((resolve) => {
+  return new Promise<RunResult>((resolve) => {
     const child = spawn(cmd, args, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],

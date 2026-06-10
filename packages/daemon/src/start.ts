@@ -53,13 +53,17 @@ import {
 } from './services/pinoLoggerService';
 import { resolveRequestId } from './request-id';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
-import { IConnectionRegistry } from '#/services/gateway';
-import { IRestGateway } from '#/services/gateway';
-import { ISessionClientsService } from '#/services/gateway';
+import {
+  IConnectionRegistry,
+  IRestGateway,
+  ISessionClientsService,
+  IWSBroadcastService,
+  IWSGateway,
+  type WSGatewayOptions,
+} from '#/services/gateway';
 import { createDaemonServiceCollection } from '#/services/serviceCollection';
-import { IWSGateway, type WSGatewayOptions } from '#/services/gateway';
-import { IWSBroadcastService } from '#/services/gateway';
 import { getDaemonVersion } from './version';
+import { registerWebAssetRoutes } from './routes/webAssets';
 
 export interface DaemonStartOptions {
   host: string;
@@ -75,6 +79,8 @@ export interface DaemonStartOptions {
   wsGatewayOptions?: WSGatewayOptions;
 
   debugEndpoints?: boolean;
+
+  webAssetsDir?: string;
 
   serviceOverrides?: ReadonlyArray<readonly [ServiceIdentifier<unknown>, unknown]>;
 }
@@ -172,11 +178,15 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<RunningDaem
     },
   });
 
+  if (opts.webAssetsDir !== undefined) {
+    await registerWebAssetRoutes(app, opts.webAssetsDir);
+  }
+
   try {
     await app.ready();
-  } catch (err) {
+  } catch (error) {
     lockHandle.release();
-    throw err;
+    throw error;
   }
 
   let coreProcess: ICoreProcessService;
@@ -266,8 +276,8 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<RunningDaem
               watched_paths: wire,
               current_count: fsWatcher.countForConnection(connectionId),
             };
-          } catch (err) {
-            return mapFsWatchError(err);
+          } catch (error) {
+            return mapFsWatchError(error);
           }
         },
         async remove(sessionId: string, connectionId: string, wirePaths: readonly string[]) {
@@ -288,8 +298,8 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<RunningDaem
               watched_paths: wire,
               current_count: fsWatcher.countForConnection(connectionId),
             };
-          } catch (err) {
-            return mapFsWatchError(err);
+          } catch (error) {
+            return mapFsWatchError(error);
           }
         },
         cleanupConnection(connectionId: string) {
@@ -306,7 +316,7 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<RunningDaem
 
       return built;
     });
-  } catch (err) {
+  } catch (error) {
 
     try {
       ix.dispose();
@@ -314,33 +324,33 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<RunningDaem
 
     }
     lockHandle.release();
-    throw err;
+    throw error;
   }
 
   try {
     await coreProcess.ready();
-  } catch (err) {
+  } catch (error) {
     try {
       ix.dispose();
     } catch {
 
     }
     lockHandle.release();
-    throw err;
+    throw error;
   }
   pinoLogger.info('core process ready');
 
   let address: string;
   try {
     address = await ix.invokeFunction((a) => a.get(IRestGateway).listen(opts.host, opts.port));
-  } catch (err) {
+  } catch (error) {
     try {
       ix.dispose();
     } catch {
 
     }
     lockHandle.release();
-    throw err;
+    throw error;
   }
   pinoLogger.info({ address, lockPath: lockHandle.lockPath }, 'daemon listening');
 

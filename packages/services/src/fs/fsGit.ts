@@ -1,28 +1,12 @@
 
-
-import { spawn } from 'node:child_process';
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import {
-  createDecorator,
-  Disposable,
-  type IDisposable,
-} from '@moonshot-ai/agent-core';
-import {
-  ISessionService,
-  SessionNotFoundError,
-} from '../session/session';
+import { createDecorator, type IDisposable } from '@moonshot-ai/agent-core';
 import type {
   FsGitStatus,
   FsGitStatusRequest,
   FsGitStatusResponse,
 } from '@moonshot-ai/protocol';
-
-import {
-  FsPathEscapesError,
-  resolveSafePath,
-} from './fsPathSafety';
 
 export class FsGitUnavailableError extends Error {
   readonly cwd: string;
@@ -146,6 +130,3 @@ function collapseXY(xy: string): FsGitStatus {
 function posix(p: string): string {
   return p.split(path.sep).join('/');
 }
-
-void FsPathEscapesError;
-void SessionNotFoundError;

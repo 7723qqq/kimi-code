@@ -32,7 +32,7 @@ interface FilesRouteHost {
     handler: (
       req: FastifyRequestLike,
       reply: FilesReply,
-    ) => Promise<unknown> | unknown,
+    ) => unknown,
   ): unknown;
   get(
     path: string,
@@ -40,7 +40,7 @@ interface FilesRouteHost {
     handler: (
       req: FastifyRequestLike,
       reply: FilesReply,
-    ) => Promise<unknown> | unknown,
+    ) => unknown,
   ): unknown;
   delete(
     path: string,
@@ -48,7 +48,7 @@ interface FilesRouteHost {
     handler: (
       req: FastifyRequestLike,
       reply: FilesReply,
-    ) => Promise<unknown> | unknown,
+    ) => unknown,
   ): unknown;
 }
 
@@ -299,7 +299,7 @@ function readFieldNumber(field: unknown): number | undefined {
 }
 
 function buildContentDisposition(name: string): string {
-  if (/^[\w. \-()+\[\]]+$/.test(name)) {
+  if (/^[\w. ()+[\]-]+$/.test(name)) {
     return `attachment; filename="${name}"`;
   }
   return 'attachment';

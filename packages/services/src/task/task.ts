@@ -22,7 +22,7 @@
  *     terminal status (completed/failed/cancelled/timed_out/killed/lost).
  *
  * **Anti-corruption**: imports `@moonshot-ai/agent-core` only for the
- * `createDecorator` / `Disposable` values and the `BackgroundTaskInfo` type.
+ * `createDecorator` value and the `BackgroundTaskInfo` type.
  *
  * Reference table (task kind + status):
  *
@@ -38,11 +38,9 @@
  *            lost      → failed       (lossy)
  */
 
-import { createDecorator, Disposable } from '@moonshot-ai/agent-core';
+import { createDecorator } from '@moonshot-ai/agent-core';
 import type { BackgroundTaskInfo } from '@moonshot-ai/agent-core';
 import type { BackgroundTask, BackgroundTaskKind, BackgroundTaskStatus } from '@moonshot-ai/protocol';
-
-import { SessionNotFoundError } from '../session/session';
 
 // ---------------------------------------------------------------------------
 // Adapter helpers (moved from adapter/task-adapter.ts)

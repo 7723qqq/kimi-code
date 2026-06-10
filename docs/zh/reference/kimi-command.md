@@ -121,7 +121,7 @@ kimi -p "List changed files" --output-format stream-json
 
 ## 子命令
 
-`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
+`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`daemon`（本地 REST 与 WebSocket 服务）、`web`（本地浏览器界面）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
 
 ### `kimi login`
 
@@ -139,6 +139,48 @@ kimi login
 
 ```sh
 kimi acp
+```
+
+### `kimi daemon`
+
+运行本地 daemon，通过 REST 与 WebSocket 暴露 Kimi Code 能力，并从同一 origin 托管 web UI。默认情况下，该命令会在后台启动 daemon，等待健康检查通过，打印访问端点和日志路径后退出。如果 daemon 已经在运行，命令会报告现有进程，而不是重复启动。
+
+```sh
+kimi daemon
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--host <host>` | daemon 绑定地址，默认 `127.0.0.1` |
+| `--port <port>` | daemon 绑定端口，默认 `7878` |
+| `--log-level <level>` | daemon 日志级别，默认 `info` |
+| `--foreground` | 保持 daemon 运行在当前终端中，而不是后台启动 |
+
+需要在当前终端查看日志，或由其他进程管理 daemon 生命周期时，使用前台模式：
+
+```sh
+kimi daemon --foreground
+```
+
+### `kimi web`
+
+打开由 daemon 托管的浏览器界面。不传 `--daemon-host` 时，`kimi web` 会先检查本地 daemon `http://127.0.0.1:7878`；如果尚未运行，则先在后台启动 `kimi daemon`，然后打开 daemon URL。web 资源和 `/api/v1/*` 路由由 daemon 在同一 origin 上提供。
+
+```sh
+kimi web
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--host <host>` | 启动本地 daemon 时使用的绑定地址，默认 `127.0.0.1` |
+| `--port <port>` | 启动本地 daemon 时使用的端口，默认 `7878` |
+| `--daemon-host <url>` | 直接打开已有 daemon，而不是启动本地 daemon |
+| `--no-open` | 不自动打开浏览器 |
+
+当 daemon 运行在另一台机器上，或由单独的进程管理时，让 web UI 指向已有 daemon。此模式不会启动任何本地服务：
+
+```sh
+kimi web --daemon-host=http://daemon.example.test:7878
 ```
 
 ### `kimi doctor`

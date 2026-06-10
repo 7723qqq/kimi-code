@@ -66,7 +66,7 @@ interface FsRouteHost {
         raw: { on(event: string, cb: () => void): unknown };
       },
       reply: FsDownloadReply,
-    ) => Promise<unknown> | unknown,
+    ) => unknown,
   ): unknown;
 }
 
