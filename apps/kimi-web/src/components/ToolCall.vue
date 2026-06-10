@@ -43,7 +43,7 @@ const isError = () => props.tool.status === 'error';
       <!-- eslint-disable-next-line vue/no-v-html -->
       <span class="gl" v-html="glyph()" aria-hidden="true" />
       <span class="a">{{ label() }}</span>
-      <span class="p" :title="summary()">· {{ summary() }}</span>
+      <span class="p" :title="summary()">{{ summary() }}</span>
       <span class="rt">
         <span class="chip" v-if="chip()">{{ chip() }}</span>
         <span
