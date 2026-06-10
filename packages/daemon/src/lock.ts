@@ -45,6 +45,15 @@ export interface LockContents {
   pid: number;
   started_at: string;
   port: number;
+  /** Host CLI version that started this daemon (e.g. kimi-code package version).
+      Lets `kimi web`/`kimi daemon` detect a build-mismatched daemon and restart
+      it instead of silently serving stale code. Absent in locks written by
+      older builds. */
+  host_version?: string;
+  /** Absolute path of the CLI entry that spawned the daemon. Distinguishes two
+      installs that share a version string (e.g. two pkg.pr.new builds of the
+      same base version living in different npx cache dirs). */
+  entry?: string;
 }
 
 export interface AcquireLockOptions {
@@ -52,6 +61,10 @@ export interface AcquireLockOptions {
   lockPath?: string;
   /** Port the daemon will bind to. Recorded in the lock file for diagnostics. */
   port: number;
+  /** Host CLI version, recorded as `host_version` for build-mismatch detection. */
+  hostVersion?: string;
+  /** CLI entry path that spawned this daemon, recorded as `entry`. */
+  entry?: string;
   /** Override `new Date().toISOString()` — used in tests for deterministic output. */
   nowIso?: string;
   /**
@@ -156,7 +169,13 @@ export function acquireLock(opts: AcquireLockOptions): AcquireLockResult {
   const lockPath = opts.lockPath ?? DEFAULT_LOCK_PATH;
   const pid = opts.pid ?? process.pid;
   const startedAt = opts.nowIso ?? new Date().toISOString();
-  const contents: LockContents = { pid, started_at: startedAt, port: opts.port };
+  const contents: LockContents = {
+    pid,
+    started_at: startedAt,
+    port: opts.port,
+    ...(opts.hostVersion !== undefined ? { host_version: opts.hostVersion } : {}),
+    ...(opts.entry !== undefined ? { entry: opts.entry } : {}),
+  };
 
   mkdirSync(dirname(lockPath), { recursive: true });
 
