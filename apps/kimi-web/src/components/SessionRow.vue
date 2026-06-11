@@ -251,7 +251,7 @@ defineExpose({ closeMenu, cancelDelete });
 }
 .attn svg { flex: none; }
 
-/* Kebab button — hidden until hover */
+/* Kebab button — hidden until hover, aligned with workspace + button */
 .kebab {
   display: none;
   flex: none;
@@ -263,6 +263,8 @@ defineExpose({ closeMenu, cancelDelete });
   padding: 2px;
   color: var(--muted);
   border-radius: 4px;
+  order: 1;
+  margin-right: 4px;
 }
 .se:hover .kebab,
 .kebab.open {
