@@ -169,7 +169,7 @@ describe('startSessionAndSendPrompt', () => {
   });
 });
 
-describe('clearActiveSession', () => {
+describe('openWorkspaceDraft', () => {
   it('clears activeSessionId without removing sessions', async () => {
     const { client } = await setup();
     await client.addWorkspaceByPath('/repo');
@@ -178,10 +178,11 @@ describe('clearActiveSession', () => {
     expect(client.activeSessionId.value).toBe('sess_new');
     expect(client.sessions.value).toHaveLength(1);
 
-    client.clearActiveSession();
+    client.openWorkspaceDraft('ws_repo');
 
     expect(client.activeSessionId.value).toBe('');
     expect(client.sessions.value).toHaveLength(1);
+    expect(client.activeWorkspaceId.value).toBe('ws_repo');
   });
 });
 

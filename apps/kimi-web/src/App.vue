@@ -453,24 +453,23 @@ async function handleSubmit(payload: { text: string; attachments: { fileId: stri
   void client.sendPrompt(payload.text, payload.attachments);
 }
 
-// Primary "+ New": clear the active session so the right pane shows the
-// onboarding composer. The session is only created when the user sends the
-// first message.
+// Primary "+ New": enter the draft state in the current workspace so the
+// right pane shows the onboarding composer. The session is only created when
+// the user sends the first message.
 function handleCreateSession(): void {
   const wsId = client.activeWorkspaceId.value;
   if (wsId) {
-    client.clearActiveSession();
+    client.openWorkspaceDraft(wsId);
   } else {
     showNewSession.value = true;
   }
 }
 
-// Workspace-level "+ New" (sidebar group or mobile switcher): switch to the
-// workspace and show the onboarding composer. No backend session is created
-// until the user actually sends a message.
+// Workspace-level "+ New" (sidebar group or mobile switcher): enter the draft
+// state in the chosen workspace. No backend session is created until the user
+// actually sends a message.
 function handleCreateSessionInWorkspace(workspaceId: string): void {
-  client.selectWorkspace(workspaceId);
-  client.clearActiveSession();
+  client.openWorkspaceDraft(workspaceId);
 }
 </script>
 

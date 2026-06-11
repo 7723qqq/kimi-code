@@ -1498,10 +1498,19 @@ function upsertWorkspacePreserveOrder(workspace: AppWorkspace): void {
   rawState.workspaces = next;
 }
 
-/** Clear the active session without creating a new one — used by the "+" button. */
+/** Clear the active session without creating a new one. */
 function clearActiveSession(): void {
   rawState.activeSessionId = undefined;
   writeSessionUrl(undefined, 'push');
+}
+
+/** Enter the "new session draft" state for a workspace: select it, clear the
+ *  active session, and show the onboarding composer. No backend session is
+ *  created until the user sends the first message. */
+function openWorkspaceDraft(workspaceId: string): void {
+  selectWorkspace(workspaceId);
+  clearActiveSession();
+  clearFileDiff();
 }
 
 /**
@@ -1583,7 +1592,7 @@ async function addWorkspaceByPath(root: string): Promise<void> {
   try {
     const ws = await api.addWorkspace({ root: trimmed });
     upsertWorkspacePreserveOrder(ws);
-    selectWorkspace(ws.id);
+    openWorkspaceDraft(ws.id);
   } catch {
     // Fallback: remember a derived workspace locally (id = root = path).
     const existing = rawState.workspaces.find((w) => w.root === trimmed);
@@ -1599,7 +1608,7 @@ async function addWorkspaceByPath(root: string): Promise<void> {
         ...rawState.workspaces,
       ];
     }
-    selectWorkspace(trimmed);
+    openWorkspaceDraft(trimmed);
   }
 }
 
@@ -2615,7 +2624,7 @@ export function useKimiWebClient() {
     loadWorkspaces,
     selectWorkspace,
     openWorkspace,
-    clearActiveSession,
+    openWorkspaceDraft,
     createSessionInWorkspace,
     startSessionAndSendPrompt,
     addWorkspaceByPath,
