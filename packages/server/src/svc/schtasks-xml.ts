@@ -1,15 +1,4 @@
-/**
- * Pure XML builder for the Windows Task Scheduler task that supervises
- * `kimi server run`.
- *
- * Mirrors `../openclaw/src/daemon/schtasks.ts:buildScheduledTaskXml` but
- * drops the wrapper-script indirection (we point `<Command>` at the kimi
- * binary directly and put the argv in `<Arguments>`).
- *
- * The task XML must be UTF-16 LE with a BOM when handed to
- * `schtasks /Create /XML`. The encoding is applied by `writeTaskXmlFile`
- * in `schtasks.ts`; this module is only string-level.
- */
+
 
 const escapeXmlText = (value: string): string =>
   value
@@ -21,14 +10,11 @@ const escapeXmlText = (value: string): string =>
 
 export interface BuildScheduledTaskXmlInput {
   description: string;
-  /** Absolute path of the binary to run. Becomes `<Command>`. */
+
   command: string;
-  /**
-   * Argv to pass to the command, already-quoted as one string.
-   * Becomes `<Arguments>`. Caller is responsible for quoting paths with spaces.
-   */
+
   arguments?: string;
-  /** Optional user under which the task runs (e.g. `DOMAIN\\user`). */
+
   taskUser?: string;
 }
 
@@ -87,15 +73,9 @@ export function buildScheduledTaskXml(input: BuildScheduledTaskXmlInput): string
 </Task>`;
 }
 
-/**
- * Parse the CSV output of `schtasks /Query /TN <name> /FO CSV /V`.
- *
- * Returns the first data row as a `{ header: value }` map, or undefined if
- * the task is missing. We use /V (verbose) so we get `Status` and `Last Result`
- * columns the lifecycle commands look at.
- */
+
 export function parseSchtasksQuery(output: string): Record<string, string> | undefined {
-  // schtasks emits CRLF line endings on Windows; split on \r?\n to be safe.
+
   const lines = output.split(/\r?\n/).filter((line) => line.trim().length > 0);
   if (lines.length < 2) return undefined;
 
@@ -114,7 +94,7 @@ export function parseSchtasksQuery(output: string): Record<string, string> | und
   return out;
 }
 
-/** Minimal CSV row parser — handles `"value, with comma"` and `""` escapes. */
+
 function parseCsvRow(line: string): string[] {
   const cells: string[] = [];
   let current = '';

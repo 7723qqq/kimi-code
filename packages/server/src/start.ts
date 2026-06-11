@@ -111,6 +111,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
 
   const lockHandle = acquireLock({
     port: opts.port,
+    host: opts.host,
     lockPath: opts.lockPath,
     // Record the host build identity so `kimi server status` can detect a
     // build-mismatched server.

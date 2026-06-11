@@ -1,6 +1,4 @@
-/**
- * Public barrel for the OS service manager. Used by the CLI.
- */
+
 
 export { resolveServiceManager } from './service';
 export { createLaunchdManager, parseLaunchctlPrint } from './launchd';

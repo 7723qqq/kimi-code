@@ -92,6 +92,7 @@ describe('startServer — lock + healthz smoke', () => {
     expect(existsSync(lockPath)).toBe(true);
     const stored = JSON.parse(readFileSync(lockPath, 'utf8')) as LockContents;
     expect(stored.pid).toBe(process.pid);
+    expect(stored.host).toBe('127.0.0.1');
     expect(stored.port).toBe(0);
 
     expect(r.address).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);

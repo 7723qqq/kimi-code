@@ -1,14 +1,4 @@
-/**
- * Windows Scheduled Task service manager.
- *
- * Implements `ServiceManager` for win32 by importing a UTF-16 LE task XML via
- * `schtasks /Create /XML` and driving it with `schtasks /Run|/End|/Delete|/Query`.
- *
- * Mirrors the shape of `../openclaw/src/daemon/schtasks.ts` but trimmed to the
- * minimum needed for `kimi server install/uninstall/start/stop/restart/status`.
- * The wrapper-script / launcher-cmd indirection openclaw uses is dropped — we
- * point `<Command>` at the kimi binary directly.
- */
+
 
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,15 +24,15 @@ import type {
 } from './types';
 
 export interface SchtasksManagerDeps {
-  /** Run `schtasks <args>`. Tests stub this to assert the exact argv. */
+
   execSchtasks(args: readonly string[], options?: ExecOptions): Promise<ExecResult>;
-  /** Resolve the binary the task should run. Defaults to argv[1]. */
+
   resolveProgram(): string;
-  /** Absolute path of the supervisor stdout/stderr log file. */
+
   logPath(): string;
-  /** Write the UTF-16 task XML to a temp file and return its path. */
+
   writeTaskXml(xml: string): string;
-  /** Check whether the task already exists (by name). */
+
   taskExists(): Promise<boolean>;
 }
 
@@ -94,20 +84,20 @@ export function createSchtasksManager(
         );
       }
     } finally {
-      // The temp xml file is no longer needed once the task is registered.
+
       try {
         rmSync(xmlPath, { force: true });
       } catch {
-        // Best-effort cleanup.
+
       }
     }
 
     writeInstallPlan(plan);
 
-    // The task fires at logon; start it immediately so install also activates.
+
     const run = await deps.execSchtasks(['/Run', '/TN', KIMI_SERVER_TASK_NAME]);
     if (run.code !== 0) {
-      // Install succeeded; activation failed. Surface a note but don't roll back.
+
       return {
         status: alreadyInstalled ? 'replaced' : 'installed',
         message: `Task ${alreadyInstalled ? 'replaced' : 'installed'} but /Run failed: ${detail(run) ?? 'unknown error'}.`,
@@ -127,7 +117,7 @@ export function createSchtasksManager(
       deleteInstallPlan();
       return { ok: true, message: 'Scheduled task was not installed; nothing to remove.' };
     }
-    // /End best-effort — task might already be stopped.
+
     await deps.execSchtasks(['/End', '/TN', KIMI_SERVER_TASK_NAME]).catch(() => undefined);
     const del = await deps.execSchtasks(['/Delete', '/TN', KIMI_SERVER_TASK_NAME, '/F']);
     if (del.code !== 0) {
@@ -234,7 +224,7 @@ export function createSchtasksManager(
   return { install, uninstall, start, stop, restart, status };
 }
 
-/** Default temp-file writer for the task XML. Adds the UTF-16 LE BOM that schtasks /XML requires. */
+
 function defaultWriteTaskXml(xml: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'kimi-server-task-'));
   const xmlPath = join(dir, 'task.xml');
@@ -244,7 +234,7 @@ function defaultWriteTaskXml(xml: string): string {
   return xmlPath;
 }
 
-/** Default existence probe — `schtasks /Query /TN <name>` returns 0 if the task exists. */
+
 async function defaultTaskExists(): Promise<boolean> {
   const res = await execFileUtf8('schtasks', ['/Query', '/TN', KIMI_SERVER_TASK_NAME], {
     windowsHide: true,
@@ -252,9 +242,9 @@ async function defaultTaskExists(): Promise<boolean> {
   return res.code === 0;
 }
 
-/** Compose the argv suffix as one string for the task XML `<Arguments>` field. */
+
 function serializeArguments(plan: InstallPlan): string {
-  // First element of programArguments is the program itself; the rest is argv to pass.
+
   return plan.programArguments
     .slice(1)
     .map((arg) => (/\s/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg))
@@ -266,7 +256,7 @@ function detail(res: ExecResult): string | undefined {
   return text.length > 0 ? text : undefined;
 }
 
-/** Convenience: synchronously check if the file at `path` exists. Exposed for tests. */
+
 export function taskXmlExists(path: string): boolean {
   return existsSync(path);
 }

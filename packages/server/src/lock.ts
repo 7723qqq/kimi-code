@@ -44,6 +44,7 @@ export const DEFAULT_LOCK_PATH = join(DEFAULT_LOCK_DIR, 'lock');
 export interface LockContents {
   pid: number;
   started_at: string;
+  host?: string;
   port: number;
   /** Host CLI version that started this server (e.g. kimi-code package version).
       Lets `kimi server status` detect a build-mismatched server. Absent in locks
@@ -60,6 +61,8 @@ export interface AcquireLockOptions {
   lockPath?: string;
   /** Port the server will bind to. Recorded in the lock file for diagnostics. */
   port: number;
+  /** Host the server will bind to. Recorded in the lock file for diagnostics. */
+  host?: string;
   /** Host CLI version, recorded as `host_version` for build-mismatch detection. */
   hostVersion?: string;
   /** CLI entry path that spawned this server, recorded as `entry`. */
@@ -171,6 +174,7 @@ export function acquireLock(opts: AcquireLockOptions): AcquireLockResult {
   const contents: LockContents = {
     pid,
     started_at: startedAt,
+    ...(opts.host !== undefined ? { host: opts.host } : {}),
     port: opts.port,
     ...(opts.hostVersion !== undefined ? { host_version: opts.hostVersion } : {}),
     ...(opts.entry !== undefined ? { entry: opts.entry } : {}),

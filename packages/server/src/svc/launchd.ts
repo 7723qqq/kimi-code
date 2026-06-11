@@ -1,15 +1,4 @@
-/**
- * macOS LaunchAgent service manager.
- *
- * Implements `ServiceManager` for darwin by writing a `.plist` to
- * `~/Library/LaunchAgents/` and driving it with `launchctl
- * bootstrap/bootout/kickstart/print`.
- *
- * Mirrors the shape of `../openclaw/src/daemon/launchd.ts` but trimmed to the
- * minimum needed for `kimi server install/uninstall/start/stop/restart/status`
- * — no env-wrapper files, no restart-handoff, no GUI-session repair beyond a
- * single retry message.
- */
+
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -42,15 +31,15 @@ const PLIST_MODE = 0o600;
 const LAUNCH_AGENT_DIR_MODE = 0o755;
 
 export interface LaunchdManagerDeps {
-  /** Run `launchctl <args>`. Tests stub this to assert the exact argv. */
+
   execLaunchctl(args: readonly string[], options?: ExecOptions): Promise<ExecResult>;
-  /** Resolve the binary the LaunchAgent should supervise. Defaults to argv[1]. */
+
   resolveProgram(): string;
-  /** Absolute path of the plist that will be written. */
+
   plistPath(): string;
-  /** Absolute path of the supervisor stdout/stderr log file. */
+
   logPath(): string;
-  /** `gui/<uid>` domain string for `launchctl print`. */
+
   guiDomain(): string;
 }
 
@@ -64,7 +53,7 @@ const DEFAULT_DEPS: LaunchdManagerDeps = {
 
 export { resolveSupervisorProgram };
 
-/** Construct the launchd backend. Pass `deps` overrides in tests. */
+
 export function createLaunchdManager(
   overrides: Partial<LaunchdManagerDeps> = {},
 ): ServiceManager {
@@ -86,7 +75,7 @@ export function createLaunchdManager(
     }
 
     if (alreadyInstalled) {
-      // Stop and unload the existing definition before overwriting it.
+
       await bestEffortBootout(deps);
     }
 
@@ -118,7 +107,7 @@ export function createLaunchdManager(
       'bootout',
       `${deps.guiDomain()}/${KIMI_SERVER_LABEL}`,
     ]);
-    // bootout returns non-zero if the service wasn't loaded — that's fine.
+
     void bootout;
     try {
       rmSync(plistPath, { force: true });
@@ -140,10 +129,10 @@ export function createLaunchdManager(
       };
     }
     const target = `${deps.guiDomain()}/${KIMI_SERVER_LABEL}`;
-    // `kickstart -k` restarts a running service or starts a stopped one.
+
     const result = await deps.execLaunchctl(['kickstart', '-k', target]);
     if (result.code !== 0) {
-      // Service might not be loaded yet — bootstrap is idempotent on darwin.
+
       const bootstrap = await deps.execLaunchctl(['bootstrap', deps.guiDomain(), plistPath]);
       if (bootstrap.code !== 0 && !isAlreadyLoaded(bootstrap)) {
         return {
@@ -166,7 +155,7 @@ export function createLaunchdManager(
     const target = `${deps.guiDomain()}/${KIMI_SERVER_LABEL}`;
     const result = await deps.execLaunchctl(['kill', 'SIGTERM', target]);
     if (result.code !== 0) {
-      // Already stopped or never loaded — bootout suppresses the supervision.
+
       const bootout = await deps.execLaunchctl(['bootout', target]);
       if (bootout.code !== 0) {
         return {
@@ -238,7 +227,7 @@ export function createLaunchdManager(
   return { install, uninstall, start, stop, restart, status };
 }
 
-/** Pure parser for `launchctl print <domain>/<label>` output. Exported for tests. */
+
 export function parseLaunchctlPrint(output: string): {
   state?: string;
   pid?: number;
@@ -279,7 +268,7 @@ function writePlist(plistPath: string, plan: InstallPlan, logPath: string): void
 
 async function bestEffortBootout(deps: LaunchdManagerDeps): Promise<void> {
   await deps.execLaunchctl(['bootout', `${deps.guiDomain()}/${KIMI_SERVER_LABEL}`]).catch(() => {
-    // Best-effort; install will overwrite the plist either way.
+
   });
 }
 

@@ -1,11 +1,4 @@
-/**
- * Pure unit-file builder for the Linux systemd `--user` unit that supervises
- * `kimi server run`.
- *
- * Kept separate from `systemd.ts` so the unit text is testable without any
- * shell-out to `systemctl`. Mirrors openclaw's
- * `../openclaw/src/daemon/systemd-unit.ts:buildSystemdUnit` but trimmed.
- */
+
 
 const FORBIDDEN = /[\r\n]/;
 
@@ -15,14 +8,12 @@ function assertNoLineBreaks(value: string, label: string): void {
   }
 }
 
-/** Quote an argv element when it contains whitespace, quotes, or backslashes. */
+
 function systemdEscapeArg(value: string): string {
   assertNoLineBreaks(value, 'Systemd unit values');
   if (!/[\s"\\]/.test(value)) {
     return value;
   }
-  // systemd ExecStart parsing honors backslash escapes inside quotes. Mirror
-  // openclaw's escaping so the unit round-trips through `systemctl show`.
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
@@ -30,11 +21,11 @@ export interface BuildSystemdUnitInput {
   description?: string;
   programArguments: readonly string[];
   workingDirectory?: string;
-  /** Optional KEY=VALUE pairs injected as `Environment=` lines. */
+
   environment?: Readonly<Record<string, string>>;
 }
 
-/** Build the unit-file text. Deterministic — only depends on the input. */
+
 export function buildSystemdUnit(input: BuildSystemdUnitInput): string {
   const execStart = input.programArguments.map(systemdEscapeArg).join(' ');
   const description = (input.description ?? 'Kimi Code local server').trim();
@@ -78,10 +69,6 @@ export function buildSystemdUnit(input: BuildSystemdUnitInput): string {
   return lines.filter((line): line is string => line !== null).join('\n');
 }
 
-/**
- * Parse `systemctl --user show kimi-server` key=value output into a map.
- * Lines without `=` are ignored. Later keys overwrite earlier ones.
- */
 export function parseSystemctlShow(output: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const rawLine of output.split(/\r?\n/)) {

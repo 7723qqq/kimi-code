@@ -1,17 +1,4 @@
-/**
- * Linux systemd `--user` service manager.
- *
- * Implements `ServiceManager` for Linux by writing a unit file to
- * `~/.config/systemd/user/kimi-server.service` and driving it with
- * `systemctl --user`.
- *
- * The unit runs as the invoking user (no system-wide root install), which
- * keeps the install surface symmetric with macOS LaunchAgents.
- *
- * Mirrors the shape of `../openclaw/src/daemon/systemd.ts` but trimmed to the
- * minimum needed for `kimi server install/uninstall/start/stop/restart/status`.
- * Lingering, multi-user, polkit, and env-wrapper handling are out of scope.
- */
+
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -44,13 +31,13 @@ const UNIT_MODE = 0o600;
 const UNIT_DIR_MODE = 0o755;
 
 export interface SystemdManagerDeps {
-  /** Run `systemctl --user <args>`. Tests stub this to assert the exact argv. */
+
   execSystemctl(args: readonly string[], options?: ExecOptions): Promise<ExecResult>;
-  /** Resolve the binary the unit should supervise. Defaults to argv[1]. */
+
   resolveProgram(): string;
-  /** Absolute path of the unit file that will be written. */
+
   unitPath(): string;
-  /** Absolute path of the supervisor stdout/stderr log file. */
+
   logPath(): string;
 }
 
