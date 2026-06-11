@@ -23,7 +23,7 @@ import GlobalLoading from './components/GlobalLoading.vue';
 import { useKimiWebClient } from './composables/useKimiWebClient';
 import { useIsMobile } from './composables/useIsMobile';
 import type { ThinkingLevel } from './api/types';
-import type { FilePreviewRequest } from './types';
+import type { FilePreviewRequest, ToolMedia } from './types';
 
 const client = useKimiWebClient();
 provide('resolveImage', client.resolveImageUrl);
@@ -105,9 +105,10 @@ const previewVisible = computed(
   () => previewTarget.value !== null || previewFile.value !== null || previewLoading.value || previewError.value !== null,
 );
 const previewDownloadUrl = computed(() => {
-  const path = previewFile.value?.path ?? previewTarget.value?.path;
+  const path = previewTarget.value?.path;
   return path ? client.getFileDownloadUrl(path) : null;
 });
+const previewExternalActions = computed(() => previewTarget.value !== null);
 
 function trimTrailingSlash(path: string): string {
   return path.length > 1 ? path.replace(/\/+$/, '') : path;
@@ -186,6 +187,29 @@ async function openFilePreview(target: FilePreviewRequest): Promise<void> {
   }
 }
 
+function mimeFromDataUrl(url: string): string | undefined {
+  const match = /^data:([^;,]+)/i.exec(url);
+  return match?.[1];
+}
+
+function openMediaPreview(media: ToolMedia): void {
+  if (media.kind !== 'image') return;
+  thinkingTarget.value = null;
+  previewRequestSeq++;
+  previewTarget.value = null;
+  previewError.value = null;
+  previewLoading.value = false;
+  previewFile.value = {
+    path: media.path ?? 'ReadMediaFile image',
+    content: '',
+    encoding: 'utf-8',
+    mime: media.mimeType ?? mimeFromDataUrl(media.url) ?? 'image/*',
+    sourceUrl: media.url,
+    isBinary: true,
+    size: media.bytes ?? 0,
+  };
+}
+
 function closeFilePreview(): void {
   previewRequestSeq++;
   previewTarget.value = null;
@@ -230,6 +254,10 @@ function closeThinkingPanel(): void {
 
 /** Either occupant of the shared right-side slot. */
 const sidePanelVisible = computed(() => previewVisible.value || thinkingVisible.value);
+
+/** True while the panel's resize handle is being dragged — the width
+    transition is disabled so the panel follows the pointer 1:1. */
+const panelDragging = ref(false);
 
 function openPreviewInEditor(): void {
   const path = previewFile.value?.path ?? previewTarget.value?.path;
@@ -445,7 +473,7 @@ function handleCreateSession(): void {
 <template>
   <div
     class="app"
-    :class="{ mobile: isMobile, 'preview-open': sidePanelVisible && !isMobile }"
+    :class="{ mobile: isMobile }"
     :style="{ '--side-w': sideWidth + 'px', '--preview-w': previewWidth + 'px' }"
   >
     <!-- Desktop navigation: workspace rail + resizable session column. -->
@@ -553,6 +581,7 @@ function handleCreateSession(): void {
       @pick-model="openModelPicker()"
       @select-model="client.setModel($event)"
       @open-file="openFilePreview($event)"
+      @open-media="openMediaPreview($event)"
       @open-thinking="openThinkingPanel($event)"
     />
 
@@ -571,32 +600,38 @@ function handleCreateSession(): void {
       reverse
       :aria-label="t('layout.resizePreviewAria')"
       @update:width="previewWidth = $event"
+      @update:dragging="panelDragging = $event"
     />
 
-    <!-- :duration — clean up via timer, not transitionend: hidden tabs swallow
-         the event and would leave a stale leaving panel in the DOM. -->
-    <Transition name="drawer" :duration="300">
-      <aside v-if="sidePanelVisible" class="global-preview" :class="{ mobile: isMobile }">
-        <ThinkingPanel
-          v-if="thinkingVisible"
-          :text="thinkingPanelText ?? ''"
-          @close="closeThinkingPanel"
-        />
-        <FilePreview
-          v-else
-          :file="previewFile"
-          :loading="previewLoading"
-          :error="previewError"
-          :line="previewTarget?.line"
-          :download-url="previewDownloadUrl"
-          closable
-          external-actions
-          @close="closeFilePreview"
-          @open-external="openPreviewInEditor"
-          @reveal="revealPreviewFile"
-        />
-      </aside>
-    </Transition>
+    <!-- Desktop: the aside is a PERMANENT grid column whose width transitions
+         0 ↔ var(--preview-w) — opening genuinely squeezes the chat column over
+         (one animation, no slide-over hacks). Mobile mounts only when open
+         (full-screen overlay). Content stays v-if'd, so a closed panel is a
+         zero-width empty shell. -->
+    <aside
+      v-if="!isMobile || sidePanelVisible"
+      class="global-preview"
+      :class="{ open: sidePanelVisible, mobile: isMobile, 'no-anim': panelDragging }"
+    >
+      <ThinkingPanel
+        v-if="thinkingVisible"
+        :text="thinkingPanelText ?? ''"
+        @close="closeThinkingPanel"
+      />
+      <FilePreview
+        v-else-if="previewVisible"
+        :file="previewFile"
+        :loading="previewLoading"
+        :error="previewError"
+        :line="previewTarget?.line"
+        :download-url="previewDownloadUrl"
+        closable
+        :external-actions="previewExternalActions"
+        @close="closeFilePreview"
+        @open-external="openPreviewInEditor"
+        @reveal="revealPreviewFile"
+      />
+    </aside>
 
     <!-- Model Picker overlay -->
     <ModelPicker
@@ -759,15 +794,15 @@ function handleCreateSession(): void {
   /* sidebar (rail + resizable session column) | 0-width handle | conversation.
      The 4px ResizeHandle overflows its zero-width track via negative margins so
      the whole strip is grabbable without consuming layout space. */
-  grid-template-columns: var(--side-w) 0 1fr;
+  /* The right-panel track is PERMANENT (auto = follows the aside's width, 0
+     when closed) — opening animates the aside's width, so the conversation
+     column is squeezed over smoothly instead of snapping to a new template. */
+  grid-template-columns: var(--side-w) 0 minmax(0, 1fr) 0 auto;
   background: var(--bg);
   color: var(--ink);
   border-top: 2px solid var(--ink);
   overflow: hidden;
   box-sizing: border-box;
-}
-.app.preview-open {
-  grid-template-columns: var(--side-w) 0 minmax(0, 1fr) 0 var(--preview-w);
 }
 /* Grid children must be allowed to shrink below content height so that only
    the inner scroll containers (.panes / .sessions) scroll — otherwise the
@@ -784,41 +819,38 @@ function handleCreateSession(): void {
   grid-template-rows: auto 1fr;
 }
 
+/* The right-side panel column: a permanent grid item whose width animates
+   0 ↔ var(--preview-w). The CONTENT keeps a fixed width (and carries the
+   left hairline) so it clips during the transition instead of reflowing. */
 .global-preview {
+  grid-column: 5;
   min-width: 0;
   min-height: 0;
-  border-left: 1px solid var(--line);
+  width: 0;
   background: var(--bg);
   overflow: hidden;
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.global-preview.open {
+  width: var(--preview-w);
+}
+/* While dragging the resize handle, follow the pointer 1:1. */
+.global-preview.no-anim {
+  transition: none;
+}
+.global-preview:not(.mobile) > * {
+  width: var(--preview-w);
+  height: 100%;
+  box-sizing: border-box;
+  border-left: 1px solid var(--line);
 }
 .global-preview.mobile {
   position: fixed;
   inset: 0;
   z-index: 80;
-  border-left: none;
+  width: auto;
+  transition: none;
   border-top: 2px solid var(--ink);
-}
-
-/* Drawer slide for the right-side panel (thinking / file preview): the grid
-   column appears instantly, the panel itself slides in from the right edge. */
-.drawer-enter-active,
-.drawer-leave-active {
-  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.drawer-enter-from,
-.drawer-leave-to {
-  transform: translateX(100%);
-}
-/* While leaving, the grid column is already collapsed — float the panel above
-   the content (viewport-anchored) so it can slide out without re-entering the
-   grid as a stray item. Mobile is fixed-position already. */
-.drawer-leave-active:not(.mobile) {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: var(--preview-w);
-  z-index: 70;
 }
 
 /* Auth onboarding banner */
@@ -869,4 +901,12 @@ function handleCreateSession(): void {
 }
 .cs-icon { font-size: 32px; }
 .cs-text { font-size: 14px; }
+</style>
+
+<style>
+/* Right-side panel headers (ThinkingPanel / FilePreview) track the TabBar
+   height per theme: 32px terminal (the components' var fallback), 40px modern. */
+html[data-theme="modern"] {
+  --panel-head-h: 40px;
+}
 </style>

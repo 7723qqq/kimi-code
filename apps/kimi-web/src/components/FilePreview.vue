@@ -12,6 +12,7 @@ export interface FileData {
   content: string;
   encoding: 'utf-8' | 'base64';
   mime: string;
+  sourceUrl?: string;
   languageId?: string;
   isBinary: boolean;
   size: number;
@@ -189,6 +190,7 @@ watch(contentKind, (kind) => {
 const imageSrc = computed<string | null>(() => {
   const f = props.file;
   if (!f || contentKind.value !== 'image') return null;
+  if (f.sourceUrl) return f.sourceUrl;
   if (f.encoding === 'base64') return `data:${f.mime};base64,${f.content}`;
   if (f.mime === 'image/svg+xml') {
     return `data:${f.mime};charset=utf-8,${encodeURIComponent(f.content)}`;
@@ -315,8 +317,9 @@ function truncatePath(path: string, maxLen = 55): string {
 
     <!-- File loaded -->
     <template v-else-if="file">
-      <!-- Header -->
+      <!-- Header: shared "Preview" title; the path is the subtitle -->
       <div class="fp-header">
+        <span class="fp-title">{{ t('common.preview') }}</span>
         <span class="fp-path" :title="file.path">{{ truncatePath(file.path) }}</span>
         <span class="fp-meta">
           <span v-if="file.lineCount" class="fp-lines">{{ t('filePreview.lineCount', { count: file.lineCount }) }}</span>
@@ -363,33 +366,39 @@ function truncatePath(path: string, maxLen = 55): string {
           <button type="button" class="fp-icon-btn" :disabled="searchMatches.length === 0" :title="t('filePreview.prevMatch')" @click="nextMatch(-1)">↑</button>
           <button type="button" class="fp-icon-btn" :disabled="searchMatches.length === 0" :title="t('filePreview.nextMatch')" @click="nextMatch(1)">↓</button>
         </div>
-        <button type="button" class="fp-action" :class="{ copied: copiedPath }" @click="copyPath">
-          {{ copiedPath ? t('filePreview.copied') : t('filePreview.copyPath') }}
+        <!-- Icon actions: text labels made the header wrap to two rows at the
+             default panel width — icons + title tooltips keep it single-line. -->
+        <button type="button" class="fp-action fp-act-icon" :class="{ copied: copiedPath }" :title="copiedPath ? t('filePreview.copied') : t('filePreview.copyPath')" @click="copyPath">
+          <svg v-if="!copiedPath" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4.2.3l2-2a3 3 0 0 0-4.2-4.2l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.2-.3l-2 2a3 3 0 0 0 4.2 4.2l1-1"/></svg>
+          <svg v-else viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3,8 6.5,11.5 13,5"/></svg>
         </button>
-        <button v-if="externalActions" type="button" class="fp-action" @click="emit('openExternal')">
-          {{ t('filePreview.openInEditor') }}
+        <button v-if="externalActions" type="button" class="fp-action fp-act-icon" :title="t('filePreview.openInEditor')" @click="emit('openExternal')">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8.7V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V5.5A1.5 1.5 0 0 1 4 4h3.3"/><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5 7.5 8.5"/></svg>
         </button>
-        <button v-if="externalActions" type="button" class="fp-action" @click="emit('reveal')">
-          {{ t('filePreview.reveal') }}
+        <button v-if="externalActions" type="button" class="fp-action fp-act-icon" :title="t('filePreview.reveal')" @click="emit('reveal')">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 4.5A1.5 1.5 0 0 1 3 3h3l1.5 1.5H13A1.5 1.5 0 0 1 14.5 6v6A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12z"/></svg>
         </button>
         <a
           v-if="downloadUrl"
-          class="fp-action"
+          class="fp-action fp-act-icon"
           :href="downloadUrl"
           target="_blank"
           rel="noreferrer"
           download
+          :title="t('filePreview.download')"
         >
-          {{ t('filePreview.download') }}
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8"/><path d="M4.5 6.5 8 10l3.5-3.5"/><path d="M2.5 13.5h11"/></svg>
         </a>
         <button
           v-if="!file.isBinary && contentKind !== 'image'"
           type="button"
-          class="fp-action"
+          class="fp-action fp-act-icon"
           :class="{ copied }"
+          :title="copied ? t('filePreview.copied') : t('filePreview.copy')"
           @click="copyContent"
         >
-          {{ copied ? t('filePreview.copied') : t('filePreview.copy') }}
+          <svg v-if="!copied" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="9" height="9" rx="1.5"/><path d="M6 1h7a1 1 0 0 1 1 1v7"/></svg>
+          <svg v-else viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3,8 6.5,11.5 13,5"/></svg>
         </button>
         <button v-if="closable" type="button" class="fp-close" :title="t('filePreview.close')" @click="emit('close')">
           ×
@@ -525,6 +534,9 @@ function truncatePath(path: string, maxLen = 55): string {
   background: var(--bg);
   font-family: var(--mono);
   min-width: 0;
+  /* Header children use container queries to shed supplementary info (meta)
+     before wrapping — keyed to the PANEL width, not the viewport. */
+  container-type: inline-size;
 }
 
 /* ---- Empty / loading ---- */
@@ -539,13 +551,18 @@ function truncatePath(path: string, maxLen = 55): string {
   font-size: 14px;
 }
 
-/* ---- Header ---- */
+/* ---- Header ----
+   Single-line baseline matches the conversation TabBar height (32px terminal /
+   40px modern via --panel-head-h) so the hairline under both reads as one line
+   across the split; wraps taller only when the panel is too narrow. */
 .fp-header {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: 4px 6px;
+  min-height: var(--panel-head-h, 32px);
+  padding: 3px 12px;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
   flex: none;
@@ -553,16 +570,33 @@ function truncatePath(path: string, maxLen = 55): string {
   overflow: visible;
 }
 
+
+.fp-title {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+/* The path is the SUBTITLE — supplementary next to the shared panel title.
+   nowrap is load-bearing: without it a long path wraps INSIDE the span and
+   stretches the header to multiple lines (ellipsis only works on one line). */
 .fp-path {
-  flex: 1 1 160px;
-  min-width: 0;
+  /* Low BASIS on purpose: flex-wrap packs lines by basis, so a big basis here
+     pushed the actions onto a second row at the default panel width. The path
+     then GROWS into whatever space the row has left. */
+  flex: 1 1 60px;
+  min-width: 40px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   direction: rtl;
   text-align: left;
-  font-size: 14px;
-  color: var(--ink);
-  font-weight: 500;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .fp-meta {
@@ -570,6 +604,15 @@ function truncatePath(path: string, maxLen = 55): string {
   align-items: center;
   gap: 8px;
   flex: none;
+}
+
+/* Narrow panel: drop the supplementary line/size meta first — wrapping the
+   action row is the last resort, not the default-width behaviour. NOTE: must
+   come AFTER the .fp-meta base rule (same specificity; order decides). */
+@container (max-width: 539px) {
+  .fp-meta {
+    display: none;
+  }
 }
 
 .fp-lines,
@@ -634,8 +677,23 @@ function truncatePath(path: string, maxLen = 55): string {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: 1 1 150px;
-  min-width: 120px;
+  flex: 1 1 110px;
+  min-width: 70px;
+  max-width: 200px;
+}
+
+/* Square icon actions — text labels wrapped the header into two rows. */
+.fp-act-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  flex: none;
+}
+.fp-act-icon svg {
+  flex: none;
 }
 .fp-search-input {
   flex: 1;

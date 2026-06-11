@@ -54,7 +54,17 @@ export interface ToolCall {
   status: ToolStatus;
   timing?: string; // e.g. '12ms'
   output?: string[]; // shown line by line when expanded
+  media?: ToolMedia;
   defaultExpanded?: boolean;
+}
+
+export interface ToolMedia {
+  kind: 'image' | 'video' | 'audio';
+  url: string;
+  path?: string;
+  mimeType?: string;
+  bytes?: number;
+  dimensions?: string;
 }
 
 export type DiffKind = 'ctx' | 'add' | 'rem';

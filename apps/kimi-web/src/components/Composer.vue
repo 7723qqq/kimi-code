@@ -1226,8 +1226,8 @@ function selectModel(modelId: string): void {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 10px 6px;
-  background: var(--panel2);
+  padding: 6px 10px 4px;
+  background: color-mix(in srgb, var(--panel2), black 1.5%);
   position: relative;
   border-radius: 0 0 15px 15px;
 }
@@ -1305,6 +1305,7 @@ function selectModel(modelId: string): void {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  padding: 2px 0;
 }
 
 .ctx-ring {
@@ -1327,6 +1328,7 @@ function selectModel(modelId: string): void {
   font-size: 14px;
   color: var(--muted);
   font-family: var(--mono);
+  line-height: 16px;
 }
 
 /* Model pill */
@@ -1337,6 +1339,7 @@ function selectModel(modelId: string): void {
   padding: 2px 7px;
   border-radius: 6px;
   font-size: 14px;
+  line-height: 16px;
   color: var(--dim);
   cursor: pointer;
   user-select: none;

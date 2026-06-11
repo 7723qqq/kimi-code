@@ -88,4 +88,38 @@ describe('multi-segment thinking', () => {
       { type: 'thinking', thinking: '补一段思考' },
     ]);
   });
+
+  it('keeps ReadMediaFile media available for direct rendering', () => {
+    const output = [
+      { type: 'text', text: '<system>Read image file. Mime type: image/png. Size: 67 bytes. Original dimensions: 1x1 pixels.</system>' },
+      { type: 'text', text: '<image path="/tmp/before.png">' },
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,aGVsbG8=' } },
+      { type: 'text', text: '</image>' },
+    ];
+    const state = play([
+      ['turn.started', { turnId: 1 }],
+      ['turn.step.started', { turnId: 1 }],
+      ['tool.call.started', { turnId: 1, toolCallId: 't1', name: 'ReadMediaFile', args: { path: '/tmp/before.png' } }],
+      ['tool.result', { turnId: 1, toolCallId: 't1', output, isError: false }],
+      ['turn.step.completed', { turnId: 1 }],
+      ['turn.ended', { turnId: 1, reason: 'completed' }],
+    ]);
+
+    const turns = messagesToTurns(state.messagesBySession[SESSION]!, []);
+    const block = turns[0]!.blocks!.find((b) => b.kind === 'tool');
+    expect(block).toMatchObject({
+      kind: 'tool',
+      tool: {
+        name: 'ReadMediaFile',
+        media: {
+          kind: 'image',
+          url: 'data:image/png;base64,aGVsbG8=',
+          path: '/tmp/before.png',
+          mimeType: 'image/png',
+          bytes: 5,
+          dimensions: '1x1',
+        },
+      },
+    });
+  });
 });

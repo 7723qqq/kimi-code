@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findFilePathLinks, parseFilePathLinkCandidate } from '../src/lib/filePathLinks';
+import { collectFilePathAliases, findFilePathLinks, parseFilePathLinkCandidate } from '../src/lib/filePathLinks';
 
 describe('file path links', () => {
   it('parses relative paths with line numbers', () => {
@@ -16,6 +16,25 @@ describe('file path links', () => {
   it('parses common root filenames', () => {
     expect(parseFilePathLinkCandidate('package.json')).toEqual({ path: 'package.json' });
     expect(parseFilePathLinkCandidate('AGENTS.md')).toEqual({ path: 'AGENTS.md' });
+  });
+
+  it('ignores bare asset filenames that are not reliable workspace paths', () => {
+    expect(parseFilePathLinkCandidate('before.png')).toBeNull();
+    expect(parseFilePathLinkCandidate('e2e-success.png')).toBeNull();
+    expect(findFilePathLinks('Other images: before.png, e2e-success.png.')).toEqual([]);
+  });
+
+  it('uses same-message absolute path aliases for displayed asset filenames', () => {
+    const aliases = collectFilePathAliases('<image path="/Users/moonshot/Downloads/before.png">');
+    expect(findFilePathLinks('Displayed before.png.', { aliases })).toEqual([
+      {
+        path: '/Users/moonshot/Downloads/before.png',
+        line: undefined,
+        start: 10,
+        end: 20,
+        text: 'before.png',
+      },
+    ]);
   });
 
   it('ignores URLs and non-path words', () => {

@@ -20,7 +20,12 @@ const props = withDefaults(
   {},
 );
 
-const emit = defineEmits<{ 'update:width': [width: number] }>();
+const emit = defineEmits<{
+  'update:width': [width: number];
+  /** True while dragging — parents disable width transitions so the panel
+      tracks the pointer without animation lag. */
+  'update:dragging': [dragging: boolean];
+}>();
 
 const { t } = useI18n();
 
@@ -35,6 +40,7 @@ const { width, dragging, onPointerDown } = useResizable({
 // Surface the restored width immediately, then keep the parent in sync on drag.
 emit('update:width', width.value);
 watch(width, (w) => emit('update:width', w));
+watch(dragging, (d) => emit('update:dragging', d));
 </script>
 
 <template>

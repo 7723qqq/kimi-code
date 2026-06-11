@@ -11,7 +11,99 @@
 // incoming message they are NOT merged (one turn per message, old behaviour).
 
 import type { AppMessage, AppApprovalRequest } from '../api/types';
-import type { ApprovalBlock, ChatTurn, DiffLine, ToolCall, TurnBlock } from '../types';
+import type { ApprovalBlock, ChatTurn, DiffLine, ToolCall, ToolMedia, TurnBlock } from '../types';
+
+const READ_MEDIA_TOOL_RE = /^read[_-]?media(?:file)?$/i;
+const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/s;
+const MEDIA_PATH_TAG_RE = /^<(image|video|audio)\s+path="([^"]+)">$/;
+const SYSTEM_MIME_RE = /Mime type:\s*([^.\s]+)/i;
+const SYSTEM_SIZE_RE = /Size:\s*(\d+)\s*bytes/i;
+const SYSTEM_DIMENSIONS_RE = /Original dimensions:\s*(\d+)x(\d+)\s*pixels/i;
+
+function bytesFromBase64(b64: string): number {
+  if (b64.length === 0) return 0;
+  const padding = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - padding;
+}
+
+function contentPartsFromOutput(output: unknown): unknown[] | null {
+  if (Array.isArray(output)) return output;
+  if (typeof output !== 'string') return null;
+  try {
+    const parsed = JSON.parse(output);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function mediaUrlPart(part: Record<string, unknown>): { kind: ToolMedia['kind']; url: string } | null {
+  const type = part['type'];
+  const kind =
+    type === 'image_url'
+      ? 'image'
+      : type === 'video_url'
+        ? 'video'
+        : type === 'audio_url'
+          ? 'audio'
+          : null;
+  if (kind === null) return null;
+  const holderKey = kind === 'image' ? 'imageUrl' : kind === 'video' ? 'videoUrl' : 'audioUrl';
+  const holder = part[holderKey];
+  if (typeof holder !== 'object' || holder === null) return null;
+  const url = (holder as Record<string, unknown>)['url'];
+  return typeof url === 'string' ? { kind, url } : null;
+}
+
+function normalizeToolMedia(toolName: string, output: unknown): ToolMedia | undefined {
+  if (!READ_MEDIA_TOOL_RE.test(toolName)) return undefined;
+  const parts = contentPartsFromOutput(output);
+  if (parts === null) return undefined;
+
+  let path: string | undefined;
+  let tagKind: ToolMedia['kind'] | undefined;
+  let mimeType: string | undefined;
+  let bytes: number | undefined;
+  let dimensions: string | undefined;
+  let media: { kind: ToolMedia['kind']; url: string } | null = null;
+
+  for (const raw of parts) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    const part = raw as Record<string, unknown>;
+    if (part['type'] === 'text' && typeof part['text'] === 'string') {
+      const text = part['text'];
+      const tag = MEDIA_PATH_TAG_RE.exec(text);
+      if (tag) {
+        tagKind = tag[1] as ToolMedia['kind'];
+        path = tag[2];
+      }
+      const mime = SYSTEM_MIME_RE.exec(text);
+      if (mime?.[1]) mimeType = mime[1];
+      const size = SYSTEM_SIZE_RE.exec(text);
+      if (size?.[1]) bytes = Number(size[1]);
+      const dims = SYSTEM_DIMENSIONS_RE.exec(text);
+      if (dims?.[1] && dims[2]) dimensions = `${dims[1]}x${dims[2]}`;
+      continue;
+    }
+
+    const nextMedia = mediaUrlPart(part);
+    if (nextMedia) media = nextMedia;
+  }
+
+  if (media === null) return undefined;
+  const data = DATA_URL_RE.exec(media.url);
+  if (data?.[1]) mimeType = data[1];
+  if (data?.[2]) bytes = bytesFromBase64(data[2]);
+
+  return {
+    kind: media.kind ?? tagKind ?? 'image',
+    url: media.url,
+    path,
+    mimeType,
+    bytes: Number.isFinite(bytes) ? bytes : undefined,
+    dimensions,
+  };
+}
 
 /**
  * Tool output is `string | ContentPart[]` (agent-core). A string splits into
@@ -281,10 +373,12 @@ export function messagesToTurns(
         // tools[] and the ordered block that renders it).
         const idx = g.tools.findIndex((t) => t.id === c.toolCallId);
         if (idx !== -1) {
+          const tool = g.tools[idx]!;
           const updated: ToolCall = {
-            ...g.tools[idx]!,
+            ...tool,
             status: c.isError ? 'error' : 'ok',
             output: normalizeToolOutput(c.output),
+            media: c.isError ? undefined : normalizeToolMedia(tool.name, c.output),
           };
           g.tools[idx] = updated;
           const blk = g.blocks.find((b) => b.kind === 'tool' && b.tool.id === c.toolCallId);

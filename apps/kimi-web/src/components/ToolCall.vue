@@ -1,7 +1,7 @@
 <!-- apps/kimi-web/src/components/ToolCall.vue -->
 <script setup lang="ts">
-import { ref } from 'vue';
-import type { ToolCall } from '../types';
+import { computed, ref } from 'vue';
+import type { ToolCall, ToolMedia } from '../types';
 import { toolLabel, toolGlyph, toolChip, toolSummary } from '../lib/toolMeta';
 
 const props = withDefaults(
@@ -12,6 +12,9 @@ const props = withDefaults(
   }>(),
   { mobile: false },
 );
+const emit = defineEmits<{
+  openMedia: [media: ToolMedia];
+}>();
 const hasOutput = () => !!props.tool.output && props.tool.output.length > 0;
 const open = ref(props.tool.defaultExpanded === true && hasOutput());
 
@@ -33,10 +36,67 @@ const chip = () => toolChip({
 });
 
 const isError = () => props.tool.status === 'error';
+const media = computed(() => (props.tool.status === 'ok' ? props.tool.media : undefined));
+
+function basename(path: string): string {
+  return path.split(/[\\/]+/).pop() || path;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+const mediaTitle = computed(() => {
+  const m = media.value;
+  if (!m) return '';
+  const parts = [m.path ? basename(m.path) : toolLabel(props.tool.name)];
+  if (m.mimeType) parts.push(m.mimeType);
+  if (m.bytes !== undefined) parts.push(formatBytes(m.bytes));
+  if (m.dimensions) parts.push(m.dimensions);
+  return parts.join(' · ');
+});
+
+function openMediaPreview(): void {
+  const m = media.value;
+  if (m?.kind === 'image') emit('openMedia', m);
+}
 </script>
 
 <template>
-  <div class="box" :class="{ open, err: isError(), mob: mobile }">
+  <div v-if="media" class="media-tool" :class="{ mob: mobile }">
+    <div class="media-title" :title="media.path || mediaTitle">{{ mediaTitle }}</div>
+    <button
+      v-if="media.kind === 'image'"
+      type="button"
+      class="media-image-button"
+      :title="media.path || mediaTitle"
+      @click="openMediaPreview"
+    >
+      <img
+        class="media-image"
+        :src="media.url"
+        :alt="media.path ? basename(media.path) : mediaTitle"
+        loading="lazy"
+      />
+    </button>
+    <video
+      v-else-if="media.kind === 'video'"
+      class="media-video"
+      :src="media.url"
+      controls
+      preload="metadata"
+    />
+    <audio
+      v-else
+      class="media-audio"
+      :src="media.url"
+      controls
+    />
+  </div>
+
+  <div v-else class="box" :class="{ open, err: isError(), mob: mobile }">
     <div class="bh" @click="toggle">
       <svg class="car" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <polyline :points="open ? '4,6 8,10 12,6' : '6,4 10,8 6,12'"/>
@@ -68,6 +128,66 @@ const isError = () => props.tool.status === 'error';
 </template>
 
 <style scoped>
+.media-tool {
+  display: inline-flex;
+  flex-direction: column;
+  width: 176px;
+  max-width: 100%;
+  margin: 8px 8px 8px 0;
+  vertical-align: top;
+}
+.media-title {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0 0 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-video {
+  display: block;
+  width: 100%;
+  height: 118px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  object-fit: contain;
+}
+.media-image-button {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 118px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: zoom-in;
+  overflow: hidden;
+}
+.media-image-button:hover {
+  border-color: var(--blue);
+}
+.media-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.media-audio {
+  display: block;
+  width: 100%;
+}
+.media-tool.mob .media-image-button,
+.media-tool.mob .media-video {
+  height: 104px;
+}
+.media-tool.mob {
+  width: min(46vw, 164px);
+  margin: 7px 7px 7px 0;
+}
+
 .box {
   border: 1px solid var(--line);
   margin: 10px 0;

@@ -442,18 +442,22 @@ function blinkOnce(): void {
     <div class="col" :style="{ width: colWidth + 'px' }">
       <!-- Header: logo + settings (no hard border — flows into workspace list) -->
       <div class="ch">
-        <svg ref="logoRef" class="ch-logo" viewBox="0 0 32 22" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kimi Code" @click="blinkOnce">
-          <defs>
-            <mask id="kimiEyes" maskUnits="userSpaceOnUse">
-              <rect x="0" y="0" width="32" height="22" fill="#fff" />
-              <g class="ch-eyes" fill="#000">
-                <rect class="ch-eye" x="11.8" y="7" width="2.8" height="8" rx="1.4" />
-                <rect class="ch-eye" x="17.4" y="7" width="2.8" height="8" rx="1.4" />
-              </g>
-            </mask>
-          </defs>
-          <rect x="1" y="1" width="30" height="20" rx="6" fill="var(--logo)" mask="url(#kimiEyes)" />
-        </svg>
+        <div class="ch-brand">
+          <svg ref="logoRef" class="ch-logo" viewBox="0 0 32 22" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kimi Code" @click="blinkOnce">
+            <defs>
+              <mask id="kimiEyes" maskUnits="userSpaceOnUse">
+                <rect x="0" y="0" width="32" height="22" fill="#fff" />
+                <g class="ch-eyes" fill="#000">
+                  <rect class="ch-eye" x="11.8" y="7" width="2.8" height="8" rx="1.4" />
+                  <rect class="ch-eye" x="17.4" y="7" width="2.8" height="8" rx="1.4" />
+                </g>
+              </mask>
+            </defs>
+            <rect x="1" y="1" width="30" height="20" rx="6" fill="var(--logo)" mask="url(#kimiEyes)" />
+          </svg>
+          <span class="ch-name">Kimi Code Web</span>
+          <span class="ch-beta">beta</span>
+        </div>
         <button
           ref="triggerRef"
           type="button"
@@ -842,6 +846,16 @@ function blinkOnce(): void {
   display: block;
   cursor: pointer;
   user-select: none;
+  transition: transform 0.18s ease;
+}
+.ch-logo:hover {
+  transform: scale(1.08);
+}
+.ch-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .ch-name {
   font-size: 12.5px;
@@ -850,6 +864,19 @@ function blinkOnce(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ch-beta {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--blue2);
+  background: var(--soft);
+  border: 1px solid var(--line2, var(--line));
+  border-radius: 4px;
+  padding: 1px 5px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 .settings-btn {
   flex: none;

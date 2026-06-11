@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ConversationStatus, DiffViewLine, FilePreviewRequest, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, UIQuestion } from '../types';
+import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ConversationStatus, DiffViewLine, FilePreviewRequest, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, UIQuestion } from '../types';
 import type { AppModel, ApprovalDecision, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { FileData } from './FilePreview.vue';
@@ -80,6 +80,7 @@ const emit = defineEmits<{
   pickModel: [];
   selectModel: [modelId: string];
   openFile: [target: FilePreviewRequest];
+  openMedia: [media: ToolMedia];
   openThinking: [target: { turnId: string; blockIndex: number }];
 }>();
 
@@ -118,7 +119,7 @@ watch(
 const bubble = computed(() => props.mobile === true || props.modern === true);
 
 const runningTasks = computed(() => props.tasks.filter((t) => t.state === 'run').length);
-const changesCount = computed(() => props.changes?.length ?? 0);
+const changesCount = computed(() => (props.gitInfo ? props.changes?.length ?? 0 : 0));
 
 // The first pending question (if any)
 const pendingQuestion = computed<UIQuestion | undefined>(() =>
@@ -583,6 +584,7 @@ onUnmounted(() => {
             :compaction="compaction"
             @approval-decide="handleApprovalDecide"
             @open-file="emit('openFile', $event)"
+            @open-media="emit('openMedia', $event)"
             @open-thinking="emit('openThinking', $event)"
           />
         </template>

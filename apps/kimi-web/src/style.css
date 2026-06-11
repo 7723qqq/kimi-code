@@ -31,7 +31,8 @@
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 16px;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: var(--mono);
   color-scheme: light dark;
 }
 
@@ -395,7 +396,7 @@ html[data-theme="modern"] .send.aborting:hover {
   background: color-mix(in srgb, var(--err) 85%, #000);
 }
 html[data-theme="modern"] .toolbar {
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel), black 1.5%);
 }
 html[data-theme="modern"] .attach-btn {
   width: 26px;
@@ -495,22 +496,22 @@ html[data-theme="modern"] .box {
   background: var(--bg);
   border-radius: var(--r-md);
   box-shadow: var(--shc);
-  animation: kimi-card-in 0.26s ease-out both;
-  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  animation: kimi-card-in 0.18s ease-out both;
+  transition: box-shadow 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
 }
 html[data-theme="modern"] .box:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(20, 23, 28, 0.1);
+  box-shadow: 0 3px 8px rgba(20, 23, 28, 0.06);
 }
 html[data-theme="modern"] .box .bh { border-radius: var(--r-md); }
 html[data-theme="modern"] .box.open .bh { border-radius: var(--r-md) var(--r-md) 0 0; }
 html[data-theme="modern"] .box .ok,
 html[data-theme="modern"] .box .er {
   display: inline-block;
-  animation: kimi-check-in 0.2s ease-out both;
+  animation: kimi-check-in 0.15s ease-out both;
 }
 html[data-theme="modern"] .box.open .bb > div {
-  animation: kimi-line-in 0.2s ease-out both;
+  animation: kimi-line-in 0.14s ease-out both;
 }
 html[data-theme="modern"] .box.open .bb > div:nth-child(1) { animation-delay: 0ms; }
 html[data-theme="modern"] .box.open .bb > div:nth-child(2) { animation-delay: 30ms; }

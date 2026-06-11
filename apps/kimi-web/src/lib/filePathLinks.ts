@@ -9,6 +9,10 @@ export interface FilePathLinkMatch extends FilePathLink {
   text: string;
 }
 
+export interface FindFilePathLinksOptions {
+  aliases?: ReadonlyMap<string, string>;
+}
+
 const COMMON_FILE_EXTENSIONS = [
   'cjs',
   'css',
@@ -64,14 +68,33 @@ const PATH_RE = new RegExp(
     String.raw`[A-Za-z0-9_.@+()[\]-]+\.(?:${EXT_PATTERN})`,
     String.raw`)`,
     String.raw`(?:#L?(\d+)|:(\d+))?`,
-    String.raw`(?=$|[\s)\]},.;!?，。；！？）])`,
+    String.raw`(?=$|[\s)"'\]}>.,;!?，。；！？）])`,
   ].join(''),
   'gi',
 );
 
 const TRAILING_PUNCTUATION_RE = /[),.;!?，。；！？）]+$/;
 
-export function parseFilePathLinkCandidate(text: string): FilePathLink | null {
+export function collectFilePathAliases(text: string): Map<string, string> {
+  const aliases = new Map<string, string>();
+  const attrPathRe = new RegExp(
+    String.raw`\b(?:path|src)=["'](\/[^"']+\.(?:${EXT_PATTERN}))["']`,
+    'gi',
+  );
+  let match: RegExpExecArray | null;
+  while ((match = attrPathRe.exec(text)) !== null) {
+    const absolutePath = match[1];
+    if (!absolutePath) continue;
+    const basename = absolutePath.split('/').pop();
+    if (basename) aliases.set(basename, absolutePath);
+  }
+  return aliases;
+}
+
+export function parseFilePathLinkCandidate(
+  text: string,
+  options: FindFilePathLinksOptions = {},
+): FilePathLink | null {
   const trimmed = text.trim();
   if (!trimmed || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return null;
 
@@ -83,8 +106,11 @@ export function parseFilePathLinkCandidate(text: string): FilePathLink | null {
   const basename = path.split('/').pop() ?? path;
   const hasSeparator = path.includes('/');
   const hasKnownName = COMMON_FILENAMES.has(basename);
-  const hasKnownExtension = new RegExp(String.raw`\.(${EXT_PATTERN})$`, 'i').test(basename);
-  if (!hasSeparator && !hasKnownName && !hasKnownExtension) return null;
+  if (!hasSeparator && !hasKnownName) {
+    const alias = options.aliases?.get(basename);
+    if (!alias) return null;
+    path = alias;
+  }
 
   const lineRaw = match[2] ?? match[3];
   const line = lineRaw ? Number(lineRaw) : undefined;
@@ -94,7 +120,10 @@ export function parseFilePathLinkCandidate(text: string): FilePathLink | null {
   };
 }
 
-export function findFilePathLinks(text: string): FilePathLinkMatch[] {
+export function findFilePathLinks(
+  text: string,
+  options: FindFilePathLinksOptions = {},
+): FilePathLinkMatch[] {
   const out: FilePathLinkMatch[] = [];
   PATH_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -110,7 +139,7 @@ export function findFilePathLinks(text: string): FilePathLinkMatch[] {
     const trailing = linkText.length - stripped.length;
     linkText = stripped;
 
-    const parsed = parseFilePathLinkCandidate(linkText);
+    const parsed = parseFilePathLinkCandidate(linkText, options);
     if (!parsed) continue;
 
     const start = match.index + prefixLength;

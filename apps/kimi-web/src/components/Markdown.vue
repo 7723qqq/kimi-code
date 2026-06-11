@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { MarkdownRender } from 'markstream-vue';
 import { useIsDark } from '../composables/useIsDark';
 import type { FilePreviewRequest } from '../types';
-import { findFilePathLinks } from '../lib/filePathLinks';
+import { collectFilePathAliases, findFilePathLinks } from '../lib/filePathLinks';
 // px-based CSS build (our app is px, not rem). Imported here so the styles
 // load wherever Markdown is used; scoped overrides below re-skin it to
 // Terminal Pro. Importing the same file from multiple components is a no-op
@@ -35,6 +35,7 @@ const props = withDefaults(
 );
 
 const final = computed(() => !props.streaming);
+const filePathAliases = computed(() => collectFilePathAliases(props.text ?? ''));
 
 // Code blocks follow the app colour scheme (shiki re-renders on flip).
 const isDark = useIsDark();
@@ -143,7 +144,7 @@ function processFileLinks(): void {
   }
 
   for (const text of textNodes) {
-    const matches = findFilePathLinks(text.data);
+    const matches = findFilePathLinks(text.data, { aliases: filePathAliases.value });
     if (matches.length === 0 || !text.parentNode) continue;
     const frag = document.createDocumentFragment();
     let cursor = 0;
