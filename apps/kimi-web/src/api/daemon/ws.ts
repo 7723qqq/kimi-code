@@ -16,11 +16,20 @@ export interface DaemonEventSocketHandlers {
   /**
    * Called for raw agent-core frames (type does NOT start with "event." and
    * is not a control frame).  The full parsed frame object is passed so the
-   * caller can extract type / seq / session_id / timestamp / payload.
+   * caller can extract type / seq / session_id / timestamp / payload, plus
+   * the v2 envelope extras (volatile / offset).
    */
-  onRawAgentEvent?(frame: { type: string; seq: number; session_id: string; timestamp: string; payload: unknown }): void;
+  onRawAgentEvent?(frame: {
+    type: string;
+    seq: number;
+    session_id: string;
+    timestamp: string;
+    payload: unknown;
+    volatile?: boolean;
+    offset?: number;
+  }): void;
   /** Called when server says client is out of sync for a session */
-  onResync(sessionId: string, currentSeq: number): void;
+  onResync(sessionId: string, currentSeq: number, epoch?: string): void;
   /** Called when the WS connection opens or closes */
   onConnectionState(connected: boolean): void;
   /** Called on error frames or JSON parse failures */
@@ -31,9 +40,15 @@ export interface DaemonEventSocketHandlers {
 // DaemonEventSocket
 // ---------------------------------------------------------------------------
 
+/** v2 sync cursor: durable seq + journal epoch. */
+export interface SessionCursor {
+  seq: number;
+  epoch?: string;
+}
+
 interface PendingSubscription {
   sessionId: string;
-  lastSeq: number;
+  cursor: SessionCursor;
 }
 
 export class DaemonEventSocket {
@@ -41,8 +56,8 @@ export class DaemonEventSocket {
   private connected = false;
   private closed = false;
 
-  /** subscriptions we manage: sessionId → last known seq */
-  private readonly subscriptions = new Map<string, number>();
+  /** subscriptions we manage: sessionId → last known cursor {seq, epoch} */
+  private readonly subscriptions = new Map<string, SessionCursor>();
 
   /** subscriptions queued while not yet connected */
   private readonly pendingSubscriptions: PendingSubscription[] = [];
@@ -109,19 +124,19 @@ export class DaemonEventSocket {
   }
 
   /**
-   * Subscribe to events for a session.
+   * Subscribe to events for a session at a `{seq, epoch}` cursor.
    * If connected, sends immediately; otherwise queues until after server_hello.
    */
-  subscribe(sessionId: string, lastSeq = 0): void {
-    this.subscriptions.set(sessionId, lastSeq);
+  subscribe(sessionId: string, cursor: SessionCursor = { seq: 0 }): void {
+    this.subscriptions.set(sessionId, { ...cursor });
 
     if (this.connected) {
-      this.sendSubscribe([sessionId], { [sessionId]: lastSeq });
+      this.sendSubscribe([sessionId], { [sessionId]: cursor });
     } else {
       // Remove any earlier pending entry for this session, then enqueue
       const idx = this.pendingSubscriptions.findIndex((p) => p.sessionId === sessionId);
       if (idx !== -1) this.pendingSubscriptions.splice(idx, 1);
-      this.pendingSubscriptions.push({ sessionId, lastSeq });
+      this.pendingSubscriptions.push({ sessionId, cursor: { ...cursor } });
     }
   }
 
@@ -182,9 +197,15 @@ export class DaemonEventSocket {
         this.send({ type: 'pong', payload: { nonce: frame.payload.nonce } });
         break;
 
-      case 'resync_required':
-        this.handlers.onResync(frame.payload.session_id, frame.payload.current_seq);
+      case 'resync_required': {
+        const sid = frame.payload.session_id as string;
+        const epoch = frame.payload.epoch as string | undefined;
+        // Adopt the announced cursor so the next reconnect handshake doesn't
+        // re-trigger the same resync before the snapshot reload lands.
+        this.subscriptions.set(sid, { seq: frame.payload.current_seq, epoch });
+        this.handlers.onResync(sid, frame.payload.current_seq, epoch);
         break;
+      }
 
       case 'error': {
         // A session-scoped error (has top-level session_id) is a real agent-core
@@ -211,6 +232,12 @@ export class DaemonEventSocket {
         break;
 
       default: {
+        // Track the per-session cursor from durable event envelopes so the
+        // reconnect handshake resumes from the freshest watermark. Volatile
+        // frames carry the same watermark (never ahead), so skipping them is
+        // safe and avoids regressing the cursor.
+        this.trackCursor(frame as Record<string, unknown>);
+
         // Classify the frame into protocol vs agent-core. Robust to all three
         // shapes: raw agent-core, "event."-prefixed agent-core, and genuine
         // projected "event.*" protocol events. See classifyFrame() for rules.
@@ -237,12 +264,15 @@ export class DaemonEventSocket {
               timestamp: string;
               payload: unknown;
             };
+            const extras = frame as { volatile?: boolean; offset?: number };
             this.handlers.onRawAgentEvent({
               type: decision.agentType,
               seq: f.seq,
               session_id: f.session_id,
               timestamp: f.timestamp,
               payload: f.payload,
+              ...(extras.volatile !== undefined ? { volatile: extras.volatile } : {}),
+              ...(extras.offset !== undefined ? { offset: extras.offset } : {}),
             });
           }
           break;
@@ -263,15 +293,15 @@ export class DaemonEventSocket {
     const allSessionIds = Array.from(this.subscriptions.keys());
     // Drain pending: merge into subscriptions map (pending overrides if seq differs)
     for (const p of this.pendingSubscriptions) {
-      this.subscriptions.set(p.sessionId, p.lastSeq);
+      this.subscriptions.set(p.sessionId, p.cursor);
       if (!allSessionIds.includes(p.sessionId)) allSessionIds.push(p.sessionId);
     }
     this.pendingSubscriptions.length = 0;
 
-    // Build last_seq_by_session from subscriptions
-    const lastSeqBySession: Record<string, number> = {};
-    for (const [sid, seq] of this.subscriptions.entries()) {
-      lastSeqBySession[sid] = seq;
+    // Build cursors from subscriptions
+    const cursors: Record<string, SessionCursor> = {};
+    for (const [sid, cursor] of this.subscriptions.entries()) {
+      cursors[sid] = cursor;
     }
 
     this.send({
@@ -280,20 +310,37 @@ export class DaemonEventSocket {
       payload: {
         client_id: this.clientId,
         subscriptions: allSessionIds,
-        last_seq_by_session: lastSeqBySession,
+        cursors,
       },
     });
   }
 
-  private sendSubscribe(sessionIds: string[], lastSeqBySession: Record<string, number>): void {
+  private sendSubscribe(sessionIds: string[], cursors: Record<string, SessionCursor>): void {
     this.send({
       type: 'subscribe',
       id: this.nextId(),
       payload: {
         session_ids: sessionIds,
-        last_seq_by_session: lastSeqBySession,
+        cursors,
       },
     });
+  }
+
+  /**
+   * Advance the tracked cursor from a durable event envelope (seq + epoch).
+   * Volatile frames are skipped (their seq is the same watermark, and a
+   * volatile frame can never carry a NEWER seq than the last durable one).
+   */
+  private trackCursor(frame: Record<string, unknown>): void {
+    if (frame['volatile'] === true) return;
+    const sid = frame['session_id'];
+    const seq = frame['seq'];
+    if (typeof sid !== 'string' || typeof seq !== 'number') return;
+    const existing = this.subscriptions.get(sid);
+    if (!existing) return; // not a session we manage
+    if (seq <= existing.seq && existing.epoch !== undefined) return;
+    const epoch = typeof frame['epoch'] === 'string' ? (frame['epoch'] as string) : existing.epoch;
+    this.subscriptions.set(sid, { seq: Math.max(seq, existing.seq), epoch });
   }
 
   private send(msg: unknown): void {

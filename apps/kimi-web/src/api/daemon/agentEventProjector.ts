@@ -16,7 +16,7 @@
 //   const appEvents = projector.project(rawType, payload, sessionId);
 //   // call reset() when re-subscribing / resyncing a session
 
-import type { AppEvent, AppMessage, AppSessionUsage } from '../types';
+import type { AppEvent, AppInFlightTurn, AppMessage, AppSessionUsage } from '../types';
 import { i18n } from '../../i18n';
 
 // ---------------------------------------------------------------------------
@@ -60,6 +60,12 @@ interface SessionState {
   // Assistant message tracking
   currentAssistantMsgId: string | undefined;
 
+  // Per-turn accumulated stream lengths — aligned against the wire `offset`
+  // on volatile delta frames (v2 sync protocol) to skip duplicates and
+  // detect gaps after a snapshot seed.
+  turnTextLen: number;
+  turnThinkLen: number;
+
   // Tool timing
   toolStartTimes: Map<string, number>;
 
@@ -82,6 +88,8 @@ function createSessionState(): SessionState {
     turnPromptId: new Map(),
     currentPromptId: undefined,
     currentAssistantMsgId: undefined,
+    turnTextLen: 0,
+    turnThinkLen: 0,
     toolStartTimes: new Map(),
     totalInput: 0,
     totalOutput: 0,
@@ -213,14 +221,32 @@ function buildUsageSnapshot(state: SessionState): AppSessionUsage {
 // AgentProjector
 // ---------------------------------------------------------------------------
 
+export interface ProjectMeta {
+  /**
+   * Wire-level pre-append stream offset on volatile text-delta frames (v2
+   * sync protocol). Used to skip duplicate deltas and detect gaps after a
+   * snapshot seed.
+   */
+  offset?: number;
+}
+
 export interface AgentProjector {
   /** Project a single raw agent-core event into zero or more AppEvents. Never throws. */
-  project(rawType: string, payload: unknown, sessionId: string): AppEvent[];
+  project(rawType: string, payload: unknown, sessionId: string, meta?: ProjectMeta): AppEvent[];
   /**
    * Bind an externally-known promptId to the next turn.startd for this session.
    * Call this right after submitPrompt() returns, before the first turn.started arrives.
    */
   bindNextPromptId(sessionId: string, promptId: string): void;
+  /**
+   * Seed mid-turn state from a session snapshot's `in_flight_turn` (v2 sync):
+   * resets per-session state, builds the partially-streamed assistant message
+   * (thinking + text + running tool_use parts), and returns the AppEvents
+   * (sessionStatusChanged + messageCreated) to apply to the reducer. Live
+   * deltas continue appending; their wire `offset` aligns against the seeded
+   * text so the overlap window around snapshot/subscribe is exact.
+   */
+  seedInFlight(sessionId: string, turn: AppInFlightTurn): AppEvent[];
   /** Reset all per-session state (call on re-subscribe / resync). */
   reset(sessionId: string): void;
 }
@@ -246,9 +272,54 @@ export function createAgentProjector(): AgentProjector {
     s.currentPromptId = promptId;
   }
 
-  function project(rawType: string, payload: unknown, sessionId: string): AppEvent[] {
+  function seedInFlight(sessionId: string, turn: AppInFlightTurn): AppEvent[] {
+    reset(sessionId);
+    const s = getOrCreate(sessionId);
+
+    const promptId = ulid('pr_');
+    s.currentPromptId = promptId;
+    s.turnPromptId.set(turn.turnId, promptId);
+
+    const msg = startAssistantMessage(s, sessionId, promptId);
+    if (turn.thinkingText.length > 0) {
+      msg.content.push({ type: 'thinking', thinking: turn.thinkingText });
+    }
+    if (turn.assistantText.length > 0) {
+      msg.content.push({ type: 'text', text: turn.assistantText });
+    }
+    for (const tool of turn.runningTools) {
+      msg.content.push({
+        type: 'toolUse',
+        toolCallId: tool.toolCallId,
+        toolName: tool.name,
+        input: tool.args ?? {},
+      });
+      s.toolStartTimes.set(tool.toolCallId, Date.now());
+    }
+    s.currentAssistantMsgId = msg.id;
+    s.turnTextLen = turn.assistantText.length;
+    s.turnThinkLen = turn.thinkingText.length;
+
+    return [
+      {
+        type: 'sessionStatusChanged',
+        sessionId,
+        status: 'running',
+        previousStatus: 'idle',
+        currentPromptId: promptId,
+      },
+      { type: 'messageCreated', message: cloneMessage(msg) },
+    ];
+  }
+
+  function project(
+    rawType: string,
+    payload: unknown,
+    sessionId: string,
+    meta?: ProjectMeta,
+  ): AppEvent[] {
     try {
-      return _project(rawType, payload, sessionId);
+      return _project(rawType, payload, sessionId, meta);
     } catch (err) {
       // Defensive: log but never crash the caller
       console.error('[agentProjector] Error projecting event:', rawType, err instanceof Error ? err.message : err);
@@ -256,7 +327,25 @@ export function createAgentProjector(): AgentProjector {
     }
   }
 
-  function _project(rawType: string, payload: unknown, sessionId: string): AppEvent[] {
+  /**
+   * Align a live text-delta against the per-turn accumulated length using the
+   * wire `offset`. Returns 'skip' for duplicates (offset behind local state),
+   * 'gap' when deltas were missed (offset ahead — trigger a re-snapshot), and
+   * 'append' otherwise.
+   */
+  function alignDelta(localLen: number, offset: number | undefined): 'append' | 'skip' | 'gap' {
+    if (offset === undefined) return 'append';
+    if (offset < localLen) return 'skip';
+    if (offset > localLen) return 'gap';
+    return 'append';
+  }
+
+  function _project(
+    rawType: string,
+    payload: unknown,
+    sessionId: string,
+    meta?: ProjectMeta,
+  ): AppEvent[] {
     const s = getOrCreate(sessionId);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const p = payload as any;
@@ -285,6 +374,9 @@ export function createAgentProjector(): AgentProjector {
         if (turnId !== undefined) {
           s.turnPromptId.set(turnId, existingPromptId);
         }
+        // Fresh turn → fresh per-turn stream offsets.
+        s.turnTextLen = 0;
+        s.turnThinkLen = 0;
 
         out.push({
           type: 'sessionStatusChanged',
@@ -324,8 +416,16 @@ export function createAgentProjector(): AgentProjector {
         const delta: string = p?.delta ?? '';
         if (!delta) break;
 
+        const align = alignDelta(s.turnThinkLen, meta?.offset);
+        if (align === 'skip') break;
+        if (align === 'gap') {
+          out.push({ type: 'historyCompacted', sessionId, beforeSeq: 0, reason: 'delta_gap' });
+          break;
+        }
+
         const thinkIdx = appendAssistantDelta(s, msgId, 'thinking', delta);
         if (thinkIdx < 0) break;
+        s.turnThinkLen += delta.length;
         out.push({
           type: 'assistantDelta',
           sessionId,
@@ -343,8 +443,19 @@ export function createAgentProjector(): AgentProjector {
         const delta: string = p?.delta ?? '';
         if (!delta) break;
 
+        const align = alignDelta(s.turnTextLen, meta?.offset);
+        if (align === 'skip') break;
+        if (align === 'gap') {
+          // Deltas were missed in the snapshot↔subscribe window — the only
+          // exact recovery is a fresh snapshot. historyCompacted is routed to
+          // onResync by the client wrapper, which reloads via snapshot.
+          out.push({ type: 'historyCompacted', sessionId, beforeSeq: 0, reason: 'delta_gap' });
+          break;
+        }
+
         const textIdx = appendAssistantDelta(s, msgId, 'text', delta);
         if (textIdx < 0) break;
+        s.turnTextLen += delta.length;
         out.push({
           type: 'assistantDelta',
           sessionId,
@@ -675,7 +786,7 @@ export function createAgentProjector(): AgentProjector {
     return out;
   }
 
-  return { project, bindNextPromptId, reset };
+  return { project, bindNextPromptId, seedInFlight, reset };
 }
 
 // ---------------------------------------------------------------------------

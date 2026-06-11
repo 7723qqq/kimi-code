@@ -305,15 +305,54 @@ export type AppEvent =
 // WebSocket connection helpers
 // ---------------------------------------------------------------------------
 
+/** Per-session sync cursor (v2): durable seq + journal epoch. */
+export interface AppSessionCursor {
+  seq: number;
+  epoch?: string;
+}
+
+/** In-flight (mid-turn) state recovered from the session snapshot. */
+export interface AppInFlightToolCall {
+  toolCallId: string;
+  name: string;
+  args?: unknown;
+  description?: string;
+  lastProgress?: { kind: string; text?: string; percent?: number };
+}
+
+export interface AppInFlightTurn {
+  turnId: number;
+  assistantText: string;
+  thinkingText: string;
+  runningTools: AppInFlightToolCall[];
+}
+
+/**
+ * IM-style initial sync result: everything needed to rebuild a session's UI
+ * state, consistent at `asOfSeq`. The standard flow is
+ * `getSessionSnapshot()` → `subscribe(sessionId, {seq: asOfSeq, epoch})`.
+ */
+export interface AppSessionSnapshot {
+  asOfSeq: number;
+  epoch: string;
+  session: AppSession;
+  /** Most recent messages, chronological ascending. */
+  messages: AppMessage[];
+  hasMoreMessages: boolean;
+  inFlightTurn: AppInFlightTurn | null;
+  pendingApprovals: AppApprovalRequest[];
+  pendingQuestions: AppQuestionRequest[];
+}
+
 export interface KimiEventHandlers {
   onEvent(event: AppEvent, meta: { sessionId: string; seq: number }): void;
-  onResync(sessionId: string, currentSeq: number): void;
+  onResync(sessionId: string, currentSeq: number, epoch?: string): void;
   onError(code: number, msg: string, fatal: boolean): void;
   onConnectionChange(connected: boolean): void;
 }
 
 export interface KimiEventConnection {
-  subscribe(sessionId: string, lastSeq?: number): void;
+  subscribe(sessionId: string, cursor?: AppSessionCursor): void;
   unsubscribe(sessionId: string): void;
   /**
    * Bind the real daemon prompt_id to the next turn for a session, so the
@@ -321,6 +360,13 @@ export interface KimiEventConnection {
    * Call right after submitPrompt() returns.
    */
   bindNextPromptId(sessionId: string, promptId: string): void;
+  /**
+   * Seed the client-side projector with a snapshot's in-flight turn so a
+   * reconnecting client renders mid-turn state immediately; emits the
+   * corresponding AppEvents through `onEvent`. Resets per-session projector
+   * state first — call BEFORE subscribe(), with the snapshot's cursor.
+   */
+  seedSnapshot(sessionId: string, snapshot: AppSessionSnapshot): void;
   abort(sessionId: string, promptId: string): void;
   close(): void;
 }
@@ -375,6 +421,8 @@ export interface KimiWebApi {
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
   deleteSession(sessionId: string): Promise<{ deleted: true }>;
   listMessages(sessionId: string, input?: PageRequest & { role?: AppMessageRole }): Promise<Page<AppMessage>>;
+  /** v2 initial sync: atomic session state + `asOfSeq` watermark + epoch. */
+  getSessionSnapshot(sessionId: string): Promise<AppSessionSnapshot>;
   submitPrompt(sessionId: string, input: PromptSubmission): Promise<PromptSubmitResult>;
   abortPrompt(sessionId: string, promptId: string): Promise<{ aborted: boolean; atSeq?: number }>;
   compactSession(sessionId: string, instruction?: string): Promise<void>;

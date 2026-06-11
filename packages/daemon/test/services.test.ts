@@ -1,5 +1,10 @@
 
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -17,6 +22,7 @@ import {
   ILogService,
   IQuestionService,
   type FsWatcherServiceOptions,
+  type IEnvironmentService,
   type ILogService as ILoggerT,
   type ISessionService,
 } from '@moonshot-ai/services';
@@ -121,6 +127,15 @@ type TestFsWatcher = ReturnType<NonNullable<FsWatcherServiceOptions['watcherFact
 let ix: InstantiationService;
 let testLogger: TestLogger;
 
+const tmpHomeDirs: string[] = [];
+
+/** Throwaway `IEnvironmentService` whose homeDir is a fresh temp dir. */
+function tmpEnv(): IEnvironmentService {
+  const dir = mkdtempSync(join(tmpdir(), 'kimi-daemon-test-'));
+  tmpHomeDirs.push(dir);
+  return { _serviceBrand: undefined, homeDir: dir, configPath: join(dir, 'config.toml') };
+}
+
 beforeEach(() => {
   testLogger = new TestLogger();
   const collection = new ServiceCollection([ILogService, testLogger]);
@@ -129,10 +144,29 @@ beforeEach(() => {
 
 afterEach(() => {
   ix.dispose();
+  for (const dir of tmpHomeDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe('WSBroadcastService (WS transport pump)', () => {
-  it('publishes event with seq=1, broadcasts to subscribers, advances seq monotonically per session', () => {
+  let homeDir: string;
+
+  const makeEnv = (): IEnvironmentService => ({
+    _serviceBrand: undefined,
+    homeDir,
+    configPath: `${homeDir}/config.toml`,
+  });
+
+  beforeEach(async () => {
+    homeDir = await mkdtemp(join(tmpdir(), 'kimi-ws-broadcast-'));
+  });
+
+  afterEach(async () => {
+    await rm(homeDir, { recursive: true, force: true });
+  });
+
+  it('publishes event with seq=1, broadcasts to subscribers, advances seq monotonically per session', async () => {
     const clients = new FakeSessionClients();
     const c1 = fakeConn('conn_a');
     const c2 = fakeConn('conn_b');
@@ -140,24 +174,26 @@ describe('WSBroadcastService (WS transport pump)', () => {
     clients.subscribe(c2, 'sid_test');
 
     const bus = new EventService();
-    const broadcast = new WSBroadcastService(bus, testLogger, clients);
-    bus.publish({ type: 'fake.x', sessionId: 'sid_test' } as unknown as Event);
-    bus.publish({ type: 'fake.y', sessionId: 'sid_test' } as unknown as Event);
+    const broadcast = new WSBroadcastService(bus, testLogger, clients, makeEnv());
+    bus.publish({ type: 'fake.x', sessionId: 'sid_test', agentId: 'main' } as unknown as Event);
+    bus.publish({ type: 'fake.y', sessionId: 'sid_test', agentId: 'main' } as unknown as Event);
+    await broadcast._drainForTest('sid_test');
 
     expect(c1.sent.length).toBe(2);
     expect(c2.sent.length).toBe(2);
-    const env1 = c1.sent[0] as { seq: number; session_id: string; type: string };
+    const env1 = c1.sent[0] as { seq: number; session_id: string; type: string; epoch?: string };
     const env2 = c1.sent[1] as { seq: number; session_id: string; type: string };
     expect(env1.seq).toBe(1);
     expect(env1.session_id).toBe('sid_test');
     expect(env1.type).toBe('fake.x');
+    expect(env1.epoch).toMatch(/^ep_/);
     expect(env2.seq).toBe(2);
     expect(env2.type).toBe('fake.y');
     broadcast.dispose();
     bus.dispose();
   });
 
-  it('per-session seq counters are independent', () => {
+  it('per-session seq counters are independent', async () => {
     const clients = new FakeSessionClients();
     const cA = fakeConn('conn_a');
     const cB = fakeConn('conn_b');
@@ -165,10 +201,12 @@ describe('WSBroadcastService (WS transport pump)', () => {
     clients.subscribe(cB, 'sid_b');
 
     const bus = new EventService();
-    const broadcast = new WSBroadcastService(bus, testLogger, clients);
-    bus.publish({ type: 'e1', sessionId: 'sid_a' } as unknown as Event);
-    bus.publish({ type: 'e1', sessionId: 'sid_b' } as unknown as Event);
-    bus.publish({ type: 'e2', sessionId: 'sid_a' } as unknown as Event);
+    const broadcast = new WSBroadcastService(bus, testLogger, clients, makeEnv());
+    bus.publish({ type: 'e1', sessionId: 'sid_a', agentId: 'main' } as unknown as Event);
+    bus.publish({ type: 'e1', sessionId: 'sid_b', agentId: 'main' } as unknown as Event);
+    bus.publish({ type: 'e2', sessionId: 'sid_a', agentId: 'main' } as unknown as Event);
+    await broadcast._drainForTest('sid_a');
+    await broadcast._drainForTest('sid_b');
 
     const aSeqs = cA.sent.map((m) => (m as { seq: number }).seq);
     const bSeqs = cB.sent.map((m) => (m as { seq: number }).seq);
@@ -180,7 +218,7 @@ describe('WSBroadcastService (WS transport pump)', () => {
     bus.dispose();
   });
 
-  it('does not broadcast to connections subscribed to a different session', () => {
+  it('does not broadcast to connections subscribed to a different session', async () => {
     const clients = new FakeSessionClients();
     const onA = fakeConn('conn_a');
     const onOther = fakeConn('conn_other');
@@ -188,8 +226,9 @@ describe('WSBroadcastService (WS transport pump)', () => {
     clients.subscribe(onOther, 'sid_other');
 
     const bus = new EventService();
-    const broadcast = new WSBroadcastService(bus, testLogger, clients);
-    bus.publish({ type: 'evt', sessionId: 'sid_a' } as unknown as Event);
+    const broadcast = new WSBroadcastService(bus, testLogger, clients, makeEnv());
+    bus.publish({ type: 'evt', sessionId: 'sid_a', agentId: 'main' } as unknown as Event);
+    await broadcast._drainForTest('sid_a');
     expect(onA.sent.length).toBe(1);
     expect(onOther.sent.length).toBe(0);
     broadcast.dispose();
@@ -203,7 +242,7 @@ describe('WSBroadcastService (WS transport pump)', () => {
     const warnSpy = vi.spyOn(testLogger, 'warn');
 
     const bus = new EventService();
-    const broadcast = new WSBroadcastService(bus, testLogger, clients);
+    const broadcast = new WSBroadcastService(bus, testLogger, clients, makeEnv());
     bus.publish({ type: 'no_sid' } as unknown as Event);
 
     expect(c.sent.length).toBe(0);
@@ -212,42 +251,165 @@ describe('WSBroadcastService (WS transport pump)', () => {
     bus.dispose();
   });
 
-  it('post-dispose, publish reaches no subscribers (broadcast unsubscribed)', () => {
+  it('post-dispose, publish reaches no subscribers (broadcast unsubscribed)', async () => {
     const clients = new FakeSessionClients();
     const c = fakeConn();
     clients.subscribe(c, 'sid_x');
     const bus = new EventService();
-    const broadcast = new WSBroadcastService(bus, testLogger, clients);
+    const broadcast = new WSBroadcastService(bus, testLogger, clients, makeEnv());
     broadcast.dispose();
-    bus.publish({ type: 'late', sessionId: 'sid_x' } as unknown as Event);
+    bus.publish({ type: 'late', sessionId: 'sid_x', agentId: 'main' } as unknown as Event);
+    await new Promise((r) => setTimeout(r, 10));
     expect(c.sent.length).toBe(0);
     bus.dispose();
   });
 
-  it('getBufferedSince returns events with seq > lastSeq when buffer covers the gap', () => {
+  it('getBufferedSince returns events with seq > cursor.seq when the gap is serveable', async () => {
     const clients = new FakeSessionClients();
     const c = fakeConn();
     clients.subscribe(c, 'sid_test');
     const bus = new EventService();
-    const broadcast = new WSBroadcastService(bus, testLogger, clients);
+    const broadcast = new WSBroadcastService(bus, testLogger, clients, makeEnv());
     for (let i = 0; i < 5; i++) {
-      bus.publish({ type: `e${i}`, sessionId: 'sid_test' } as unknown as Event);
+      bus.publish({ type: `e${i}`, sessionId: 'sid_test', agentId: 'main' } as unknown as Event);
     }
-    const replay = broadcast.getBufferedSince('sid_test', 2);
+    const replay = await broadcast.getBufferedSince('sid_test', { seq: 2 });
     expect(replay.resyncRequired).toBe(false);
     expect(replay.events.map((e) => e.seq)).toEqual([3, 4, 5]);
     expect(replay.currentSeq).toBe(5);
+    expect(replay.epoch).toMatch(/^ep_/);
     broadcast.dispose();
     bus.dispose();
   });
 
-  it('getBufferedSince returns empty + currentSeq=0 for a never-seen session', () => {
+  it('getBufferedSince forces a resync for a cursor ahead of the journal (stale v1 cursor)', async () => {
     const bus = new EventService();
-    const broadcast = new WSBroadcastService(bus, testLogger, new FakeSessionClients());
-    const replay = broadcast.getBufferedSince('sid_new', 5);
+    const broadcast = new WSBroadcastService(bus, testLogger, new FakeSessionClients(), makeEnv());
+    const replay = await broadcast.getBufferedSince('sid_new', { seq: 5 });
     expect(replay.events).toEqual([]);
-    expect(replay.resyncRequired).toBe(false);
+    expect(replay.resyncRequired).toBe('epoch_changed');
     expect(replay.currentSeq).toBe(0);
+    broadcast.dispose();
+    bus.dispose();
+  });
+
+  it('getBufferedSince forces a resync on epoch mismatch', async () => {
+    const bus = new EventService();
+    const broadcast = new WSBroadcastService(bus, testLogger, new FakeSessionClients(), makeEnv());
+    bus.publish({ type: 'e', sessionId: 'sid_e', agentId: 'main' } as unknown as Event);
+    await broadcast._drainForTest('sid_e');
+    const replay = await broadcast.getBufferedSince('sid_e', { seq: 0, epoch: 'ep_other' });
+    expect(replay.resyncRequired).toBe('epoch_changed');
+    broadcast.dispose();
+    bus.dispose();
+  });
+
+  it('seq and epoch survive a daemon restart (journal recovery) and serve replay from disk', async () => {
+    const bus1 = new EventService();
+    const b1 = new WSBroadcastService(bus1, testLogger, new FakeSessionClients(), makeEnv());
+    for (let i = 0; i < 3; i++) {
+      bus1.publish({ type: `e${i}`, sessionId: 'sid_p', agentId: 'main' } as unknown as Event);
+    }
+    const before = await b1.getCursor('sid_p');
+    expect(before.seq).toBe(3);
+    b1.dispose();
+    bus1.dispose();
+    // Let the write-behind flush settle.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const bus2 = new EventService();
+    const b2 = new WSBroadcastService(bus2, testLogger, new FakeSessionClients(), makeEnv());
+    const after = await b2.getCursor('sid_p');
+    expect(after.seq).toBe(3);
+    expect(after.epoch).toBe(before.epoch);
+
+    // Replay across the restart comes from the on-disk journal.
+    const replay = await b2.getBufferedSince('sid_p', { seq: 1, epoch: before.epoch });
+    expect(replay.resyncRequired).toBe(false);
+    expect(replay.events.map((e) => e.seq)).toEqual([2, 3]);
+
+    // New events continue the persisted seq.
+    bus2.publish({ type: 'e3', sessionId: 'sid_p', agentId: 'main' } as unknown as Event);
+    await b2._drainForTest('sid_p');
+    expect(b2._currentSeqForTest('sid_p')).toBe(4);
+    b2.dispose();
+    bus2.dispose();
+  });
+
+  it('volatile events ride the watermark, are flagged, and are not journaled or replayed', async () => {
+    const clients = new FakeSessionClients();
+    const c = fakeConn();
+    clients.subscribe(c, 'sid_v');
+    const bus = new EventService();
+    const broadcast = new WSBroadcastService(bus, testLogger, clients, makeEnv());
+
+    bus.publish({
+      type: 'turn.started',
+      sessionId: 'sid_v',
+      agentId: 'main',
+      turnId: 1,
+      origin: { kind: 'user' },
+    } as unknown as Event);
+    bus.publish({
+      type: 'assistant.delta',
+      sessionId: 'sid_v',
+      agentId: 'main',
+      turnId: 1,
+      delta: 'hel',
+    } as unknown as Event);
+    bus.publish({
+      type: 'assistant.delta',
+      sessionId: 'sid_v',
+      agentId: 'main',
+      turnId: 1,
+      delta: 'lo',
+    } as unknown as Event);
+    await broadcast._drainForTest('sid_v');
+
+    expect(c.sent.length).toBe(3);
+    const turnStarted = c.sent[0] as { seq: number; volatile?: boolean };
+    const delta1 = c.sent[1] as { seq: number; volatile?: boolean; offset?: number };
+    const delta2 = c.sent[2] as { seq: number; volatile?: boolean; offset?: number };
+    expect(turnStarted.seq).toBe(1);
+    expect(turnStarted.volatile).toBeUndefined();
+    expect(delta1.volatile).toBe(true);
+    expect(delta1.seq).toBe(1); // watermark, not advanced
+    expect(delta1.offset).toBe(0);
+    expect(delta2.offset).toBe(3);
+
+    // Replay from 0 returns only the durable event.
+    const replay = await broadcast.getBufferedSince('sid_v', { seq: 0 });
+    expect(replay.events.map((e) => e.seq)).toEqual([1]);
+    expect(replay.currentSeq).toBe(1);
+
+    // The in-flight turn snapshot has the accumulated text.
+    const snap = await broadcast.getSnapshotState('sid_v');
+    expect(snap.seq).toBe(1);
+    expect(snap.inFlightTurn?.assistant_text).toBe('hello');
+    broadcast.dispose();
+    bus.dispose();
+  });
+
+  it('getSnapshotState clears the in-flight turn after turn.ended', async () => {
+    const bus = new EventService();
+    const broadcast = new WSBroadcastService(bus, testLogger, new FakeSessionClients(), makeEnv());
+    bus.publish({
+      type: 'turn.started',
+      sessionId: 'sid_t',
+      agentId: 'main',
+      turnId: 1,
+      origin: { kind: 'user' },
+    } as unknown as Event);
+    bus.publish({
+      type: 'turn.ended',
+      sessionId: 'sid_t',
+      agentId: 'main',
+      turnId: 1,
+      reason: 'completed',
+    } as unknown as Event);
+    const snap = await broadcast.getSnapshotState('sid_t');
+    expect(snap.inFlightTurn).toBeNull();
+    expect(snap.seq).toBe(2);
     broadcast.dispose();
     bus.dispose();
   });
@@ -328,7 +490,7 @@ describe('ApprovalService (broadcasts + resolve-by-approval_id)', () => {
     const conn = fakeConn('conn_subscriber');
     clients.subscribe(conn, 'sess_1');
     const bus = new EventService();
-    const broadcast = new WSBroadcastService(bus, testLogger, clients);
+    const broadcast = new WSBroadcastService(bus, testLogger, clients, tmpEnv());
     const broker = new ApprovalService(testLogger, bus);
     return { broker, bus, broadcast, clients, conn };
   }
@@ -353,6 +515,7 @@ describe('ApprovalService (broadcasts + resolve-by-approval_id)', () => {
       action: 'Run',
       display: { kind: 'generic', summary: 'test' },
     } as Parameters<typeof broker.request>[0]);
+    await broadcast._drainForTest('sess_1');
 
     const approvalId = extractApprovalId(conn.sent);
     expect(approvalId).toBeDefined();
@@ -361,6 +524,7 @@ describe('ApprovalService (broadcasts + resolve-by-approval_id)', () => {
     const response: ApprovalResponse = { decision: 'approved' };
     broker.resolve(approvalId!, response);
     await expect(pending).resolves.toEqual(response);
+    await broadcast._drainForTest('sess_1');
 
     const resolvedFrame = conn.sent.find(
       (f) => (f as { type: string }).type === 'event.approval.resolved',
@@ -389,6 +553,7 @@ describe('ApprovalService (broadcasts + resolve-by-approval_id)', () => {
     await expect(pending).rejects.toMatchObject({
       name: 'ApprovalExpiredError',
     });
+    await broadcast._drainForTest('sess_1');
     const expiredFrame = conn.sent.find(
       (f) => (f as { type: string }).type === 'event.approval.expired',
     );
@@ -446,7 +611,7 @@ describe('QuestionService (broadcasts + dismiss)', () => {
     const conn = fakeConn('conn_q_subscriber');
     clients.subscribe(conn, 's');
     const bus = new EventService();
-    const broadcast = new WSBroadcastService(bus, testLogger, clients);
+    const broadcast = new WSBroadcastService(bus, testLogger, clients, tmpEnv());
     const broker = new QuestionService(testLogger, bus);
     return { broker, bus, broadcast, clients, conn };
   }
@@ -474,6 +639,7 @@ describe('QuestionService (broadcasts + dismiss)', () => {
         },
       ],
     } as Parameters<typeof broker.request>[0]);
+    await broadcast._drainForTest('s');
 
     const questionId = extractQuestionId(conn.sent);
     expect(questionId).toBeDefined();
@@ -482,6 +648,7 @@ describe('QuestionService (broadcasts + dismiss)', () => {
     const response: QuestionResult = { answers: { q_0: 'opt_0_0' } };
     broker.resolve(questionId!, response);
     await expect(pending).resolves.toEqual(response);
+    await broadcast._drainForTest('s');
 
     const answeredFrame = conn.sent.find(
       (f) => (f as { type: string }).type === 'event.question.answered',
@@ -505,12 +672,14 @@ describe('QuestionService (broadcasts + dismiss)', () => {
         },
       ],
     } as Parameters<typeof broker.request>[0]);
+    await broadcast._drainForTest('s');
 
     const questionId = extractQuestionId(conn.sent);
     expect(questionId).toBeDefined();
 
     broker.dismiss(questionId!);
     await expect(pending).resolves.toBeNull();
+    await broadcast._drainForTest('s');
 
     const dismissedFrame = conn.sent.find(
       (f) => (f as { type: string }).type === 'event.question.dismissed',
@@ -536,6 +705,7 @@ describe('QuestionService (broadcasts + dismiss)', () => {
     } as Parameters<typeof broker.request>[0]);
 
     await expect(pending).rejects.toMatchObject({ name: 'QuestionExpiredError' });
+    await broadcast._drainForTest('s');
     const expiredFrame = conn.sent.find(
       (f) => (f as { type: string }).type === 'event.question.expired',
     );

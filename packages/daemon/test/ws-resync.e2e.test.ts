@@ -1,27 +1,26 @@
 /**
- * WS ring buffer + resync_required e2e (W5.3 / P0.17).
+ * WS durable journal + resync_required e2e (v2 sync protocol).
  *
- * Three flows per WS.md §6:
+ * Flows:
  *
  *   1. **Replay**: publish N events; client A disconnects; publish M more;
- *      A reconnects with `client_hello.last_seq_by_session[sid]=N`; assert
- *      A receives exactly events N+1..N+M in order.
+ *      A reconnects with `client_hello.cursors[sid] = {seq: N}`; assert A
+ *      receives exactly events N+1..N+M in order.
  *
- *   2. **Resync**: force the buffer to overflow (publish >1000 events).
- *      Client B connects with a stale `last_seq` (older than `oldestSeq`).
- *      Assert B receives a `resync_required` frame for that session, NOT
- *      events.
+ *   2. **Resync**: publish more than the replay cap (1000). Client B
+ *      connects with a cursor whose gap exceeds the cap. Assert B receives
+ *      `resync_required(buffer_overflow)`, NOT events.
  *
- *   3. **No-op**: client C connects with `last_seq == current_seq`. Assert
- *      no replay events arrive on the first frames (only the normal ack +
- *      empty `resync_required`).
+ *   3. **No-op**: client C connects with `cursor.seq == current_seq`. Assert
+ *      no replay events arrive (only the ack with empty `resync_required`).
  *
- * `maxBufferSize` is the default 1000 baked into `WSBroadcastService`. The
- * resync flow publishes 1005 events to trigger eviction; the buffer keeps
- * the last 1000. Publishes go through `IEventService.publish(...)`; ring
- * buffer state and replay queries are read off the daemon-local
- * `IWSBroadcastService` (cast to the concrete class for `_*ForTest`
- * helpers).
+ *   4. **Replay-cap boundaries**: a gap of exactly 1000 is served; 1001 is
+ *      a resync. Memory-tail eviction no longer forces resyncs — the gap is
+ *      served from the on-disk journal when it reaches behind the tail.
+ *
+ * Publishes go through `IEventService.publish(...)`; dispatch is async
+ * (per-session queue), so tests drain via `_drainForTest` before asserting
+ * watermark state.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -91,6 +90,8 @@ interface WsFrame {
   id?: string;
   code?: number;
   seq?: number;
+  epoch?: string;
+  volatile?: boolean;
   session_id?: string;
   [k: string]: unknown;
 }
@@ -163,8 +164,8 @@ async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
   throw new Error(`waitFor: condition not satisfied within ${timeoutMs}ms`);
 }
 
-describe('WS ring buffer + resync_required (W5.3)', () => {
-  it('reconnect with last_seq replays buffered events in order', async () => {
+describe('WS durable journal + resync_required (v2)', () => {
+  it('reconnect with a cursor replays buffered events in order', async () => {
     const r = await spawn();
 
     // Client A: connect, subscribe to sid_test, capture seq up to 5.
@@ -192,6 +193,7 @@ describe('WS ring buffer + resync_required (W5.3)', () => {
     for (let i = 1; i <= 5; i++) {
       const ev = await receiveType(a1, `evt.${i}`, 1000);
       expect(ev.seq).toBe(i);
+      expect(ev.epoch).toMatch(/^ep_/);
     }
 
     // Disconnect A1.
@@ -207,7 +209,7 @@ describe('WS ring buffer + resync_required (W5.3)', () => {
       bus.publish({ type: `evt.${i}`, sessionId: 'sid_test' } as unknown as Event);
     }
 
-    // Reconnect with last_seq=5 — should replay 6, 7, 8 in order.
+    // Reconnect with cursor seq=5 — should replay 6, 7, 8 in order.
     const a2 = await openConn(wsUrl(r.address));
     await receiveType(a2, 'server_hello', 1000);
     a2.ws.send(
@@ -217,7 +219,7 @@ describe('WS ring buffer + resync_required (W5.3)', () => {
         payload: {
           client_id: 'A',
           subscriptions: ['sid_test'],
-          last_seq_by_session: { sid_test: 5 },
+          cursors: { sid_test: { seq: 5 } },
         },
       }),
     );
@@ -231,17 +233,22 @@ describe('WS ring buffer + resync_required (W5.3)', () => {
 
     const ack = await receiveType(a2, 'ack', 1000);
     expect(ack.code).toBe(0);
-    const ackPayload = ack.payload as { resync_required: string[] };
+    const ackPayload = ack.payload as {
+      resync_required: string[];
+      cursors?: Record<string, { seq: number; epoch?: string }>;
+    };
     expect(ackPayload.resync_required).toEqual([]);
+    expect(ackPayload.cursors?.['sid_test']?.seq).toBe(8);
+    expect(ackPayload.cursors?.['sid_test']?.epoch).toMatch(/^ep_/);
 
     a2.ws.close();
   });
 
-  it('client connects with last_seq beyond ring-buffer retention → resync_required', async () => {
+  it('client connects with a gap beyond the replay cap → resync_required(buffer_overflow)', async () => {
     const r = await spawn();
 
-    // Force the buffer to overflow. With the spec-faithful 1000-cap, we
-    // publish 1005 events. After that, oldestSeq is 6 (events 1..5 evicted).
+    // Publish past the replay cap. With the 1000-event cap, a client at
+    // seq=3 faces a 1002-event gap — snapshot rebuild is cheaper.
     const bus = r.services.invokeFunction((acc) => acc.get(IEventService));
     const broadcast = r.services.invokeFunction(
       (acc) => acc.get(IWSBroadcastService),
@@ -249,11 +256,10 @@ describe('WS ring buffer + resync_required (W5.3)', () => {
     for (let i = 1; i <= 1005; i++) {
       bus.publish({ type: 'evt', sessionId: 'sid_test' } as unknown as Event);
     }
+    await broadcast._drainForTest('sid_test');
     expect(broadcast._currentSeqForTest('sid_test')).toBe(1005);
     expect(broadcast._bufferLengthForTest('sid_test')).toBe(1000);
-    expect(broadcast._oldestSeqForTest('sid_test')).toBe(6);
 
-    // Client connects with last_seq=3 — gap is too big (events 4, 5 are gone).
     const conn = await openConn(wsUrl(r.address));
     await receiveType(conn, 'server_hello', 1000);
     conn.ws.send(
@@ -263,7 +269,7 @@ describe('WS ring buffer + resync_required (W5.3)', () => {
         payload: {
           client_id: 'C',
           subscriptions: ['sid_test'],
-          last_seq_by_session: { sid_test: 3 },
+          cursors: { sid_test: { seq: 3 } },
         },
       }),
     );
@@ -273,10 +279,12 @@ describe('WS ring buffer + resync_required (W5.3)', () => {
       session_id: string;
       reason: string;
       current_seq: number;
+      epoch?: string;
     };
     expect(resyncPayload.session_id).toBe('sid_test');
     expect(resyncPayload.reason).toBe('buffer_overflow');
     expect(resyncPayload.current_seq).toBe(1005);
+    expect(resyncPayload.epoch).toMatch(/^ep_/);
 
     const ack = await receiveType(conn, 'ack', 1000);
     const ackPayload = ack.payload as { resync_required: string[] };
@@ -285,12 +293,47 @@ describe('WS ring buffer + resync_required (W5.3)', () => {
     conn.ws.close();
   });
 
-  it('caught-up client (last_seq == current_seq) gets no replay, just empty ack', async () => {
+  it('cursor from a different epoch → resync_required(epoch_changed)', async () => {
     const r = await spawn();
     const bus = r.services.invokeFunction((acc) => acc.get(IEventService));
+    const broadcast = r.services.invokeFunction(
+      (acc) => acc.get(IWSBroadcastService),
+    ) as WSBroadcastService;
+    bus.publish({ type: 'evt.a', sessionId: 'sid_epoch' } as unknown as Event);
+    await broadcast._drainForTest('sid_epoch');
+
+    const conn = await openConn(wsUrl(r.address));
+    await receiveType(conn, 'server_hello', 1000);
+    conn.ws.send(
+      JSON.stringify({
+        type: 'client_hello',
+        id: 'cli_epoch',
+        payload: {
+          client_id: 'E',
+          subscriptions: ['sid_epoch'],
+          cursors: { sid_epoch: { seq: 1, epoch: 'ep_FROM_ANOTHER_LIFE' } },
+        },
+      }),
+    );
+
+    const resync = await receiveType(conn, 'resync_required', 1000);
+    const resyncPayload = resync.payload as { reason: string; current_seq: number };
+    expect(resyncPayload.reason).toBe('epoch_changed');
+    expect(resyncPayload.current_seq).toBe(1);
+
+    conn.ws.close();
+  });
+
+  it('caught-up client (cursor.seq == current_seq) gets no replay, just empty ack', async () => {
+    const r = await spawn();
+    const bus = r.services.invokeFunction((acc) => acc.get(IEventService));
+    const broadcast = r.services.invokeFunction(
+      (acc) => acc.get(IWSBroadcastService),
+    ) as WSBroadcastService;
     bus.publish({ type: 'evt.a', sessionId: 'sid_test' } as unknown as Event);
     bus.publish({ type: 'evt.b', sessionId: 'sid_test' } as unknown as Event);
     bus.publish({ type: 'evt.c', sessionId: 'sid_test' } as unknown as Event);
+    await broadcast._drainForTest('sid_test');
 
     const conn = await openConn(wsUrl(r.address));
     await receiveType(conn, 'server_hello', 1000);
@@ -301,7 +344,7 @@ describe('WS ring buffer + resync_required (W5.3)', () => {
         payload: {
           client_id: 'D',
           subscriptions: ['sid_test'],
-          last_seq_by_session: { sid_test: 3 }, // == current_seq
+          cursors: { sid_test: { seq: 3 } }, // == current_seq
         },
       }),
     );
@@ -323,30 +366,29 @@ describe('WS ring buffer + resync_required (W5.3)', () => {
     conn.ws.close();
   });
 
-  it('ring buffer evicts oldest event when capacity is exceeded', async () => {
+  it('replay-cap boundaries: gap of exactly 1000 served, 1001 resyncs', async () => {
     const r = await spawn();
     const bus = r.services.invokeFunction((acc) => acc.get(IEventService));
     const broadcast = r.services.invokeFunction(
       (acc) => acc.get(IWSBroadcastService),
     ) as WSBroadcastService;
-    // Publish 1002 — buffer should retain seq 3..1002, oldestSeq=3.
     for (let i = 1; i <= 1002; i++) {
       bus.publish({ type: 'evt', sessionId: 'sid_evict' } as unknown as Event);
     }
+    await broadcast._drainForTest('sid_evict');
     expect(broadcast._currentSeqForTest('sid_evict')).toBe(1002);
     expect(broadcast._bufferLengthForTest('sid_evict')).toBe(1000);
-    expect(broadcast._oldestSeqForTest('sid_evict')).toBe(3);
 
-    // getBufferedSince(sid, 2) → resyncRequired (lastSeq+1=3, oldestSeq=3 → NOT resync;
-    // lastSeq+1=3 == oldestSeq=3 → NOT resync). Verify boundary.
-    const replay = broadcast.getBufferedSince('sid_evict', 2);
+    // Gap of exactly 1000 (cursor.seq=2) → served; first event past the
+    // memory tail (seq 3..1002 retained) is still seq 3.
+    const replay = await broadcast.getBufferedSince('sid_evict', { seq: 2 });
     expect(replay.resyncRequired).toBe(false);
     expect(replay.events[0]?.seq).toBe(3);
     expect(replay.events.length).toBe(1000);
 
-    // lastSeq=1 → lastSeq+1=2 < oldestSeq=3 → resync.
-    const replay2 = broadcast.getBufferedSince('sid_evict', 1);
-    expect(replay2.resyncRequired).toBe(true);
+    // Gap of 1001 (cursor.seq=1) → buffer_overflow resync.
+    const replay2 = await broadcast.getBufferedSince('sid_evict', { seq: 1 });
+    expect(replay2.resyncRequired).toBe('buffer_overflow');
     expect(replay2.events.length).toBe(0);
   });
 });

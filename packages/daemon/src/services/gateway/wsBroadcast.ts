@@ -1,33 +1,31 @@
 /**
  * `IWSBroadcastService` — daemon-local transport layer that turns the
  * in-process `IEventService.onDidPublish` firehose into a WS broadcast +
- * per-session ring buffer + replay surface.
+ * durable per-session event journal + replay surface.
  *
- * Responsibilities (all daemon transport concerns; intentionally NOT on the
- * `@moonshot-ai/services` cross-package `IEventService` contract):
+ * v2 (IM-style multi-device sync) responsibilities:
  *
  *   1. Extract `sessionId` from each published event (defensive: accepts
  *      both camelCase `sessionId` and snake_case `session_id`). Events
  *      without a session id are dropped with a warn log.
- *   2. Maintain per-session monotonic `seq` (starts at 1).
- *   3. Maintain per-session ring buffer (capped at `maxBufferSize`,
- *      tracking `oldestSeq` for replay/resync decisions).
- *   4. Build the WS `EventEnvelope<Event>` (snake_case wire shape with
- *      `seq`, `session_id`, `timestamp`, `payload`).
- *   5. Fan out the envelope to every `WsConnection` subscribed to the
- *      session (via `ISessionClientsService.getConnections`).
- *   6. Expose replay queries (`getBufferedSince` / `currentSeq`) for the
- *      `client_hello.last_seq_by_session` and WS abort `at_seq` paths.
+ *   2. Classify events as durable vs volatile (`VOLATILE_EVENT_TYPES`).
+ *   3. Durable events: assign the next per-session `seq` (journal offset,
+ *      monotonic ACROSS DAEMON RESTARTS), persist to the session's
+ *      `SessionEventJournal`, cache in an in-memory tail buffer, fan out.
+ *   4. Volatile events: fan out live with the current durable watermark as
+ *      `seq` and `volatile: true`. Never journaled, never replayed.
+ *   5. Expose replay (`getBufferedSince`) keyed by `{seq, epoch}` cursors:
+ *      epoch mismatch or a cursor ahead of the journal → `epoch_changed`
+ *      resync; a gap larger than the replay cap → `buffer_overflow` resync
+ *      (the client should rebuild via `GET /sessions/{sid}/snapshot`);
+ *      otherwise events come from the memory tail or the journal file.
+ *   6. Expose `getCursor` so the snapshot route / subscribe acks can hand
+ *      clients an authoritative `{seq, epoch}` watermark.
  *
  * Wiring: the impl auto-subscribes to `IEventService.onDidPublish` in its
  * constructor — producers continue to call `eventService.publish(event)`
  * unchanged; the broadcast layer transparently lifts those events onto the
  * wire.
- *
- * Decorator name `'wsBroadcastService'` surfaces in
- * `CyclicDependencyError.path` and `'No service registered for identifier
- * ...'` diagnostics. Replaces the prior `'eventReplayService'` (which was
- * an alias for the same singleton under a narrower surface).
  *
  * Dispose order: this service MUST dispose BEFORE `IEventService` so the
  * `onDidPublish` subscription is detached before the bus tears down its
@@ -35,38 +33,61 @@
  */
 
 import { createDecorator } from '@moonshot-ai/agent-core';
+import type { InFlightTurn, SessionCursor } from '@moonshot-ai/protocol';
 
 import type { EventEnvelope } from '#/ws/protocol';
+
+export type ResyncReason = 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
+
+export interface SessionSnapshotState {
+  seq: number;
+  epoch: string;
+  inFlightTurn: InFlightTurn | null;
+}
 
 export interface BufferedSinceResult {
   events: Array<{ seq: number; envelope: EventEnvelope }>;
   /**
-   * True iff `lastSeq + 1 < oldestSeq` (the client's gap is older than what
-   * the buffer retains). The connection should send a `resync_required`
-   * frame for this session and NOT replay events.
+   * Set when the cursor cannot be served incrementally — the client must
+   * rebuild from the session snapshot and re-subscribe at the returned
+   * `{currentSeq, epoch}`.
    */
-  resyncRequired: boolean;
-  /** Highest dispatched `seq` for the session (0 if no events yet). */
+  resyncRequired: ResyncReason | false;
+  /** Highest durable `seq` for the session (0 if no events yet). */
   currentSeq: number;
+  /** Current journal epoch for the session. */
+  epoch: string;
 }
 
 export interface IWSBroadcastService {
   readonly _serviceBrand: undefined;
 
   /**
-   * Fetch buffered events with `seq > lastSeq` for `sessionId`.
+   * Fetch durable events with `seq > cursor.seq` for `sessionId`.
    *
-   * Result interpretation (per WS.md §6):
-   *   - `currentSeq == 0`           → session has no events yet; empty replay.
-   *   - `lastSeq >= currentSeq`     → client is caught up.
-   *   - `lastSeq + 1 < oldestSeq`   → buffer evicted past client; resyncRequired.
-   *   - otherwise                   → events with `seq > lastSeq`, in order.
+   * Result interpretation:
+   *   - `cursor.epoch` set but ≠ journal epoch     → resync `epoch_changed`.
+   *   - `cursor.seq > currentSeq` (client ahead)   → resync `epoch_changed`
+   *     (stale/foreign cursor — e.g. a v1 cursor from before journaling).
+   *   - `currentSeq - cursor.seq > replay cap`     → resync `buffer_overflow`.
+   *   - otherwise → durable events with `seq > cursor.seq`, in order, from
+   *     the memory tail or the on-disk journal.
    */
-  getBufferedSince(sessionId: string, lastSeq: number): BufferedSinceResult;
+  getBufferedSince(sessionId: string, cursor: SessionCursor): Promise<BufferedSinceResult>;
+
+  /** Authoritative `{seq, epoch}` watermark for the session. */
+  getCursor(sessionId: string): Promise<{ seq: number; epoch: string }>;
 
   /**
-   * Highest dispatched `seq` for the session (0 if never published).
-   * Used by the WS abort ack to populate `at_seq` on idempotent calls.
+   * Watermark + accumulated in-flight turn state, read atomically with
+   * respect to the per-session dispatch queue. Backs
+   * `GET /sessions/{sid}/snapshot`.
+   */
+  getSnapshotState(sessionId: string): Promise<SessionSnapshotState>;
+
+  /**
+   * Best-effort sync watermark (0 if the session's journal has not been
+   * touched this run). Used by the WS abort ack `at_seq` path.
    */
   currentSeq(sessionId: string): number;
 }
@@ -75,5 +96,9 @@ export interface IWSBroadcastService {
 export const IWSBroadcastService =
   createDecorator<IWSBroadcastService>('wsBroadcastService');
 
-/** Default ring buffer cap (WS.md §3.1, §6). */
+/**
+ * Max durable events served by one incremental replay. Larger gaps get a
+ * `buffer_overflow` resync — at that point a snapshot rebuild is cheaper
+ * than streaming the backlog. Also sizes the in-memory tail cache.
+ */
 export const DEFAULT_MAX_BUFFER_SIZE = 1000;

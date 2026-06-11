@@ -7,7 +7,7 @@
  * daemon is already up. The phases (REST.md §3, WS.md §3) are:
  *
  *   Phase 0  environment probes        GET /healthz, /meta, /auth
- *   Phase 1  open WS BEFORE history    server_hello → client_hello(last_seq_by_session) → ack
+ *   Phase 1  open WS BEFORE history    server_hello → client_hello(cursors) → ack
  *   Phase 2  pull persisted snapshot   GET /sessions/{sid}, /messages, /tasks
  *   Phase 5  steady state              POST /prompts → observe events on WS
  *
@@ -21,12 +21,12 @@
  *   - A first WS session completes one prompt; we record the current ring-buffer
  *     seq for the session.
  *   - We close the WS, open a fresh one, and on `client_hello` pass
- *     `last_seq_by_session: { [sid]: currentSeq }` — the daemon should ack
+ *     `cursors: { [sid]: { seq: currentSeq } }` — the daemon should ack
  *     with `accepted_subscriptions: [sid]`, `resync_required: []`, and NOT
  *     replay any events (we are caught up).
  *   - We then open a THIRD connection, this time with
- *     `last_seq_by_session: { [sid]: 0 }` — the daemon should replay every
- *     buffered event (seq 1..N) BEFORE the ack lands.
+ *     `cursors: { [sid]: { seq: 0 } }` — the daemon should replay every
+ *     durable event (seq 1..N) BEFORE the ack lands.
  *   - Phase 2 REST snapshot reflects the user + assistant messages persisted
  *     during the first run.
  *   - Phase 5: a new prompt over the third connection delivers events on WS.
@@ -64,7 +64,7 @@ interface MetaResponse {
 interface ClientHelloPayload extends Record<string, unknown> {
   client_id: string;
   subscriptions: string[];
-  last_seq_by_session?: Record<string, number>;
+  cursors?: Record<string, { seq: number; epoch?: string }>;
 }
 
 interface AckPayload {
@@ -118,7 +118,7 @@ async function openSocketWithHello({
     client_id: `scenario-03-${process.pid}`,
     subscriptions: [sid],
   };
-  if (lastSeq !== undefined) payload.last_seq_by_session = { [sid]: lastSeq };
+  if (lastSeq !== undefined) payload.cursors = { [sid]: { seq: lastSeq } };
   ws.send({ type: 'client_hello', id: helloId, payload });
 
   // 3) wait for the matching ack

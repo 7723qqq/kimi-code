@@ -22,6 +22,7 @@ export * from './rest/meta';
 export * from './rest/auth';
 export * from './rest/oauth';
 export * from './rest/session';
+export * from './rest/snapshot';
 export * from './rest/workspace';
 export * from './rest/fsBrowse';
 export * from './rest/message';
