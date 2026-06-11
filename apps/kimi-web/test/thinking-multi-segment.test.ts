@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { createAgentProjector } from '../src/api/daemon/agentEventProjector';
 import { createInitialState, reduceAppEvent, type KimiClientState } from '../src/api/daemon/eventReducer';
 import { messagesToTurns } from '../src/composables/messagesToTurns';
+import type { AppMessage } from '../src/api/types';
 
 const SESSION = 'sess_1';
 
@@ -121,6 +122,68 @@ describe('multi-segment thinking', () => {
         },
       },
     });
+  });
+});
+
+describe('snapshot turn grouping', () => {
+  function message(
+    id: string,
+    role: AppMessage['role'],
+    content: AppMessage['content'],
+    promptId?: string,
+  ): AppMessage {
+    return {
+      id,
+      sessionId: SESSION,
+      role,
+      content,
+      createdAt: '2026-06-12T00:00:00.000Z',
+      promptId,
+    };
+  }
+
+  it('merges adjacent assistant snapshot messages when promptId is missing', () => {
+    const turns = messagesToTurns(
+      [
+        message('u1', 'user', [{ type: 'text', text: 'hi' }]),
+        message('a1', 'assistant', [{ type: 'thinking', thinking: 'inspect' }]),
+        message('a2', 'assistant', [
+          { type: 'toolUse', toolCallId: 't1', toolName: 'Read', input: { path: 'a.ts' } },
+        ]),
+        message('t1-result', 'tool', [
+          { type: 'toolResult', toolCallId: 't1', output: 'file body' },
+        ]),
+        message('a3', 'assistant', [{ type: 'text', text: 'done' }]),
+      ],
+      [],
+    );
+
+    expect(turns.map((turn) => turn.role)).toEqual(['user', 'assistant']);
+    const assistant = turns[1]!;
+    expect(assistant.blocks?.map((block) => block.kind)).toEqual(['thinking', 'tool', 'text']);
+    expect(assistant.blocks?.[1]).toMatchObject({
+      kind: 'tool',
+      tool: {
+        id: 't1',
+        status: 'ok',
+        output: ['file body'],
+      },
+    });
+    expect(assistant.text).toBe('done');
+    expect(assistant.thinking).toBe('inspect');
+  });
+
+  it('keeps adjacent assistant messages separate when promptIds disagree', () => {
+    const turns = messagesToTurns(
+      [
+        message('a1', 'assistant', [{ type: 'text', text: 'first' }], 'prompt_1'),
+        message('a2', 'assistant', [{ type: 'text', text: 'second' }], 'prompt_2'),
+      ],
+      [],
+    );
+
+    expect(turns).toHaveLength(2);
+    expect(turns.map((turn) => turn.text)).toEqual(['first', 'second']);
   });
 });
 

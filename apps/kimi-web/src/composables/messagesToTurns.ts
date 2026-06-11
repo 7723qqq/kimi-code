@@ -1,14 +1,13 @@
 // apps/kimi-web/src/composables/messagesToTurns.ts
 // Converts a flat list of AppMessages into ChatTurn[] for rendering.
 //
-// Key rule: consecutive ASSISTANT messages that share the same non-undefined
-// promptId are merged into ONE ChatTurn.  This prevents a multi-step agent
-// turn (think → tool → result → text) from appearing as several "kimi >"
-// blocks.  TOOL-role messages fold their toolResult content into the
-// preceding assistant group rather than becoming separate turns.
-//
-// Fallback: if promptId is undefined on both the pending group and the
-// incoming message they are NOT merged (one turn per message, old behaviour).
+// Key rule: consecutive ASSISTANT messages are merged into ONE ChatTurn unless
+// two known promptIds prove that they belong to different prompts.  This
+// prevents a multi-step agent turn (think → tool → result → text) from appearing
+// as several "kimi >" blocks.  Snapshot messages may omit promptId, so user
+// messages and compaction summaries are the hard turn boundaries.
+// TOOL-role messages fold their toolResult content into the preceding assistant
+// group rather than becoming separate turns.
 
 import type { AppMessage, AppApprovalRequest, CompactionMarkerMetadata } from '../api/types';
 import { COMPACTION_MARKER_METADATA_KEY } from '../api/types';
@@ -247,8 +246,8 @@ function buildApprovalBlock(a: AppApprovalRequest): ApprovalBlock {
 interface Group {
   /** id of the first assistant message in the group — used as the turn id */
   id: string;
-  /** The shared promptId (never undefined inside a group; empty string = no promptId) */
-  promptId: string;
+  /** Known promptId for this assistant group, if the protocol supplied one. */
+  promptId: string | undefined;
   textParts: string[];
   thinkingParts: string[];
   tools: ToolCall[];
@@ -295,6 +294,15 @@ function isDisplayableUserMessage(msg: AppMessage): boolean {
 function isCompactionSummaryMessage(msg: AppMessage): boolean {
   const origin = msg.metadata?.['origin'] as { kind?: string } | undefined;
   return origin?.kind === 'compaction_summary';
+}
+
+function continuesAssistantGroup(group: Group | null, promptId: string | undefined): group is Group {
+  if (group === null) return false;
+  return (
+    group.promptId === undefined ||
+    promptId === undefined ||
+    group.promptId === promptId
+  );
 }
 
 export function messagesToTurns(
@@ -471,22 +479,20 @@ export function messagesToTurns(
 
     // Assistant messages: decide whether to extend the current group or start a new one.
     //
-    // Merge rule: both the pending group and the incoming message must have a
-    // defined, equal promptId.  If either is undefined → start a new group
-    // (fallback to old one-turn-per-message behaviour).
+    // Merge rule: user messages and compaction summaries are hard boundaries.
+    // Inside an assistant segment, split only when both sides have known,
+    // different promptIds. The daemon's REST snapshot is allowed to omit
+    // prompt_id, so "missing promptId" must not fragment one model reply into
+    // many chat children.
     const pid = msg.promptId;
 
-    const continuesGroup =
-      pendingGroup !== null &&
-      pid !== undefined &&
-      pendingGroup.promptId !== '' &&
-      pendingGroup.promptId === pid;
+    const continuesGroup = continuesAssistantGroup(pendingGroup, pid);
 
     if (!continuesGroup) {
       flushGroup();
       pendingGroup = {
         id: msg.id,
-        promptId: pid ?? '', // empty string = "no promptId" sentinel
+        promptId: pid,
         textParts: [],
         thinkingParts: [],
         tools: [],
@@ -495,16 +501,21 @@ export function messagesToTurns(
         approvalId: undefined,
         seenSigs: new Set<string>(),
       };
+    } else if (pendingGroup !== null && pendingGroup.promptId === undefined && pid !== undefined) {
+      pendingGroup.promptId = pid;
     }
+
+    const group = pendingGroup;
+    if (group === null) continue;
 
     // Drop an assistant message whose content was already folded into this group
     // (a duplicate streamed-vs-persisted copy sharing the promptId), so the turn
     // doesn't render the same text + tools twice.
     const sig = JSON.stringify(msg.content);
-    if (pendingGroup!.seenSigs.has(sig)) continue;
-    pendingGroup!.seenSigs.add(sig);
+    if (group.promptId !== undefined && group.seenSigs.has(sig)) continue;
+    group.seenSigs.add(sig);
 
-    absorbContent(pendingGroup!, msg.content);
+    absorbContent(group, msg.content);
   }
 
   flushGroup(true);
