@@ -10,7 +10,7 @@ const source = resolve(repoRoot, 'apps/kimi-web/dist');
 const target = resolve(appRoot, 'dist-web');
 const swaggerUiSource = resolve(
   dirname(require.resolve('@fastify/swagger-ui/package.json', {
-    paths: [resolve(repoRoot, 'packages/daemon')],
+    paths: [resolve(repoRoot, 'packages/server')],
   })),
   'static',
 );

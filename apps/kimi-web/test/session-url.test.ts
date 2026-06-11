@@ -77,7 +77,10 @@ async function setup(opts: {
     deleteSession: vi.fn(async () => ({ deleted: true })),
     getSessionSnapshot: vi.fn(async (id: string) => {
       if (messageMissingSessions.has(id)) {
-        throw { name: 'DaemonApiError', code: 40401, message: `session ${id} does not exist` };
+        throw Object.assign(new Error(`session ${id} does not exist`), {
+          name: 'DaemonApiError',
+          code: 40401,
+        });
       }
       const found = extras.find((s) => s.id === id) ?? listed.find((s) => s.id === id) ?? session(id);
       return {

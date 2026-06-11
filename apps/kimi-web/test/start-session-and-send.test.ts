@@ -195,9 +195,10 @@ describe('createSession dedup', () => {
 
     // Now hijack createSession for the race test
     let resolveCreate!: (s: AppSession) => void;
-    (api.createSession as ReturnType<typeof vi.fn>).mockImplementation(
-      () => new Promise((r) => { resolveCreate = r; }),
-    );
+    const createPromise = new Promise<AppSession>((r) => {
+      resolveCreate = r;
+    });
+    (api.createSession as ReturnType<typeof vi.fn>).mockReturnValue(createPromise);
 
     const promise = client.createSession('/repo');
 

@@ -57,7 +57,7 @@ export function execFileUtf8(
         // Node sets `code` on the error for non-zero exits; for spawn failures
         // (ENOENT, EACCES) the code property is a string like "ENOENT".
         const code = typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : -1;
-        const message = (err as Error).message ?? String(err);
+        const message = err instanceof Error ? err.message : JSON.stringify(err);
         resolve({
           stdout: typeof stdout === 'string' ? stdout : '',
           stderr: typeof stderr === 'string' && stderr.length > 0 ? stderr : message,

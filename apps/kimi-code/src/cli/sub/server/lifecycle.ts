@@ -183,7 +183,9 @@ async function runLifecycle(
 }
 
 function formatHuman(result: Record<string, unknown>): string {
-  const action = String(result['action'] ?? 'action');
-  const message = result['message'] !== undefined ? `: ${String(result['message'])}` : '';
+  const rawAction = result['action'];
+  const action = typeof rawAction === 'string' ? rawAction : 'action';
+  const rawMessage = result['message'];
+  const message = typeof rawMessage === 'string' ? `: ${rawMessage}` : '';
   return `${action}${message}\n`;
 }
