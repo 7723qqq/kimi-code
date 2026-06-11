@@ -7,6 +7,7 @@ import { isVolatileEventType, type Event, type SessionCursor } from '@moonshot-a
 import { IEventService } from '@moonshot-ai/services';
 
 import { IEnvironmentService, ILogService } from '@moonshot-ai/services';
+import { IConnectionRegistry } from './connectionRegistry';
 import { InFlightTurnTracker } from './inFlightTurnTracker';
 import { ISessionClientsService } from './sessionClients';
 import { SessionEventJournal } from './sessionEventJournal';
@@ -47,6 +48,7 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
     @IEventService eventService: IEventService,
     @ILogService private readonly logger: ILogService,
     @ISessionClientsService private readonly sessionClients: ISessionClientsService,
+    @IConnectionRegistry private readonly connectionRegistry: IConnectionRegistry,
     @IEnvironmentService env: IEnvironmentService,
   ) {
     super();
@@ -110,7 +112,10 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
     }
 
     if (this._store.isDisposed) return;
-    for (const conn of this.sessionClients.getConnections(sid)) {
+    const targets = isGlobalSessionEvent(evType)
+      ? this.connectionRegistry.values()
+      : this.sessionClients.getConnections(sid);
+    for (const conn of targets) {
       conn.send(envelope);
     }
   }
@@ -232,6 +237,10 @@ function extractSessionId(event: Event): string | undefined {
   const snake = (event as { session_id?: unknown }).session_id;
   if (typeof snake === 'string' && snake.length > 0) return snake;
   return undefined;
+}
+
+function isGlobalSessionEvent(type: string): boolean {
+  return type === 'event.session.created';
 }
 
 /** Session ids are ULID-ish, but never trust an id used as a path segment. */

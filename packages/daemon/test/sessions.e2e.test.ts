@@ -32,6 +32,7 @@ import { join } from 'node:path';
 import { pino } from 'pino';
 import { ErrorCode, sessionSchema, undoSessionResponseSchema } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { WebSocket } from 'ws';
 
 import { IRestGateway, startDaemon, type RunningDaemon } from '../src';
 
@@ -83,6 +84,57 @@ function envelopeOf<T>(body: unknown): { code: number; msg: string; data: T | nu
   return body as { code: number; msg: string; data: T | null; request_id: string; details?: unknown };
 }
 
+function wsDataToString(data: unknown): string {
+  if (typeof data === 'string') return data;
+  if (Buffer.isBuffer(data)) return data.toString('utf8');
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
+  return JSON.stringify(data);
+}
+
+async function openSessionListListener(r: RunningDaemon): Promise<{
+  ws: WebSocket;
+  received: Record<string, unknown>[];
+}> {
+  const wsUrl = r.address.replace('http://', 'ws://') + '/api/v1/ws';
+  const received: Record<string, unknown>[] = [];
+  const ws = await new Promise<WebSocket>((resolve, reject) => {
+    const sock = new WebSocket(wsUrl);
+    sock.on('message', (data) => {
+      try {
+        received.push(JSON.parse(wsDataToString(data)) as Record<string, unknown>);
+      } catch {
+        // ignore
+      }
+    });
+    sock.once('open', () => resolve(sock));
+    sock.once('error', reject);
+  });
+  await waitFor(received, (f) => f['type'] === 'server_hello');
+  ws.send(
+    JSON.stringify({
+      type: 'client_hello',
+      id: 'h1',
+      payload: { client_id: 'session-list-test', subscriptions: [] },
+    }),
+  );
+  await waitFor(received, (f) => f['type'] === 'ack' && f['id'] === 'h1');
+  return { ws, received };
+}
+
+async function waitFor(
+  received: Record<string, unknown>[],
+  pred: (f: Record<string, unknown>) => boolean,
+  timeoutMs = 2000,
+): Promise<Record<string, unknown>> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const found = received.find(pred);
+    if (found !== undefined) return found;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for frame; got ${JSON.stringify(received)}`);
+}
+
 describe('POST /api/v1/sessions — create', () => {
   it('returns a Session payload with snake_case + ISO Z timestamps', async () => {
     const r = await bootDaemon();
@@ -103,6 +155,36 @@ describe('POST /api/v1/sessions — create', () => {
     expect(session.created_at.endsWith('Z')).toBe(true);
     expect(session.updated_at.endsWith('Z')).toBe(true);
     expect(session.id.length).toBeGreaterThan(0);
+  });
+
+  it('broadcasts event.session.created to connected clients without a session subscription', async () => {
+    const r = await bootDaemon();
+    const { ws, received } = await openSessionListListener(r);
+    const cwd = join(tmpDir, 'workspace-create-broadcast');
+
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: '/api/v1/sessions',
+      payload: { metadata: { cwd }, title: 'created via ws test' },
+    });
+    const env = envelopeOf<{ id: string }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data).not.toBeNull();
+
+    const frame = await waitFor(
+      received,
+      (f) => f['type'] === 'event.session.created',
+    );
+    expect(frame['session_id']).toBe(env.data!.id);
+    expect(frame['payload']).toMatchObject({
+      session: {
+        id: env.data!.id,
+        title: 'created via ws test',
+        metadata: { cwd },
+      },
+    });
+
+    ws.close();
   });
 
   it('rejects a body missing metadata.cwd with code 40001 + details', async () => {

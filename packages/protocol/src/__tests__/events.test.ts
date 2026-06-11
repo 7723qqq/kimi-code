@@ -118,4 +118,38 @@ describe('events / display re-exports', () => {
     expect(parsed.type).toBe('prompt.submitted');
     expect((parsed as { promptId: string }).promptId).toBe('prompt_1');
   });
+
+  it('validates event.session.created events', () => {
+    const parsed = eventSchema.parse({
+      type: 'event.session.created',
+      agentId: 'main',
+      sessionId: 'sess_1',
+      session: {
+        id: 'sess_1',
+        workspace_id: 'wd_project_123456abcdef',
+        title: 'Created session',
+        created_at: '2026-06-11T00:00:00.000Z',
+        updated_at: '2026-06-11T00:00:00.000Z',
+        status: 'idle',
+        metadata: { cwd: '/tmp/project' },
+        agent_config: { model: 'kimi-k2' },
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_tokens: 0,
+          cache_creation_tokens: 0,
+          total_cost_usd: 0,
+          context_tokens: 0,
+          context_limit: 0,
+          turn_count: 0,
+        },
+        permission_rules: [],
+        message_count: 0,
+        last_seq: 0,
+      },
+    });
+
+    expect(parsed.type).toBe('event.session.created');
+    expect((parsed as { session: { id: string } }).session.id).toBe('sess_1');
+  });
 });

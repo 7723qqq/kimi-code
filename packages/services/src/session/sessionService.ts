@@ -30,6 +30,7 @@ import {
 } from '@moonshot-ai/protocol';
 
 import { ICoreProcessService } from '../coreProcess/coreProcess';
+import { IEventService } from '../event/event';
 import { toProtocolMessage } from '../message/message';
 import { IPromptService, type AgentStatePatch } from '../prompt/prompt';
 import {
@@ -107,6 +108,7 @@ export class SessionService extends Disposable implements ISessionService {
 
   constructor(
     @ICoreProcessService private readonly core: ICoreProcessService,
+    @IEventService private readonly eventService: IEventService,
     @IInstantiationService
     private readonly instantiation: IInstantiationService,
   ) {
@@ -131,7 +133,7 @@ export class SessionService extends Disposable implements ISessionService {
     }
     const meta = await this.tryGetMeta(summary.id);
     const session = toProtocolSession(summary, meta);
-    this._onDidCreate.fire({ session });
+    this.emitCreated(session);
     return session;
   }
 
@@ -239,7 +241,7 @@ export class SessionService extends Disposable implements ISessionService {
     });
     const meta = await this.tryGetMeta(summary.id);
     const session = toProtocolSession(summary, meta);
-    this._onDidCreate.fire({ session });
+    this.emitCreated(session);
     return session;
   }
 
@@ -301,8 +303,18 @@ export class SessionService extends Disposable implements ISessionService {
     });
     const meta = await this.tryGetMeta(summary.id);
     const session = toProtocolSession(summary, meta);
-    this._onDidCreate.fire({ session });
+    this.emitCreated(session);
     return session;
+  }
+
+  private emitCreated(session: Session): void {
+    this._onDidCreate.fire({ session });
+    this.eventService.publish({
+      type: 'event.session.created',
+      agentId: 'main',
+      sessionId: session.id,
+      session,
+    });
   }
 
   async getStatus(id: string): Promise<SessionStatusResponse> {

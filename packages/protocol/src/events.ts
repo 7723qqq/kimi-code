@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { ToolInputDisplaySchema, type ToolInputDisplay } from './display';
 import { messageContentSchema, type MessageContent } from './message';
+import { sessionSchema, type Session } from './session';
 import { isoDateTimeSchema } from './time';
 
 export interface TokenUsage {
@@ -308,6 +309,11 @@ export interface SessionMetaUpdatedEvent {
   readonly patch?: Record<string, unknown>;
 }
 
+export interface SessionCreatedEvent {
+  readonly type: 'event.session.created';
+  readonly session: Session;
+}
+
 export interface GoalUpdatedEvent {
   readonly type: 'goal.updated';
   readonly snapshot: GoalSnapshot | null;
@@ -552,6 +558,7 @@ export type AgentEvent =
   | WarningEvent
   | AgentStatusUpdatedEvent
   | SessionMetaUpdatedEvent
+  | SessionCreatedEvent
   | GoalUpdatedEvent
   | SkillActivatedEvent
   | TurnStartedEvent
@@ -893,6 +900,11 @@ export const sessionMetaUpdatedEventSchema = z.object({
   patch: z.record(z.string(), z.unknown()).optional(),
 }) satisfies z.ZodType<SessionMetaUpdatedEvent>;
 
+export const sessionCreatedEventSchema = z.object({
+  type: z.literal('event.session.created'),
+  session: sessionSchema,
+}) satisfies z.ZodType<SessionCreatedEvent>;
+
 export const goalUpdatedEventSchema = z.object({
   type: z.literal('goal.updated'),
   snapshot: goalSnapshotSchema.nullable(),
@@ -1141,6 +1153,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   warningEventSchema,
   agentStatusUpdatedEventSchema,
   sessionMetaUpdatedEventSchema,
+  sessionCreatedEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
   turnStartedEventSchema,
