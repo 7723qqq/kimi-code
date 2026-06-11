@@ -232,7 +232,26 @@ function textMessage(
 let state: FakeBridgeState;
 let svc: SessionService;
 let promptStub: ReturnType<typeof makePromptServiceStub>;
+let eventBus: ReturnType<typeof makeEventServiceStub>;
 let instantiation: TestInstantiationService;
+
+function makeEventServiceStub(): {
+  eventService: IEventService;
+  events: unknown[];
+} {
+  const events: unknown[] = [];
+  const emitter = new Emitter<never>();
+  return {
+    events,
+    eventService: {
+      _serviceBrand: undefined,
+      publish: vi.fn((event: unknown) => {
+        events.push(event);
+      }) as IEventService['publish'],
+      onDidPublish: emitter.event as unknown as IEventService['onDidPublish'],
+    },
+  };
+}
 
 function makePromptServiceStub(): {
   promptService: IPromptService;
@@ -269,9 +288,11 @@ function makeTestInstantiation(stubs: {
 beforeEach(() => {
   state = freshState();
   promptStub = makePromptServiceStub();
+  eventBus = makeEventServiceStub();
   instantiation = makeTestInstantiation({ promptService: promptStub.promptService });
   svc = new SessionService(
     makeFakeBridge(state),
+    eventBus.eventService,
     instantiation,
   );
 });
@@ -828,6 +849,16 @@ describe('SessionService per-domain event listeners (Phase C)', () => {
     const session = await svc.create({ metadata: { cwd: '/tmp/evt' } });
     expect(events).toHaveLength(1);
     expect((events[0] as { session: { id: string } }).session.id).toBe(session.id);
+  });
+
+  it('publishes session.created after creating a session', async () => {
+    const session = await svc.create({ metadata: { cwd: '/tmp/evt-bus' } });
+    expect(eventBus.events).toContainEqual({
+      type: 'event.session.created',
+      sessionId: session.id,
+      agentId: 'main',
+      session,
+    });
   });
 
   it('onDidCreate detach stops future events', async () => {

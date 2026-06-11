@@ -600,6 +600,38 @@ describe('Prompt queue and steer routes', () => {
 });
 
 describe('Prompt lifecycle: WS receives events + synthesized prompt.completed (W7.2)', () => {
+  it('broadcasts prompt.submitted events to session subscribers', async () => {
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const { ws, received } = await openSubscriber(r, sid);
+
+    const eventBus = r.services.invokeFunction((a) => a.get(IEventService));
+    eventBus.publish({
+      type: 'prompt.submitted',
+      agentId: 'main',
+      sessionId: sid,
+      promptId: 'prompt_submit_test',
+      userMessageId: 'msg_submit_test',
+      status: 'running',
+      content: [{ type: 'text', text: 'hello from client a' }],
+      createdAt: '2026-06-11T00:00:00.000Z',
+    });
+
+    const submittedFrame = await waitFor(
+      received,
+      (f) => f['type'] === 'prompt.submitted',
+      2000,
+    );
+    expect(submittedFrame['session_id']).toBe(sid);
+    expect(submittedFrame['payload']).toMatchObject({
+      promptId: 'prompt_submit_test',
+      userMessageId: 'msg_submit_test',
+      content: [{ type: 'text', text: 'hello from client a' }],
+    });
+
+    ws.close();
+  });
+
   it('synthesizes prompt.completed end-to-end through bus → observer → WS', async () => {
     const r = await bootDaemon();
     const sid = await createSession(r);

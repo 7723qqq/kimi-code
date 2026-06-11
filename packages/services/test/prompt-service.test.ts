@@ -346,6 +346,36 @@ describe('PromptService.submit', () => {
     ]);
   });
 
+  it('publishes prompt.submitted when a prompt starts running', async () => {
+    const { bridge } = makeBridge();
+    const { bus, events } = makeBus();
+    const impl = newSvc(bridge, bus);
+    const body = mkBody({ content: [{ type: 'text', text: 'hello from client a' }] });
+
+    const result = await impl.submit(SID, body);
+
+    const submitted = events.find((event) => event.type === 'prompt.submitted') as
+      | {
+          type: 'prompt.submitted';
+          sessionId: string;
+          agentId: string;
+          promptId: string;
+          userMessageId: string;
+          status: string;
+          content: readonly PromptSubmission['content'][number][];
+        }
+      | undefined;
+    expect(submitted).toBeDefined();
+    expect(submitted?.sessionId).toBe(SID);
+    expect(submitted?.agentId).toBe('main');
+    expect(submitted).toMatchObject({
+      promptId: result.prompt_id,
+      userMessageId: result.user_message_id,
+      status: 'running',
+      content: body.content,
+    });
+  });
+
   it('queues a second prompt when a non-terminal prompt is already active', async () => {
     const { bridge } = makeBridge();
     const { bus } = makeBus();
@@ -358,6 +388,28 @@ describe('PromptService.submit', () => {
     expect(second.status).toBe('queued');
     expect(listed.active?.prompt_id).toBe(first.prompt_id);
     expect(listed.queued.map((p) => p.prompt_id)).toEqual([second.prompt_id]);
+  });
+
+  it('publishes prompt.submitted when a prompt is queued', async () => {
+    const { bridge } = makeBridge();
+    const { bus, events } = makeBus();
+    const impl = newSvc(bridge, bus);
+
+    await impl.submit(SID, mkBody({ content: [{ type: 'text', text: 'one' }] }));
+    const second = await impl.submit(SID, mkBody({ content: [{ type: 'text', text: 'two' }] }));
+
+    const submitted = events.filter((event) => event.type === 'prompt.submitted') as Array<{
+      type: 'prompt.submitted';
+      promptId: string;
+      status: string;
+      content: readonly PromptSubmission['content'][number][];
+    }>;
+    expect(submitted.map((event) => event.promptId)).toContain(second.prompt_id);
+    expect(submitted.at(-1)).toMatchObject({
+      promptId: second.prompt_id,
+      status: 'queued',
+      content: [{ type: 'text', text: 'two' }],
+    });
   });
 
   it('starts the next queued prompt after the active prompt completes', async () => {

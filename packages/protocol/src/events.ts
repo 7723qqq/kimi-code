@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
 import { ToolInputDisplaySchema, type ToolInputDisplay } from './display';
+import { messageContentSchema, type MessageContent } from './message';
+import { sessionSchema, type Session } from './session';
+import { isoDateTimeSchema } from './time';
 
 export interface TokenUsage {
   readonly inputOther: number;
@@ -306,6 +309,11 @@ export interface SessionMetaUpdatedEvent {
   readonly patch?: Record<string, unknown>;
 }
 
+export interface SessionCreatedEvent {
+  readonly type: 'event.session.created';
+  readonly session: Session;
+}
+
 export interface GoalUpdatedEvent {
   readonly type: 'goal.updated';
   readonly snapshot: GoalSnapshot | null;
@@ -515,6 +523,15 @@ export interface CronFiredEvent {
   readonly prompt: string;
 }
 
+export interface PromptSubmittedEvent {
+  readonly type: 'prompt.submitted';
+  readonly promptId: string;
+  readonly userMessageId: string;
+  readonly status: 'running' | 'queued';
+  readonly content: readonly MessageContent[];
+  readonly createdAt: string;
+}
+
 export type ToolListUpdatedReason = 'mcp.connected' | 'mcp.disconnected' | 'mcp.failed';
 
 export interface ToolListUpdatedEvent {
@@ -541,6 +558,7 @@ export type AgentEvent =
   | WarningEvent
   | AgentStatusUpdatedEvent
   | SessionMetaUpdatedEvent
+  | SessionCreatedEvent
   | GoalUpdatedEvent
   | SkillActivatedEvent
   | TurnStartedEvent
@@ -569,7 +587,8 @@ export type AgentEvent =
   | CompactionCompletedEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent
-  | CronFiredEvent;
+  | CronFiredEvent
+  | PromptSubmittedEvent;
 
 export type Event = AgentEvent & { agentId: string; sessionId: string };
 
@@ -881,6 +900,11 @@ export const sessionMetaUpdatedEventSchema = z.object({
   patch: z.record(z.string(), z.unknown()).optional(),
 }) satisfies z.ZodType<SessionMetaUpdatedEvent>;
 
+export const sessionCreatedEventSchema = z.object({
+  type: z.literal('event.session.created'),
+  session: sessionSchema,
+}) satisfies z.ZodType<SessionCreatedEvent>;
+
 export const goalUpdatedEventSchema = z.object({
   type: z.literal('goal.updated'),
   snapshot: goalSnapshotSchema.nullable(),
@@ -1090,6 +1114,15 @@ export const cronFiredEventSchema = z.object({
   prompt: z.string(),
 }) satisfies z.ZodType<CronFiredEvent>;
 
+export const promptSubmittedEventSchema = z.object({
+  type: z.literal('prompt.submitted'),
+  promptId: z.string(),
+  userMessageId: z.string(),
+  status: z.enum(['running', 'queued']),
+  content: z.array(messageContentSchema),
+  createdAt: isoDateTimeSchema,
+}) satisfies z.ZodType<PromptSubmittedEvent>;
+
 export const toolListUpdatedReasonSchema = z.enum([
   'mcp.connected',
   'mcp.disconnected',
@@ -1120,6 +1153,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   warningEventSchema,
   agentStatusUpdatedEventSchema,
   sessionMetaUpdatedEventSchema,
+  sessionCreatedEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
   turnStartedEventSchema,
@@ -1149,6 +1183,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   backgroundTaskStartedEventSchema,
   backgroundTaskTerminatedEventSchema,
   cronFiredEventSchema,
+  promptSubmittedEventSchema,
 ]) satisfies z.ZodType<AgentEvent>;
 
 export const eventSchema = agentEventSchema.and(

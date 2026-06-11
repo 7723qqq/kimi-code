@@ -130,7 +130,7 @@ function toAppImageSource(src: WireImageSource): ImageSource {
   return { kind: 'url', url: src.url };
 }
 
-function toAppMessageContent(wire: WireMessageContent): AppMessageContent {
+export function toAppMessageContent(wire: WireMessageContent): AppMessageContent {
   switch (wire.type) {
     case 'text':
       return { type: 'text', text: wire.text };
