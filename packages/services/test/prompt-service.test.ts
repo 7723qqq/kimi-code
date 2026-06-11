@@ -114,6 +114,7 @@ interface BridgeStubOptions {
   permission?: { mode: 'manual' | 'yolo' | 'auto' };
   plan?: null | { id: string; content: string; path: string };
   sessions?: SessionSummary[];
+  onPrompt?: (payload: unknown) => void | Promise<void>;
 }
 
 function makeBridge(
@@ -148,6 +149,7 @@ function makeBridge(
     resumeSession: vi.fn().mockResolvedValue(undefined as unknown as never),
     prompt: vi.fn().mockImplementation(async (payload) => {
       record.promptCalls.push(payload);
+      await opts.onPrompt?.(payload);
     }),
     steer: vi.fn().mockImplementation(async (payload) => {
       record.steerCalls.push(payload);
@@ -373,6 +375,34 @@ describe('PromptService.submit', () => {
       userMessageId: result.user_message_id,
       status: 'running',
       content: body.content,
+    });
+  });
+
+  it('publishes prompt.submitted before core prompt events can start the turn', async () => {
+    const { bus, events } = makeBus();
+    const { bridge } = makeBridge({
+      onPrompt: () => {
+        bus.publish({
+          type: 'turn.started',
+          turnId: 7,
+          origin: { kind: 'user' },
+          sessionId: SID,
+          agentId: 'main',
+        } as unknown as Event);
+      },
+    });
+    const impl = newSvc(bridge, bus);
+
+    const result = await impl.submit(SID, mkBodyMinimal());
+
+    expect(events.map((event) => event.type).slice(0, 2)).toEqual([
+      'prompt.submitted',
+      'turn.started',
+    ]);
+    expect(events[0]).toMatchObject({
+      type: 'prompt.submitted',
+      promptId: result.prompt_id,
+      status: 'running',
     });
   });
 

@@ -323,9 +323,10 @@ export class PromptService
       return item;
     }
 
-    await this._startPrompt(sid, state);
     const item = toPromptItem(state, 'running');
-    this._publishSubmitted(sid, item);
+    await this._startPrompt(sid, state, () => {
+      this._publishSubmitted(sid, item);
+    });
     return item;
   }
 
@@ -377,7 +378,11 @@ export class PromptService
     return { steered: true, prompt_ids: [...promptIds] };
   }
 
-  private async _startPrompt(sid: string, state: PromptState): Promise<void> {
+  private async _startPrompt(
+    sid: string,
+    state: PromptState,
+    onStarted?: () => void,
+  ): Promise<void> {
     const overridePatch = pickAgentStatePatch(state.body);
     if (overridePatch !== undefined) {
       await this._ensureAgentStateBootstrapped(sid);
@@ -386,6 +391,7 @@ export class PromptService
 
     this._active.set(sid, state);
     const input = contentToCoreParts(state.body.content);
+    onStarted?.();
 
     // Fire-and-forget. agent-core streams events via the SDK side of the
     // RPC pair which lands on `BridgeClientAPI.emitEvent → IEventService.publish`.

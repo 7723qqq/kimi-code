@@ -44,6 +44,7 @@ async function bootDaemon(): Promise<RunningServer> {
     lockPath,
     logger: pino({ level: 'silent' }),
     coreProcessOptions: { homeDir: bridgeHome },
+    swagger: true,
   });
   return server;
 }

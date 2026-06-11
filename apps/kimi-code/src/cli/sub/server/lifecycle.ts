@@ -11,6 +11,7 @@
 import type { Command } from 'commander';
 
 import {
+  ServiceUnavailableError,
   ServiceUnsupportedError,
   resolveServiceManager,
   type InstallArgs,
@@ -18,12 +19,15 @@ import {
   type ServiceStatus,
 } from '@moonshot-ai/server';
 
+import { openUrl as defaultOpenUrl } from '#/utils/open-url';
+
 import {
   DEFAULT_LOG_LEVEL,
   DEFAULT_SERVER_HOST,
   DEFAULT_SERVER_PORT,
   parseLogLevel,
   parsePort,
+  serverOrigin,
   VALID_LOG_LEVELS,
 } from './shared';
 
@@ -32,6 +36,7 @@ export interface InstallCliOptions {
   port?: string;
   logLevel?: string;
   force?: boolean;
+  open?: boolean;
   json?: boolean;
 }
 
@@ -41,12 +46,14 @@ export interface JsonCliOptions {
 
 export interface LifecycleCommandDeps {
   resolveManager(): ServiceManager;
+  openUrl(url: string): void;
   stdout: Pick<NodeJS.WriteStream, 'write'>;
   stderr: Pick<NodeJS.WriteStream, 'write'>;
 }
 
 const DEFAULT_DEPS: LifecycleCommandDeps = {
   resolveManager: resolveServiceManager,
+  openUrl: defaultOpenUrl,
   stdout: process.stdout,
   stderr: process.stderr,
 };
@@ -64,6 +71,7 @@ export function addLifecycleCommands(parent: Command, deps: LifecycleCommandDeps
       DEFAULT_LOG_LEVEL,
     )
     .option('--force', 'Reinstall and overwrite if already installed', false)
+    .option('--no-open', 'Do not open the web UI after install.', true)
     .option('--json', 'Output JSON', false)
     .action(async (opts: InstallCliOptions) => {
       await runLifecycle(deps, opts.json === true, async (mgr) => {
@@ -74,7 +82,8 @@ export function addLifecycleCommands(parent: Command, deps: LifecycleCommandDeps
           force: opts.force === true,
         };
         const result = await mgr.install(args);
-        return {
+        const status = await readStatus(mgr);
+        const enriched = withStatusDetails({
           ok: true,
           action: 'install',
           status: result.status,
@@ -82,7 +91,11 @@ export function addLifecycleCommands(parent: Command, deps: LifecycleCommandDeps
           unitPath: result.unitPath,
           taskName: result.taskName,
           message: result.message,
-        };
+        }, status, args);
+        if (opts.json !== true && opts.open !== false && enriched.running === true && typeof enriched.url === 'string') {
+          deps.openUrl(enriched.url);
+        }
+        return enriched;
       });
     });
 
@@ -104,7 +117,8 @@ export function addLifecycleCommands(parent: Command, deps: LifecycleCommandDeps
     .action(async (opts: JsonCliOptions) => {
       await runLifecycle(deps, opts.json === true, async (mgr) => {
         const result = await mgr.start();
-        return { ok: result.ok, action: 'start', message: result.message };
+        const status = await readStatus(mgr);
+        return withStatusDetails({ ok: result.ok, action: 'start', message: result.message }, status);
       });
     });
 
@@ -126,7 +140,8 @@ export function addLifecycleCommands(parent: Command, deps: LifecycleCommandDeps
     .action(async (opts: JsonCliOptions) => {
       await runLifecycle(deps, opts.json === true, async (mgr) => {
         const result = await mgr.restart();
-        return { ok: result.ok, action: 'restart', message: result.message };
+        const status = await readStatus(mgr);
+        return withStatusDetails({ ok: result.ok, action: 'restart', message: result.message }, status);
       });
     });
 
@@ -137,7 +152,7 @@ export function addLifecycleCommands(parent: Command, deps: LifecycleCommandDeps
     .action(async (opts: JsonCliOptions) => {
       await runLifecycle(deps, opts.json === true, async (mgr) => {
         const status: ServiceStatus = await mgr.status();
-        return { ok: true, action: 'status', ...status };
+        return withStatusDetails({ ok: true, action: 'status', ...status }, status);
       });
     });
 }
@@ -156,10 +171,10 @@ async function runLifecycle(
     }
     deps.stdout.write(formatHuman(result));
   } catch (error) {
-    if (error instanceof ServiceUnsupportedError) {
+    if (error instanceof ServiceUnavailableError || error instanceof ServiceUnsupportedError) {
       const payload = {
         ok: false,
-        action: 'unsupported',
+        action: error instanceof ServiceUnavailableError ? 'unavailable' : 'unsupported',
         platform: error.platform,
         message: error.message,
       };
@@ -187,5 +202,54 @@ function formatHuman(result: Record<string, unknown>): string {
   const action = typeof rawAction === 'string' ? rawAction : 'action';
   const rawMessage = result['message'];
   const message = typeof rawMessage === 'string' ? `: ${rawMessage}` : '';
-  return `${action}${message}\n`;
+  const lines = [`${action}${message}`];
+
+  const url = result['url'];
+  if (typeof url === 'string') lines.push(`URL: ${url}`);
+
+  const running = result['running'];
+  if (typeof running === 'boolean') lines.push(`Status: ${running ? 'running' : 'not running'}`);
+
+  const logPath = result['logPath'];
+  if (typeof logPath === 'string') lines.push(`Log: ${logPath}`);
+
+  const notes = result['notes'];
+  if (Array.isArray(notes)) {
+    for (const note of notes) {
+      if (typeof note === 'string' && note.length > 0) lines.push(`Note: ${note}`);
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+async function readStatus(mgr: ServiceManager): Promise<ServiceStatus | undefined> {
+  try {
+    return await mgr.status();
+  } catch {
+    return undefined;
+  }
+}
+
+function withStatusDetails(
+  result: Record<string, unknown>,
+  status: ServiceStatus | undefined,
+  fallback?: { host: string; port: number },
+): Record<string, unknown> & { url?: string; running?: boolean } {
+  const host = status?.host ?? fallback?.host;
+  const port = status?.port ?? fallback?.port;
+  const url = host !== undefined && port !== undefined ? formatServiceUrl(host, port) : undefined;
+  return {
+    ...result,
+    url,
+    running: status?.running,
+    host,
+    port,
+    logPath: status?.logPath,
+    notes: status?.notes,
+  };
+}
+
+function formatServiceUrl(host: string, port: number): string {
+  return serverOrigin(host === '0.0.0.0' ? DEFAULT_SERVER_HOST : host, port);
 }

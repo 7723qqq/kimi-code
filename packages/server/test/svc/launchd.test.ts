@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildLaunchAgentPlist } from '../../src/svc/launchd-plist';
 import {
   createLaunchdManager,
+  resolveSupervisorProgram,
   parseLaunchctlPrint,
   type LaunchdManagerDeps,
 } from '../../src/svc/launchd';
@@ -119,19 +120,26 @@ describe('parseLaunchctlPrint', () => {
       `${'gui/501/' + KIMI_SERVER_LABEL} = {`,
       '\tstate = running',
       '\tpid = 4711',
-      '\tlast exit status = 0',
+      '\tlast exit code = 78: EX_CONFIG',
       '\tprogram = /usr/local/bin/kimi',
       '}',
     ].join('\n');
     const parsed = parseLaunchctlPrint(sample);
     expect(parsed.state).toBe('running');
     expect(parsed.pid).toBe(4711);
+    expect(parsed.lastExitCode).toBe('78: EX_CONFIG');
   });
 
   it('returns undefined fields when keys are missing', () => {
     const parsed = parseLaunchctlPrint('domain = gui/501\nactive count = 1');
     expect(parsed.state).toBeUndefined();
     expect(parsed.pid).toBeUndefined();
+  });
+});
+
+describe('resolveSupervisorProgram', () => {
+  it('normalizes a relative executable path to an absolute path', () => {
+    expect(resolveSupervisorProgram(['node', './kimi'], '/tmp/kimi-bin')).toBe('/tmp/kimi-bin/kimi');
   });
 });
 

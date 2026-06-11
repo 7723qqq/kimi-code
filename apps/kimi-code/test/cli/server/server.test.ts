@@ -14,6 +14,7 @@ import { Command } from 'commander';
 import { describe, expect, it, vi } from 'vitest';
 
 import { registerServerCommand } from '#/cli/sub/server';
+import { addLifecycleCommands } from '#/cli/sub/server/lifecycle';
 
 function makeProgram(): Command {
   // `commander` exitOverride avoids killing the test runner when --help/error fires.
@@ -54,7 +55,7 @@ describe('kimi server', () => {
     expect(longs).toContain('--open');
   });
 
-  it('`server install` exposes --host, --port, --log-level, --force, --json', () => {
+  it('`server install` exposes --host, --port, --log-level, --force, --no-open, --json', () => {
     const program = makeProgram();
     const install = program.commands
       .find((c) => c.name() === 'server')
@@ -65,6 +66,7 @@ describe('kimi server', () => {
     expect(longs).toContain('--port');
     expect(longs).toContain('--log-level');
     expect(longs).toContain('--force');
+    expect(longs).toContain('--no-open');
     expect(longs).toContain('--json');
   });
 
@@ -95,6 +97,175 @@ describe('`kimi server` lifecycle exits with ESERVICE_UNSUPPORTED on unsupported
   });
 });
 
+describe('`kimi server` lifecycle handles unavailable service managers', () => {
+  it('prints a friendly JSON error and exits 2', async () => {
+    const { ServiceUnavailableError } = await import('@moonshot-ai/server');
+    const program = new Command('kimi').exitOverride();
+    const server = program.command('server');
+    let stdout = '';
+    let stderr = '';
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
+      throw new Error(`process.exit(${String(code)})`);
+    }) as typeof process.exit);
+
+    addLifecycleCommands(server, {
+      resolveManager: () => ({
+        install: async () => {
+          throw new ServiceUnavailableError(
+            'linux',
+            'systemd --user is not available in this environment.',
+          );
+        },
+        uninstall: async () => ({ ok: true, message: 'unused' }),
+        start: async () => ({ ok: true, message: 'unused' }),
+        stop: async () => ({ ok: true, message: 'unused' }),
+        restart: async () => ({ ok: true, message: 'unused' }),
+        status: async () => ({ platform: 'linux', installed: false, running: false }),
+      }),
+      openUrl: vi.fn(),
+      stdout: {
+        write(chunk: string | Uint8Array) {
+          stdout += String(chunk);
+          return true;
+        },
+      },
+      stderr: {
+        write(chunk: string | Uint8Array) {
+          stderr += String(chunk);
+          return true;
+        },
+      },
+    });
+
+    await expect(
+      program.parseAsync(['node', 'kimi', 'server', 'install', '--json']),
+    ).rejects.toThrow('process.exit(2)');
+
+    exit.mockRestore();
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      action: 'unavailable',
+      platform: 'linux',
+      message: expect.stringContaining('server run --host 0.0.0.0'),
+    });
+  });
+});
+
+describe('`kimi server` lifecycle output', () => {
+  it('install passes --force/--port, prints the URL, and opens it when running', async () => {
+    const program = new Command('kimi').exitOverride();
+    const server = program.command('server');
+    let stdout = '';
+    let stderr = '';
+    let installArgs: unknown;
+    const openUrl = vi.fn();
+
+    addLifecycleCommands(server, {
+      resolveManager: () => ({
+        install: async (args) => {
+          installArgs = args;
+          return {
+            status: 'replaced',
+            message: 'Kimi server LaunchAgent replaced at /tmp/kimi.plist (port 9999).',
+            plistPath: '/tmp/kimi.plist',
+          };
+        },
+        uninstall: async () => ({ ok: true, message: 'unused' }),
+        start: async () => ({ ok: true, message: 'unused' }),
+        stop: async () => ({ ok: true, message: 'unused' }),
+        restart: async () => ({ ok: true, message: 'unused' }),
+        status: async () => ({
+          platform: 'darwin',
+          installed: true,
+          running: true,
+          host: '127.0.0.1',
+          port: 9999,
+          logPath: '/tmp/server.log',
+          label: 'ai.moonshot.kimi-server',
+        }),
+      }),
+      openUrl,
+      stdout: {
+        write(chunk: string | Uint8Array) {
+          stdout += String(chunk);
+          return true;
+        },
+      },
+      stderr: {
+        write(chunk: string | Uint8Array) {
+          stderr += String(chunk);
+          return true;
+        },
+      },
+    });
+
+    await program.parseAsync([
+      'node',
+      'kimi',
+      'server',
+      'install',
+      '--force',
+      '--port',
+      '9999',
+    ]);
+
+    expect(stderr).toBe('');
+    expect(installArgs).toMatchObject({ port: 9999, force: true });
+    expect(stdout).toContain('URL: http://127.0.0.1:9999');
+    expect(stdout).toContain('Status: running');
+    expect(stdout).toContain('Log: /tmp/server.log');
+    expect(openUrl).toHaveBeenCalledWith('http://127.0.0.1:9999');
+  });
+
+  it('start prints URL and diagnostics when launchd did not keep the service running', async () => {
+    const program = new Command('kimi').exitOverride();
+    const server = program.command('server');
+    let stdout = '';
+    const openUrl = vi.fn();
+
+    addLifecycleCommands(server, {
+      resolveManager: () => ({
+        install: async () => ({ status: 'installed', message: 'unused' }),
+        uninstall: async () => ({ ok: true, message: 'unused' }),
+        start: async () => ({ ok: true, message: 'Kimi server started (ai.moonshot.kimi-server).' }),
+        stop: async () => ({ ok: true, message: 'unused' }),
+        restart: async () => ({ ok: true, message: 'unused' }),
+        status: async () => ({
+          platform: 'darwin',
+          installed: true,
+          running: false,
+          host: '127.0.0.1',
+          port: 7878,
+          logPath: '/tmp/server.log',
+          label: 'ai.moonshot.kimi-server',
+          notes: ['launchd state: spawn scheduled', 'last exit code: 78 EX_CONFIG'],
+        }),
+      }),
+      openUrl,
+      stdout: {
+        write(chunk: string | Uint8Array) {
+          stdout += String(chunk);
+          return true;
+        },
+      },
+      stderr: {
+        write() {
+          return true;
+        },
+      },
+    });
+
+    await program.parseAsync(['node', 'kimi', 'server', 'start']);
+
+    expect(stdout).toContain('URL: http://127.0.0.1:7878');
+    expect(stdout).toContain('Status: not running');
+    expect(stdout).toContain('launchd state: spawn scheduled');
+    expect(stdout).toContain('last exit code: 78 EX_CONFIG');
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+});
+
 describe('`kimi server` does not register a legacy `daemon` command', () => {
   it('hard-deletes the old name', () => {
     const program = makeProgram();
@@ -117,6 +288,18 @@ describe('shared parsers stay strict', () => {
     expect(() => parseLogLevel('shout')).toThrow(/invalid --log-level/);
     expect(parseLogLevel(undefined)).toBe('info');
     expect(parseLogLevel('debug')).toBe('debug');
+  });
+});
+
+describe('server web asset directory resolution', () => {
+  it('uses extracted SEA web assets when available', async () => {
+    const { resolveServerWebAssetsDir } = await import('#/cli/sub/server/run');
+    expect(resolveServerWebAssetsDir('/cache/kimi/dist-web')).toBe('/cache/kimi/dist-web');
+  });
+
+  it('falls back to package dist-web outside SEA mode', async () => {
+    const { resolveServerWebAssetsDir } = await import('#/cli/sub/server/run');
+    expect(resolveServerWebAssetsDir(null)).toMatch(/[/\\]dist-web$/);
   });
 });
 

@@ -21,6 +21,7 @@ import {
 } from '../../src/svc/systemd-unit';
 import { KIMI_SERVER_SYSTEMD_UNIT } from '../../src/svc/paths';
 import { readInstallPlan, writeInstallPlan } from '../../src/svc/install-plan';
+import { ServiceUnavailableError } from '../../src/svc/types';
 import type { ExecOptions, ExecResult } from '../../src/svc/exec';
 
 interface StubCall {
@@ -135,6 +136,7 @@ describe('systemd manager — install', () => {
   it('writes the unit, daemon-reloads, enables --now', async () => {
     const { deps, calls, unitPath } = makeDeps(
       [
+        { stdout: '', stderr: '', code: 0 }, // show-environment
         { stdout: '', stderr: '', code: 0 }, // daemon-reload
         { stdout: '', stderr: '', code: 0 }, // enable --now
       ],
@@ -149,9 +151,10 @@ describe('systemd manager — install', () => {
     const text = readFileSync(unitPath, 'utf8');
     expect(text).toContain('ExecStart=/usr/local/bin/kimi server run --host 127.0.0.1 --port 7878 --log-level info');
 
-    expect(calls.length).toBe(2);
-    expect(calls[0]?.args).toEqual(['daemon-reload']);
-    expect(calls[1]?.args).toEqual(['enable', '--now', KIMI_SERVER_SYSTEMD_UNIT]);
+    expect(calls.length).toBe(3);
+    expect(calls[0]?.args).toEqual(['show-environment']);
+    expect(calls[1]?.args).toEqual(['daemon-reload']);
+    expect(calls[2]?.args).toEqual(['enable', '--now', KIMI_SERVER_SYSTEMD_UNIT]);
   });
 
   it('refuses to overwrite an existing install without --force', async () => {
@@ -168,6 +171,7 @@ describe('systemd manager — install', () => {
   it('overwrites + replaces when force=true', async () => {
     const { deps, unitPath } = makeDeps(
       [
+        { stdout: '', stderr: '', code: 0 }, // show-environment
         { stdout: '', stderr: '', code: 0 }, // daemon-reload
         { stdout: '', stderr: '', code: 0 }, // enable --now
       ],
@@ -183,8 +187,36 @@ describe('systemd manager — install', () => {
     expect(text).toContain('ExecStart=/usr/local/bin/kimi server run --host 0.0.0.0 --port 9999 --log-level debug');
   });
 
+  it('fails before writing files when user systemd is unavailable', async () => {
+    const { deps, calls, unitPath } = makeDeps(
+      [
+        {
+          stdout: '',
+          stderr: 'System has not been booted with systemd as init system (PID 1).',
+          code: 1,
+        },
+      ],
+      workDir,
+    );
+    const mgr = createSystemdManager(deps);
+
+    await expect(
+      mgr.install({ host: '127.0.0.1', port: 7878, logLevel: 'info' }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
+
+    expect(calls).toEqual([{ args: ['show-environment'], options: undefined }]);
+    expect(existsSync(unitPath)).toBe(false);
+    expect(readInstallPlan()).toBeUndefined();
+  });
+
   it('surfaces daemon-reload failure as a thrown error', async () => {
-    const { deps } = makeDeps([{ stdout: '', stderr: 'unit not loaded', code: 1 }], workDir);
+    const { deps } = makeDeps(
+      [
+        { stdout: '', stderr: '', code: 0 },
+        { stdout: '', stderr: 'unit not loaded', code: 1 },
+      ],
+      workDir,
+    );
     const mgr = createSystemdManager(deps);
     await expect(
       mgr.install({ host: '127.0.0.1', port: 7878, logLevel: 'info' }),
@@ -194,6 +226,7 @@ describe('systemd manager — install', () => {
   it('surfaces enable --now failure as a thrown error', async () => {
     const { deps } = makeDeps(
       [
+        { stdout: '', stderr: '', code: 0 },
         { stdout: '', stderr: '', code: 0 },
         { stdout: '', stderr: 'unit failed to start', code: 1 },
       ],

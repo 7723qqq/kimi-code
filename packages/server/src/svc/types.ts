@@ -95,3 +95,18 @@ export class ServiceUnsupportedError extends Error {
     this.platform = platform;
   }
 }
+
+/** Thrown when the platform is supported but the current environment cannot host the service. */
+export class ServiceUnavailableError extends Error {
+  override readonly name = 'ServiceUnavailableError';
+  readonly code = 'ESERVICE_UNAVAILABLE' as const;
+  readonly exitCode = 2 as const;
+  readonly platform: string;
+
+  constructor(platform: string, reason: string) {
+    super(
+      `${reason} Run \`kimi server run --host 0.0.0.0 --port <port>\` directly when running inside Docker or another container supervisor.`,
+    );
+    this.platform = platform;
+  }
+}

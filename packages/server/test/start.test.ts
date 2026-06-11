@@ -157,6 +157,42 @@ describe('startServer — web assets', () => {
     const health = await fetch(`${r.address}/api/v1/healthz`);
     await expect(health.json()).resolves.toMatchObject({ code: 0 });
   });
+
+  it('does not expose Swagger documentation by default', async () => {
+    const r = await startServer({
+      host: '127.0.0.1',
+      port: 0,
+      lockPath,
+      logger: silentLogger(),
+      coreProcessOptions: { homeDir: bridgeHome },
+    });
+    running.push(r);
+
+    const res = await fetch(`${r.address}/documentation`);
+    expect(res.status).toBe(404);
+  });
+
+  it('serves Swagger UI static assets from an explicit directory when enabled', async () => {
+    const staticDir = join(tmpDir, 'swagger-static');
+    rmSync(staticDir, { recursive: true, force: true });
+    mkdirSync(staticDir);
+    writeFileSync(join(staticDir, 'logo.svg'), '<svg id="custom-logo"></svg>', 'utf8');
+
+    const r = await startServer({
+      host: '127.0.0.1',
+      port: 0,
+      lockPath,
+      logger: silentLogger(),
+      coreProcessOptions: { homeDir: bridgeHome },
+      swagger: true,
+      swaggerUiAssetsDir: staticDir,
+    });
+    running.push(r);
+
+    await expect(
+      fetch(`${r.address}/documentation/static/logo.svg`).then((res) => res.text()),
+    ).resolves.toBe('<svg id="custom-logo"></svg>');
+  });
 });
 
 describe('startServer — DI container wiring', () => {

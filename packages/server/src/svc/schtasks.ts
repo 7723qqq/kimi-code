@@ -23,6 +23,7 @@ import {
   type InstallPlan,
 } from './install-plan';
 import { KIMI_SERVER_TASK_NAME, supervisorLogPath as defaultSupervisorLogPath } from './paths';
+import { resolveSupervisorProgram } from './program';
 import { buildScheduledTaskXml, parseSchtasksQuery } from './schtasks-xml';
 import type {
   InstallArgs,
@@ -48,7 +49,7 @@ export interface SchtasksManagerDeps {
 const DEFAULT_DEPS: SchtasksManagerDeps = {
   execSchtasks: (args, options) =>
     execFileUtf8('schtasks', args, { windowsHide: true, ...options }),
-  resolveProgram: () => process.argv[1] ?? 'kimi.exe',
+  resolveProgram: () => resolveSupervisorProgram(process.argv, process.cwd(), 'kimi.exe'),
   logPath: defaultSupervisorLogPath,
   writeTaskXml: defaultWriteTaskXml,
   taskExists: defaultTaskExists,

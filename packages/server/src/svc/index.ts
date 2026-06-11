@@ -18,6 +18,7 @@ export {
   KIMI_SERVER_TASK_NAME,
 } from './paths';
 export {
+  ServiceUnavailableError,
   ServiceUnsupportedError,
   type InstallArgs,
   type InstallResult,

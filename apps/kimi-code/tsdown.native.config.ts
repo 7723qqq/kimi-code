@@ -17,10 +17,15 @@ const builtins = new Set([
   ...builtinModules.map((name) => `node:${name}`),
 ]);
 const optionalNativeDependencies = new Set(['cpu-features']);
+const nativeExternalDependencies = new Set([
+  ...optionalNativeDependencies,
+  '@fastify/swagger',
+  '@fastify/swagger-ui',
+]);
 
 function shouldAlwaysBundle(id: string): boolean {
   if (builtins.has(id) || id.startsWith('node:')) return false;
-  if (optionalNativeDependencies.has(id)) return false;
+  if (nativeExternalDependencies.has(id)) return false;
   return true;
 }
 
@@ -53,7 +58,7 @@ export default defineConfig({
   },
   deps: {
     alwaysBundle: shouldAlwaysBundle,
-    neverBundle: [...optionalNativeDependencies],
+    neverBundle: [...nativeExternalDependencies],
     onlyBundle: false,
   },
   outputOptions: {

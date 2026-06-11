@@ -15,6 +15,7 @@ import { join } from 'node:path';
 
 import { ServerLockedError, startServer } from '@moonshot-ai/server';
 
+import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 
 import { createKimiCodeHostIdentity, getHostPackageRoot, getVersion } from '../../version';
@@ -141,7 +142,13 @@ export async function startServerForeground(
 }
 
 function serverWebAssetsDir(): string {
-  return join(getHostPackageRoot(), WEB_ASSETS_DIR);
+  return resolveServerWebAssetsDir();
+}
+
+export function resolveServerWebAssetsDir(
+  nativeWebAssetsDir: string | null = getNativeWebAssetsDir(),
+): string {
+  return nativeWebAssetsDir ?? join(getHostPackageRoot(), WEB_ASSETS_DIR);
 }
 
 function formatAlreadyRunning(port: number, pid: number): string {

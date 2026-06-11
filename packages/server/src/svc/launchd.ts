@@ -29,6 +29,7 @@ import {
   launchAgentPlistPath as defaultLaunchAgentPlistPath,
   supervisorLogPath as defaultSupervisorLogPath,
 } from './paths';
+import { resolveSupervisorProgram } from './program';
 import type {
   InstallArgs,
   InstallResult,
@@ -55,11 +56,13 @@ export interface LaunchdManagerDeps {
 
 const DEFAULT_DEPS: LaunchdManagerDeps = {
   execLaunchctl: (args, options) => execFileUtf8('launchctl', args, options),
-  resolveProgram: () => process.argv[1] ?? 'kimi',
+  resolveProgram: () => resolveSupervisorProgram(),
   plistPath: defaultLaunchAgentPlistPath,
   logPath: defaultSupervisorLogPath,
   guiDomain: () => defaultGuiDomain(),
 };
+
+export { resolveSupervisorProgram };
 
 /** Construct the launchd backend. Pass `deps` overrides in tests. */
 export function createLaunchdManager(
@@ -217,14 +220,18 @@ export function createLaunchdManager(
       };
     }
     const info = parseLaunchctlPrint(print.stdout);
+    const notes =
+      info.state !== undefined
+        ? [`launchd state: ${info.state}`]
+        : ['launchd state: unknown'];
+    if (info.lastExitCode !== undefined) {
+      notes.push(`last exit code: ${info.lastExitCode}`);
+    }
     return {
       ...base,
       running: info.state === 'running' || info.pid !== undefined,
       ...(info.pid !== undefined ? { pid: info.pid } : {}),
-      notes:
-        info.state !== undefined
-          ? [`launchd state: ${info.state}`]
-          : ['launchd state: unknown'],
+      notes,
     };
   }
 
@@ -232,8 +239,12 @@ export function createLaunchdManager(
 }
 
 /** Pure parser for `launchctl print <domain>/<label>` output. Exported for tests. */
-export function parseLaunchctlPrint(output: string): { state?: string; pid?: number } {
-  const result: { state?: string; pid?: number } = {};
+export function parseLaunchctlPrint(output: string): {
+  state?: string;
+  pid?: number;
+  lastExitCode?: string;
+} {
+  const result: { state?: string; pid?: number; lastExitCode?: string } = {};
   for (const rawLine of output.split(/\r?\n/)) {
     const line = rawLine.trim();
     const equalsIdx = line.indexOf('=');
@@ -247,6 +258,8 @@ export function parseLaunchctlPrint(output: string): { state?: string; pid?: num
       if (Number.isFinite(n) && n > 0) {
         result.pid = n;
       }
+    } else if ((key === 'last exit code' || key === 'last exit status') && result.lastExitCode === undefined) {
+      result.lastExitCode = value;
     }
   }
   return result;

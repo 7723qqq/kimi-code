@@ -39,10 +39,12 @@ import {
 } from '@moonshot-ai/services';
 import { ErrorCode } from '@moonshot-ai/protocol';
 import Fastify from 'fastify';
-import swagger from '@fastify/swagger';
-import swaggerUi from '@fastify/swagger-ui';
 import { promises as fspPromises } from 'node:fs';
-import { sep as nodePathSep, relative as nodePathRelativeNative } from 'node:path';
+import {
+  join as nodePathJoin,
+  sep as nodePathSep,
+  relative as nodePathRelativeNative,
+} from 'node:path';
 
 import { installErrorHandler } from './error-handler';
 import { transformOpenApiDocument } from './openapi/transforms';
@@ -82,6 +84,10 @@ export interface ServerStartOptions {
   debugEndpoints?: boolean;
 
   webAssetsDir?: string;
+
+  swagger?: boolean;
+
+  swaggerUiAssetsDir?: string;
 
   serviceOverrides?: ReadonlyArray<readonly [ServiceIdentifier<unknown>, unknown]>;
 }
@@ -123,39 +129,69 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   installErrorHandler(app);
 
   const serverVersion = getServerVersion();
-  await app.register(swagger, {
-    openapi: {
-      info: {
-        title: 'Kimi Code Server API',
-        description:
-          'REST API for the Kimi Code local server. All JSON responses are wrapped in a uniform envelope `{ code, msg, data, request_id }`.',
-        version: serverVersion,
+  const swaggerEnabled = opts.swagger === true;
+
+  async function registerSwagger(): Promise<void> {
+    const { default: swagger } = await import('@fastify/swagger');
+    await app.register(swagger, {
+      openapi: {
+        info: {
+          title: 'Kimi Code Server API',
+          description:
+            'REST API for the Kimi Code local server. All JSON responses are wrapped in a uniform envelope `{ code, msg, data, request_id }`.',
+          version: serverVersion,
+        },
+        tags: [
+          { name: 'meta', description: 'Server metadata' },
+          { name: 'auth', description: 'Auth readiness & login state' },
+          { name: 'models', description: 'Configured model aliases' },
+          { name: 'providers', description: 'Configured providers' },
+          { name: 'sessions', description: 'Session lifecycle' },
+          { name: 'workspaces', description: 'Workspace registry + folder picker' },
+          { name: 'messages', description: 'Message history' },
+          { name: 'prompts', description: 'Prompt submission & abort' },
+          { name: 'approvals', description: 'Approval resolution' },
+          { name: 'questions', description: 'Question resolution & dismiss' },
+          { name: 'tools', description: 'Tool & MCP server management' },
+          { name: 'tasks', description: 'Background tasks' },
+          { name: 'terminals', description: 'PTY terminal sessions' },
+          { name: 'fs', description: 'Filesystem operations' },
+          { name: 'files', description: 'File upload & download' },
+        ],
       },
-      tags: [
-        { name: 'meta', description: 'Server metadata' },
-        { name: 'auth', description: 'Auth readiness & login state' },
-        { name: 'models', description: 'Configured model aliases' },
-        { name: 'providers', description: 'Configured providers' },
-        { name: 'sessions', description: 'Session lifecycle' },
-        { name: 'workspaces', description: 'Workspace registry + folder picker' },
-        { name: 'messages', description: 'Message history' },
-        { name: 'prompts', description: 'Prompt submission & abort' },
-        { name: 'approvals', description: 'Approval resolution' },
-        { name: 'questions', description: 'Question resolution & dismiss' },
-        { name: 'tools', description: 'Tool & MCP server management' },
-        { name: 'tasks', description: 'Background tasks' },
-        { name: 'terminals', description: 'PTY terminal sessions' },
-        { name: 'fs', description: 'Filesystem operations' },
-        { name: 'files', description: 'File upload & download' },
-      ],
-    },
-    transformObject: (documentObject) => {
-      if (!('openapiObject' in documentObject)) {
-        return documentObject.swaggerObject;
-      }
-      return transformOpenApiDocument(documentObject.openapiObject as Record<string, unknown>);
-    },
-  });
+      transformObject: (documentObject) => {
+        if (!('openapiObject' in documentObject)) {
+          return documentObject.swaggerObject;
+        }
+        return transformOpenApiDocument(documentObject.openapiObject as Record<string, unknown>);
+      },
+    });
+  }
+
+  async function registerSwaggerUi(assetsDir: string | undefined): Promise<void> {
+    const { default: swaggerUi } = await import('@fastify/swagger-ui');
+    const logo =
+      assetsDir === undefined
+        ? undefined
+        : {
+            type: 'image/svg+xml',
+            content: await fspPromises.readFile(nodePathJoin(assetsDir, 'logo.svg')),
+          };
+
+    await app.register(swaggerUi, {
+      routePrefix: '/documentation',
+      baseDir: assetsDir,
+      logo,
+      uiConfig: {
+        docExpansion: 'list',
+        deepLinking: true,
+      },
+    });
+  }
+
+  if (swaggerEnabled) {
+    await registerSwagger();
+  }
 
   const envService: IEnvironmentService = {
     _serviceBrand: undefined,
@@ -179,13 +215,9 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     debugEndpoints: opts.debugEndpoints,
   });
 
-  await app.register(swaggerUi, {
-    routePrefix: '/documentation',
-    uiConfig: {
-      docExpansion: 'list',
-      deepLinking: true,
-    },
-  });
+  if (swaggerEnabled) {
+    await registerSwaggerUi(opts.swaggerUiAssetsDir);
+  }
 
   if (opts.webAssetsDir !== undefined) {
     await registerWebAssetRoutes(app, opts.webAssetsDir);

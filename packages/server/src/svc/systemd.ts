@@ -29,7 +29,9 @@ import {
   supervisorLogPath as defaultSupervisorLogPath,
   systemdUnitPath as defaultSystemdUnitPath,
 } from './paths';
+import { resolveSupervisorProgram } from './program';
 import { buildSystemdUnit, parseSystemctlShow } from './systemd-unit';
+import { ServiceUnavailableError } from './types';
 import type {
   InstallArgs,
   InstallResult,
@@ -54,7 +56,7 @@ export interface SystemdManagerDeps {
 
 const DEFAULT_DEPS: SystemdManagerDeps = {
   execSystemctl: (args, options) => execFileUtf8('systemctl', ['--user', ...args], options),
-  resolveProgram: () => process.argv[1] ?? 'kimi',
+  resolveProgram: () => resolveSupervisorProgram(),
   unitPath: defaultSystemdUnitPath,
   logPath: defaultSupervisorLogPath,
 };
@@ -78,6 +80,8 @@ export function createSystemdManager(
         unitPath,
       };
     }
+
+    await assertUserSystemdAvailable(deps);
 
     writeUnit(unitPath, plan);
     writeInstallPlan(plan);
@@ -208,6 +212,16 @@ export function createSystemdManager(
   }
 
   return { install, uninstall, start, stop, restart, status };
+}
+
+async function assertUserSystemdAvailable(deps: SystemdManagerDeps): Promise<void> {
+  const probe = await deps.execSystemctl(['show-environment']);
+  if (probe.code === 0) return;
+
+  throw new ServiceUnavailableError(
+    'linux',
+    `systemd --user is not available in this environment: ${detail(probe) ?? 'systemctl --user show-environment failed'}.`,
+  );
 }
 
 function writeUnit(unitPath: string, plan: InstallPlan): void {
