@@ -47,7 +47,7 @@ export {
   FsTooLargeError,
   FsTooManyResultsError,
 } from './fs/fs';
-export type { FsDownloadResolved } from './fs/fs';
+export type { FsDownloadResolved, FsPathResolved } from './fs/fs';
 export { FsService } from './fs/fsService';
 export {
   IFsSearchService,

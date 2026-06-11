@@ -82,6 +82,11 @@ export interface IFsService extends IDisposable {
     sessionId: string,
     relPath: string,
   ): Promise<FsDownloadResolved>;
+
+  resolvePath(
+    sessionId: string,
+    relPath: string,
+  ): Promise<FsPathResolved>;
 }
 
 export interface FsDownloadResolved {
@@ -97,6 +102,12 @@ export interface FsDownloadResolved {
   readonly mime: string;
 
   readonly modifiedAt: Date;
+}
+
+export interface FsPathResolved {
+  readonly absolute: string;
+  readonly relative: string;
+  readonly isDirectory: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

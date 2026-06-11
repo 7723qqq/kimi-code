@@ -1,10 +1,11 @@
 <!-- apps/kimi-web/src/App.vue -->
 <script setup lang="ts">
-import { computed, onMounted, provide, ref } from 'vue';
+import { computed, onMounted, provide, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Sidebar from './components/Sidebar.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
 import ConversationPane from './components/ConversationPane.vue';
+import FilePreview, { type FileData } from './components/FilePreview.vue';
 import ModelPicker from './components/ModelPicker.vue';
 import ProviderManager from './components/ProviderManager.vue';
 import LoginDialog from './components/LoginDialog.vue';
@@ -21,6 +22,7 @@ import GlobalLoading from './components/GlobalLoading.vue';
 import { useKimiWebClient } from './composables/useKimiWebClient';
 import { useIsMobile } from './composables/useIsMobile';
 import type { ThinkingLevel } from './api/types';
+import type { FilePreviewRequest } from './types';
 
 const client = useKimiWebClient();
 provide('resolveImage', client.resolveImageUrl);
@@ -81,6 +83,130 @@ const SIDEBAR_MAX = 420;
 
 const sessionColWidth = ref(SIDEBAR_DEFAULT);
 const sideWidth = computed(() => sessionColWidth.value);
+
+// ---------------------------------------------------------------------------
+// Global file preview panel. Chat path links open here; the existing ~/files
+// tab keeps its local split-pane preview.
+// ---------------------------------------------------------------------------
+const PREVIEW_WIDTH_KEY = 'kimi-web.file-preview-width';
+const PREVIEW_DEFAULT = 460;
+const PREVIEW_MIN = 320;
+const PREVIEW_MAX = 760;
+
+const previewWidth = ref(PREVIEW_DEFAULT);
+const previewTarget = ref<FilePreviewRequest | null>(null);
+const previewFile = ref<FileData | null>(null);
+const previewLoading = ref(false);
+const previewError = ref<string | null>(null);
+let previewRequestSeq = 0;
+
+const previewVisible = computed(
+  () => previewTarget.value !== null || previewFile.value !== null || previewLoading.value || previewError.value !== null,
+);
+const previewDownloadUrl = computed(() => {
+  const path = previewFile.value?.path ?? previewTarget.value?.path;
+  return path ? client.getFileDownloadUrl(path) : null;
+});
+
+function trimTrailingSlash(path: string): string {
+  return path.length > 1 ? path.replace(/\/+$/, '') : path;
+}
+
+function normalizeRelativePath(path: string): string {
+  const out: string[] = [];
+  for (const part of path.split(/[\\/]+/)) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      out.pop();
+      continue;
+    }
+    out.push(part);
+  }
+  return out.join('/');
+}
+
+function normalizePreviewPath(inputPath: string): { path: string } | { error: string } {
+  const raw = inputPath.trim();
+  if (!raw) return { error: t('filePreview.errors.emptyPath') };
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+    return { error: t('filePreview.errors.unsupportedPath') };
+  }
+  if (raw.startsWith('~')) {
+    return { error: t('filePreview.errors.outsideWorkspace') };
+  }
+
+  const cwd = trimTrailingSlash(client.status.value.cwd);
+  if (raw.startsWith('/')) {
+    if (!cwd || (raw !== cwd && !raw.startsWith(`${cwd}/`))) {
+      return { error: t('filePreview.errors.outsideWorkspace') };
+    }
+    const relative = raw === cwd ? '' : raw.slice(cwd.length + 1);
+    if (relative.split(/[\\/]+/).includes('..')) {
+      return { error: t('filePreview.errors.outsideWorkspace') };
+    }
+    const path = normalizeRelativePath(relative);
+    return path ? { path } : { error: t('filePreview.errors.isDirectory') };
+  }
+
+  if (raw.split(/[\\/]+/).includes('..')) {
+    return { error: t('filePreview.errors.outsideWorkspace') };
+  }
+
+  const path = normalizeRelativePath(raw);
+  return path ? { path } : { error: t('filePreview.errors.emptyPath') };
+}
+
+async function openFilePreview(target: FilePreviewRequest): Promise<void> {
+  const normalized = normalizePreviewPath(target.path);
+  previewTarget.value = target;
+  previewFile.value = null;
+  previewError.value = null;
+
+  if ('error' in normalized) {
+    previewLoading.value = false;
+    previewError.value = normalized.error;
+    return;
+  }
+
+  const requestSeq = ++previewRequestSeq;
+  previewTarget.value = { path: normalized.path, line: target.line };
+  previewLoading.value = true;
+  try {
+    const file = await client.readFileContent(normalized.path);
+    if (requestSeq !== previewRequestSeq) return;
+    if (!file) {
+      previewError.value = t('filePreview.errors.loadFailed');
+      return;
+    }
+    previewFile.value = file;
+  } finally {
+    if (requestSeq === previewRequestSeq) previewLoading.value = false;
+  }
+}
+
+function closeFilePreview(): void {
+  previewRequestSeq++;
+  previewTarget.value = null;
+  previewFile.value = null;
+  previewError.value = null;
+  previewLoading.value = false;
+}
+
+function openPreviewInEditor(): void {
+  const path = previewFile.value?.path ?? previewTarget.value?.path;
+  if (!path) return;
+  void client.openWorkspaceFile(path, previewTarget.value?.line);
+}
+
+function revealPreviewFile(): void {
+  const path = previewFile.value?.path ?? previewTarget.value?.path;
+  if (!path) return;
+  void client.revealWorkspaceFile(path);
+}
+
+watch(client.activeSessionId, () => {
+  closeFilePreview();
+});
 
 // Reference to ConversationPane so we can imperatively switch tabs
 const conversationPaneRef = ref<InstanceType<typeof ConversationPane> | null>(null);
@@ -277,7 +403,11 @@ function handleCreateSession(): void {
 </script>
 
 <template>
-  <div class="app" :class="{ mobile: isMobile }" :style="{ '--side-w': sideWidth + 'px' }">
+  <div
+    class="app"
+    :class="{ mobile: isMobile, 'preview-open': previewVisible && !isMobile }"
+    :style="{ '--side-w': sideWidth + 'px', '--preview-w': previewWidth + 'px' }"
+  >
     <!-- Desktop navigation: workspace rail + resizable session column. -->
     <template v-if="!isMobile">
       <Sidebar
@@ -382,6 +512,7 @@ function handleCreateSession(): void {
       @compact="client.compact()"
       @pick-model="openModelPicker()"
       @select-model="client.setModel($event)"
+      @open-file="openFilePreview($event)"
     />
 
     <!-- Multi-workspace selection placeholder -->
@@ -389,6 +520,32 @@ function handleCreateSession(): void {
       <span class="cs-icon">🚧</span>
       <span class="cs-text">{{ t('app.comingSoon') }}</span>
     </div>
+
+    <ResizeHandle
+      v-if="previewVisible && !isMobile"
+      :storage-key="PREVIEW_WIDTH_KEY"
+      :default-width="PREVIEW_DEFAULT"
+      :min="PREVIEW_MIN"
+      :max="PREVIEW_MAX"
+      reverse
+      :aria-label="t('layout.resizePreviewAria')"
+      @update:width="previewWidth = $event"
+    />
+
+    <aside v-if="previewVisible" class="global-preview" :class="{ mobile: isMobile }">
+      <FilePreview
+        :file="previewFile"
+        :loading="previewLoading"
+        :error="previewError"
+        :line="previewTarget?.line"
+        :download-url="previewDownloadUrl"
+        closable
+        external-actions
+        @close="closeFilePreview"
+        @open-external="openPreviewInEditor"
+        @reveal="revealPreviewFile"
+      />
+    </aside>
 
     <!-- Model Picker overlay -->
     <ModelPicker
@@ -545,6 +702,7 @@ function handleCreateSession(): void {
 
 .app {
   --side-w: 248px;
+  --preview-w: 460px;
   height: 100vh;
   display: grid;
   /* sidebar (rail + resizable session column) | 0-width handle | conversation.
@@ -556,6 +714,9 @@ function handleCreateSession(): void {
   border-top: 2px solid var(--ink);
   overflow: hidden;
   box-sizing: border-box;
+}
+.app.preview-open {
+  grid-template-columns: var(--side-w) 0 minmax(0, 1fr) 0 var(--preview-w);
 }
 /* Grid children must be allowed to shrink below content height so that only
    the inner scroll containers (.panes / .sessions) scroll — otherwise the
@@ -570,6 +731,21 @@ function handleCreateSession(): void {
 .app.mobile {
   grid-template-columns: 1fr;
   grid-template-rows: auto 1fr;
+}
+
+.global-preview {
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  background: var(--bg);
+  overflow: hidden;
+}
+.global-preview.mobile {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  border-left: none;
+  border-top: 2px solid var(--ink);
 }
 
 /* Auth onboarding banner */

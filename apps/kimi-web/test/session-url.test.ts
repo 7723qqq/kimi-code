@@ -40,6 +40,8 @@ async function setup(opts: {
   sessions?: AppSession[];
   /** Sessions only reachable via getSession (beyond the first page). */
   extraSessions?: AppSession[];
+  /** Sessions that vanish when their transcript is loaded. */
+  messageMissingSessions?: string[];
   initialPath?: string;
 }) {
   vi.resetModules();
@@ -48,6 +50,7 @@ async function setup(opts: {
 
   const listed = opts.sessions ?? [];
   const extras = opts.extraSessions ?? [];
+  const messageMissingSessions = new Set(opts.messageMissingSessions ?? []);
 
   let handlers: KimiEventHandlers | undefined;
   const eventConn = {
@@ -71,7 +74,12 @@ async function setup(opts: {
       return found;
     }),
     deleteSession: vi.fn(async () => ({ deleted: true })),
-    listMessages: vi.fn(async () => ({ items: [], hasMore: false })),
+    listMessages: vi.fn(async (id: string) => {
+      if (messageMissingSessions.has(id)) {
+        throw { name: 'DaemonApiError', code: 40401, message: `session ${id} does not exist` };
+      }
+      return { items: [], hasMore: false };
+    }),
     listTasks: vi.fn(async () => []),
     getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {} })),
     getSessionStatus: vi.fn(async () => ({
@@ -186,6 +194,21 @@ describe('session ↔ URL binding', () => {
 
     expect(client.activeSessionId.value).toBe('sess_1');
     expect(window.location.pathname).toBe('/sessions/sess_1');
+  });
+
+  it('load() repairs a deep link when the listed session vanishes before messages load', async () => {
+    const { api, client } = await setup({
+      sessions: [session('sess_gone'), session('sess_1')],
+      messageMissingSessions: ['sess_gone'],
+      initialPath: '/sessions/sess_gone',
+    });
+    await client.load();
+
+    expect(api.listMessages).toHaveBeenCalledWith('sess_gone', { pageSize: 100 });
+    expect(client.activeSessionId.value).toBe('sess_1');
+    expect(client.sessions.value.map((s) => s.id)).toEqual(['sess_1']);
+    expect(window.location.pathname).toBe('/sessions/sess_1');
+    expect(client.warnings.value.some((w) => w.includes('Failed to load messages'))).toBe(false);
   });
 
   it('popstate selects the session from the URL without writing the URL again', async () => {

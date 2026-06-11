@@ -11,9 +11,9 @@ export const availableLocales = [
 export type LocaleCode = (typeof availableLocales)[number]['code'];
 
 function detect(): LocaleCode {
-  const stored = localStorage.getItem(STORAGE_KEY);
+  const stored = globalThis.localStorage?.getItem(STORAGE_KEY);
   if (stored === 'en' || stored === 'zh') return stored;
-  return navigator.language?.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  return globalThis.navigator?.language?.toLowerCase().startsWith('zh') ? 'zh' : 'en';
 }
 
 export const i18n = createI18n({
@@ -25,7 +25,7 @@ export const i18n = createI18n({
 
 export function setLocale(l: LocaleCode): void {
   i18n.global.locale.value = l;
-  localStorage.setItem(STORAGE_KEY, l);
+  globalThis.localStorage?.setItem(STORAGE_KEY, l);
 }
 
 export default i18n;

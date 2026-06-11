@@ -28,6 +28,7 @@ import {
   FsTooLargeError,
   FsTooManyResultsError,
   type FsDownloadResolved,
+  type FsPathResolved,
 } from './fs';
 import { FsPathEscapesError, resolveSafePath } from './fsPathSafety';
 
@@ -356,6 +357,26 @@ export class FsService extends Disposable implements IFsService {
       etag: buildEtag(st),
       mime: guessMime(safe.relative, isBinary),
       modifiedAt: new Date(st.mtimeMs),
+    };
+  }
+
+  async resolvePath(
+    sessionId: string,
+    relPath: string,
+  ): Promise<FsPathResolved> {
+    const session = await this.sessions.get(sessionId);
+    const cwd = session.metadata.cwd;
+    const safe = await resolveSafePath(cwd, relPath);
+    let st: import('node:fs').Stats;
+    try {
+      st = await fs.stat(safe.absolute);
+    } catch (err) {
+      throw mapStatError(err, relPath);
+    }
+    return {
+      absolute: safe.absolute,
+      relative: safe.relative,
+      isDirectory: st.isDirectory(),
     };
   }
 

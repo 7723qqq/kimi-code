@@ -14,6 +14,8 @@ const props = withDefaults(
     defaultWidth: number;
     min: number;
     max: number;
+    reverse?: boolean;
+    ariaLabel?: string;
   }>(),
   {},
 );
@@ -27,6 +29,7 @@ const { width, dragging, onPointerDown } = useResizable({
   defaultWidth: props.defaultWidth,
   min: props.min,
   max: props.max,
+  reverse: props.reverse,
 });
 
 // Surface the restored width immediately, then keep the parent in sync on drag.
@@ -40,7 +43,7 @@ watch(width, (w) => emit('update:width', w));
     :class="{ dragging }"
     role="separator"
     aria-orientation="vertical"
-    :aria-label="t('layout.resizeHandleAria')"
+    :aria-label="ariaLabel ?? t('layout.resizeHandleAria')"
     @pointerdown="onPointerDown"
   >
     <span class="rh-bar" aria-hidden="true"></span>

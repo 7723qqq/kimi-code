@@ -102,6 +102,11 @@ export type ApprovalBlock =
 
 export type TurnRole = 'user' | 'assistant';
 
+export interface FilePreviewRequest {
+  path: string;
+  line?: number;
+}
+
 /** One ordered piece of an assistant turn: a thinking segment, a text segment
  * OR a tool card. Built in call order so every piece renders inline where it
  * happened (a turn can think → act → think again — nothing is hoisted). */

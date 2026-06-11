@@ -6,6 +6,7 @@ export {
   FsTooLargeError,
   FsTooManyResultsError,
   type FsDownloadResolved,
+  type FsPathResolved,
 } from './fs';
 export { FsService } from './fsService';
 export {

@@ -655,6 +655,36 @@ export class DaemonKimiWebApi implements KimiWebApi {
     return { path: data.path, diff: data.diff };
   }
 
+  getFileDownloadUrl(sessionId: string, path: string): string {
+    const encodedPath = path.split('/').map((part) => encodeURIComponent(part)).join('/');
+    return buildRestUrl(
+      this.config.daemonHttpUrl,
+      `/sessions/${encodeURIComponent(sessionId)}/fs/${encodedPath}:download`,
+    );
+  }
+
+  async openFile(
+    sessionId: string,
+    input: { path: string; line?: number },
+  ): Promise<{ opened: true }> {
+    const body: Record<string, unknown> = { path: input.path };
+    if (input.line !== undefined) body['line'] = input.line;
+    return this.http.post<{ opened: true }>(
+      `/sessions/${encodeURIComponent(sessionId)}/fs:open`,
+      body,
+    );
+  }
+
+  async revealFile(
+    sessionId: string,
+    input: { path: string },
+  ): Promise<{ revealed: true }> {
+    return this.http.post<{ revealed: true }>(
+      `/sessions/${encodeURIComponent(sessionId)}/fs:reveal`,
+      { path: input.path },
+    );
+  }
+
   // -------------------------------------------------------------------------
   // Workspaces + daemon folder browser
   // PRESUMED — falls back until the daemon ships /workspaces, /fs:browse, /fs:home.

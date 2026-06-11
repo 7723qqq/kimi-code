@@ -401,6 +401,9 @@ export interface KimiWebApi {
   grepFiles(sessionId: string, input: { pattern: string; regex?: boolean; caseSensitive?: boolean }): Promise<{ files: Array<{ path: string; matches: Array<{ line: number; col: number; text: string; before: string[]; after: string[] }> }>; filesScanned: number; truncated: boolean; elapsedMs: number }>;
   getGitStatus(sessionId: string, paths?: string[]): Promise<{ branch: string; ahead: number; behind: number; entries: Record<string, string> }>;
   getFileDiff(sessionId: string, path?: string): Promise<{ path: string; diff: string }>;
+  getFileDownloadUrl(sessionId: string, path: string): string;
+  openFile(sessionId: string, input: { path: string; line?: number }): Promise<{ opened: true }>;
+  revealFile(sessionId: string, input: { path: string }): Promise<{ revealed: true }>;
   connectEvents(handlers: KimiEventHandlers): KimiEventConnection;
 
   // Workspaces + daemon folder browser

@@ -41,6 +41,14 @@
  *
  *   GET /v1/sessions/{sid}/fs/{path}:download
  *     Response: binary stream or envelope (40401 / 40409 / 41304)
+ *
+ *   POST /v1/sessions/{sid}/fs:open
+ *     Body: FsOpenRequest
+ *     Response data: FsOpenResponse
+ *
+ *   POST /v1/sessions/{sid}/fs:reveal
+ *     Body: FsRevealRequest
+ *     Response data: FsRevealResponse
  */
 
 import { z } from 'zod';
@@ -105,6 +113,27 @@ export const fsReadResponseSchema = z.object({
   is_binary: z.boolean(),
 });
 export type FsReadResponse = z.infer<typeof fsReadResponseSchema>;
+
+export const fsOpenRequestSchema = z.object({
+  path: z.string().min(1),
+  line: z.number().int().positive().optional(),
+});
+export type FsOpenRequest = z.infer<typeof fsOpenRequestSchema>;
+
+export const fsOpenResponseSchema = z.object({
+  opened: z.literal(true),
+});
+export type FsOpenResponse = z.infer<typeof fsOpenResponseSchema>;
+
+export const fsRevealRequestSchema = z.object({
+  path: z.string().min(1),
+});
+export type FsRevealRequest = z.infer<typeof fsRevealRequestSchema>;
+
+export const fsRevealResponseSchema = z.object({
+  revealed: z.literal(true),
+});
+export type FsRevealResponse = z.infer<typeof fsRevealResponseSchema>;
 
 export const fsListManyRequestSchema = z.object({
   paths: z.array(z.string().min(1)).min(1).max(100),

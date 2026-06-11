@@ -8,7 +8,9 @@ import {
   fsGrepRequestSchema,
   fsListManyRequestSchema,
   fsListRequestSchema,
+  fsOpenRequestSchema,
   fsReadRequestSchema,
+  fsRevealRequestSchema,
   fsSearchRequestSchema,
   fsStatManyRequestSchema,
   fsStatRequestSchema,
@@ -16,7 +18,9 @@ import {
   type FsGrepRequest,
   type FsListManyRequest,
   type FsListRequest,
+  type FsOpenRequest,
   type FsReadRequest,
+  type FsRevealRequest,
   type FsSearchRequest,
   type FsStatManyRequest,
   type FsStatRequest,
@@ -45,6 +49,11 @@ import {
   IFsGitService,
 } from '@moonshot-ai/services';
 import { FsPathEscapesError } from '@moonshot-ai/services';
+import {
+  launchDetached,
+  openFileCommandFor,
+  revealFileCommandFor,
+} from '../lib/fileLaunch';
 
 interface FsRouteHost {
   post(
@@ -92,6 +101,8 @@ const FS_ACTIONS = [
   'search',
   'grep',
   'git_status',
+  'open',
+  'reveal',
 ] as const;
 type FsAction = (typeof FS_ACTIONS)[number];
 const FS_TAIL_PREFIX = 'fs:';
@@ -119,7 +130,7 @@ export function registerFsRoutes(
         [ErrorCode.FS_GIT_UNAVAILABLE]: {},
       },
       description:
-        'Filesystem action dispatcher. Supported actions: list, read, list_many, stat, stat_many, search, grep, git_status.',
+        'Filesystem action dispatcher. Supported actions: list, read, list_many, stat, stat_many, search, grep, git_status, open, reveal.',
       tags: ['fs'],
       operationId: 'fsAction',
     },
@@ -176,6 +187,12 @@ export function registerFsRoutes(
             return;
           case 'git_status':
             await handleGitStatus(ix, session_id, req, reply);
+            return;
+          case 'open':
+            await handleOpen(ix, session_id, req, reply);
+            return;
+          case 'reveal':
+            await handleReveal(ix, session_id, req, reply);
             return;
         }
       } catch (err) {
@@ -444,6 +461,44 @@ async function handleGitStatus(
     a.get(IFsGitService).status(sessionId, body),
   );
   reply.send(okEnvelope(data, req.id));
+}
+
+async function handleOpen(
+  ix: IInstantiationService,
+  sessionId: string,
+  req: { id: string; body: unknown },
+  reply: { send(payload: unknown): unknown },
+): Promise<void> {
+  const parsed = fsOpenRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    return;
+  }
+  const body: FsOpenRequest = parsed.data;
+  const resolved = await ix.invokeFunction((a) =>
+    a.get(IFsService).resolvePath(sessionId, body.path),
+  );
+  await launchDetached(openFileCommandFor(resolved.absolute, body.line));
+  reply.send(okEnvelope({ opened: true as const }, req.id));
+}
+
+async function handleReveal(
+  ix: IInstantiationService,
+  sessionId: string,
+  req: { id: string; body: unknown },
+  reply: { send(payload: unknown): unknown },
+): Promise<void> {
+  const parsed = fsRevealRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    return;
+  }
+  const body: FsRevealRequest = parsed.data;
+  const resolved = await ix.invokeFunction((a) =>
+    a.get(IFsService).resolvePath(sessionId, body.path),
+  );
+  await launchDetached(revealFileCommandFor(resolved.absolute));
+  reply.send(okEnvelope({ revealed: true as const }, req.id));
 }
 
 function sendMappedError(

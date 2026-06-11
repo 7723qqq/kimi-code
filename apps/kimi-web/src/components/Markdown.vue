@@ -1,9 +1,11 @@
 <!-- apps/kimi-web/src/components/Markdown.vue -->
 <script setup lang="ts">
-import { computed, inject, reactive, ref, watch } from 'vue';
+import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { MarkdownRender } from 'markstream-vue';
 import { useIsDark } from '../composables/useIsDark';
+import type { FilePreviewRequest } from '../types';
+import { findFilePathLinks } from '../lib/filePathLinks';
 // px-based CSS build (our app is px, not rem). Imported here so the styles
 // load wherever Markdown is used; scoped overrides below re-skin it to
 // Terminal Pro. Importing the same file from multiple components is a no-op
@@ -13,10 +15,11 @@ import 'markstream-vue/index.px.css';
 const { t } = useI18n();
 
 const resolveImage = inject<(src: string) => Promise<string>>('resolveImage');
-
+const mdRef = ref<HTMLElement | null>(null);
 const props = withDefaults(
   defineProps<{
     text: string;
+    openFile?: (target: FilePreviewRequest) => void;
     /**
      * True only for the assistant turn that is actively streaming. Drives BOTH
      * `final` (= !streaming) AND markstream's `smooth-streaming`. We bind
@@ -121,6 +124,72 @@ watch(
   { immediate: true },
 );
 
+function processFileLinks(): void {
+  if (!mdRef.value || !props.openFile || props.streaming) return;
+  const walker = document.createTreeWalker(mdRef.value, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  let node = walker.nextNode();
+  while (node) {
+    const text = node as Text;
+    const parent = text.parentElement;
+    if (
+      parent &&
+      !parent.closest('a, pre, .md-file-link') &&
+      text.data.trim().length > 0
+    ) {
+      textNodes.push(text);
+    }
+    node = walker.nextNode();
+  }
+
+  for (const text of textNodes) {
+    const matches = findFilePathLinks(text.data);
+    if (matches.length === 0 || !text.parentNode) continue;
+    const frag = document.createDocumentFragment();
+    let cursor = 0;
+    for (const match of matches) {
+      if (match.start > cursor) {
+        frag.append(document.createTextNode(text.data.slice(cursor, match.start)));
+      }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'md-file-link';
+      button.textContent = match.text;
+      button.title = match.line ? `${match.path}:${match.line}` : match.path;
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        props.openFile?.({ path: match.path, line: match.line });
+      });
+      frag.append(button);
+      cursor = match.end;
+    }
+    if (cursor < text.data.length) {
+      frag.append(document.createTextNode(text.data.slice(cursor)));
+    }
+    text.parentNode.replaceChild(frag, text);
+  }
+}
+
+function scheduleFileLinkProcessing(): void {
+  void nextTick().then(() => processFileLinks());
+}
+
+watch(() => props.text, scheduleFileLinkProcessing);
+watch(() => props.streaming, scheduleFileLinkProcessing);
+
+let observer: MutationObserver | null = null;
+onMounted(() => {
+  scheduleFileLinkProcessing();
+  if (mdRef.value) {
+    observer = new MutationObserver(scheduleFileLinkProcessing);
+    observer.observe(mdRef.value, { childList: true, subtree: true });
+  }
+});
+onUnmounted(() => {
+  observer?.disconnect();
+});
+
 // Shiki themes for code blocks: github-light on the light surface,
 // github-dark when the app colour scheme is dark.
 const CODE_LIGHT_THEME = 'github-light';
@@ -207,7 +276,7 @@ function copyDiff(code: string, idx: number) {
 </script>
 
 <template>
-  <div class="md">
+  <div ref="mdRef" class="md">
     <template v-for="(seg, i) in segments" :key="i">
       <!-- Non-diff markdown → markstream (smooth streaming + shiki) -->
       <MarkdownRender
@@ -268,6 +337,22 @@ function copyDiff(code: string, idx: number) {
   line-height: 1.6;
   color: var(--text);
   font-weight: 500;
+}
+.md :deep(.md-file-link) {
+  appearance: none;
+  display: inline;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--blue2);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.md :deep(.md-file-link:hover) {
+  color: var(--blue);
 }
 /* Pin the prose text to the session-title size (14px) explicitly. markstream
    sets no font-size of its own, so without this the rendered <p>/<li> can pick

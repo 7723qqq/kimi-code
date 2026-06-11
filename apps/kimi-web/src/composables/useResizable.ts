@@ -15,6 +15,8 @@ export interface UseResizableOptions {
   min: number;
   /** Largest allowed width (px). */
   max: number;
+  /** True when dragging right should shrink the controlled width. */
+  reverse?: boolean;
 }
 
 export interface UseResizable {
@@ -50,7 +52,7 @@ function writeStored(key: string, value: number): void {
 }
 
 export function useResizable(options: UseResizableOptions): UseResizable {
-  const { storageKey, defaultWidth, min, max } = options;
+  const { storageKey, defaultWidth, min, max, reverse = false } = options;
 
   function clamp(value: number): number {
     if (!Number.isFinite(value)) return defaultWidth;
@@ -75,7 +77,8 @@ export function useResizable(options: UseResizableOptions): UseResizable {
 
   function onPointerMove(event: PointerEvent): void {
     if (!dragging.value) return;
-    setWidth(startWidth + (event.clientX - startX));
+    const delta = event.clientX - startX;
+    setWidth(startWidth + (reverse ? -delta : delta));
   }
 
   function endDrag(): void {

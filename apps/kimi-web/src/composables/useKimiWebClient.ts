@@ -5,6 +5,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { i18n } from '../i18n';
 import { getKimiWebApi } from '../api';
+import { isDaemonApiError } from '../api/errors';
 import type {
   AppApprovalRequest,
   AppMessage,
@@ -59,6 +60,7 @@ const ACTIVE_WORKSPACE_KEY = 'kimi-active-workspace';
 const THINKING_STORAGE_KEY = 'kimi-web.thinking';
 const PLAN_MODE_STORAGE_KEY = 'kimi-web.plan-mode';
 const THEME_STORAGE_KEY = 'kimi-web.theme';
+const SESSION_NOT_FOUND_CODE = 40401;
 const ONBOARDED_STORAGE_KEY = 'kimi-web.onboarded';
 const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -577,7 +579,37 @@ function orderMessages(
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
-async function loadMessagesForSession(sessionId: string): Promise<void> {
+type LoadMessagesResult = 'ok' | 'not-found' | 'failed';
+
+function isSessionNotFoundError(err: unknown): boolean {
+  if (isDaemonApiError(err) && err.code === SESSION_NOT_FOUND_CODE) return true;
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: unknown }).code === SESSION_NOT_FOUND_CODE
+  );
+}
+
+async function handleSessionNotFound(sessionId: string): Promise<void> {
+  rawState.sessions = rawState.sessions.filter((s) => s.id !== sessionId);
+  delete rawState.messagesBySession[sessionId];
+  delete rawState.tasksBySession[sessionId];
+  delete rawState.gitStatusBySession[sessionId];
+  delete rawState.lastSeqBySession[sessionId];
+
+  if (rawState.activeSessionId !== sessionId) return;
+
+  const next = rawState.sessions[0];
+  if (next) {
+    await selectSession(next.id, { urlMode: 'replace' });
+  } else {
+    rawState.activeSessionId = undefined;
+    rawState.sessionLoading = false;
+    writeSessionUrl(undefined, 'replace');
+  }
+}
+
+async function loadMessagesForSession(sessionId: string): Promise<LoadMessagesResult> {
   try {
     const api = getKimiWebApi();
     const page = await api.listMessages(sessionId, { pageSize: 100 });
@@ -585,8 +617,11 @@ async function loadMessagesForSession(sessionId: string): Promise<void> {
       ...rawState.messagesBySession,
       [sessionId]: orderMessages(page.items),
     };
+    return 'ok';
   } catch (err) {
+    if (isSessionNotFoundError(err)) return 'not-found';
     rawState.warnings = [...rawState.warnings, `Failed to load messages: ${String(err)}`];
+    return 'failed';
   }
 }
 
@@ -604,7 +639,11 @@ async function loadTasksForSession(sessionId: string): Promise<void> {
 }
 
 async function reloadAndResubscribe(sessionId: string, currentSeq: number): Promise<void> {
-  await loadMessagesForSession(sessionId);
+  const result = await loadMessagesForSession(sessionId);
+  if (result === 'not-found') {
+    await handleSessionNotFound(sessionId);
+    return;
+  }
   rawState.lastSeqBySession = { ...rawState.lastSeqBySession, [sessionId]: currentSeq };
   if (eventConn) {
     eventConn.subscribe(sessionId, currentSeq);
@@ -1620,7 +1659,11 @@ async function selectSession(
     refreshSessionSidecars(sessionId);
 
     if (!messagesLoaded) {
-      await loadMessagesForSession(sessionId);
+      const result = await loadMessagesForSession(sessionId);
+      if (result === 'not-found') {
+        await handleSessionNotFound(sessionId);
+        return;
+      }
     }
     subscribeToSessionEvents(sessionId);
   } catch (err) {
@@ -2343,6 +2386,36 @@ async function readFileContent(path: string): Promise<{
 // broken image, which is worse than falling back to the original src.
 const IMAGE_READ_MAX_BYTES = 10_485_760;
 
+function getFileDownloadUrl(path: string): string | null {
+  const sid = rawState.activeSessionId;
+  if (!sid) return null;
+  return getKimiWebApi().getFileDownloadUrl(sid, path);
+}
+
+async function openWorkspaceFile(path: string, line?: number): Promise<boolean> {
+  const sid = rawState.activeSessionId;
+  if (!sid) return false;
+  try {
+    await getKimiWebApi().openFile(sid, { path, line });
+    return true;
+  } catch (err) {
+    rawState.warnings = [...rawState.warnings, `openFile failed: ${String(err)}`];
+    return false;
+  }
+}
+
+async function revealWorkspaceFile(path: string): Promise<boolean> {
+  const sid = rawState.activeSessionId;
+  if (!sid) return false;
+  try {
+    await getKimiWebApi().revealFile(sid, { path });
+    return true;
+  } catch (err) {
+    rawState.warnings = [...rawState.warnings, `revealFile failed: ${String(err)}`];
+    return false;
+  }
+}
+
 /**
  * Resolve a local image path to a displayable data URL.
  * Non-local URLs (http/https/data) pass through unchanged.
@@ -2512,6 +2585,9 @@ export function useKimiWebClient() {
     // File system actions
     listDir,
     readFileContent,
+    getFileDownloadUrl,
+    openWorkspaceFile,
+    revealWorkspaceFile,
     resolveImageUrl,
 
     // Model + Provider actions
