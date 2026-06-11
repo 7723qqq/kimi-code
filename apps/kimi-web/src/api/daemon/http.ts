@@ -10,11 +10,49 @@ import type { WireEnvelope } from './wire';
     composer's in-flight flag with them. Generous enough for slow endpoints;
     streaming runs over the WS, not these REST calls. */
 const REQUEST_TIMEOUT_MS = 30_000;
+const ULID_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const BODY_PREVIEW_LIMIT = 500;
 
 /** AbortSignal.timeout with a fallback for older environments (jsdom). */
 function timeoutSignal(): AbortSignal | undefined {
   try {
     return AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  } catch {
+    return undefined;
+  }
+}
+
+function encodeBase32(value: number, length: number): string {
+  let out = '';
+  let next = value;
+  for (let i = 0; i < length; i++) {
+    out = ULID_ALPHABET[next % 32] + out;
+    next = Math.floor(next / 32);
+  }
+  return out;
+}
+
+function randomBase32(length: number): string {
+  const bytes = new Uint8Array(length);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  return Array.from(bytes, (byte) => ULID_ALPHABET[byte % 32]).join('');
+}
+
+function createRequestId(): string {
+  return `${encodeBase32(Date.now(), 10)}${randomBase32(16)}`;
+}
+
+async function readResponsePreview(response: Response): Promise<string | undefined> {
+  try {
+    const text = await response.text();
+    if (!text) return undefined;
+    return text.length > BODY_PREVIEW_LIMIT ? `${text.slice(0, BODY_PREVIEW_LIMIT)}...` : text;
   } catch {
     return undefined;
   }
@@ -34,20 +72,44 @@ export class DaemonHttpClient {
   /** Send multipart/form-data (FormData). Does NOT set Content-Type — browser sets it with boundary. */
   async postForm<T>(path: string, formData: FormData): Promise<T> {
     const url = buildRestUrl(this.origin, path);
+    const requestId = createRequestId();
     const headers: Record<string, string> = {
-      'X-Request-Id': globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
+      'X-Request-Id': requestId,
     };
     let response: Response;
     try {
       response = await fetch(url, { method: 'POST', headers, body: formData, signal: timeoutSignal() });
     } catch (err) {
-      throw new DaemonNetworkError(`Network error calling POST ${path}`, err);
+      throw new DaemonNetworkError({
+        message: `Network error calling POST ${path}`,
+        cause: err,
+        method: 'POST',
+        path,
+        url,
+        requestId,
+        phase: 'fetch',
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      });
     }
     let envelope: WireEnvelope<T>;
+    const responseForDiagnostics = response.clone();
     try {
       envelope = (await response.json()) as WireEnvelope<T>;
     } catch (err) {
-      throw new DaemonNetworkError(`Failed to parse JSON response from POST ${path}`, err);
+      throw new DaemonNetworkError({
+        message: `Failed to parse JSON response from POST ${path}`,
+        cause: err,
+        method: 'POST',
+        path,
+        url,
+        requestId,
+        phase: 'parse',
+        timeoutMs: REQUEST_TIMEOUT_MS,
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get('content-type') ?? undefined,
+        bodyPreview: await readResponsePreview(responseForDiagnostics),
+      });
     }
     if (envelope.code !== 0) {
       throw new DaemonApiError({
@@ -89,8 +151,9 @@ export class DaemonHttpClient {
     }
 
     // Build headers
+    const requestId = createRequestId();
     const headers: Record<string, string> = {
-      'X-Request-Id': globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
+      'X-Request-Id': requestId,
     };
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json; charset=utf-8';
@@ -106,15 +169,38 @@ export class DaemonHttpClient {
         signal: timeoutSignal(),
       });
     } catch (err) {
-      throw new DaemonNetworkError(`Network error calling ${method} ${path}`, err);
+      throw new DaemonNetworkError({
+        message: `Network error calling ${method} ${path}`,
+        cause: err,
+        method,
+        path,
+        url,
+        requestId,
+        phase: 'fetch',
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      });
     }
 
     // Parse envelope
     let envelope: WireEnvelope<T>;
+    const responseForDiagnostics = response.clone();
     try {
       envelope = (await response.json()) as WireEnvelope<T>;
     } catch (err) {
-      throw new DaemonNetworkError(`Failed to parse JSON response from ${method} ${path}`, err);
+      throw new DaemonNetworkError({
+        message: `Failed to parse JSON response from ${method} ${path}`,
+        cause: err,
+        method,
+        path,
+        url,
+        requestId,
+        phase: 'parse',
+        timeoutMs: REQUEST_TIMEOUT_MS,
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get('content-type') ?? undefined,
+        bodyPreview: await readResponsePreview(responseForDiagnostics),
+      });
     }
 
     // Unwrap: code 0 = success; allowed non-zero = return data; else throw

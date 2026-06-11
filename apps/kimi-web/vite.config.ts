@@ -25,6 +25,15 @@ export default defineConfig({
       '/api/v1': { target: serverTarget, changeOrigin: true, ws: true },
     },
   },
+  // `vite preview` (the production build served locally) needs the same proxy —
+  // bugs that only exist in production chunking (e.g. optional-peer-dep stubs)
+  // can't be reproduced without running the built app against a server.
+  preview: {
+    port: Number(process.env.WEB_PREVIEW_PORT) || 4175,
+    proxy: {
+      '/api/v1': { target: serverTarget, changeOrigin: true, ws: true },
+    },
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

@@ -114,18 +114,34 @@ defineExpose({ closeMenu, cancelDelete });
 
     <template v-else>
       <div class="row">
-        <!-- Inline rename input -->
-        <input
-          v-if="renaming"
-          ref="renameInputRef"
-          v-model="renameValue"
-          class="rename-input"
-          @click.stop
-          @keydown.enter.stop="commitRename"
-          @keydown.esc.stop="cancelRename"
-          @blur="commitRename"
-        />
-        <span v-else :class="['t', { run: session.status === 'running' }]" @dblclick.stop="startRename">{{ session.title }}</span>
+        <div class="left">
+          <!-- Inline rename input -->
+          <input
+            v-if="renaming"
+            ref="renameInputRef"
+            v-model="renameValue"
+            class="rename-input"
+            @click.stop
+            @keydown.enter.stop="commitRename"
+            @keydown.esc.stop="cancelRename"
+            @blur="commitRename"
+          />
+          <span v-else :class="['t', { run: session.status === 'running' }]" @dblclick.stop="startRename">{{ session.title }}</span>
+        </div>
+
+        <span class="ts">{{ session.time }}</span>
+
+        <!-- Attention pill — shown even when the row isn't active -->
+        <span
+          v-if="!renaming && attention > 0"
+          class="attn"
+          :title="t('workspace.attentionTitle', attention)"
+        >
+          <svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M8 4v5" /><circle cx="8" cy="12" r="0.6" fill="currentColor" stroke="none" />
+          </svg>
+          {{ attention }}
+        </span>
 
         <!-- Kebab button (visible on hover) -->
         <button
@@ -142,21 +158,6 @@ defineExpose({ closeMenu, cancelDelete });
             <circle cx="8" cy="13" r="1.3" />
           </svg>
         </button>
-
-        <span class="ts">{{ session.time }}</span>
-
-        <!-- Attention pill — shown even when the row isn't active -->
-        <span
-          v-if="!renaming && attention > 0"
-          class="attn"
-          :title="t('workspace.attentionTitle', attention)"
-        >
-          <svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2">
-            <path d="M8 4v5" /><circle cx="8" cy="12" r="0.6" fill="currentColor" stroke="none" />
-          </svg>
-          {{ attention }}
-        </span>
-
       </div>
 
       <!-- Kebab dropdown -->
@@ -191,6 +192,13 @@ defineExpose({ closeMenu, cancelDelete });
   min-width: 0;
 }
 
+.left {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
 /* Leading spacer mirrors the workspace header's icon slot. */
 .row::before {
   content: '';
@@ -211,6 +219,7 @@ defineExpose({ closeMenu, cancelDelete });
 .se.on .t { font-weight: 500; }
 
 .ts { color: var(--muted); font-size: 10.5px; flex: none; }
+.se:hover .ts { display: none; }
 
 /* Running indicator — pulse dot absolutely positioned left of title,
    so the text start position does not shift. */
@@ -251,8 +260,8 @@ defineExpose({ closeMenu, cancelDelete });
 }
 .attn svg { flex: none; }
 
-/* Kebab button — hidden until hover. Sits LEFT of the timestamp (DOM order),
-   so the time stays pinned to the right rail and never jumps on hover. */
+/* Kebab button — hidden until hover. Sits at the RIGHT of the timestamp
+   and attention badge so it is the right-most element. */
 .kebab {
   display: none;
   flex: none;

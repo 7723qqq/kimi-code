@@ -11,3 +11,5 @@ catalog:
 overrides:
   "ssh2@1.17.0>cpu-features": "-"
   "ssh2@1.17.0>nan": "-"
+patchedDependencies:
+  markstream-vue: patches/markstream-vue.patch

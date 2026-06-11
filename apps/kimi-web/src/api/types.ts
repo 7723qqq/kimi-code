@@ -18,6 +18,26 @@ export interface PageRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Notices
+// ---------------------------------------------------------------------------
+
+export type AppNoticeSeverity = 'info' | 'warning' | 'error';
+
+export interface AppNoticeDetail {
+  label: string;
+  value: string;
+}
+
+export interface AppNotice {
+  severity: AppNoticeSeverity;
+  title: string;
+  message?: string;
+  details?: AppNoticeDetail[];
+}
+
+export type AppWarning = string | AppNotice;
+
+// ---------------------------------------------------------------------------
 // Session
 // ---------------------------------------------------------------------------
 

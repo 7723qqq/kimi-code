@@ -13,6 +13,7 @@ import type {
   AppEvent,
   AppMessage,
   AppMessageContent,
+  AppWarning,
   AppQuestionRequest,
   AppSession,
   AppTask,
@@ -44,7 +45,7 @@ export interface KimiClientState {
   tasksBySession: Record<string, AppTask[]>;
   lastSeqBySession: Record<string, number>;
   compactionBySession: Record<string, CompactionStatus>;
-  warnings: string[];
+  warnings: AppWarning[];
 }
 
 export function createInitialState(): KimiClientState {

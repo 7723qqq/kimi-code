@@ -7,7 +7,7 @@
 // the address bar with replaceState.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AppSession, KimiEventHandlers, KimiWebApi } from '../src/api/types';
+import type { AppSession, AppWarning, KimiEventHandlers, KimiWebApi } from '../src/api/types';
 import { readSessionIdFromLocation, sessionUrl } from '../src/lib/sessionRoute';
 
 const now = '2026-06-11T00:00:00.000Z';
@@ -42,6 +42,7 @@ async function setup(opts: {
   extraSessions?: AppSession[];
   /** Sessions that vanish when their transcript is loaded. */
   messageMissingSessions?: string[];
+  snapshotErrors?: Record<string, unknown>;
   initialPath?: string;
 }) {
   vi.resetModules();
@@ -51,6 +52,7 @@ async function setup(opts: {
   const listed = opts.sessions ?? [];
   const extras = opts.extraSessions ?? [];
   const messageMissingSessions = new Set(opts.messageMissingSessions ?? []);
+  const snapshotErrors = opts.snapshotErrors ?? {};
 
   let handlers: KimiEventHandlers | undefined;
   const eventConn = {
@@ -76,6 +78,9 @@ async function setup(opts: {
     }),
     deleteSession: vi.fn(async () => ({ deleted: true })),
     getSessionSnapshot: vi.fn(async (id: string) => {
+      if (Object.prototype.hasOwnProperty.call(snapshotErrors, id)) {
+        throw snapshotErrors[id];
+      }
       if (messageMissingSessions.has(id)) {
         throw Object.assign(new Error(`session ${id} does not exist`), {
           name: 'DaemonApiError',
@@ -125,6 +130,10 @@ async function setup(opts: {
   };
 }
 
+function warningText(warning: AppWarning): string {
+  return typeof warning === 'string' ? warning : `${warning.title} ${warning.message ?? ''}`;
+}
+
 /** Simulate back/forward: the browser changes the URL itself, then fires
     popstate. jsdom's history traversal is unreliable, so emulate directly. */
 function firePopState(path: string): void {
@@ -136,6 +145,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.resetModules();
   vi.clearAllMocks();
+  localStorage.removeItem('kimi-locale');
   window.history.replaceState(null, '', '/');
 });
 
@@ -222,7 +232,47 @@ describe('session ↔ URL binding', () => {
     expect(client.activeSessionId.value).toBe('sess_1');
     expect(client.sessions.value.map((s) => s.id)).toEqual(['sess_1']);
     expect(window.location.pathname).toBe('/sessions/sess_1');
-    expect(client.warnings.value.some((w) => w.includes('Failed to load session snapshot'))).toBe(false);
+    expect(client.warnings.value.some((w) => warningText(w).includes('Failed to load session snapshot'))).toBe(false);
+  });
+
+  it('load() surfaces snapshot network failures as actionable diagnostics', async () => {
+    localStorage.setItem('kimi-locale', 'en');
+    const networkError = Object.assign(new Error('Network error calling GET /sessions/sess_1/snapshot'), {
+      name: 'DaemonNetworkError',
+      method: 'GET',
+      path: '/sessions/sess_1/snapshot',
+      url: 'http://127.0.0.1:7878/api/v1/sessions/sess_1/snapshot',
+      requestId: '01HZ0000000000000000000000',
+      phase: 'fetch',
+      timeoutMs: 30000,
+      cause: new TypeError('Failed to fetch'),
+    });
+    const { client } = await setup({
+      sessions: [session('sess_1')],
+      snapshotErrors: { sess_1: networkError },
+    });
+
+    await client.load();
+
+    expect(client.warnings.value).toHaveLength(1);
+    const [warning] = client.warnings.value;
+    expect(typeof warning).toBe('object');
+    if (typeof warning === 'string') throw new Error('expected structured warning');
+    expect(warning).toMatchObject({
+      severity: 'error',
+      title: 'Cannot load current conversation',
+      message: expect.stringContaining('could not load the current conversation'),
+    });
+    expect(warning.details).toEqual(
+      expect.arrayContaining([
+        { label: 'Operation', value: 'getSessionSnapshot' },
+        { label: 'Session ID', value: 'sess_1' },
+        { label: 'Request', value: 'GET /sessions/sess_1/snapshot' },
+        { label: 'Endpoint', value: 'http://127.0.0.1:7878/api/v1/sessions/sess_1/snapshot' },
+        { label: 'Request ID', value: '01HZ0000000000000000000000' },
+        { label: 'Cause', value: 'TypeError: Failed to fetch' },
+      ]),
+    );
   });
 
   it('popstate selects the session from the URL without writing the URL again', async () => {

@@ -5,15 +5,18 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { i18n } from '../i18n';
 import { getKimiWebApi } from '../api';
-import { isDaemonApiError } from '../api/errors';
+import { isDaemonApiError, isDaemonNetworkError } from '../api/errors';
 import type {
   AppApprovalRequest,
+  AppNotice,
+  AppNoticeDetail,
   AppMessage,
   AppModel,
   AppProvider,
   AppQuestionRequest,
   AppSession,
   AppSessionRuntimeStatus,
+  AppWarning,
   AppWorkspace,
   ApprovalDecision,
   ApprovalResponse,
@@ -533,7 +536,14 @@ function connectEventsIfNeeded(): void {
     },
 
     onError(_code: number, msg: string, _fatal: boolean) {
-      rawState.warnings = [...rawState.warnings, `WS error: ${msg}`];
+      pushWarning({
+        severity: 'error',
+        title: i18n.global.t('warnings.wsTitle'),
+        message: msg,
+        details: [warningDetail('message', msg)].filter(
+          (detail): detail is AppNoticeDetail => detail !== undefined,
+        ),
+      });
     },
 
     onConnectionChange(connected: boolean) {
@@ -562,6 +572,118 @@ function isSessionNotFoundError(err: unknown): boolean {
     err !== null &&
     (err as { code?: unknown }).code === SESSION_NOT_FOUND_CODE
   );
+}
+
+function warningDetail(labelKey: string, value: unknown): AppNoticeDetail | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  return { label: i18n.global.t(`warnings.details.${labelKey}`), value: formatDetailValue(value) };
+}
+
+function formatDetailValue(value: unknown): string {
+  if (value instanceof Error) {
+    return value.message ? `${value.name}: ${value.message}` : value.name;
+  }
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function errorName(err: unknown): string | undefined {
+  return err instanceof Error
+    ? err.name
+    : typeof err === 'object' && err !== null && typeof (err as { name?: unknown }).name === 'string'
+      ? (err as { name: string }).name
+      : undefined;
+}
+
+function errorMessage(err: unknown): string | undefined {
+  return err instanceof Error
+    ? err.message
+    : typeof err === 'object' && err !== null && typeof (err as { message?: unknown }).message === 'string'
+      ? (err as { message: string }).message
+      : undefined;
+}
+
+function errorDetails(operation: string, err: unknown, sessionId?: string): AppNoticeDetail[] {
+  const details: Array<AppNoticeDetail | undefined> = [
+    warningDetail('operation', operation),
+    warningDetail('sessionId', sessionId),
+  ];
+
+  if (isDaemonNetworkError(err)) {
+    details.push(
+      warningDetail('request', `${err.method} ${err.path}`),
+      warningDetail('endpoint', err.url),
+      warningDetail('requestId', err.requestId),
+      warningDetail('phase', err.phase),
+      warningDetail('timeout', `${err.timeoutMs}ms`),
+      warningDetail('status', err.status === undefined ? undefined : `${err.status} ${err.statusText ?? ''}`.trim()),
+      warningDetail('contentType', err.contentType),
+      warningDetail('responsePreview', err.bodyPreview),
+      warningDetail('cause', err.cause),
+    );
+  } else if (isDaemonApiError(err)) {
+    details.push(
+      warningDetail('code', err.code),
+      warningDetail('requestId', err.requestId),
+      warningDetail('message', err.message),
+      warningDetail('details', err.details),
+    );
+  } else {
+    details.push(
+      warningDetail('errorName', errorName(err)),
+      warningDetail('message', errorMessage(err) ?? formatDetailValue(err)),
+    );
+  }
+
+  return details.filter((detail): detail is AppNoticeDetail => detail !== undefined);
+}
+
+function operationFailureNotice(
+  operation: string,
+  err: unknown,
+  opts: { title?: string; message?: string; sessionId?: string } = {},
+): AppNotice {
+  const network = isDaemonNetworkError(err);
+  const api = isDaemonApiError(err);
+  const title =
+    opts.title ??
+    (network
+      ? i18n.global.t('warnings.daemonNetworkTitle')
+      : api
+        ? i18n.global.t('warnings.daemonApiTitle')
+        : i18n.global.t('warnings.operationFailedTitle'));
+  const message =
+    opts.message ??
+    (network
+      ? i18n.global.t('warnings.daemonNetworkMessage')
+      : api
+        ? err.message
+        : i18n.global.t('warnings.operationFailedMessage'));
+  return {
+    severity: 'error',
+    title,
+    message,
+    details: errorDetails(operation, err, opts.sessionId),
+  };
+}
+
+function pushWarning(warning: AppWarning): void {
+  rawState.warnings = [...rawState.warnings, warning];
+}
+
+function pushOperationFailure(
+  operation: string,
+  err: unknown,
+  opts?: { title?: string; message?: string; sessionId?: string },
+): void {
+  pushWarning(operationFailureNotice(operation, err, opts));
 }
 
 async function handleSessionNotFound(sessionId: string): Promise<void> {
@@ -624,7 +746,11 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
       await handleSessionNotFound(sessionId);
       return 'not-found';
     }
-    rawState.warnings = [...rawState.warnings, `Failed to load session snapshot: ${String(err)}`];
+    pushOperationFailure('getSessionSnapshot', err, {
+      title: i18n.global.t('warnings.sessionSnapshotTitle'),
+      message: i18n.global.t('warnings.sessionSnapshotMessage'),
+      sessionId,
+    });
     return 'failed';
   }
 }
@@ -945,7 +1071,7 @@ const queued = computed<QueuedPromptView[]>(() => {
 });
 
 /** Pending warnings list */
-const warnings = computed<string[]>(() => rawState.warnings);
+const warnings = computed<AppWarning[]>(() => rawState.warnings);
 
 /** Active session's pending questions mapped to UIQuestion[] */
 const questions = computed<UIQuestion[]>(() => {
@@ -1315,7 +1441,7 @@ async function loadFileDiff(path: string): Promise<void> {
     fileDiffLines.value = parseDiff(result.diff);
   } catch (err) {
     if (selectedDiffPath.value === path) fileDiffLines.value = [];
-    rawState.warnings = [...rawState.warnings, `loadFileDiff failed: ${String(err)}`];
+    pushOperationFailure('loadFileDiff', err, { sessionId: sid });
   } finally {
     if (selectedDiffPath.value === path) fileDiffLoading.value = false;
   }
@@ -1410,7 +1536,7 @@ async function load(): Promise<void> {
       await selectSession(sessionsPage.items[0]!.id, { urlMode: 'replace' });
     }
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `load() failed: ${String(err)}`];
+    pushOperationFailure('load', err);
     // Do not re-throw — app stays mounted with empty sessions
   } finally {
     rawState.loading = false;
@@ -1516,7 +1642,7 @@ async function createSessionInWorkspace(workspaceId: string): Promise<AppSession
     await selectSession(session.id);
     return session;
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `createSessionInWorkspace failed: ${String(err)}`];
+    pushOperationFailure('createSessionInWorkspace', err);
     return undefined;
   }
 }
@@ -1551,7 +1677,7 @@ async function startSessionAndSendPrompt(
     await selectSession(session.id);
     await submitPromptInternal(session.id, text, attachments);
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `startSessionAndSendPrompt failed: ${String(err)}`];
+    pushOperationFailure('startSessionAndSendPrompt', err);
   }
 }
 
@@ -1722,7 +1848,7 @@ async function selectSession(
     // aren't overwritten by syncSessionFromSnapshot.
     refreshSessionSidecars(sessionId);
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `selectSession failed: ${String(err)}`];
+    pushOperationFailure('selectSession', err, { sessionId });
   } finally {
     if (rawState.activeSessionId === sessionId) {
       rawState.sessionLoading = false;
@@ -1737,7 +1863,7 @@ async function createSession(cwd: string, opts?: { title?: string; model?: strin
     rawState.sessions = [session, ...rawState.sessions.filter((s) => s.id !== session.id)];
     await selectSession(session.id);
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `createSession failed: ${String(err)}`];
+    pushOperationFailure('createSession', err);
   }
 }
 
@@ -1837,7 +1963,7 @@ async function submitPromptInternal(sid: string, text: string, attachments?: { f
         [sid]: msgs.filter((m) => m.id !== tempId),
       };
     }
-    rawState.warnings = [...rawState.warnings, `sendPrompt failed: ${String(err)}`];
+    pushOperationFailure('sendPrompt', err, { sessionId: sid });
     return false;
   }
 }
@@ -1950,7 +2076,7 @@ async function steerPrompt(text: string, attachments?: { fileId: string }[]): Pr
       ...rawState.messagesBySession,
       [sid]: msgs.filter((m) => m.id !== tempId),
     };
-    rawState.warnings = [...rawState.warnings, `steer failed: ${String(err)}`];
+    pushOperationFailure('steer', err, { sessionId: sid });
   }
 }
 
@@ -1964,7 +2090,7 @@ async function uploadImage(file: Blob, name?: string): Promise<{ fileId: string;
     const result = await api.uploadFile({ file, name });
     return { fileId: result.id, name: result.name, mediaType: result.mediaType };
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `uploadImage failed: ${String(err)}`];
+    pushOperationFailure('uploadImage', err);
     return null;
   }
 }
@@ -1992,7 +2118,7 @@ async function abortCurrentPrompt(): Promise<void> {
     const api = getKimiWebApi();
     await api.abortPrompt(sid, promptId);
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `abortCurrentPrompt failed: ${String(err)}`];
+    pushOperationFailure('abortCurrentPrompt', err, { sessionId: sid });
   }
 }
 
@@ -2017,7 +2143,7 @@ async function respondApproval(
       [sid]: list.filter((a) => a.approvalId !== approvalId),
     };
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `respondApproval failed: ${String(err)}`];
+    pushOperationFailure('respondApproval', err, { sessionId: sid });
   }
 }
 
@@ -2036,7 +2162,7 @@ async function respondQuestion(
       [sid]: list.filter((q) => q.questionId !== questionId),
     };
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `respondQuestion failed: ${String(err)}`];
+    pushOperationFailure('respondQuestion', err, { sessionId: sid });
   }
 }
 
@@ -2052,7 +2178,7 @@ async function dismissQuestion(questionId: string): Promise<void> {
       [sid]: list.filter((q) => q.questionId !== questionId),
     };
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `dismissQuestion failed: ${String(err)}`];
+    pushOperationFailure('dismissQuestion', err, { sessionId: sid });
   }
 }
 
@@ -2071,7 +2197,7 @@ async function cancelTask(taskId: string): Promise<void> {
       ),
     };
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `cancelTask failed: ${String(err)}`];
+    pushOperationFailure('cancelTask', err, { sessionId: sid });
   }
 }
 
@@ -2132,7 +2258,7 @@ async function renameSession(id: string, title: string): Promise<void> {
       s.id === id ? { ...s, title } : s,
     );
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `renameSession failed: ${String(err)}`];
+    pushOperationFailure('renameSession', err, { sessionId: id });
   }
 }
 
@@ -2152,7 +2278,7 @@ async function deleteWorkspace(id: string): Promise<void> {
   // the delete LOOK like it did nothing.
   const hasSessions = rawState.sessions.some((s) => workspaceIdForSession(s) === id);
   if (hasSessions) {
-    rawState.warnings = [...rawState.warnings, i18n.global.t('workspace.deleteHasSessions')];
+    pushWarning(i18n.global.t('workspace.deleteHasSessions'));
     return;
   }
   try {
@@ -2165,7 +2291,7 @@ async function deleteWorkspace(id: string): Promise<void> {
       try { localStorage.removeItem(ACTIVE_WORKSPACE_KEY); } catch { /* ignore */ }
     }
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `deleteWorkspace failed: ${String(err)}`];
+    pushOperationFailure('deleteWorkspace', err);
   }
 }
 
@@ -2188,7 +2314,7 @@ async function deleteSession(id: string): Promise<void> {
       }
     }
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `deleteSession failed: ${String(err)}`];
+    pushOperationFailure('deleteSession', err, { sessionId: id });
   }
 }
 
@@ -2202,7 +2328,7 @@ async function loadModels(): Promise<void> {
     const api = getKimiWebApi();
     models.value = await api.listModels();
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `loadModels failed: ${String(err)}`];
+    pushOperationFailure('loadModels', err);
   }
 }
 
@@ -2212,7 +2338,7 @@ async function loadProviders(): Promise<void> {
     const api = getKimiWebApi();
     providers.value = await api.listProviders();
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `loadProviders failed: ${String(err)}`];
+    pushOperationFailure('loadProviders', err);
   }
 }
 
@@ -2234,7 +2360,7 @@ async function setModel(modelId: string): Promise<void> {
     // back into the session (the profile echo can return '').
     await refreshSessionStatus(sid);
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `setModel failed: ${String(err)}`];
+    pushOperationFailure('setModel', err, { sessionId: sid });
   }
 }
 
@@ -2250,7 +2376,7 @@ async function addProvider(input: {
     await api.addProvider(input);
     await Promise.all([loadProviders(), loadModels()]);
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `addProvider failed: ${String(err)}`];
+    pushOperationFailure('addProvider', err);
   }
 }
 
@@ -2261,7 +2387,7 @@ async function deleteProvider(id: string): Promise<void> {
     await api.deleteProvider(id);
     await Promise.all([loadProviders(), loadModels()]);
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `deleteProvider failed: ${String(err)}`];
+    pushOperationFailure('deleteProvider', err);
   }
 }
 
@@ -2272,7 +2398,7 @@ async function refreshProvider(id: string): Promise<void> {
     const updated = await api.refreshProvider(id);
     providers.value = providers.value.map((p) => (p.id === id ? updated : p));
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `refreshProvider failed: ${String(err)}`];
+    pushOperationFailure('refreshProvider', err);
   }
 }
 
@@ -2328,7 +2454,7 @@ async function logout(): Promise<void> {
     await checkAuth();
     await load();
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `logout failed: ${String(err)}`];
+    pushOperationFailure('logout', err);
   }
 }
 
@@ -2344,7 +2470,7 @@ function compact(instruction?: string): void {
   void getKimiWebApi()
     .compactSession(sid, instruction)
     .catch((err) => {
-      rawState.warnings = [...rawState.warnings, `compact failed: ${String(err)}`];
+      pushOperationFailure('compact', err, { sessionId: sid });
     });
 }
 
@@ -2360,7 +2486,7 @@ async function forkSession(): Promise<void> {
     rawState.sessions = [forked, ...rawState.sessions.filter((s) => s.id !== forked.id)];
     await selectSession(forked.id);
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `fork failed: ${String(err)}`];
+    pushOperationFailure('fork', err, { sessionId: sid });
   }
 }
 
@@ -2370,7 +2496,7 @@ async function forkSession(): Promise<void> {
  * warning so the user knows the command isn't connected.
  */
 function undo(): void {
-  rawState.warnings = [...rawState.warnings, i18n.global.t('commands.undoNotImplemented')];
+  pushWarning(i18n.global.t('commands.undoNotImplemented'));
 }
 
 /**
@@ -2455,7 +2581,7 @@ async function openWorkspaceFile(path: string, line?: number): Promise<boolean> 
     await getKimiWebApi().openFile(sid, { path, line });
     return true;
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `openFile failed: ${String(err)}`];
+    pushOperationFailure('openFile', err, { sessionId: sid });
     return false;
   }
 }
@@ -2467,7 +2593,7 @@ async function revealWorkspaceFile(path: string): Promise<boolean> {
     await getKimiWebApi().revealFile(sid, { path });
     return true;
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `revealFile failed: ${String(err)}`];
+    pushOperationFailure('revealFile', err, { sessionId: sid });
     return false;
   }
 }
