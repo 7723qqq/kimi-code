@@ -121,7 +121,7 @@ kimi -p "List changed files" --output-format stream-json
 
 ## 子命令
 
-`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`daemon`（本地 REST 与 WebSocket 服务）、`web`（本地浏览器界面）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
+`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`server`（运行并管理本地 REST/WebSocket/web 服务）、`web`（`kimi server run --open` 的别名）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
 
 ### `kimi login`
 
@@ -141,47 +141,67 @@ kimi login
 kimi acp
 ```
 
-### `kimi daemon`
+### `kimi server`
 
-运行本地 daemon，通过 REST 与 WebSocket 暴露 Kimi Code 能力，并从同一 origin 托管 web UI。默认情况下，该命令会在后台启动 daemon，等待健康检查通过，打印访问端点和日志路径后退出。如果 daemon 已经在运行，命令会报告现有进程，而不是重复启动。
+运行并管理本地 Kimi 服务 —— 同一个进程同时挂载 REST + WebSocket API 与 web UI。父命令拆成前台入口 (`run`) 与 OS 级生命周期管理 (`install`、`uninstall`、`start`、`stop`、`restart`、`status`)。前台命令**不会**隐式 spawn 后台进程；只有显式 `install` + `start` 才会让服务被 OS 接管。
 
 ```sh
-kimi daemon
+kimi server run                # 前台运行（日志输出到当前终端）
+kimi server install            # 注册到 launchd / systemd / schtasks
+kimi server start              # 启动 OS 管理的服务
+kimi server status             # 查看安装与运行状态
 ```
+
+#### `kimi server run`
 
 | 选项 | 说明 |
 | --- | --- |
-| `--host <host>` | daemon 绑定地址，默认 `127.0.0.1` |
-| `--port <port>` | daemon 绑定端口，默认 `7878` |
-| `--log-level <level>` | daemon 日志级别，默认 `info` |
-| `--foreground` | 保持 daemon 运行在当前终端中，而不是后台启动 |
+| `--host <host>` | 绑定地址；默认 `127.0.0.1` |
+| `--port <port>` | 绑定端口；默认 `7878` |
+| `--log-level <level>` | 日志级别；默认 `info` |
+| `--debug-endpoints` | 挂载 `/api/v1/debug/*` 调试路由（默认关闭） |
+| `--open` | 服务健康后用默认浏览器打开 web UI |
 
-需要在当前终端查看日志，或由其他进程管理 daemon 生命周期时，使用前台模式：
+`kimi server run` 不会返回——保持挂在当前终端，在 `SIGINT` / `SIGTERM` 时干净退出。后台运行请走下面的 OS 服务方式。
 
-```sh
-kimi daemon --foreground
-```
+#### `kimi server install`
 
-### `kimi web`
+把服务注册成 OS 管理的进程，开机自启、崩溃后自动重启。根据当前平台选择对应后端：
 
-打开由 daemon 托管的浏览器界面。不传 `--daemon-host` 时，`kimi web` 会先检查本地 daemon `http://127.0.0.1:7878`；如果尚未运行，则先在后台启动 `kimi daemon`，然后打开 daemon URL。web 资源和 `/api/v1/*` 路由由 daemon 在同一 origin 上提供。
-
-```sh
-kimi web
-```
+- **macOS**：写 LaunchAgent plist 到 `~/Library/LaunchAgents/ai.moonshot.kimi-server.plist`，并通过 `launchctl bootstrap gui/<uid>` 启动。
+- **Linux**：写 `--user` systemd unit 到 `~/.config/systemd/user/kimi-server.service`，并执行 `systemctl --user enable --now`。
+- **Windows**：通过 `schtasks /Create /XML` 注册名为 `KimiServer` 的计划任务。
 
 | 选项 | 说明 |
 | --- | --- |
-| `--host <host>` | 启动本地 daemon 时使用的绑定地址，默认 `127.0.0.1` |
-| `--port <port>` | 启动本地 daemon 时使用的端口，默认 `7878` |
-| `--daemon-host <url>` | 直接打开已有 daemon，而不是启动本地 daemon |
-| `--no-open` | 不自动打开浏览器 |
+| `--host <host>` | 被托管的服务绑定地址；默认 `127.0.0.1` |
+| `--port <port>` | 被托管的服务绑定端口；默认 `7878` |
+| `--log-level <level>` | 写入生成 unit 的日志级别 |
+| `--force` | 已安装时强制覆盖 |
+| `--json` | 用 JSON 替代人类可读输出 |
 
-当 daemon 运行在另一台机器上，或由单独的进程管理时，让 web UI 指向已有 daemon。此模式不会启动任何本地服务：
+选定的 host / port / log-level 会写入 `~/.kimi-code/server/install.json`，即便服务停掉 `kimi server status` 也能读到。
+
+#### 生命周期子命令
+
+| 命令 | 说明 |
+| --- | --- |
+| `kimi server uninstall` | 停止并移除 OS 服务定义。幂等。 |
+| `kimi server start` | 启动 OS 管理的服务。未安装时会报错。 |
+| `kimi server stop` | 停止 OS 管理的服务。 |
+| `kimi server restart` | 重启 OS 管理的服务。 |
+| `kimi server status` | 打印 installed / running / pid / port / log-path；`--json` 用于脚本。 |
+
+#### `kimi web`
+
+`kimi server run --open` 的别名：前台跑服务，健康后立即用默认浏览器打开 web UI。加 `--no-open` 等价于纯 `kimi server run`。
 
 ```sh
-kimi web --daemon-host=http://daemon.example.test:7878
+kimi web                        # 前台 + 自动打开浏览器
+kimi web --no-open              # 等价于 `kimi server run`
 ```
+
+`--host`、`--port`、`--log-level`、`--debug-endpoints` 与 `kimi server run` 完全一致。
 
 ### `kimi doctor`
 

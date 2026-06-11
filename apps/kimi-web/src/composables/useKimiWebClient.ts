@@ -260,7 +260,7 @@ interface QueuedPrompt {
 
 interface ExtendedState extends KimiClientState {
   connected: boolean;
-  daemonVersion: string;
+  serverVersion: string;
   workspaceName: string;
   connection: ConnectionState;
   permission: PermissionMode;
@@ -290,7 +290,7 @@ interface ExtendedState extends KimiClientState {
 const rawState: ExtendedState = reactive({
   ...createInitialState(),
   connected: false,
-  daemonVersion: '',
+  serverVersion: '',
   workspaceName: 'kimi-web',
   connection: 'disconnected' as ConnectionState,
   permission: loadPermissionFromStorage(),
@@ -1391,7 +1391,7 @@ async function load(): Promise<void> {
     // Parallel: health + meta + sessions + models
     const [, , sessionsPage] = await Promise.all([
       api.getHealth().catch(() => null),
-      api.getMeta().then((m) => { rawState.daemonVersion = m.daemonVersion; }).catch(() => null),
+      api.getMeta().then((m) => { rawState.serverVersion = m.serverVersion; }).catch(() => null),
       api.listSessions({ pageSize: 20 }).catch(() => ({ items: [], hasMore: false })),
       loadModels(),
     ]);

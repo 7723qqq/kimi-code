@@ -9,7 +9,7 @@
     "build:packages": "pnpm -r --filter './packages/*' run build",
     "dev:cli": "pnpm -C apps/kimi-code run dev",
     "dev:web": "pnpm -C apps/kimi-web run dev",
-    "dev:daemon": "pnpm -C apps/kimi-code run dev:daemon",
+    "dev:server": "pnpm -C apps/kimi-code run dev:server",
     "build:plugin-marketplace": "pnpm -C apps/kimi-code run build:plugin-marketplace",
     "vis": "pnpm -C apps/vis run dev",
     "dev:docs": "pnpm -C docs install --ignore-workspace && pnpm -C docs run dev",

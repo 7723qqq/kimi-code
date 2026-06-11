@@ -64,7 +64,7 @@
       workspacePaths = [
         ./packages/acp-adapter
         ./packages/agent-core
-        ./packages/daemon
+        ./packages/server
         ./packages/kaos
         ./packages/kosong
         ./packages/migration-legacy
@@ -84,7 +84,7 @@
       workspaceNames = [
         "@moonshot-ai/acp-adapter"
         "@moonshot-ai/agent-core"
-        "@moonshot-ai/daemon"
+        "@moonshot-ai/server"
         "@moonshot-ai/kaos"
         "@moonshot-ai/kosong"
         "@moonshot-ai/migration-legacy"

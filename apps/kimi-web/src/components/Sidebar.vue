@@ -7,14 +7,14 @@ import { nextTick, onBeforeUnmount, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { Session, WorkspaceGroup, WorkspaceView } from '../types';
 import type { Accent, ColorScheme, Theme } from '../composables/useKimiWebClient';
-import { daemonEndpointLabel } from '../api/config';
+import { serverEndpointLabel } from '../api/config';
 import LanguageSwitcher from './LanguageSwitcher.vue';
 import SessionRow from './SessionRow.vue';
 
 const { t } = useI18n();
 
 /** Address of the real daemon this client connects to (shown in the settings popover). */
-const daemonEndpoint = daemonEndpointLabel();
+const daemonEndpoint = serverEndpointLabel();
 
 withDefaults(
   defineProps<{
