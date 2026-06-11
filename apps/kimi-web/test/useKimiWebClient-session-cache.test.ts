@@ -51,6 +51,7 @@ async function setup(messages: AppMessage[] = []) {
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
     bindNextPromptId: vi.fn(),
+    seedSnapshot: vi.fn(),
     abort: vi.fn(),
     close: vi.fn(),
   };
@@ -58,6 +59,16 @@ async function setup(messages: AppMessage[] = []) {
   const api = {
     createSession: vi.fn(async () => created),
     listMessages: vi.fn(async () => ({ items: messages, hasMore: false })),
+    getSessionSnapshot: vi.fn(async () => ({
+      asOfSeq: 0,
+      epoch: 'ep_test',
+      session: created,
+      messages,
+      hasMoreMessages: false,
+      inFlightTurn: null,
+      pendingApprovals: [],
+      pendingQuestions: [],
+    })),
     submitPrompt: vi.fn(async () => ({ promptId: 'pr_1', userMessageId: 'msg_real' })),
     listTasks: vi.fn(async () => []),
     getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {} })),
@@ -102,15 +113,19 @@ describe('useKimiWebClient session memory cache', () => {
     const { api, client, eventConn } = await setup([]);
 
     await client.createSession('/repo');
-    expect(api.listMessages).toHaveBeenCalledTimes(1);
+    expect(api.getSessionSnapshot).toHaveBeenCalledTimes(1);
     expect(client.sessionLoading.value).toBe(false);
 
     const secondSelect = client.selectSession('sess_1');
 
     expect(client.sessionLoading.value).toBe(false);
     await secondSelect;
-    expect(api.listMessages).toHaveBeenCalledTimes(1);
-    expect(eventConn.subscribe).toHaveBeenLastCalledWith('sess_1', 0);
+    // L1 hit: no second snapshot fetch — re-subscribe at the tracked cursor.
+    expect(api.getSessionSnapshot).toHaveBeenCalledTimes(1);
+    expect(eventConn.subscribe).toHaveBeenLastCalledWith('sess_1', {
+      seq: 0,
+      epoch: 'ep_test',
+    });
   });
 
   it('re-subscribes an L1 hit with the reducer-maintained latest seq', async () => {
@@ -118,8 +133,11 @@ describe('useKimiWebClient session memory cache', () => {
     const { api, client, eventConn, getHandlers } = await setup([initial]);
 
     await client.createSession('/repo');
-    expect(api.listMessages).toHaveBeenCalledTimes(1);
-    expect(eventConn.subscribe).toHaveBeenLastCalledWith('sess_1', 0);
+    expect(api.getSessionSnapshot).toHaveBeenCalledTimes(1);
+    expect(eventConn.subscribe).toHaveBeenLastCalledWith('sess_1', {
+      seq: 0,
+      epoch: 'ep_test',
+    });
 
     getHandlers().onEvent(
       { type: 'messageCreated', message: userMessage('sess_1', 'msg_2') },
@@ -128,8 +146,11 @@ describe('useKimiWebClient session memory cache', () => {
 
     await client.selectSession('sess_1');
 
-    expect(api.listMessages).toHaveBeenCalledTimes(1);
-    expect(eventConn.subscribe).toHaveBeenLastCalledWith('sess_1', 7);
+    expect(api.getSessionSnapshot).toHaveBeenCalledTimes(1);
+    expect(eventConn.subscribe).toHaveBeenLastCalledWith('sess_1', {
+      seq: 7,
+      epoch: 'ep_test',
+    });
   });
 
   it('keeps the optimistic user turn key stable after submit resolves', async () => {

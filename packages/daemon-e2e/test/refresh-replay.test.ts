@@ -3,20 +3,23 @@
  *
  * Models the page-refresh path a web client takes when the daemon is already
  * up: hit `/healthz`, `/meta`, `/auth`, then open a fresh WebSocket and replay
- * any missed events via `client_hello.last_seq_by_session` BEFORE pulling REST
- * history (REST.md §3 + WS.md §3.2).
+ * any missed events via `client_hello.cursors` BEFORE pulling REST history
+ * (REST.md §3 + WS.md §3.2).
  *
  * What's asserted here (and NOT in `client.test.ts`):
  *   1. `/healthz` returns `{ok: true}`.
- *   2. `/meta` exposes a non-empty `daemon_id` — the signal clients use to
- *      detect a daemon restart and flush their `last_seq_by_session` cache.
+ *   2. `/meta` exposes a non-empty `daemon_id`. (Since the v2 sync protocol,
+ *      cursors carry a journal `epoch` and seq is durable across restarts —
+ *      a stale cursor is detected server-side via `epoch_changed` instead of
+ *      clients comparing `daemon_id`.)
  *   3. `/auth` returns the `AuthSummary` shape.
- *   4. After running one prompt to populate the ring buffer, a fresh WS that
- *      passes `last_seq_by_session: { [sid]: currentSeq }` is acked with
+ *   4. After running one prompt to populate the journal, a fresh WS that
+ *      passes `cursors: { [sid]: { seq: currentSeq } }` is acked with
  *      `accepted_subscriptions: [sid]`, `resync_required: []`, and NO event
  *      frames arrive between `server_hello` and the ack (caught-up replay).
- *   5. A fresh WS that passes `last_seq_by_session: { [sid]: 0 }` triggers
- *      replay of every buffered event in order (seq 1..N) BEFORE the ack.
+ *   5. A fresh WS that passes `cursors: { [sid]: { seq: 0 } }` triggers
+ *      replay of every durable event in order (seq 1..N) BEFORE the ack.
+ *      Volatile frames (deltas/progress/status) are never replayed.
  *   6. After reconnect, `GET /messages` reflects the persisted state from
  *      before the WS close.
  *
@@ -101,7 +104,7 @@ async function openSocketWithHello(opts: {
     subscriptions: [opts.sid],
   };
   if (opts.lastSeq !== undefined) {
-    payload['last_seq_by_session'] = { [opts.sid]: opts.lastSeq };
+    payload['cursors'] = { [opts.sid]: { seq: opts.lastSeq } };
   }
   opts.log?.('refresh ws client_hello', { id: helloId, payload });
   ws.send({ type: 'client_hello', id: helloId, payload });

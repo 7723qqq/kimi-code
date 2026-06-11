@@ -549,8 +549,12 @@ function connectEventsIfNeeded(): void {
       }
     },
 
-    onResync(sessionId: string, currentSeq: number) {
-      void reloadAndResubscribe(sessionId, currentSeq);
+    onResync(sessionId: string, currentSeq: number, epoch?: string) {
+      // The server-announced cursor is only a hint; the snapshot fetch
+      // returns the authoritative {asOfSeq, epoch} and re-subscribes.
+      if (epoch !== undefined) epochBySession[sessionId] = epoch;
+      void currentSeq;
+      void syncSessionFromSnapshot(sessionId);
     },
 
     onError(_code: number, msg: string, _fatal: boolean) {
@@ -564,22 +568,17 @@ function connectEventsIfNeeded(): void {
   });
 }
 
-/**
- * The daemon's GET /messages returns messages NEWEST-FIRST (confirmed: the
- * assistant reply comes before its user prompt). For display we need
- * chronological order (oldest first), otherwise a reloaded session renders
- * upside down. Reverse (handles the common newest-first case + equal
- * timestamps), then stable-sort by createdAt as a safety net.
- */
-function orderMessages(
-  items: import('../api/types').AppMessage[],
-): import('../api/types').AppMessage[] {
-  return [...items]
-    .reverse()
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-}
+// Journal epoch per session, learned from snapshots / resync frames. Not
+// reactive — only consulted when building the subscribe cursor.
+const epochBySession: Record<string, string> = {};
 
-type LoadMessagesResult = 'ok' | 'not-found' | 'failed';
+/**
+ * v2 initial sync (IM-style rebuild): fetch the atomic session snapshot,
+ * install its state, seed the projector's in-flight turn, then subscribe the
+ * WS at the snapshot's `{seq: asOfSeq, epoch}` cursor. The watermark ties
+ * the REST snapshot to the event stream — no gap, no duplication.
+ */
+type SyncSessionResult = 'ok' | 'not-found' | 'failed';
 
 function isSessionNotFoundError(err: unknown): boolean {
   if (isDaemonApiError(err) && err.code === SESSION_NOT_FOUND_CODE) return true;
@@ -593,9 +592,13 @@ function isSessionNotFoundError(err: unknown): boolean {
 async function handleSessionNotFound(sessionId: string): Promise<void> {
   rawState.sessions = rawState.sessions.filter((s) => s.id !== sessionId);
   delete rawState.messagesBySession[sessionId];
+  delete rawState.approvalsBySession[sessionId];
+  delete rawState.questionsBySession[sessionId];
   delete rawState.tasksBySession[sessionId];
   delete rawState.gitStatusBySession[sessionId];
   delete rawState.lastSeqBySession[sessionId];
+  delete rawState.compactionBySession[sessionId];
+  delete epochBySession[sessionId];
 
   if (rawState.activeSessionId !== sessionId) return;
 
@@ -609,18 +612,44 @@ async function handleSessionNotFound(sessionId: string): Promise<void> {
   }
 }
 
-async function loadMessagesForSession(sessionId: string): Promise<LoadMessagesResult> {
+async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionResult> {
   try {
     const api = getKimiWebApi();
-    const page = await api.listMessages(sessionId, { pageSize: 100 });
+    const snap = await api.getSessionSnapshot(sessionId);
+
+    rawState.sessions = rawState.sessions.map((s) => (s.id === sessionId ? snap.session : s));
     rawState.messagesBySession = {
       ...rawState.messagesBySession,
-      [sessionId]: orderMessages(page.items),
+      [sessionId]: snap.messages,
     };
+    rawState.approvalsBySession = {
+      ...rawState.approvalsBySession,
+      [sessionId]: snap.pendingApprovals,
+    };
+    rawState.questionsBySession = {
+      ...rawState.questionsBySession,
+      [sessionId]: snap.pendingQuestions,
+    };
+    rawState.lastSeqBySession = {
+      ...rawState.lastSeqBySession,
+      [sessionId]: snap.asOfSeq,
+    };
+    epochBySession[sessionId] = snap.epoch;
+
+    connectEventsIfNeeded();
+    if (eventConn) {
+      // Seed BEFORE subscribing: the in-flight assistant message must exist
+      // before live deltas (aligned by wire offset) start appending to it.
+      eventConn.seedSnapshot(sessionId, snap);
+      eventConn.subscribe(sessionId, { seq: snap.asOfSeq, epoch: snap.epoch });
+    }
     return 'ok';
   } catch (err) {
-    if (isSessionNotFoundError(err)) return 'not-found';
-    rawState.warnings = [...rawState.warnings, `Failed to load messages: ${String(err)}`];
+    if (isSessionNotFoundError(err)) {
+      await handleSessionNotFound(sessionId);
+      return 'not-found';
+    }
+    rawState.warnings = [...rawState.warnings, `Failed to load session snapshot: ${String(err)}`];
     return 'failed';
   }
 }
@@ -638,18 +667,6 @@ async function loadTasksForSession(sessionId: string): Promise<void> {
   }
 }
 
-async function reloadAndResubscribe(sessionId: string, currentSeq: number): Promise<void> {
-  const result = await loadMessagesForSession(sessionId);
-  if (result === 'not-found') {
-    await handleSessionNotFound(sessionId);
-    return;
-  }
-  rawState.lastSeqBySession = { ...rawState.lastSeqBySession, [sessionId]: currentSeq };
-  if (eventConn) {
-    eventConn.subscribe(sessionId, currentSeq);
-  }
-}
-
 function hasLoadedMessages(sessionId: string): boolean {
   return Object.prototype.hasOwnProperty.call(rawState.messagesBySession, sessionId);
 }
@@ -657,8 +674,9 @@ function hasLoadedMessages(sessionId: string): boolean {
 function subscribeToSessionEvents(sessionId: string): void {
   connectEventsIfNeeded();
   if (eventConn) {
-    const lastSeq = rawState.lastSeqBySession[sessionId] ?? 0;
-    eventConn.subscribe(sessionId, lastSeq);
+    const seq = rawState.lastSeqBySession[sessionId] ?? 0;
+    const epoch = epochBySession[sessionId];
+    eventConn.subscribe(sessionId, { seq, epoch });
   }
 }
 
@@ -1659,13 +1677,14 @@ async function selectSession(
     refreshSessionSidecars(sessionId);
 
     if (!messagesLoaded) {
-      const result = await loadMessagesForSession(sessionId);
-      if (result === 'not-found') {
-        await handleSessionNotFound(sessionId);
-        return;
-      }
+      // First open: full snapshot → seed → subscribe(asOfSeq).
+      const result = await syncSessionFromSnapshot(sessionId);
+      if (result === 'not-found') return;
+    } else {
+      // Re-open: resume from the tracked cursor; the daemon replays any
+      // missed durable events (or answers resync_required → snapshot).
+      subscribeToSessionEvents(sessionId);
     }
-    subscribeToSessionEvents(sessionId);
   } catch (err) {
     rawState.warnings = [...rawState.warnings, `selectSession failed: ${String(err)}`];
   } finally {
