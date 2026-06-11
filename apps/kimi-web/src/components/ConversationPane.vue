@@ -474,6 +474,13 @@ function onVisibilityChange(): void {
   }
 }
 
+function onKeyDown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && props.running) {
+    event.preventDefault();
+    emit('interrupt');
+  }
+}
+
 onMounted(() => {
   // Initial scroll to bottom on first load.
   nextTick(() => {
@@ -494,6 +501,7 @@ onMounted(() => {
     }
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', onVisibilityChange);
+      document.addEventListener('keydown', onKeyDown);
     }
   });
 });
@@ -504,6 +512,7 @@ onUnmounted(() => {
   if (scrollRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(scrollRaf);
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', onVisibilityChange);
+    document.removeEventListener('keydown', onKeyDown);
   }
 });
 </script>
