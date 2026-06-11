@@ -1,6 +1,7 @@
 import { Disposable } from '@moonshot-ai/agent-core';
 import { ILogService } from '@moonshot-ai/services';
 import { pino, type Logger, type LoggerOptions } from 'pino';
+import prettyStream from 'pino-pretty';
 
 export type ServerLogger = Logger;
 
@@ -19,18 +20,16 @@ export function createServerLogger(opts: CreateLoggerOptions): ServerLogger {
     timestamp: pino.stdTimeFunctions.isoTime,
   };
   if (pretty) {
-    return pino({
-      ...base,
-      transport: {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'SYS:HH:MM:ss.l o',
-          ignore: 'pid,hostname',
-          singleLine: false,
-        },
-      },
-    });
+    return pino(
+      base,
+      prettyStream({
+        colorize: true,
+        translateTime: 'SYS:HH:MM:ss.l o',
+        ignore: 'pid,hostname',
+        singleLine: false,
+        destination: process.stdout,
+      }),
+    );
   }
   return pino(base);
 }
