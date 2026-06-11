@@ -4,7 +4,10 @@ export default {
   loading: 'Loading…',
   emptyWorkspaceHint: 'Send in {name}',
   compacting: 'Compacting context…',
-  compacted: 'Context compacted ({before} → {after} tokens)',
   compactedPlain: 'Context compacted',
+  compactedAuto: 'Context auto-compacted',
+  compactedTokens: ' ({before} → {after} tokens)',
+  viewSummary: 'View summary',
+  summaryTitle: 'Compaction summary',
   manuallyAborted: 'Manually stopped',
 } as const;

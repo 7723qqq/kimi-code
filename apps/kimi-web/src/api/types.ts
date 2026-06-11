@@ -142,6 +142,21 @@ export interface AppMessage {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Metadata key of the client-side compaction marker message appended on
+ * compactionCompleted. The transcript keeps all prior messages (TUI parity);
+ * this marker renders as a "context compacted" divider. Snapshot-loaded
+ * summary messages (origin kind 'compaction_summary') render the same way
+ * but carry no token stats.
+ */
+export const COMPACTION_MARKER_METADATA_KEY = 'kimiWeb.compaction';
+
+export interface CompactionMarkerMetadata {
+  trigger: 'manual' | 'auto';
+  tokensBefore?: number;
+  tokensAfter?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Prompt
 // ---------------------------------------------------------------------------
@@ -290,7 +305,7 @@ export type AppEvent =
   | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string }
   | { type: 'historyCompacted'; sessionId: string; beforeSeq: number; reason: string; summaryMessageId?: string }
   | { type: 'compactionStarted'; sessionId: string; trigger: 'manual' | 'auto'; instruction?: string }
-  | { type: 'compactionCompleted'; sessionId: string; tokensBefore?: number; tokensAfter?: number }
+  | { type: 'compactionCompleted'; sessionId: string; tokensBefore?: number; tokensAfter?: number; summary?: string }
   | { type: 'compactionCancelled'; sessionId: string }
   | { type: 'messageCreated'; message: AppMessage }
   | { type: 'messageUpdated'; sessionId: string; messageId: string; content: AppMessageContent[]; status: 'pending' | 'completed' | 'error' }

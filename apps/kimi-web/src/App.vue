@@ -87,12 +87,24 @@ const sideWidth = computed(() => sessionColWidth.value);
 // ---------------------------------------------------------------------------
 const PREVIEW_WIDTH_KEY = 'kimi-web.file-preview-width';
 const PREVIEW_MIN = 320;
-const PREVIEW_MAX = 760;
-const PREVIEW_DEFAULT = typeof window !== 'undefined'
-  ? Math.max(PREVIEW_MIN, Math.min(PREVIEW_MAX, Math.round(window.innerWidth / 2)))
-  : 460;
 
-const previewWidth = ref(PREVIEW_DEFAULT);
+function previewAreaWidth(): number {
+  if (typeof window === 'undefined') return PREVIEW_MIN * 2;
+  return Math.max(0, window.innerWidth - sideWidth.value);
+}
+
+function clampPreviewWidth(width: number): number {
+  const max = Math.max(PREVIEW_MIN, previewAreaWidth() - PREVIEW_MIN);
+  return Math.min(max, Math.max(PREVIEW_MIN, Math.round(width)));
+}
+
+function defaultPreviewWidth(): number {
+  return clampPreviewWidth(previewAreaWidth() / 2);
+}
+
+const previewDefaultWidth = computed(() => defaultPreviewWidth());
+const previewMaxWidth = computed(() => Math.max(PREVIEW_MIN, previewAreaWidth() - PREVIEW_MIN));
+const previewWidth = ref(previewDefaultWidth.value);
 const previewTarget = ref<FilePreviewRequest | null>(null);
 const previewFile = ref<FileData | null>(null);
 const previewLoading = ref(false);
@@ -158,6 +170,7 @@ function normalizePreviewPath(inputPath: string): { path: string } | { error: st
 
 async function openFilePreview(target: FilePreviewRequest): Promise<void> {
   thinkingTarget.value = null; // shared right-side slot
+  compactionTarget.value = null;
   const normalized = normalizePreviewPath(target.path);
   previewTarget.value = target;
   previewFile.value = null;
@@ -193,6 +206,7 @@ function mimeFromDataUrl(url: string): string | undefined {
 function openMediaPreview(media: ToolMedia): void {
   if (media.kind !== 'image') return;
   thinkingTarget.value = null;
+  compactionTarget.value = null;
   previewRequestSeq++;
   previewTarget.value = null;
   previewError.value = null;
@@ -243,6 +257,7 @@ function openThinkingPanel(target: { turnId: string; blockIndex: number }): void
     return;
   }
   closeFilePreview();
+  compactionTarget.value = null;
   thinkingTarget.value = target;
 }
 
@@ -250,8 +265,41 @@ function closeThinkingPanel(): void {
   thinkingTarget.value = null;
 }
 
-/** Either occupant of the shared right-side slot. */
-const sidePanelVisible = computed(() => previewVisible.value || thinkingVisible.value);
+// ---------------------------------------------------------------------------
+// Compaction summary panel — shares the right-side slot too. Opened from a
+// "context compacted" divider in the transcript; resolves the summary text
+// reactively from the divider turn.
+// ---------------------------------------------------------------------------
+const compactionTarget = ref<{ turnId: string } | null>(null);
+
+const compactionPanelText = computed<string | null>(() => {
+  const target = compactionTarget.value;
+  if (!target) return null;
+  const turn = client.turns.value.find((tn) => tn.id === target.turnId);
+  return turn?.role === 'compaction' && turn.text ? turn.text : null;
+});
+
+const compactionPanelVisible = computed(() => compactionPanelText.value !== null);
+
+function openCompactionPanel(target: { turnId: string }): void {
+  // Clicking the SAME divider again closes the drawer (toggle).
+  if (compactionTarget.value?.turnId === target.turnId) {
+    compactionTarget.value = null;
+    return;
+  }
+  closeFilePreview();
+  thinkingTarget.value = null;
+  compactionTarget.value = target;
+}
+
+function closeCompactionPanel(): void {
+  compactionTarget.value = null;
+}
+
+/** Any occupant of the shared right-side slot. */
+const sidePanelVisible = computed(
+  () => previewVisible.value || thinkingVisible.value || compactionPanelVisible.value,
+);
 
 /** True while the panel's resize handle is being dragged — the width
     transition is disabled so the panel follows the pointer 1:1. */
@@ -272,6 +320,7 @@ function revealPreviewFile(): void {
 watch(client.activeSessionId, () => {
   closeFilePreview();
   closeThinkingPanel();
+  closeCompactionPanel();
 });
 
 // Reference to ConversationPane so we can imperatively switch tabs
@@ -376,6 +425,12 @@ async function handleLoginSuccess(): Promise<void> {
 
 // Handler for slash commands emitted by Composer (via ConversationPane)
 function handleCommand(cmd: string): void {
+  // `/compact <text>` carries an optional free-text instruction steering what
+  // the summary should focus on (TUI parity).
+  if (cmd === '/compact' || cmd.startsWith('/compact ')) {
+    client.compact(cmd.slice('/compact'.length).trim() || undefined);
+    return;
+  }
   switch (cmd) {
     case '/new':
     case '/clear':
@@ -383,9 +438,6 @@ function handleCommand(cmd: string): void {
       break;
     case '/sessions':
       showSessions.value = true;
-      break;
-    case '/compact':
-      client.compact();
       break;
     case '/fork':
       void client.forkSession();
@@ -588,6 +640,7 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
       @open-file="openFilePreview($event)"
       @open-media="openMediaPreview($event)"
       @open-thinking="openThinkingPanel($event)"
+      @open-compaction="openCompactionPanel($event)"
     />
 
     <!-- Multi-workspace selection placeholder -->
@@ -599,9 +652,9 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
     <ResizeHandle
       v-if="sidePanelVisible && !isMobile"
       :storage-key="PREVIEW_WIDTH_KEY"
-      :default-width="PREVIEW_DEFAULT"
+      :default-width="previewDefaultWidth"
       :min="PREVIEW_MIN"
-      :max="PREVIEW_MAX"
+      :max="previewMaxWidth"
       reverse
       :aria-label="t('layout.resizePreviewAria')"
       @update:width="previewWidth = $event"
@@ -622,6 +675,12 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
         v-if="thinkingVisible"
         :text="thinkingPanelText ?? ''"
         @close="closeThinkingPanel"
+      />
+      <ThinkingPanel
+        v-else-if="compactionPanelVisible"
+        :text="compactionPanelText ?? ''"
+        :subtitle="t('conversation.summaryTitle')"
+        @close="closeCompactionPanel"
       />
       <FilePreview
         v-else-if="previewVisible"

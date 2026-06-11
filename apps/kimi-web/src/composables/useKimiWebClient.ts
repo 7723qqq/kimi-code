@@ -480,27 +480,6 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   rawState.warnings = next.warnings;
 }
 
-// Auto-dismiss the "compaction complete (X → Y tokens)" note a few seconds
-// after it appears. One timer per session; restarted on every completion.
-const compactionClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const COMPACTION_NOTE_MS = 5000;
-
-function scheduleCompactionNoteDismiss(sessionId: string): void {
-  const existing = compactionClearTimers.get(sessionId);
-  if (existing !== undefined) clearTimeout(existing);
-  compactionClearTimers.set(
-    sessionId,
-    setTimeout(() => {
-      compactionClearTimers.delete(sessionId);
-      const entry = rawState.compactionBySession[sessionId];
-      if (entry?.status === 'completed') {
-        const { [sessionId]: _gone, ...rest } = rawState.compactionBySession;
-        rawState.compactionBySession = rest;
-      }
-    }, COMPACTION_NOTE_MS),
-  );
-}
-
 // ---------------------------------------------------------------------------
 // WS subscription (lazy, only when a session is selected)
 // ---------------------------------------------------------------------------
@@ -517,16 +496,10 @@ function connectEventsIfNeeded(): void {
   eventConn = api.connectEvents({
     onEvent(appEvent, meta) {
       // meta carries wire-level seq/sessionId so the reducer can advance
-      // lastSeqBySession[sessionId] = seq. historyCompacted reload is owned
-      // by onResync (the client routes it there); here we only let the reducer
-      // run so lastSeqBySession stays current.
+      // lastSeqBySession[sessionId] = seq. Compaction completion appends a
+      // persistent divider marker in the reducer (TUI parity: the scrollback
+      // is kept, only a marker line records the compaction).
       applyEvent(appEvent, meta.sessionId, meta.seq);
-
-      // Compaction completion note self-dismisses (TUI keeps a transcript
-      // line; the web shows a transient banner instead).
-      if (appEvent.type === 'compactionCompleted') {
-        scheduleCompactionNoteDismiss(appEvent.sessionId);
-      }
 
       // Turn-end cleanup for the session the event belongs to — including
       // sessions running in the background (see onSessionIdle).
@@ -943,7 +916,7 @@ const todos = computed<TodoView[]>(() => {
   return latestTodos(rawState.messagesBySession[sid] ?? []);
 });
 
-/** Live compaction state of the active session (running banner / done note). */
+/** Live compaction state of the active session (present only while running). */
 const compaction = computed<CompactionStatus | null>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return null;
@@ -1735,8 +1708,6 @@ async function selectSession(
       if (rawState.activeWorkspaceId !== wid) selectWorkspace(wid);
     }
 
-    refreshSessionSidecars(sessionId);
-
     if (!messagesLoaded) {
       // First open: full snapshot → seed → subscribe(asOfSeq).
       const result = await syncSessionFromSnapshot(sessionId);
@@ -1746,6 +1717,10 @@ async function selectSession(
       // missed durable events (or answers resync_required → snapshot).
       subscribeToSessionEvents(sessionId);
     }
+
+    // Refresh sidecars AFTER the snapshot settles so status/usage updates
+    // aren't overwritten by syncSessionFromSnapshot.
+    refreshSessionSidecars(sessionId);
   } catch (err) {
     rawState.warnings = [...rawState.warnings, `selectSession failed: ${String(err)}`];
   } finally {
@@ -2358,15 +2333,16 @@ async function logout(): Promise<void> {
 }
 
 /**
- * compact() — request history compaction via POST /sessions/{id}:compact. The
- * compacted history is delivered asynchronously through the WS
- * history_compacted → onResync reload, so we just fire the request.
+ * compact() — request history compaction via POST /sessions/{id}:compact.
+ * Progress arrives asynchronously through the WS compaction.* events (running
+ * notice → divider marker), so we just fire the request. An optional
+ * instruction (from `/compact <text>`) steers what the summary focuses on.
  */
-function compact(): void {
+function compact(instruction?: string): void {
   const sid = rawState.activeSessionId;
   if (!sid) return;
   void getKimiWebApi()
-    .compactSession(sid)
+    .compactSession(sid, instruction)
     .catch((err) => {
       rawState.warnings = [...rawState.warnings, `compact failed: ${String(err)}`];
     });

@@ -10,7 +10,8 @@
 // Fallback: if promptId is undefined on both the pending group and the
 // incoming message they are NOT merged (one turn per message, old behaviour).
 
-import type { AppMessage, AppApprovalRequest } from '../api/types';
+import type { AppMessage, AppApprovalRequest, CompactionMarkerMetadata } from '../api/types';
+import { COMPACTION_MARKER_METADATA_KEY } from '../api/types';
 import type { ApprovalBlock, ChatTurn, DiffLine, ToolCall, ToolMedia, TurnBlock } from '../types';
 
 const READ_MEDIA_TOOL_RE = /^read[_-]?media(?:file)?$/i;
@@ -285,6 +286,17 @@ function isDisplayableUserMessage(msg: AppMessage): boolean {
   return false;
 }
 
+/**
+ * A compaction summary message — either the client-side marker appended on
+ * compactionCompleted, or the daemon's synthetic ASSISTANT message that
+ * replaces the compacted prefix in a reloaded snapshot. Both render as a
+ * "context compacted" divider; the summary text opens in the side panel.
+ */
+function isCompactionSummaryMessage(msg: AppMessage): boolean {
+  const origin = msg.metadata?.['origin'] as { kind?: string } | undefined;
+  return origin?.kind === 'compaction_summary';
+}
+
 export function messagesToTurns(
   messages: AppMessage[],
   approvals: AppApprovalRequest[],
@@ -403,6 +415,30 @@ export function messagesToTurns(
 
   for (const msg of messages) {
     if (msg.role === 'system') continue;
+
+    // Compaction summaries become a divider turn — never a chat bubble. The
+    // snapshot variant carries no token stats (marker metadata is client-side).
+    if (isCompactionSummaryMessage(msg)) {
+      flushGroup();
+      const marker = msg.metadata?.[COMPACTION_MARKER_METADATA_KEY] as
+        | CompactionMarkerMetadata
+        | undefined;
+      turns.push({
+        id: msg.id,
+        role: 'compaction',
+        no, // not displayed — dividers have no gutter number
+        text: msg.content
+          .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+          .map((c) => c.text)
+          .join('\n'),
+        compaction: {
+          trigger: marker?.trigger,
+          tokensBefore: marker?.tokensBefore,
+          tokensAfter: marker?.tokensAfter,
+        },
+      });
+      continue;
+    }
 
     // User messages flush the pending group and start a new user turn
     if (msg.role === 'user') {

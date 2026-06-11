@@ -16,7 +16,9 @@ import type {
   AppQuestionRequest,
   AppSession,
   AppTask,
+  CompactionMarkerMetadata,
 } from '../types';
+import { COMPACTION_MARKER_METADATA_KEY } from '../types';
 import { i18n } from '../../i18n';
 
 const OPTIMISTIC_USER_MESSAGE_METADATA_KEY = 'kimiWeb.optimisticUserMessage';
@@ -25,13 +27,12 @@ const OPTIMISTIC_USER_MESSAGE_METADATA_KEY = 'kimiWeb.optimisticUserMessage';
 // State
 // ---------------------------------------------------------------------------
 
-/** Live compaction progress for a session (TUI parity: "Compacting context…"
-    while running, then a one-shot "complete (X → Y tokens)" note). */
+/** Live compaction progress for a session: present (status 'running') only
+    while the daemon is compacting. Completion is recorded as a persistent
+    divider marker message in the transcript, not as transient status. */
 export interface CompactionStatus {
-  status: 'running' | 'completed';
+  status: 'running';
   trigger: 'manual' | 'auto';
-  tokensBefore?: number;
-  tokensAfter?: number;
 }
 
 export interface KimiClientState {
@@ -224,16 +225,41 @@ export function reduceAppEvent(
     }
 
     case 'compactionCompleted': {
-      const prev = next.compactionBySession[event.sessionId];
-      next.compactionBySession = {
-        ...next.compactionBySession,
-        [event.sessionId]: {
-          status: 'completed',
-          trigger: prev?.trigger ?? 'auto',
-          tokensBefore: event.tokensBefore,
-          tokensAfter: event.tokensAfter,
-        },
-      };
+      const sid = event.sessionId;
+      const prev = next.compactionBySession[sid];
+      const { [sid]: _doneEntry, ...rest } = next.compactionBySession;
+      next.compactionBySession = rest;
+
+      // Append a persistent "context compacted" divider to the loaded
+      // transcript (TUI parity: the scrollback is kept untouched; only a
+      // one-line marker records that compaction happened). The marker id is
+      // derived from the wire seq so an event replay after reconnect can't
+      // duplicate it.
+      if (Object.prototype.hasOwnProperty.call(next.messagesBySession, sid)) {
+        const msgs = next.messagesBySession[sid] ?? [];
+        const markerId = `compaction_${sid}_${meta.seq}`;
+        if (!msgs.some((m) => m.id === markerId)) {
+          const marker: CompactionMarkerMetadata = {
+            trigger: prev?.trigger ?? 'auto',
+            tokensBefore: event.tokensBefore,
+            tokensAfter: event.tokensAfter,
+          };
+          next.messagesBySession[sid] = [
+            ...msgs,
+            {
+              id: markerId,
+              sessionId: sid,
+              role: 'assistant',
+              content: event.summary ? [{ type: 'text', text: event.summary }] : [],
+              createdAt: new Date().toISOString(),
+              metadata: {
+                origin: { kind: 'compaction_summary' },
+                [COMPACTION_MARKER_METADATA_KEY]: marker,
+              },
+            },
+          ];
+        }
+      }
       break;
     }
 

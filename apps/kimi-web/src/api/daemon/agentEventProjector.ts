@@ -798,16 +798,17 @@ export function createAgentProjector(): AgentProjector {
       // -----------------------------------------------------------------------
       case 'compaction.completed': {
         // Compaction replaced a batch of old messages with a summary on the
-        // daemon side. The in-memory transcript is now stale, so signal a reload.
-        // beforeSeq is patched to the real frame.seq by the client (the projector
-        // does not receive the wire seq); the client routes historyCompacted to
-        // onResync to refetch /messages.
+        // daemon side. The visible transcript is NOT reloaded (the client keeps
+        // the scrollback and the reducer appends a divider marker); the
+        // historyCompacted signal still fires so seq bookkeeping and any
+        // non-compaction consumers stay correct.
         const result = (p?.result ?? {}) as Record<string, unknown>;
         out.push({
           type: 'compactionCompleted',
           sessionId,
           tokensBefore: typeof result.tokensBefore === 'number' ? result.tokensBefore : undefined,
           tokensAfter: typeof result.tokensAfter === 'number' ? result.tokensAfter : undefined,
+          summary: typeof result.summary === 'string' ? result.summary : undefined,
         });
         out.push({
           type: 'historyCompacted',

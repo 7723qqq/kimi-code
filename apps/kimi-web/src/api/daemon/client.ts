@@ -175,6 +175,16 @@ interface WireDiffResult {
   diff: string;
 }
 
+/**
+ * historyCompacted reasons caused by compaction itself. These do NOT trigger a
+ * snapshot reload: the client keeps the visible scrollback and renders a
+ * divider marker instead. Every other reason (delta_gap, history_rewrite, …)
+ * still means "cached messages are stale" and goes through onResync.
+ */
+function isCompactionReason(reason: string): boolean {
+  return reason === 'auto_compact' || reason === 'manual_compact';
+}
+
 // ---------------------------------------------------------------------------
 // DaemonKimiWebApi
 // ---------------------------------------------------------------------------
@@ -433,8 +443,9 @@ export class DaemonKimiWebApi implements KimiWebApi {
     return { aborted: data.aborted, atSeq: data.at_seq };
   }
 
-  // POST /sessions/{id}:compact — request history compaction. Returns {}; the
-  // compacted history arrives via the WS history_compacted → onResync reload.
+  // POST /sessions/{id}:compact — request history compaction. Returns {};
+  // progress and completion arrive via the WS compaction.* events (the
+  // transcript itself is not reloaded — a divider marker is appended).
   async compactSession(sessionId: string, instruction?: string): Promise<void> {
     await this.http.post(
       `/sessions/${encodeURIComponent(sessionId)}:compact`,
@@ -962,8 +973,11 @@ export class DaemonKimiWebApi implements KimiWebApi {
         const seq = wireEventSeq(wireEvent);
         const appEvent = toAppEvent(wireEvent);
 
-        // Route history_compacted to onResync so client can reload messages
-        if (appEvent.type === 'historyCompacted') {
+        // Route history_compacted to onResync so the client reloads messages —
+        // EXCEPT for compaction itself: the transcript keeps the scrollback and
+        // the reducer appends a divider marker instead (reloading would replace
+        // the visible conversation with the compacted model context).
+        if (appEvent.type === 'historyCompacted' && !isCompactionReason(appEvent.reason)) {
           handlers.onResync(appEvent.sessionId, appEvent.beforeSeq);
           // Still dispatch the event to onEvent so the reducer can update lastSeqBySession
         }
@@ -980,10 +994,11 @@ export class DaemonKimiWebApi implements KimiWebApi {
         const { type, seq, session_id: sessionId, payload, offset } = frame;
         const appEvents = projector.project(type, payload, sessionId, { offset });
         for (const appEvent of appEvents) {
-          // Auto-compaction: the projector can't see the wire seq, so it emits
-          // historyCompacted with beforeSeq:0. Route it to onResync using the
-          // real frame.seq to reload /messages, mirroring the protocol path.
-          if (appEvent.type === 'historyCompacted') {
+          // historyCompacted from the projector is either a compaction signal
+          // (reason auto_compact — no reload, the divider marker handles it) or
+          // a delta-gap recovery (reason delta_gap — a real resync, routed to
+          // onResync with the real frame.seq, mirroring the protocol path).
+          if (appEvent.type === 'historyCompacted' && !isCompactionReason(appEvent.reason)) {
             handlers.onResync(sessionId, seq);
           }
           handlers.onEvent(appEvent, { sessionId, seq });

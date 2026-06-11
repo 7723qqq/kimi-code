@@ -110,7 +110,7 @@ export type ApprovalBlock =
   | { kind: 'todo'; items: { title: string; status: string }[] }
   | { kind: 'generic'; summary: string };
 
-export type TurnRole = 'user' | 'assistant';
+export type TurnRole = 'user' | 'assistant' | 'compaction';
 
 export interface FilePreviewRequest {
   path: string;
@@ -140,6 +140,10 @@ export interface ChatTurn {
   approvalId?: string; // daemon approval id — present when approval needs a decision
   /** Image attachments sent by the user (rendered above the text bubble). */
   images?: { url: string; alt?: string }[];
+  /** Compaction divider data (role 'compaction'): the transcript keeps all
+      prior turns and renders this as a separator line; `text` holds the
+      LLM-generated summary, opened in the right-side panel on click. */
+  compaction?: { trigger?: 'manual' | 'auto'; tokensBefore?: number; tokensAfter?: number };
 }
 
 /**

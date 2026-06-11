@@ -9,6 +9,9 @@ import { useI18n } from 'vue-i18n';
 
 const props = defineProps<{
   text: string;
+  /** Header label override — defaults to the thinking panel title. Lets the
+      panel double as the compaction-summary viewer. */
+  subtitle?: string;
 }>();
 
 const emit = defineEmits<{
@@ -37,7 +40,7 @@ watch(
   <div class="tp">
     <div class="tp-header">
       <span class="tp-title">{{ t('common.preview') }}</span>
-      <span class="tp-sub">{{ t('thinking.panelTitle') }}</span>
+      <span class="tp-sub">{{ subtitle ?? t('thinking.panelTitle') }}</span>
       <button type="button" class="tp-close" :title="t('thinking.close')" @click="emit('close')">
         <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
       </button>

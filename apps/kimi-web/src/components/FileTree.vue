@@ -248,14 +248,16 @@ watch(
         <!-- Name -->
         <span class="ft-name">{{ node.entry.name }}</span>
 
-        <!-- Git status badge -->
+        <!-- Git status badge: prefer the entry's own gitStatus (available
+             immediately from listDirectory with includeGitStatus=true) and
+             fall back to the per-session changesByPath map. -->
         <span
-          v-if="changesByPath[node.entry.path]"
+          v-if="node.entry.gitStatus ?? changesByPath[node.entry.path]"
           class="ft-badge"
-          :class="badgeKind(changesByPath[node.entry.path]!)"
-          :title="changesByPath[node.entry.path]"
+          :class="badgeKind(node.entry.gitStatus ?? changesByPath[node.entry.path]!)"
+          :title="node.entry.gitStatus ?? changesByPath[node.entry.path]"
         >
-          {{ badgeGlyph(changesByPath[node.entry.path]!) }}
+          {{ badgeGlyph(node.entry.gitStatus ?? changesByPath[node.entry.path]!) }}
         </span>
       </div>
     </template>

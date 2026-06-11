@@ -1079,6 +1079,33 @@ const server = http.createServer((req, res) => {
       return res.end(ok({}));
     }
 
+    // ---- __replay/{sid}: stream the captured real-session message ----
+    if (seg[0] === '__replay' && method === 'POST') {
+      const rsid = seg[1] || 'ses_3';
+      const chunkSize = Number(((url.split('?')[1] || '').match(/chunk=(\d+)/) || [])[1] || 36);
+      (async () => {
+        const session = sessions.find((s) => s.id === rsid);
+        const promptId = ulid('pr_');
+        broadcast('event.session.status_changed', rsid, { status: 'running', previous_status: 'idle', current_prompt_id: promptId });
+        if (session) session.status = 'running';
+        const userMsg = mkMsg(ulid('msg_'), rsid, 'user', [t('replay：渲染复现')], promptId);
+        (messages[rsid] = messages[rsid] || []).push(userMsg);
+        broadcast('event.message.created', rsid, { message: userMsg });
+        await delay(150);
+        const aMsgId = ulid('msg_');
+        const aMsg = mkMsg(aMsgId, rsid, 'assistant', [t('')], promptId);
+        messages[rsid].push(aMsg);
+        broadcast('event.message.created', rsid, { message: { ...aMsg, status: 'pending' } });
+        await streamMarkdown(rsid, aMsgId, 0, __sample, chunkSize);
+        const finalContent = [t(__sample)];
+        broadcast('event.message.updated', rsid, { message_id: aMsgId, content: finalContent, status: 'completed' });
+        aMsg.content = finalContent;
+        broadcast('event.session.status_changed', rsid, { status: 'idle', previous_status: 'running' });
+        if (session) session.status = 'idle';
+      })();
+      return res.end(ok({ replaying: rsid }));
+    }
+
     // ---- sessions/{id} ----
     if (seg[0] === 'sessions' && sid && seg.length === 2) {
       const session = sessions.find((s) => s.id === sid);
@@ -1870,3 +1897,11 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`[stub-daemon] Event mode: ${RAW_EVENTS_MODE ? 'RAW agent-core events (STUB_RAW_EVENTS=1)' : 'projected event.* protocol (default)'}`);
   console.log(`[stub-daemon] Seeded ${sessions.length} sessions, ${Object.values(messages).flat().length} messages`);
 });
+
+// --- repro injection: ses_2 shows the markdown sample under test ---
+import { readFileSync as __rf } from 'node:fs';
+const __sample = __rf('/tmp/md-bug-original.md', 'utf8');
+messages.ses_2 = [
+  mkMsg('msg_md_1', 'ses_2', 'user', [t('渲染复现样本')], 'pr_md_1'),
+  mkMsg('msg_md_2', 'ses_2', 'assistant', [t(__sample)], 'pr_md_1'),
+];

@@ -10,6 +10,7 @@ import ToolCall from './ToolCall.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import Markdown from './Markdown.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
+import ActivityNotice from './ActivityNotice.vue';
 
 
 const MOON_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
@@ -74,11 +75,11 @@ const props = withDefaults(
      */
     sessionLoading?: boolean;
     /**
-     * Live compaction state of the session: a "compacting…" banner while the
-     * daemon rewrites history, then a transient "compacted (X → Y tokens)" note
-     * (auto-dismissed by the composable).
+     * Live compaction state of the session: non-null while the daemon rewrites
+     * history, rendered as a body-sized "Compacting context…" activity notice.
+     * Completion is a persistent divider turn (role 'compaction') in `turns`.
      */
-    compaction?: { status: 'running' | 'completed'; tokensBefore?: number; tokensAfter?: number } | null;
+    compaction?: { status: 'running' } | null;
     /**
      * @deprecated No longer used — Composer is rendered by ConversationPane.
      */
@@ -106,17 +107,32 @@ const emit = defineEmits<{
   copyConversationCopied: [];
   /** Show a thinking block's full text in the right-side panel. */
   openThinking: [target: { turnId: string; blockIndex: number }];
+  /** Show a compaction divider's summary text in the right-side panel. */
+  openCompaction: [target: { turnId: string }];
 }>();
 
-const compactionLabel = computed<string>(() => {
-  const c = props.compaction;
-  if (!c) return '';
-  if (c.status === 'running') return t('conversation.compacting');
-  if (typeof c.tokensBefore === 'number' && typeof c.tokensAfter === 'number') {
-    return t('conversation.compacted', { before: c.tokensBefore, after: c.tokensAfter });
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+/** Divider label: "Context compacted"/"auto-compacted" + optional token stats. */
+function compactionDividerLabel(turn: ChatTurn): string {
+  const c = turn.compaction;
+  const base =
+    c?.trigger === 'auto' ? t('conversation.compactedAuto') : t('conversation.compactedPlain');
+  if (typeof c?.tokensBefore === 'number' && typeof c?.tokensAfter === 'number') {
+    return (
+      base +
+      t('conversation.compactedTokens', {
+        before: formatTokens(c.tokensBefore),
+        after: formatTokens(c.tokensAfter),
+      })
+    );
   }
-  return t('conversation.compactedPlain');
-});
+  return base;
+}
 
 // Per-turn copy button state (keyed by turn id)
 const copiedTurn = ref<string | null>(null);
@@ -160,6 +176,7 @@ function copyConversation(): void {
   if (props.turns.length === 0) return;
   const lines: string[] = [];
   for (const turn of props.turns) {
+    if (turn.role === 'compaction') continue; // dividers don't copy
     const roleLabel = turn.role === 'user' ? 'User' : 'Assistant';
     const content = turnToMarkdown(turn);
     if (content.trim()) {
@@ -265,6 +282,23 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
         <div class="u-text">{{ turn.text }}</div>
       </div>
 
+      <!-- Compaction divider — prior turns stay untouched; summary opens in
+           the right-side panel on click. -->
+      <div v-else-if="turn.role === 'compaction'" class="compact-divider" role="separator">
+        <span class="cd-line" aria-hidden="true" />
+        <button
+          v-if="turn.text"
+          type="button"
+          class="cd-label cd-btn"
+          @click="emit('openCompaction', { turnId: turn.id })"
+        >
+          <span>{{ compactionDividerLabel(turn) }}</span>
+          <span class="cd-view">{{ t('conversation.viewSummary') }}</span>
+        </button>
+        <span v-else class="cd-label">{{ compactionDividerLabel(turn) }}</span>
+        <span class="cd-line" aria-hidden="true" />
+      </div>
+
       <!-- Assistant turn → left-aligned, no name/role label. -->
       <div v-else class="a-msg">
         <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
@@ -299,11 +333,8 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
       @decide="(response) => emit('approvalDecide', a.approvalId, response)"
     />
 
-    <!-- Compaction banner — running ("compacting…") or transient done note -->
-    <div v-if="compaction" class="compaction-note" :class="compaction.status">
-      <span v-if="compaction.status === 'running'" class="dot-pulse" aria-hidden="true" />
-      <span>{{ compactionLabel }}</span>
-    </div>
+    <!-- Compaction in progress — body-sized moon activity notice -->
+    <ActivityNotice v-if="compaction" :label="t('conversation.compacting')" />
 
     <!-- Sending placeholder — moon spinner while the request is in flight -->
     <div v-if="sending" class="sending-placeholder">
@@ -323,7 +354,23 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
     <div v-else-if="turns.length === 0 && (!approvals || approvals.length === 0)" class="chat-empty" />
 
     <template v-for="(turn, ti) in turns" :key="turn.id">
-      <div class="ln" :class="turn.role === 'user' ? 'userline' : 'ai'">
+      <!-- Compaction divider — full-width separator, no gutter number. -->
+      <div v-if="turn.role === 'compaction'" class="compact-divider" role="separator">
+        <span class="cd-line" aria-hidden="true" />
+        <button
+          v-if="turn.text"
+          type="button"
+          class="cd-label cd-btn"
+          @click="emit('openCompaction', { turnId: turn.id })"
+        >
+          <span>{{ compactionDividerLabel(turn) }}</span>
+          <span class="cd-view">{{ t('conversation.viewSummary') }}</span>
+        </button>
+        <span v-else class="cd-label">{{ compactionDividerLabel(turn) }}</span>
+        <span class="cd-line" aria-hidden="true" />
+      </div>
+
+      <div v-else class="ln" :class="turn.role === 'user' ? 'userline' : 'ai'">
         <!-- Line-number gutter -->
         <span class="no">{{ turn.no }}</span>
 
@@ -377,11 +424,8 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
       @decide="(response) => emit('approvalDecide', a.approvalId, response)"
     />
 
-    <!-- Compaction banner — running ("compacting…") or transient done note -->
-    <div v-if="compaction" class="compaction-note" :class="compaction.status">
-      <span v-if="compaction.status === 'running'" class="dot-pulse" aria-hidden="true" />
-      <span>{{ compactionLabel }}</span>
-    </div>
+    <!-- Compaction in progress — body-sized moon activity notice -->
+    <ActivityNotice v-if="compaction" :label="t('conversation.compacting')" />
 
     <!-- Sending placeholder — moon spinner while the request is in flight -->
     <div v-if="sending" class="ln sending-line">
@@ -525,18 +569,43 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   overflow-wrap: anywhere;
 }
 
-/* Compaction banner — "compacting…" while running, transient done note after. */
-.compaction-note {
+/* Compaction divider — a full-width separator marking where the daemon
+   compacted the context. Prior turns above it are untouched; clicking the
+   label opens the summary in the right-side panel. */
+.compact-divider {
   display: flex;
   align-items: center;
-  gap: 8px;
-  align-self: flex-start;
-  margin: 6px 0;
-  font-size: 12.5px;
-  font-family: var(--mono);
-  color: var(--faint);
+  gap: 10px;
+  align-self: stretch;
+  width: 100%;
+  margin: 14px 0;
 }
-.compaction-note.completed { color: var(--ok); }
+.cd-line {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.cd-label {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 80%;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.cd-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.cd-view { color: var(--blue); }
+.cd-btn:hover .cd-view { text-decoration: underline; }
 
 /* Assistant message → left-aligned plain column, no role label */
 .a-msg {
@@ -678,6 +747,10 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   .chat-empty-text,
   .chat-loading-text {
     font-size: 15px;
+  }
+  .cd-label,
+  .cd-btn {
+    font-size: 14px;
   }
 }
 </style>

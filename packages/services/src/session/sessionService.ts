@@ -353,6 +353,11 @@ export class SessionService extends Disposable implements ISessionService {
       throw new SessionNotFoundError(id);
     }
 
+    // beginCompaction only sees sessions loaded in core memory — resume first
+    // (mirrors undo) so compacting a freshly-opened session doesn't throw
+    // SESSION_NOT_FOUND.
+    await this.core.rpc.resumeSession({ sessionId: id });
+
     const instruction = normalizeOptionalString(input.instruction);
     await this.core.rpc.beginCompaction({
       sessionId: id,

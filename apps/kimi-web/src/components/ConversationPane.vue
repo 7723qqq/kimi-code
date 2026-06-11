@@ -54,8 +54,8 @@ const props = defineProps<{
   modern?: boolean;
   /** True while switching sessions and the turns array is not yet loaded. */
   sessionLoading?: boolean;
-  /** Live compaction state of the active session (running banner / done note). */
-  compaction?: { status: 'running' | 'completed'; tokensBefore?: number; tokensAfter?: number } | null;
+  /** Live compaction state of the active session (non-null while running). */
+  compaction?: { status: 'running' } | null;
   /** Available models for the quick-switch dropdown in the composer toolbar. */
   models?: AppModel[];
   /** Workspace name shown in the empty-session hint above the centred composer. */
@@ -82,6 +82,7 @@ const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
   openMedia: [media: ToolMedia];
   openThinking: [target: { turnId: string; blockIndex: number }];
+  openCompaction: [target: { turnId: string }];
 }>();
 
 const { t } = useI18n();
@@ -633,6 +634,7 @@ onUnmounted(() => {
             @open-media="emit('openMedia', $event)"
             @copy-conversation-copied="handleCopyConversationCopied"
             @open-thinking="emit('openThinking', $event)"
+            @open-compaction="emit('openCompaction', $event)"
           />
         </template>
       </div>

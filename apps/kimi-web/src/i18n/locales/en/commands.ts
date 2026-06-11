@@ -13,7 +13,6 @@ export default {
   thinking: { desc: 'Set the thinking level' },
   compact: { desc: 'Compact the conversation history' },
   fork: { desc: 'Fork this session into a new one' },
-  compactNotImplemented: '/compact is not connected yet',
   undoNotImplemented: '/undo isn\'t supported by the daemon yet',
   status: { desc: 'View session status' },
   undo: { desc: 'Undo the last message' },

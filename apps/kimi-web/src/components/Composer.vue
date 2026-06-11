@@ -367,14 +367,15 @@ function handleSubmit(): void {
 
   if (!trimmed && readyAttachments.length === 0) return;
 
-  // If it's a slash command (no space → treat as command trigger)
+  // If it's a slash command (no space → treat as command trigger).
+  // /compact also accepts a free-text instruction after the command, so it
+  // stays a command instead of falling through as a chat message.
   if (trimmed) {
     const parsed = parseSlash(trimmed);
-    if (parsed && !parsed.arg) {
-      // pure command with no extra text
+    if (parsed && (!parsed.arg || parsed.cmd === '/compact')) {
       text.value = '';
       slashOpen.value = false;
-      emit('command', parsed.cmd);
+      emit('command', parsed.arg ? `${parsed.cmd} ${parsed.arg}` : parsed.cmd);
       return;
     }
   }
