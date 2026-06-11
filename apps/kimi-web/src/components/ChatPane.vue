@@ -515,7 +515,6 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   border-radius: 4px;
 }
 .a-cpbtn:hover {
-  background: var(--soft);
   color: var(--ink);
 }
 .a-cpbtn svg {
