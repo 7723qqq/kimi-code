@@ -168,10 +168,10 @@ function onLogout(): void {
         <button
           type="button"
           class="seg-opt"
-          :class="{ on: theme === 'terminal' }"
-          :aria-pressed="theme === 'terminal'"
-          @click="emit('setTheme', 'terminal')"
-        >{{ t('theme.terminal') }}</button>
+          :class="{ on: theme === 'kimi' }"
+          :aria-pressed="theme === 'kimi'"
+          @click="emit('setTheme', 'kimi')"
+        >{{ t('theme.kimi') }}</button>
       </div>
     </div>
 
@@ -204,7 +204,9 @@ function onLogout(): void {
       </div>
     </div>
 
-    <div class="srow read-only pref">
+    <!-- The Kimi theme pins its interaction accent (kimiDark per the design
+         system), so the accent choice would do nothing — hide it. -->
+    <div v-if="theme !== 'kimi'" class="srow read-only pref">
       <span class="srow-main">
         <span class="srow-label">{{ t('theme.accentLabel') }}</span>
       </span>

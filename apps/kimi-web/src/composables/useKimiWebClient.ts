@@ -64,8 +64,10 @@ const SESSION_NOT_FOUND_CODE = 40401;
 const ONBOARDED_STORAGE_KEY = 'kimi-web.onboarded';
 const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
 
-/** UI theme: 'terminal' = today's default line look, 'modern' = bubbles everywhere. */
-export type Theme = 'terminal' | 'modern';
+/** UI theme: 'terminal' = dense line look, 'modern' = bubbles everywhere,
+    'kimi' = the official Kimi design language (Quiet Utility: flat surfaces,
+    kimiDark interaction accent, PingFang/Geist type). */
+export type Theme = 'terminal' | 'modern' | 'kimi';
 
 /** Color scheme: 'light', 'dark', or follow the OS preference ('system'). */
 export type ColorScheme = 'light' | 'dark' | 'system';
@@ -193,7 +195,7 @@ function savePlanModeToStorage(v: boolean): void {
 function loadThemeFromStorage(): Theme {
   try {
     const v = localStorage.getItem(THEME_STORAGE_KEY);
-    if (v === 'terminal' || v === 'modern') return v;
+    if (v === 'terminal' || v === 'modern' || v === 'kimi') return v;
   } catch {
     // ignore
   }
@@ -384,7 +386,7 @@ watch(theme, applyThemeToDocument, { immediate: true });
 
 /** Set the active theme and persist it. */
 function setTheme(t: Theme): void {
-  if (t !== 'terminal' && t !== 'modern') return;
+  if (t !== 'terminal' && t !== 'modern' && t !== 'kimi') return;
   theme.value = t;
   saveThemeToStorage(t);
 }

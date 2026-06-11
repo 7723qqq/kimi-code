@@ -86,9 +86,11 @@ const sideWidth = computed(() => sessionColWidth.value);
 // tab keeps its local split-pane preview.
 // ---------------------------------------------------------------------------
 const PREVIEW_WIDTH_KEY = 'kimi-web.file-preview-width';
-const PREVIEW_DEFAULT = 460;
 const PREVIEW_MIN = 320;
 const PREVIEW_MAX = 760;
+const PREVIEW_DEFAULT = typeof window !== 'undefined'
+  ? Math.max(PREVIEW_MIN, Math.min(PREVIEW_MAX, Math.round(window.innerWidth / 2)))
+  : 460;
 
 const previewWidth = ref(PREVIEW_DEFAULT);
 const previewTarget = ref<FilePreviewRequest | null>(null);
@@ -536,7 +538,7 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
       v-if="!hasMultiSelect"
       ref="conversationPaneRef"
       :mobile="isMobile"
-      :modern="client.theme.value === 'modern'"
+      :modern="client.theme.value === 'modern' || client.theme.value === 'kimi'"
       :turns="client.turns.value"
       :approvals="client.pendingApprovals.value"
       :changes="client.changes.value"
@@ -908,8 +910,10 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
 
 <style>
 /* Right-side panel headers (ThinkingPanel / FilePreview) track the TabBar
-   height per theme: 32px terminal (the components' var fallback), 40px modern. */
-html[data-theme="modern"] {
+   height per theme: 32px terminal (the components' var fallback), 40px
+   modern/kimi. */
+html[data-theme="modern"],
+html[data-theme="kimi"] {
   --panel-head-h: 40px;
 }
 </style>

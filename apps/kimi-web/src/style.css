@@ -218,8 +218,12 @@ body {
    MODERN THEME (html[data-theme="modern"])
    Bubbles-everywhere look with a softer palette and smooth ("丝滑")
    micro-animations. Terminal (default, no data-theme override) is untouched.
-   All Modern rules live under html[data-theme="modern"]; component-scoped
-   overrides use :global(html[data-theme=modern]) so they share the hook.
+   The token blocks directly below are Modern-only; the structural
+   de-terminalization rules further down are shared with the Kimi theme via
+   :is(html[data-theme="modern"], html[data-theme="kimi"]) — identical
+   specificity to the original single-theme selectors, so Modern renders
+   exactly as before. Kimi's own token blocks + deltas live in the KIMI THEME
+   section near the end of this sheet.
    =========================================================================== */
 html[data-theme="modern"] {
   /* Softer hairlines + a soft neutral canvas the white cards/bubbles lift off.
@@ -263,10 +267,10 @@ html[data-color-scheme="dark"][data-theme="modern"] {
    own styles, so forbid those properties on the root in Modern. Harmless: the
    root never needs a transform of its own.
    --------------------------------------------------------------------------- */
-html[data-theme="modern"],
-html[data-theme="modern"] body,
-html[data-theme="modern"] #app,
-html[data-theme="modern"] .app {
+:is(html[data-theme="modern"], html[data-theme="kimi"]),
+:is(html[data-theme="modern"], html[data-theme="kimi"]) body,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) #app,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .app {
   transform: none !important;
   filter: none !important;
   perspective: none !important;
@@ -292,17 +296,17 @@ html[data-theme="modern"] .app {
    real UI sans. Paths, code, tab labels, timestamps and badges keep --mono
    because they set it per-element — so chrome stays crisp and code-like, content
    reads soft. This single switch is what makes Modern feel unlike the terminal. */
-html[data-theme="modern"] body {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) body {
   font-family: var(--sans);
   line-height: 1.6;
 }
 
 /* Smooth theme switching + general interaction fluidity. Scoped to common
    surfaces so we never animate layout-affecting properties (no layout shift). */
-html[data-theme="modern"] button,
-html[data-theme="modern"] .cin,
-html[data-theme="modern"] textarea,
-html[data-theme="modern"] input {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) button,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .cin,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) textarea,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) input {
   transition: background-color 0.18s ease, border-color 0.18s ease,
     color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
@@ -312,21 +316,21 @@ html[data-theme="modern"] input {
    as-is; only the reading surface softens. ---- */
 /* Chat surface is white (the user prefers a white reading area over the soft
    canvas). Bubbles/tool cards still read fine via their own borders + shadows. */
-html[data-theme="modern"] .con { background: var(--bg); }
-html[data-theme="modern"] .chat { background: transparent; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .con { background: var(--bg); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .chat { background: transparent; }
 
 /* Session rows → rounded, inset pills with a soft active state (cards, not a
    full-bleed tint bar). Keeps the mono timestamp/badges. Scoped under
    .sessions because .se is also a (different) class in MobileTopBar. */
-html[data-theme="modern"] .sessions .se {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .sessions .se {
   margin: 1px 6px;
   border-radius: var(--r-sm);
   /* Trim the row padding by the inset margin so the title still starts at the
      same x as the workspace name (whose header has no inset). */
   padding: 7px calc(var(--sb-pad-x, 12px) - 6px);
 }
-html[data-theme="modern"] .sessions .se:hover { background: var(--panel2); }
-html[data-theme="modern"] .sessions .se.on {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .sessions .se:hover { background: var(--panel2); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .sessions .se.on {
   background: var(--soft);
   box-shadow: inset 0 0 0 1px var(--bd);
 }
@@ -334,7 +338,7 @@ html[data-theme="modern"] .sessions .se.on {
 /* Tab bar → clean white strip with a single hairline.
    Sidebar header (.ch) keeps the sidebar body color so the right border
    extends seamlessly from top to bottom. */
-html[data-theme="modern"] .tabs {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tabs {
   background: var(--bg);
 }
 
@@ -343,13 +347,13 @@ html[data-theme="modern"] .tabs {
    .md/.markdown-renderer with --mono; override to --sans here. Code blocks,
    inline code and file paths keep --mono via their own per-element rules, so
    only the prose changes. Global (not scoped) so it reliably wins the cascade. */
-html[data-theme="modern"] .md,
-html[data-theme="modern"] .md .markdown-renderer {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .md,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .md .markdown-renderer {
   font-family: var(--sans);
 }
 
 /* Composer input also types in sans under Modern (matches the chat prose). */
-html[data-theme="modern"] .ph {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ph {
   font-family: var(--sans);
 }
 
@@ -358,14 +362,14 @@ html[data-theme="modern"] .ph {
    Composer.vue did not win the cascade against the base rules, so they are moved
    to the global sheet where they apply reliably. The chat surface is white, so
    the composer card reads as a rounded card via a soft shadow + hairline border. */
-html[data-theme="modern"] .composer-card {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .composer-card {
   border-radius: var(--r-md);
   border: 1px solid var(--line);
   background: var(--bg);
   box-shadow: var(--shc);
 }
 
-html[data-theme="modern"] .ph {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ph {
   background: transparent;
   border: none;
   border-radius: 0;
@@ -376,7 +380,7 @@ html[data-theme="modern"] .ph {
   line-height: 1.5;
 }
 
-html[data-theme="modern"] .send {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .send {
   width: 30px;
   min-width: 30px;
   height: 30px;
@@ -388,63 +392,63 @@ html[data-theme="modern"] .send {
   box-shadow: 0 1px 2px rgba(20, 23, 28, 0.1);
   align-self: flex-end;
 }
-html[data-theme="modern"] .send:hover { background: var(--blue2); }
-html[data-theme="modern"] .send.aborting {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .send:hover { background: var(--blue2); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .send.aborting {
   background: var(--err);
 }
-html[data-theme="modern"] .send.aborting:hover {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .send.aborting:hover {
   background: color-mix(in srgb, var(--err) 85%, #000);
 }
-html[data-theme="modern"] .toolbar {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .toolbar {
   background: color-mix(in srgb, var(--panel), black 1.5%);
 }
-html[data-theme="modern"] .attach-btn {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .attach-btn {
   width: 26px;
   height: 26px;
   padding: 0;
   border-radius: var(--r-sm);
 }
-html[data-theme="modern"] .attach-btn:hover {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .attach-btn:hover {
   background: var(--soft);
   color: var(--blue);
 }
-html[data-theme="modern"] .model-pill {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .model-pill {
   font-family: var(--sans);
   border-radius: var(--r-sm);
 }
-html[data-theme="modern"] .toggle-pill {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .toggle-pill {
   font-family: var(--sans);
   border-radius: var(--r-sm);
 }
-html[data-theme="modern"] .toggle-pill.on {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .toggle-pill.on {
   background: var(--soft);
   color: var(--blue);
 }
-html[data-theme="modern"] .model-dropdown,
-html[data-theme="modern"] .perm-dropdown {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .model-dropdown,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .perm-dropdown {
   border-radius: var(--r-md);
 }
-html[data-theme="modern"] .pd-name {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .pd-name {
   font-family: var(--sans);
 }
-html[data-theme="modern"] .pd-desc {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .pd-desc {
   font-family: var(--sans);
 }
-html[data-theme="modern"] .queue-item,
-html[data-theme="modern"] .att-chip {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .queue-item,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .att-chip {
   border-radius: var(--r-sm);
 }
 
 /* ---- TabBar (moved out of TabBar.vue — scoped :global() didn't apply) --------
    Soft pill tabs on a white strip: no hard cell borders, active tab is a rounded
    soft-blue pill. */
-html[data-theme="modern"] .tabs {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tabs {
   height: 40px;
   background: var(--bg);
   padding: 0 8px;
   gap: 2px;
 }
-html[data-theme="modern"] .tb {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tb {
   border-right: none;
   border-radius: var(--r-sm);
   margin: 5px 0;
@@ -452,15 +456,15 @@ html[data-theme="modern"] .tb {
   font-size: 13px;
   color: var(--muted);
 }
-html[data-theme="modern"] .tb:hover {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tb:hover {
   background: var(--canvas);
   color: var(--ink);
 }
-html[data-theme="modern"] .tb.on {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tb.on {
   background: var(--soft);
   color: var(--blue2);
 }
-html[data-theme="modern"] .tabs .cnt {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tabs .cnt {
   min-width: 16px;
   height: 16px;
   padding: 0 5px;
@@ -473,11 +477,11 @@ html[data-theme="modern"] .tabs .cnt {
 }
 
 /* ---- Chat bubbles (moved out of ChatPane.vue) ---- */
-html[data-theme="modern"] .chat {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .chat {
   gap: 18px;
   padding: 22px 20px 26px;
 }
-html[data-theme="modern"] .u-bub {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .u-bub {
   background: var(--bluebg);
   border-color: var(--blueln);
   border-radius: 18px 18px 6px 18px;
@@ -485,40 +489,40 @@ html[data-theme="modern"] .u-bub {
   box-shadow: var(--shc);
   animation: kimi-bubble-in 0.24s ease-out both;
 }
-html[data-theme="modern"] .a-msg {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .a-msg {
   max-width: 100%;
   width: 100%;
   animation: kimi-bubble-in 0.24s ease-out both;
 }
 
 /* ---- Tool cards (moved out of ToolCall.vue) ---- */
-html[data-theme="modern"] .box {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box {
   background: var(--bg);
   border-radius: var(--r-md);
   box-shadow: var(--shc);
   animation: kimi-card-in 0.18s ease-out both;
   transition: box-shadow 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
 }
-html[data-theme="modern"] .box:hover {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box:hover {
   transform: translateY(-1px);
   box-shadow: 0 3px 8px rgba(20, 23, 28, 0.06);
 }
-html[data-theme="modern"] .box .bh { border-radius: var(--r-md); }
-html[data-theme="modern"] .box.open .bh { border-radius: var(--r-md) var(--r-md) 0 0; }
-html[data-theme="modern"] .box .ok,
-html[data-theme="modern"] .box .er {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box .bh { border-radius: var(--r-md); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.open .bh { border-radius: var(--r-md) var(--r-md) 0 0; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box .ok,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box .er {
   display: inline-block;
   animation: kimi-check-in 0.15s ease-out both;
 }
-html[data-theme="modern"] .box.open .bb > div {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.open .bb > div {
   animation: kimi-line-in 0.14s ease-out both;
 }
-html[data-theme="modern"] .box.open .bb > div:nth-child(1) { animation-delay: 0ms; }
-html[data-theme="modern"] .box.open .bb > div:nth-child(2) { animation-delay: 30ms; }
-html[data-theme="modern"] .box.open .bb > div:nth-child(3) { animation-delay: 60ms; }
-html[data-theme="modern"] .box.open .bb > div:nth-child(4) { animation-delay: 90ms; }
-html[data-theme="modern"] .box.open .bb > div:nth-child(5) { animation-delay: 120ms; }
-html[data-theme="modern"] .box.open .bb > div:nth-child(6) { animation-delay: 150ms; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.open .bb > div:nth-child(1) { animation-delay: 0ms; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.open .bb > div:nth-child(2) { animation-delay: 30ms; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.open .bb > div:nth-child(3) { animation-delay: 60ms; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.open .bb > div:nth-child(4) { animation-delay: 90ms; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.open .bb > div:nth-child(5) { animation-delay: 120ms; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.open .bb > div:nth-child(6) { animation-delay: 150ms; }
 
 /* ===========================================================================
    MODERN DE-TERMINALIZATION
@@ -531,181 +535,181 @@ html[data-theme="modern"] .box.open .bb > div:nth-child(6) { animation-delay: 15
    =========================================================================== */
 
 /* ---- App shell ---- */
-html[data-theme="modern"] .app { border-top: none; }
-html[data-theme="modern"] .auth-banner-inner { font-family: var(--sans); }
-html[data-theme="modern"] .auth-banner-btn { border-radius: var(--r-sm); font-family: var(--sans); }
-html[data-theme="modern"] .coming-soon { font-family: var(--sans); }
-html[data-theme="modern"] .gload-text { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .app { border-top: none; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .auth-banner-inner { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .auth-banner-btn { border-radius: var(--r-sm); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .coming-soon { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .gload-text { font-family: var(--sans); }
 
 /* ---- Sidebar: buttons, rename inputs, kebab menu, settings popover ---- */
-html[data-theme="modern"] .btn-new-ws { font-family: var(--sans); }
-html[data-theme="modern"] .theme-opt { font-family: var(--sans); }
-html[data-theme="modern"] .gh-rename { border-radius: var(--r-xs); font-family: var(--sans); }
-html[data-theme="modern"] .gh.sel { border-radius: var(--r-sm); }
-html[data-theme="modern"] .gh-add { color: var(--faint); }
-html[data-theme="modern"] .gh-add:hover { color: var(--dim); }
-html[data-theme="modern"] .am-item.danger { color: var(--err); }
-html[data-theme="modern"] .sessions .se .menu { border-radius: var(--r-sm); box-shadow: var(--sh); }
-html[data-theme="modern"] .sessions .se .menu-item { font-family: var(--sans); }
-html[data-theme="modern"] .sessions .se .rename-input { border-radius: var(--r-xs); font-family: var(--sans); }
-html[data-theme="modern"] .sessions .se .kebab { border-radius: var(--r-xs); }
-html[data-theme="modern"] .sessions .se .btn-confirm,
-html[data-theme="modern"] .sessions .se .btn-cancel { border-radius: var(--r-xs); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .btn-new-ws { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .theme-opt { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .gh-rename { border-radius: var(--r-xs); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .gh.sel { border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .gh-add { color: var(--faint); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .gh-add:hover { color: var(--dim); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .am-item.danger { color: var(--err); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .sessions .se .menu { border-radius: var(--r-sm); box-shadow: var(--sh); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .sessions .se .menu-item { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .sessions .se .rename-input { border-radius: var(--r-xs); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .sessions .se .kebab { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .sessions .se .btn-confirm,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .sessions .se .btn-cancel { border-radius: var(--r-xs); font-family: var(--sans); }
 
 /* ---- Chat content: code blocks, inline code, thinking, tool chips ---- */
-html[data-theme="modern"] .md .code-block-container { border-radius: var(--r-sm); box-shadow: var(--shc); }
-html[data-theme="modern"] .md .diff-wrap { border-radius: var(--r-sm); box-shadow: var(--shc); }
-html[data-theme="modern"] .md :not(pre) > code,
-html[data-theme="modern"] .md .inline-code { border-radius: var(--r-xs); }
-html[data-theme="modern"] .mthink .h,
-html[data-theme="modern"] .mthink .c { font-family: var(--sans); }
-html[data-theme="modern"] .box .chip { border-radius: var(--r-xs); font-family: var(--mono); }
-html[data-theme="modern"] .box.err { border-color: color-mix(in srgb, var(--err) 25%, var(--bg)); }
-html[data-theme="modern"] .box.err .bh { background: color-mix(in srgb, var(--err) 4%, var(--bg)); }
-html[data-theme="modern"] .box.err .bh:hover { background: color-mix(in srgb, var(--err) 7%, var(--bg)); }
-html[data-theme="modern"] .newmsg-pill { font-family: var(--sans); }
-html[data-theme="modern"] .seg-btn { font-family: var(--sans); }
-html[data-theme="modern"] .files-back { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .md .code-block-container { border-radius: var(--r-sm); box-shadow: var(--shc); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .md .diff-wrap { border-radius: var(--r-sm); box-shadow: var(--shc); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .md :not(pre) > code,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .md .inline-code { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .mthink .h,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .mthink .c { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box .chip { border-radius: var(--r-xs); font-family: var(--mono); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.err { border-color: color-mix(in srgb, var(--err) 25%, var(--bg)); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.err .bh { background: color-mix(in srgb, var(--err) 4%, var(--bg)); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.err .bh:hover { background: color-mix(in srgb, var(--err) 7%, var(--bg)); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .newmsg-pill { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .seg-btn { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .files-back { font-family: var(--sans); }
 
 /* ---- Approval & question cards (match the rounded .box tool cards) ---- */
-html[data-theme="modern"] .appr { border-radius: var(--r-md); box-shadow: var(--shc); overflow: hidden; }
-html[data-theme="modern"] .appr .ah { border-radius: var(--r-md) var(--r-md) 0 0; }
-html[data-theme="modern"] .kbtn { font-family: var(--sans); transition: background-color 0.18s ease, color 0.18s ease; }
-html[data-theme="modern"] .feedback-ta { font-family: var(--sans); border-radius: var(--r-sm); }
-html[data-theme="modern"] .shell-cmd,
-html[data-theme="modern"] .shell-danger { border-radius: var(--r-sm); }
-html[data-theme="modern"] .aw,
-html[data-theme="modern"] .abadge,
-html[data-theme="modern"] .chip-label { border-radius: var(--r-xs); }
-html[data-theme="modern"] .qcard { border-radius: var(--r-md); box-shadow: var(--shc); overflow: hidden; }
-html[data-theme="modern"] .qcard .qh { border-radius: var(--r-md) var(--r-md) 0 0; }
-html[data-theme="modern"] .qopt { border-radius: var(--r-sm); }
-html[data-theme="modern"] .qbtn { font-family: var(--sans); border-radius: var(--r-sm); }
-html[data-theme="modern"] .other-input { font-family: var(--sans); }
-html[data-theme="modern"] .qnav { font-family: var(--sans); border-radius: var(--r-xs); }
-html[data-theme="modern"] .qheader-chip { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .appr { border-radius: var(--r-md); box-shadow: var(--shc); overflow: hidden; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .appr .ah { border-radius: var(--r-md) var(--r-md) 0 0; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .kbtn { font-family: var(--sans); transition: background-color 0.18s ease, color 0.18s ease; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .feedback-ta { font-family: var(--sans); border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .shell-cmd,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .shell-danger { border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .aw,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .abadge,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .chip-label { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .qcard { border-radius: var(--r-md); box-shadow: var(--shc); overflow: hidden; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .qcard .qh { border-radius: var(--r-md) var(--r-md) 0 0; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .qopt { border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .qbtn { font-family: var(--sans); border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .other-input { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .qnav { font-family: var(--sans); border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .qheader-chip { border-radius: var(--r-xs); }
 
 /* ---- Composer: permission pill, model menu, queue strip ---- */
-html[data-theme="modern"] .perm-pill { font-family: var(--sans); border-radius: var(--r-sm); }
-html[data-theme="modern"] .md-row { font-family: var(--sans); }
-html[data-theme="modern"] .queue-item,
-html[data-theme="modern"] .queue-text { font-family: var(--sans); }
-html[data-theme="modern"] .compact-chip { border-radius: var(--r-xs); }
-html[data-theme="modern"] .att-thumb { border-radius: 5px; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .perm-pill { font-family: var(--sans); border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .md-row { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .queue-item,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .queue-text { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .compact-chip { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .att-thumb { border-radius: 5px; }
 
 /* ---- Floating menus + status line ---- */
-html[data-theme="modern"] .slash-menu { border-radius: var(--r-md); box-shadow: var(--sh); }
-html[data-theme="modern"] .slash-desc { font-family: var(--sans); }
-html[data-theme="modern"] .mention-menu { border-radius: var(--r-md); box-shadow: var(--sh); }
-html[data-theme="modern"] .mention-state { font-family: var(--sans); }
-html[data-theme="modern"] .statusline .popover {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .slash-menu { border-radius: var(--r-md); box-shadow: var(--sh); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .slash-desc { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .mention-menu { border-radius: var(--r-md); box-shadow: var(--sh); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .mention-state { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .statusline .popover {
   border-radius: var(--r-md);
   border-top: 1px solid var(--line);
   box-shadow: var(--sh);
 }
-html[data-theme="modern"] .statusline .pop-row { font-family: var(--sans); border-radius: var(--r-xs); }
-html[data-theme="modern"] .interrupt-btn { border-radius: var(--r-xs); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .statusline .pop-row { font-family: var(--sans); border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .interrupt-btn { border-radius: var(--r-xs); font-family: var(--sans); }
 
 /* ---- Dialog shell (ModelPicker / Login / NewSession / Sessions /
         AddWorkspace / ProviderManager / StatusPanel share these classes).
         UI copy goes sans; per-element mono below keeps code-like content
         (paths, model ids, device codes) terminal-crisp. ---- */
-html[data-theme="modern"] .backdrop .dialog {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .dialog {
   font-family: var(--sans);
   border-top: 1px solid var(--line);
   box-shadow: 0 8px 30px rgba(20, 23, 28, 0.16);
 }
 @media (min-width: 641px) {
   /* Desktop only: ≤640px keeps the bottom-sheet 16px top corners. */
-  html[data-theme="modern"] .backdrop .dialog { border-radius: var(--r-lg); }
-  html[data-theme="modern"] .backdrop .footer-hint { border-radius: 0 0 var(--r-lg) var(--r-lg); }
+  :is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .dialog { border-radius: var(--r-lg); }
+  :is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .footer-hint { border-radius: 0 0 var(--r-lg) var(--r-lg); }
 }
-html[data-theme="modern"] .backdrop .act-btn { border-radius: var(--r-sm); font-family: var(--sans); }
-html[data-theme="modern"] .backdrop .search-input { border-radius: var(--r-sm); font-family: var(--sans); }
-html[data-theme="modern"] .backdrop .finput { border-radius: var(--r-sm); }
-html[data-theme="modern"] .backdrop .recent-item { border-radius: var(--r-sm); }
-html[data-theme="modern"] .backdrop .folder-row {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .act-btn { border-radius: var(--r-sm); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .search-input { border-radius: var(--r-sm); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .finput { border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .recent-item { border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .folder-row {
   margin: 1px 6px;
   width: calc(100% - 12px);
   border-radius: var(--r-sm);
 }
-html[data-theme="modern"] .backdrop .session-row { margin: 1px 6px; border-radius: var(--r-sm); }
-html[data-theme="modern"] .backdrop .session-row.is-active { box-shadow: inset 0 0 0 1px var(--bd); }
-html[data-theme="modern"] .backdrop .up-btn,
-html[data-theme="modern"] .backdrop .crumb { border-radius: var(--r-xs); }
-html[data-theme="modern"] .backdrop .paste-input { border-radius: var(--r-sm); }
-html[data-theme="modern"] .backdrop .paste-add { border-radius: var(--r-sm); font-family: var(--sans); }
-html[data-theme="modern"] .backdrop .model-row { font-family: var(--mono); } /* model ids */
-html[data-theme="modern"] .backdrop .caps { border-radius: var(--r-xs); }
-html[data-theme="modern"] .backdrop .dc-code-wrap { border-radius: var(--r-md); }
-html[data-theme="modern"] .backdrop .dc-uri-btn { border-radius: var(--r-sm); }
-html[data-theme="modern"] .backdrop .dc-copy-btn { border-radius: var(--r-sm); font-family: var(--sans); }
-html[data-theme="modern"] .backdrop .dc-countdown { font-family: var(--mono); } /* mm:ss timer */
-html[data-theme="modern"] .backdrop .add-btn-oauth,
-html[data-theme="modern"] .backdrop .add-btn { border-radius: var(--r-sm); font-family: var(--sans); }
-html[data-theme="modern"] .backdrop .prov-key-state { border-radius: var(--r-xs); }
-html[data-theme="modern"] .backdrop .bar { background: var(--line); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .session-row { margin: 1px 6px; border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .session-row.is-active { box-shadow: inset 0 0 0 1px var(--bd); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .up-btn,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .crumb { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .paste-input { border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .paste-add { border-radius: var(--r-sm); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .model-row { font-family: var(--mono); } /* model ids */
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .caps { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .dc-code-wrap { border-radius: var(--r-md); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .dc-uri-btn { border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .dc-copy-btn { border-radius: var(--r-sm); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .dc-countdown { font-family: var(--mono); } /* mm:ss timer */
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .add-btn-oauth,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .add-btn { border-radius: var(--r-sm); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .prov-key-state { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .backdrop .bar { background: var(--line); }
 
 /* ---- Files / diff / tasks panes ---- */
-html[data-theme="modern"] .back-btn { border-radius: var(--r-sm); font-family: var(--sans); }
-html[data-theme="modern"] .changes-pane .empty-state { font-family: var(--sans); }
-html[data-theme="modern"] .br-label,
-html[data-theme="modern"] .empty-head { font-family: var(--sans); }
-html[data-theme="modern"] .change-count { font-family: var(--sans); border-radius: 999px; }
-html[data-theme="modern"] .ch-row,
-html[data-theme="modern"] .ct-row {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .back-btn { border-radius: var(--r-sm); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .changes-pane .empty-state { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .br-label,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .empty-head { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .change-count { font-family: var(--sans); border-radius: 999px; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ch-row,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ct-row {
   margin: 1px 6px;
   width: calc(100% - 12px);
   border-radius: var(--r-sm);
 }
-html[data-theme="modern"] .changes-pane .badge,
-html[data-theme="modern"] .changed-tree .badge { border-radius: var(--r-xs); }
-html[data-theme="modern"] .ft-row { margin: 1px 6px; border-radius: var(--r-sm); }
-html[data-theme="modern"] .ft-row.selected { box-shadow: inset 0 0 0 1px var(--bd); }
-html[data-theme="modern"] .ft-badge { border-radius: var(--r-xs); }
-html[data-theme="modern"] .ft-loading,
-html[data-theme="modern"] .ft-empty { font-family: var(--sans); }
-html[data-theme="modern"] .fp-copy { font-family: var(--sans); border-radius: var(--r-sm); }
-html[data-theme="modern"] .fp-empty,
-html[data-theme="modern"] .fp-loading { font-family: var(--sans); }
-html[data-theme="modern"] .fp-binary-card { border-radius: var(--r-md); box-shadow: var(--shc); }
-html[data-theme="modern"] .fp-binary-label { font-family: var(--sans); }
-html[data-theme="modern"] .fp-image { border-radius: var(--r-sm); box-shadow: var(--shc); }
-html[data-theme="modern"] .tp-out { border-radius: var(--r-sm); font-family: var(--mono); } /* command output */
-html[data-theme="modern"] .tp-stop { border-radius: var(--r-sm); font-family: var(--sans); }
-html[data-theme="modern"] .tp-kind { border-radius: var(--r-xs); }
-html[data-theme="modern"] .tabs.mobile .tb { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .changes-pane .badge,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .changed-tree .badge { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ft-row { margin: 1px 6px; border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ft-row.selected { box-shadow: inset 0 0 0 1px var(--bd); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ft-badge { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ft-loading,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ft-empty { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .fp-copy { font-family: var(--sans); border-radius: var(--r-sm); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .fp-empty,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .fp-loading { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .fp-binary-card { border-radius: var(--r-md); box-shadow: var(--shc); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .fp-binary-label { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .fp-image { border-radius: var(--r-sm); box-shadow: var(--shc); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tp-out { border-radius: var(--r-sm); font-family: var(--mono); } /* command output */
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tp-stop { border-radius: var(--r-sm); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tp-kind { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tabs.mobile .tb { font-family: var(--sans); }
 
 /* ---- Warning toasts: route the error reds through the token system ---- */
-html[data-theme="modern"] .toast.err { border-color: color-mix(in srgb, var(--err) 35%, transparent); }
-html[data-theme="modern"] .toast.err .dot { background: var(--err); }
-html[data-theme="modern"] .toast.err .msg { color: var(--err); }
-html[data-theme="modern"] .toast .x { border-radius: var(--r-xs); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .toast.err { border-color: color-mix(in srgb, var(--err) 35%, transparent); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .toast.err .dot { background: var(--err); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .toast.err .msg { color: var(--err); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .toast .x { border-radius: var(--r-xs); }
 
 /* ---- Todo card (rounded + shadow under Modern) ---- */
-html[data-theme="modern"] .todo-card {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .todo-card {
   border-radius: var(--r-sm);
   box-shadow: var(--shc);
 }
-html[data-theme="modern"] .tc-head { font-family: var(--sans); }
-html[data-theme="modern"] .tc-title { font-weight: 600; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tc-head { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tc-title { font-weight: 600; }
 
 /* ---- Context ring (softer track under Modern) ---- */
-html[data-theme="modern"] .ctx-ring-track {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ctx-ring-track {
   stroke: var(--faint);
 }
 
 /* ---- Misc chrome ---- */
-html[data-theme="modern"] .lang-switch { border-radius: var(--r-sm); font-family: var(--sans); }
-html[data-theme="modern"] .ob-seg-btn { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .lang-switch { border-radius: var(--r-sm); font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .ob-seg-btn { font-family: var(--sans); }
 
 /* ---- Mobile surfaces (bottom sheets, top bar, switcher) ---- */
-html[data-theme="modern"] .sheet-panel { font-family: var(--sans); }
-html[data-theme="modern"] .topbar .tb-path { font-family: var(--sans); }
-html[data-theme="modern"] .newrow { font-family: var(--sans); }
-html[data-theme="modern"] .kmenu { border-radius: var(--r-md); box-shadow: var(--sh); }
-html[data-theme="modern"] .kitem { font-family: var(--sans); }
-html[data-theme="modern"] .mlist .srow {
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .sheet-panel { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .topbar .tb-path { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .newrow { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .kmenu { border-radius: var(--r-md); box-shadow: var(--sh); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .kitem { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .mlist .srow {
   margin: 1px 8px;
   border-radius: var(--r-sm);
   border-bottom: none;
@@ -713,10 +717,10 @@ html[data-theme="modern"] .mlist .srow {
      sheet's --m-indent alignment line (under the workspace name). */
   padding: 12px calc(var(--m-pad, 16px) - 8px) 12px calc(var(--m-indent, 39px) - 8px);
 }
-html[data-theme="modern"] .mlist .srow.cur { box-shadow: inset 0 0 0 1px var(--bd); }
-html[data-theme="modern"] .srow,
-html[data-theme="modern"] .srow-sub,
-html[data-theme="modern"] .srow-val { font-family: var(--sans); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .mlist .srow.cur { box-shadow: inset 0 0 0 1px var(--bd); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .srow,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .srow-sub,
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .srow-val { font-family: var(--sans); }
 
 /* ---- Modern keyframes (shared by component-scoped rules) ---- */
 @keyframes kimi-bubble-in {
@@ -739,12 +743,250 @@ html[data-theme="modern"] .srow-val { font-family: var(--sans); }
 
 /* ---- Reduced-motion: disable ALL Modern entrance/micro animations ---- */
 @media (prefers-reduced-motion: reduce) {
-  html[data-theme="modern"] * {
+  :is(html[data-theme="modern"], html[data-theme="kimi"]) * {
     animation-duration: 0.001ms !important;
     animation-delay: 0ms !important;
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ===========================================================================
+   KIMI THEME (html[data-theme="kimi"])
+   The official Kimi design language ("Quiet Utility") — values from
+   kimi-design-skill tokens.json v0.2.0. It shares the de-terminalization
+   rules above with Modern (the :is(...) selectors); everything below is the
+   delta: the full token palette (interaction accent = kimiDark — black in
+   light, white in dark; kimiBlue stays reserved for brand/data-viz), flat
+   cards (no hover lift; shadows only on the composer + floating menus), gray
+   user bubbles, and the PingFang / Geist Mono type ramp.
+   These token blocks intentionally sit AFTER the html[data-accent] rules:
+   equal specificity + later source order means the kimi palette wins over any
+   persisted accent choice (the accent picker is hidden while kimi is active).
+   =========================================================================== */
+html[data-theme="kimi"] {
+  /* labels (color.labels.*) — Kimi has no separate body tone; hierarchy
+     comes from size/weight, so --ink == --text by design. */
+  --ink: rgba(0, 0, 0, 0.9);
+  --text: rgba(0, 0, 0, 0.9);
+  --dim: rgba(0, 0, 0, 0.6);
+  --muted: rgba(0, 0, 0, 0.45);
+  --faint: rgba(0, 0, 0, 0.3);
+  /* surfaces + separators */
+  --line: rgba(0, 0, 0, 0.13);   /* color.separator.s1 */
+  --line2: rgba(0, 0, 0, 0.05);  /* color.fills.f2 (no subtler separator token) */
+  --panel: #f9fbfc;              /* color.background.groundPc */
+  --panel2: #f5f5f5;             /* color.background.secondary */
+  --bg: #ffffff;                 /* color.background.primary */
+  --canvas: #f9fbfc;
+  /* interaction accent = color.brand.kimiDark (NOT kimiBlue) */
+  --blue: rgba(0, 0, 0, 0.9);
+  --blue2: rgba(37, 37, 37, 1);
+  --soft: rgba(0, 0, 0, 0.05);   /* color.fills.f2: selected = fill, not a blue tint */
+  --bd: transparent;             /* no ring on selected rows (surface over stroke) */
+  --logo: rgba(0, 0, 0, 0.9);    /* logo-system.md: the mark uses labels.primary */
+  /* user bubble = color.others.bubbleGrayPc — gray, never blue; border
+     matches the fill so the bubble reads borderless without layout shift */
+  --bluebg: #f5f5f5;
+  --blueln: #f5f5f5;
+  /* status (color.status.*) */
+  --ok: #16c456;
+  --warn: #ff9500;
+  --err: #ff3849;
+  --hover: rgba(0, 0, 0, 0.03);  /* color.fills.f1 */
+  /* radius scale snaps to radius.xxs/sm/lg/xl = 4/8/12/16 */
+  --r-xs: 4px;
+  /* flat by default; --sh (floating menus only) = effect.shadow.small */
+  --sh: 0 4px 16.4px 0 rgba(0, 0, 0, 0.1);
+  --shc: none;
+  /* type: PingFang for UI, Geist Mono for code (JetBrains Mono is the
+     bundled fallback; no font files are added for this theme) */
+  --sans: "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+  --mono: "Geist Mono", "JetBrains Mono Variable", "JetBrains Mono",
+    ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* Kimi × dark (same three-block pattern as Modern: explicit choice here,
+   system preference via the media query below). */
+html[data-color-scheme="dark"][data-theme="kimi"] {
+  --ink: rgba(255, 255, 255, 0.84);
+  --text: rgba(255, 255, 255, 0.84);
+  --dim: rgba(255, 255, 255, 0.56);
+  --muted: rgba(255, 255, 255, 0.42);
+  --faint: rgba(255, 255, 255, 0.26);
+  --line: rgba(255, 255, 255, 0.12);
+  --line2: rgba(255, 255, 255, 0.1);
+  --panel: #161717;
+  --panel2: #1f1f1f;
+  --bg: #121212;
+  --canvas: #161717;
+  --blue: rgba(255, 255, 255, 0.84);
+  --blue2: rgba(255, 255, 255, 0.848);
+  --soft: rgba(255, 255, 255, 0.1);
+  --bd: transparent;
+  --logo: rgba(255, 255, 255, 0.84);
+  --bluebg: #292929;
+  --blueln: #292929;
+  --ok: #16c456;
+  --warn: #ff9f0a;
+  --err: #ff4756;
+  --hover: rgba(255, 255, 255, 0.05);
+}
+@media (prefers-color-scheme: dark) {
+  html[data-color-scheme="system"][data-theme="kimi"] {
+    --ink: rgba(255, 255, 255, 0.84);
+    --text: rgba(255, 255, 255, 0.84);
+    --dim: rgba(255, 255, 255, 0.56);
+    --muted: rgba(255, 255, 255, 0.42);
+    --faint: rgba(255, 255, 255, 0.26);
+    --line: rgba(255, 255, 255, 0.12);
+    --line2: rgba(255, 255, 255, 0.1);
+    --panel: #161717;
+    --panel2: #1f1f1f;
+    --bg: #121212;
+    --canvas: #161717;
+    --blue: rgba(255, 255, 255, 0.84);
+    --blue2: rgba(255, 255, 255, 0.848);
+    --soft: rgba(255, 255, 255, 0.1);
+    --bd: transparent;
+    --logo: rgba(255, 255, 255, 0.84);
+    --bluebg: #292929;
+    --blueln: #292929;
+    --ok: #16c456;
+    --warn: #ff9f0a;
+    --err: #ff4756;
+    --hover: rgba(255, 255, 255, 0.05);
+  }
+}
+
+/* ---- Kimi deltas over the shared Modern structure ------------------------ */
+
+/* Composer: the one card that keeps a shadow (effect.shadow.inputDefault),
+   with the chat-input radius documented in web-best-practices §8. */
+html[data-theme="kimi"] .composer-card {
+  border-radius: 20px;
+  box-shadow: 0 5px 16px -4px rgba(0, 0, 0, 0.07);
+}
+
+/* Cards stay flat: no hover lift, no shadow (Quiet Utility / card.md). */
+html[data-theme="kimi"] .box:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Dialogs: the mask isolates — no drop shadow, no border (modal.md).
+   The desktop scope keeps the mobile bottom sheet's top hairline, which the
+   sheet needs to stay visible against a near-black page in dark mode. */
+html[data-theme="kimi"] .backdrop .dialog {
+  box-shadow: none;
+}
+@media (min-width: 641px) {
+  html[data-theme="kimi"] .backdrop .dialog {
+    border-top: none;
+  }
+}
+
+/* The send button is kimiDark fill only — no decorative shadow (§5). */
+html[data-theme="kimi"] .send {
+  box-shadow: none;
+}
+
+/* Tool-result checkmarks appear on every tool call — per the animation
+   frequency rule (100+×/day → no animation), and the shared overshoot
+   keyframe is a bounce, which animation.md forbids. */
+html[data-theme="kimi"] .box .ok,
+html[data-theme="kimi"] .box .er {
+  animation: none;
+}
+
+/* User bubble corners on the token scale (radius.xl / radius.xxs). */
+html[data-theme="kimi"] .u-bub {
+  border-radius: 16px 16px 4px 16px;
+}
+
+/* Toasts (toast.md): constant dark surface (color.mask.toastPc), white text,
+   no border/shadow — the type cue lives in the dot, not the text color. */
+html[data-theme="kimi"] .toast {
+  background: #2b2b2b;
+  border: none;
+  border-radius: 12px;
+  box-shadow: none;
+}
+html[data-theme="kimi"] .toast .msg,
+html[data-theme="kimi"] .toast.err .msg {
+  color: #ffffff;
+}
+html[data-theme="kimi"] .toast .dot {
+  background: rgba(255, 255, 255, 0.56);
+}
+/* Explicit so the type cue never depends on the shared rule's specificity. */
+html[data-theme="kimi"] .toast.err .dot {
+  background: var(--err);
+}
+html[data-theme="kimi"] .toast .x {
+  color: rgba(255, 255, 255, 0.56);
+}
+html[data-theme="kimi"] .toast .x:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+html[data-color-scheme="dark"][data-theme="kimi"] .toast {
+  background: #404040; /* color.mask.toastPc dark */
+}
+
+/* Elevated dark surfaces step up to color.background.tertiary (#292929):
+   floating menus and dialogs separate from the #121212 page by surface
+   contrast, not shadow (principles §11). */
+html[data-color-scheme="dark"][data-theme="kimi"] .slash-menu,
+html[data-color-scheme="dark"][data-theme="kimi"] .mention-menu,
+html[data-color-scheme="dark"][data-theme="kimi"] .model-dropdown,
+html[data-color-scheme="dark"][data-theme="kimi"] .perm-dropdown,
+html[data-color-scheme="dark"][data-theme="kimi"] .kmenu,
+html[data-color-scheme="dark"][data-theme="kimi"] .acct-menu,
+html[data-color-scheme="dark"][data-theme="kimi"] .sessions .se .menu,
+html[data-color-scheme="dark"][data-theme="kimi"] .statusline .popover,
+html[data-color-scheme="dark"][data-theme="kimi"] .backdrop .dialog {
+  background: #292929;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-color-scheme="system"][data-theme="kimi"] .toast {
+    background: #404040;
+  }
+  html[data-color-scheme="system"][data-theme="kimi"] .slash-menu,
+  html[data-color-scheme="system"][data-theme="kimi"] .mention-menu,
+  html[data-color-scheme="system"][data-theme="kimi"] .model-dropdown,
+  html[data-color-scheme="system"][data-theme="kimi"] .perm-dropdown,
+  html[data-color-scheme="system"][data-theme="kimi"] .kmenu,
+  html[data-color-scheme="system"][data-theme="kimi"] .acct-menu,
+  html[data-color-scheme="system"][data-theme="kimi"] .sessions .se .menu,
+  html[data-color-scheme="system"][data-theme="kimi"] .statusline .popover,
+  html[data-color-scheme="system"][data-theme="kimi"] .backdrop .dialog {
+    background: #292929;
+  }
+}
+
+/* Focus: kimiDark ring (principles §9) — outline, so layout never shifts.
+   Text fields are excluded: :focus-visible matches them on mouse focus too,
+   which would draw a ring around the raw textarea inside the composer card;
+   the caret is their focus cue. */
+html[data-theme="kimi"] :focus-visible:not(input):not(textarea):not(select):not([contenteditable="true"]) {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* Text selection: color.others.textSelected (a sanctioned kimiBlue use). */
+html[data-theme="kimi"] ::selection {
+  background: rgba(23, 131, 255, 0.2);
+}
+html[data-color-scheme="dark"][data-theme="kimi"] ::selection {
+  background: rgba(26, 136, 255, 0.2);
+}
+@media (prefers-color-scheme: dark) {
+  html[data-color-scheme="system"][data-theme="kimi"] ::selection {
+    background: rgba(26, 136, 255, 0.2);
+  }
+}
+
 
 /* ---- Kimi Code logo (sidebar header): lively eyes — glance left/right + the
    occasional blink. The two bars are mask cutouts, so animating them moves /

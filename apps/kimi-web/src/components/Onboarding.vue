@@ -101,21 +101,21 @@ function finish(): void {
           <button
             type="button"
             class="ob-theme"
-            :class="{ on: selectedTheme === 'terminal' }"
-            :aria-pressed="selectedTheme === 'terminal'"
-            @click="selectedTheme = 'terminal'"
+            :class="{ on: selectedTheme === 'kimi' }"
+            :aria-pressed="selectedTheme === 'kimi'"
+            @click="selectedTheme = 'kimi'"
           >
-            <span class="ob-theme-prev terminal" aria-hidden="true">
-              <span class="l a"></span><span class="l b"></span><span class="l c"></span>
+            <span class="ob-theme-prev kimi" aria-hidden="true">
+              <span class="kb u"></span><span class="kb a"></span>
             </span>
-            <span class="ob-theme-name">{{ t('theme.terminal') }}</span>
-            <span class="ob-theme-desc">{{ t('onboarding.terminalDesc') }}</span>
+            <span class="ob-theme-name">{{ t('theme.kimi') }}</span>
+            <span class="ob-theme-desc">{{ t('onboarding.kimiDesc') }}</span>
           </button>
         </div>
       </section>
 
-      <!-- Accent -->
-      <section class="ob-sec">
+      <!-- Accent (the Kimi theme pins its own accent — hide the choice) -->
+      <section v-if="selectedTheme !== 'kimi'" class="ob-sec">
         <div class="ob-label">{{ t('theme.accentLabel') }}</div>
         <div class="ob-seg" role="group">
           <button
@@ -195,13 +195,16 @@ function finish(): void {
   width: 100%; height: 52px; border-radius: 8px; overflow: hidden;
   display: flex; flex-direction: column; gap: 4px; padding: 8px; margin-bottom: 2px;
 }
-.ob-theme-prev.terminal { background: var(--panel2); }
-.ob-theme-prev.terminal .l { height: 4px; border-radius: 2px; background: var(--faint); }
-.ob-theme-prev.terminal .l.a { width: 70%; } .ob-theme-prev.terminal .l.b { width: 90%; } .ob-theme-prev.terminal .l.c { width: 55%; background: color-mix(in srgb, var(--blue) 30%, var(--bg)); }
 .ob-theme-prev.modern { background: var(--panel2); align-items: stretch; }
 .ob-theme-prev.modern .bub { height: 14px; border-radius: 7px; }
 .ob-theme-prev.modern .bub.u { width: 60%; align-self: flex-end; background: var(--bluebg); border: 1px solid var(--blueln); }
 .ob-theme-prev.modern .bub.a { width: 80%; background: var(--bg); border: 1px solid var(--line); }
+/* Kimi: flat white canvas, quiet gray bubbles, no blue. color-mix keeps the
+   sketch readable in both color schemes without theme-specific values. */
+.ob-theme-prev.kimi { background: var(--bg); border: 1px solid var(--line); box-sizing: border-box; align-items: stretch; }
+.ob-theme-prev.kimi .kb { height: 14px; border-radius: 7px; }
+.ob-theme-prev.kimi .kb.u { width: 60%; align-self: flex-end; background: color-mix(in srgb, var(--ink) 8%, var(--bg)); }
+.ob-theme-prev.kimi .kb.a { width: 80%; background: color-mix(in srgb, var(--ink) 4%, var(--bg)); }
 .ob-theme-name { color: var(--ink); font-size: 12.5px; font-weight: 600; }
 .ob-theme-desc { color: var(--muted); font-size: 10.5px; line-height: 1.4; }
 
