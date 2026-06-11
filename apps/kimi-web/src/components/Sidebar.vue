@@ -1085,7 +1085,7 @@ function blinkOnce(): void {
 }
 
 .group-empty {
-  padding: 8px 10px 8px calc(var(--sb-gutter) + var(--sb-gap));
+  padding: 8px 10px 8px calc(var(--sb-pad-x) + var(--sb-gutter) + var(--sb-gap));
   font-size: 12.5px;
   color: var(--faint);
   font-family: var(--mono);
@@ -1093,7 +1093,7 @@ function blinkOnce(): void {
 .show-more {
   display: block;
   width: 100%;
-  padding: 6px 10px 6px calc(var(--sb-gutter) + var(--sb-gap));
+  padding: 6px 10px 6px calc(var(--sb-pad-x) + var(--sb-gutter) + var(--sb-gap));
   background: none;
   border: none;
   color: var(--dim);
