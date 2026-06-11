@@ -71,6 +71,7 @@ import type { Event } from '@moonshot-ai/agent-core/base/common/event';
 import type {
   PromptListResponse,
   PromptSubmission,
+  PromptStatus,
   PromptSteerResult,
   PromptSubmitResult,
 } from '@moonshot-ai/protocol';
@@ -238,6 +239,17 @@ export class PromptAlreadyCompletedError extends Error {
     this.sessionId = sessionId;
     this.promptId = promptId;
   }
+}
+
+export interface SyntheticPromptSubmittedEvent {
+  readonly type: 'prompt.submitted';
+  readonly agentId: string;
+  readonly sessionId: string;
+  readonly promptId: string;
+  readonly userMessageId: string;
+  readonly status: PromptStatus;
+  readonly content: PromptSubmission['content'];
+  readonly createdAt: string;
 }
 
 /**

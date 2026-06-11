@@ -102,4 +102,20 @@ describe('events / display re-exports', () => {
     expect(parsed.agentId).toBe('agent_1');
     expect(parsed.sessionId).toBe('sess_1');
   });
+
+  it('validates prompt.submitted events', () => {
+    const parsed = eventSchema.parse({
+      type: 'prompt.submitted',
+      agentId: 'main',
+      sessionId: 'sess_1',
+      promptId: 'prompt_1',
+      userMessageId: 'msg_1',
+      status: 'running',
+      content: [{ type: 'text', text: 'hello' }],
+      createdAt: '2026-06-11T00:00:00.000Z',
+    });
+
+    expect(parsed.type).toBe('prompt.submitted');
+    expect((parsed as { promptId: string }).promptId).toBe('prompt_1');
+  });
 });

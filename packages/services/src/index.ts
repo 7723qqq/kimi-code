@@ -149,6 +149,7 @@ export type {
   SyntheticPromptAbortedEvent,
   SyntheticPromptCompletedEvent,
   SyntheticPromptSteeredEvent,
+  SyntheticPromptSubmittedEvent,
 } from './prompt/prompt';
 export { PromptService } from './prompt/promptService';
 

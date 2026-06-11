@@ -89,3 +89,36 @@ describe('multi-segment thinking', () => {
     ]);
   });
 });
+
+describe('prompt.submitted projection', () => {
+  it('creates the user message for a prompt sent by another client', () => {
+    const state = play([
+      [
+        'prompt.submitted',
+        {
+          promptId: 'prompt_1',
+          userMessageId: 'msg_user_1',
+          status: 'running',
+          content: [{ type: 'text', text: 'hello from another client' }],
+          createdAt: '2026-06-11T00:00:00.000Z',
+        },
+      ],
+      ['turn.started', { turnId: 1 }],
+      ['turn.step.started', { turnId: 1 }],
+      ['assistant.delta', { delta: 'received' }],
+      ['turn.step.completed', { turnId: 1 }],
+      ['turn.ended', { turnId: 1, reason: 'completed' }],
+    ]);
+
+    const messages = state.messagesBySession[SESSION]!;
+    expect(messages[0]).toMatchObject({
+      id: 'msg_user_1',
+      sessionId: SESSION,
+      role: 'user',
+      promptId: 'prompt_1',
+      content: [{ type: 'text', text: 'hello from another client' }],
+      createdAt: '2026-06-11T00:00:00.000Z',
+    });
+    expect(messages.find((message) => message.role === 'assistant')?.promptId).toBe('prompt_1');
+  });
+});

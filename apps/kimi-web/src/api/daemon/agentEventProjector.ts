@@ -16,8 +16,10 @@
 //   const appEvents = projector.project(rawType, payload, sessionId);
 //   // call reset() when re-subscribing / resyncing a session
 
-import type { AppEvent, AppInFlightTurn, AppMessage, AppSessionUsage } from '../types';
+import type { AppEvent, AppInFlightTurn, AppMessage, AppMessageContent, AppSessionUsage } from '../types';
 import { i18n } from '../../i18n';
+import { toAppMessageContent } from './mappers';
+import type { WireMessageContent } from './wire';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -129,6 +131,31 @@ function startAssistantMessage(state: SessionState, sessionId: string, promptId:
   };
   state.messages.push(msg);
   return msg;
+}
+
+function startUserMessage(
+  state: SessionState,
+  sessionId: string,
+  promptId: string,
+  userMessageId: string,
+  content: AppMessageContent[],
+  createdAt: string,
+): AppMessage {
+  const msg: AppMessage = {
+    id: userMessageId,
+    sessionId,
+    role: 'user',
+    content,
+    createdAt,
+    promptId,
+  };
+  state.messages.push(msg);
+  return msg;
+}
+
+function toAppPromptContent(raw: unknown): AppMessageContent[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((part) => toAppMessageContent(part as WireMessageContent));
 }
 
 /**
@@ -362,6 +389,26 @@ export function createAgentProjector(): AgentProjector {
         if (typeof title === 'string' && title.length > 0) {
           out.push({ type: 'sessionMetaUpdated', sessionId, title });
         }
+        break;
+      }
+
+      // -----------------------------------------------------------------------
+      case 'prompt.submitted': {
+        const promptId: string | undefined = p?.promptId;
+        const userMessageId: string | undefined = p?.userMessageId;
+        if (!promptId || !userMessageId) break;
+        const content = toAppPromptContent(p?.content);
+        if (content.length === 0) break;
+        s.currentPromptId = promptId;
+        const msg = startUserMessage(
+          s,
+          sessionId,
+          promptId,
+          userMessageId,
+          content,
+          typeof p?.createdAt === 'string' ? p.createdAt : new Date().toISOString(),
+        );
+        out.push({ type: 'messageCreated', message: cloneMessage(msg) });
         break;
       }
 
@@ -835,6 +882,7 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'tool.progress',
   'tool.result',
   'agent.status.updated',
+  'prompt.submitted',
   'prompt.completed',
   'session.meta.updated',
   'compaction.completed',

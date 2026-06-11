@@ -36,6 +36,7 @@ import {
   type SyntheticPromptCompletedEvent,
   type SyntheticPromptAbortedEvent,
   type SyntheticPromptSteeredEvent,
+  type SyntheticPromptSubmittedEvent,
 } from './prompt';
 
 const MAIN_AGENT_ID = 'main';
@@ -317,11 +318,15 @@ export class PromptService
     const existing = this._active.get(sid);
     if (existing !== undefined && !existing.completed && !existing.aborted) {
       this._enqueue(sid, state);
-      return toPromptItem(state, 'queued');
+      const item = toPromptItem(state, 'queued');
+      this._publishSubmitted(sid, item);
+      return item;
     }
 
     await this._startPrompt(sid, state);
-    return toPromptItem(state, 'running');
+    const item = toPromptItem(state, 'running');
+    this._publishSubmitted(sid, item);
+    return item;
   }
 
   async steer(sid: string, promptIds: readonly string[]): Promise<PromptSteerResult> {
@@ -412,6 +417,20 @@ export class PromptService
       );
       throw error;
     }
+  }
+
+  private _publishSubmitted(sid: string, item: PromptSubmitResult): void {
+    const event: SyntheticPromptSubmittedEvent = {
+      type: 'prompt.submitted',
+      agentId: MAIN_AGENT_ID,
+      sessionId: sid,
+      promptId: item.prompt_id,
+      userMessageId: item.user_message_id,
+      status: item.status,
+      content: item.content,
+      createdAt: item.created_at,
+    };
+    this.eventService.publish(event);
   }
 
   async abort(sid: string, pid: string): Promise<PromptAbortResult> {
