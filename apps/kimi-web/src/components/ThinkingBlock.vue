@@ -24,16 +24,18 @@ const emit = defineEmits<{
 
 // Live window while streaming, teaser afterwards. The 0.25s grid transition
 // between the two states (fa8b305) plays on the class flip.
-const open = computed(() => props.streaming || !props.foldable);
+const paragraphs = computed(() =>
+  props.text
+    .split(/\n{2,}/)
+    .filter((p) => p.trim().length > 0),
+);
+
+/** Single-paragraph thinking has nothing to fold — show it straight. */
+const isFoldable = computed(() => props.foldable && paragraphs.value.length > 1);
+const open = computed(() => props.streaming || !isFoldable.value);
 
 /** Last non-empty paragraph, shown as the collapsed teaser. */
-const teaser = computed(
-  () =>
-    props.text
-      .split(/\n{2,}/)
-      .filter((p) => p.trim().length > 0)
-      .pop() ?? '',
-);
+const teaser = computed(() => paragraphs.value.pop() ?? '');
 
 const bodyEl = ref<HTMLElement | null>(null);
 watch(
@@ -55,7 +57,7 @@ watch(
   <div class="think" :class="{ mob: mobile }">
     <!-- Foldable: live window above, last-paragraph teaser below; click opens
          the full text in the right-side panel -->
-    <template v-if="foldable">
+    <template v-if="isFoldable">
       <div class="tc-wrap" :class="{ 'is-collapsed': !open }" @click="emit('open')">
         <div class="tc-anim">
           <pre ref="bodyEl" class="tc">{{ text }}</pre>
@@ -65,7 +67,7 @@ watch(
         </div>
       </div>
     </template>
-    <!-- Non-foldable: always show full content -->
+    <!-- Single-paragraph or explicitly non-foldable: always show full content -->
     <pre v-else ref="bodyEl" class="tc">{{ text }}</pre>
   </div>
 </template>
