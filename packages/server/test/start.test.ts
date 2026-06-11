@@ -38,6 +38,7 @@ import {
   ISessionClientsService,
   IWSBroadcastService,
   IWSGateway,
+  createServerLogger,
   startServer,
   type LockContents,
   type RunningServer,
@@ -109,6 +110,19 @@ describe('startServer — lock + healthz smoke', () => {
     await r.close();
     await r.close(); // second call is a no-op (would throw on double-app.close otherwise)
     expect(existsSync(lockPath)).toBe(false);
+  });
+});
+
+describe('createServerLogger', () => {
+  it('uses an in-process pretty stream instead of pino worker transport', () => {
+    const logger = createServerLogger({ level: 'info', pretty: true });
+    const streamSym = (pino as unknown as { symbols: { streamSym: symbol } }).symbols.streamSym;
+    const stream = logger[streamSym as keyof typeof logger] as unknown as NodeJS.WritableStream & {
+      constructor?: { name?: string };
+    };
+
+    expect(stream.constructor?.name).not.toBe('ThreadStream');
+    stream.end();
   });
 });
 

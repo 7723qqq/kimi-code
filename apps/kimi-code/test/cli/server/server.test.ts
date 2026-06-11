@@ -23,7 +23,7 @@ function makeProgram(): Command {
 }
 
 describe('kimi server', () => {
-  it('declares the pino pretty transport as a CLI runtime dependency', () => {
+  it('declares pino-pretty as a CLI runtime dependency', () => {
     const packageJson = JSON.parse(
       readFileSync(new URL('../../../package.json', import.meta.url), 'utf-8'),
     ) as { dependencies?: Record<string, string> };
