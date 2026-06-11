@@ -379,11 +379,18 @@ function positionMenu(): void {
   };
 }
 
+function onAcctDocClick(e: MouseEvent): void {
+  const target = e.target as Node;
+  if (menuRef.value?.contains(target) || triggerRef.value?.contains(target)) return;
+  closeAccount();
+}
+
 async function openAccount(): Promise<void> {
   acctMenuOpen.value = true;
   await nextTick();
   positionMenu();
   window.addEventListener('resize', positionMenu);
+  setTimeout(() => document.addEventListener('mousedown', onAcctDocClick), 0);
 }
 
 function toggleAccount(): void {
@@ -394,10 +401,12 @@ function toggleAccount(): void {
 function closeAccount(): void {
   acctMenuOpen.value = false;
   window.removeEventListener('resize', positionMenu);
+  document.removeEventListener('mousedown', onAcctDocClick);
 }
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', positionMenu);
+  document.removeEventListener('mousedown', onAcctDocClick);
   document.removeEventListener('mousedown', onGhMenuDocClick, true);
   document.removeEventListener('mousedown', onWsMenuDocClick);
   document.removeEventListener('scroll', closeWsMenu, true);
