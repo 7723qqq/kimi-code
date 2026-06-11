@@ -42,6 +42,7 @@ somewhere else.
 | `08-pending-recovery.ts` | Pending approval and pending question recovery APIs, including resolve and pending-list cleanup. |
 | `09-image-file-prompts.ts` | Uploaded file prompt references: missing file, non-image validation, and PNG prompt submission. |
 | `10-prompt-queue-steer.ts` | Prompt queue steer: debug-inject an active prompt, queue two prompts, steer them through `POST /prompts:steer`, and assert REST, WS, content, and queue-drain behavior. |
+| `11-terminal.ts` | Terminal flow: create/list/get a session terminal, attach over WS, write input, observe output, resize, close, and assert terminal exit/final state. |
 
 ## Writing a new scenario
 

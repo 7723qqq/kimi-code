@@ -17,6 +17,18 @@ import {
   sessionEventMessageSchema,
   subscribeAckMessageSchema,
   subscribeMessageSchema,
+  terminalAttachAckMessageSchema,
+  terminalAttachMessageSchema,
+  terminalCloseAckMessageSchema,
+  terminalCloseMessageSchema,
+  terminalDetachAckMessageSchema,
+  terminalDetachMessageSchema,
+  terminalInputAckMessageSchema,
+  terminalInputMessageSchema,
+  terminalResizeAckMessageSchema,
+  terminalResizeMessageSchema,
+  terminalOutputMessageSchema,
+  terminalExitMessageSchema,
   unsubscribeAckMessageSchema,
   unsubscribeMessageSchema,
   watchFsAckMessageSchema,
@@ -306,6 +318,68 @@ describe('ws-control — §3.5 ping / pong', () => {
   });
 });
 
+describe('ws-control — terminal controls', () => {
+  it('parses terminal attach, input, resize, detach, and close controls', () => {
+    expect(
+      terminalAttachMessageSchema.safeParse({
+        type: 'terminal_attach',
+        id: 't1',
+        payload: { session_id: 'sess_1', terminal_id: 'term_1', since_seq: 2 },
+      }).success,
+    ).toBe(true);
+    expect(
+      terminalInputMessageSchema.safeParse({
+        type: 'terminal_input',
+        id: 't2',
+        payload: { session_id: 'sess_1', terminal_id: 'term_1', data: 'ls\r' },
+      }).success,
+    ).toBe(true);
+    expect(
+      terminalResizeMessageSchema.safeParse({
+        type: 'terminal_resize',
+        id: 't3',
+        payload: { session_id: 'sess_1', terminal_id: 'term_1', cols: 120, rows: 32 },
+      }).success,
+    ).toBe(true);
+    expect(
+      terminalDetachMessageSchema.safeParse({
+        type: 'terminal_detach',
+        id: 't4',
+        payload: { session_id: 'sess_1', terminal_id: 'term_1' },
+      }).success,
+    ).toBe(true);
+    expect(
+      terminalCloseMessageSchema.safeParse({
+        type: 'terminal_close',
+        id: 't5',
+        payload: { session_id: 'sess_1', terminal_id: 'term_1' },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('parses terminal output and exit server frames without renderer-specific fields', () => {
+    expect(
+      terminalOutputMessageSchema.safeParse({
+        type: 'terminal_output',
+        seq: 3,
+        session_id: 'sess_1',
+        terminal_id: 'term_1',
+        timestamp: TS,
+        payload: { data: 'hello\r\n' },
+      }).success,
+    ).toBe(true);
+    expect(
+      terminalExitMessageSchema.safeParse({
+        type: 'terminal_exit',
+        session_id: 'sess_1',
+        terminal_id: 'term_1',
+        timestamp: TS,
+        payload: { exit_code: 0 },
+      }).success,
+    ).toBe(true);
+  });
+});
+
 describe('ws-control — §3.6 resync_required', () => {
   it('parses a canonical resync_required', () => {
     const result = resyncRequiredMessageSchema.safeParse({
@@ -406,6 +480,11 @@ describe('ws-control — operation registry', () => {
       'watch_fs_add',
       'watch_fs_remove',
       'abort',
+      'terminal_attach',
+      'terminal_detach',
+      'terminal_input',
+      'terminal_resize',
+      'terminal_close',
       'pong',
     ]);
 
@@ -467,6 +546,51 @@ describe('ws-control — operation registry', () => {
         code: 0,
         msg: 'success',
         payload: { aborted: true, at_seq: 10 },
+      }).success,
+    ).toBe(true);
+    expect(
+      terminalAttachAckMessageSchema.safeParse({
+        type: 'ack',
+        id: 't1',
+        code: 0,
+        msg: 'success',
+        payload: { attached: true, replayed: 2 },
+      }).success,
+    ).toBe(true);
+    expect(
+      terminalDetachAckMessageSchema.safeParse({
+        type: 'ack',
+        id: 't2',
+        code: 0,
+        msg: 'success',
+        payload: { detached: true },
+      }).success,
+    ).toBe(true);
+    expect(
+      terminalInputAckMessageSchema.safeParse({
+        type: 'ack',
+        id: 't3',
+        code: 0,
+        msg: 'success',
+        payload: { accepted: true },
+      }).success,
+    ).toBe(true);
+    expect(
+      terminalResizeAckMessageSchema.safeParse({
+        type: 'ack',
+        id: 't4',
+        code: 0,
+        msg: 'success',
+        payload: { resized: true },
+      }).success,
+    ).toBe(true);
+    expect(
+      terminalCloseAckMessageSchema.safeParse({
+        type: 'ack',
+        id: 't5',
+        code: 0,
+        msg: 'success',
+        payload: { closed: true },
       }).success,
     ).toBe(true);
   });

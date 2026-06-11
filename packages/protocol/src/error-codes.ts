@@ -53,6 +53,8 @@ export const ErrorCode = {
   PROVIDER_NOT_FOUND: 40412,
   /** model_id 不存在 */
   MODEL_NOT_FOUND: 40413,
+  /** terminal_id 不存在 */
+  TERMINAL_NOT_FOUND: 40414,
 
   /** session 有正在进行的 prompt，拒绝新请求 */
   SESSION_BUSY: 40901,
@@ -147,6 +149,7 @@ export const ErrorCodeReason: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.FS_PERMISSION_DENIED]: 'fs.permission_denied',
   [ErrorCode.PROVIDER_NOT_FOUND]: 'provider.not_found',
   [ErrorCode.MODEL_NOT_FOUND]: 'model.not_found',
+  [ErrorCode.TERMINAL_NOT_FOUND]: 'terminal.not_found',
 
   [ErrorCode.SESSION_BUSY]: 'session.busy',
   [ErrorCode.APPROVAL_ALREADY_RESOLVED]: 'approval.already_resolved',

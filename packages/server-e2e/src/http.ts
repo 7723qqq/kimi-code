@@ -6,13 +6,16 @@ import type {
   ApprovalResolveResult,
   ApprovalResponse,
   AuthSummary,
+  CloseTerminalResponse,
   CompactSessionRequest,
   CompactSessionResponse,
+  CreateTerminalRequest,
   Envelope,
   FileMeta,
   ForkSessionRequest,
   FsBrowseResponse,
   FsHomeResponse,
+  ListTerminalsResponse,
   ListModelsResponse,
   ListPendingApprovalsResponse,
   ListPendingQuestionsResponse,
@@ -33,6 +36,7 @@ import type {
   SessionUpdate,
   UndoSessionRequest,
   UndoSessionResponse,
+  Terminal,
   Workspace,
   WorkspaceCreate,
   WorkspaceUpdate,
@@ -255,6 +259,42 @@ export class HttpClient {
       'POST',
       `/sessions/${encodeURIComponent(sid)}/children`,
       body,
+    );
+  }
+
+  // ── Terminals ──────────────────────────────────────────────────────────
+  listTerminals(sid: string): Promise<ListTerminalsResponse> {
+    return this.request(
+      'GET',
+      `/sessions/${encodeURIComponent(sid)}/terminals`,
+      undefined,
+    );
+  }
+  createTerminal(
+    sid: string,
+    body: CreateTerminalRequest = {},
+  ): Promise<Terminal> {
+    return this.request(
+      'POST',
+      `/sessions/${encodeURIComponent(sid)}/terminals`,
+      body,
+    );
+  }
+  getTerminal(sid: string, terminalId: string): Promise<Terminal> {
+    return this.request(
+      'GET',
+      `/sessions/${encodeURIComponent(sid)}/terminals/${encodeURIComponent(terminalId)}`,
+      undefined,
+    );
+  }
+  closeTerminal(
+    sid: string,
+    terminalId: string,
+  ): Promise<CloseTerminalResponse> {
+    return this.request(
+      'POST',
+      `/sessions/${encodeURIComponent(sid)}/terminals/${encodeURIComponent(terminalId)}:close`,
+      {},
     );
   }
 

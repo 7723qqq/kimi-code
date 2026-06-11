@@ -1,6 +1,6 @@
 
 import { createDecorator } from '@moonshot-ai/agent-core';
-import type { AbortHandler, FsWatchHandler } from '#/ws/connection';
+import type { AbortHandler, FsWatchHandler, TerminalHandler } from '#/ws/connection';
 
 export const WS_PATH = '/api/v1/ws';
 
@@ -12,6 +12,8 @@ export interface IWSGateway {
   setAbortHandler(handler: AbortHandler): void;
 
   setFsWatchHandler(handler: FsWatchHandler): void;
+
+  setTerminalHandler(handler: TerminalHandler): void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

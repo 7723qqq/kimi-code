@@ -25,6 +25,7 @@ import {
   IQuestionService,
   ISessionService,
   ITaskService,
+  ITerminalService,
   IToolService,
   IWorkspaceFsService,
   IWorkspaceRegistry,
@@ -143,6 +144,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
         { name: 'questions', description: 'Question resolution & dismiss' },
         { name: 'tools', description: 'Tool & MCP server management' },
         { name: 'tasks', description: 'Background tasks' },
+        { name: 'terminals', description: 'PTY terminal sessions' },
         { name: 'fs', description: 'Filesystem operations' },
         { name: 'files', description: 'File upload & download' },
       ],
@@ -235,10 +237,23 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       a.get(IModelCatalogService);
 
       const promptService = a.get(IPromptService);
+      const terminalService = a.get(ITerminalService);
 
       wsGw.setAbortHandler({
         abort: (sid, pid) => promptService.abort(sid, pid),
         currentSeq: (sid) => wsBroadcast.currentSeq(sid),
+      });
+      wsGw.setTerminalHandler({
+        attach: (sessionId, terminalId, sink, options) =>
+          terminalService.attach(sessionId, terminalId, sink, options),
+        detach: (sessionId, terminalId, sinkId) =>
+          terminalService.detach(sessionId, terminalId, sinkId),
+        cleanupConnection: (sinkId) => terminalService.detachAllForSink(sinkId),
+        write: (sessionId, terminalId, data) =>
+          terminalService.write(sessionId, terminalId, data),
+        resize: (sessionId, terminalId, cols, rows) =>
+          terminalService.resize(sessionId, terminalId, cols, rows),
+        close: (sessionId, terminalId) => terminalService.close(sessionId, terminalId),
       });
 
       a.get(IToolService);

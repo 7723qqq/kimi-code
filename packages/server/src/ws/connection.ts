@@ -12,13 +12,22 @@ import {
   type CursorsBySession,
   type SessionCursor,
   type SubscribeMessage,
+  type TerminalAttachMessage,
+  type TerminalCloseMessage,
+  type TerminalDetachMessage,
+  type TerminalInputMessage,
+  type TerminalResizeMessage,
   type UnsubscribeMessage,
   type WatchFsAddMessage,
   type WatchFsRemoveMessage,
   getClientControlOperation,
 } from '@moonshot-ai/protocol';
 
-import type { ILogService } from '@moonshot-ai/services';
+import type {
+  ILogService,
+  TerminalAttachOptions,
+  TerminalAttachSink,
+} from '@moonshot-ai/services';
 import type { ISessionClientsService } from '#/services/gateway';
 
 import {
@@ -71,6 +80,20 @@ export type FsWatchResult =
   | { ok: true; watched_paths: string[]; current_count: number }
   | { ok: false; code: number; msg: string };
 
+export interface TerminalHandler {
+  attach(
+    sessionId: string,
+    terminalId: string,
+    sink: TerminalAttachSink,
+    options?: TerminalAttachOptions,
+  ): Promise<{ replayed: number }>;
+  detach(sessionId: string, terminalId: string, sinkId: string): void;
+  cleanupConnection(sinkId: string): void;
+  write(sessionId: string, terminalId: string, data: string): Promise<void>;
+  resize(sessionId: string, terminalId: string, cols: number, rows: number): Promise<void>;
+  close(sessionId: string, terminalId: string): Promise<{ closed: true }>;
+}
+
 export interface WsConnectionOptions {
   socket: WebSocket;
   logger: ILogService;
@@ -82,6 +105,8 @@ export interface WsConnectionOptions {
   abortHandler?: AbortHandler;
 
   fsWatchHandler?: FsWatchHandler;
+
+  terminalHandler?: TerminalHandler;
 
   pingIntervalMs?: number;
 
@@ -110,6 +135,7 @@ export class WsConnection {
   private readonly wsBroadcast: BufferReplaySource;
   private readonly abortHandler: AbortHandler | undefined;
   private readonly fsWatchHandler: FsWatchHandler | undefined;
+  private readonly terminalHandler: TerminalHandler | undefined;
   private readonly pingIntervalMs: number;
   private readonly pongTimeoutMs: number;
   private readonly maxEventBufferSize: number;
@@ -127,6 +153,7 @@ export class WsConnection {
     this.wsBroadcast = opts.wsBroadcast;
     this.abortHandler = opts.abortHandler;
     this.fsWatchHandler = opts.fsWatchHandler;
+    this.terminalHandler = opts.terminalHandler;
     this.pingIntervalMs = opts.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS;
     this.pongTimeoutMs = opts.pongTimeoutMs ?? DEFAULT_PONG_TIMEOUT_MS;
     this.maxEventBufferSize = opts.maxEventBufferSize ?? DEFAULT_MAX_EVENT_BUFFER;
@@ -198,6 +225,21 @@ export class WsConnection {
         break;
       case 'watch_fs_remove':
         this.onWatchFsRemove(msg);
+        break;
+      case 'terminal_attach':
+        this.onTerminalAttach(msg);
+        break;
+      case 'terminal_detach':
+        this.onTerminalDetach(msg);
+        break;
+      case 'terminal_input':
+        this.onTerminalInput(msg);
+        break;
+      case 'terminal_resize':
+        this.onTerminalResize(msg);
+        break;
+      case 'terminal_close':
+        this.onTerminalClose(msg);
         break;
       default: {
         const exhaustive: never = msg;
@@ -480,6 +522,100 @@ export class WsConnection {
       });
   }
 
+  private onTerminalAttach(msg: TerminalAttachMessage): void {
+    if (this.terminalHandler === undefined) {
+      this.send(buildAck(msg.id, ErrorCode.INTERNAL_ERROR, 'terminal handler not wired', {}));
+      return;
+    }
+    const { session_id, terminal_id, since_seq } = msg.payload;
+    this.terminalHandler
+      .attach(session_id, terminal_id, this, { sinceSeq: since_seq })
+      .then((result) => {
+        this.send(buildAck(msg.id, 0, 'success', {
+          attached: true,
+          replayed: result.replayed,
+        }));
+      })
+      .catch((err: unknown) => {
+        this.sendTerminalErrorAck(msg.id, err, 'terminal_attach failed');
+      });
+  }
+
+  private onTerminalDetach(msg: TerminalDetachMessage): void {
+    if (this.terminalHandler === undefined) {
+      this.send(buildAck(msg.id, ErrorCode.INTERNAL_ERROR, 'terminal handler not wired', {}));
+      return;
+    }
+    const { session_id, terminal_id } = msg.payload;
+    try {
+      this.terminalHandler.detach(session_id, terminal_id, this.id);
+      this.send(buildAck(msg.id, 0, 'success', { detached: true }));
+    } catch (err) {
+      this.sendTerminalErrorAck(msg.id, err, 'terminal_detach failed');
+    }
+  }
+
+  private onTerminalInput(msg: TerminalInputMessage): void {
+    if (this.terminalHandler === undefined) {
+      this.send(buildAck(msg.id, ErrorCode.INTERNAL_ERROR, 'terminal handler not wired', {}));
+      return;
+    }
+    const { session_id, terminal_id, data } = msg.payload;
+    this.terminalHandler
+      .write(session_id, terminal_id, data)
+      .then(() => {
+        this.send(buildAck(msg.id, 0, 'success', { accepted: true }));
+      })
+      .catch((err: unknown) => {
+        this.sendTerminalErrorAck(msg.id, err, 'terminal_input failed');
+      });
+  }
+
+  private onTerminalResize(msg: TerminalResizeMessage): void {
+    if (this.terminalHandler === undefined) {
+      this.send(buildAck(msg.id, ErrorCode.INTERNAL_ERROR, 'terminal handler not wired', {}));
+      return;
+    }
+    const { session_id, terminal_id, cols, rows } = msg.payload;
+    this.terminalHandler
+      .resize(session_id, terminal_id, cols, rows)
+      .then(() => {
+        this.send(buildAck(msg.id, 0, 'success', { resized: true }));
+      })
+      .catch((err: unknown) => {
+        this.sendTerminalErrorAck(msg.id, err, 'terminal_resize failed');
+      });
+  }
+
+  private onTerminalClose(msg: TerminalCloseMessage): void {
+    if (this.terminalHandler === undefined) {
+      this.send(buildAck(msg.id, ErrorCode.INTERNAL_ERROR, 'terminal handler not wired', {}));
+      return;
+    }
+    const { session_id, terminal_id } = msg.payload;
+    this.terminalHandler
+      .close(session_id, terminal_id)
+      .then((result) => {
+        this.send(buildAck(msg.id, 0, 'success', result));
+      })
+      .catch((err: unknown) => {
+        this.sendTerminalErrorAck(msg.id, err, 'terminal_close failed');
+      });
+  }
+
+  private sendTerminalErrorAck(id: string, err: unknown, fallback: string): void {
+    if (hasErrorName(err, 'TerminalNotFoundError')) {
+      this.send(buildAck(id, ErrorCode.TERMINAL_NOT_FOUND, 'terminal not found', {}));
+      return;
+    }
+    if (hasErrorName(err, 'SessionNotFoundError')) {
+      this.send(buildAck(id, ErrorCode.SESSION_NOT_FOUND, 'session not found', {}));
+      return;
+    }
+    this.logger.warn({ err: String(err) }, fallback);
+    this.send(buildAck(id, ErrorCode.INTERNAL_ERROR, fallback, {}));
+  }
+
   private subscribe(sid: string): void {
     if (this.subscriptions.has(sid)) return;
     this.subscriptions.add(sid);
@@ -538,6 +674,16 @@ export class WsConnection {
         );
       }
     }
+    if (this.terminalHandler !== undefined) {
+      try {
+        this.terminalHandler.cleanupConnection(this.id);
+      } catch (err) {
+        this.logger.warn(
+          { err: String(err) },
+          'terminalHandler.cleanupConnection threw',
+        );
+      }
+    }
     this.logger.info({ code, reason, gotClientHello: this.gotClientHello }, 'connection closed');
   }
 
@@ -574,4 +720,13 @@ function frameType(value: unknown): string | undefined {
   }
   const type = (value as { type?: unknown }).type;
   return typeof type === 'string' ? type : undefined;
+}
+
+function hasErrorName(err: unknown, name: string): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'name' in err &&
+    (err as { name?: unknown }).name === name
+  );
 }

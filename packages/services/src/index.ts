@@ -176,3 +176,18 @@ export {
 } from './task/task';
 export type { TaskListQuery } from './task/task';
 export { TaskService } from './task/taskService';
+
+export {
+  ITerminalService,
+  TerminalNotFoundError,
+} from './terminal/terminal';
+export type {
+  TerminalAttachOptions,
+  TerminalAttachSink,
+  TerminalBackend,
+  TerminalFrame,
+  TerminalProcess,
+  TerminalServiceOptions,
+  TerminalSpawnOptions,
+} from './terminal/terminal';
+export { NodePtyTerminalBackend, TerminalService } from './terminal/terminalService';

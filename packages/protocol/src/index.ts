@@ -34,3 +34,4 @@ export * from './rest/task';
 export * from './rest/fs';
 export * from './rest/file';
 export * from './rest/modelCatalog';
+export * from './rest/terminal';

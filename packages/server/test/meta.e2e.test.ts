@@ -108,6 +108,7 @@ describe('GET /api/v1/meta — envelope + metaResponseSchema', () => {
       fs_query: true,
       mcp: true,
       background_tasks: true,
+      terminal: true,
     });
     expect(ulidRegex.test(parsed.server_id)).toBe(true);
     // started_at is ISO 8601 UTC `Z` per isoDateTimeSchema's normalization.

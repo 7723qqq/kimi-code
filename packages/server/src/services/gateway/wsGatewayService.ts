@@ -12,7 +12,12 @@ import { IRestGateway } from './restGateway';
 import { ISessionClientsService } from './sessionClients';
 import { IWSBroadcastService } from './wsBroadcast';
 import { IWSGateway, type WSGatewayOptions, WS_PATH } from './wsGateway';
-import { WsConnection, type AbortHandler, type FsWatchHandler } from '#/ws/connection';
+import {
+  WsConnection,
+  type AbortHandler,
+  type FsWatchHandler,
+  type TerminalHandler,
+} from '#/ws/connection';
 
 export class WSGateway extends Disposable implements IWSGateway {
   readonly _serviceBrand: undefined;
@@ -22,6 +27,7 @@ export class WSGateway extends Disposable implements IWSGateway {
   private readonly server: HttpServer;
   private abortHandler: AbortHandler | undefined;
   private fsWatchHandler: FsWatchHandler | undefined;
+  private terminalHandler: TerminalHandler | undefined;
   private detached = false;
 
   constructor(
@@ -49,6 +55,10 @@ export class WSGateway extends Disposable implements IWSGateway {
     this.fsWatchHandler = handler;
   }
 
+  setTerminalHandler(handler: TerminalHandler): void {
+    this.terminalHandler = handler;
+  }
+
   private onUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): void {
 
     const url = req.url ?? '';
@@ -69,6 +79,7 @@ export class WSGateway extends Disposable implements IWSGateway {
       wsBroadcast: this.wsBroadcast,
       ...(this.abortHandler !== undefined ? { abortHandler: this.abortHandler } : {}),
       ...(this.fsWatchHandler !== undefined ? { fsWatchHandler: this.fsWatchHandler } : {}),
+      ...(this.terminalHandler !== undefined ? { terminalHandler: this.terminalHandler } : {}),
       ...(this.options.pingIntervalMs !== undefined
         ? { pingIntervalMs: this.options.pingIntervalMs }
         : {}),

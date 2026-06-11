@@ -11,6 +11,7 @@ describe('metaResponseSchema', () => {
       fs_query: true,
       mcp: true,
       background_tasks: true,
+      terminal: true,
     },
     server_id: '01HXYZABCDEFGHJKMNPQRSTVWX',
     started_at: '2026-06-04T10:30:00.000Z',
