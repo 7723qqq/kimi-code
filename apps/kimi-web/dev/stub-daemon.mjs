@@ -1072,6 +1072,21 @@ const server = http.createServer((req, res) => {
       }
     }
 
+    // ---- snapshot (v2 initial sync: GET /sessions/{id}/snapshot) ----
+    if (seg[0] === 'sessions' && seg[2] === 'snapshot' && seg.length === 3 && method === 'GET') {
+      const session = sessions.find((s) => s.id === sid);
+      if (!session) return res.end(fail(40401, `session ${sid} does not exist`));
+      return res.end(ok({
+        as_of_seq: seqBySession[sid] || 0,
+        epoch: 'ep_stub',
+        session,
+        messages: { items: messages[sid] || [], has_more: false },
+        in_flight_turn: null,
+        pending_approvals: [],
+        pending_questions: [],
+      }));
+    }
+
     // ---- messages ----
     if (seg[0] === 'sessions' && seg[2] === 'messages' && seg.length === 3 && method === 'GET') {
       const sp = new URLSearchParams(url.split('?')[1] || '');

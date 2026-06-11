@@ -57,6 +57,7 @@ async function setup(opts: {
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
     bindNextPromptId: vi.fn(),
+    seedSnapshot: vi.fn(),
     abort: vi.fn(),
     close: vi.fn(),
   };
@@ -74,11 +75,21 @@ async function setup(opts: {
       return found;
     }),
     deleteSession: vi.fn(async () => ({ deleted: true })),
-    listMessages: vi.fn(async (id: string) => {
+    getSessionSnapshot: vi.fn(async (id: string) => {
       if (messageMissingSessions.has(id)) {
         throw { name: 'DaemonApiError', code: 40401, message: `session ${id} does not exist` };
       }
-      return { items: [], hasMore: false };
+      const found = extras.find((s) => s.id === id) ?? listed.find((s) => s.id === id) ?? session(id);
+      return {
+        asOfSeq: 0,
+        epoch: 'ep_test',
+        session: found,
+        messages: [],
+        hasMoreMessages: false,
+        inFlightTurn: null,
+        pendingApprovals: [],
+        pendingQuestions: [],
+      };
     }),
     listTasks: vi.fn(async () => []),
     getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {} })),
@@ -196,7 +207,7 @@ describe('session ↔ URL binding', () => {
     expect(window.location.pathname).toBe('/sessions/sess_1');
   });
 
-  it('load() repairs a deep link when the listed session vanishes before messages load', async () => {
+  it('load() repairs a deep link when the listed session vanishes before its snapshot loads', async () => {
     const { api, client } = await setup({
       sessions: [session('sess_gone'), session('sess_1')],
       messageMissingSessions: ['sess_gone'],
@@ -204,11 +215,11 @@ describe('session ↔ URL binding', () => {
     });
     await client.load();
 
-    expect(api.listMessages).toHaveBeenCalledWith('sess_gone', { pageSize: 100 });
+    expect(api.getSessionSnapshot).toHaveBeenCalledWith('sess_gone');
     expect(client.activeSessionId.value).toBe('sess_1');
     expect(client.sessions.value.map((s) => s.id)).toEqual(['sess_1']);
     expect(window.location.pathname).toBe('/sessions/sess_1');
-    expect(client.warnings.value.some((w) => w.includes('Failed to load messages'))).toBe(false);
+    expect(client.warnings.value.some((w) => w.includes('Failed to load session snapshot'))).toBe(false);
   });
 
   it('popstate selects the session from the URL without writing the URL again', async () => {

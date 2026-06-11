@@ -43,6 +43,7 @@ async function setup(opts?: { submitStatuses?: ('running' | 'queued')[] }) {
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
     bindNextPromptId: vi.fn(),
+    seedSnapshot: vi.fn(),
     abort: vi.fn(),
     close: vi.fn(),
   };
@@ -51,7 +52,16 @@ async function setup(opts?: { submitStatuses?: ('running' | 'queued')[] }) {
   const created = session('sess_1');
   const api = {
     createSession: vi.fn(async () => created),
-    listMessages: vi.fn(async () => ({ items: [], hasMore: false })),
+    getSessionSnapshot: vi.fn(async () => ({
+      asOfSeq: 0,
+      epoch: 'ep_test',
+      session: created,
+      messages: [],
+      hasMoreMessages: false,
+      inFlightTurn: null,
+      pendingApprovals: [],
+      pendingQuestions: [],
+    })),
     submitPrompt: vi.fn(async () => {
       promptN += 1;
       return {
