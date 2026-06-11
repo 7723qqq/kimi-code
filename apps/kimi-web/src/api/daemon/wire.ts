@@ -420,9 +420,52 @@ export interface WireResyncRequired {
   timestamp: string;
   payload: {
     session_id: string;
-    reason: 'buffer_overflow' | 'session_recreated';
+    reason: 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
     current_seq: number;
+    /** Current journal epoch — adopt it after resyncing (v2 sync protocol). */
+    epoch?: string;
   };
+}
+
+// ---------------------------------------------------------------------------
+// v2 sync protocol: cursors + session snapshot
+// ---------------------------------------------------------------------------
+
+/** Per-session sync cursor: durable seq + journal epoch. */
+export interface WireSessionCursor {
+  seq: number;
+  epoch?: string;
+}
+
+export interface WireInFlightToolCall {
+  tool_call_id: string;
+  name: string;
+  args?: unknown;
+  description?: string;
+  display?: unknown;
+  last_progress?: {
+    kind: 'stdout' | 'stderr' | 'progress' | 'status' | 'custom';
+    text?: string;
+    percent?: number;
+  };
+}
+
+export interface WireInFlightTurn {
+  turn_id: number;
+  assistant_text: string;
+  thinking_text: string;
+  running_tools: WireInFlightToolCall[];
+}
+
+/** `GET /sessions/{sid}/snapshot` — atomic rebuild state at a watermark. */
+export interface WireSessionSnapshot {
+  as_of_seq: number;
+  epoch: string;
+  session: WireSession;
+  messages: { items: WireMessage[]; has_more: boolean };
+  in_flight_turn: WireInFlightTurn | null;
+  pending_approvals: WireApprovalRequest[];
+  pending_questions: WireQuestionRequest[];
 }
 
 export interface WireErrorFrame {
@@ -454,7 +497,7 @@ export interface WireClientHello {
   payload: {
     client_id: string;
     subscriptions: string[];
-    last_seq_by_session?: Record<string, number>;
+    cursors?: Record<string, WireSessionCursor>;
   };
 }
 
@@ -463,7 +506,7 @@ export interface WireSubscribe {
   id: string;
   payload: {
     session_ids: string[];
-    last_seq_by_session?: Record<string, number>;
+    cursors?: Record<string, WireSessionCursor>;
   };
 }
 

@@ -9,7 +9,9 @@ import type {
   AppModel,
   AppProvider,
   AppSession,
+  AppSessionCursor,
   AppSessionRuntimeStatus,
+  AppSessionSnapshot,
   AppSessionStatus,
   AppTask,
   AppTaskStatus,
@@ -29,11 +31,13 @@ import type {
 import { createAgentProjector } from './agentEventProjector';
 import { DaemonHttpClient } from './http';
 import {
+  toAppApprovalRequest,
   toAppEvent,
   toAppFsEntry,
   toAppMessage,
   toAppModel,
   toAppProvider,
+  toAppQuestionRequest,
   toAppSession,
   toAppTask,
   toWireApprovalResponse,
@@ -62,6 +66,7 @@ import type {
   WireProvider,
   WireSession,
   WireSessionRuntimeStatus,
+  WireSessionSnapshot,
   WireWorkspace,
   WireLogoutResult,
 } from './wire';
@@ -333,6 +338,41 @@ export class DaemonKimiWebApi implements KimiWebApi {
     return {
       items: data.items.map(toAppMessage),
       hasMore: data.has_more,
+    };
+  }
+
+  /**
+   * v2 initial sync: atomic session state at an `as_of_seq` watermark.
+   * Rebuild flow: getSessionSnapshot() → seedSnapshot() → subscribe(cursor).
+   */
+  async getSessionSnapshot(sessionId: string): Promise<AppSessionSnapshot> {
+    const data = await this.http.get<WireSessionSnapshot>(
+      `/sessions/${encodeURIComponent(sessionId)}/snapshot`,
+    );
+    return {
+      asOfSeq: data.as_of_seq,
+      epoch: data.epoch,
+      session: toAppSession(data.session),
+      // Snapshot messages are already chronological ascending.
+      messages: data.messages.items.map(toAppMessage),
+      hasMoreMessages: data.messages.has_more,
+      inFlightTurn:
+        data.in_flight_turn === null
+          ? null
+          : {
+              turnId: data.in_flight_turn.turn_id,
+              assistantText: data.in_flight_turn.assistant_text,
+              thinkingText: data.in_flight_turn.thinking_text,
+              runningTools: data.in_flight_turn.running_tools.map((t) => ({
+                toolCallId: t.tool_call_id,
+                name: t.name,
+                args: t.args,
+                description: t.description,
+                lastProgress: t.last_progress,
+              })),
+            },
+      pendingApprovals: data.pending_approvals.map(toAppApprovalRequest),
+      pendingQuestions: data.pending_questions.map(toAppQuestionRequest),
     };
   }
 
@@ -881,8 +921,8 @@ export class DaemonKimiWebApi implements KimiWebApi {
       // Raw agent-core frames — client-side projection path (real daemon)
       // -----------------------------------------------------------------------
       onRawAgentEvent: (frame) => {
-        const { type, seq, session_id: sessionId, payload } = frame;
-        const appEvents = projector.project(type, payload, sessionId);
+        const { type, seq, session_id: sessionId, payload, offset } = frame;
+        const appEvents = projector.project(type, payload, sessionId, { offset });
         for (const appEvent of appEvents) {
           // Auto-compaction: the projector can't see the wire seq, so it emits
           // historyCompacted with beforeSeq:0. Route it to onResync using the
@@ -894,10 +934,10 @@ export class DaemonKimiWebApi implements KimiWebApi {
         }
       },
 
-      onResync: (sessionId: string, currentSeq: number) => {
+      onResync: (sessionId: string, currentSeq: number, epoch?: string) => {
         // Reset per-session projector state on resync
         projector.reset(sessionId);
-        handlers.onResync(sessionId, currentSeq);
+        handlers.onResync(sessionId, currentSeq, epoch);
       },
 
       onConnectionState: (connected: boolean) => {
@@ -912,16 +952,32 @@ export class DaemonKimiWebApi implements KimiWebApi {
     socket.connect();
 
     return {
-      subscribe(sessionId: string, lastSeq?: number): void {
+      subscribe(sessionId: string, cursor?: AppSessionCursor): void {
         // Do NOT reset projector state here: every sidebar click re-subscribes
         // the (possibly running) session, and a reset wipes the turn/prompt
         // bindings — the remainder of an in-flight turn would be dropped on
         // the floor. The projector starts sessions fresh on first sight, and
         // onResync (below) resets explicitly before messages are reloaded.
-        socket.subscribe(sessionId, lastSeq ?? 0);
+        socket.subscribe(sessionId, cursor ?? { seq: 0 });
       },
       unsubscribe(sessionId: string): void {
         socket.unsubscribe(sessionId);
+      },
+      seedSnapshot(sessionId: string, snapshot: AppSessionSnapshot): void {
+        // Rebuild the projector's mid-turn state from the snapshot. The
+        // resulting AppEvents (running status + partially-streamed assistant
+        // message) flow through the SAME onEvent path as live events, so the
+        // rendering layer needs no special handling. When there is no
+        // in-flight turn we only reset, so stale turn state can't leak into
+        // the freshly-loaded message list.
+        if (snapshot.inFlightTurn === null) {
+          projector.reset(sessionId);
+          return;
+        }
+        const appEvents = projector.seedInFlight(sessionId, snapshot.inFlightTurn);
+        for (const appEvent of appEvents) {
+          handlers.onEvent(appEvent, { sessionId, seq: snapshot.asOfSeq });
+        }
       },
       bindNextPromptId(sessionId: string, promptId: string): void {
         // Wire the real daemon prompt_id into the projector so turn.started

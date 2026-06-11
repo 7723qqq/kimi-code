@@ -2,17 +2,27 @@ import { describe, expect, it } from 'vitest';
 
 import {
   abortMessageSchema,
+  abortAckMessageSchema,
   clientControlMessageSchema,
+  clientControlOperations,
   clientHelloMessageSchema,
+  clientHelloAckMessageSchema,
+  getClientControlOperation,
   pingMessageSchema,
   pongMessageSchema,
   resyncRequiredMessageSchema,
   serverHelloMessageSchema,
+  serverSystemOperations,
   serverSystemMessageSchema,
+  sessionEventMessageSchema,
+  subscribeAckMessageSchema,
   subscribeMessageSchema,
+  unsubscribeAckMessageSchema,
   unsubscribeMessageSchema,
+  watchFsAckMessageSchema,
   watchFsAddMessageSchema,
   watchFsRemoveMessageSchema,
+  wsOperations,
   wsAckEnvelopeSchema,
   wsControlEnvelopeSchema,
   wsErrorMessageSchema,
@@ -33,6 +43,21 @@ describe('ws-control — generic envelopes', () => {
       payload: { delta: 'hi' },
     });
     expect(parsed.seq).toBe(42);
+  });
+
+  it('wsEventEnvelopeSchema accepts a volatile frame carrying the watermark', () => {
+    const schema = wsEventEnvelopeSchema(z.object({ delta: z.string() }));
+    const parsed = schema.parse({
+      type: 'assistant.delta',
+      seq: 42,
+      epoch: 'ep_01ABC',
+      volatile: true,
+      session_id: 'sess_1',
+      timestamp: TS,
+      payload: { delta: 'hi' },
+    });
+    expect(parsed.volatile).toBe(true);
+    expect(parsed.epoch).toBe('ep_01ABC');
   });
 
   it('wsControlEnvelopeSchema accepts an id-less message', () => {
@@ -59,6 +84,7 @@ describe('ws-control — §3.1 server_hello', () => {
       timestamp: TS,
       payload: {
         ws_connection_id: 'conn_local',
+        protocol_version: 2,
         heartbeat_ms: 30000,
         max_event_buffer_size: 1000,
         capabilities: { event_batching: false, compression: false },
@@ -67,12 +93,27 @@ describe('ws-control — §3.1 server_hello', () => {
     expect(result.success).toBe(true);
   });
 
+  it('rejects a server_hello missing protocol_version', () => {
+    const result = serverHelloMessageSchema.safeParse({
+      type: 'server_hello',
+      timestamp: TS,
+      payload: {
+        ws_connection_id: 'conn_local',
+        heartbeat_ms: 30000,
+        max_event_buffer_size: 1000,
+        capabilities: { event_batching: false, compression: false },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
   it('rejects a server_hello missing capabilities', () => {
     const result = serverHelloMessageSchema.safeParse({
       type: 'server_hello',
       timestamp: TS,
       payload: {
         ws_connection_id: 'conn_local',
+        protocol_version: 2,
         heartbeat_ms: 30000,
         max_event_buffer_size: 1000,
       },
@@ -89,10 +130,36 @@ describe('ws-control — §3.2 client_hello', () => {
       payload: {
         client_id: 'web_abc',
         subscriptions: ['sess_1', 'sess_2'],
-        last_seq_by_session: { sess_1: 99 },
+        cursors: { sess_1: { seq: 99, epoch: 'ep_01ABC' } },
       },
     });
     expect(result.success).toBe(true);
+  });
+
+  it('client_hello accepts an epoch-less fresh cursor', () => {
+    const result = clientHelloMessageSchema.safeParse({
+      type: 'client_hello',
+      id: 'c1',
+      payload: {
+        client_id: 'web_abc',
+        subscriptions: [],
+        cursors: { sess_1: { seq: 0 } },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('client_hello rejects the v1 bare-seq cursor map', () => {
+    const result = clientHelloMessageSchema.safeParse({
+      type: 'client_hello',
+      id: 'c1',
+      payload: {
+        client_id: 'web_abc',
+        subscriptions: [],
+        cursors: { sess_1: 99 },
+      },
+    });
+    expect(result.success).toBe(false);
   });
 
   it('rejects a client_hello missing payload.client_id', () => {
@@ -249,6 +316,20 @@ describe('ws-control — §3.6 resync_required', () => {
     expect(result.success).toBe(true);
   });
 
+  it('parses an epoch_changed resync with the new epoch', () => {
+    const result = resyncRequiredMessageSchema.safeParse({
+      type: 'resync_required',
+      timestamp: TS,
+      payload: {
+        session_id: 'sess_1',
+        reason: 'epoch_changed',
+        current_seq: 12,
+        epoch: 'ep_01DEF',
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('rejects an unknown reason', () => {
     const result = resyncRequiredMessageSchema.safeParse({
       type: 'resync_required',
@@ -313,5 +394,107 @@ describe('ws-control — discriminated unions', () => {
         payload: { code: 50001, msg: 'boom', fatal: true },
       }).success,
     ).toBe(true);
+  });
+});
+
+describe('ws-control — operation registry', () => {
+  it('covers every client control frame with a message schema and ack schema', () => {
+    expect(clientControlOperations.map((op) => op.type)).toEqual([
+      'client_hello',
+      'subscribe',
+      'unsubscribe',
+      'watch_fs_add',
+      'watch_fs_remove',
+      'abort',
+      'pong',
+    ]);
+
+    for (const op of clientControlOperations) {
+      expect(op.direction).toBe('client_to_server');
+      expect(op.messageSchema).toBeDefined();
+      if (op.type !== 'pong') {
+        expect(op.ackSchema).toBeDefined();
+      }
+    }
+  });
+
+  it('looks up client control operations by frame type', () => {
+    expect(getClientControlOperation('subscribe')?.messageSchema).toBe(subscribeMessageSchema);
+    expect(getClientControlOperation('launch_missiles')).toBeUndefined();
+  });
+
+  it('defines typed ack message schemas for control responses', () => {
+    expect(
+      clientHelloAckMessageSchema.safeParse({
+        type: 'ack',
+        id: 'c1',
+        code: 0,
+        msg: 'success',
+        payload: { accepted_subscriptions: ['sess_1'], resync_required: [] },
+      }).success,
+    ).toBe(true);
+    expect(
+      subscribeAckMessageSchema.safeParse({
+        type: 'ack',
+        id: 'c2',
+        code: 0,
+        msg: 'success',
+        payload: { accepted: ['sess_1'], not_found: [], resync_required: [] },
+      }).success,
+    ).toBe(true);
+    expect(
+      unsubscribeAckMessageSchema.safeParse({
+        type: 'ack',
+        id: 'c3',
+        code: 0,
+        msg: 'success',
+        payload: { accepted: ['sess_1'], not_found: [], resync_required: [] },
+      }).success,
+    ).toBe(true);
+    expect(
+      watchFsAckMessageSchema.safeParse({
+        type: 'ack',
+        id: 'c4',
+        code: 0,
+        msg: 'success',
+        payload: { watched_paths: ['src'], current_count: 1 },
+      }).success,
+    ).toBe(true);
+    expect(
+      abortAckMessageSchema.safeParse({
+        type: 'ack',
+        id: 'c5',
+        code: 0,
+        msg: 'success',
+        payload: { aborted: true, at_seq: 10 },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('covers server system frames and the session event stream', () => {
+    expect(serverSystemOperations.map((op) => op.type)).toEqual([
+      'server_hello',
+      'ping',
+      'resync_required',
+      'error',
+    ]);
+
+    expect(
+      sessionEventMessageSchema.safeParse({
+        type: 'assistant.delta',
+        seq: 1,
+        session_id: 'sess_1',
+        timestamp: TS,
+        payload: {
+          type: 'assistant.delta',
+          agentId: 'agent_1',
+          sessionId: 'sess_1',
+          turnId: 1,
+          delta: 'hello',
+        },
+      }).success,
+    ).toBe(true);
+
+    expect(wsOperations.some((op) => op.type === 'session_event')).toBe(true);
   });
 });

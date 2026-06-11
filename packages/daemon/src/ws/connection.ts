@@ -5,13 +5,17 @@ import { ulid } from 'ulid';
 
 import {
   ErrorCode,
-  clientControlMessageSchema,
+  WS_PROTOCOL_VERSION,
   type AbortMessage,
   type ClientHelloMessage,
+  type ClientControlMessage,
+  type CursorsBySession,
+  type SessionCursor,
   type SubscribeMessage,
   type UnsubscribeMessage,
   type WatchFsAddMessage,
   type WatchFsRemoveMessage,
+  getClientControlOperation,
 } from '@moonshot-ai/protocol';
 
 import type { ILogService } from '@moonshot-ai/services';
@@ -29,12 +33,15 @@ import { rawDataToString } from './rawData';
 export interface BufferReplaySource {
   getBufferedSince(
     sessionId: string,
-    lastSeq: number,
-  ): {
+    cursor: SessionCursor,
+  ): Promise<{
     events: Array<{ seq: number; envelope: EventEnvelope }>;
-    resyncRequired: boolean;
+    resyncRequired: 'buffer_overflow' | 'session_recreated' | 'epoch_changed' | false;
     currentSeq: number;
-  };
+    epoch: string;
+  }>;
+
+  getCursor(sessionId: string): Promise<{ seq: number; epoch: string }>;
 }
 
 export interface AbortHandler {
@@ -94,7 +101,8 @@ export class WsConnection {
 
   public readonly subscriptions = new Set<string>();
 
-  public readonly lastSeqBySession = new Map<string, number>();
+  /** Last cursor each subscribed session was synced from (client-claimed). */
+  public readonly cursorsBySession = new Map<string, SessionCursor>();
 
   private readonly socket: WebSocket;
   private readonly logger: ILogService;
@@ -126,6 +134,7 @@ export class WsConnection {
     this.send(
       buildServerHello({
         ws_connection_id: this.id,
+        protocol_version: WS_PROTOCOL_VERSION,
         heartbeat_ms: this.pingIntervalMs,
         max_event_buffer_size: this.maxEventBufferSize,
         capabilities: { event_batching: false, compression: false },
@@ -148,21 +157,35 @@ export class WsConnection {
       this.logger.warn('non-json ws frame; ignoring');
       return;
     }
-    const result = clientControlMessageSchema.safeParse(parsed);
+    const type = frameType(parsed);
+    if (type === undefined) {
+      this.logger.warn('invalid control message type');
+      return;
+    }
+    const operation = getClientControlOperation(type);
+    if (operation === undefined) {
+      this.logger.warn({ type }, 'unknown control message type');
+      return;
+    }
+    const result = operation.messageSchema.safeParse(parsed);
     if (!result.success) {
       this.logger.warn({ issues: result.error.issues.length }, 'invalid control message');
       return;
     }
-    const msg = result.data;
+    const msg = result.data as ClientControlMessage;
     switch (msg.type) {
       case 'client_hello':
-        this.onClientHello(msg);
+        void this.onClientHello(msg).catch((err: unknown) => {
+          this.logger.warn({ err: String(err) }, 'client_hello handler failed');
+        });
         break;
       case 'pong':
         this.onPong();
         break;
       case 'subscribe':
-        this.onSubscribe(msg);
+        void this.onSubscribe(msg).catch((err: unknown) => {
+          this.logger.warn({ err: String(err) }, 'subscribe handler failed');
+        });
         break;
       case 'unsubscribe':
         this.onUnsubscribe(msg);
@@ -184,72 +207,69 @@ export class WsConnection {
     }
   }
 
-  private onClientHello(msg: ClientHelloMessage): void {
+  private async onClientHello(msg: ClientHelloMessage): Promise<void> {
     this.gotClientHello = true;
-    const { subscriptions, last_seq_by_session } = msg.payload;
-    const accepted: string[] = [];
-    const resyncRequired: string[] = [];
+    const { subscriptions, cursors } = msg.payload;
 
-    for (const sid of subscriptions) {
-      this.subscribe(sid);
-      accepted.push(sid);
-    }
-
-    if (last_seq_by_session) {
-      for (const [sid, lastSeq] of Object.entries(last_seq_by_session)) {
-        this.lastSeqBySession.set(sid, lastSeq);
-
-        if (!this.subscriptions.has(sid)) {
-          this.subscribe(sid);
-          accepted.push(sid);
-        }
-        const result = this.wsBroadcast.getBufferedSince(sid, lastSeq);
-        if (result.resyncRequired) {
-          this.send(buildResyncRequired(sid, 'buffer_overflow', result.currentSeq));
-          resyncRequired.push(sid);
-        } else {
-          for (const entry of result.events) {
-            this.send(entry.envelope);
-          }
-        }
-      }
-    }
+    const sync = await this.syncSessions(subscriptions, cursors);
 
     this.logger.info(
       {
-        acceptedCount: accepted.length,
-        resyncRequiredCount: resyncRequired.length,
+        acceptedCount: sync.accepted.length,
+        resyncRequiredCount: sync.resyncRequired.length,
       },
       'client hello',
     );
     this.send(
       buildAck(msg.id, 0, 'success', {
-        accepted_subscriptions: accepted,
-        resync_required: resyncRequired,
+        accepted_subscriptions: sync.accepted,
+        resync_required: sync.resyncRequired,
+        cursors: sync.serverCursors,
       }),
     );
   }
 
-  private onSubscribe(msg: SubscribeMessage): void {
-    const { session_ids, last_seq_by_session, watch_fs } = msg.payload;
-    this.logger.info(
-      { sessionIds: session_ids, lastSeqBySession: last_seq_by_session, hasWatchFs: !!watch_fs },
-      '[DBG ws.onSubscribe] received subscribe',
-    );
+  /**
+   * Shared client_hello/subscribe session sync:
+   *   1. register the subscription FIRST (live events flow immediately;
+   *      the client dedups overlap by seq),
+   *   2. replay durable events past the client's cursor, or emit
+   *      `resync_required` when the cursor cannot be served,
+   *   3. report the server-side `{seq, epoch}` cursor for every accepted
+   *      session so the client can adopt the current epoch.
+   */
+  private async syncSessions(
+    sessionIds: readonly string[],
+    cursors: CursorsBySession | undefined,
+  ): Promise<{
+    accepted: string[];
+    resyncRequired: string[];
+    serverCursors: CursorsBySession;
+  }> {
     const accepted: string[] = [];
     const resyncRequired: string[] = [];
+    const serverCursors: CursorsBySession = {};
 
-    for (const sid of session_ids) {
-      this.subscribe(sid);
-      accepted.push(sid);
+    for (const sid of sessionIds) {
+      if (!this.subscriptions.has(sid)) {
+        this.subscribe(sid);
+      }
+      if (!accepted.includes(sid)) accepted.push(sid);
     }
 
-    if (last_seq_by_session) {
-      for (const [sid, lastSeq] of Object.entries(last_seq_by_session)) {
-        this.lastSeqBySession.set(sid, lastSeq);
-        const result = this.wsBroadcast.getBufferedSince(sid, lastSeq);
-        if (result.resyncRequired) {
-          this.send(buildResyncRequired(sid, 'buffer_overflow', result.currentSeq));
+    if (cursors) {
+      for (const [sid, cursor] of Object.entries(cursors)) {
+        this.cursorsBySession.set(sid, cursor);
+        if (!this.subscriptions.has(sid)) {
+          this.subscribe(sid);
+        }
+        if (!accepted.includes(sid)) accepted.push(sid);
+
+        const result = await this.wsBroadcast.getBufferedSince(sid, cursor);
+        if (result.resyncRequired !== false) {
+          this.send(
+            buildResyncRequired(sid, result.resyncRequired, result.currentSeq, result.epoch),
+          );
           resyncRequired.push(sid);
         } else {
           for (const entry of result.events) {
@@ -258,6 +278,26 @@ export class WsConnection {
         }
       }
     }
+
+    for (const sid of accepted) {
+      try {
+        serverCursors[sid] = await this.wsBroadcast.getCursor(sid);
+      } catch (err) {
+        this.logger.warn({ sid, err: String(err) }, 'getCursor failed for ack');
+      }
+    }
+
+    return { accepted, resyncRequired, serverCursors };
+  }
+
+  private async onSubscribe(msg: SubscribeMessage): Promise<void> {
+    const { session_ids, cursors, watch_fs } = msg.payload;
+    this.logger.info(
+      { sessionIds: session_ids, cursors, hasWatchFs: !!watch_fs },
+      'ws subscribe',
+    );
+
+    const sync = await this.syncSessions(session_ids, cursors);
 
     if (watch_fs && this.fsWatchHandler !== undefined) {
       for (const [sid, cfg] of Object.entries(watch_fs)) {
@@ -284,9 +324,10 @@ export class WsConnection {
 
     this.send(
       buildAck(msg.id, 0, 'success', {
-        accepted,
+        accepted: sync.accepted,
         not_found: [],
-        resync_required: resyncRequired,
+        resync_required: sync.resyncRequired,
+        cursors: sync.serverCursors,
       }),
     );
   }
@@ -295,6 +336,7 @@ export class WsConnection {
     const { session_ids } = msg.payload;
     for (const sid of session_ids) {
       this.unsubscribe(sid);
+      this.cursorsBySession.delete(sid);
 
       if (this.fsWatchHandler !== undefined) {
 
@@ -524,4 +566,12 @@ export class WsConnection {
   public get hasClientHello(): boolean {
     return this.gotClientHello;
   }
+}
+
+function frameType(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || !('type' in value)) {
+    return undefined;
+  }
+  const type = (value as { type?: unknown }).type;
+  return typeof type === 'string' ? type : undefined;
 }

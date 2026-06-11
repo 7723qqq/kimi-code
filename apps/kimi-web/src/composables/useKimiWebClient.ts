@@ -555,8 +555,12 @@ function connectEventsIfNeeded(): void {
       }
     },
 
-    onResync(sessionId: string, currentSeq: number) {
-      void reloadAndResubscribe(sessionId, currentSeq);
+    onResync(sessionId: string, currentSeq: number, epoch?: string) {
+      // The server-announced cursor is only a hint; the snapshot fetch
+      // returns the authoritative {asOfSeq, epoch} and re-subscribes.
+      if (epoch !== undefined) epochBySession[sessionId] = epoch;
+      void currentSeq;
+      void syncSessionFromSnapshot(sessionId);
     },
 
     onError(_code: number, msg: string, _fatal: boolean) {
@@ -570,31 +574,49 @@ function connectEventsIfNeeded(): void {
   });
 }
 
-/**
- * The daemon's GET /messages returns messages NEWEST-FIRST (confirmed: the
- * assistant reply comes before its user prompt). For display we need
- * chronological order (oldest first), otherwise a reloaded session renders
- * upside down. Reverse (handles the common newest-first case + equal
- * timestamps), then stable-sort by createdAt as a safety net.
- */
-function orderMessages(
-  items: import('../api/types').AppMessage[],
-): import('../api/types').AppMessage[] {
-  return [...items]
-    .reverse()
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-}
+// Journal epoch per session, learned from snapshots / resync frames. Not
+// reactive — only consulted when building the subscribe cursor.
+const epochBySession: Record<string, string> = {};
 
-async function loadMessagesForSession(sessionId: string): Promise<void> {
+/**
+ * v2 initial sync (IM-style rebuild): fetch the atomic session snapshot,
+ * install its state, seed the projector's in-flight turn, then subscribe the
+ * WS at the snapshot's `{seq: asOfSeq, epoch}` cursor. The watermark ties
+ * the REST snapshot to the event stream — no gap, no duplication.
+ */
+async function syncSessionFromSnapshot(sessionId: string): Promise<void> {
   try {
     const api = getKimiWebApi();
-    const page = await api.listMessages(sessionId, { pageSize: 100 });
+    const snap = await api.getSessionSnapshot(sessionId);
+
+    rawState.sessions = rawState.sessions.map((s) => (s.id === sessionId ? snap.session : s));
     rawState.messagesBySession = {
       ...rawState.messagesBySession,
-      [sessionId]: orderMessages(page.items),
+      [sessionId]: snap.messages,
     };
+    rawState.approvalsBySession = {
+      ...rawState.approvalsBySession,
+      [sessionId]: snap.pendingApprovals,
+    };
+    rawState.questionsBySession = {
+      ...rawState.questionsBySession,
+      [sessionId]: snap.pendingQuestions,
+    };
+    rawState.lastSeqBySession = {
+      ...rawState.lastSeqBySession,
+      [sessionId]: snap.asOfSeq,
+    };
+    epochBySession[sessionId] = snap.epoch;
+
+    connectEventsIfNeeded();
+    if (eventConn) {
+      // Seed BEFORE subscribing: the in-flight assistant message must exist
+      // before live deltas (aligned by wire offset) start appending to it.
+      eventConn.seedSnapshot(sessionId, snap);
+      eventConn.subscribe(sessionId, { seq: snap.asOfSeq, epoch: snap.epoch });
+    }
   } catch (err) {
-    rawState.warnings = [...rawState.warnings, `Failed to load messages: ${String(err)}`];
+    rawState.warnings = [...rawState.warnings, `Failed to load session snapshot: ${String(err)}`];
   }
 }
 
@@ -611,14 +633,6 @@ async function loadTasksForSession(sessionId: string): Promise<void> {
   }
 }
 
-async function reloadAndResubscribe(sessionId: string, currentSeq: number): Promise<void> {
-  await loadMessagesForSession(sessionId);
-  rawState.lastSeqBySession = { ...rawState.lastSeqBySession, [sessionId]: currentSeq };
-  if (eventConn) {
-    eventConn.subscribe(sessionId, currentSeq);
-  }
-}
-
 function hasLoadedMessages(sessionId: string): boolean {
   return Object.prototype.hasOwnProperty.call(rawState.messagesBySession, sessionId);
 }
@@ -626,8 +640,9 @@ function hasLoadedMessages(sessionId: string): boolean {
 function subscribeToSessionEvents(sessionId: string): void {
   connectEventsIfNeeded();
   if (eventConn) {
-    const lastSeq = rawState.lastSeqBySession[sessionId] ?? 0;
-    eventConn.subscribe(sessionId, lastSeq);
+    const seq = rawState.lastSeqBySession[sessionId] ?? 0;
+    const epoch = epochBySession[sessionId];
+    eventConn.subscribe(sessionId, { seq, epoch });
   }
 }
 
@@ -1522,9 +1537,13 @@ async function selectSession(sessionId: string): Promise<void> {
     refreshSessionSidecars(sessionId);
 
     if (!messagesLoaded) {
-      await loadMessagesForSession(sessionId);
+      // First open: full snapshot → seed → subscribe(asOfSeq).
+      await syncSessionFromSnapshot(sessionId);
+    } else {
+      // Re-open: resume from the tracked cursor; the daemon replays any
+      // missed durable events (or answers resync_required → snapshot).
+      subscribeToSessionEvents(sessionId);
     }
-    subscribeToSessionEvents(sessionId);
   } catch (err) {
     rawState.warnings = [...rawState.warnings, `selectSession failed: ${String(err)}`];
   } finally {

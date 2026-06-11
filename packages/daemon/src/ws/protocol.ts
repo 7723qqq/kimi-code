@@ -25,6 +25,7 @@ import { ulid } from 'ulid';
 /** WS.md §3.1: `server_hello.payload`. */
 export interface ServerHelloPayload {
   ws_connection_id: string;
+  protocol_version: number;
   heartbeat_ms: number;
   max_event_buffer_size: number;
   capabilities: {
@@ -93,6 +94,16 @@ export function buildAck<P>(id: string, code: number, msg: string, payload: P): 
 export interface EventEnvelope<P = Event> {
   type: string;
   seq: number;
+  /** Journal epoch the seq belongs to (cursor invalidation across restarts). */
+  epoch?: string;
+  /**
+   * True for ephemeral frames (deltas / progress / periodic status): they
+   * carry the current durable watermark as `seq`, do not advance it, and are
+   * never replayed after a reconnect.
+   */
+  volatile?: boolean;
+  /** Pre-append stream offset for volatile text-delta frames. */
+  offset?: number;
   session_id: string;
   timestamp: string;
   payload: P;
@@ -102,11 +113,15 @@ export function buildEventEnvelope(
   seq: number,
   sessionId: string,
   event: Event,
+  opts: { epoch?: string; volatile?: boolean; offset?: number } = {},
 ): EventEnvelope<Event> {
   const type = (event as { type?: string }).type ?? 'event.unknown';
   return {
     type,
     seq,
+    ...(opts.epoch !== undefined ? { epoch: opts.epoch } : {}),
+    ...(opts.volatile === true ? { volatile: true } : {}),
+    ...(opts.offset !== undefined ? { offset: opts.offset } : {}),
     session_id: sessionId,
     timestamp: new Date().toISOString(),
     payload: event,
@@ -115,32 +130,37 @@ export function buildEventEnvelope(
 
 /**
  * WS.md §3.6: `resync_required` system message (S→C). Sent when the
- * client's claimed `last_seq` for a session is older than the ring buffer
- * retains (`lastSeq + 1 < oldestSeq`). The client should drop its local
- * cache for that session and `GET /sessions/{id}/messages` to rebuild,
- * then re-`subscribe` with `last_seq_by_session[sid] = current_seq`.
- *
- * `reason` is `'buffer_overflow'` unless session deletion / re-creation with
- * the same id requires `'session_recreated'`.
+ * client's cursor cannot be served incrementally: the gap exceeds the replay
+ * cap (`buffer_overflow`), the cursor's journal epoch does not match
+ * (`epoch_changed`), or the session was recreated (`session_recreated`).
+ * The client should rebuild via `GET /sessions/{id}/snapshot` and
+ * re-`subscribe` with `cursors[sid] = { seq: as_of_seq, epoch }`.
  */
 export interface ResyncRequiredFrame {
   type: 'resync_required';
   timestamp: string;
   payload: {
     session_id: string;
-    reason: 'buffer_overflow' | 'session_recreated';
+    reason: 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
     current_seq: number;
+    epoch?: string;
   };
 }
 
 export function buildResyncRequired(
   sessionId: string,
-  reason: 'buffer_overflow' | 'session_recreated',
+  reason: 'buffer_overflow' | 'session_recreated' | 'epoch_changed',
   currentSeq: number,
+  epoch?: string,
 ): ResyncRequiredFrame {
   return {
     type: 'resync_required',
     timestamp: new Date().toISOString(),
-    payload: { session_id: sessionId, reason, current_seq: currentSeq },
+    payload: {
+      session_id: sessionId,
+      reason,
+      current_seq: currentSeq,
+      ...(epoch !== undefined ? { epoch } : {}),
+    },
   };
 }
