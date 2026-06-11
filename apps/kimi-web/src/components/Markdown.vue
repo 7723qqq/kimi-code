@@ -433,14 +433,20 @@ function copyDiff(code: string, idx: number) {
   font-size: 10px;
 }
 /* Copy button in the header */
-.md :deep(.copy-button) {
+.md :deep(.code-block-header .copy-button),
+.md :deep(.code-block-header .code-action-btn) {
   color: var(--muted);
   background: none;
   border: none;
   cursor: pointer;
 }
-.md :deep(.copy-button:hover) {
+.md :deep(.code-block-header .copy-button:hover),
+.md :deep(.code-block-header .code-action-btn:hover) {
   color: var(--blue);
+}
+.md :deep(.code-block-header .copy-button *),
+.md :deep(.code-block-header .code-action-btn *) {
+  pointer-events: none;
 }
 .md :deep(.code-block-content),
 .md :deep(.markstream-pre) {

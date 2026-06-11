@@ -474,9 +474,25 @@ function onVisibilityChange(): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Manual-abort toast: shown when the user presses Escape to stop the prompt
+// ---------------------------------------------------------------------------
+const abortToastVisible = ref(false);
+let abortToastTimer: ReturnType<typeof setTimeout> | null = null;
+const ABORT_TOAST_DURATION = 3000;
+
+function showAbortToast(): void {
+  abortToastVisible.value = true;
+  if (abortToastTimer !== null) clearTimeout(abortToastTimer);
+  abortToastTimer = setTimeout(() => {
+    abortToastVisible.value = false;
+  }, ABORT_TOAST_DURATION);
+}
+
 function onKeyDown(event: KeyboardEvent): void {
-  if (event.key === 'Escape' && props.running) {
+  if (event.key === 'Escape' && (props.running || props.sending)) {
     event.preventDefault();
+    showAbortToast();
     emit('interrupt');
   }
 }
@@ -510,6 +526,7 @@ onUnmounted(() => {
   if (contentObserver) contentObserver.disconnect();
   if (resizeObserver) resizeObserver.disconnect();
   if (scrollRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(scrollRaf);
+  if (abortToastTimer !== null) clearTimeout(abortToastTimer);
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', onVisibilityChange);
     document.removeEventListener('keydown', onKeyDown);
@@ -763,6 +780,18 @@ onUnmounted(() => {
         @select-model="emit('selectModel', $event)"
       />
     </div>
+
+    <!-- Manual-abort toast: shown when the user presses Escape to stop a prompt -->
+    <Transition name="abort-toast">
+      <div
+        v-if="abortToastVisible"
+        class="abort-toast"
+        role="status"
+        aria-live="polite"
+      >
+        <span class="abort-toast-text">{{ t('conversation.manuallyAborted') }}</span>
+      </div>
+    </Transition>
   </section>
 </template>
 
@@ -1099,5 +1128,49 @@ onUnmounted(() => {
 .pill-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(8px);
+}
+
+/* Manual-abort toast: centered near the top of the conversation pane */
+.abort-toast {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 8px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.12);
+  font-size: 14px;
+  font-family: var(--sans);
+  color: var(--ink);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.abort-toast-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.abort-toast-text::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+/* Abort-toast enter/leave transition */
+.abort-toast-enter-active,
+.abort-toast-leave-active {
+  transition: opacity 0.2s, transform 0.2s;
+}
+.abort-toast-enter-from,
+.abort-toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-6px);
 }
 </style>

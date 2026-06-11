@@ -6,4 +6,5 @@ export default {
   compacting: 'Compacting context…',
   compacted: 'Context compacted ({before} → {after} tokens)',
   compactedPlain: 'Context compacted',
+  manuallyAborted: 'Manually stopped',
 } as const;

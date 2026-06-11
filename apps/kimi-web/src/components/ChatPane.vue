@@ -501,7 +501,6 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   height: auto;
   margin-top: 10px;
   overflow: visible;
-  cursor: pointer;
 }
 
 .a-cpbtn {
@@ -519,20 +518,22 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 .a-cpbtn:hover {
   color: var(--ink);
 }
+.a-cpbtn svg,
+.a-cpbtn-text {
+  pointer-events: none;
+}
 .a-cpbtn svg {
   flex: none;
 }
 .a-cpbtn-text {
   opacity: 0;
-  max-width: 0;
-  overflow: hidden;
+  max-width: none;
+  overflow: visible;
   white-space: nowrap;
-  transition: opacity 0.15s ease, max-width 0.15s ease;
-  cursor: pointer;
+  transition: opacity 0.15s ease;
 }
 .a-cpbtn:hover .a-cpbtn-text {
   opacity: 1;
-  max-width: 120px;
 }
 /* Touch devices: always show the copy buttons (no hover to reveal them) and
    give the bubble-layout button a comfortable tap size. */
@@ -604,7 +605,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 /* Mobile bubble layout sending placeholder */
 .sending-placeholder {
   align-self: flex-start;
-  padding: 10px 14px;
+  padding: 10px 0;
 }
 
 /* Desktop line-turns sending placeholder */

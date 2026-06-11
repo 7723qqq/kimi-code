@@ -75,6 +75,11 @@ const PATH_RE = new RegExp(
 
 const TRAILING_PUNCTUATION_RE = /[),.;!?，。；！？）]+$/;
 
+function hasCommonFileExtension(path: string): boolean {
+  const lower = path.toLowerCase();
+  return COMMON_FILE_EXTENSIONS.some((ext) => lower.endsWith(`.${ext}`));
+}
+
 export function collectFilePathAliases(text: string): Map<string, string> {
   const aliases = new Map<string, string>();
   const attrPathRe = new RegExp(
@@ -106,6 +111,8 @@ export function parseFilePathLinkCandidate(
   const basename = path.split('/').pop() ?? path;
   const hasSeparator = path.includes('/');
   const hasKnownName = COMMON_FILENAMES.has(basename);
+  const hasKnownExtension = hasCommonFileExtension(basename);
+  if (hasSeparator && !hasKnownName && !hasKnownExtension) return null;
   if (!hasSeparator && !hasKnownName) {
     const alias = options.aliases?.get(basename);
     if (!alias) return null;

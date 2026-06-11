@@ -6,4 +6,5 @@ export default {
   compacting: '正在压缩上下文…',
   compacted: '上下文已压缩（{before} → {after} tokens）',
   compactedPlain: '上下文已压缩',
+  manuallyAborted: '您已手动终止',
 } as const;

@@ -42,6 +42,11 @@ describe('file path links', () => {
     expect(parseFilePathLinkCandidate('hello')).toBeNull();
   });
 
+  it('ignores branch-like slash names without file extensions', () => {
+    expect(parseFilePathLinkCandidate('feat/web')).toBeNull();
+    expect(findFilePathLinks('commit db8d21cd on feat/web.')).toEqual([]);
+  });
+
   it('finds multiple links in message text', () => {
     expect(findFilePathLinks('See apps/kimi-web/src/App.vue:11 and package.json.')).toEqual([
       {
