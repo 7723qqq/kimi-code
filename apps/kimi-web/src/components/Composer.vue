@@ -328,6 +328,7 @@ onUnmounted(() => {
   for (const att of attachments.value) {
     revokeAttachment(att);
   }
+  clearCompositionEndTimer();
 });
 
 // ---------------------------------------------------------------------------
@@ -422,7 +423,36 @@ function handleSteer(): void {
   emit('steer', payload);
 }
 
+let isComposingText = false;
+let compositionEndTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearCompositionEndTimer(): void {
+  if (compositionEndTimer !== null) {
+    clearTimeout(compositionEndTimer);
+    compositionEndTimer = null;
+  }
+}
+
+function handleCompositionStart(): void {
+  clearCompositionEndTimer();
+  isComposingText = true;
+}
+
+function handleCompositionEnd(): void {
+  clearCompositionEndTimer();
+  compositionEndTimer = setTimeout(() => {
+    compositionEndTimer = null;
+    isComposingText = false;
+  }, 0);
+}
+
+function isComposingKeyEvent(e: KeyboardEvent): boolean {
+  return isComposingText || e.isComposing || e.keyCode === 229;
+}
+
 function handleKeydown(e: KeyboardEvent): void {
+  if (isComposingKeyEvent(e)) return;
+
   // Close dropdowns on Escape
   if (e.key === 'Escape') {
     if (dropdownOpen.value) {
@@ -729,6 +759,8 @@ function selectModel(modelId: string): void {
             :placeholder="placeholder"
             rows="1"
             @keydown="handleKeydown"
+            @compositionstart="handleCompositionStart"
+            @compositionend="handleCompositionEnd"
             @input="handleInput"
           />
 
