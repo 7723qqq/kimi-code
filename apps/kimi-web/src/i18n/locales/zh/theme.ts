@@ -1,7 +1,7 @@
 export default {
   label: '主题',
-  terminal: '终端',
   modern: '现代',
+  kimi: 'Kimi',
   colorSchemeLabel: '外观',
   light: '浅色',
   dark: '深色',

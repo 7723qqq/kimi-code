@@ -50,7 +50,7 @@ const props = defineProps<{
   fileReloadKey?: string | number;
   /** Mobile shell: compact chrome + give the TabBar bigger taps. */
   mobile?: boolean;
-  /** Modern theme: render chat bubbles at all widths (desktop included). */
+  /** Bubble themes (Modern/Kimi): render chat bubbles at all widths (desktop included). */
   modern?: boolean;
   /** True while switching sessions and the turns array is not yet loaded. */
   sessionLoading?: boolean;
@@ -127,7 +127,7 @@ watch(
   },
 );
 
-// Bubble chat layout: always on mobile, and on desktop under the Modern theme.
+// Bubble chat layout: always on mobile, and on desktop under Modern/Kimi.
 const bubble = computed(() => props.mobile === true || props.modern === true);
 
 const runningTasks = computed(() => props.tasks.filter((t) => t.state === 'run').length);
@@ -841,6 +841,7 @@ onUnmounted(() => {
 @media (max-width: 1199px) {
   .float-stack { display: none; }
 }
+
 .panes {
   flex: 1;
   min-height: 0;

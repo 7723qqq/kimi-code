@@ -1,7 +1,7 @@
 export default {
   label: 'Theme',
-  terminal: 'Terminal',
   modern: 'Modern',
+  kimi: 'Kimi',
   colorSchemeLabel: 'Appearance',
   light: 'Light',
   dark: 'Dark',

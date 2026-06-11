@@ -624,10 +624,10 @@ function blinkOnce(): void {
             <button
               type="button"
               class="theme-opt"
-              :class="{ on: theme === 'terminal' }"
-              :aria-pressed="theme === 'terminal'"
-              @click="emit('setTheme', 'terminal')"
-            >{{ t('theme.terminal') }}</button>
+              :class="{ on: theme === 'kimi' }"
+              :aria-pressed="theme === 'kimi'"
+              @click="emit('setTheme', 'kimi')"
+            >{{ t('theme.kimi') }}</button>
           </div>
         </div>
         <div class="am-lang">
@@ -656,7 +656,9 @@ function blinkOnce(): void {
             >{{ t('theme.system') }}</button>
           </div>
         </div>
-        <div class="am-lang">
+        <!-- The Kimi theme pins its interaction accent (kimiDark per the design
+             system), so the accent choice would do nothing — hide it. -->
+        <div v-if="theme !== 'kimi'" class="am-lang">
           <span class="am-lang-label">{{ t('theme.accentLabel') }}</span>
           <div class="theme-seg" role="group" :aria-label="t('theme.accentLabel')">
             <button
@@ -701,10 +703,10 @@ function blinkOnce(): void {
             <button
               type="button"
               class="theme-opt"
-              :class="{ on: theme === 'terminal' }"
-              :aria-pressed="theme === 'terminal'"
-              @click="emit('setTheme', 'terminal')"
-            >{{ t('theme.terminal') }}</button>
+              :class="{ on: theme === 'kimi' }"
+              :aria-pressed="theme === 'kimi'"
+              @click="emit('setTheme', 'kimi')"
+            >{{ t('theme.kimi') }}</button>
           </div>
         </div>
         <div class="am-lang">
@@ -733,7 +735,9 @@ function blinkOnce(): void {
             >{{ t('theme.system') }}</button>
           </div>
         </div>
-        <div class="am-lang">
+        <!-- The Kimi theme pins its interaction accent (kimiDark per the design
+             system), so the accent choice would do nothing — hide it. -->
+        <div v-if="theme !== 'kimi'" class="am-lang">
           <span class="am-lang-label">{{ t('theme.accentLabel') }}</span>
           <div class="theme-seg" role="group" :aria-label="t('theme.accentLabel')">
             <button
