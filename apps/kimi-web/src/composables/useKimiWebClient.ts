@@ -1483,6 +1483,21 @@ function openWorkspace(id: string): void {
   }
 }
 
+/** Upsert a workspace: preserve existing order when updating; prepend only
+ *  for truly new workspaces. */
+function upsertWorkspacePreserveOrder(workspace: AppWorkspace): void {
+  const index = rawState.workspaces.findIndex(
+    (w) => w.id === workspace.id || w.root === workspace.root,
+  );
+  if (index === -1) {
+    rawState.workspaces = [workspace, ...rawState.workspaces];
+    return;
+  }
+  const next = [...rawState.workspaces];
+  next[index] = workspace;
+  rawState.workspaces = next;
+}
+
 /** Clear the active session without creating a new one — used by the "+" button. */
 function clearActiveSession(): void {
   rawState.activeSessionId = undefined;
@@ -1505,10 +1520,7 @@ async function createSessionInWorkspace(workspaceId: string): Promise<AppSession
       const registered = await api.addWorkspace({ root: ws.root });
       workspaceIdForCreate = registered.id;
       cwdForCreate = registered.root;
-      rawState.workspaces = [
-        registered,
-        ...rawState.workspaces.filter((w) => w.root !== registered.root && w.root !== ws.root),
-      ];
+      upsertWorkspacePreserveOrder(registered);
     } catch {
       // Older daemons may not have /workspaces. In that mode, sending a local
       // path-like workspace id as workspace_id would fail validation, so use
@@ -1545,10 +1557,7 @@ async function startSessionAndSendPrompt(
       const registered = await api.addWorkspace({ root: ws.root });
       workspaceIdForCreate = registered.id;
       cwdForCreate = registered.root;
-      rawState.workspaces = [
-        registered,
-        ...rawState.workspaces.filter((w) => w.root !== registered.root && w.root !== ws.root),
-      ];
+      upsertWorkspacePreserveOrder(registered);
     } catch {
       // Older daemons may not have /workspaces.
     }
@@ -1573,9 +1582,7 @@ async function addWorkspaceByPath(root: string): Promise<void> {
   const api = getKimiWebApi();
   try {
     const ws = await api.addWorkspace({ root: trimmed });
-    // Merge/replace in the real workspace list.
-    const others = rawState.workspaces.filter((w) => w.root !== ws.root);
-    rawState.workspaces = [ws, ...others];
+    upsertWorkspacePreserveOrder(ws);
     selectWorkspace(ws.id);
   } catch {
     // Fallback: remember a derived workspace locally (id = root = path).
