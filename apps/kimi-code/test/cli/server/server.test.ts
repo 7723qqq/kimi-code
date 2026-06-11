@@ -8,6 +8,8 @@
  * Foreground startup behavior is exercised end-to-end in `server-e2e/`.
  */
 
+import { readFileSync } from 'node:fs';
+
 import { Command } from 'commander';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -21,6 +23,14 @@ function makeProgram(): Command {
 }
 
 describe('kimi server', () => {
+  it('declares the pino pretty transport as a CLI runtime dependency', () => {
+    const packageJson = JSON.parse(
+      readFileSync(new URL('../../../package.json', import.meta.url), 'utf-8'),
+    ) as { dependencies?: Record<string, string> };
+
+    expect(packageJson.dependencies).toHaveProperty('pino-pretty');
+  });
+
   it('registers `server` with all six lifecycle subcommands plus `run`', () => {
     const program = makeProgram();
     const server = program.commands.find((c) => c.name() === 'server');
