@@ -80,6 +80,7 @@ const emit = defineEmits<{
   pickModel: [];
   selectModel: [modelId: string];
   openFile: [target: FilePreviewRequest];
+  openThinking: [target: { turnId: string; blockIndex: number }];
 }>();
 
 const { t } = useI18n();
@@ -582,6 +583,7 @@ onUnmounted(() => {
             :compaction="compaction"
             @approval-decide="handleApprovalDecide"
             @open-file="emit('openFile', $event)"
+            @open-thinking="emit('openThinking', $event)"
           />
         </template>
       </div>

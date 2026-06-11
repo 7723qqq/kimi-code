@@ -1,6 +1,11 @@
 <!-- apps/kimi-web/src/components/ThinkingBlock.vue -->
+<!-- 9e97773-style presentation: while this block is streaming it shows a live
+     9-line scrolling window; when the stream moves past it the window folds
+     into a one-paragraph teaser (the LAST paragraph of the thinking text).
+     There is NO inline expand any more — clicking anywhere on the block emits
+     `open`, and the parent shows the full text in the right-side panel. -->
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 
 const props = withDefaults(
   defineProps<{
@@ -12,9 +17,14 @@ const props = withDefaults(
   { mobile: false, streaming: false, foldable: true },
 );
 
-// Start collapsed unless this block is actively streaming: history sessions
-// (never streamed) should not flood the transcript with expanded thinking.
-const open = ref(props.streaming);
+const emit = defineEmits<{
+  /** Show the full thinking text (right-side panel — App's shared slot). */
+  open: [];
+}>();
+
+// Live window while streaming, teaser afterwards. The 0.25s grid transition
+// between the two states (fa8b305) plays on the class flip.
+const open = computed(() => props.streaming || !props.foldable);
 
 /** Last non-empty paragraph, shown as the collapsed teaser. */
 const teaser = computed(
@@ -23,35 +33,6 @@ const teaser = computed(
       .split(/\n{2,}/)
       .filter((p) => p.trim().length > 0)
       .pop() ?? '',
-);
-
-/** True while the user has text selected — don't steal the selection by toggling. */
-function hasActiveSelection(): boolean {
-  return window.getSelection()?.isCollapsed === false;
-}
-
-// Collapsed: the whole block is a click target to expand.
-// Expanded: body clicks do nothing (only the head collapses).
-function onWrapClick(): void {
-  if (open.value) return;
-  if (hasActiveSelection()) return;
-  open.value = true;
-}
-
-// Head (chevron + teaser row) toggles in both states.
-function onHeadClick(): void {
-  if (hasActiveSelection()) return;
-  open.value = !open.value;
-}
-
-// Auto-fold when this thinking block finishes streaming.
-watch(
-  () => props.streaming,
-  (next, prev) => {
-    if (prev === true && next === false && props.foldable) {
-      open.value = false;
-    }
-  },
 );
 
 const bodyEl = ref<HTMLElement | null>(null);
@@ -72,27 +53,15 @@ watch(
 
 <template>
   <div class="think" :class="{ mob: mobile }">
-    <!-- Foldable: head (chevron + teaser) above, content below -->
+    <!-- Foldable: live window above, last-paragraph teaser below; click opens
+         the full text in the right-side panel -->
     <template v-if="foldable">
-      <div class="tc-wrap" :class="{ 'is-collapsed': !open }" @click="onWrapClick">
-        <div
-          class="tc-head"
-          role="button"
-          tabindex="0"
-          :aria-expanded="open"
-          @click.stop="onHeadClick"
-          @keydown.enter.prevent="onHeadClick"
-          @keydown.space.prevent="onHeadClick"
-        >
-          <svg class="chev" :class="{ 'chev-open': open }" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-            <path d="M5.5 3.5 L10.5 8 L5.5 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          <div class="prev-anim">
-            <span class="prev">{{ teaser }}</span>
-          </div>
-        </div>
+      <div class="tc-wrap" :class="{ 'is-collapsed': !open }" @click="emit('open')">
         <div class="tc-anim">
           <pre ref="bodyEl" class="tc">{{ text }}</pre>
+        </div>
+        <div class="prev-anim">
+          <span class="prev">{{ teaser }}</span>
         </div>
       </div>
     </template>
@@ -108,58 +77,24 @@ watch(
 
 .tc-wrap {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: 1fr 0fr;
   transition: grid-template-rows 0.25s ease;
+  cursor: pointer;
 }
 .tc-wrap.is-collapsed {
-  grid-template-rows: auto 0fr;
-  cursor: pointer;
+  grid-template-rows: 0fr 1fr;
 }
-.tc-anim {
+.tc-anim,
+.prev-anim {
   overflow: hidden;
-  min-height: 0;
 }
 
-.tc-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  cursor: pointer;
-  padding: 2px 0;
-}
-
-/* Always-visible chevron: points right when collapsed, down when expanded. */
-.chev {
-  flex: none;
-  margin-top: 6px;
-  color: var(--faint);
-  transition:
-    transform 0.25s ease,
-    color 0.15s ease;
-}
-.chev-open {
-  transform: rotate(90deg);
-}
-
-/* Hover hint on the clickable areas (whole block when collapsed, head when expanded) */
+/* Hover hints clickability (opens the full text in the side panel) */
 .tc-wrap.is-collapsed:hover .prev {
   color: var(--text);
 }
-.tc-wrap.is-collapsed:hover .chev,
-.tc-head:hover .chev {
-  color: var(--text);
-}
-
-/* Teaser collapses away while the body is expanded. */
-.prev-anim {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 0.25s ease;
-}
-.tc-wrap:not(.is-collapsed) .prev-anim {
-  grid-template-rows: 0fr;
+.tc-wrap:not(.is-collapsed):hover .tc {
+  color: var(--dim);
 }
 
 .prev {
@@ -170,8 +105,6 @@ watch(
   white-space: pre-wrap;
   word-break: break-word;
   display: block;
-  overflow: hidden;
-  min-height: 0;
 }
 
 .tc {
@@ -199,19 +132,5 @@ watch(
 .mob .prev {
   color: var(--faint);
   line-height: 1.6;
-}
-
-/* On phones the inner scroll area fights the page scroll: let the body grow
-   naturally and scroll with the page instead. Also enlarge the head tap target. */
-@media (max-width: 640px) {
-  .tc,
-  .mob .tc {
-    max-height: none;
-    overflow-y: visible;
-  }
-  .tc-head {
-    padding: 4px 0;
-    min-height: 24px;
-  }
 }
 </style>

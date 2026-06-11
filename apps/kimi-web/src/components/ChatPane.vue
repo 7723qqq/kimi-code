@@ -98,6 +98,8 @@ const streamingTurnId = computed<string | null>(() => {
 const emit = defineEmits<{
   approvalDecide: [approvalId: string, response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string }];
   openFile: [target: FilePreviewRequest];
+  /** Show a thinking block's full text in the right-side panel. */
+  openThinking: [target: { turnId: string; blockIndex: number }];
 }>();
 
 const compactionLabel = computed<string>(() => {
@@ -217,7 +219,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
       <!-- Assistant turn → left-aligned, no name/role label. -->
       <div v-else class="a-msg">
         <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
-          <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
+          <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" @open="emit('openThinking', { turnId: turn.id, blockIndex: bi })" />
           <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" :open-file="(target) => emit('openFile', target)" /></div>
           <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" />
         </template>
@@ -307,7 +309,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
           <!-- Thinking + message text + tool cards, interleaved in original call order. -->
           <template v-else>
             <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
-              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" />
+              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" @open="emit('openThinking', { turnId: turn.id, blockIndex: bi })" />
               <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" :open-file="(target) => emit('openFile', target)" />
               <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" />
             </template>

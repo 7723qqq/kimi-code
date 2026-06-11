@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
 import ConversationPane from './components/ConversationPane.vue';
 import FilePreview, { type FileData } from './components/FilePreview.vue';
+import ThinkingPanel from './components/ThinkingPanel.vue';
 import ModelPicker from './components/ModelPicker.vue';
 import ProviderManager from './components/ProviderManager.vue';
 import LoginDialog from './components/LoginDialog.vue';
@@ -157,6 +158,7 @@ function normalizePreviewPath(inputPath: string): { path: string } | { error: st
 }
 
 async function openFilePreview(target: FilePreviewRequest): Promise<void> {
+  thinkingTarget.value = null; // shared right-side slot
   const normalized = normalizePreviewPath(target.path);
   previewTarget.value = target;
   previewFile.value = null;
@@ -192,6 +194,43 @@ function closeFilePreview(): void {
   previewLoading.value = false;
 }
 
+// ---------------------------------------------------------------------------
+// Thinking panel — shares the right-side slot with the file preview (one open
+// at a time; opening either closes the other). The panel resolves its text
+// reactively from the transcript so a still-streaming block keeps growing.
+// ---------------------------------------------------------------------------
+const thinkingTarget = ref<{ turnId: string; blockIndex: number } | null>(null);
+
+const thinkingPanelText = computed<string | null>(() => {
+  const target = thinkingTarget.value;
+  if (!target) return null;
+  const turn = client.turns.value.find((tn) => tn.id === target.turnId);
+  const blk = turn?.blocks?.[target.blockIndex];
+  return blk?.kind === 'thinking' ? blk.thinking : null;
+});
+
+// Visible only while the block still exists (a compaction reload that drops
+// the turn auto-hides the panel).
+const thinkingVisible = computed(() => thinkingPanelText.value !== null);
+
+function openThinkingPanel(target: { turnId: string; blockIndex: number }): void {
+  // Clicking the SAME thinking block again closes the drawer (toggle).
+  const current = thinkingTarget.value;
+  if (current && current.turnId === target.turnId && current.blockIndex === target.blockIndex) {
+    thinkingTarget.value = null;
+    return;
+  }
+  closeFilePreview();
+  thinkingTarget.value = target;
+}
+
+function closeThinkingPanel(): void {
+  thinkingTarget.value = null;
+}
+
+/** Either occupant of the shared right-side slot. */
+const sidePanelVisible = computed(() => previewVisible.value || thinkingVisible.value);
+
 function openPreviewInEditor(): void {
   const path = previewFile.value?.path ?? previewTarget.value?.path;
   if (!path) return;
@@ -206,6 +245,7 @@ function revealPreviewFile(): void {
 
 watch(client.activeSessionId, () => {
   closeFilePreview();
+  closeThinkingPanel();
 });
 
 // Reference to ConversationPane so we can imperatively switch tabs
@@ -405,7 +445,7 @@ function handleCreateSession(): void {
 <template>
   <div
     class="app"
-    :class="{ mobile: isMobile, 'preview-open': previewVisible && !isMobile }"
+    :class="{ mobile: isMobile, 'preview-open': sidePanelVisible && !isMobile }"
     :style="{ '--side-w': sideWidth + 'px', '--preview-w': previewWidth + 'px' }"
   >
     <!-- Desktop navigation: workspace rail + resizable session column. -->
@@ -513,6 +553,7 @@ function handleCreateSession(): void {
       @pick-model="openModelPicker()"
       @select-model="client.setModel($event)"
       @open-file="openFilePreview($event)"
+      @open-thinking="openThinkingPanel($event)"
     />
 
     <!-- Multi-workspace selection placeholder -->
@@ -522,7 +563,7 @@ function handleCreateSession(): void {
     </div>
 
     <ResizeHandle
-      v-if="previewVisible && !isMobile"
+      v-if="sidePanelVisible && !isMobile"
       :storage-key="PREVIEW_WIDTH_KEY"
       :default-width="PREVIEW_DEFAULT"
       :min="PREVIEW_MIN"
@@ -532,20 +573,30 @@ function handleCreateSession(): void {
       @update:width="previewWidth = $event"
     />
 
-    <aside v-if="previewVisible" class="global-preview" :class="{ mobile: isMobile }">
-      <FilePreview
-        :file="previewFile"
-        :loading="previewLoading"
-        :error="previewError"
-        :line="previewTarget?.line"
-        :download-url="previewDownloadUrl"
-        closable
-        external-actions
-        @close="closeFilePreview"
-        @open-external="openPreviewInEditor"
-        @reveal="revealPreviewFile"
-      />
-    </aside>
+    <!-- :duration — clean up via timer, not transitionend: hidden tabs swallow
+         the event and would leave a stale leaving panel in the DOM. -->
+    <Transition name="drawer" :duration="300">
+      <aside v-if="sidePanelVisible" class="global-preview" :class="{ mobile: isMobile }">
+        <ThinkingPanel
+          v-if="thinkingVisible"
+          :text="thinkingPanelText ?? ''"
+          @close="closeThinkingPanel"
+        />
+        <FilePreview
+          v-else
+          :file="previewFile"
+          :loading="previewLoading"
+          :error="previewError"
+          :line="previewTarget?.line"
+          :download-url="previewDownloadUrl"
+          closable
+          external-actions
+          @close="closeFilePreview"
+          @open-external="openPreviewInEditor"
+          @reveal="revealPreviewFile"
+        />
+      </aside>
+    </Transition>
 
     <!-- Model Picker overlay -->
     <ModelPicker
@@ -746,6 +797,28 @@ function handleCreateSession(): void {
   z-index: 80;
   border-left: none;
   border-top: 2px solid var(--ink);
+}
+
+/* Drawer slide for the right-side panel (thinking / file preview): the grid
+   column appears instantly, the panel itself slides in from the right edge. */
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.drawer-enter-from,
+.drawer-leave-to {
+  transform: translateX(100%);
+}
+/* While leaving, the grid column is already collapsed — float the panel above
+   the content (viewport-anchored) so it can slide out without re-entering the
+   grid as a stray item. Mobile is fixed-position already. */
+.drawer-leave-active:not(.mobile) {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--preview-w);
+  z-index: 70;
 }
 
 /* Auth onboarding banner */
