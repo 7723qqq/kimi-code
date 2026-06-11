@@ -10,6 +10,8 @@ export default {
   options: '选项',
   rename: '重命名',
   copyPath: '复制路径',
+  shareConversation: '复制全部会话',
+  shareConversationCopied: '已复制',
   archive: '归档',
   delete: '删除',
   brand: 'Kimi Code',

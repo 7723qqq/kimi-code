@@ -97,12 +97,24 @@ try {
 
 // expose a way for App.vue to imperatively switch to tasks tab
 const active = ref<PaneKey>('chat');
+const chatPaneRef = ref<InstanceType<typeof ChatPane> | null>(null);
+const copyConversationCopied = ref(false);
+let copyConversationCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Called by App.vue via command routing to switch to a specific tab */
 function switchTab(tab: PaneKey): void {
   active.value = tab;
 }
 defineExpose({ switchTab });
+
+function handleCopyConversationCopied(): void {
+  copyConversationCopied.value = true;
+  if (copyConversationCopiedTimer !== null) clearTimeout(copyConversationCopiedTimer);
+  copyConversationCopiedTimer = setTimeout(() => {
+    copyConversationCopiedTimer = null;
+    copyConversationCopied.value = false;
+  }, 2000);
+}
 
 // The TabBar is hidden for an empty session (the centred quick-start composer
 // takes the whole pane) — if the user was parked on tasks/todo/files when the
@@ -527,6 +539,10 @@ onUnmounted(() => {
   if (resizeObserver) resizeObserver.disconnect();
   if (scrollRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(scrollRaf);
   if (abortToastTimer !== null) clearTimeout(abortToastTimer);
+  if (copyConversationCopiedTimer !== null) {
+    clearTimeout(copyConversationCopiedTimer);
+    copyConversationCopiedTimer = null;
+  }
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', onVisibilityChange);
     document.removeEventListener('keydown', onKeyDown);
@@ -543,7 +559,10 @@ onUnmounted(() => {
       :changes-count="changesCount"
       :todos="todos ?? []"
       :mobile="mobile"
+      :show-copy-conversation="turns.length > 0"
+      :copy-conversation-copied="copyConversationCopied"
       @select="active = $event"
+      @copy-conversation="chatPaneRef?.copyConversation()"
     />
 
     <!-- Wide-screen floating stack (codex-style): todos + running background
@@ -599,6 +618,7 @@ onUnmounted(() => {
         </template>
         <template v-else>
           <ChatPane
+            ref="chatPaneRef"
             :key="fileReloadKey ?? 'no-session'"
             :turns="turns"
             :approvals="approvals"
@@ -611,6 +631,7 @@ onUnmounted(() => {
             @approval-decide="handleApprovalDecide"
             @open-file="emit('openFile', $event)"
             @open-media="emit('openMedia', $event)"
+            @copy-conversation-copied="handleCopyConversationCopied"
             @open-thinking="emit('openThinking', $event)"
           />
         </template>

@@ -33,6 +33,10 @@ onUnmounted(() => {
     clearTimeout(copiedTimer);
     copiedTimer = null;
   }
+  if (copiedConversationTimer !== null) {
+    clearTimeout(copiedConversationTimer);
+    copiedConversationTimer = null;
+  }
 });
 
 const props = withDefaults(
@@ -99,6 +103,7 @@ const emit = defineEmits<{
   approvalDecide: [approvalId: string, response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string }];
   openFile: [target: FilePreviewRequest];
   openMedia: [media: ToolMedia];
+  copyConversationCopied: [];
   /** Show a thinking block's full text in the right-side panel. */
   openThinking: [target: { turnId: string; blockIndex: number }];
 }>();
@@ -116,7 +121,9 @@ const compactionLabel = computed<string>(() => {
 // Per-turn copy button state (keyed by turn id)
 const copiedTurn = ref<string | null>(null);
 
-
+// Copy-whole-conversation state
+const copiedConversation = ref(false);
+let copiedConversationTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Assemble the full content of a turn for copying — follows the ordered
     blocks so thinking/text/tool output copy in the order they happened. */
@@ -131,6 +138,47 @@ function turnPlainText(turn: ChatTurn): string {
   }
   return parts.join('\n\n');
 }
+
+/** Convert a single turn to Markdown. */
+function turnToMarkdown(turn: ChatTurn): string {
+  const parts: string[] = [];
+  for (const blk of turnBlocks(turn)) {
+    if (blk.kind === 'thinking' && blk.thinking) {
+      parts.push(`> **Thinking**\n> ${blk.thinking.split('\n').join('\n> ')}`);
+    } else if (blk.kind === 'text' && blk.text) {
+      parts.push(blk.text);
+    } else if (blk.kind === 'tool' && blk.tool.output && blk.tool.output.length > 0) {
+      const output = blk.tool.output.join('\n');
+      parts.push(`\`\`\`\n[${blk.tool.name}]\n${output}\n\`\`\``);
+    }
+  }
+  return parts.join('\n\n');
+}
+
+/** Convert the entire conversation to Markdown and copy to clipboard. */
+function copyConversation(): void {
+  if (props.turns.length === 0) return;
+  const lines: string[] = [];
+  for (const turn of props.turns) {
+    const roleLabel = turn.role === 'user' ? 'User' : 'Assistant';
+    const content = turnToMarkdown(turn);
+    if (content.trim()) {
+      lines.push(`**${roleLabel}**\n\n${content}`);
+    }
+  }
+  const markdown = lines.join('\n\n---\n\n');
+  navigator.clipboard.writeText(markdown).then(() => {
+    copiedConversation.value = true;
+    emit('copyConversationCopied');
+    if (copiedConversationTimer !== null) clearTimeout(copiedConversationTimer);
+    copiedConversationTimer = setTimeout(() => {
+      copiedConversationTimer = null;
+      copiedConversation.value = false;
+    }, 2000);
+  }).catch(() => {/* ignore */});
+}
+
+defineExpose({ copyConversation });
 
 function assistantRunEndingAt(index: number): ChatTurn[] {
   const run: ChatTurn[] = [];
