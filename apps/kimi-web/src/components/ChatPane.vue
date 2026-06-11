@@ -441,6 +441,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   overflow: hidden;
   white-space: nowrap;
   transition: opacity 0.15s ease, max-width 0.15s ease;
+  cursor: pointer;
 }
 .cpbtn:hover .cpbtn-text {
   opacity: 1;
@@ -500,6 +501,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   height: auto;
   margin-top: 10px;
   overflow: visible;
+  cursor: pointer;
 }
 
 .a-cpbtn {
@@ -526,6 +528,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   overflow: hidden;
   white-space: nowrap;
   transition: opacity 0.15s ease, max-width 0.15s ease;
+  cursor: pointer;
 }
 .a-cpbtn:hover .a-cpbtn-text {
   opacity: 1;
