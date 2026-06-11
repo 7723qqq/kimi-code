@@ -1002,6 +1002,10 @@ function blinkOnce(): void {
   justify-content: center;
   padding: 2px 6px;
   flex: none;
+  /* Pull the glyph onto the right rail: its right edge lands at --sb-pad-x
+     from the sidebar edge, mirroring the folder icon's left gap and lining
+     up with the session timestamps below. */
+  margin-right: -6px;
 }
 .gh-add:hover { color: var(--dim); }
 
