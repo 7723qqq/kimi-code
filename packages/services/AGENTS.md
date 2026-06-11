@@ -1,6 +1,6 @@
 # `@moonshot-ai/services`
 
-In-process service container for the kimi-code daemon. Every public
+In-process service container for the kimi-code server. Every public
 member follows the VSCode platform-service convention so DI wiring,
 docstrings, and call-site ergonomics stay uniform.
 
@@ -63,9 +63,9 @@ covered by this convention today; they would be follow-up refactors:
 2. **Dissolve `IEventService`** into per-service typed `Event<T>`
    properties wired off a single core stream. The first step is done:
    `IEventService` is now a transport-agnostic pure pub-sub bus
-   (`publish` + `onDidPublish`) and the daemon's WS-specific concerns
+   (`publish` + `onDidPublish`) and the server's WS-specific concerns
    (per-session seq, ring buffer, WS fan-out, replay) live on a separate
-   daemon-only `IWSBroadcastService` that subscribes to the bus. The
+   server-only `IWSBroadcastService` that subscribes to the bus. The
    remaining step is folding the central stream into per-domain typed
    emitters on each `IXxxService` so consumers can subscribe to a
    narrow `Event<T>` rather than the full firehose.
@@ -82,10 +82,10 @@ no new suffixes get reintroduced.
 |---|---|---|---|
 | `coreProcess/` | `coreProcess.ts` | `coreProcessService.ts` | `ICoreProcessService` |
 | `event/` | `event.ts` | `eventService.ts` | `IEventService` |
-| `approval/` | `approval.ts` | (impl lives in daemon) | `IApprovalService` |
-| `question/` | `question.ts` | (impl lives in daemon) | `IQuestionService` |
-| `environment/` | `environment.ts` | (impl lives in daemon) | `IEnvironmentService` |
-| `logger/` | `logger.ts` | (adapter lives in daemon) | `ILogService` |
+| `approval/` | `approval.ts` | (impl lives in server) | `IApprovalService` |
+| `question/` | `question.ts` | (impl lives in server) | `IQuestionService` |
+| `environment/` | `environment.ts` | (impl lives in server) | `IEnvironmentService` |
+| `logger/` | `logger.ts` | (adapter lives in server) | `ILogService` |
 | `fileStore/` | `fileStore.ts` | `fileStoreService.ts` | `IFileStore` |
 | `fs/` | `fs.ts`, `fsSearch.ts`, `fsGit.ts`, `fsWatcher.ts`, `fsPathSafety.ts` | `fsService.ts`, `fsSearchService.ts`, `fsGitService.ts`, `fsWatcherService.ts` | `IFsService`, `IFsSearchService`, `IFsGitService`, `IFsWatcher` |
 | `workspace/` | `workspaceRegistry.ts`, `workspaceFs.ts` | `workspaceRegistryService.ts`, `workspaceFsService.ts` | `IWorkspaceRegistry`, `IWorkspaceFsService` |
@@ -102,7 +102,7 @@ Adding a new service: create the folder + contracts + impl pair, add a
 bottom-of-file `registerSingleton(IXxxService, XxxService,
 InstantiationType.Delayed)` in the impl, then re-export the contracts and impl
 from `index.ts` so importing `@moonshot-ai/services` runs the registration
-side effect. Daemon bootstrap consumes `getSingletonServiceDescriptors()` for
+side effect. Server bootstrap consumes `getSingletonServiceDescriptors()` for
 descriptor-only services; only override the registry entry (via
 `services.set(I, prebuiltInstance)` or `services.set(I, new SyncDescriptor(C,
 [runtimeArgs], false))`) when the service needs an external handle or runtime
@@ -135,7 +135,7 @@ static args that the registry can't supply.
    Importing `@moonshot-ai/services` loads the package barrel, whose impl
    re-exports run the `registerSingleton(...)` side effects.
 
-3. **Daemon-side `services.set(...)` may override** the registry-derived
+3. **Server-side `services.set(...)` may override** the registry-derived
    entry for services that need runtime static args (e.g.
    `services.set(ICoreProcessService, new SyncDescriptor(CoreProcessService,
    [opts.coreProcessOptions ?? {}], false))` in `start.ts`) or for

@@ -1,8 +1,8 @@
 ---
 "@moonshot-ai/protocol": major
-"@moonshot-ai/daemon": major
+"@moonshot-ai/server": major
 "@moonshot-ai/services": patch
-"@moonshot-ai/daemon-e2e": patch
+"@moonshot-ai/server-e2e": patch
 "@moonshot-ai/kimi-code": major
 ---
 

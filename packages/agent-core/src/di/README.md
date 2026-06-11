@@ -1,6 +1,6 @@
 # `@moonshot-ai/agent-core` Dependency Injection Container
 
-A VSCode-style DI container for the agent-core / daemon stack. Provides:
+A VSCode-style DI container for the agent-core / server stack. Provides:
 
 - **Service identifiers** — branded callable values minted by `createDecorator`,
   singleton-per-name.

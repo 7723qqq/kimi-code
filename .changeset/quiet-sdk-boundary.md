@@ -4,4 +4,4 @@
 "@moonshot-ai/kimi-code": patch
 ---
 
-Remove daemon service and protocol package dependencies on the node SDK.
+Remove server service and protocol package dependencies on the node SDK.

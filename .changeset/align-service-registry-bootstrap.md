@@ -1,6 +1,6 @@
 ---
 "@moonshot-ai/services": patch
-"@moonshot-ai/daemon": patch
+"@moonshot-ai/server": patch
 ---
 
-Use singleton service descriptors directly for daemon service bootstrap.
+Use singleton service descriptors directly for server service bootstrap.

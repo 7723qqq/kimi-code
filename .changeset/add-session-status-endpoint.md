@@ -1,8 +1,8 @@
 ---
 "@moonshot-ai/protocol": minor
 "@moonshot-ai/services": minor
-"@moonshot-ai/daemon": patch
+"@moonshot-ai/server": patch
 "@moonshot-ai/kimi-code": patch
 ---
 
-Add daemon endpoint to query realtime session runtime status.
+Add server endpoint to query realtime session runtime status.
