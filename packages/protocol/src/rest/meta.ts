@@ -1,9 +1,9 @@
 /**
  * GET /v1/meta
  *   Reply: MetaResponse {
- *     daemon_version,
+ *     server_version,
  *     capabilities,
- *     daemon_id,
+ *     server_id,
  *     started_at
  *   }
  */
@@ -22,9 +22,9 @@ export const metaCapabilitiesSchema = z.object({
 export type MetaCapabilities = z.infer<typeof metaCapabilitiesSchema>;
 
 export const metaResponseSchema = z.object({
-  daemon_version: z.string().min(1),
+  server_version: z.string().min(1),
   capabilities: metaCapabilitiesSchema,
-  daemon_id: z.string().min(1),
+  server_id: z.string().min(1),
   started_at: isoDateTimeSchema,
 });
 

@@ -420,7 +420,7 @@ export interface AppProvider {
 
 export interface KimiWebApi {
   getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
-  getMeta(): Promise<{ daemonVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean> }>;
+  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean> }>;
   listSessions(input?: PageRequest & { status?: AppSessionStatus; workspaceId?: string }): Promise<Page<AppSession>>;
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */

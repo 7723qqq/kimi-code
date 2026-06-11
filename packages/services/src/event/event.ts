@@ -4,7 +4,7 @@
  * in-process subscribers. Transport-agnostic: this interface does NOT know
  * about WS fan-out, ring buffers, sequence numbers, or replay — those are
  * daemon transport concerns, handled by `IWSBroadcastService` in
- * `@moonshot-ai/daemon`.
+ * `@moonshot-ai/server`.
  *
  * The service sits on the receive-end of the in-process RPC adapter: when an
  * agent step emits an event, `CoreProcessService`'s `BridgeClientAPI.emitEvent`

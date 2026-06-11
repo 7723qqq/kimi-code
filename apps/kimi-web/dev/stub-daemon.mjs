@@ -3,7 +3,7 @@
 // This is NOT the real backend. It is a throwaway dev server that speaks the
 // daemon REST + WS wire protocol (envelope, snake_case, event frames) closely
 // enough for the Web UI to be fully clickable before the real daemon exists.
-// When the real daemon ships, point VITE_KIMI_DAEMON_HTTP_URL at it instead and
+// When the real daemon ships, point VITE_KIMI_SERVER_HTTP_URL at it instead and
 // stop running this.
 //
 //   node dev/stub-daemon.mjs            # listens on 127.0.0.1:7878
@@ -1010,7 +1010,7 @@ const server = http.createServer((req, res) => {
     }
     if (stripped === '/meta' || path === '/meta') {
       return res.end(ok({
-        daemon_version: '0.0.0-stub',
+        server_version: '0.0.0-stub',
         capabilities: { websocket: true, file_upload: false, fs_query: false, mcp: false, background_tasks: true },
         server_id: 'stub',
         started_at: STARTED_AT,

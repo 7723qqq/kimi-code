@@ -121,7 +121,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `daemon` (local REST and WebSocket service), `web` (local browser UI), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
+`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `server` (run and manage the local REST/WebSocket/web service), `web` (alias for `kimi server run --open`), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
 
 ### `kimi login`
 
@@ -141,47 +141,67 @@ Switch Kimi Code CLI to ACP (Agent Client Protocol) mode, communicating with an 
 kimi acp
 ```
 
-### `kimi daemon`
+### `kimi server`
 
-Run the local daemon that exposes Kimi Code over REST and WebSocket, and serves the web UI from the same origin. By default, the command starts the daemon in the background, waits until it is healthy, prints the endpoint and log path, then exits. If a daemon is already running, the command reports the existing process instead of starting another one.
+Run, install, and manage the local Kimi server — a single process that exposes the REST + WebSocket API and serves the web UI from the same origin. The parent command is split into a foreground entrypoint (`run`) and an OS-managed service lifecycle (`install`, `uninstall`, `start`, `stop`, `restart`, `status`). Background operation is **never** spawned implicitly by a foreground command; you opt in via `install` + `start`.
 
 ```sh
-kimi daemon
+kimi server run                # foreground (logs in the current terminal)
+kimi server install            # register with launchd / systemd / schtasks
+kimi server start              # start the OS-managed service
+kimi server status             # snapshot of installed/running state
 ```
+
+#### `kimi server run`
 
 | Option | Description |
 | --- | --- |
-| `--host <host>` | Bind host for the daemon; defaults to `127.0.0.1` |
-| `--port <port>` | Bind port for the daemon; defaults to `7878` |
-| `--log-level <level>` | Daemon log level; defaults to `info` |
-| `--foreground` | Keep the daemon attached to the current terminal instead of starting it in the background |
+| `--host <host>` | Bind host; defaults to `127.0.0.1` |
+| `--port <port>` | Bind port; defaults to `7878` |
+| `--log-level <level>` | Log level; defaults to `info` |
+| `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default) |
+| `--open` | Open the web UI in the default browser once the server is healthy |
 
-Use foreground mode when you want logs in the current terminal or when another process manager owns the daemon lifecycle:
+`kimi server run` does not return — it stays attached to the current terminal and shuts down cleanly on `SIGINT` / `SIGTERM`. For background operation, use the OS-service path below.
 
-```sh
-kimi daemon --foreground
-```
+#### `kimi server install`
 
-### `kimi web`
+Register the server as an OS-managed service so it starts at login and restarts after a crash. The backend picks itself based on the running platform:
 
-Open the daemon-hosted browser UI. Without `--daemon-host`, `kimi web` checks the local daemon at `http://127.0.0.1:7878`; if it is not running, it starts `kimi daemon` in the background first, then opens the daemon URL. The web assets and `/api/v1/*` routes are served by the daemon from the same origin.
-
-```sh
-kimi web
-```
+- **macOS**: writes a LaunchAgent plist to `~/Library/LaunchAgents/ai.moonshot.kimi-server.plist` and bootstraps it via `launchctl bootstrap gui/<uid>`.
+- **Linux**: writes a `--user` systemd unit to `~/.config/systemd/user/kimi-server.service` and runs `systemctl --user enable --now`.
+- **Windows**: registers a scheduled task named `KimiServer` via `schtasks /Create /XML`.
 
 | Option | Description |
 | --- | --- |
-| `--host <host>` | Bind host when starting the local daemon; defaults to `127.0.0.1` |
-| `--port <port>` | Port when starting the local daemon; defaults to `7878` |
-| `--daemon-host <url>` | Open an existing daemon directly instead of starting the local daemon |
-| `--no-open` | Do not open the browser automatically |
+| `--host <host>` | Bind host the supervised server uses; defaults to `127.0.0.1` |
+| `--port <port>` | Bind port the supervised server uses; defaults to `7878` |
+| `--log-level <level>` | Log level recorded in the generated unit |
+| `--force` | Replace an existing install instead of failing |
+| `--json` | Output JSON instead of a human-readable line |
 
-Point the web UI at an existing daemon when the daemon runs on another machine or is managed by a separate process. In this mode, `kimi web` does not start any local service:
+The chosen host / port / log-level are recorded to `~/.kimi-code/server/install.json` so `kimi server status` can report them even when the service is stopped.
+
+#### Lifecycle subcommands
+
+| Command | Description |
+| --- | --- |
+| `kimi server uninstall` | Stop and remove the OS service definition. Idempotent. |
+| `kimi server start` | Start the OS-managed service. Errors if not installed. |
+| `kimi server stop` | Stop the OS-managed service. |
+| `kimi server restart` | Restart the OS-managed service. |
+| `kimi server status` | Print installed / running / pid / port / log-path. `--json` for automation. |
+
+#### `kimi web`
+
+Alias for `kimi server run` with `--open` defaulted to `true` — runs the server in the foreground and opens the web UI in the default browser once it is healthy. Use `--no-open` to skip the browser launch (effectively turning it back into `kimi server run`).
 
 ```sh
-kimi web --daemon-host=http://daemon.example.test:7878
+kimi web                        # foreground + open browser
+kimi web --no-open              # equivalent to `kimi server run`
 ```
+
+The same `--host`, `--port`, `--log-level`, and `--debug-endpoints` flags work as on `kimi server run`.
 
 ### `kimi doctor`
 

@@ -1,18 +1,18 @@
 # Kimi Web
 
 A browser client for Kimi Code — a peer to the TUI (`apps/kimi-code`) that talks
-to a local **daemon** over REST + WebSocket. Vue 3 + Vite + TypeScript.
+to a local **server** over REST + WebSocket. Vue 3 + Vite + TypeScript.
 
 ---
 
 ## Quick start
 
 ```bash
-# 1) Against a REAL daemon (the daemon must be running and reachable)
-WEB_PORT=5197 KIMI_DAEMON_URL=http://192.168.97.91:7878 pnpm -C apps/kimi-web run dev
+# 1) Against a REAL server (the server must be running and reachable)
+WEB_PORT=5197 KIMI_SERVER_URL=http://192.168.97.91:7878 pnpm -C apps/kimi-web run dev
 #   …or from the repo root:  pnpm dev:web   (uses the defaults below)
 
-# 2) Offline / no daemon — a stub that fakes the daemon API + event stream
+# 2) Offline / no server — a stub that fakes the server API + event stream
 pnpm -C apps/kimi-web run dev:stub      # then run dev in another shell
 
 # checks
@@ -21,18 +21,18 @@ pnpm -C apps/kimi-web run test          # vitest
 pnpm -C apps/kimi-web run build         # vite build
 ```
 
-### How it connects to the daemon
+### How it connects to the server
 
-The browser cannot reach the daemon cross-origin (no CORS), so Vite **same-origin
-proxies** `/api/v1` (HTTP + WS) to the daemon (`vite.config.ts`):
+The browser cannot reach the server cross-origin (no CORS), so Vite **same-origin
+proxies** `/api/v1` (HTTP + WS) to the server (`vite.config.ts`):
 
 | env var           | default                  | meaning                                  |
 | ----------------- | ------------------------ | ---------------------------------------- |
 | `WEB_PORT`        | `5175`                   | port the dev server listens on           |
-| `KIMI_DAEMON_URL` | `http://127.0.0.1:7878`  | where `/api/v1` (and `/api/v1/ws`) is forwarded |
+| `KIMI_SERVER_URL` | `http://127.0.0.1:7878`  | where `/api/v1` (and `/api/v1/ws`) is forwarded |
 
-> Behind a corporate HTTP proxy, also set `NO_PROXY=<daemon-host>` (e.g.
-> `NO_PROXY=192.168.97.91`) so the proxy forward reaches the daemon directly.
+> Behind a corporate HTTP proxy, also set `NO_PROXY=<server-host>` (e.g.
+> `NO_PROXY=192.168.97.91`) so the proxy forward reaches the server directly.
 
 ---
 
@@ -42,7 +42,7 @@ A strict one-direction data flow; components never touch the network or the
 reducer — they consume computed view props and call actions.
 
 ```
-daemon (REST + WS)
+server (REST + WS)
   └─ src/api/daemon/client.ts      REST adapter  (envelope → AppX types)
   └─ src/api/daemon/ws.ts          WS frames → classify → projector/reducer
        └─ agentEventProjector.ts   RAW agent-core events → AppEvent[]
@@ -52,9 +52,12 @@ daemon (REST + WS)
   └─ src/components/*.vue          render props, emit intents (no api access)
 ```
 
+> The directory name `src/api/daemon/` is historical and kept to minimise
+> diff churn; conceptually it is the **server** adapter.
+
 - **Adapter** (`src/api/`): wire types are snake_case; `AppX` types are camelCase.
   `config.ts` builds `/api/v1` URLs.
-- **Event projector** (`agentEventProjector.ts`): the daemon streams **raw
+- **Event projector** (`agentEventProjector.ts`): the server streams **raw
   agent-core events** (no `event.` prefix). `classifyFrame` routes raw vs
   protocol (`event.*`) frames; the projector converts them to `AppEvent`s.
 - **i18n** (`src/i18n/`): vue-i18n, en/zh, per-namespace flat camelCase keys.
@@ -63,9 +66,9 @@ daemon (REST + WS)
 
 ---
 
-## Daemon contract — non-obvious notes
+## Server contract — non-obvious notes
 
-The daemon's wire protocol has a few things that will bite you if forgotten:
+The server's wire protocol has a few things that will bite you if forgotten:
 
 - **Envelope:** every response is `{ code, msg, data, request_id }` and the HTTP
   status is **always 200** — check `code` (0 = ok), not the status.
@@ -74,7 +77,7 @@ The daemon's wire protocol has a few things that will bite you if forgotten:
   from settings (model ← session/`default_model`, thinking/permission/plan ← the
   StatusLine controls). Sending only `{ content }` → `40001 model …`.
 - **Creating a session needs a *registered* workspace.** `workspace_id` must be a
-  `wd_<slug>_<hash>` id that exists in the daemon's registry. Sessions get one
+  `wd_<slug>_<hash>` id that exists in the server's registry. Sessions get one
   auto-assigned by cwd, but it isn't *registered* until you `POST /workspaces
   { root }` (idempotent). The web registers on demand before `createSession`
   (otherwise: `workspace not found: wd_…`).
@@ -85,12 +88,12 @@ The daemon's wire protocol has a few things that will bite you if forgotten:
 
 ---
 
-## What's still missing / blocked on the daemon
+## What's still missing / blocked on the server
 
 See **`docs/main-flow-gaps.md`** (the main-flow gap audit) and
 **`docs/backend-workspace-session-asks.md`** (the endpoint asks for the backend).
 
-Daemon endpoints that are **not live yet** (probed; the web degrades gracefully):
+Server endpoints that are **not live yet** (probed; the web degrades gracefully):
 
 - `/sessions/{id}:compact`, `:fork`, `:steer`, `/undo` → `400` (no such action)
 - line-by-line `diff` → `404`
@@ -112,4 +115,4 @@ Living under `docs/` (design rationale + plans):
 - `docs/dual-sidebar-exploration.html` — sidebar layout options (Variant B shipped)
 - `docs/kimi-web-final-form.html` — target-state UI mockup
 - `docs/main-flow-gaps.md` — feature gap audit (what to build next)
-- `docs/backend-workspace-session-asks.md` — endpoints the daemon still needs
+- `docs/backend-workspace-session-asks.md` — endpoints the server still needs

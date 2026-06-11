@@ -5,11 +5,10 @@ import { Command, Option } from 'commander';
 import type { CLIOptions } from './options';
 import { registerAcpCommand } from './sub/acp';
 import { registerDoctorCommand } from './sub/doctor';
-import { registerDaemonCommand } from './sub/daemon';
 import { registerExportCommand } from './sub/export';
 import { registerLoginCommand } from './sub/login';
 import { registerProviderCommand } from './sub/provider';
-import { registerWebCommand } from './sub/web';
+import { registerServerCommand } from './sub/server';
 
 export type MainCommandHandler = (opts: CLIOptions) => void;
 export type MigrateCommandHandler = () => void;
@@ -80,8 +79,7 @@ export function createProgram(
   registerExportCommand(program);
   registerProviderCommand(program);
   registerAcpCommand(program);
-  registerDaemonCommand(program);
-  registerWebCommand(program);
+  registerServerCommand(program);
   registerLoginCommand(program);
   registerDoctorCommand(program);
   registerMigrateCommand(program, onMigrate);

@@ -83,7 +83,7 @@ interface WireHealth {
 }
 
 interface WireMeta {
-  daemon_version: string;
+  server_version: string;
   server_id: string;
   started_at: string;
   capabilities: Record<string, boolean>;
@@ -185,7 +185,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
 
   constructor(config: KimiApiConfig) {
     this.config = config;
-    this.http = new DaemonHttpClient(config.daemonHttpUrl);
+    this.http = new DaemonHttpClient(config.serverHttpUrl);
   }
 
   // -------------------------------------------------------------------------
@@ -199,14 +199,14 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }
 
   async getMeta(): Promise<{
-    daemonVersion: string;
+    serverVersion: string;
     serverId: string;
     startedAt: string;
     capabilities: Record<string, boolean>;
   }> {
     const data = await this.http.get<WireMeta>('/meta');
     return {
-      daemonVersion: data.daemon_version,
+      serverVersion: data.server_version,
       serverId: data.server_id,
       startedAt: data.started_at,
       capabilities: data.capabilities,
@@ -698,7 +698,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
   getFileDownloadUrl(sessionId: string, path: string): string {
     const encodedPath = path.split('/').map((part) => encodeURIComponent(part)).join('/');
     return buildRestUrl(
-      this.config.daemonHttpUrl,
+      this.config.serverHttpUrl,
       `/sessions/${encodeURIComponent(sessionId)}/fs/${encodedPath}:download`,
     );
   }
@@ -939,7 +939,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }
 
   getFileUrl(fileId: string): string {
-    return buildRestUrl(this.config.daemonHttpUrl, `/files/${encodeURIComponent(fileId)}`);
+    return buildRestUrl(this.config.serverHttpUrl, `/files/${encodeURIComponent(fileId)}`);
   }
 
   // -------------------------------------------------------------------------
@@ -947,7 +947,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
   // -------------------------------------------------------------------------
 
   connectEvents(handlers: KimiEventHandlers): KimiEventConnection {
-    const wsUrl = buildWsUrl(this.config.daemonHttpUrl, this.config.clientId);
+    const wsUrl = buildWsUrl(this.config.serverHttpUrl, this.config.clientId);
 
     // Per-session projector for raw agent-core events.
     // Keyed by session_id; reset when a session is re-subscribed or resynced.

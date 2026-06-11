@@ -4,34 +4,34 @@
 const CLIENT_ID_KEY = 'kimi-web.client-id';
 
 export interface KimiApiConfig {
-  daemonHttpUrl: string;
+  serverHttpUrl: string;
   clientId: string;
 }
 
 export function readKimiApiConfig(): KimiApiConfig {
   return {
-    daemonHttpUrl: normalizeDaemonOrigin(import.meta.env.VITE_KIMI_DAEMON_HTTP_URL),
+    serverHttpUrl: normalizeServerOrigin(import.meta.env.VITE_KIMI_SERVER_HTTP_URL),
     clientId: getClientId(),
   };
 }
 
 // Default to SAME-ORIGIN so we never depend on CORS:
 //  - dev: the SPA is served by Vite; the Vite dev proxy forwards /v1, /healthz
-//    and /v1/ws to the daemon (see vite.config.ts), so the browser only ever
+//    and /v1/ws to the server (see vite.config.ts), so the browser only ever
 //    talks to its own origin.
-//  - prod: `kimi web` serves this built SPA from the daemon itself, so the
-//    daemon's origin already is the API origin.
-// Set VITE_KIMI_DAEMON_HTTP_URL to connect directly to an absolute daemon
-// origin instead (that path does require the daemon to send CORS headers).
-function defaultDaemonOrigin(): string {
+//  - prod: `kimi web` serves this built SPA from the server itself, so the
+//    server's origin already is the API origin.
+// Set VITE_KIMI_SERVER_HTTP_URL to connect directly to an absolute server
+// origin instead (that path does require the server to send CORS headers).
+function defaultServerOrigin(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
     return window.location.origin;
   }
   return 'http://127.0.0.1:7878';
 }
 
-export function normalizeDaemonOrigin(value: string | undefined): string {
-  const raw = value && value.trim() ? value : defaultDaemonOrigin();
+export function normalizeServerOrigin(value: string | undefined): string {
+  const raw = value && value.trim() ? value : defaultServerOrigin();
   const url = new URL(raw);
   url.pathname = url.pathname.replace(/\/v1\/?$/, '').replace(/\/$/, '');
   url.search = '';
@@ -45,16 +45,16 @@ function shortOrigin(origin: string): string {
 }
 
 /**
- * Address of the REAL daemon the client is connected to, shown in the status bar.
- * Always the actual daemon — never the dev-proxy URL — since that's the thing
+ * Address of the REAL server the client is connected to, shown in the status bar.
+ * Always the actual server — never the dev-proxy URL — since that's the thing
  * worth knowing at a glance. Cases:
- *  - VITE_KIMI_DAEMON_HTTP_URL set → that absolute daemon origin (direct mode).
- *  - dev (same-origin proxy) → the proxy's upstream target (the real daemon).
- *  - prod (daemon serves the SPA) → the page origin (it IS the daemon).
+ *  - VITE_KIMI_SERVER_HTTP_URL set → that absolute server origin (direct mode).
+ *  - dev (same-origin proxy) → the proxy's upstream target (the real server).
+ *  - prod (server serves the SPA) → the page origin (it IS the server).
  */
-export function daemonEndpointLabel(): string {
-  const direct = import.meta.env.VITE_KIMI_DAEMON_HTTP_URL;
-  if (direct && direct.trim()) return shortOrigin(normalizeDaemonOrigin(direct));
+export function serverEndpointLabel(): string {
+  const direct = import.meta.env.VITE_KIMI_SERVER_HTTP_URL;
+  if (direct && direct.trim()) return shortOrigin(normalizeServerOrigin(direct));
 
   const proxy =
     typeof __KIMI_DEV_PROXY_TARGET__ !== 'undefined' ? __KIMI_DEV_PROXY_TARGET__ : '';
@@ -65,7 +65,7 @@ export function daemonEndpointLabel(): string {
   return shortOrigin(origin);
 }
 
-// The real daemon serves everything (incl. healthz + ws) under the /api/v1 prefix.
+// The real server serves everything (incl. healthz + ws) under the /api/v1 prefix.
 export function buildRestUrl(origin: string, path: string): string {
   return `${origin}/api/v1${path.startsWith('/') ? path : `/${path}`}`;
 }
