@@ -227,7 +227,6 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
         <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)" class="a-msg-ft">
           <button
             class="a-cpbtn"
-            :title="t('filePreview.copy')"
             tabindex="-1"
             @click="copyAssistantRun(ti)"
           >
@@ -238,7 +237,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
             <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polyline points="3,8 6.5,11.5 13,5"/>
             </svg>
-            <span>{{ t('filePreview.copy') }}</span>
+            <span class="a-cpbtn-text">{{ t('filePreview.copy') }}</span>
           </button>
         </div>
       </div>
@@ -292,8 +291,8 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
               <span class="who"> &gt; </span>
             </template>
 
-            <!-- Per-message copy button (shown on hover, only when turn is complete) -->
-            <button v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)" class="cpbtn" @click="copyAssistantRun(ti)" :title="t('filePreview.copy')" tabindex="-1">
+            <!-- Per-message copy button (always visible, only when turn is complete) -->
+            <button v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)" class="cpbtn" @click="copyAssistantRun(ti)" tabindex="-1">
               <svg v-if="copiedTurn !== turn.id" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="3" width="9" height="9" rx="1.5"/>
                 <path d="M6 1h7a1 1 0 0 1 1 1v7"/>
@@ -301,6 +300,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
               <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <polyline points="3,8 6.5,11.5 13,5"/>
               </svg>
+              <span class="cpbtn-text">{{ t('filePreview.copy') }}</span>
             </button>
           </div>
 
@@ -418,26 +418,33 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 .ai .pr { color: var(--ok); font-weight: 700; font-size: 12.5px; }
 .who { color: var(--muted); font-size: 12.5px; }
 
-/* Copy button: hidden by default, shown on hover of .ln */
+/* Copy button: always visible, text shows on hover */
 .cpbtn {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   background: none;
   border: none;
   cursor: pointer;
   color: var(--faint);
   font-size: 13px;
   font-family: var(--mono);
-  padding: 0 4px;
-  opacity: 0;
-  transition: opacity 0.1s;
+  padding: 0 4px 0 0;
   margin-left: 8px;
-}
-.ln:hover .cpbtn {
-  opacity: 1;
 }
 .cpbtn:hover {
   color: var(--blue);
+}
+.cpbtn-text {
+  opacity: 0;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity 0.15s ease, max-width 0.15s ease;
+}
+.cpbtn:hover .cpbtn-text {
+  opacity: 1;
+  max-width: 120px;
 }
 
 /* ===================== Mobile bubble layout ===================== */
@@ -492,15 +499,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   display: flex;
   height: auto;
   margin-top: 10px;
-  opacity: 0;
   overflow: visible;
-  pointer-events: none;
-  transition: opacity 0.1s;
-}
-.a-msg:hover .a-msg-ft,
-.a-msg:focus-within .a-msg-ft {
-  opacity: 1;
-  pointer-events: auto;
 }
 
 .a-cpbtn {
@@ -512,7 +511,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   color: var(--faint);
   cursor: pointer;
   font-size: 11px;
-  padding: 2px 6px;
+  padding: 2px 6px 2px 0;
   border-radius: 4px;
 }
 .a-cpbtn:hover {
@@ -521,6 +520,17 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 }
 .a-cpbtn svg {
   flex: none;
+}
+.a-cpbtn-text {
+  opacity: 0;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity 0.15s ease, max-width 0.15s ease;
+}
+.a-cpbtn:hover .a-cpbtn-text {
+  opacity: 1;
+  max-width: 120px;
 }
 /* Touch devices: always show the copy buttons (no hover to reveal them) and
    give the bubble-layout button a comfortable tap size. */

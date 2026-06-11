@@ -1,6 +1,6 @@
 <!-- apps/kimi-web/src/components/ThinkingBlock.vue -->
 <!-- 9e97773-style presentation: while this block is streaming it shows a live
-     9-line scrolling window; when the stream moves past it the window folds
+     5-line scrolling window; when the stream moves past it the window folds
      into a one-paragraph teaser (the LAST paragraph of the thinking text).
      There is NO inline expand any more — clicking anywhere on the block emits
      `open`, and the parent shows the full text in the right-side panel. -->
@@ -118,7 +118,7 @@ watch(
   word-break: break-word;
   margin: 0;
   line-height: 1.7;
-  max-height: calc(1.7em * 9);
+  max-height: calc(1.7em * 5);
   overflow-y: auto;
 }
 
@@ -129,7 +129,7 @@ watch(
 .mob .tc {
   color: var(--faint);
   line-height: 1.6;
-  max-height: calc(1.6em * 9);
+  max-height: calc(1.6em * 5);
 }
 .mob .prev {
   color: var(--faint);
