@@ -266,6 +266,98 @@ describe('`kimi server` lifecycle output', () => {
   });
 });
 
+describe('`kimi server run` already-running handling', () => {
+  it('reports a background service conflict, suggests server stop, and opens the existing URL', async () => {
+    const { ServerLockedError } = await import('@moonshot-ai/server');
+    const { handleRunCommand } = await import('#/cli/sub/server/run');
+    let stdout = '';
+    const openUrl = vi.fn();
+
+    await handleRunCommand(
+      { port: '7878' },
+      {
+        startServerForeground: async () => {
+          throw new ServerLockedError('locked', {
+            pid: 1234,
+            started_at: '2026-06-11T00:00:00.000Z',
+            host: '127.0.0.1',
+            port: 9999,
+          });
+        },
+        getServiceStatus: async () => ({
+          platform: 'darwin',
+          installed: true,
+          running: true,
+          pid: 1234,
+          host: '127.0.0.1',
+          port: 9999,
+        }),
+        openUrl,
+        stdout: {
+          write(chunk: string | Uint8Array) {
+            stdout += String(chunk);
+            return true;
+          },
+        },
+        stderr: {
+          write() {
+            return true;
+          },
+        },
+      },
+    );
+
+    expect(stdout).toContain('already running in background');
+    expect(stdout).toContain('URL: http://127.0.0.1:9999');
+    expect(stdout).toContain('Stop: kimi server stop');
+    expect(stdout).not.toContain('pkill');
+    expect(openUrl).toHaveBeenCalledWith('http://127.0.0.1:9999');
+  });
+
+  it('reports a foreground process conflict, suggests pkill, and opens the existing URL', async () => {
+    const { ServerLockedError } = await import('@moonshot-ai/server');
+    const { handleRunCommand } = await import('#/cli/sub/server/run');
+    let stdout = '';
+    const openUrl = vi.fn();
+
+    await handleRunCommand(
+      { port: '7878' },
+      {
+        startServerForeground: async () => {
+          throw new ServerLockedError('locked', {
+            pid: 5678,
+            started_at: '2026-06-11T00:00:00.000Z',
+            port: 10001,
+          });
+        },
+        getServiceStatus: async () => ({
+          platform: 'darwin',
+          installed: false,
+          running: false,
+        }),
+        openUrl,
+        stdout: {
+          write(chunk: string | Uint8Array) {
+            stdout += String(chunk);
+            return true;
+          },
+        },
+        stderr: {
+          write() {
+            return true;
+          },
+        },
+      },
+    );
+
+    expect(stdout).toContain('already running in foreground');
+    expect(stdout).toContain('URL: http://127.0.0.1:10001');
+    expect(stdout).toContain('Stop: pkill -f "kimi server run"');
+    expect(stdout).not.toContain('kimi server stop');
+    expect(openUrl).toHaveBeenCalledWith('http://127.0.0.1:10001');
+  });
+});
+
 describe('`kimi server` does not register a legacy `daemon` command', () => {
   it('hard-deletes the old name', () => {
     const program = makeProgram();

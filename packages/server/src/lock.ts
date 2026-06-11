@@ -174,7 +174,7 @@ export function acquireLock(opts: AcquireLockOptions): AcquireLockResult {
   const contents: LockContents = {
     pid,
     started_at: startedAt,
-    ...(opts.host !== undefined ? { host: opts.host } : {}),
+    host: opts.host,
     port: opts.port,
     ...(opts.hostVersion !== undefined ? { host_version: opts.hostVersion } : {}),
     ...(opts.entry !== undefined ? { entry: opts.entry } : {}),

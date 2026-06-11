@@ -13,7 +13,12 @@ import type { Command } from 'commander';
 
 import { join } from 'node:path';
 
-import { ServerLockedError, startServer } from '@moonshot-ai/server';
+import {
+  ServerLockedError,
+  resolveServiceManager,
+  startServer,
+  type ServiceStatus,
+} from '@moonshot-ai/server';
 
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
@@ -38,6 +43,7 @@ export interface RunCliOptions extends ServerCliOptions {
 
 export interface RunCommandDeps {
   startServerForeground(options: ParsedServerOptions): Promise<{ origin: string }>;
+  getServiceStatus(): Promise<ServiceStatus | undefined>;
   openUrl(url: string): void;
   stdout: Pick<NodeJS.WriteStream, 'write'>;
   stderr: Pick<NodeJS.WriteStream, 'write'>;
@@ -93,7 +99,10 @@ export async function handleRunCommand(
     outcome = await deps.startServerForeground(parsed);
   } catch (error) {
     if (error instanceof ServerLockedError) {
-      deps.stdout.write(formatAlreadyRunning(error.existing.port, error.existing.pid));
+      const status = await deps.getServiceStatus();
+      const alreadyRunning = describeAlreadyRunning(error.existing, status);
+      deps.stdout.write(formatAlreadyRunning(alreadyRunning));
+      deps.openUrl(alreadyRunning.url);
       return;
     }
     throw error;
@@ -151,12 +160,60 @@ export function resolveServerWebAssetsDir(
   return nativeWebAssetsDir ?? join(getHostPackageRoot(), WEB_ASSETS_DIR);
 }
 
-function formatAlreadyRunning(port: number, pid: number): string {
-  return `Kimi server already running at ${serverOrigin(DEFAULT_SERVER_HOST, port)} (pid ${pid}).\n`;
+interface AlreadyRunningDetails {
+  readonly mode: 'background' | 'foreground';
+  readonly pid: number;
+  readonly url: string;
+  readonly stopCommand: string;
+}
+
+function describeAlreadyRunning(
+  existing: { readonly pid: number; readonly port: number; readonly host?: string },
+  status: ServiceStatus | undefined,
+): AlreadyRunningDetails {
+  const mode = isBackgroundServer(existing, status) ? 'background' : 'foreground';
+  const host = status?.host ?? existing.host ?? DEFAULT_SERVER_HOST;
+  return {
+    mode,
+    pid: existing.pid,
+    url: serverOrigin(host === '0.0.0.0' ? DEFAULT_SERVER_HOST : host, status?.port ?? existing.port),
+    stopCommand: mode === 'background' ? 'kimi server stop' : foregroundStopCommand(existing.pid),
+  };
+}
+
+function isBackgroundServer(
+  existing: { readonly pid: number; readonly port: number },
+  status: ServiceStatus | undefined,
+): boolean {
+  if (status?.running !== true) return false;
+  if (status.pid !== undefined) return status.pid === existing.pid;
+  if (status.port !== undefined) return status.port === existing.port;
+  return status.installed;
+}
+
+function foregroundStopCommand(pid: number): string {
+  if (process.platform === 'win32') return `taskkill /PID ${String(pid)} /T /F`;
+  return 'pkill -f "kimi server run"';
+}
+
+function formatAlreadyRunning(details: AlreadyRunningDetails): string {
+  return [
+    `Kimi server already running in ${details.mode} (pid ${String(details.pid)}).`,
+    `URL: ${details.url}`,
+    `Stop: ${details.stopCommand}`,
+    '',
+  ].join('\n');
 }
 
 const DEFAULT_RUN_COMMAND_DEPS: RunCommandDeps = {
   startServerForeground,
+  getServiceStatus: async () => {
+    try {
+      return await resolveServiceManager().status();
+    } catch {
+      return undefined;
+    }
+  },
   openUrl: defaultOpenUrl,
   stdout: process.stdout,
   stderr: process.stderr,
