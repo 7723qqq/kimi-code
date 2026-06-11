@@ -511,6 +511,11 @@ function copyDiff(code: string, idx: number) {
   font-weight: 600;
 }
 
+/* Override markstream-vue's default table-row hover background */
+.md :deep(table-node) tbody tr:hover {
+  background-color: inherit;
+}
+
 /* ---------------------------------------------------------------------------
    Local ```diff renderer — same look as the code blocks above, with the
    original +/- line colouring (green additions, red deletions). markstream
