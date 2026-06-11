@@ -95,8 +95,7 @@ function toggleCollapse(id: string): void {
 // ---------------------------------------------------------------------------
 // Session list truncation per workspace
 // ---------------------------------------------------------------------------
-const DEFAULT_VISIBLE_COUNT = 5;
-const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+const DEFAULT_VISIBLE_COUNT = 10;
 
 /** workspace id → true = show all sessions */
 const expandedWsIds = ref<Set<string>>(new Set());
@@ -112,24 +111,14 @@ function toggleExpand(wsId: string): void {
   expandedWsIds.value = next;
 }
 
-/** Default visible sessions = union of (first 5) and (updated within 5 days).
-    The active session is always kept visible so its highlight never disappears
-    when an old session is selected (e.g. from the sessions dialog). */
+/** Show the most recent N sessions. If the active session is older than N,
+    replace the last slot with it so the highlight never disappears. */
 function visibleSessions(sessions: Session[], expanded: boolean, activeId?: string): Session[] {
   if (expanded || sessions.length <= DEFAULT_VISIBLE_COUNT) return sessions;
-  const now = Date.now();
-  const cutoff = now - FIVE_DAYS_MS;
-  const recent5 = sessions.slice(0, DEFAULT_VISIBLE_COUNT);
-  const recent5Ids = new Set(recent5.map((s) => s.id));
-  const within5Days = sessions.filter((s) => {
-    if (recent5Ids.has(s.id)) return false;
-    const ts = s.updatedAt ? Date.parse(s.updatedAt) : 0;
-    return ts > cutoff;
-  });
-  const visible = [...recent5, ...within5Days];
+  const visible = sessions.slice(0, DEFAULT_VISIBLE_COUNT);
   if (activeId && !visible.some((s) => s.id === activeId)) {
     const active = sessions.find((s) => s.id === activeId);
-    if (active) visible.push(active);
+    if (active) visible[DEFAULT_VISIBLE_COUNT - 1] = active;
   }
   return visible;
 }
