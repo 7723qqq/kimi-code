@@ -320,6 +320,11 @@ const rawState: ExtendedState = reactive({
 const models = ref<AppModel[]>([]);
 const providers = ref<AppProvider[]>([]);
 
+// Model picked while in the "new session draft" state (onboarding composer —
+// no backend session exists yet, so POST /profile has nothing to target).
+// Applied and cleared when the first prompt creates the session.
+const draftModel = ref<string | null>(null);
+
 // ~/diff line-by-line view: the file the user tapped + its parsed unified diff.
 // Loaded on demand via loadFileDiff(); cleared when the file list is shown.
 const selectedDiffPath = ref<string | null>(null);
@@ -343,7 +348,7 @@ async function refreshSessionStatus(sessionId: string): Promise<void> {
     s.id === sessionId
       ? {
           ...s,
-          model: st.model ?? s.model,
+          model: st.model || s.model,
           usage: {
             ...s.usage,
             contextTokens: st.contextTokens,
@@ -714,7 +719,17 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
     const api = getKimiWebApi();
     const snap = await api.getSessionSnapshot(sessionId);
 
-    rawState.sessions = rawState.sessions.map((s) => (s.id === sessionId ? snap.session : s));
+    rawState.sessions = rawState.sessions.map((s) =>
+      s.id === sessionId
+        ? {
+            ...snap.session,
+            model:
+              snap.session.model && snap.session.model.length > 0
+                ? snap.session.model
+                : s.model,
+          }
+        : s,
+    );
     rawState.messagesBySession = {
       ...rawState.messagesBySession,
       [sessionId]: snap.messages,
@@ -1147,10 +1162,13 @@ const status = computed<ConversationStatus>(() => {
     (activeSession ? activeSession.cwd.split('/').pop() ?? activeSession.cwd : 'main');
   // session.model is kept live by GET /status (on select/idle) and the WS
   // agent.status.updated event during a turn; fall back to the daemon default.
+  // In the draft state (no active session) the user's draft pick wins, so the
+  // composer dropdown reflects the selection before the session exists.
+  const draftPick = activeSession === undefined ? draftModel.value : null;
   const rawModel =
     (activeSession?.model && activeSession.model.length > 0
       ? activeSession.model
-      : rawState.defaultModel) ?? '—';
+      : draftPick ?? rawState.defaultModel) ?? '—';
 
   // Use the friendly displayName from the models list; fall back to stripping
   // the provider prefix (e.g. "moonshot/moonshot-v1-128k" → "moonshot-v1-128k").
@@ -1671,8 +1689,20 @@ async function startSessionAndSendPrompt(
     } catch {
       // Older daemons may not have /workspaces.
     }
-    const session = await api.createSession({ workspaceId: workspaceIdForCreate, cwd: cwdForCreate });
-    rawState.sessions = [session, ...rawState.sessions.filter((s) => s.id !== session.id)];
+    const draftPick = draftModel.value ?? undefined;
+    const session = await api.createSession({
+      workspaceId: workspaceIdForCreate,
+      cwd: cwdForCreate,
+      model: draftPick,
+    });
+    draftModel.value = null; // applied — the next draft starts from the default
+    // The create echo may return model as '' (same daemon quirk as /profile);
+    // keep the user's pick so the status line doesn't snap back to the default.
+    const created =
+      draftPick !== undefined && (!session.model || session.model.length === 0)
+        ? { ...session, model: draftPick }
+        : session;
+    rawState.sessions = [created, ...rawState.sessions.filter((s) => s.id !== session.id)];
     selectWorkspace(session.workspaceId ?? workspaceIdForCreate ?? workspaceId);
     await selectSession(session.id);
     await submitPromptInternal(session.id, text, attachments);
@@ -2351,7 +2381,12 @@ async function loadProviders(): Promise<void> {
  */
 async function setModel(modelId: string): Promise<void> {
   const sid = rawState.activeSessionId;
-  if (!sid) return;
+  if (!sid) {
+    // New-session draft (onboarding composer): no backend session to update.
+    // Remember the pick — startSessionAndSendPrompt applies it at create time.
+    draftModel.value = modelId;
+    return;
+  }
   // Optimistic: show the chosen model immediately.
   rawState.sessions = rawState.sessions.map((s) => (s.id === sid ? { ...s, model: modelId } : s));
   try {

@@ -132,6 +132,24 @@ describe('startSessionAndSendPrompt', () => {
     expect(client.sessions.value[0]!.id).toBe('sess_new');
   });
 
+  it('applies a model picked in the draft state (no session yet) to the created session', async () => {
+    const { api, client } = await setup();
+    await client.addWorkspaceByPath('/repo');
+
+    // Onboarding composer: no active session — the pick must still register.
+    expect(client.activeSessionId.value).toBeFalsy();
+    await client.setModel('provider/kimi-next');
+
+    // The dropdown reflects the draft pick immediately (not the daemon default).
+    expect(client.status.value.modelId).toBe('provider/kimi-next');
+
+    await client.startSessionAndSendPrompt('ws_repo', 'hello');
+
+    expect(api.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'provider/kimi-next' }),
+    );
+  });
+
   it('does not duplicate the session when WebSocket broadcast arrives after REST', async () => {
     const { api, client, getHandlers } = await setup();
     await client.addWorkspaceByPath('/repo');
