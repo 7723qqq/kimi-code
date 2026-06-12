@@ -135,6 +135,12 @@ export {
 } from './message/message';
 export type { MessageListQuery } from './message/message';
 export { MessageService } from './message/messageService';
+export {
+  readWireRecords,
+  readWireTranscript,
+  reduceWireRecords,
+} from './message/transcript';
+export type { TranscriptEntry, WireTranscript } from './message/transcript';
 
 export {
   IPromptService,

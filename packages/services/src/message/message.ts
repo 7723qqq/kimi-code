@@ -245,17 +245,20 @@ function buildProtocolContent(msg: ContextMessage): MessageContent[] {
  *
  * `sessionCreatedAtMs` is the session's `createdAt` (ms). We add the index
  * so per-message `created_at` increases monotonically across the array.
+ * Callers that know the real record time can pass `createdAtMs` to override
+ * the synthesized value (MessageService does this for wire-derived entries).
  */
 export function toProtocolMessage(
   sessionId: string,
   index: number,
   msg: ContextMessage,
   sessionCreatedAtMs: number,
+  createdAtMsOverride?: number,
 ): Message {
   const id = deriveMessageId(sessionId, index);
   const role = toProtocolRole(msg.role);
   const content = buildProtocolContent(msg);
-  const createdAtMs = sessionCreatedAtMs + index;
+  const createdAtMs = createdAtMsOverride ?? sessionCreatedAtMs + index;
   // Expose the message origin (kosong/agent-core `origin`) via metadata so REST
   // clients (e.g. the web UI) can hide injected/system user turns — compaction
   // summaries, injections, hook results, retries, system triggers, cron, etc. —
