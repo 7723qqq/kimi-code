@@ -22,6 +22,7 @@ export default {
   language: 'Language',
   daemon: 'Daemon',
   tabChat: 'chat',
+  tabHtml: 'html',
   tabFiles: 'files',
   tabTasks: 'tasks',
   tabTodo: 'todo',

@@ -13,6 +13,7 @@
 import type { AppMessage, AppApprovalRequest, CompactionMarkerMetadata } from '../api/types';
 import { COMPACTION_MARKER_METADATA_KEY } from '../api/types';
 import type { ApprovalBlock, ChatTurn, DiffLine, ToolCall, ToolMedia, TurnBlock } from '../types';
+import { parseHtmlModePrompt } from '../lib/htmlMode';
 
 const READ_MEDIA_TOOL_RE = /^read[_-]?media(?:file)?$/i;
 const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/s;
@@ -448,8 +449,13 @@ export function messagesToTurns(
       if (!isDisplayableUserMessage(msg)) continue;
       const textParts: string[] = [];
       const images: { url: string; alt?: string }[] = [];
+      let htmlModePrompt: string | undefined;
       for (const c of msg.content) {
-        if (c.type === 'text') textParts.push(c.text);
+        if (c.type === 'text') {
+          const parsed = parseHtmlModePrompt(c.text);
+          if (parsed.isHtmlMode && htmlModePrompt === undefined) htmlModePrompt = parsed.text;
+          textParts.push(parsed.text);
+        }
         const url = resolveImageUrl(c);
         if (url) images.push({ url, alt: c.type === 'file' ? c.name : undefined });
       }
@@ -459,6 +465,7 @@ export function messagesToTurns(
         no: no++,
         text: textParts.join('\n'),
         images: images.length > 0 ? images : undefined,
+        htmlMode: htmlModePrompt !== undefined ? { prompt: htmlModePrompt } : undefined,
       });
       continue;
     }

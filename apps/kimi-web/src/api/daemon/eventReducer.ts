@@ -101,13 +101,17 @@ function sameMessageContent(a: AppMessage, b: AppMessage): boolean {
 }
 
 function findOptimisticUserEchoIndex(messages: AppMessage[], message: AppMessage): number {
+  let latestUnbound = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     const candidate = messages[i]!;
-    if (isOptimisticUserMessage(candidate) && sameMessageContent(candidate, message)) {
+    if (!isOptimisticUserMessage(candidate)) continue;
+    if (sameMessageContent(candidate, message)) {
       return i;
     }
+    if (message.promptId && candidate.promptId === message.promptId) return i;
+    if (message.promptId && candidate.promptId === undefined && latestUnbound === -1) latestUnbound = i;
   }
-  return -1;
+  return latestUnbound;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +288,7 @@ export function reduceAppEvent(
             updated[optimisticIndex] = {
               ...event.message,
               id: optimistic.id,
+              content: optimistic.content,
               promptId: event.message.promptId ?? optimistic.promptId,
               metadata: {
                 ...event.message.metadata,

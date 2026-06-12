@@ -140,6 +140,8 @@ export interface ChatTurn {
   approvalId?: string; // daemon approval id — present when approval needs a decision
   /** Image attachments sent by the user (rendered above the text bubble). */
   images?: { url: string; alt?: string }[];
+  /** Present when the user prompt was submitted through the HTML mode wrapper. */
+  htmlMode?: { prompt: string };
   /** Compaction divider data (role 'compaction'): the transcript keeps all
       prior turns and renders this as a separator line; `text` holds the
       LLM-generated summary, opened in the right-side panel on click. */
@@ -185,7 +187,7 @@ export interface ConversationStatus {
 // ~/diff and ~/files were merged into a single ~/files tab (changed-first list +
 // a Changed|All toggle + an adaptive content pane: diff for changed files, content
 // preview for unchanged ones). 'diff' is gone; 'files' is the merged key.
-export type PaneKey = 'chat' | 'files' | 'tasks' | 'todo';
+export type PaneKey = 'chat' | 'html' | 'files' | 'tasks' | 'todo';
 
 /** A queued prompt as shown in the composer's queue strip. */
 export interface QueuedPromptView {

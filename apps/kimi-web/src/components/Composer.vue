@@ -45,15 +45,18 @@ const props = withDefaults(defineProps<{
   planMode?: boolean;
   /** Available models for the quick-switch dropdown. */
   models?: AppModel[];
+  /** Optional mode-specific placeholder. */
+  placeholder?: string;
 }>(), {
   running: false,
   queued: () => [],
   searchFiles: undefined,
   uploadImage: undefined,
   models: () => [],
+  placeholder: undefined,
 });
 
-const placeholder = computed(() => t('composer.placeholder'));
+const placeholder = computed(() => props.placeholder ?? t('composer.placeholder'));
 
 const emit = defineEmits<{
   submit: [payload: { text: string; attachments: { fileId: string }[] }];

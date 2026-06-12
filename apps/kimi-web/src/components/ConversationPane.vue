@@ -17,6 +17,7 @@ import FileTree from './FileTree.vue';
 import FilePreview from './FilePreview.vue';
 import Composer from './Composer.vue';
 import QuestionCard from './QuestionCard.vue';
+import HtmlModePane from './HtmlModePane.vue';
 
 const props = defineProps<{
   turns: ChatTurn[];
@@ -102,9 +103,13 @@ const chatPaneRef = ref<InstanceType<typeof ChatPane> | null>(null);
 const copyConversationCopied = ref(false);
 let copyConversationCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
+function selectPane(pane: PaneKey): void {
+  active.value = pane;
+}
+
 /** Called by App.vue via command routing to switch to a specific tab */
 function switchTab(tab: PaneKey): void {
-  active.value = tab;
+  selectPane(tab);
 }
 defineExpose({ switchTab });
 
@@ -554,7 +559,7 @@ onUnmounted(() => {
 <template>
   <section class="con" :class="{ mobile }">
     <TabBar
-      v-if="!(turns.length === 0 && !sessionLoading)"
+      v-if="active === 'html' || !(turns.length === 0 && !sessionLoading)"
       :active="active"
       :running-tasks="runningTasks"
       :changes-count="changesCount"
@@ -562,7 +567,7 @@ onUnmounted(() => {
       :mobile="mobile"
       :show-copy-conversation="turns.length > 0"
       :copy-conversation-copied="copyConversationCopied"
-      @select="active = $event"
+      @select-pane="selectPane"
       @copy-conversation="chatPaneRef?.copyConversation()"
     />
 
@@ -574,13 +579,13 @@ onUnmounted(() => {
       class="float-stack"
     >
       <TodoCard v-if="(todos?.length ?? 0) > 0" :todos="todos ?? []" />
-      <TasksCard v-if="runningTasks > 0" :tasks="tasks" @open="active = 'tasks'" />
+      <TasksCard v-if="runningTasks > 0" :tasks="tasks" @open="selectPane('tasks')" />
     </div>
 
     <div
       ref="panesRef"
       class="panes"
-      :class="{ 'files-layout': active === 'files' }"
+      :class="{ 'files-layout': active === 'files', 'html-layout': active === 'html' }"
       @scroll.passive="onPanesScroll"
     >
       <!-- Chat reading column: constrained to a comfortable max width and
@@ -591,6 +596,9 @@ onUnmounted(() => {
           <div class="empty-spacer" />
           <div class="empty-hint">
             <span class="empty-hint-text">{{ workspaceName ? t('conversation.emptyWorkspaceHint', { name: workspaceName }) : t('composer.emptyConversation') }}</span>
+            <button type="button" class="empty-html-switch" @click="selectPane('html')">
+              {{ t('conversation.openHtmlMode') }}
+            </button>
           </div>
           <Composer
             class="empty-composer"
@@ -638,6 +646,33 @@ onUnmounted(() => {
           />
         </template>
       </div>
+      <HtmlModePane
+        v-else-if="active === 'html'"
+        :turns="turns"
+        :running="running"
+        :sending="sending"
+        :session-loading="sessionLoading"
+        :queued="queued"
+        :search-files="searchFiles"
+        :upload-image="uploadImage"
+        :status="status"
+        :thinking="thinking"
+        :plan-mode="planMode"
+        :models="models"
+        @html-submit="handleComposerSubmit"
+        @html-steer="emit('steer', $event)"
+        @command="emit('command', $event)"
+        @interrupt="emit('interrupt')"
+        @unqueue="emit('unqueue', $event)"
+        @edit-queued="emit('editQueued', $event)"
+        @set-permission="emit('setPermission', $event)"
+        @set-thinking="emit('setThinking', $event)"
+        @toggle-plan="emit('togglePlan')"
+        @compact="emit('compact')"
+        @pick-model="emit('pickModel')"
+        @select-model="emit('selectModel', $event)"
+      />
+
       <TasksPane
         v-else-if="active === 'tasks'"
         :tasks="tasks"
@@ -771,7 +806,7 @@ onUnmounted(() => {
          edge-to-edge on wide screens. The composer/input sits on top; the status
          line is a quiet footer BELOW it (model/thinking/plan/permission left,
          ctx far right). -->
-    <div ref="dockRef" class="dock" :class="[mobile ? 'align-mobile' : 'align-center']">
+    <div v-if="active !== 'html' || pendingQuestion" ref="dockRef" class="dock" :class="[mobile ? 'align-mobile' : 'align-center']">
       <!-- QuestionCard replaces Composer while a question is pending -->
       <QuestionCard
         v-if="pendingQuestion"
@@ -780,7 +815,7 @@ onUnmounted(() => {
         @dismiss="(qid) => emit('dismiss', qid)"
       />
       <Composer
-        v-else-if="!(turns.length === 0 && !sessionLoading)"
+        v-else-if="active !== 'html' && !(turns.length === 0 && !sessionLoading)"
         :running="running"
         :queued="queued"
         :search-files="searchFiles"
@@ -887,6 +922,26 @@ onUnmounted(() => {
   font-size: 22px;
   font-weight: 400;
 }
+.empty-html-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 10px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--blue2);
+  font-size: 12px;
+  font-family: var(--sans);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.empty-html-switch:hover {
+  border-color: var(--bd);
+  background: var(--soft);
+}
 .empty-hint-text {
   display: inline-block;
   /* Long workspace names must not wrap into a multi-line hint. */
@@ -909,6 +964,10 @@ onUnmounted(() => {
   }
   .empty-hint {
     font-size: 17px;
+  }
+  .empty-html-switch {
+    display: flex;
+    margin: 10px auto 0;
   }
 }
 
@@ -940,6 +999,11 @@ onUnmounted(() => {
 .panes.files-layout {
   display: flex;
   flex-direction: row;
+  overflow: hidden;
+}
+
+.panes.html-layout {
+  display: flex;
   overflow: hidden;
 }
 

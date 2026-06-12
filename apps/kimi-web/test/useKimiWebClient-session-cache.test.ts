@@ -5,6 +5,7 @@ import type {
   KimiEventHandlers,
   KimiWebApi,
 } from '../src/api/types';
+import { buildHtmlModePrompt } from '../src/lib/htmlMode';
 
 const now = '2026-06-11T00:00:00.000Z';
 
@@ -81,6 +82,7 @@ async function setup(messages: AppMessage[] = []) {
       maxContextTokens: 128_000,
       contextUsage: 0,
     })),
+    updateSession: vi.fn(async () => created),
     connectEvents: vi.fn((nextHandlers: KimiEventHandlers) => {
       handlers = nextHandlers;
       return eventConn;
@@ -189,5 +191,49 @@ describe('useKimiWebClient session memory cache', () => {
     const userTurns = client.turns.value.filter((turn) => turn.role === 'user');
     expect(userTurns).toHaveLength(1);
     expect(userTurns[0]!.id).toBe(optimisticId);
+  });
+
+  it('keeps html mode metadata when the user message echo has normalized content', async () => {
+    const { client, getHandlers } = await setup([]);
+    const wrapped = buildHtmlModePrompt('做一个状态页');
+
+    await client.createSession('/repo');
+    await client.sendPrompt(wrapped);
+    const optimisticId = client.turns.value.find((turn) => turn.role === 'user')!.id;
+
+    getHandlers().onEvent(
+      {
+        type: 'messageCreated',
+        message: {
+          id: 'msg_echo',
+          sessionId: 'sess_1',
+          role: 'user',
+          content: [{ type: 'text', text: '做一个状态页' }],
+          createdAt: now,
+          promptId: 'pr_1',
+        },
+      },
+      { sessionId: 'sess_1', seq: 8 },
+    );
+
+    const userTurns = client.turns.value.filter((turn) => turn.role === 'user');
+    expect(userTurns).toHaveLength(1);
+    expect(userTurns[0]!.id).toBe(optimisticId);
+    expect(userTurns[0]!.text).toBe('做一个状态页');
+    expect(userTurns[0]!.htmlMode).toEqual({ prompt: '做一个状态页' });
+  });
+
+  it('rolls back the optimistic model when profile update fails', async () => {
+    const { api, client } = await setup([]);
+
+    await client.createSession('/repo');
+    expect(client.status.value.modelId).toBe('kimi-test');
+
+    vi.mocked(api.updateSession).mockRejectedValueOnce(new Error('offline'));
+    await client.setModel('kimi-next');
+
+    expect(api.updateSession).toHaveBeenCalledWith('sess_1', { model: 'kimi-next' });
+    expect(client.status.value.modelId).toBe('kimi-test');
+    expect(client.warnings.value).toHaveLength(1);
   });
 });

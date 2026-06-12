@@ -10,4 +10,5 @@ export default {
   viewSummary: '查看摘要',
   summaryTitle: '压缩摘要',
   manuallyAborted: '您已手动终止',
+  openHtmlMode: 'HTML 模式',
 } as const;

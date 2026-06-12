@@ -410,6 +410,133 @@ async function streamMarkdown(sessionId, msgId, contentIndex, text, chunkSize = 
   }
 }
 
+function extractHtmlModeRequest(userText) {
+  if (!userText.includes('<kimi-web-html-mode>')) return null;
+  const startTag = '<kimi-web-html-request>';
+  const endTag = '</kimi-web-html-request>';
+  const start = userText.indexOf(startTag);
+  const end = userText.indexOf(endTag);
+  if (start === -1 || end === -1 || end < start) return '生成一个 HTML 页面';
+  return userText.slice(start + startTag.length, end).trim() || '生成一个 HTML 页面';
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function sampleHtmlModeDocument(request) {
+  const title = escapeHtml(request.length > 32 ? `${request.slice(0, 31)}…` : request);
+  return `<main class="kc-page kc-wide">
+  <section class="kc-hero">
+    <div>
+      <span class="kc-badge kc-badge-success">HTML mode stub</span>
+      <h1 class="kc-title">${title}</h1>
+      <p class="kc-subtitle">这是开发 stub 返回的可交互 HTML，用来验证宿主预览、源码、历史和 data-send 桥接。</p>
+    </div>
+    <button class="kc-btn kc-btn-primary" data-send="继续细化这个页面，补充导出和移动端状态">继续细化</button>
+  </section>
+
+  <section class="kc-grid">
+    <article class="kc-card">
+      <h2 class="text-lg font-semibold mt-0">结论</h2>
+      <p class="text-muted">HTML 模式会把模型输出放进独立 iframe，不影响普通对话视图。</p>
+    </article>
+    <article class="kc-card">
+      <h2 class="text-lg font-semibold mt-0">交互</h2>
+      <p class="text-muted">页面内带 <code>data-send</code> 的按钮会把后续动作发送给宿主。</p>
+    </article>
+    <article class="kc-card">
+      <h2 class="text-lg font-semibold mt-0">导出</h2>
+      <p class="text-muted">宿主工具栏可以复制源码或下载完整 HTML 文件。</p>
+    </article>
+  </section>
+
+  <section class="kc-panel mt-4">
+    <div class="kc-row-between">
+      <div>
+        <b>下一步</b>
+        <p class="text-sm text-muted m-0">选择一个方向继续生成。</p>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <button class="kc-btn" data-send="把这个页面改成产品需求评审看板">需求评审</button>
+        <button class="kc-btn" data-send="把这个页面改成风险分级表，并增加复制 Markdown">风险分级</button>
+      </div>
+    </div>
+  </section>
+</main>`;
+}
+
+async function simulateHtmlReply(sessionId, userText) {
+  const promptId = ulid('pr_');
+  const session = sessions.find((s) => s.id === sessionId);
+  const request = extractHtmlModeRequest(userText) || '生成一个 HTML 页面';
+
+  broadcast('event.session.status_changed', sessionId, {
+    status: 'running',
+    previous_status: 'idle',
+    current_prompt_id: promptId,
+  });
+  if (session) session.status = 'running';
+
+  await delay(80);
+
+  const userMsgId = ulid('msg_');
+  const userMsg = mkMsg(userMsgId, sessionId, 'user', [t(userText)], promptId);
+  (messages[sessionId] = messages[sessionId] || []).push(userMsg);
+  broadcast('event.message.created', sessionId, { message: userMsg });
+
+  await delay(150);
+
+  const aMsgId = ulid('msg_');
+  const aMsg = mkMsg(aMsgId, sessionId, 'assistant', [t('')], promptId);
+  messages[sessionId].push(aMsg);
+  broadcast('event.message.created', sessionId, { message: { ...aMsg, status: 'pending' } });
+
+  const html = sampleHtmlModeDocument(request);
+  await streamMarkdown(sessionId, aMsgId, 0, html, 120);
+
+  await delay(100);
+
+  broadcast('event.assistant.completed', sessionId, {
+    message_id: aMsgId,
+    finish_reason: 'stop',
+  });
+
+  broadcast('event.message.updated', sessionId, {
+    message_id: aMsgId,
+    content: [t(html)],
+    status: 'completed',
+  });
+  const aEntry = messages[sessionId].find((m) => m.id === aMsgId);
+  if (aEntry) { aEntry.content = [t(html)]; aEntry.status = 'completed'; }
+
+  const newCtx = (session?.usage?.context_tokens || 8000) + 1800;
+  const newUsage = mkUsage(newCtx, (session?.usage?.turn_count || 0) + 1);
+  if (session) session.usage = newUsage;
+  broadcast('event.session.usage_updated', sessionId, {
+    usage: newUsage,
+    delta: {
+      input_tokens: 1000,
+      output_tokens: 420,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+      cost_usd: 0.0018,
+    },
+  });
+
+  await delay(80);
+
+  broadcast('event.session.status_changed', sessionId, {
+    status: 'idle',
+    previous_status: 'running',
+  });
+  if (session) session.status = 'idle';
+}
+
 async function simulateToolUse(sessionId, parentMsgId, toolCallId, toolName, input, outputText) {
   broadcast('event.assistant.tool_use_started', sessionId, {
     message_id: parentMsgId,
@@ -961,6 +1088,11 @@ async function simulateRawReply(sessionId, userText) {
 function simulateReply(sessionId, userText) {
   if (RAW_EVENTS_MODE) {
     simulateRawReply(sessionId, userText).catch(console.error);
+    return;
+  }
+
+  if (extractHtmlModeRequest(userText) !== null) {
+    simulateHtmlReply(sessionId, userText).catch(console.error);
     return;
   }
 

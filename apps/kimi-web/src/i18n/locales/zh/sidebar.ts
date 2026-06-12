@@ -22,6 +22,7 @@ export default {
   language: '语言',
   daemon: '后台',
   tabChat: '对话',
+  tabHtml: 'HTML',
   tabFiles: '文件',
   tabTasks: '后台任务',
   tabTodo: '待办',

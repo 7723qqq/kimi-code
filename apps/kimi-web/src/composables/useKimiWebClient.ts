@@ -2352,6 +2352,7 @@ async function loadProviders(): Promise<void> {
 async function setModel(modelId: string): Promise<void> {
   const sid = rawState.activeSessionId;
   if (!sid) return;
+  const previousModel = rawState.sessions.find((s) => s.id === sid)?.model;
   // Optimistic: show the chosen model immediately.
   rawState.sessions = rawState.sessions.map((s) => (s.id === sid ? { ...s, model: modelId } : s));
   try {
@@ -2360,6 +2361,9 @@ async function setModel(modelId: string): Promise<void> {
     // back into the session (the profile echo can return '').
     await refreshSessionStatus(sid);
   } catch (err) {
+    if (previousModel !== undefined) {
+      rawState.sessions = rawState.sessions.map((s) => (s.id === sid ? { ...s, model: previousModel } : s));
+    }
     pushOperationFailure('setModel', err, { sessionId: sid });
   }
 }

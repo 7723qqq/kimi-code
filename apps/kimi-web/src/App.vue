@@ -920,15 +920,16 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
 /* Auth onboarding banner */
 .auth-banner {
   position: fixed;
-  top: 0;
+  top: 34px;
   left: var(--side-w); /* sidebar width (52 rail + resizable session column) */
   right: 0;
   z-index: 50;
   background: var(--soft);
   border-bottom: 1px solid var(--bd);
+  pointer-events: none;
 }
 /* Mobile: the banner spans the full width (no sidebar to clear). */
-.app.mobile .auth-banner { left: 0; }
+.app.mobile .auth-banner { left: 0; top: 48px; }
 .auth-banner-inner {
   display: flex;
   align-items: center;
@@ -936,6 +937,7 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
   padding: 8px 16px;
   font-family: var(--mono);
   font-size: 14px;
+  pointer-events: auto;
 }
 .auth-banner-icon { display: flex; align-items: center; flex: none; }
 .auth-banner-msg { flex: 1; color: var(--text); }

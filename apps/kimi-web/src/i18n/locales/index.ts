@@ -24,6 +24,7 @@ import en_tools from './en/tools';
 import en_layout from './en/layout';
 import en_mobile from './en/mobile';
 import en_theme from './en/theme';
+import en_htmlMode from './en/htmlMode';
 
 import zh_common from './zh/common';
 import zh_app from './zh/app';
@@ -51,6 +52,7 @@ import zh_tools from './zh/tools';
 import zh_layout from './zh/layout';
 import zh_mobile from './zh/mobile';
 import zh_theme from './zh/theme';
+import zh_htmlMode from './zh/htmlMode';
 import en_onboarding from './en/onboarding';
 import zh_onboarding from './zh/onboarding';
 
@@ -82,6 +84,7 @@ export const messages = {
     layout: en_layout,
     mobile: en_mobile,
     theme: en_theme,
+    htmlMode: en_htmlMode,
     onboarding: en_onboarding,
   },
   zh: {
@@ -111,6 +114,7 @@ export const messages = {
     layout: zh_layout,
     mobile: zh_mobile,
     theme: zh_theme,
+    htmlMode: zh_htmlMode,
     onboarding: zh_onboarding,
   },
 } as const;

@@ -4,12 +4,13 @@ import { useI18n } from 'vue-i18n';
 import type { PaneKey, TodoView } from '../types';
 
 defineProps<{ active: PaneKey; runningTasks: number; changesCount?: number; todos?: TodoView[]; mobile?: boolean; showCopyConversation?: boolean; copyConversationCopied?: boolean }>();
-const emit = defineEmits<{ select: [pane: PaneKey]; copyConversation: [] }>();
+const emit = defineEmits<{ selectPane: [pane: PaneKey]; copyConversation: [] }>();
 
 const { t } = useI18n();
 
 const tabs: { key: PaneKey; labelKey: string }[] = [
   { key: 'chat', labelKey: 'sidebar.tabChat' },
+  { key: 'html', labelKey: 'sidebar.tabHtml' },
   // TODO: temporarily hide the files tab until the feature is ready
   // { key: 'files', labelKey: 'sidebar.tabFiles' },
   { key: 'tasks', labelKey: 'sidebar.tabTasks' },
@@ -20,19 +21,20 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
 <template>
   <div class="tabs" :class="{ mobile }">
     <div class="tabs-left">
-      <div
+      <button
         v-for="tab in tabs"
         :key="tab.key"
+        type="button"
         class="tb"
         :class="{ on: active === tab.key }"
-        @click="emit('select', tab.key)"
+        @click="emit('selectPane', tab.key)"
       >
         {{ t(tab.labelKey) }}
         <!-- TODO: restore when files tab is re-enabled -->
         <!-- <span v-if="tab.key === 'files' && (changesCount ?? 0) > 0" class="d"></span> -->
         <span v-if="tab.key === 'tasks' && runningTasks > 0" class="cnt">{{ runningTasks }}</span>
         <span v-if="tab.key === 'todo' && (todos?.length ?? 0) > 0" class="cnt">{{ (todos?.filter((t) => t.status === 'done').length ?? 0) }}/{{ todos!.length }}</span>
-      </div>
+      </button>
     </div>
     <div v-if="showCopyConversation && active === 'chat'" class="tabs-right">
       <button
@@ -117,13 +119,16 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
   max-width: 120px;
 }
 .tb {
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
   padding: 0 14px;
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
+  font-family: var(--sans);
   color: var(--dim);
-  border-right: 1px solid var(--line);
   cursor: pointer;
 }
 .tb:hover {
