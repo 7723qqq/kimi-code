@@ -6,6 +6,22 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## 0.14.2 (2026-06-12)
+
+### Features
+
+- Stream foreground Bash stdout and stderr while commands are still running.
+- Qualify sub-skill names with their parent prefix and expose sub-skills as dotted slash commands in the TUI.
+
+### Bug Fixes
+
+- Allow `--auto`, `--yolo`, and `--plan` to be combined with `--session` or `--continue` by applying the requested mode to the resumed session.
+- Skip re-entering plan mode when resuming a session that is already in plan mode (previously failed with "Already in plan mode"), and stop re-applying `--auto`/`--yolo`/`--plan` startup flags when switching sessions through the `/sessions` picker.
+- Drop invalid config.toml sections with a warning instead of failing to start.
+- Fix endless desktop notifications in iTerm2 by only sending terminal progress sequences to terminals that support them.
+- Show completed and cancelled compaction records correctly when resuming a session.
+- Sync custom registry provider additions, removals, and rotated registry keys during startup refresh.
+
 ## 0.14.1 (2026-06-12)
 
 ### Bug Fixes
