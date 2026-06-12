@@ -148,7 +148,7 @@ Run, install, and manage the local Kimi server — a single process that exposes
 When the server is running, `GET /openapi.json` returns the REST OpenAPI document and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document. The Swagger UI is separate and is mounted at `/documentation` only when the server is started with `--swagger`.
 
 ```sh
-kimi server run                # foreground (logs in the current terminal)
+kimi server run                # foreground (logs off unless --log-level is set)
 kimi server install            # register with launchd / systemd / schtasks
 kimi server start              # start the OS-managed service
 kimi server status             # snapshot of installed/running state
@@ -158,14 +158,13 @@ kimi server status             # snapshot of installed/running state
 
 | Option | Description |
 | --- | --- |
-| `--host <host>` | Bind host; defaults to `127.0.0.1` |
 | `--port <port>` | Bind port; defaults to `7878` |
-| `--log-level <level>` | Log level; defaults to `info` |
+| `--log-level <level>` | Enable foreground logs at the selected level; omitted by default |
 | `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default) |
 | `--swagger` | Mount the Swagger UI at `/documentation` (off by default) |
 | `--open` | Open the web UI in the default browser once the server is healthy |
 
-`kimi server run` does not return — it stays attached to the current terminal and shuts down cleanly on `SIGINT` / `SIGTERM`. For background operation, use the OS-service path below.
+`kimi server run` binds to local loopback only and does not return — it stays attached to the current terminal and shuts down cleanly on `SIGINT` / `SIGTERM`. For background operation, use the OS-service path below.
 
 #### `kimi server install`
 
@@ -177,13 +176,12 @@ Register the server as an OS-managed service so it starts at login and restarts 
 
 | Option | Description |
 | --- | --- |
-| `--host <host>` | Bind host the supervised server uses; defaults to `127.0.0.1` |
 | `--port <port>` | Bind port the supervised server uses; defaults to `7878` |
 | `--log-level <level>` | Log level recorded in the generated unit |
 | `--force` | Replace an existing install instead of failing |
 | `--json` | Output JSON instead of a human-readable line |
 
-The chosen host / port / log-level are recorded to `~/.kimi-code/server/install.json` so `kimi server status` can report them even when the service is stopped.
+The loopback host, chosen port, and log level are recorded to `~/.kimi-code/server/install.json` so `kimi server status` can report them even when the service is stopped.
 
 #### Lifecycle subcommands
 
@@ -204,7 +202,7 @@ kimi web                        # foreground + open browser
 kimi web --no-open              # equivalent to `kimi server run`
 ```
 
-The same `--host`, `--port`, `--log-level`, and `--debug-endpoints` flags work as on `kimi server run`.
+The same `--port`, `--log-level`, `--debug-endpoints`, and `--swagger` flags work as on `kimi server run`.
 
 ### `kimi doctor`
 

@@ -9,7 +9,9 @@
  * registered in `./web-alias.ts`.
  */
 
+import chalk from 'chalk';
 import type { Command } from 'commander';
+import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 
 import { join } from 'node:path';
 
@@ -21,11 +23,12 @@ import {
 } from '@moonshot-ai/server';
 
 import { getNativeWebAssetsDir } from '#/native/web-assets';
+import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 
 import { createKimiCodeHostIdentity, getHostPackageRoot, getVersion } from '../../version';
 import {
-  DEFAULT_LOG_LEVEL,
+  DEFAULT_FOREGROUND_LOG_LEVEL,
   DEFAULT_SERVER_HOST,
   DEFAULT_SERVER_PORT,
   parseServerOptions,
@@ -36,6 +39,7 @@ import {
 } from './shared';
 
 const WEB_ASSETS_DIR = 'dist-web';
+const READY_PANEL_WIDTH = 72;
 
 export interface RunCliOptions extends ServerCliOptions {
   open?: boolean;
@@ -53,19 +57,13 @@ export interface RunCommandDeps {
 export function buildRunCommand(cmd: Command, options: { defaultOpen: boolean }): Command {
   return cmd
     .option(
-      '--host <host>',
-      `Bind host (default ${DEFAULT_SERVER_HOST})`,
-      DEFAULT_SERVER_HOST,
-    )
-    .option(
       '--port <port>',
       `Bind port (default ${DEFAULT_SERVER_PORT})`,
       String(DEFAULT_SERVER_PORT),
     )
     .option(
       '--log-level <level>',
-      `Log level: ${VALID_LOG_LEVELS.join('|')} (default ${DEFAULT_LOG_LEVEL})`,
-      DEFAULT_LOG_LEVEL,
+      `Enable foreground logs at level: ${VALID_LOG_LEVELS.join('|')}. Omit to keep logs off.`,
     )
     .option(
       '--debug-endpoints',
@@ -100,6 +98,7 @@ export async function handleRunCommand(
 ): Promise<void> {
   const parsed = parseServerOptions(opts);
   let outcome: { origin: string };
+  const startedAt = Date.now();
   try {
     outcome = await deps.startServerForeground(parsed);
   } catch (error) {
@@ -112,7 +111,12 @@ export async function handleRunCommand(
     }
     throw error;
   }
-  deps.stdout.write(`Kimi server: ${outcome.origin}\n`);
+  const readyMs = Date.now() - startedAt;
+  deps.stdout.write(
+    parsed.logLevel === DEFAULT_FOREGROUND_LOG_LEVEL
+      ? formatForegroundReadyBanner(outcome.origin, readyMs)
+      : `Kimi server: ${outcome.origin}\n`,
+  );
   if (opts.open === true) {
     deps.openUrl(outcome.origin);
   }
@@ -183,7 +187,7 @@ function describeAlreadyRunning(
     mode,
     pid: existing.pid,
     url: serverOrigin(host === '0.0.0.0' ? DEFAULT_SERVER_HOST : host, status?.port ?? existing.port),
-    stopCommand: mode === 'background' ? 'kimi server stop' : foregroundStopCommand(existing.pid),
+    stopCommand: mode === 'background' ? 'kimi server stop' : formatForegroundStopCommand(existing.pid),
   };
 }
 
@@ -197,9 +201,12 @@ function isBackgroundServer(
   return status.installed;
 }
 
-function foregroundStopCommand(pid: number): string {
-  if (process.platform === 'win32') return `taskkill /PID ${String(pid)} /T /F`;
-  return 'pkill -f "kimi server run"';
+export function formatForegroundStopCommand(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform === 'win32') return `taskkill /PID ${String(pid)} /T /F`;
+  return `kill -TERM ${String(pid)}`;
 }
 
 function formatAlreadyRunning(details: AlreadyRunningDetails): string {
@@ -209,6 +216,61 @@ function formatAlreadyRunning(details: AlreadyRunningDetails): string {
     `Stop: ${details.stopCommand}`,
     '',
   ].join('\n');
+}
+
+function formatForegroundReadyBanner(origin: string, readyMs: number): string {
+  const primary = (text: string): string => chalk.hex(darkColors.primary)(text);
+  const title = (text: string): string => chalk.bold.hex(darkColors.primary)(text);
+  const dim = (text: string): string => chalk.hex(darkColors.textDim)(text);
+  const muted = (text: string): string => chalk.hex(darkColors.textMuted)(text);
+  const label = (text: string): string => chalk.bold.hex(darkColors.textDim)(text);
+  const url = chalk.hex(darkColors.accent)(displayOrigin(origin));
+  const width = READY_PANEL_WIDTH;
+  const innerWidth = width - 4;
+  const pad = '  ';
+
+  const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;
+  const logoWidth = Math.max(...logo.map((row) => visibleWidth(row)));
+  const gap = '  ';
+  const textWidth = innerWidth - logoWidth - gap.length;
+  const headerLines = [
+    primary(logo[0].padEnd(logoWidth)) +
+      gap +
+      truncateToWidth(title('Kimi server ready'), textWidth, '…'),
+    primary(logo[1].padEnd(logoWidth)) +
+      gap +
+      truncateToWidth(dim('Local web UI is available from this machine.'), textWidth, '…'),
+  ];
+  const infoLines = [
+    label('URL:      ') + url,
+    label('Network:  ') + muted('local only'),
+    label('Logs:     ') + muted('off') + dim('  use --log-level info to enable'),
+    label('Stop:     ') + muted('Ctrl+C'),
+    label('Ready:    ') + muted(`${String(Math.max(0, readyMs))} ms`),
+    label('Version:  ') + muted(getVersion()),
+  ];
+  const contentLines = [...headerLines, '', ...infoLines];
+
+  const lines = [
+    '',
+    primary('╭' + '─'.repeat(width - 2) + '╮'),
+    primary('│') + ' '.repeat(width - 2) + primary('│'),
+  ];
+
+  for (const content of contentLines) {
+    const truncated = truncateToWidth(content, innerWidth, '…');
+    const rightPad = Math.max(0, innerWidth - visibleWidth(truncated));
+    lines.push(primary('│') + pad + truncated + ' '.repeat(rightPad) + primary('│'));
+  }
+
+  lines.push(primary('│') + ' '.repeat(width - 2) + primary('│'));
+  lines.push(primary('╰' + '─'.repeat(width - 2) + '╯'));
+  lines.push('');
+  return lines.join('\n');
+}
+
+function displayOrigin(origin: string): string {
+  return origin.endsWith('/') ? origin : `${origin}/`;
 }
 
 const DEFAULT_RUN_COMMAND_DEPS: RunCommandDeps = {

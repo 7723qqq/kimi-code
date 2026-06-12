@@ -148,7 +148,7 @@ kimi acp
 服务运行时，`GET /openapi.json` 会返回 REST OpenAPI 文档，`GET /asyncapi.json` 会返回本地 WebSocket 协议的 AsyncAPI 文档。Swagger UI 独立于这两个 JSON 接口，只有用 `--swagger` 启动时才会挂载到 `/documentation`。
 
 ```sh
-kimi server run                # 前台运行（日志输出到当前终端）
+kimi server run                # 前台运行（除非设置 --log-level，否则不输出日志）
 kimi server install            # 注册到 launchd / systemd / schtasks
 kimi server start              # 启动 OS 管理的服务
 kimi server status             # 查看安装与运行状态
@@ -158,14 +158,13 @@ kimi server status             # 查看安装与运行状态
 
 | 选项 | 说明 |
 | --- | --- |
-| `--host <host>` | 绑定地址；默认 `127.0.0.1` |
 | `--port <port>` | 绑定端口；默认 `7878` |
-| `--log-level <level>` | 日志级别；默认 `info` |
+| `--log-level <level>` | 按所选级别开启前台日志；默认不输出 |
 | `--debug-endpoints` | 挂载 `/api/v1/debug/*` 调试路由（默认关闭） |
 | `--swagger` | 在 `/documentation` 挂载 Swagger UI（默认关闭） |
 | `--open` | 服务健康后用默认浏览器打开 web UI |
 
-`kimi server run` 不会返回——保持挂在当前终端，在 `SIGINT` / `SIGTERM` 时干净退出。后台运行请走下面的 OS 服务方式。
+`kimi server run` 只绑定本机 loopback 地址，不会返回——保持挂在当前终端，在 `SIGINT` / `SIGTERM` 时干净退出。后台运行请走下面的 OS 服务方式。
 
 #### `kimi server install`
 
@@ -177,13 +176,12 @@ kimi server status             # 查看安装与运行状态
 
 | 选项 | 说明 |
 | --- | --- |
-| `--host <host>` | 被托管的服务绑定地址；默认 `127.0.0.1` |
 | `--port <port>` | 被托管的服务绑定端口；默认 `7878` |
 | `--log-level <level>` | 写入生成 unit 的日志级别 |
 | `--force` | 已安装时强制覆盖 |
 | `--json` | 用 JSON 替代人类可读输出 |
 
-选定的 host / port / log-level 会写入 `~/.kimi-code/server/install.json`，即便服务停掉 `kimi server status` 也能读到。
+本机地址、选定的端口和日志级别会写入 `~/.kimi-code/server/install.json`，即便服务停掉 `kimi server status` 也能读到。
 
 #### 生命周期子命令
 
@@ -204,7 +202,7 @@ kimi web                        # 前台 + 自动打开浏览器
 kimi web --no-open              # 等价于 `kimi server run`
 ```
 
-`--host`、`--port`、`--log-level`、`--debug-endpoints` 与 `kimi server run` 完全一致。
+`--port`、`--log-level`、`--debug-endpoints`、`--swagger` 与 `kimi server run` 完全一致。
 
 ### `kimi doctor`
 

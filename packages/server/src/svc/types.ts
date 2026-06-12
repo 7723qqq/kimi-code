@@ -90,7 +90,7 @@ export class ServiceUnavailableError extends Error {
 
   constructor(platform: string, reason: string) {
     super(
-      `${reason} Run \`kimi server run --host 0.0.0.0 --port <port>\` directly when running inside Docker or another container supervisor.`,
+      `${reason} Run \`kimi server run --port <port>\` directly when running inside Docker or another container supervisor.`,
     );
     this.platform = platform;
   }

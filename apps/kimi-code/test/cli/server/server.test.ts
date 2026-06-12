@@ -10,11 +10,17 @@
 
 import { readFileSync } from 'node:fs';
 
+import chalk, { Chalk } from 'chalk';
 import { Command } from 'commander';
 import { describe, expect, it, vi } from 'vitest';
 
 import { registerServerCommand } from '#/cli/sub/server';
 import { addLifecycleCommands } from '#/cli/sub/server/lifecycle';
+import { darkColors } from '#/tui/theme/colors';
+
+function stripAnsi(text: string): string {
+  return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+}
 
 function makeProgram(): Command {
   // `commander` exitOverride avoids killing the test runner when --help/error fires.
@@ -40,14 +46,14 @@ describe('kimi server', () => {
     expect(subs).toEqual(['install', 'restart', 'run', 'start', 'status', 'stop', 'uninstall']);
   });
 
-  it('`server run` exposes --host, --port, --log-level, --debug-endpoints, --swagger, --open', () => {
+  it('`server run` exposes local-only foreground options', () => {
     const program = makeProgram();
     const run = program.commands
       .find((c) => c.name() === 'server')
       ?.commands.find((c) => c.name() === 'run');
     expect(run).toBeDefined();
     const longs = run!.options.map((o) => o.long).filter(Boolean);
-    expect(longs).toContain('--host');
+    expect(longs).not.toContain('--host');
     expect(longs).toContain('--port');
     expect(longs).toContain('--log-level');
     expect(longs).toContain('--debug-endpoints');
@@ -56,14 +62,14 @@ describe('kimi server', () => {
     expect(longs).toContain('--open');
   });
 
-  it('`server install` exposes --host, --port, --log-level, --force, --no-open, --json', () => {
+  it('`server install` exposes local-only service options', () => {
     const program = makeProgram();
     const install = program.commands
       .find((c) => c.name() === 'server')
       ?.commands.find((c) => c.name() === 'install');
     expect(install).toBeDefined();
     const longs = install!.options.map((o) => o.long).filter(Boolean);
-    expect(longs).toContain('--host');
+    expect(longs).not.toContain('--host');
     expect(longs).toContain('--port');
     expect(longs).toContain('--log-level');
     expect(longs).toContain('--force');
@@ -78,7 +84,7 @@ describe('kimi server', () => {
     const longs = web!.options.map((o) => o.long).filter(Boolean);
     // web defaults to opening → the option is the negative form --no-open
     expect(longs).toContain('--no-open');
-    expect(longs).toContain('--host');
+    expect(longs).not.toContain('--host');
     expect(longs).toContain('--port');
   });
 });
@@ -148,7 +154,7 @@ describe('`kimi server` lifecycle handles unavailable service managers', () => {
       ok: false,
       action: 'unavailable',
       platform: 'linux',
-      message: expect.stringContaining('server run --host 0.0.0.0'),
+      message: expect.stringContaining('server run --port <port>'),
     });
   });
 });
@@ -268,7 +274,7 @@ describe('`kimi server` lifecycle output', () => {
 });
 
 describe('`kimi server run` already-running handling', () => {
-  it('passes --swagger through to foreground startup options', async () => {
+  it('defaults foreground logs off and passes --swagger through to startup options', async () => {
     const { handleRunCommand } = await import('#/cli/sub/server/run');
     let parsed: unknown;
 
@@ -294,7 +300,116 @@ describe('`kimi server run` already-running handling', () => {
       },
     );
 
-    expect(parsed).toMatchObject({ swagger: true });
+    expect(parsed).toMatchObject({ logLevel: 'silent', swagger: true });
+  });
+
+  it('enables foreground logs only when --log-level is provided', async () => {
+    const { handleRunCommand } = await import('#/cli/sub/server/run');
+    let parsed: unknown;
+
+    await handleRunCommand(
+      { port: '7878', logLevel: 'debug' },
+      {
+        startServerForeground: async (options) => {
+          parsed = options;
+          return { origin: 'http://127.0.0.1:7878' };
+        },
+        getServiceStatus: async () => undefined,
+        openUrl: vi.fn(),
+        stdout: {
+          write() {
+            return true;
+          },
+        },
+        stderr: {
+          write() {
+            return true;
+          },
+        },
+      },
+    );
+
+    expect(parsed).toMatchObject({ logLevel: 'debug' });
+  });
+
+  it('prints a TUI-style welcome panel when foreground logs are off', async () => {
+    const { handleRunCommand } = await import('#/cli/sub/server/run');
+    let stdout = '';
+
+    await handleRunCommand(
+      { port: '7878' },
+      {
+        startServerForeground: async () => ({ origin: 'http://127.0.0.1:7878' }),
+        getServiceStatus: async () => undefined,
+        openUrl: vi.fn(),
+        stdout: {
+          write(chunk: string | Uint8Array) {
+            stdout += String(chunk);
+            return true;
+          },
+        },
+        stderr: {
+          write() {
+            return true;
+          },
+        },
+      },
+    );
+
+    const plain = stripAnsi(stdout);
+    expect(plain).toContain('╭');
+    expect(plain).toContain('╰');
+    expect(plain).toContain('▐█▛█▛█▌');
+    expect(plain).toContain('▐█████▌');
+    expect(plain).toContain('Kimi server ready');
+    expect(plain).toContain('URL:');
+    expect(plain).toContain('http://127.0.0.1:7878/');
+    expect(plain).toContain('Network:');
+    expect(plain).toContain('local only');
+    expect(plain).toContain('Logs:');
+    expect(plain).toContain('off');
+    expect(plain).toContain('Stop:');
+    expect(plain).toContain('Ctrl+C');
+    expect(plain).not.toContain('➜');
+    expect(plain).not.toContain('Kimi server:');
+  });
+
+  it('uses the TUI dark palette for the foreground ready banner', async () => {
+    const { handleRunCommand } = await import('#/cli/sub/server/run');
+    let stdout = '';
+    const previousChalkLevel = chalk.level;
+    chalk.level = 3;
+
+    try {
+      await handleRunCommand(
+        { port: '7878' },
+        {
+          startServerForeground: async () => ({ origin: 'http://127.0.0.1:7878' }),
+          getServiceStatus: async () => undefined,
+          openUrl: vi.fn(),
+          stdout: {
+            write(chunk: string | Uint8Array) {
+              stdout += String(chunk);
+              return true;
+            },
+          },
+          stderr: {
+            write() {
+              return true;
+            },
+          },
+        },
+      );
+    } finally {
+      chalk.level = previousChalkLevel;
+    }
+
+    const color = new Chalk({ level: 3 });
+    expect(stdout).toContain(color.hex(darkColors.primary)('▐█▛█▛█▌'));
+    expect(stdout).toContain(color.bold.hex(darkColors.primary)('Kimi server ready'));
+    expect(stdout).toContain(color.hex(darkColors.accent)('http://127.0.0.1:7878/'));
+    expect(stdout).toContain(color.bold.hex(darkColors.textDim)('URL:      '));
+    expect(stdout).toContain(color.hex(darkColors.textMuted)('local only'));
   });
 
   it('reports a background service conflict, suggests server stop, and opens the existing URL', async () => {
@@ -344,7 +459,7 @@ describe('`kimi server run` already-running handling', () => {
     expect(openUrl).toHaveBeenCalledWith('http://127.0.0.1:9999');
   });
 
-  it('reports a foreground process conflict, suggests pkill, and opens the existing URL', async () => {
+  it('reports a foreground process conflict, suggests a pid-based stop command, and opens the existing URL', async () => {
     const { ServerLockedError } = await import('@moonshot-ai/server');
     const { handleRunCommand } = await import('#/cli/sub/server/run');
     let stdout = '';
@@ -382,9 +497,17 @@ describe('`kimi server run` already-running handling', () => {
 
     expect(stdout).toContain('already running in foreground');
     expect(stdout).toContain('URL: http://127.0.0.1:10001');
-    expect(stdout).toContain('Stop: pkill -f "kimi server run"');
+    expect(stdout).toContain('Stop: kill -TERM 5678');
     expect(stdout).not.toContain('kimi server stop');
     expect(openUrl).toHaveBeenCalledWith('http://127.0.0.1:10001');
+  });
+
+  it('formats foreground stop commands by platform and pid', async () => {
+    const { formatForegroundStopCommand } = await import('#/cli/sub/server/run');
+
+    expect(formatForegroundStopCommand(1234, 'darwin')).toBe('kill -TERM 1234');
+    expect(formatForegroundStopCommand(1234, 'linux')).toBe('kill -TERM 1234');
+    expect(formatForegroundStopCommand(1234, 'win32')).toBe('taskkill /PID 1234 /T /F');
   });
 });
 

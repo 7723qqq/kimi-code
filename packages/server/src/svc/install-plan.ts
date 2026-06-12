@@ -6,6 +6,8 @@ import { dirname } from 'node:path';
 import { installPlanPath } from './paths';
 import type { InstallArgs } from './types';
 
+const SUPERVISED_SERVER_HOST = '127.0.0.1';
+
 export interface InstallPlan {
 
   host: string;
@@ -35,7 +37,7 @@ export interface BuildInstallPlanInput extends InstallArgs {
 
 export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
   return {
-    host: input.host,
+    host: SUPERVISED_SERVER_HOST,
     port: input.port,
     logLevel: input.logLevel,
     program: input.program,
@@ -43,8 +45,6 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
       input.program,
       'server',
       'run',
-      '--host',
-      input.host,
       '--port',
       String(input.port),
       '--log-level',

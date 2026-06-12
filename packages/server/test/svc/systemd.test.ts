@@ -81,13 +81,13 @@ afterEach(() => {
 describe('buildSystemdUnit', () => {
   it('renders the standard [Unit]/[Service]/[Install] triple', () => {
     const unit = buildSystemdUnit({
-      programArguments: ['/usr/local/bin/kimi', 'server', 'run', '--host', '127.0.0.1', '--port', '7878'],
+      programArguments: ['/usr/local/bin/kimi', 'server', 'run', '--port', '7878'],
     });
     expect(unit).toContain('[Unit]');
     expect(unit).toContain('[Service]');
     expect(unit).toContain('[Install]');
     expect(unit).toContain('Description=Kimi Code local server');
-    expect(unit).toContain('ExecStart=/usr/local/bin/kimi server run --host 127.0.0.1 --port 7878');
+    expect(unit).toContain('ExecStart=/usr/local/bin/kimi server run --port 7878');
     expect(unit).toContain('Restart=always');
     expect(unit).toContain('WantedBy=default.target');
   });
@@ -149,7 +149,8 @@ describe('systemd manager — install', () => {
     expect(result.unitPath).toBe(unitPath);
     expect(existsSync(unitPath)).toBe(true);
     const text = readFileSync(unitPath, 'utf8');
-    expect(text).toContain('ExecStart=/usr/local/bin/kimi server run --host 127.0.0.1 --port 7878 --log-level info');
+    expect(text).toContain('ExecStart=/usr/local/bin/kimi server run --port 7878 --log-level info');
+    expect(text).not.toContain('--host');
 
     expect(calls.length).toBe(3);
     expect(calls[0]?.args).toEqual(['show-environment']);
@@ -184,7 +185,8 @@ describe('systemd manager — install', () => {
     const result = await mgr.install({ host: '0.0.0.0', port: 9999, logLevel: 'debug', force: true });
     expect(result.status).toBe('replaced');
     const text = readFileSync(unitPath, 'utf8');
-    expect(text).toContain('ExecStart=/usr/local/bin/kimi server run --host 0.0.0.0 --port 9999 --log-level debug');
+    expect(text).toContain('ExecStart=/usr/local/bin/kimi server run --port 9999 --log-level debug');
+    expect(text).not.toContain('0.0.0.0');
   });
 
   it('fails before writing files when user systemd is unavailable', async () => {

@@ -12,6 +12,7 @@ export const DEFAULT_SERVER_PORT = 7878;
 export const DEFAULT_SERVER_ORIGIN = serverOrigin(DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT);
 
 export const DEFAULT_LOG_LEVEL: ServerLogLevel = 'info';
+export const DEFAULT_FOREGROUND_LOG_LEVEL: ServerLogLevel = 'silent';
 
 export const VALID_LOG_LEVELS: readonly ServerLogLevel[] = [
   'fatal',
@@ -43,7 +44,7 @@ export function parseServerOptions(opts: ServerCliOptions): ParsedServerOptions 
   return {
     host: opts.host ?? DEFAULT_SERVER_HOST,
     port: parsePort(opts.port, '--port', DEFAULT_SERVER_PORT),
-    logLevel: parseLogLevel(opts.logLevel),
+    logLevel: parseLogLevel(opts.logLevel ?? DEFAULT_FOREGROUND_LOG_LEVEL),
     debugEndpoints: opts.debugEndpoints === true,
     swagger: opts.swagger === true,
   };
@@ -84,7 +85,9 @@ export function normalizeServerOrigin(value: string): string {
 /** Single probe of `/api/v1/healthz`. Returns true if the response envelope reports `code: 0`. */
 export async function isServerHealthy(origin: string, timeoutMs: number): Promise<boolean> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
   try {
     const response = await fetch(`${origin}/api/v1/healthz`, {
       signal: controller.signal,
@@ -123,7 +126,9 @@ export async function waitForServerHealthy(origin: string, timeoutMs: number): P
  */
 export async function ensureServerWebReady(origin: string): Promise<void> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3000);
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, 3000);
   try {
     const response = await fetch(`${origin}/`, {
       headers: { accept: 'text/html' },

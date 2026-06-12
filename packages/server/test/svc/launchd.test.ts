@@ -85,7 +85,7 @@ describe('buildLaunchAgentPlist', () => {
   it('renders a well-formed plist with label, ProgramArguments, and stdio paths', () => {
     const xml = buildLaunchAgentPlist({
       label: KIMI_SERVER_LABEL,
-      programArguments: ['/usr/local/bin/kimi', 'server', 'run', '--host', '127.0.0.1', '--port', '7878'],
+      programArguments: ['/usr/local/bin/kimi', 'server', 'run', '--port', '7878'],
       stdoutPath: '/tmp/x.log',
       stderrPath: '/tmp/x.log',
     });
@@ -93,8 +93,7 @@ describe('buildLaunchAgentPlist', () => {
     expect(xml).toContain('<string>/usr/local/bin/kimi</string>');
     expect(xml).toContain('<string>server</string>');
     expect(xml).toContain('<string>run</string>');
-    expect(xml).toContain('<string>--host</string>');
-    expect(xml).toContain('<string>127.0.0.1</string>');
+    expect(xml).not.toContain('<string>--host</string>');
     expect(xml).toContain('<string>--port</string>');
     expect(xml).toContain('<string>7878</string>');
     expect(xml).toContain('<key>StandardOutPath</key>\n    <string>/tmp/x.log</string>');
@@ -189,7 +188,7 @@ describe('launchd manager — install', () => {
     expect(calls[0]?.args[0]).toBe('bootout');
     expect(calls[1]?.args[0]).toBe('bootstrap');
     const xml = readFileSync(plistPath, 'utf8');
-    expect(xml).toContain('<string>0.0.0.0</string>');
+    expect(xml).not.toContain('<string>0.0.0.0</string>');
     expect(xml).toContain('<string>9999</string>');
   });
 

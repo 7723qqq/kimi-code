@@ -32,7 +32,6 @@ import {
 } from './shared';
 
 export interface InstallCliOptions {
-  host?: string;
   port?: string;
   logLevel?: string;
   force?: boolean;
@@ -63,7 +62,6 @@ export function addLifecycleCommands(parent: Command, deps: LifecycleCommandDeps
   parent
     .command('install')
     .description('Install the Kimi server as an OS-managed service (launchd/systemd/schtasks).')
-    .option('--host <host>', `Bind host (default ${DEFAULT_SERVER_HOST})`, DEFAULT_SERVER_HOST)
     .option('--port <port>', `Bind port (default ${DEFAULT_SERVER_PORT})`, String(DEFAULT_SERVER_PORT))
     .option(
       '--log-level <level>',
@@ -76,7 +74,7 @@ export function addLifecycleCommands(parent: Command, deps: LifecycleCommandDeps
     .action(async (opts: InstallCliOptions) => {
       await runLifecycle(deps, opts.json === true, async (mgr) => {
         const args: InstallArgs = {
-          host: opts.host ?? DEFAULT_SERVER_HOST,
+          host: DEFAULT_SERVER_HOST,
           port: parsePort(opts.port, '--port', DEFAULT_SERVER_PORT),
           logLevel: parseLogLevel(opts.logLevel),
           force: opts.force === true,
