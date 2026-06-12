@@ -3,6 +3,7 @@
 // Handles: server_hello / client_hello handshake, subscribe/unsubscribe,
 // ping/pong heartbeat, resync_required, error frames, event.* dispatch.
 
+import { traceWsIn, traceWsLifecycle, traceWsOut } from '../../debug/trace';
 import { classifyFrame } from './agentEventProjector';
 import type { WireEvent, WireServerFrame } from './wire';
 
@@ -78,18 +79,22 @@ export class DaemonEventSocket {
   connect(): void {
     if (this.ws !== null || this.closed) return;
 
+    traceWsLifecycle('connect', { url: this.wsUrl, attempt: this.reconnectAttempts });
     const ws = new WebSocket(this.wsUrl);
     this.ws = ws;
 
     ws.onopen = () => {
       // Don't mark as connected yet — wait for server_hello
+      traceWsLifecycle('open');
     };
 
     ws.onmessage = (ev: MessageEvent) => {
       try {
         const frame = JSON.parse(String(ev.data)) as WireServerFrame;
+        traceWsIn(frame);
         this.handleFrame(frame);
       } catch (err) {
+        traceWsLifecycle('parse-error', { error: String(err) });
         this.handlers.onError(0, `Failed to parse WS frame: ${String(err)}`, false);
       }
     };
@@ -97,10 +102,12 @@ export class DaemonEventSocket {
     ws.onerror = () => {
       // The error details are not exposed by the browser WS API; the close
       // event with a reason code follows immediately.
+      traceWsLifecycle('error');
       this.handlers.onError(0, 'WebSocket error', false);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev?: CloseEvent) => {
+      traceWsLifecycle('close', ev ? { code: ev.code, reason: ev.reason, wasClean: ev.wasClean } : undefined);
       this.connected = false;
       this.ws = null;
       this.handlers.onConnectionState(false);
@@ -117,6 +124,7 @@ export class DaemonEventSocket {
     const base = Math.min(30_000, 1000 * 2 ** this.reconnectAttempts);
     const delay = base + Math.floor(Math.random() * 250); // jitter
     this.reconnectAttempts += 1;
+    traceWsLifecycle('reconnect-scheduled', { delayMs: delay, attempt: this.reconnectAttempts });
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
@@ -347,6 +355,7 @@ export class DaemonEventSocket {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     try {
       this.ws.send(JSON.stringify(msg));
+      traceWsOut(msg);
     } catch {
       // Ignore send errors (socket closing races)
     }

@@ -3,6 +3,7 @@
 
 import { buildRestUrl } from '../config';
 import { DaemonApiError, DaemonNetworkError } from '../errors';
+import { traceRestFailure, traceRestRequest, traceRestResponse } from '../../debug/trace';
 import type { WireEnvelope } from './wire';
 
 /** Per-request timeout. Without one, a hung connection (half-open TCP after a
@@ -48,6 +49,23 @@ function createRequestId(): string {
   return `${encodeBase32(Date.now(), 10)}${randomBase32(16)}`;
 }
 
+/** Trace-only FormData summary: field names + file name/size/type, never content. */
+function describeFormData(formData: FormData): unknown {
+  try {
+    const fields: Array<Record<string, unknown>> = [];
+    formData.forEach((value, field) => {
+      if (typeof value === 'string') {
+        fields.push({ field, value });
+      } else {
+        fields.push({ field, file: value.name, size: value.size, type: value.type });
+      }
+    });
+    return { formData: fields };
+  } catch {
+    return '[FormData]';
+  }
+}
+
 async function readResponsePreview(response: Response): Promise<string | undefined> {
   try {
     const text = await response.text();
@@ -76,10 +94,13 @@ export class DaemonHttpClient {
     const headers: Record<string, string> = {
       'X-Request-Id': requestId,
     };
+    const startedAt = Date.now();
+    traceRestRequest({ method: 'POST', path, url, requestId, body: describeFormData(formData) });
     let response: Response;
     try {
       response = await fetch(url, { method: 'POST', headers, body: formData, signal: timeoutSignal() });
     } catch (err) {
+      traceRestFailure({ method: 'POST', path, requestId, phase: 'fetch', durationMs: Date.now() - startedAt, error: err });
       throw new DaemonNetworkError({
         message: `Network error calling POST ${path}`,
         cause: err,
@@ -96,6 +117,7 @@ export class DaemonHttpClient {
     try {
       envelope = (await response.json()) as WireEnvelope<T>;
     } catch (err) {
+      traceRestFailure({ method: 'POST', path, requestId, phase: 'parse', durationMs: Date.now() - startedAt, status: response.status, error: err });
       throw new DaemonNetworkError({
         message: `Failed to parse JSON response from POST ${path}`,
         cause: err,
@@ -111,6 +133,17 @@ export class DaemonHttpClient {
         bodyPreview: await readResponsePreview(responseForDiagnostics),
       });
     }
+    traceRestResponse({
+      method: 'POST',
+      path,
+      requestId,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      code: envelope.code,
+      msg: envelope.msg,
+      envelopeRequestId: envelope.request_id,
+      data: envelope.data,
+    });
     if (envelope.code !== 0) {
       throw new DaemonApiError({
         code: envelope.code,
@@ -159,6 +192,9 @@ export class DaemonHttpClient {
       headers['Content-Type'] = 'application/json; charset=utf-8';
     }
 
+    const startedAt = Date.now();
+    traceRestRequest({ method, path, url, requestId, body });
+
     // Execute fetch
     let response: Response;
     try {
@@ -169,6 +205,7 @@ export class DaemonHttpClient {
         signal: timeoutSignal(),
       });
     } catch (err) {
+      traceRestFailure({ method, path, requestId, phase: 'fetch', durationMs: Date.now() - startedAt, error: err });
       throw new DaemonNetworkError({
         message: `Network error calling ${method} ${path}`,
         cause: err,
@@ -187,6 +224,7 @@ export class DaemonHttpClient {
     try {
       envelope = (await response.json()) as WireEnvelope<T>;
     } catch (err) {
+      traceRestFailure({ method, path, requestId, phase: 'parse', durationMs: Date.now() - startedAt, status: response.status, error: err });
       throw new DaemonNetworkError({
         message: `Failed to parse JSON response from ${method} ${path}`,
         cause: err,
@@ -202,6 +240,18 @@ export class DaemonHttpClient {
         bodyPreview: await readResponsePreview(responseForDiagnostics),
       });
     }
+
+    traceRestResponse({
+      method,
+      path,
+      requestId,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      code: envelope.code,
+      msg: envelope.msg,
+      envelopeRequestId: envelope.request_id,
+      data: envelope.data,
+    });
 
     // Unwrap: code 0 = success; allowed non-zero = return data; else throw
     if (envelope.code !== 0 && !allowCodes.includes(envelope.code)) {

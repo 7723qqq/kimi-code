@@ -20,6 +20,8 @@ import MobileSwitcherSheet from './components/MobileSwitcherSheet.vue';
 import MobileSettingsSheet from './components/MobileSettingsSheet.vue';
 import Onboarding from './components/Onboarding.vue';
 import GlobalLoading from './components/GlobalLoading.vue';
+import DebugPanel from './debug/DebugPanel.vue';
+import { isTraceEnabled } from './debug/trace';
 import { useKimiWebClient } from './composables/useKimiWebClient';
 import { useIsMobile } from './composables/useIsMobile';
 import type { ThinkingLevel } from './api/types';
@@ -28,6 +30,9 @@ import type { FilePreviewRequest, ToolMedia } from './types';
 const client = useKimiWebClient();
 provide('resolveImage', client.resolveImageUrl);
 const { t } = useI18n();
+
+// KAP/daemon debug panel — opt-in via ?debug=1 or localStorage kimi-web.debug=1.
+const debugEnabled = isTraceEnabled();
 
 // Narrow viewports (≤640px) render the single-column mobile shell; desktop is
 // unchanged. jsdom defaults to false (desktop) so component tests are unaffected.
@@ -802,6 +807,9 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
 
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
+
+    <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
+    <DebugPanel v-if="debugEnabled" />
 
     <!-- Mobile switcher bottom-sheet: workspace groups + sessions (mirrors the
          desktop sidebar) -->
