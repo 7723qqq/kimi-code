@@ -36,11 +36,29 @@ describe('user message origin filtering (TUI parity)', () => {
   it('shows user-typed slash commands, hides model/nested skill activations', () => {
     expect(
       shownTexts([
-        userMsg('/compact', { kind: 'skill_activation', trigger: 'user-slash' }),
-        userMsg('skill body', { kind: 'skill_activation', trigger: 'model-tool' }),
-        userMsg('nested', { kind: 'skill_activation', trigger: 'nested-skill' }),
+        userMsg('body', { kind: 'skill_activation', trigger: 'user-slash', skillName: 'compact', skillArgs: '/compact' }),
+        userMsg('skill body', { kind: 'skill_activation', trigger: 'model-tool', skillName: 'review' }),
+        userMsg('nested', { kind: 'skill_activation', trigger: 'nested-skill', skillName: 'brainstorm' }),
       ]),
     ).toEqual(['/compact']);
+  });
+
+  it('strips XML body and surfaces skillActivation metadata for slash skills', () => {
+    const turns = messagesToTurns(
+      [
+        userMsg('User activated the skill "review". Follow the loaded skill instructions.\n\n<kimi-skill-loaded name="review" trigger="user-slash" source="project" args="src/app.ts">\nbody\n</kimi-skill-loaded>', {
+          kind: 'skill_activation',
+          trigger: 'user-slash',
+          skillName: 'review',
+          skillArgs: 'src/app.ts',
+        }),
+      ],
+      [],
+    );
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.role).toBe('user');
+    expect(turns[0]!.text).toBe('src/app.ts');
+    expect(turns[0]!.skillActivation).toEqual({ name: 'review', args: 'src/app.ts' });
   });
 
   it.each([

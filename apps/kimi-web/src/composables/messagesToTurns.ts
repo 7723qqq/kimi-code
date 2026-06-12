@@ -454,10 +454,25 @@ export function messagesToTurns(
       // Hide system-injected user turns (TUI parity) — they end the previous
       // assistant turn but aren't rendered as a user bubble.
       if (!isDisplayableUserMessage(msg)) continue;
+
+      const origin = msg.metadata?.['origin'] as
+        | { kind?: string; skillName?: string; skillArgs?: string; trigger?: string }
+        | undefined;
+      const isSkillActivation =
+        origin?.kind === 'skill_activation' && origin?.trigger === 'user-slash';
+
       const textParts: string[] = [];
       const images: { url: string; alt?: string }[] = [];
       for (const c of msg.content) {
-        if (c.type === 'text') textParts.push(c.text);
+        if (c.type === 'text') {
+          if (isSkillActivation) {
+            // Skill activation messages carry the raw XML block; we strip it and
+            // surface only the user-provided args as the "user input" text.
+            textParts.push(origin.skillArgs ?? '');
+          } else {
+            textParts.push(c.text);
+          }
+        }
         const url = resolveImageUrl(c);
         if (url) images.push({ url, alt: c.type === 'file' ? c.name : undefined });
       }
@@ -467,6 +482,9 @@ export function messagesToTurns(
         no: no++,
         text: textParts.join('\n'),
         images: images.length > 0 ? images : undefined,
+        skillActivation: isSkillActivation
+          ? { name: origin.skillName!, args: origin.skillArgs }
+          : undefined,
       });
       continue;
     }

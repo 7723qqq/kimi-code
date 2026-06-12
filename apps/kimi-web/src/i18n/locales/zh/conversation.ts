@@ -10,4 +10,5 @@ export default {
   viewSummary: '查看摘要',
   summaryTitle: '压缩摘要',
   manuallyAborted: '您已手动终止',
+  activatedSkill: '已激活技能: {name}',
 } as const;

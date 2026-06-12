@@ -10,4 +10,5 @@ export default {
   viewSummary: 'View summary',
   summaryTitle: 'Compaction summary',
   manuallyAborted: 'Manually stopped',
+  activatedSkill: 'Activated skill: {name}',
 } as const;

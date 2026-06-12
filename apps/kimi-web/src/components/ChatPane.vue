@@ -278,8 +278,16 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
             loading="lazy"
           />
         </div>
+        <!-- Skill activation card (replaces raw XML) -->
+        <div v-if="turn.skillActivation" class="skill-act">
+          <div class="skill-act-head">
+            <span class="skill-act-arrow">▶</span>
+            <span>{{ t('conversation.activatedSkill', { name: turn.skillActivation.name }) }}</span>
+          </div>
+          <div v-if="turn.skillActivation.args" class="skill-act-args">{{ turn.skillActivation.args }}</div>
+        </div>
         <!-- User input renders verbatim (pre-wrap), never through Markdown -->
-        <div class="u-text">{{ turn.text }}</div>
+        <div v-else class="u-text">{{ turn.text }}</div>
       </div>
 
       <!-- Compaction divider — prior turns stay untouched; summary opens in
@@ -400,7 +408,16 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
           </div>
 
           <!-- User input renders verbatim (pre-wrap), never through Markdown -->
-          <div v-if="turn.role === 'user'" class="u-text">{{ turn.text }}</div>
+          <div v-if="turn.role === 'user'" class="u-text">
+            <div v-if="turn.skillActivation" class="skill-act">
+              <div class="skill-act-head">
+                <span class="skill-act-arrow">▶</span>
+                <span>{{ t('conversation.activatedSkill', { name: turn.skillActivation.name }) }}</span>
+              </div>
+              <div v-if="turn.skillActivation.args" class="skill-act-args">{{ turn.skillActivation.args }}</div>
+            </div>
+            <template v-else>{{ turn.text }}</template>
+          </div>
 
           <!-- Thinking + message text + tool cards, interleaved in original call order. -->
           <template v-else>
@@ -728,6 +745,32 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 /* Desktop line-turns sending placeholder */
 .sending-line .tx {
   padding-top: 2px;
+}
+
+/* Skill activation card (replaces raw <kimi-skill-loaded> XML) */
+.skill-act {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.skill-act-head {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blue2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.skill-act-arrow {
+  color: var(--blue);
+  font-size: 11px;
+}
+.skill-act-args {
+  font-size: 12.5px;
+  color: var(--muted);
+  padding-left: 17px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Mobile font bump (+2px) */

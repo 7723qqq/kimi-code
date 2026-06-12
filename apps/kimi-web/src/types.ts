@@ -144,6 +144,9 @@ export interface ChatTurn {
       prior turns and renders this as a separator line; `text` holds the
       LLM-generated summary, opened in the right-side panel on click. */
   compaction?: { trigger?: 'manual' | 'auto'; tokensBefore?: number; tokensAfter?: number };
+  /** Skill activation metadata: when a user turn was triggered by a slash
+      command (/skill), this holds the skill name and args for display. */
+  skillActivation?: { name: string; args?: string };
 }
 
 /**
