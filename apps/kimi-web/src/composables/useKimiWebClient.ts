@@ -1926,11 +1926,19 @@ async function selectSession(
   opts?: { urlMode?: SessionUrlMode },
 ): Promise<void> {
   const messagesLoaded = hasLoadedMessages(sessionId);
+  // A session the daemon reports as empty (messageCount 0) has nothing to load:
+  // its snapshot is an empty array. Showing the chat-pane loading state until
+  // that arrives flashes the chat pane before the empty-composer. Treat a
+  // known-empty session as "nothing to wait for" so the empty-composer renders
+  // immediately with no flash.
+  const knownEmpty =
+    !messagesLoaded &&
+    (rawState.sessions.find((s) => s.id === sessionId)?.messageCount ?? -1) === 0;
   try {
     // Write the URL synchronously (before any await) so rapid clicks lay down
     // history entries in click order.
     writeSessionUrl(sessionId, opts?.urlMode ?? 'push');
-    rawState.sessionLoading = !messagesLoaded;
+    rawState.sessionLoading = !messagesLoaded && !knownEmpty;
     rawState.activeSessionId = sessionId;
     // A diff belongs to the session it was loaded from — drop it on switch.
     clearFileDiff();

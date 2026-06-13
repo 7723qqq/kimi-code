@@ -128,6 +128,42 @@ describe('useKimiWebClient session memory cache', () => {
     });
   });
 
+  it('does not raise the loading state when selecting a known-empty unloaded session', async () => {
+    const { client, getHandlers } = await setup([]);
+    await client.createSession('/repo');
+
+    // A second, never-opened session whose daemon-reported messageCount is 0.
+    const empty = session('sess_empty'); // messageCount: 0
+    getHandlers().onEvent(
+      { type: 'sessionCreated', session: empty },
+      { sessionId: 'sess_empty', seq: 1 },
+    );
+
+    const pending = client.selectSession('sess_empty');
+    // Synchronous part of selectSession already ran. The session is known empty,
+    // so we never flip the chat-pane loading state on (which would flash the
+    // chat pane before the empty-composer).
+    expect(client.sessionLoading.value).toBe(false);
+    await pending.catch(() => {});
+    expect(client.sessionLoading.value).toBe(false);
+  });
+
+  it('raises the loading state when selecting a non-empty unloaded session', async () => {
+    const { client, getHandlers } = await setup([]);
+    await client.createSession('/repo');
+
+    const filled = { ...session('sess_filled'), messageCount: 3 };
+    getHandlers().onEvent(
+      { type: 'sessionCreated', session: filled },
+      { sessionId: 'sess_filled', seq: 1 },
+    );
+
+    const pending = client.selectSession('sess_filled');
+    // A session with history shows the loading state until the snapshot arrives.
+    expect(client.sessionLoading.value).toBe(true);
+    await pending.catch(() => {});
+  });
+
   it('re-subscribes an L1 hit with the reducer-maintained latest seq', async () => {
     const initial = userMessage('sess_1', 'msg_1');
     const { api, client, eventConn, getHandlers } = await setup([initial]);
