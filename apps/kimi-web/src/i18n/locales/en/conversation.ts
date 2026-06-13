@@ -3,6 +3,7 @@ export default {
   newMessages: 'Latest messages',
   loading: 'Loading…',
   emptyWorkspaceHint: 'Send in {name}',
+  switchWorkspace: 'Switch workspace',
   compacting: 'Compacting context…',
   compactedPlain: 'Context compacted',
   compactedAuto: 'Context auto-compacted',

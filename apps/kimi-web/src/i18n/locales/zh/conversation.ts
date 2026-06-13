@@ -3,6 +3,7 @@ export default {
   newMessages: '最新消息',
   loading: '加载中…',
   emptyWorkspaceHint: '在 {name} 中发送',
+  switchWorkspace: '切换工作区',
   compacting: '正在压缩上下文…',
   compactedPlain: '上下文已压缩',
   compactedAuto: '已自动压缩上下文',

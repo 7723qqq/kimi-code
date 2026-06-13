@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivityState, ActivationBadges, ApprovalBlock, ChatTurn, ConnectionState, ConversationStatus, DiffViewLine, FilePreviewRequest, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, UIQuestion } from '../types';
+import type { ActivityState, ActivationBadges, ApprovalBlock, ChatTurn, ConnectionState, ConversationStatus, DiffViewLine, FilePreviewRequest, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, UIQuestion, WorkspaceView } from '../types';
 import type { AppGoal, AppModel, AppSkill, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
 import type { SwarmGroup } from '../composables/swarmGroups';
 import { usePaneLayout } from '../composables/usePaneLayout';
@@ -74,6 +74,10 @@ const props = defineProps<{
   skills?: AppSkill[];
   /** Workspace name shown in the empty-session hint above the centred composer. */
   workspaceName?: string;
+  /** Workspaces for the empty-composer picker (start a conversation elsewhere). */
+  workspaces?: WorkspaceView[];
+  /** Active workspace id, to highlight the current entry in the picker. */
+  activeWorkspaceId?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -97,7 +101,20 @@ const emit = defineEmits<{
   openMedia: [media: ToolMedia];
   openThinking: [target: { turnId: string; blockIndex: number }];
   openCompaction: [target: { turnId: string }];
+  /** Empty-composer workspace picker: start a new conversation elsewhere. */
+  selectWorkspace: [workspaceId: string];
 }>();
+
+// Empty-composer workspace picker.
+const wsPickOpen = ref(false);
+const activeWorkspaceLabel = computed(() => {
+  const w = props.workspaces?.find((ws) => ws.id === props.activeWorkspaceId);
+  return w?.name ?? props.workspaceName ?? '';
+});
+function pickWorkspace(id: string): void {
+  wsPickOpen.value = false;
+  if (id !== props.activeWorkspaceId) emit('selectWorkspace', id);
+}
 
 const { t } = useI18n();
 
@@ -763,7 +780,34 @@ onUnmounted(() => {
           <!-- Empty session: Composer rendered in the centre of the pane -->
           <div class="empty-spacer" />
           <div class="empty-hint">
-            <span class="empty-hint-text">{{ workspaceName ? t('conversation.emptyWorkspaceHint', { name: workspaceName }) : t('composer.emptyConversation') }}</span>
+            <span class="empty-hint-text">{{ t('composer.emptyConversation') }}</span>
+            <!-- Workspace picker: choose where this new conversation starts. -->
+            <div v-if="(workspaces?.length ?? 0) > 0" class="ws-pick">
+              <button type="button" class="ws-pick-btn" :title="t('conversation.switchWorkspace')" @click.stop="wsPickOpen = !wsPickOpen">
+                <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+                  <path d="M1 3.5V2.5A1 1 0 0 1 2 1.5h3.5l1.3 2h5.2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1z"/>
+                  <path d="M1 5.5h12"/>
+                </svg>
+                <span class="ws-pick-name">{{ activeWorkspaceLabel }}</span>
+                <svg class="ws-pick-chev" :class="{ open: wsPickOpen }" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="4,6 8,10 12,6" />
+                </svg>
+              </button>
+              <div v-if="wsPickOpen" class="ws-pick-backdrop" @click="wsPickOpen = false" />
+              <div v-if="wsPickOpen" class="ws-pick-menu">
+                <button
+                  v-for="w in workspaces"
+                  :key="w.id"
+                  type="button"
+                  class="ws-pick-item"
+                  :class="{ on: w.id === activeWorkspaceId }"
+                  @click.stop="pickWorkspace(w.id)"
+                >
+                  <span class="ws-pick-item-name">{{ w.name }}</span>
+                  <span class="ws-pick-item-path">{{ w.shortPath }}</span>
+                </button>
+              </div>
+            </div>
           </div>
           <Composer
             class="empty-composer"
@@ -1080,6 +1124,10 @@ onUnmounted(() => {
 /* Empty-session hint above the centred composer */
 .empty-hint {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
   text-align: center;
   padding: 0 16px 16px;
   color: var(--ink);
@@ -1095,6 +1143,70 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Empty-composer workspace picker */
+.ws-pick {
+  position: relative;
+  font-family: var(--mono);
+}
+.ws-pick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 320px;
+  padding: 5px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ws-pick-btn:hover { border-color: var(--bd); color: var(--ink); }
+.ws-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-pick-chev { flex: none; color: var(--muted); transition: transform 0.15s; }
+.ws-pick-chev.open { transform: rotate(180deg); }
+.ws-pick-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+}
+.ws-pick-menu {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 220px;
+  max-width: min(86vw, 340px);
+  max-height: 50vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
+  padding: 4px;
+}
+.ws-pick-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-family: var(--mono);
+}
+.ws-pick-item:hover { background: var(--panel2); }
+.ws-pick-item.on { background: var(--soft); }
+.ws-pick-item-name { font-size: 13px; color: var(--ink); }
+.ws-pick-item.on .ws-pick-item-name { color: var(--blue2); font-weight: 600; }
+.ws-pick-item-path { font-size: 11px; color: var(--muted); }
 
 /* Larger textarea in the centred empty-session composer */
 :deep(.empty-composer .ph) {

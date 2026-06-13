@@ -459,6 +459,18 @@ function blinkOnce(): void {
           <span class="ch-beta">beta</span>
         </div>
         <button
+          type="button"
+          class="new-chat-btn"
+          :title="t('sidebar.newSession')"
+          :aria-label="t('sidebar.newSession')"
+          @click.stop="emit('create')"
+        >
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10.5 2.5l3 3L6 13l-3.5.5.5-3.5z" />
+            <path d="M9.5 3.5l3 3" />
+          </svg>
+        </button>
+        <button
           ref="triggerRef"
           type="button"
           class="settings-btn"
@@ -861,6 +873,8 @@ function blinkOnce(): void {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* Take the row's slack so the action buttons group together on the right. */
+  flex: 1;
 }
 .ch-name {
   font-size: 12.5px;
@@ -883,6 +897,7 @@ function blinkOnce(): void {
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
+.new-chat-btn,
 .settings-btn {
   flex: none;
   width: 28px;
@@ -897,6 +912,7 @@ function blinkOnce(): void {
   cursor: pointer;
   padding: 0;
 }
+.new-chat-btn:hover,
 .settings-btn:hover { background: var(--soft); color: var(--ink); }
 
 /* Action buttons */
