@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs';
 
 import {
   ErrorCode,
+  fsDiffRequestSchema,
   fsGitStatusRequestSchema,
   fsGrepRequestSchema,
   fsListManyRequestSchema,
@@ -14,6 +15,7 @@ import {
   fsSearchRequestSchema,
   fsStatManyRequestSchema,
   fsStatRequestSchema,
+  type FsDiffRequest,
   type FsGitStatusRequest,
   type FsGrepRequest,
   type FsListManyRequest,
@@ -101,6 +103,7 @@ const FS_ACTIONS = [
   'search',
   'grep',
   'git_status',
+  'diff',
   'open',
   'reveal',
 ] as const;
@@ -130,7 +133,7 @@ export function registerFsRoutes(
         [ErrorCode.FS_GIT_UNAVAILABLE]: {},
       },
       description:
-        'Filesystem action dispatcher. Supported actions: list, read, list_many, stat, stat_many, search, grep, git_status, open, reveal.',
+        'Filesystem action dispatcher. Supported actions: list, read, list_many, stat, stat_many, search, grep, git_status, diff, open, reveal.',
       tags: ['fs'],
       operationId: 'fsAction',
     },
@@ -187,6 +190,9 @@ export function registerFsRoutes(
             return;
           case 'git_status':
             await handleGitStatus(ix, session_id, req, reply);
+            return;
+          case 'diff':
+            await handleDiff(ix, session_id, req, reply);
             return;
           case 'open':
             await handleOpen(ix, session_id, req, reply);
@@ -459,6 +465,24 @@ async function handleGitStatus(
   const body: FsGitStatusRequest = parsed.data;
   const data = await ix.invokeFunction((a) =>
     a.get(IFsGitService).status(sessionId, body),
+  );
+  reply.send(okEnvelope(data, req.id));
+}
+
+async function handleDiff(
+  ix: IInstantiationService,
+  sessionId: string,
+  req: { id: string; body: unknown },
+  reply: { send(payload: unknown): unknown },
+): Promise<void> {
+  const parsed = fsDiffRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    return;
+  }
+  const body: FsDiffRequest = parsed.data;
+  const data = await ix.invokeFunction((a) =>
+    a.get(IFsGitService).diff(sessionId, body),
   );
   reply.send(okEnvelope(data, req.id));
 }

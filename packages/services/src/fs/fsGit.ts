@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { createDecorator, type IDisposable } from '@moonshot-ai/agent-core';
 import type {
+  FsDiffRequest,
+  FsDiffResponse,
   FsGitStatus,
   FsGitStatusRequest,
   FsGitStatusResponse,
@@ -26,6 +28,8 @@ export interface IFsGitService extends IDisposable {
     sessionId: string,
     req: FsGitStatusRequest,
   ): Promise<FsGitStatusResponse>;
+
+  diff(sessionId: string, req: FsDiffRequest): Promise<FsDiffResponse>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

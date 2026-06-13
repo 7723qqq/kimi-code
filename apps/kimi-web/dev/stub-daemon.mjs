@@ -1460,6 +1460,36 @@ const server = http.createServer((req, res) => {
       return res.end(ok(gs));
     }
 
+    // ---- fs:diff ----
+    // POST /api/v1/sessions/{id}/fs:diff  body: { path }
+    if (seg[0] === 'sessions' && seg[2] === 'fs:diff' && seg.length === 3 && method === 'POST') {
+      const session = sessions.find((s) => s.id === sid);
+      if (!session) return res.end(fail(40401, `session ${sid} does not exist`));
+      const b = json();
+      if (!b.path) return res.end(fail(40001, 'path: required'));
+      // Deterministic fake unified diff so the Changed → diff flow is demoable.
+      const diff = [
+        `diff --git a/${b.path} b/${b.path}`,
+        'index 1111111..2222222 100644',
+        `--- a/${b.path}`,
+        `+++ b/${b.path}`,
+        '@@ -1,7 +1,9 @@',
+        ` // ${b.path}`,
+        ' ',
+        '-export function oldImpl(input) {',
+        '-  return null;',
+        '+export function newImpl(input) {',
+        '+  // handle the empty-state branch the old impl missed',
+        '+  if (!input) return fallback();',
+        '+  return compute(input);',
+        ' }',
+        ' ',
+        ' export const VERSION = 2;',
+        '',
+      ].join('\n');
+      return res.end(ok({ path: b.path, diff, truncated: false }));
+    }
+
     // ---- fs:list ----
     // POST /api/v1/sessions/{id}/fs:list  body: { path, depth?, include_git_status? }
     if (seg[0] === 'sessions' && seg[2] === 'fs:list' && seg.length === 3 && method === 'POST') {

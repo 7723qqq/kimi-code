@@ -39,6 +39,11 @@
  *     Response data: FsGitStatusResponse  { branch, ahead, behind, entries }
  *     Errors: 40401, 40908 (not a git repo), 41304
  *
+ *   POST /v1/sessions/{sid}/fs:diff
+ *     Body: FsDiffRequest  { path }
+ *     Response data: FsDiffResponse  { path, diff, truncated }
+ *     Errors: 40401, 40409, 40908 (not a git repo), 41304
+ *
  *   GET /v1/sessions/{sid}/fs/{path}:download
  *     Response: binary stream or envelope (40401 / 40409 / 41304)
  *
@@ -227,6 +232,18 @@ export const fsGitStatusResponseSchema = z.object({
   entries: z.record(z.string(), fsGitStatusSchema),
 });
 export type FsGitStatusResponse = z.infer<typeof fsGitStatusResponseSchema>;
+
+export const fsDiffRequestSchema = z.object({
+  path: z.string().min(1),
+});
+export type FsDiffRequest = z.infer<typeof fsDiffRequestSchema>;
+
+export const fsDiffResponseSchema = z.object({
+  path: z.string(),
+  diff: z.string(),
+  truncated: z.boolean(),
+});
+export type FsDiffResponse = z.infer<typeof fsDiffResponseSchema>;
 
 export const fsDownloadParamsSchema = z.object({
   path: z.string().min(1),

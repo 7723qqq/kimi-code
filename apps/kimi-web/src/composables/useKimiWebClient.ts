@@ -1504,8 +1504,13 @@ async function loadFileDiff(path: string): Promise<void> {
     if (selectedDiffPath.value !== path) return;
     fileDiffLines.value = parseDiff(result.diff);
   } catch (err) {
+    // A single file's diff failing (a new/untracked/binary/deleted file the
+    // daemon can't diff) is LOCAL to this pane, not a session-level fault — the
+    // DiffView already shows a graceful "no diff" state when the lines are
+    // empty. Surfacing it as a global "kimi server api" error toast on a routine
+    // file click is disproportionate, so log it for the trace export instead.
     if (selectedDiffPath.value === path) fileDiffLines.value = [];
-    pushOperationFailure('loadFileDiff', err, { sessionId: sid });
+    console.warn('[loadFileDiff] diff unavailable for', path, err);
   } finally {
     if (selectedDiffPath.value === path) fileDiffLoading.value = false;
   }

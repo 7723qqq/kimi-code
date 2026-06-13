@@ -4,11 +4,21 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 
 import { Disposable, InstantiationType, registerSingleton } from '@moonshot-ai/agent-core';
-import type { FsGitStatusRequest, FsGitStatusResponse } from '@moonshot-ai/protocol';
+import type {
+  FsDiffRequest,
+  FsDiffResponse,
+  FsGitStatusRequest,
+  FsGitStatusResponse,
+} from '@moonshot-ai/protocol';
 import { ISessionService } from '../session/session';
 
+import { FsPathNotFoundError } from './fs';
 import { IFsGitService, FsGitUnavailableError, parsePorcelain } from './fsGit';
 import { resolveSafePath } from './fsPathSafety';
+
+/** Cap a single file's unified diff (a runaway generated file should not blow
+    up the envelope); the response carries `truncated` so the UI can say so. */
+const DIFF_MAX_BYTES = 1_048_576;
 
 export class FsGitService extends Disposable implements IFsGitService {
   readonly _serviceBrand: undefined;
@@ -56,6 +66,86 @@ export class FsGitService extends Disposable implements IFsGitService {
     }
 
     return parsePorcelain(porcRes.stdout, filterSet);
+  }
+
+  async diff(sessionId: string, req: FsDiffRequest): Promise<FsDiffResponse> {
+    const session = await this.sessions.get(sessionId);
+    const cwd = session.metadata.cwd;
+    const realCwd = await fs.realpath(cwd);
+    const safe = await resolveSafePath(realCwd, req.path);
+    const rel = safe.relative;
+
+    const insideRes = await runCommand('git', ['rev-parse', '--is-inside-work-tree'], realCwd);
+    if (insideRes.exitCode !== 0 || insideRes.stdout.trim() !== 'true') {
+      throw new FsGitUnavailableError(
+        realCwd,
+        insideRes.stderr.trim() || `git rev-parse exit ${insideRes.exitCode}`,
+      );
+    }
+
+    const statusRes = await runCommand(
+      'git',
+      ['status', '--porcelain=v1', '--', rel],
+      realCwd,
+    );
+    if (statusRes.exitCode !== 0) {
+      throw new FsGitUnavailableError(
+        realCwd,
+        statusRes.stderr.trim() || `git status exit ${statusRes.exitCode}`,
+      );
+    }
+    const untracked = statusRes.stdout.startsWith('??');
+
+    // A repo with no commits yet has no HEAD to diff against — every changed
+    // file is all-new there, same as the untracked case.
+    const headRes = await runCommand('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], realCwd);
+    const hasHead = headRes.exitCode === 0;
+
+    // An untracked file has no HEAD side; diff it against /dev/null so the UI
+    // gets an all-added hunk. `git diff --no-index` exits 1 when files differ.
+    let diffRes: RunResult;
+    if (untracked || !hasHead) {
+      diffRes = await runCommand(
+        'git',
+        ['diff', '--no-color', '--no-index', '--', '/dev/null', rel],
+        realCwd,
+      );
+      if (diffRes.exitCode !== 0 && diffRes.exitCode !== 1) {
+        throw new FsGitUnavailableError(
+          realCwd,
+          diffRes.stderr.trim() || `git diff exit ${diffRes.exitCode}`,
+        );
+      }
+    } else {
+      diffRes = await runCommand(
+        'git',
+        ['diff', '--no-color', 'HEAD', '--', rel],
+        realCwd,
+      );
+      if (diffRes.exitCode !== 0) {
+        throw new FsGitUnavailableError(
+          realCwd,
+          diffRes.stderr.trim() || `git diff exit ${diffRes.exitCode}`,
+        );
+      }
+      if (diffRes.stdout.length === 0 && statusRes.stdout.length === 0) {
+        // Not changed at all — distinguish "clean file" (empty diff is fine)
+        // from a path that doesn't exist anywhere.
+        const exists = await fs
+          .stat(safe.absolute)
+          .then(() => true)
+          .catch(() => false);
+        if (!exists) throw new FsPathNotFoundError(req.path);
+      }
+    }
+
+    const full = diffRes.stdout;
+    const truncated = full.length > DIFF_MAX_BYTES;
+    return {
+      path: rel,
+      diff: truncated ? full.slice(0, DIFF_MAX_BYTES) : full,
+      truncated,
+    };
   }
 }
 

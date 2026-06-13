@@ -734,13 +734,11 @@ export class DaemonKimiWebApi implements KimiWebApi {
 
   async getFileDiff(
     sessionId: string,
-    path?: string,
+    path: string,
   ): Promise<{ path: string; diff: string }> {
-    const body: Record<string, unknown> = {};
-    if (path !== undefined) body['path'] = path;
     const data = await this.http.post<WireDiffResult>(
       `/sessions/${encodeURIComponent(sessionId)}/fs:diff`,
-      body,
+      { path },
     );
     return { path: data.path, diff: data.diff };
   }

@@ -185,6 +185,11 @@ async function handleFileSelect(entry: FsEntry): Promise<void> {
 // ---------------------------------------------------------------------------
 const changedView = ref<'changed' | 'all'>('changed');
 
+// Non-git workspace (gitInfo is null): there is no Changed view to offer —
+// the Changed|All toggle is hidden and the full file tree shows directly.
+const hasGit = computed(() => (props.gitInfo ?? null) !== null);
+const filesView = computed<'changed' | 'all'>(() => (hasGit.value ? changedView.value : 'all'));
+
 // The "Changed" navigator can show a flat list or a directory tree (persisted).
 const CHANGED_LAYOUT_KEY = 'kimi-web.changed-layout';
 function loadChangedLayout(): 'list' | 'tree' {
@@ -680,7 +685,7 @@ onUnmounted(() => {
            half is visible; the divider only exists on desktop). -->
       <template v-else-if="active === 'files'">
         <div v-show="!mobile || !filesShowPreview" class="files-nav">
-          <div class="nav-seg">
+          <div v-if="hasGit" class="nav-seg">
             <div class="seg-group" role="group" :aria-label="t('fileTree.segLabel')">
               <button
                 type="button"
@@ -702,7 +707,7 @@ onUnmounted(() => {
             </div>
           </div>
           <!-- list/tree layout toggle for the Changed view -->
-          <div v-if="changedView === 'changed'" class="nav-tools">
+          <div v-if="filesView === 'changed'" class="nav-tools">
             <button
               type="button"
               class="layout-toggle"
@@ -715,12 +720,12 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="files-nav-body">
-            <template v-if="changedView === 'changed'">
+            <template v-if="filesView === 'changed'">
               <DiffView
                 v-if="changedLayout === 'list'"
                 mode="list"
                 :changes="changes ?? []"
-                :git-info="null"
+                :git-info="gitInfo ?? null"
                 @open="pickChanged"
               />
               <ChangedTree v-else :changes="changes ?? []" @open="pickChanged" />
@@ -758,7 +763,7 @@ onUnmounted(() => {
             :loading="previewLoading"
           />
           <div v-else class="files-empty">
-            {{ changedView === 'changed' ? t('fileTree.selectChanged') : t('fileTree.selectFile') }}
+            {{ filesView === 'changed' ? t('fileTree.selectChanged') : t('fileTree.selectFile') }}
           </div>
         </div>
       </template>

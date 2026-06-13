@@ -247,6 +247,158 @@ describe('POST /api/v1/sessions/{sid}/fs:git_status (W11.2)', () => {
   });
 });
 
+describe('POST /api/v1/sessions/{sid}/fs:diff', () => {
+  it('modified file: unified diff with -old/+new lines', async () => {
+    initRepo();
+    writeFileSync(join(workspace, 'seed.txt'), 'changed\n');
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:diff`,
+      payload: { path: 'seed.txt' },
+    });
+    const env = envelopeOf<{ path: string; diff: string; truncated: boolean }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data!.path).toBe('seed.txt');
+    expect(env.data!.diff).toContain('-seed');
+    expect(env.data!.diff).toContain('+changed');
+    expect(env.data!.truncated).toBe(false);
+  });
+
+  it('untracked file: all-added diff against /dev/null', async () => {
+    initRepo();
+    writeFileSync(join(workspace, 'new.txt'), 'brand new\n');
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:diff`,
+      payload: { path: 'new.txt' },
+    });
+    const env = envelopeOf<{ path: string; diff: string }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data!.diff).toContain('+brand new');
+    expect(env.data!.diff).not.toContain('-brand new');
+  });
+
+  it('deleted file: all-removed diff', async () => {
+    initRepo();
+    rmSync(join(workspace, 'seed.txt'));
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:diff`,
+      payload: { path: 'seed.txt' },
+    });
+    const env = envelopeOf<{ diff: string }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data!.diff).toContain('-seed');
+  });
+
+  it('clean tracked file: empty diff', async () => {
+    initRepo();
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:diff`,
+      payload: { path: 'seed.txt' },
+    });
+    const env = envelopeOf<{ diff: string }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data!.diff).toBe('');
+  });
+
+  it('repo without commits: untracked file still diffs all-added', async () => {
+    git(['init', '-b', 'main']);
+    writeFileSync(join(workspace, 'first.txt'), 'first\n');
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:diff`,
+      payload: { path: 'first.txt' },
+    });
+    const env = envelopeOf<{ diff: string }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data!.diff).toContain('+first');
+  });
+
+  it('nonexistent path → 40409', async () => {
+    initRepo();
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:diff`,
+      payload: { path: 'no-such-file.txt' },
+    });
+    const env = envelopeOf<null>(res.json());
+    expect(env.code).toBe(40409);
+  });
+
+  it('non-git workspace → 40908', async () => {
+    writeFileSync(join(workspace, 'plain.txt'), 'plain\n');
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:diff`,
+      payload: { path: 'plain.txt' },
+    });
+    const env = envelopeOf<null>(res.json());
+    expect(env.code).toBe(40908);
+  });
+
+  it('path escaping cwd → 41304', async () => {
+    initRepo();
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:diff`,
+      payload: { path: '../outside.txt' },
+    });
+    const env = envelopeOf<null>(res.json());
+    expect(env.code).toBe(41304);
+  });
+
+  it('missing path → 40001 validation', async () => {
+    initRepo();
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:diff`,
+      payload: {},
+    });
+    const env = envelopeOf<null>(res.json());
+    expect(env.code).toBe(40001);
+  });
+
+  it('40401 unknown session', async () => {
+    const r = await bootDaemon();
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: '/api/v1/sessions/sess_does_not_exist/fs:diff',
+      payload: { path: 'seed.txt' },
+    });
+    const env = envelopeOf<null>(res.json());
+    expect(env.code).toBe(40401);
+  });
+});
+
 describe('parsePorcelain (W11.2)', () => {
   it('parses a clean tree', () => {
     const out = parsePorcelain('## main\n', undefined);
