@@ -1910,15 +1910,15 @@ async function addWorkspaceByPath(root: string): Promise<void> {
 
 /**
  * Browse subdirectories under `path` (defaults to the daemon $HOME). Used by the
- * add-workspace folder browser. Defensive: returns an empty result on error so
- * the dialog falls back to the paste-path field.
+ * add-workspace folder browser. Defensive: returns an empty path on error so
+ * the dialog can fall back to the paste-path field.
  */
 async function browseFs(path?: string): Promise<import('../api/types').FsBrowseResult> {
   try {
     const api = getKimiWebApi();
     return await api.browseFs(path);
   } catch {
-    return { path: path ?? '', parent: null, entries: [] };
+    return { path: '', parent: null, entries: [] };
   }
 }
 

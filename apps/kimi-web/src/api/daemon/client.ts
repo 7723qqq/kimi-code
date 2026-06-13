@@ -882,8 +882,8 @@ export class DaemonKimiWebApi implements KimiWebApi {
 
   /**
    * Browse directories under `path` (defaults to $HOME on the daemon).
-   * PRESUMED — GET /api/v1/fs:browse?path=. On error returns an empty result so
-   * the picker degrades to paste-path + recentRoots.
+   * PRESUMED — GET /api/v1/fs:browse?path=. On error returns an empty path so
+   * the picker can distinguish "browse failed" from "directory has no children".
    */
   async browseFs(path?: string): Promise<FsBrowseResult> {
     try {
@@ -900,7 +900,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
         })),
       };
     } catch {
-      return { path: path ?? '', parent: null, entries: [] };
+      return { path: '', parent: null, entries: [] };
     }
   }
 

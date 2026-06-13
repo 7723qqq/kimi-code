@@ -59,7 +59,8 @@ async function setup() {
     submitPrompt: vi.fn(async () => ({ promptId: 'pr_1', userMessageId: 'msg_real' })),
     addWorkspace: vi.fn(async () => ({ id: 'ws_repo', root: '/repo', name: 'repo', isGitRepo: false, sessionCount: 0 })),
     listWorkspaces: vi.fn(async () => []),
-    getFsHome: vi.fn(async () => ({ path: '/home/user' })),
+    browseFs: vi.fn(async (path?: string) => ({ path: path ?? '/home/user', parent: null, entries: [] })),
+    getFsHome: vi.fn(async () => ({ home: '/home/user', recentRoots: [] })),
     listSessions: vi.fn(async () => ({ items: [], hasMore: false })),
     getHealth: vi.fn(async () => ({ ok: true })),
     getMeta: vi.fn(async () => ({ daemonVersion: '0.0.1' })),
@@ -201,6 +202,19 @@ describe('openWorkspaceDraft', () => {
     expect(client.activeSessionId.value).toBe('');
     expect(client.sessions.value).toHaveLength(1);
     expect(client.activeWorkspaceId.value).toBe('ws_repo');
+  });
+});
+
+describe('folder browser fallback', () => {
+  it('returns an empty path when browseFs fails so the dialog can fall back', async () => {
+    const { api, client } = await setup();
+    (api.browseFs as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fs browse unavailable'));
+
+    await expect(client.browseFs('/repo')).resolves.toEqual({
+      path: '',
+      parent: null,
+      entries: [],
+    });
   });
 });
 
