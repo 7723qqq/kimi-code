@@ -13,6 +13,7 @@ const tabs: { key: PaneKey; labelKey: string }[] = [
   { key: 'files', labelKey: 'sidebar.tabFiles' },
   { key: 'tasks', labelKey: 'sidebar.tabTasks' },
   { key: 'todo', labelKey: 'sidebar.tabTodo' },
+  { key: 'terminal', labelKey: 'sidebar.tabTerminal' },
 ];
 </script>
 

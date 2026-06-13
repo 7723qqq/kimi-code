@@ -25,6 +25,7 @@ export default {
   tabFiles: '文件',
   tabTasks: '后台任务',
   tabTodo: '待办',
+  tabTerminal: '终端',
   noSessions: '暂无对话',
   showMore: '展开更多 ({count})',
 };

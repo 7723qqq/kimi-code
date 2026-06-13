@@ -3,13 +3,14 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ChatTurn, ApprovalBlock, FilePreviewRequest, ToolMedia, TurnBlock } from '../types';
-
-const { t } = useI18n();
 import ToolCall from './ToolCall.vue';
 import Markdown from './Markdown.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import ActivityNotice from './ActivityNotice.vue';
+import AgentCard from './AgentCard.vue';
+import AgentGroup from './AgentGroup.vue';
 
+const { t } = useI18n();
 
 const MOON_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
 const MOON_INTERVAL_MS = 120;
@@ -94,7 +95,7 @@ const childBubble = computed(() => props.bubble || props.mobile);
 // every other turn renders statically.
 const streamingTurnId = computed<string | null>(() => {
   if (!props.running || props.turns.length === 0) return null;
-  const last = props.turns[props.turns.length - 1]!;
+  const last = props.turns.at(-1)!;
   return last.role === 'assistant' ? last.id : null;
 });
 
@@ -147,6 +148,14 @@ function turnPlainText(turn: ChatTurn): string {
     else if (blk.kind === 'text' && blk.text) parts.push(blk.text);
     else if (blk.kind === 'tool' && blk.tool.output && blk.tool.output.length > 0) {
       parts.push(`[${blk.tool.name}]\n${blk.tool.output.join('\n')}`);
+    } else if (blk.kind === 'agent') {
+      parts.push(`[agent] ${blk.member.name} - ${blk.member.phase}${blk.member.summary ? `\n${blk.member.summary}` : ''}`);
+    } else if (blk.kind === 'agentGroup') {
+      parts.push(
+        `[agents]\n${blk.members
+          .map((member) => `- ${member.name}: ${member.phase}${member.summary ? ` - ${member.summary}` : ''}`)
+          .join('\n')}`,
+      );
     }
   }
   return parts.join('\n\n');
@@ -163,6 +172,10 @@ function turnToMarkdown(turn: ChatTurn): string {
     } else if (blk.kind === 'tool' && blk.tool.output && blk.tool.output.length > 0) {
       const output = blk.tool.output.join('\n');
       parts.push(`\`\`\`\n[${blk.tool.name}]\n${output}\n\`\`\``);
+    } else if (blk.kind === 'agent') {
+      parts.push(`**Agent** ${blk.member.name} (${blk.member.phase})`);
+    } else if (blk.kind === 'agentGroup') {
+      parts.push(`**Agents**\n\n${blk.members.map((member) => `- ${member.name}: ${member.phase}`).join('\n')}`);
     }
   }
   return parts.join('\n\n');
@@ -254,7 +267,9 @@ type AssistantRenderBlock =
   | { kind: 'thinking'; thinking: string; sourceIndex: number }
   | { kind: 'text'; text: string; sourceIndex: number }
   | { kind: 'tool'; tool: ToolStackItem['tool']; sourceIndex: number }
-  | { kind: 'tool-stack'; tools: ToolStackItem[] };
+  | { kind: 'tool-stack'; tools: ToolStackItem[] }
+  | { kind: 'agent'; member: Extract<TurnBlock, { kind: 'agent' }>['member']; sourceIndex: number }
+  | { kind: 'agentGroup'; members: Extract<TurnBlock, { kind: 'agentGroup' }>['members']; sourceIndex: number };
 
 function rendersToolCard(block: Extract<TurnBlock, { kind: 'tool' }>): boolean {
   return !(block.tool.status === 'ok' && block.tool.media);
@@ -296,8 +311,12 @@ function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
     flushToolRun();
     if (block.kind === 'thinking') {
       rendered.push({ kind: 'thinking', thinking: block.thinking, sourceIndex });
-    } else {
+    } else if (block.kind === 'text') {
       rendered.push({ kind: 'text', text: block.text, sourceIndex });
+    } else if (block.kind === 'agent') {
+      rendered.push({ kind: 'agent', member: block.member, sourceIndex });
+    } else {
+      rendered.push({ kind: 'agentGroup', members: block.members, sourceIndex });
     }
   });
 
@@ -319,6 +338,8 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
     return `tool-stack-${block.tools[0]?.sourceIndex ?? index}`;
   }
   if (block.kind === 'tool') return toolStackKey({ tool: block.tool, sourceIndex: block.sourceIndex });
+  if (block.kind === 'agent') return `agent-${block.member.id}-${block.sourceIndex}`;
+  if (block.kind === 'agentGroup') return `agent-group-${block.members[0]?.id ?? block.sourceIndex}`;
   return `${block.kind}-${block.sourceIndex}`;
 }
 
@@ -391,6 +412,8 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
           <div v-else-if="blk.kind === 'tool-stack'" class="tool-stack">
             <ToolCall v-for="(item, si) in blk.tools" :key="toolStackKey(item)" :tool="item.tool" :mobile="childBubble" :stack-position="toolStackPosition(si, blk.tools.length)" @open-media="emit('openMedia', $event)" />
           </div>
+          <AgentCard v-else-if="blk.kind === 'agent'" :member="blk.member" />
+          <AgentGroup v-else-if="blk.kind === 'agentGroup'" :members="blk.members" />
           <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" @open-media="emit('openMedia', $event)" />
         </template>
         <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)" class="a-msg-ft">
@@ -501,6 +524,8 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
               <div v-else-if="blk.kind === 'tool-stack'" class="tool-stack">
                 <ToolCall v-for="(item, si) in blk.tools" :key="toolStackKey(item)" :tool="item.tool" :stack-position="toolStackPosition(si, blk.tools.length)" @open-media="emit('openMedia', $event)" />
               </div>
+              <AgentCard v-else-if="blk.kind === 'agent'" :member="blk.member" />
+              <AgentGroup v-else-if="blk.kind === 'agentGroup'" :members="blk.members" />
               <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" @open-media="emit('openMedia', $event)" />
             </template>
           </template>
@@ -592,6 +617,8 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 .tx > :deep(.think),
 .tx > :deep(.md),
 .tx > .tool-stack,
+.tx > :deep(.agent-card),
+.tx > :deep(.agent-group),
 .tx > :deep(.box),
 .tx > :deep(.media-tool) {
   margin-top: var(--chat-block-gap);
@@ -599,6 +626,8 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 .tx > :deep(.think:first-child),
 .tx > :deep(.md:first-child),
 .tx > .tool-stack:first-child,
+.tx > :deep(.agent-card:first-child),
+.tx > :deep(.agent-group:first-child),
 .tx > :deep(.box:first-child),
 .tx > :deep(.media-tool:first-child) {
   margin-top: 0;

@@ -77,7 +77,7 @@ const providers = [...seedProviders];
 const models = [...seedModels];
 
 // ---- Real OAuth singleton state ----
-let loggedIn = false;
+let loggedIn = process.env.STUB_LOGGED_IN === '1';
 let currentFlow = null; // { flow_id, provider, status, user_code, expires_in, interval, ... }
 
 // ---- in-memory state ----
@@ -250,7 +250,8 @@ const messages = {
     ], 'pr_s1_1'),
     mkMsg('msg_s1_5', 'ses_1', 'assistant', [
       toolResult('tc_s1_b', 'File edited successfully.', false),
-      t('修改完成，现在跑测试确认没有回归：'),
+      t('修改完成，我先让两个子代理并行检查风险，然后跑测试确认没有回归：'),
+      toolUse('tc_s1_agent', 'agent_swarm', { description: 'Review timeout configuration change', count: 2 }),
       toolUse('tc_s1_c', 'bash', { command: 'pnpm --filter @kimi-code/api test --run' }),
     ], 'pr_s1_1'),
     mkMsg('msg_s1_6', 'ses_1', 'assistant', [
@@ -344,6 +345,20 @@ const tasks = {
       status: 'running', created_at: now(), started_at: now(),
       output_preview: '$ pnpm build --filter @kimi-code/api\nvite v5.2.1 building for production...',
       output_bytes: 128,
+      subagent_phase: 'working',
+      subagent_type: 'coder',
+      parent_tool_call_id: 'tc_s1_agent',
+      swarm_index: 1,
+    },
+    {
+      id: 'task_4', session_id: 'ses_1', kind: 'subagent', description: 'Review timeout defaults',
+      status: 'completed', created_at: now(), started_at: now(), completed_at: now(),
+      output_preview: 'Default timeout remains backward compatible.',
+      output_bytes: 96,
+      subagent_phase: 'completed',
+      subagent_type: 'reviewer',
+      parent_tool_call_id: 'tc_s1_agent',
+      swarm_index: 2,
     },
     {
       id: 'task_2', session_id: 'ses_1', kind: 'bash', description: 'eslint packages/api/src',
@@ -362,6 +377,83 @@ const tasks = {
   ses_3: [],
   ses_4: [],
 };
+
+// ---- seed active goals ----
+
+const goals = {
+  ses_1: {
+    goal_id: 'goal_s1',
+    objective: 'Make API client timeout configurable without breaking existing callers.',
+    completion_criterion: 'Code accepts a timeout override, existing defaults stay compatible, and tests pass.',
+    status: 'active',
+    turns_used: 4,
+    tokens_used: 18400,
+    wall_clock_ms: 245000,
+    budget: {
+      token_budget: 50000,
+      remaining_tokens: 31600,
+      turn_budget: 8,
+      remaining_turns: 4,
+      wall_clock_budget_ms: 600000,
+      remaining_wall_clock_ms: 355000,
+      over_budget: false,
+    },
+  },
+};
+
+const terminals = {};
+const terminalSinks = new Map();
+
+function terminalKey(sessionId, terminalId) {
+  return `${sessionId}\0${terminalId}`;
+}
+
+function publicTerminal(record) {
+  const { buffer, next_seq, ...terminal } = record;
+  void buffer;
+  void next_seq;
+  return terminal;
+}
+
+function terminalList(sessionId) {
+  terminals[sessionId] = terminals[sessionId] || [];
+  return terminals[sessionId];
+}
+
+function emitTerminalOutput(record, data) {
+  record.next_seq = (record.next_seq || 0) + 1;
+  const frame = {
+    type: 'terminal_output',
+    seq: record.next_seq,
+    session_id: record.session_id,
+    terminal_id: record.id,
+    timestamp: now(),
+    payload: { data },
+  };
+  record.buffer = [...(record.buffer || []), frame].slice(-200);
+  const sinks = terminalSinks.get(terminalKey(record.session_id, record.id)) || new Set();
+  for (const ws of sinks) {
+    if (ws.readyState === 1) ws.send(JSON.stringify(frame));
+  }
+}
+
+function emitTerminalExit(record, exitCode) {
+  record.status = 'exited';
+  record.exited_at = now();
+  record.exit_code = exitCode;
+  const frame = {
+    type: 'terminal_exit',
+    session_id: record.session_id,
+    terminal_id: record.id,
+    timestamp: now(),
+    payload: { exit_code: exitCode },
+  };
+  record.buffer = [...(record.buffer || []), frame].slice(-200);
+  const sinks = terminalSinks.get(terminalKey(record.session_id, record.id)) || new Set();
+  for (const ws of sinks) {
+    if (ws.readyState === 1) ws.send(JSON.stringify(frame));
+  }
+}
 
 // ---- sequence counters ----
 
@@ -383,6 +475,22 @@ function broadcast(type, sessionId, payload) {
   const frame = JSON.stringify({ type, seq, session_id: sessionId, timestamp: now(), payload });
   for (const ws of sockets) if (ws.readyState === 1) ws.send(frame);
   return seq;
+}
+
+function sendEvent(ws, type, sessionId, payload) {
+  const seq = (seqBySession[sessionId] = (seqBySession[sessionId] || 0) + 1);
+  const session = sessions.find((s) => s.id === sessionId);
+  if (session) session.last_seq = seq;
+  if (ws.readyState === 1) {
+    ws.send(JSON.stringify({ type, seq, session_id: sessionId, timestamp: now(), payload }));
+  }
+  return seq;
+}
+
+function sendGoalSnapshots(ws, sessionIds) {
+  for (const sessionId of sessionIds) {
+    if (goals[sessionId]) sendEvent(ws, 'event.goal.updated', sessionId, { snapshot: goals[sessionId] });
+  }
 }
 
 // ---- raw mode flag ----
@@ -1159,6 +1267,43 @@ const server = http.createServer((req, res) => {
       return res.end(ok({ cancelled: true }));
     }
 
+    // ---- terminals ----
+    if (seg[0] === 'sessions' && seg[2] === 'terminals' && seg.length === 3 && method === 'GET') {
+      return res.end(ok({ items: terminalList(sid).map(publicTerminal) }));
+    }
+    if (seg[0] === 'sessions' && seg[2] === 'terminals' && seg.length === 3 && method === 'POST') {
+      const session = sessions.find((s) => s.id === sid);
+      if (!session) return res.end(fail(40401, `session ${sid} does not exist`));
+      const b = json();
+      const record = {
+        id: ulid('term_'),
+        session_id: sid,
+        cwd: session.metadata?.cwd || '/tmp',
+        shell: b.shell || '/bin/zsh',
+        cols: b.cols || 80,
+        rows: b.rows || 24,
+        status: 'running',
+        created_at: now(),
+        buffer: [],
+        next_seq: 0,
+      };
+      terminalList(sid).push(record);
+      return res.end(ok(publicTerminal(record)));
+    }
+    if (seg[0] === 'sessions' && seg[2] === 'terminals' && seg.length === 4 && method === 'GET') {
+      const termId = seg[3];
+      const record = terminalList(sid).find((item) => item.id === termId);
+      if (!record) return res.end(fail(40407, `terminal ${termId} does not exist`));
+      return res.end(ok(publicTerminal(record)));
+    }
+    if (seg[0] === 'sessions' && seg[2] === 'terminals' && seg.length === 4 && method === 'POST' && seg[3].endsWith(':close')) {
+      const termId = seg[3].replace(':close', '');
+      const record = terminalList(sid).find((item) => item.id === termId);
+      if (!record) return res.end(fail(40407, `terminal ${termId} does not exist`));
+      if (record.status !== 'exited') emitTerminalExit(record, 0);
+      return res.end(ok({ closed: true }));
+    }
+
     // ---- prompts ----
     if (seg[0] === 'sessions' && seg[2] === 'prompts' && seg.length === 3 && method === 'POST') {
       const b = json();
@@ -1844,24 +1989,28 @@ wss.on('connection', (ws) => {
     try { m = JSON.parse(String(raw)); } catch { return; }
 
     if (m.type === 'client_hello') {
+      const acceptedSubscriptions = m.payload?.subscriptions || [];
       ws.send(JSON.stringify({
         type: 'ack', id: m.id, code: 0, msg: 'success',
         payload: {
-          accepted_subscriptions: m.payload?.subscriptions || [],
+          accepted_subscriptions: acceptedSubscriptions,
           resync_required: [],
         },
       }));
+      sendGoalSnapshots(ws, acceptedSubscriptions);
     }
 
     if (m.type === 'subscribe') {
+      const accepted = m.payload?.session_ids || [];
       ws.send(JSON.stringify({
         type: 'ack', id: m.id, code: 0, msg: 'success',
         payload: {
-          accepted: m.payload?.session_ids || [],
+          accepted,
           not_found: [],
           resync_required: [],
         },
       }));
+      sendGoalSnapshots(ws, accepted);
     }
 
     if (m.type === 'unsubscribe') {
@@ -1873,6 +2022,67 @@ wss.on('connection', (ws) => {
         type: 'ack', id: m.id, code: 0, msg: 'success',
         payload: { aborted: false },
       }));
+    }
+
+    if (m.type === 'terminal_attach') {
+      const { session_id, terminal_id, since_seq } = m.payload || {};
+      const record = terminalList(session_id).find((item) => item.id === terminal_id);
+      if (!record) {
+        ws.send(JSON.stringify({ type: 'ack', id: m.id, code: 40407, msg: 'terminal not found', payload: {} }));
+        return;
+      }
+      const key = terminalKey(session_id, terminal_id);
+      const sinks = terminalSinks.get(key) || new Set();
+      sinks.add(ws);
+      terminalSinks.set(key, sinks);
+      const replay = (record.buffer || []).filter((frame) => frame.type !== 'terminal_output' || frame.seq > (since_seq || 0));
+      for (const frame of replay) {
+        if (ws.readyState === 1) ws.send(JSON.stringify(frame));
+      }
+      if ((record.buffer || []).length === 0 && record.status === 'running') {
+        emitTerminalOutput(record, `stub terminal ${record.id}\r\n${record.cwd} $ `);
+      }
+      ws.send(JSON.stringify({
+        type: 'ack', id: m.id, code: 0, msg: 'success',
+        payload: { attached: true, replayed: replay.length },
+      }));
+    }
+
+    if (m.type === 'terminal_detach') {
+      const { session_id, terminal_id } = m.payload || {};
+      terminalSinks.get(terminalKey(session_id, terminal_id))?.delete(ws);
+      ws.send(JSON.stringify({ type: 'ack', id: m.id, code: 0, msg: 'success', payload: { detached: true } }));
+    }
+
+    if (m.type === 'terminal_input') {
+      const { session_id, terminal_id, data } = m.payload || {};
+      const record = terminalList(session_id).find((item) => item.id === terminal_id);
+      if (!record || record.status === 'exited') {
+        ws.send(JSON.stringify({ type: 'ack', id: m.id, code: 40407, msg: 'terminal not found', payload: {} }));
+        return;
+      }
+      emitTerminalOutput(record, data);
+      if (typeof data === 'string' && (data.includes('\r') || data.includes('\n'))) {
+        emitTerminalOutput(record, `${record.cwd} $ `);
+      }
+      ws.send(JSON.stringify({ type: 'ack', id: m.id, code: 0, msg: 'success', payload: { accepted: true } }));
+    }
+
+    if (m.type === 'terminal_resize') {
+      const { session_id, terminal_id, cols, rows } = m.payload || {};
+      const record = terminalList(session_id).find((item) => item.id === terminal_id);
+      if (record) {
+        record.cols = cols || record.cols;
+        record.rows = rows || record.rows;
+      }
+      ws.send(JSON.stringify({ type: 'ack', id: m.id, code: 0, msg: 'success', payload: { resized: true } }));
+    }
+
+    if (m.type === 'terminal_close') {
+      const { session_id, terminal_id } = m.payload || {};
+      const record = terminalList(session_id).find((item) => item.id === terminal_id);
+      if (record && record.status !== 'exited') emitTerminalExit(record, 0);
+      ws.send(JSON.stringify({ type: 'ack', id: m.id, code: 0, msg: 'success', payload: { closed: true } }));
     }
 
     if (m.type === 'pong') {
@@ -1890,6 +2100,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     clearInterval(ping);
     sockets.delete(ws);
+    for (const sinks of terminalSinks.values()) sinks.delete(ws);
   });
 });
 

@@ -9,9 +9,9 @@
 // TOOL-role messages fold their toolResult content into the preceding assistant
 // group rather than becoming separate turns.
 
-import type { AppMessage, AppApprovalRequest, CompactionMarkerMetadata } from '../api/types';
+import type { AppMessage, AppApprovalRequest, AppTask, CompactionMarkerMetadata } from '../api/types';
 import { COMPACTION_MARKER_METADATA_KEY } from '../api/types';
-import type { ApprovalBlock, ChatTurn, DiffLine, ToolCall, ToolMedia, TurnBlock } from '../types';
+import type { AgentMember, ApprovalBlock, ChatTurn, DiffLine, ToolCall, ToolMedia, TurnBlock } from '../types';
 
 const READ_MEDIA_TOOL_RE = /^read[_-]?media(?:file)?$/i;
 const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/s;
@@ -131,6 +131,29 @@ function normalizeToolOutput(output: unknown): string[] | undefined {
     return lines.length > 0 ? lines : undefined;
   }
   return [JSON.stringify(output)];
+}
+
+function toAgentMember(task: AppTask): AgentMember {
+  return {
+    id: task.id,
+    toolCallId: task.parentToolCallId,
+    name: task.description,
+    subagentType: task.subagentType,
+    phase:
+      task.subagentPhase ??
+      (task.status === 'completed' ? 'completed' : task.status === 'failed' ? 'failed' : 'working'),
+    status: task.status,
+    summary: task.outputPreview,
+    suspendedReason: task.suspendedReason,
+    swarmIndex: task.swarmIndex,
+  };
+}
+
+function sortAgentTasks(a: AppTask, b: AppTask): number {
+  const ai = a.swarmIndex ?? Number.MAX_SAFE_INTEGER;
+  const bi = b.swarmIndex ?? Number.MAX_SAFE_INTEGER;
+  if (ai !== bi) return ai - bi;
+  return a.createdAt.localeCompare(b.createdAt);
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +340,7 @@ export function messagesToTurns(
    * spinning forever after the turn already finished.
    */
   sessionActive = true,
+  subagentTasks: AppTask[] = [],
 ): ChatTurn[] {
   const turns: ChatTurn[] = [];
   let no = 1;
@@ -325,6 +349,20 @@ export function messagesToTurns(
   const approvalByTool = new Map<string, AppApprovalRequest>();
   for (const a of approvals) {
     approvalByTool.set(a.toolCallId, a);
+  }
+
+  const subagentsByTool = new Map<string, AppTask[]>();
+  for (const task of subagentTasks) {
+    if (task.kind !== 'subagent') continue;
+    const keys = [task.parentToolCallId, task.id].filter((key): key is string => typeof key === 'string' && key.length > 0);
+    for (const key of keys) {
+      const list = subagentsByTool.get(key) ?? [];
+      list.push(task);
+      subagentsByTool.set(key, list);
+    }
+  }
+  for (const [key, list] of subagentsByTool.entries()) {
+    subagentsByTool.set(key, list.toSorted(sortAgentTasks));
   }
 
   let pendingGroup: Group | null = null;
@@ -369,7 +407,7 @@ export function messagesToTurns(
           g.textParts.push(c.text);
           // Append to a trailing text block, else open a new one — so a tool
           // call between two text segments splits them into separate blocks.
-          const last = g.blocks[g.blocks.length - 1];
+          const last = g.blocks.at(-1);
           if (last && last.kind === 'text') last.text += '\n' + c.text;
           else g.blocks.push({ kind: 'text', text: c.text });
         }
@@ -378,11 +416,22 @@ export function messagesToTurns(
           g.thinkingParts.push(c.thinking);
           // Ordered block too: thinking renders WHERE it happened in the turn,
           // merging consecutive segments (same rule as text blocks above).
-          const last = g.blocks[g.blocks.length - 1];
+          const last = g.blocks.at(-1);
           if (last && last.kind === 'thinking') last.thinking += '\n' + c.thinking;
           else g.blocks.push({ kind: 'thinking', thinking: c.thinking });
         }
       } else if (c.type === 'toolUse') {
+        const agentTasks = subagentsByTool.get(c.toolCallId);
+        if (agentTasks && agentTasks.length > 0) {
+          const members = agentTasks.map(toAgentMember);
+          if (members.length === 1) {
+            g.blocks.push({ kind: 'agent', member: members[0]! });
+          } else {
+            g.blocks.push({ kind: 'agentGroup', members });
+          }
+          continue;
+        }
+
         const pendingApproval = approvalByTool.get(c.toolCallId);
         const toolCall: ToolCall = {
           id: c.toolCallId,

@@ -8,6 +8,7 @@ import { getKimiWebApi } from '../api';
 import { isDaemonApiError, isDaemonNetworkError } from '../api/errors';
 import type {
   AppApprovalRequest,
+  AppGoal,
   AppNotice,
   AppNoticeDetail,
   AppMessage,
@@ -17,6 +18,7 @@ import type {
   AppSession,
   AppSessionRuntimeStatus,
   AppSkill,
+  AppTask,
   AppWarning,
   AppWorkspace,
   ApprovalDecision,
@@ -26,17 +28,18 @@ import type {
   QuestionResponse,
   ThinkingLevel,
 } from '../api/types';
-import { createInitialState, reduceAppEvent } from '../api/daemon/eventReducer';
-import type { CompactionStatus } from '../api/daemon/eventReducer';
+import { createInitialState, reduceAppEvent, type CompactionStatus, type KimiClientState } from '../api/daemon/eventReducer';
 import { readSessionIdFromLocation, sessionUrl } from '../lib/sessionRoute';
 import type { SessionUrlMode } from '../lib/sessionRoute';
-import type { KimiClientState } from '../api/daemon/eventReducer';
 import { toAppEvent } from '../api/daemon/mappers';
 import { parseDiff } from '../lib/parseDiff';
 import { messagesToTurns } from './messagesToTurns';
 import { latestTodos } from './latestTodos';
+import { buildSwarmGroups, countSwarmMembers } from './swarmGroups';
+import type { SwarmGroup } from './swarmGroups';
 import type {
   ActivityState,
+  ActivationBadges,
   ApprovalBlock,
   ChatTurn,
   ConnectionState,
@@ -476,6 +479,7 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
     approvalsBySession: rawState.approvalsBySession,
     questionsBySession: rawState.questionsBySession,
     tasksBySession: rawState.tasksBySession,
+    goalBySession: rawState.goalBySession,
     lastSeqBySession: rawState.lastSeqBySession,
     compactionBySession: rawState.compactionBySession,
     warnings: rawState.warnings,
@@ -488,6 +492,7 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   rawState.approvalsBySession = next.approvalsBySession;
   rawState.questionsBySession = next.questionsBySession;
   rawState.tasksBySession = next.tasksBySession;
+  rawState.goalBySession = next.goalBySession;
   rawState.lastSeqBySession = next.lastSeqBySession;
   rawState.compactionBySession = next.compactionBySession;
   rawState.warnings = next.warnings;
@@ -717,6 +722,7 @@ async function handleSessionNotFound(sessionId: string): Promise<void> {
   delete rawState.approvalsBySession[sessionId];
   delete rawState.questionsBySession[sessionId];
   delete rawState.tasksBySession[sessionId];
+  delete rawState.goalBySession[sessionId];
   delete rawState.gitStatusBySession[sessionId];
   delete rawState.lastSeqBySession[sessionId];
   delete rawState.compactionBySession[sessionId];
@@ -1077,6 +1083,12 @@ const isSending = computed<boolean>(() => {
   return rawState.sendingBySession[sid] ?? false;
 });
 
+const activeAppTasks = computed<AppTask[]>(() => {
+  const sid = rawState.activeSessionId;
+  if (!sid) return [];
+  return rawState.tasksBySession[sid] ?? [];
+});
+
 const turns = computed<ChatTurn[]>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
@@ -1087,13 +1099,20 @@ const turns = computed<ChatTurn[]>(() => {
     approvals,
     (fileId) => getKimiWebApi().getFileUrl(fileId),
     activity.value !== 'idle',
+    activeAppTasks.value,
   );
 });
 
 const tasks = computed<TaskItem[]>(() => {
+  return activeAppTasks.value.map(toUiTask);
+});
+
+const swarms = computed<SwarmGroup[]>(() => buildSwarmGroups(activeAppTasks.value));
+
+const goal = computed<AppGoal | null>(() => {
   const sid = rawState.activeSessionId;
-  if (!sid) return [];
-  return (rawState.tasksBySession[sid] ?? []).map(toUiTask);
+  if (!sid) return null;
+  return rawState.goalBySession[sid] ?? null;
 });
 
 /** Current todo list of the active session (TodoList tool, latest write wins). */
@@ -1118,6 +1137,21 @@ const sessionLoading = computed<boolean>(() => rawState.sessionLoading);
 const permission = computed<PermissionMode>(() => rawState.permission);
 const thinking = computed<ThinkingLevel>(() => rawState.thinking);
 const planMode = computed<boolean>(() => rawState.planMode);
+
+const activationBadges = computed<ActivationBadges>(() => {
+  const swarmCounts = countSwarmMembers(swarms.value);
+  return {
+    plan: rawState.planMode,
+    goal: goal.value && goal.value.status !== 'complete'
+      ? {
+          status: goal.value.status,
+          turnsUsed: goal.value.turnsUsed,
+          elapsedMs: goal.value.wallClockMs,
+        }
+      : null,
+    swarm: swarmCounts.total > 0 ? swarmCounts : null,
+  };
+});
 
 /** Queued messages for the active session (text + attachment count for the
     composer strip — an image-only prompt would otherwise render as an empty
@@ -2824,6 +2858,9 @@ export function useKimiWebClient() {
     turns,
     tasks,
     todos,
+    goal,
+    swarms,
+    activationBadges,
     compaction,
     status,
     sessionCost,

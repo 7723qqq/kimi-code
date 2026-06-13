@@ -35,6 +35,8 @@ export interface DaemonEventSocketHandlers {
   onConnectionState(connected: boolean): void;
   /** Called on error frames or JSON parse failures */
   onError(code: number, msg: string, fatal: boolean): void;
+  onTerminalOutput?(sessionId: string, terminalId: string, data: string, seq: number): void;
+  onTerminalExit?(sessionId: string, terminalId: string, exitCode: number | null): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +54,12 @@ interface PendingSubscription {
   cursor: SessionCursor;
 }
 
+interface TerminalAttachment {
+  sessionId: string;
+  terminalId: string;
+  lastSeq: number;
+}
+
 export class DaemonEventSocket {
   private ws: WebSocket | null = null;
   private connected = false;
@@ -62,6 +70,7 @@ export class DaemonEventSocket {
 
   /** subscriptions queued while not yet connected */
   private readonly pendingSubscriptions: PendingSubscription[] = [];
+  private readonly terminalAttachments = new Map<string, TerminalAttachment>();
 
   private msgSeq = 0;
 
@@ -93,9 +102,9 @@ export class DaemonEventSocket {
         const frame = JSON.parse(String(ev.data)) as WireServerFrame;
         traceWsIn(frame);
         this.handleFrame(frame);
-      } catch (err) {
-        traceWsLifecycle('parse-error', { error: String(err) });
-        this.handlers.onError(0, `Failed to parse WS frame: ${String(err)}`, false);
+      } catch (error) {
+        traceWsLifecycle('parse-error', { error: String(error) });
+        this.handlers.onError(0, `Failed to parse WS frame: ${String(error)}`, false);
       }
     };
 
@@ -173,6 +182,53 @@ export class DaemonEventSocket {
     });
   }
 
+  terminalAttach(sessionId: string, terminalId: string, sinceSeq?: number): void {
+    const key = terminalKey(sessionId, terminalId);
+    const previous = this.terminalAttachments.get(key);
+    const lastSeq = sinceSeq ?? previous?.lastSeq ?? 0;
+    this.terminalAttachments.set(key, { sessionId, terminalId, lastSeq });
+    if (!this.connected || !this.ws) return;
+    this.sendTerminalAttach(sessionId, terminalId, lastSeq);
+  }
+
+  terminalInput(sessionId: string, terminalId: string, data: string): void {
+    if (!this.connected || !this.ws) return;
+    this.send({
+      type: 'terminal_input',
+      id: this.nextId(),
+      payload: { session_id: sessionId, terminal_id: terminalId, data },
+    });
+  }
+
+  terminalResize(sessionId: string, terminalId: string, cols: number, rows: number): void {
+    if (!this.connected || !this.ws) return;
+    this.send({
+      type: 'terminal_resize',
+      id: this.nextId(),
+      payload: { session_id: sessionId, terminal_id: terminalId, cols, rows },
+    });
+  }
+
+  terminalDetach(sessionId: string, terminalId: string): void {
+    this.terminalAttachments.delete(terminalKey(sessionId, terminalId));
+    if (!this.connected || !this.ws) return;
+    this.send({
+      type: 'terminal_detach',
+      id: this.nextId(),
+      payload: { session_id: sessionId, terminal_id: terminalId },
+    });
+  }
+
+  terminalClose(sessionId: string, terminalId: string): void {
+    this.terminalAttachments.delete(terminalKey(sessionId, terminalId));
+    if (!this.connected || !this.ws) return;
+    this.send({
+      type: 'terminal_close',
+      id: this.nextId(),
+      payload: { session_id: sessionId, terminal_id: terminalId },
+    });
+  }
+
   /** Close the socket. Stops reconnect attempts. */
   close(): void {
     this.closed = true;
@@ -238,6 +294,32 @@ export class DaemonEventSocket {
       case 'ack':
         // ack frames are fire-and-forget for now (no request tracking)
         break;
+
+      case 'terminal_output': {
+        const sessionId = frame.session_id as string;
+        const terminalId = frame.terminal_id as string;
+        const seq = frame.seq as number;
+        const key = terminalKey(sessionId, terminalId);
+        const existing = this.terminalAttachments.get(key);
+        if (existing) {
+          this.terminalAttachments.set(key, {
+            ...existing,
+            lastSeq: Math.max(existing.lastSeq, seq),
+          });
+        }
+        const data = typeof frame.payload?.data === 'string' ? frame.payload.data : '';
+        this.handlers.onTerminalOutput?.(sessionId, terminalId, data, seq);
+        break;
+      }
+
+      case 'terminal_exit': {
+        const sessionId = frame.session_id as string;
+        const terminalId = frame.terminal_id as string;
+        const rawExitCode = frame.payload?.exit_code;
+        const exitCode = typeof rawExitCode === 'number' ? rawExitCode : null;
+        this.handlers.onTerminalExit?.(sessionId, terminalId, exitCode);
+        break;
+      }
 
       default: {
         // Track the per-session cursor from durable event envelopes so the
@@ -321,6 +403,10 @@ export class DaemonEventSocket {
         cursors,
       },
     });
+
+    for (const attachment of this.terminalAttachments.values()) {
+      this.sendTerminalAttach(attachment.sessionId, attachment.terminalId, attachment.lastSeq);
+    }
   }
 
   private sendSubscribe(sessionIds: string[], cursors: Record<string, SessionCursor>): void {
@@ -330,6 +416,18 @@ export class DaemonEventSocket {
       payload: {
         session_ids: sessionIds,
         cursors,
+      },
+    });
+  }
+
+  private sendTerminalAttach(sessionId: string, terminalId: string, sinceSeq: number): void {
+    this.send({
+      type: 'terminal_attach',
+      id: this.nextId(),
+      payload: {
+        session_id: sessionId,
+        terminal_id: terminalId,
+        since_seq: sinceSeq > 0 ? sinceSeq : undefined,
       },
     });
   }
@@ -364,4 +462,8 @@ export class DaemonEventSocket {
   private nextId(): string {
     return `c_${++this.msgSeq}`;
   }
+}
+
+function terminalKey(sessionId: string, terminalId: string): string {
+  return `${sessionId}\0${terminalId}`;
 }

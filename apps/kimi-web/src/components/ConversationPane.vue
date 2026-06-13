@@ -2,8 +2,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ConversationStatus, DiffViewLine, FilePreviewRequest, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, UIQuestion } from '../types';
-import type { AppModel, AppSkill, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
+import type { ActivityState, ActivationBadges, ApprovalBlock, ChatTurn, ConnectionState, ConversationStatus, DiffViewLine, FilePreviewRequest, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, UIQuestion } from '../types';
+import type { AppGoal, AppModel, AppSkill, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
+import type { SwarmGroup } from '../composables/swarmGroups';
+import { usePaneLayout } from '../composables/usePaneLayout';
+import type { PaneGroup, PaneLayout } from '../composables/usePaneLayout';
 import type { FileItem } from './MentionMenu.vue';
 import type { FileData } from './FilePreview.vue';
 import TabBar from './TabBar.vue';
@@ -16,11 +19,17 @@ import TodoCard from './TodoCard.vue';
 import FileTree from './FileTree.vue';
 import FilePreview from './FilePreview.vue';
 import Composer from './Composer.vue';
+import Terminal from './Terminal.vue';
 import QuestionCard from './QuestionCard.vue';
 import ApprovalCard from './ApprovalCard.vue';
+import SwarmCard from './SwarmCard.vue';
+import GoalStrip from './GoalStrip.vue';
+import ViewGroup from './ViewGroup.vue';
+import SplitLayout from './SplitLayout.vue';
 
 const props = defineProps<{
   turns: ChatTurn[];
+  sessionId?: string;
   approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string }[];
   changes?: { path: string; status: string }[];
   gitInfo?: { branch: string; ahead: number; behind: number } | null;
@@ -33,6 +42,9 @@ const props = defineProps<{
   tasks: TaskItem[];
   /** Model-maintained todo list (TodoList tool) — shown as a floating card. */
   todos?: TodoView[];
+  goal?: AppGoal | null;
+  swarms?: SwarmGroup[];
+  activationBadges?: ActivationBadges;
   status: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
@@ -101,15 +113,30 @@ try {
 
 // expose a way for App.vue to imperatively switch to tasks tab
 const active = ref<PaneKey>('chat');
+const paneLayout = usePaneLayout();
 const chatPaneRef = ref<InstanceType<typeof ChatPane> | null>(null);
 const copyConversationCopied = ref(false);
+const goalExpandSignal = ref(0);
 let copyConversationCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Called by App.vue via command routing to switch to a specific tab */
 function switchTab(tab: PaneKey): void {
   active.value = tab;
+  const root = paneLayout.layout.value;
+  const groupId = root.type === 'group' ? root.id : firstGroupId(root);
+  if (groupId) paneLayout.setActive(groupId, tab);
 }
 defineExpose({ switchTab });
+
+function firstGroupId(node: PaneLayout): string | undefined {
+  if (node.type === 'group') return node.id;
+  return node.children.map(firstGroupId).find((id): id is string => id !== undefined);
+}
+
+function selectGroupPane(group: PaneGroup, pane: PaneKey): void {
+  active.value = pane;
+  paneLayout.setActive(group.id, pane);
+}
 
 function handleCopyConversationCopied(): void {
   copyConversationCopied.value = true;
@@ -118,6 +145,18 @@ function handleCopyConversationCopied(): void {
     copyConversationCopiedTimer = null;
     copyConversationCopied.value = false;
   }, 2000);
+}
+
+function focusGoal(): void {
+  goalExpandSignal.value++;
+}
+
+function focusSwarm(): void {
+  active.value = 'chat';
+  void nextTick(() => {
+    const first = panesRef.value?.querySelector<HTMLElement>('.swarm-card');
+    first?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
 }
 
 // The TabBar is hidden for an empty session (the centred quick-start composer
@@ -367,7 +406,7 @@ const scrollKey = computed(() => {
   const approvalIds = (props.approvals ?? []).map((a) => a.approvalId).join(',');
   const t = props.turns;
   if (t.length === 0) return `0|${approvalIds}`;
-  const last = t[t.length - 1]!;
+  const last = t.at(-1)!;
   const thinkingLen = last.thinking?.length ?? 0;
   const toolsLen =
     last.tools?.reduce(
@@ -581,7 +620,7 @@ onUnmounted(() => {
 <template>
   <section class="con" :class="{ mobile }">
     <TabBar
-      v-if="!(turns.length === 0 && !sessionLoading)"
+      v-if="mobile && !(turns.length === 0 && !sessionLoading)"
       :active="active"
       :running-tasks="runningTasks"
       :changes-count="changesCount"
@@ -604,10 +643,114 @@ onUnmounted(() => {
       <TasksCard v-if="runningTasks > 0" :tasks="tasks" @open="active = 'tasks'" />
     </div>
 
+    <SplitLayout
+      v-if="!mobile && !(turns.length === 0 && !sessionLoading)"
+      class="layout-root"
+      :layout="paneLayout.layout.value"
+      @resize="paneLayout.resize"
+    >
+      <template #group="{ group }">
+        <ViewGroup
+          :active="group.active"
+          :running-tasks="runningTasks"
+          :changes-count="changesCount"
+          :todos="todos ?? []"
+          :can-close="paneLayout.layout.value.type !== 'group'"
+          :show-copy-conversation="group.active === 'chat' && turns.length > 0"
+          :copy-conversation-copied="copyConversationCopied"
+          @select="selectGroupPane(group, $event)"
+          @split="paneLayout.split(group.id, $event)"
+          @close="paneLayout.close(group.id)"
+          @copy-conversation="chatPaneRef?.copyConversation()"
+        >
+          <div
+            :ref="group.active === 'chat' ? 'panesRef' : undefined"
+            class="panes group-panes"
+            :class="{ 'files-layout': group.active === 'files', 'terminal-layout': group.active === 'terminal' }"
+            @scroll.passive="group.active === 'chat' ? onPanesScroll() : undefined"
+          >
+            <div v-if="group.active === 'chat'" class="content-wrap" :class="[mobile ? 'align-mobile' : 'align-center']">
+              <ChatPane
+                ref="chatPaneRef"
+                :key="fileReloadKey ?? 'no-session'"
+                :turns="turns"
+                :approvals="approvals"
+                :bubble="bubble"
+                :mobile="mobile"
+                :running="running"
+                :sending="sending"
+                :session-loading="sessionLoading"
+                :compaction="compaction"
+                @open-file="emit('openFile', $event)"
+                @open-media="emit('openMedia', $event)"
+                @copy-conversation-copied="handleCopyConversationCopied"
+                @open-thinking="emit('openThinking', $event)"
+                @open-compaction="emit('openCompaction', $event)"
+              />
+              <div v-if="(swarms?.length ?? 0) > 0" class="swarm-stack">
+                <SwarmCard v-for="groupItem in swarms" :key="groupItem.id" :group="groupItem" />
+              </div>
+            </div>
+            <TasksPane
+              v-else-if="group.active === 'tasks'"
+              :tasks="tasks"
+              @cancel="emit('cancelTask', $event)"
+            />
+            <TodoCard
+              v-else-if="group.active === 'todo'"
+              :todos="todos ?? []"
+              inline
+            />
+            <Terminal
+              v-else-if="group.active === 'terminal' && sessionId"
+              :session-id="sessionId"
+            />
+            <template v-else-if="group.active === 'files'">
+              <div v-show="!mobile || !filesShowPreview" class="files-nav">
+                <div v-if="hasGit" class="nav-seg">
+                  <div class="seg-group" role="group" :aria-label="t('fileTree.segLabel')">
+                    <button type="button" class="seg-btn" :class="{ on: changedView === 'changed' }" :aria-pressed="changedView === 'changed'" @click="changedView = 'changed'">
+                      {{ t('fileTree.changed') }}
+                      <span v-if="(changesCount ?? 0) > 0" class="seg-n">{{ changesCount }}</span>
+                    </button>
+                    <button type="button" class="seg-btn" :class="{ on: changedView === 'all' }" :aria-pressed="changedView === 'all'" @click="changedView = 'all'">{{ t('fileTree.all') }}</button>
+                  </div>
+                </div>
+                <div v-if="filesView === 'changed'" class="nav-tools">
+                  <button type="button" class="layout-toggle" :title="changedLayout === 'tree' ? t('fileTree.listView') : t('fileTree.treeView')" :aria-label="changedLayout === 'tree' ? t('fileTree.listView') : t('fileTree.treeView')" @click="toggleChangedLayout">
+                    <svg v-if="changedLayout === 'list'" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 4h2M3 8h2M3 12h2"/><path d="M7.5 4l1.5 1.5L7.5 7"/><path d="M9 5.5h4M9 9.5h3.5M9 12.5h3"/></svg>
+                    <svg v-else viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h10"/></svg>
+                  </button>
+                </div>
+                <div class="files-nav-body">
+                  <template v-if="filesView === 'changed'">
+                    <DiffView v-if="changedLayout === 'list'" mode="list" :changes="changes ?? []" :git-info="gitInfo ?? null" @open="pickChanged" />
+                    <ChangedTree v-else :changes="changes ?? []" @open="pickChanged" />
+                  </template>
+                  <FileTree v-else :load-dir="loadDir ?? defaultLoadDir" :changes-by-path="changesByPath ?? {}" :reload-key="fileReloadKey" @select="pickEntry" />
+                </div>
+              </div>
+              <div v-if="!mobile" class="files-divider" aria-hidden="true"></div>
+              <div v-show="!mobile || filesShowPreview" class="files-content">
+                <button v-if="mobile" type="button" class="files-back" @click="handleFilesBack">
+                  <span aria-hidden="true">&#8592;</span>
+                  <span class="files-back-label">{{ t('fileTree.backToTree') }}</span>
+                </button>
+                <DiffView v-if="selectedDiffPath" mode="detail" :hide-back="true" :changes="changes ?? []" :git-info="gitInfo ?? null" :file-diff="fileDiff ?? []" :selected-diff-path="selectedDiffPath ?? null" :file-diff-loading="fileDiffLoading ?? false" />
+                <FilePreview v-else-if="selectedFile || previewLoading" :file="selectedFile" :loading="previewLoading" />
+                <div v-else class="files-empty">{{ filesView === 'changed' ? t('fileTree.selectChanged') : t('fileTree.selectFile') }}</div>
+              </div>
+            </template>
+          </div>
+        </ViewGroup>
+      </template>
+    </SplitLayout>
+
     <div
+      v-else
       ref="panesRef"
       class="panes"
-      :class="{ 'files-layout': active === 'files' }"
+      :class="{ 'files-layout': active === 'files', 'terminal-layout': active === 'terminal' }"
       @scroll.passive="onPanesScroll"
     >
       <!-- Chat reading column: constrained to a comfortable max width and
@@ -628,6 +771,7 @@ onUnmounted(() => {
             :status="status"
             :thinking="thinking"
             :plan-mode="planMode"
+            :activation-badges="activationBadges"
             :models="models"
             :skills="skills"
             @submit="handleComposerSubmit"
@@ -639,6 +783,8 @@ onUnmounted(() => {
             @set-permission="emit('setPermission', $event)"
             @set-thinking="emit('setThinking', $event)"
             @toggle-plan="emit('togglePlan')"
+            @focus-goal="focusGoal"
+            @focus-swarm="focusSwarm"
             @compact="emit('compact')"
             @pick-model="emit('pickModel')"
             @select-model="emit('selectModel', $event)"
@@ -663,6 +809,9 @@ onUnmounted(() => {
             @open-thinking="emit('openThinking', $event)"
             @open-compaction="emit('openCompaction', $event)"
           />
+          <div v-if="(swarms?.length ?? 0) > 0" class="swarm-stack">
+            <SwarmCard v-for="group in swarms" :key="group.id" :group="group" />
+          </div>
         </template>
       </div>
       <TasksPane
@@ -676,6 +825,11 @@ onUnmounted(() => {
         v-else-if="active === 'todo'"
         :todos="todos ?? []"
         inline
+      />
+
+      <Terminal
+        v-else-if="active === 'terminal' && sessionId"
+        :session-id="sessionId"
       />
 
       <!-- Merged ~/files tab: a navigator (Changed-first list / full tree via the
@@ -799,6 +953,11 @@ onUnmounted(() => {
          line is a quiet footer BELOW it (model/thinking/plan/permission left,
          ctx far right). -->
     <div ref="dockRef" class="dock" :class="[mobile ? 'align-mobile' : 'align-center']">
+      <GoalStrip
+        v-if="goal"
+        :goal="goal"
+        :force-expanded="goalExpandSignal"
+      />
       <!-- A pending question or approval replaces the Composer here — both are
            the agent blocking on the user, so they share this docked slot. A
            question takes priority (it is a direct ask); the approval falls back
@@ -825,6 +984,7 @@ onUnmounted(() => {
         :status="status"
         :thinking="thinking"
         :plan-mode="planMode"
+        :activation-badges="activationBadges"
         :models="models"
         :skills="skills"
         @submit="handleComposerSubmit"
@@ -836,6 +996,8 @@ onUnmounted(() => {
         @set-permission="emit('setPermission', $event)"
         @set-thinking="emit('setThinking', $event)"
         @toggle-plan="emit('togglePlan')"
+        @focus-goal="focusGoal"
+        @focus-swarm="focusSwarm"
         @compact="emit('compact')"
         @pick-model="emit('pickModel')"
         @select-model="emit('selectModel', $event)"
@@ -897,6 +1059,13 @@ onUnmounted(() => {
      centered reading column sideways. */
   scrollbar-gutter: stable;
 }
+.layout-root {
+  flex: 1;
+  min-height: 0;
+}
+.group-panes {
+  height: 100%;
+}
 
 /* Chat reading column max-width + alignment. The max-width applies in both
    modes; align-left hugs the left gutter, align-center centers in the pane. */
@@ -913,6 +1082,12 @@ onUnmounted(() => {
 .content-wrap.align-left { margin-left: 0; margin-right: auto; }
 /* Mobile: bubbles span the full pane width; no reading-column constraint. */
 .content-wrap.align-mobile { max-width: none; }
+.swarm-stack {
+  padding: 0 18px 16px;
+}
+.content-wrap.align-mobile .swarm-stack {
+  padding: 0 14px 18px;
+}
 
 /* Empty-workspace spacers: push the centred Composer to the vertical middle. */
 .empty-spacer { flex: 1; }
@@ -989,6 +1164,9 @@ onUnmounted(() => {
 .panes.files-layout {
   display: flex;
   flex-direction: row;
+  overflow: hidden;
+}
+.panes.terminal-layout {
   overflow: hidden;
 }
 

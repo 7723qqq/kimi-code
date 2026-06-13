@@ -11,6 +11,7 @@
 import type {
   AppApprovalRequest,
   AppEvent,
+  AppGoal,
   AppMessage,
   AppMessageContent,
   AppWarning,
@@ -43,6 +44,7 @@ export interface KimiClientState {
   approvalsBySession: Record<string, AppApprovalRequest[]>;
   questionsBySession: Record<string, AppQuestionRequest[]>;
   tasksBySession: Record<string, AppTask[]>;
+  goalBySession: Record<string, AppGoal>;
   lastSeqBySession: Record<string, number>;
   compactionBySession: Record<string, CompactionStatus>;
   warnings: AppWarning[];
@@ -56,6 +58,7 @@ export function createInitialState(): KimiClientState {
     approvalsBySession: {},
     questionsBySession: {},
     tasksBySession: {},
+    goalBySession: {},
     lastSeqBySession: {},
     compactionBySession: {},
     warnings: [],
@@ -74,6 +77,7 @@ function cloneState(s: KimiClientState): KimiClientState {
     approvalsBySession: { ...s.approvalsBySession },
     questionsBySession: { ...s.questionsBySession },
     tasksBySession: { ...s.tasksBySession },
+    goalBySession: { ...s.goalBySession },
     lastSeqBySession: { ...s.lastSeqBySession },
     compactionBySession: { ...s.compactionBySession },
     warnings: [...s.warnings],
@@ -163,6 +167,7 @@ export function reduceAppEvent(
       next.sessions = next.sessions.filter((s) => s.id !== id);
       delete next.messagesBySession[id];
       delete next.tasksBySession[id];
+      delete next.goalBySession[id];
       delete next.approvalsBySession[id];
       delete next.questionsBySession[id];
       delete next.lastSeqBySession[id];
@@ -434,6 +439,17 @@ export function reduceAppEvent(
           outputBytes: event.outputBytes,
         };
       });
+      break;
+    }
+
+    // -------------------------------------------------------------------------
+    case 'goalUpdated': {
+      const sid = event.sessionId;
+      if (event.goal === null || event.goal.status === 'complete') {
+        delete next.goalBySession[sid];
+      } else {
+        next.goalBySession[sid] = event.goal;
+      }
       break;
     }
 

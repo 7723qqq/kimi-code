@@ -279,6 +279,11 @@ export interface WireBackgroundTask {
   completed_at?: string;
   output_preview?: string;
   output_bytes?: number;
+  subagent_phase?: 'queued' | 'working' | 'suspended' | 'completed' | 'failed';
+  subagent_type?: string;
+  parent_tool_call_id?: string;
+  suspended_reason?: string;
+  swarm_index?: number;
 }
 
 // ---------------------------------------------------------------------------

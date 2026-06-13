@@ -7,7 +7,7 @@ import MentionMenu from './MentionMenu.vue';
 import type { SlashCommand } from '../lib/slashCommands';
 import { buildSlashItems, filterCommands, parseSlash } from '../lib/slashCommands';
 import type { FileItem } from './MentionMenu.vue';
-import type { ConversationStatus, PermissionMode, QueuedPromptView } from '../types';
+import type { ActivationBadges, ConversationStatus, PermissionMode, QueuedPromptView } from '../types';
 import type { AppModel, AppSkill, ThinkingLevel } from '../api/types';
 
 // ---------------------------------------------------------------------------
@@ -43,6 +43,7 @@ const props = withDefaults(defineProps<{
   status?: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
+  activationBadges?: ActivationBadges;
   /** Available models for the quick-switch dropdown. */
   models?: AppModel[];
   /** Session skills shown in the `/` menu (after the built-in commands). */
@@ -70,6 +71,8 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
+  focusGoal: [];
+  focusSwarm: [];
   compact: [];
   pickModel: [];
   selectModel: [modelId: string];
@@ -625,6 +628,13 @@ function toggleThinking(): void {
 // Plan toggle
 const planOn = computed(() => props.planMode === true);
 
+function formatElapsed(ms: number): string {
+  const minutes = Math.max(0, Math.round(ms / 60000));
+  if (minutes < 1) return '<1m';
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
 // Permission modes
 const PERM_MODES: { mode: PermissionMode; color: string; labelKey: string; descKey: string }[] = [
   { mode: 'manual', color: 'var(--dim)', labelKey: 'status.permissionManual', descKey: 'status.permissionManualDesc' },
@@ -874,6 +884,30 @@ function selectModel(modelId: string): void {
             @keydown.enter="emit('togglePlan')"
             @keydown.space.prevent="emit('togglePlan')"
           >{{ t('status.planLabel') }}</span>
+
+          <div v-if="activationBadges && (activationBadges.plan || activationBadges.goal || activationBadges.swarm)" class="activation-badges">
+            <button
+              v-if="activationBadges.plan"
+              class="abadge plan"
+              type="button"
+              @click="emit('togglePlan')"
+            >plan</button>
+            <button
+              v-if="activationBadges.goal"
+              class="abadge goal"
+              type="button"
+              @click="emit('focusGoal')"
+            >
+              <span class="abadge-dot" aria-hidden="true"></span>
+              goal {{ activationBadges.goal.status }} · {{ formatElapsed(activationBadges.goal.elapsedMs) }} · {{ activationBadges.goal.turnsUsed }} turns
+            </button>
+            <button
+              v-if="activationBadges.swarm"
+              class="abadge swarm"
+              type="button"
+              @click="emit('focusSwarm')"
+            >swarm {{ activationBadges.swarm.done }}/{{ activationBadges.swarm.total }}</button>
+          </div>
         </div>
 
         <!-- Right: ctx + model -->
@@ -1576,6 +1610,52 @@ function selectModel(modelId: string): void {
   background: var(--soft);
 }
 
+.activation-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+}
+.abadge {
+  min-width: 0;
+  max-width: 220px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.abadge:hover {
+  border-color: var(--bd);
+  background: var(--soft);
+}
+.abadge.plan,
+.abadge.swarm {
+  color: var(--blue2);
+}
+.abadge.goal {
+  color: var(--ok);
+}
+.abadge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
 /* ---- Mobile composer (prototype): round attach + rounded panel input +
        round blue send with a soft shadow. The .cin container loses its border
        and acts as a flex row; the textarea itself becomes the pill input. ---- */
@@ -1621,6 +1701,7 @@ function selectModel(modelId: string): void {
      at ≥80% usage) and tapping it triggers compaction directly. */
   .perm-pill,
   .toggle-pill,
+  .activation-badges,
   .ctx-group {
     display: none;
   }

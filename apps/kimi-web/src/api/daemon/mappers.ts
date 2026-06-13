@@ -5,6 +5,7 @@
 import type {
   AppApprovalRequest,
   AppEvent,
+  AppGoal,
   AppModel,
   AppProvider,
   FsEntry,
@@ -357,6 +358,11 @@ export function toAppTask(wire: WireBackgroundTask): AppTask {
     completedAt: wire.completed_at,
     outputPreview: wire.output_preview,
     outputBytes: wire.output_bytes,
+    subagentPhase: wire.subagent_phase,
+    subagentType: wire.subagent_type,
+    parentToolCallId: wire.parent_tool_call_id,
+    suspendedReason: wire.suspended_reason,
+    swarmIndex: wire.swarm_index,
     // outputLines starts undefined; populated by eventReducer via task.progress events
   };
 }
@@ -385,6 +391,53 @@ export function toAppFsEntry(wire: WireFsEntry): FsEntry {
 // ---------------------------------------------------------------------------
 // WireEvent → AppEvent
 // ---------------------------------------------------------------------------
+
+function recordString(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function recordNumber(source: Record<string, unknown>, key: string): number | undefined {
+  const value = source[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function recordNullableNumber(source: Record<string, unknown>, key: string): number | null {
+  const value = source[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function toAppGoal(snapshot: unknown): AppGoal | null {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const source = snapshot as Record<string, unknown>;
+  const status = recordString(source, 'status');
+  if (status !== 'active' && status !== 'paused' && status !== 'blocked' && status !== 'complete') {
+    return null;
+  }
+
+  const budgetRaw = source['budget'];
+  const budget = budgetRaw && typeof budgetRaw === 'object' ? budgetRaw as Record<string, unknown> : {};
+
+  return {
+    goalId: recordString(source, 'goalId') ?? recordString(source, 'goal_id') ?? 'goal',
+    objective: recordString(source, 'objective') ?? '',
+    completionCriterion: recordString(source, 'completionCriterion') ?? recordString(source, 'completion_criterion'),
+    status,
+    turnsUsed: recordNumber(source, 'turnsUsed') ?? recordNumber(source, 'turns_used') ?? 0,
+    tokensUsed: recordNumber(source, 'tokensUsed') ?? recordNumber(source, 'tokens_used') ?? 0,
+    wallClockMs: recordNumber(source, 'wallClockMs') ?? recordNumber(source, 'wall_clock_ms') ?? 0,
+    terminalReason: recordString(source, 'terminalReason') ?? recordString(source, 'terminal_reason'),
+    budget: {
+      tokenBudget: recordNullableNumber(budget, 'tokenBudget') ?? recordNullableNumber(budget, 'token_budget'),
+      remainingTokens: recordNullableNumber(budget, 'remainingTokens') ?? recordNullableNumber(budget, 'remaining_tokens'),
+      turnBudget: recordNullableNumber(budget, 'turnBudget') ?? recordNullableNumber(budget, 'turn_budget'),
+      remainingTurns: recordNullableNumber(budget, 'remainingTurns') ?? recordNullableNumber(budget, 'remaining_turns'),
+      wallClockBudgetMs: recordNullableNumber(budget, 'wallClockBudgetMs') ?? recordNullableNumber(budget, 'wall_clock_budget_ms'),
+      remainingWallClockMs: recordNullableNumber(budget, 'remainingWallClockMs') ?? recordNullableNumber(budget, 'remaining_wall_clock_ms'),
+      overBudget: budget['overBudget'] === true || budget['over_budget'] === true,
+    },
+  };
+}
 
 /**
  * Map a WireEvent to an AppEvent.
@@ -445,6 +498,15 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         reason: w.payload.reason,
         summaryMessageId: w.payload.summary_message_id,
       };
+
+    case 'event.goal.updated': {
+      const goal = toAppGoal(w.payload.snapshot ?? null);
+      return {
+        type: 'goalUpdated',
+        sessionId: w.session_id,
+        goal: goal?.status === 'complete' ? null : goal,
+      };
+    }
 
     // ----- Message lifecycle -----
     case 'event.message.created':

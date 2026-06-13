@@ -16,6 +16,7 @@ import type {
   AppSessionStatus,
   AppTask,
   AppTaskStatus,
+  AppTerminal,
   AppWorkspace,
   ApprovalResponse,
   FsBrowseResult,
@@ -183,6 +184,34 @@ interface WireGitStatusResult {
 interface WireDiffResult {
   path: string;
   diff: string;
+}
+
+interface WireTerminal {
+  id: string;
+  session_id: string;
+  cwd: string;
+  shell: string;
+  cols: number;
+  rows: number;
+  status: 'running' | 'exited';
+  created_at: string;
+  exited_at?: string;
+  exit_code?: number | null;
+}
+
+function toAppTerminal(data: WireTerminal): AppTerminal {
+  return {
+    id: data.id,
+    sessionId: data.session_id,
+    cwd: data.cwd,
+    shell: data.shell,
+    cols: data.cols,
+    rows: data.rows,
+    status: data.status,
+    createdAt: data.created_at,
+    exitedAt: data.exited_at,
+    exitCode: data.exit_code,
+  };
 }
 
 /**
@@ -551,6 +580,43 @@ export class DaemonKimiWebApi implements KimiWebApi {
       `/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}:cancel`,
     );
     return data;
+  }
+
+  async listTerminals(sessionId: string): Promise<AppTerminal[]> {
+    const data = await this.http.get<{ items: WireTerminal[] }>(
+      `/sessions/${encodeURIComponent(sessionId)}/terminals`,
+    );
+    return data.items.map(toAppTerminal);
+  }
+
+  async createTerminal(
+    sessionId: string,
+    input: { cwd?: string; shell?: string; cols?: number; rows?: number } = {},
+  ): Promise<AppTerminal> {
+    const body: Record<string, unknown> = {
+      cwd: input.cwd,
+      shell: input.shell,
+      cols: input.cols,
+      rows: input.rows,
+    };
+    const data = await this.http.post<WireTerminal>(
+      `/sessions/${encodeURIComponent(sessionId)}/terminals`,
+      body,
+    );
+    return toAppTerminal(data);
+  }
+
+  async getTerminal(sessionId: string, terminalId: string): Promise<AppTerminal> {
+    const data = await this.http.get<WireTerminal>(
+      `/sessions/${encodeURIComponent(sessionId)}/terminals/${encodeURIComponent(terminalId)}`,
+    );
+    return toAppTerminal(data);
+  }
+
+  async closeTerminal(sessionId: string, terminalId: string): Promise<{ closed: true }> {
+    return this.http.post<{ closed: true }>(
+      `/sessions/${encodeURIComponent(sessionId)}/terminals/${encodeURIComponent(terminalId)}:close`,
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -1055,6 +1121,14 @@ export class DaemonKimiWebApi implements KimiWebApi {
       onError: (code: number, msg: string, fatal: boolean) => {
         handlers.onError(code, msg, fatal);
       },
+
+      onTerminalOutput: (sessionId, terminalId, data, seq) => {
+        handlers.onTerminalOutput?.(sessionId, terminalId, data, seq);
+      },
+
+      onTerminalExit: (sessionId, terminalId, exitCode) => {
+        handlers.onTerminalExit?.(sessionId, terminalId, exitCode);
+      },
     });
 
     socket.connect();
@@ -1096,6 +1170,21 @@ export class DaemonKimiWebApi implements KimiWebApi {
       },
       abort(sessionId: string, promptId: string): void {
         socket.abort(sessionId, promptId);
+      },
+      terminalAttach(sessionId: string, terminalId: string, sinceSeq?: number): void {
+        socket.terminalAttach(sessionId, terminalId, sinceSeq);
+      },
+      terminalInput(sessionId: string, terminalId: string, data: string): void {
+        socket.terminalInput(sessionId, terminalId, data);
+      },
+      terminalResize(sessionId: string, terminalId: string, cols: number, rows: number): void {
+        socket.terminalResize(sessionId, terminalId, cols, rows);
+      },
+      terminalDetach(sessionId: string, terminalId: string): void {
+        socket.terminalDetach(sessionId, terminalId);
+      },
+      terminalClose(sessionId: string, terminalId: string): void {
+        socket.terminalClose(sessionId, terminalId);
       },
       close(): void {
         socket.close();

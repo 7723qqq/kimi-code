@@ -67,6 +67,20 @@ export interface ToolMedia {
   dimensions?: string;
 }
 
+export type AgentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed';
+
+export interface AgentMember {
+  id: string;
+  toolCallId?: string;
+  name: string;
+  subagentType?: string;
+  phase: AgentPhase;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  summary?: string;
+  suspendedReason?: string;
+  swarmIndex?: number;
+}
+
 export type DiffKind = 'ctx' | 'add' | 'rem';
 
 export interface DiffLine {
@@ -123,7 +137,9 @@ export interface FilePreviewRequest {
 export type TurnBlock =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; thinking: string }
-  | { kind: 'tool'; tool: ToolCall };
+  | { kind: 'tool'; tool: ToolCall }
+  | { kind: 'agent'; member: AgentMember }
+  | { kind: 'agentGroup'; members: AgentMember[] };
 
 export interface ChatTurn {
   id: string;
@@ -188,7 +204,13 @@ export interface ConversationStatus {
 // ~/diff and ~/files were merged into a single ~/files tab (changed-first list +
 // a Changed|All toggle + an adaptive content pane: diff for changed files, content
 // preview for unchanged ones). 'diff' is gone; 'files' is the merged key.
-export type PaneKey = 'chat' | 'files' | 'tasks' | 'todo';
+export type PaneKey = 'chat' | 'files' | 'tasks' | 'todo' | 'terminal';
+
+export interface ActivationBadges {
+  plan: boolean;
+  goal: { status: string; turnsUsed: number; elapsedMs: number } | null;
+  swarm: { done: number; total: number } | null;
+}
 
 /** A queued prompt as shown in the composer's queue strip. */
 export interface QueuedPromptView {

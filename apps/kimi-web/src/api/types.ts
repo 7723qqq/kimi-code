@@ -276,6 +276,7 @@ export interface QuestionResponse {
 // ---------------------------------------------------------------------------
 
 export type AppTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+export type AppSubagentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed';
 
 export interface AppTask {
   id: string;
@@ -289,6 +290,56 @@ export interface AppTask {
   outputPreview?: string;
   outputBytes?: number;
   outputLines?: string[]; // accumulated by eventReducer from task.progress chunks
+  subagentPhase?: AppSubagentPhase;
+  subagentType?: string;
+  parentToolCallId?: string;
+  suspendedReason?: string;
+  swarmIndex?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Goal
+// ---------------------------------------------------------------------------
+
+export type AppGoalStatus = 'active' | 'paused' | 'blocked' | 'complete';
+
+export interface AppGoal {
+  goalId: string;
+  objective: string;
+  completionCriterion?: string;
+  status: AppGoalStatus;
+  turnsUsed: number;
+  tokensUsed: number;
+  wallClockMs: number;
+  terminalReason?: string;
+  budget: {
+    tokenBudget: number | null;
+    remainingTokens: number | null;
+    turnBudget: number | null;
+    remainingTurns: number | null;
+    wallClockBudgetMs: number | null;
+    remainingWallClockMs: number | null;
+    overBudget: boolean;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Terminal
+// ---------------------------------------------------------------------------
+
+export type AppTerminalStatus = 'running' | 'exited';
+
+export interface AppTerminal {
+  id: string;
+  sessionId: string;
+  cwd: string;
+  shell: string;
+  cols: number;
+  rows: number;
+  status: AppTerminalStatus;
+  createdAt: string;
+  exitedAt?: string;
+  exitCode?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +391,7 @@ export type AppEvent =
   | { type: 'taskCreated'; sessionId: string; task: AppTask }
   | { type: 'taskProgress'; sessionId: string; taskId: string; outputChunk: string; stream: 'stdout' | 'stderr' }
   | { type: 'taskCompleted'; sessionId: string; taskId: string; status: AppTaskStatus; outputPreview?: string; outputBytes?: number }
+  | { type: 'goalUpdated'; sessionId: string; goal: AppGoal | null }
   | { type: 'unknown'; raw: unknown };
 
 // ---------------------------------------------------------------------------
@@ -390,6 +442,8 @@ export interface KimiEventHandlers {
   onResync(sessionId: string, currentSeq: number, epoch?: string): void;
   onError(code: number, msg: string, fatal: boolean): void;
   onConnectionChange(connected: boolean): void;
+  onTerminalOutput?(sessionId: string, terminalId: string, data: string, seq: number): void;
+  onTerminalExit?(sessionId: string, terminalId: string, exitCode: number | null): void;
 }
 
 export interface KimiEventConnection {
@@ -409,6 +463,11 @@ export interface KimiEventConnection {
    */
   seedSnapshot(sessionId: string, snapshot: AppSessionSnapshot): void;
   abort(sessionId: string, promptId: string): void;
+  terminalAttach(sessionId: string, terminalId: string, sinceSeq?: number): void;
+  terminalInput(sessionId: string, terminalId: string, data: string): void;
+  terminalResize(sessionId: string, terminalId: string, cols: number, rows: number): void;
+  terminalDetach(sessionId: string, terminalId: string): void;
+  terminalClose(sessionId: string, terminalId: string): void;
   close(): void;
 }
 
@@ -488,6 +547,10 @@ export interface KimiWebApi {
   listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
   getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
+  listTerminals(sessionId: string): Promise<AppTerminal[]>;
+  createTerminal(sessionId: string, input?: { cwd?: string; shell?: string; cols?: number; rows?: number }): Promise<AppTerminal>;
+  getTerminal(sessionId: string, terminalId: string): Promise<AppTerminal>;
+  closeTerminal(sessionId: string, terminalId: string): Promise<{ closed: true }>;
   listDirectory(sessionId: string, input: { path?: string; depth?: number; includeGitStatus?: boolean }): Promise<{ items: FsEntry[]; childrenByPath?: Record<string, FsEntry[]>; truncated: boolean }>;
   readFile(sessionId: string, input: { path: string; offset?: number; length?: number }): Promise<{ path: string; content: string; encoding: 'utf-8' | 'base64'; size: number; truncated: boolean; etag: string; mime: string; languageId?: string; lineCount?: number; isBinary: boolean }>;
   searchFiles(sessionId: string, input: { query: string; limit?: number }): Promise<{ items: Array<{ path: string; name: string; kind: FsKind; score: number; matchPositions: number[] }>; truncated: boolean }>;

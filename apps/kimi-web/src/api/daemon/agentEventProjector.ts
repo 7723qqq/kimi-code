@@ -16,7 +16,15 @@
 //   const appEvents = projector.project(rawType, payload, sessionId);
 //   // call reset() when re-subscribing / resyncing a session
 
-import type { AppEvent, AppInFlightTurn, AppMessage, AppMessageContent, AppSessionUsage } from '../types';
+import type {
+  AppEvent,
+  AppGoal,
+  AppInFlightTurn,
+  AppMessage,
+  AppMessageContent,
+  AppSessionUsage,
+  AppTask,
+} from '../types';
 import { i18n } from '../../i18n';
 import { toAppMessageContent } from './mappers';
 import type { WireMessageContent } from './wire';
@@ -83,6 +91,10 @@ interface SessionState {
 
   // In-memory message log (mirrors daemon message-log.ts)
   messages: AppMessage[];
+
+  // Subagent lifecycle deltas after spawned only carry subagentId. Keep the
+  // spawned metadata here so later updates can replace the full AppTask.
+  subagentMeta: Map<string, AppTask>;
 }
 
 function createSessionState(): SessionState {
@@ -102,7 +114,74 @@ function createSessionState(): SessionState {
     turnCount: 0,
     model: '',
     messages: [],
+    subagentMeta: new Map(),
   };
+}
+
+function stringField(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberField(source: Record<string, unknown>, key: string): number | undefined {
+  const value = source[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function nullableNumberField(source: Record<string, unknown>, key: string): number | null {
+  const value = source[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function mapGoalSnapshot(snapshot: unknown): AppGoal | null {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const s = snapshot as Record<string, unknown>;
+  const budgetRaw = s['budget'];
+  const budget = budgetRaw && typeof budgetRaw === 'object' ? budgetRaw as Record<string, unknown> : {};
+  const status = stringField(s, 'status');
+  if (status !== 'active' && status !== 'paused' && status !== 'blocked' && status !== 'complete') return null;
+  const goalId = stringField(s, 'goalId') ?? stringField(s, 'goal_id') ?? 'goal';
+  const objective = stringField(s, 'objective') ?? '';
+  return {
+    goalId,
+    objective,
+    completionCriterion: stringField(s, 'completionCriterion') ?? stringField(s, 'completion_criterion'),
+    status,
+    turnsUsed: numberField(s, 'turnsUsed') ?? numberField(s, 'turns_used') ?? 0,
+    tokensUsed: numberField(s, 'tokensUsed') ?? numberField(s, 'tokens_used') ?? 0,
+    wallClockMs: numberField(s, 'wallClockMs') ?? numberField(s, 'wall_clock_ms') ?? 0,
+    terminalReason: stringField(s, 'terminalReason') ?? stringField(s, 'terminal_reason'),
+    budget: {
+      tokenBudget: nullableNumberField(budget, 'tokenBudget') ?? nullableNumberField(budget, 'token_budget'),
+      remainingTokens: nullableNumberField(budget, 'remainingTokens') ?? nullableNumberField(budget, 'remaining_tokens'),
+      turnBudget: nullableNumberField(budget, 'turnBudget') ?? nullableNumberField(budget, 'turn_budget'),
+      remainingTurns: nullableNumberField(budget, 'remainingTurns') ?? nullableNumberField(budget, 'remaining_turns'),
+      wallClockBudgetMs: nullableNumberField(budget, 'wallClockBudgetMs') ?? nullableNumberField(budget, 'wall_clock_budget_ms'),
+      remainingWallClockMs: nullableNumberField(budget, 'remainingWallClockMs') ?? nullableNumberField(budget, 'remaining_wall_clock_ms'),
+      overBudget: budget['overBudget'] === true || budget['over_budget'] === true,
+    },
+  };
+}
+
+function patchSubagent(
+  state: SessionState,
+  sessionId: string,
+  subagentId: unknown,
+  patch: Partial<AppTask>,
+): AppTask | null {
+  if (typeof subagentId !== 'string' || subagentId.length === 0) return null;
+  const prev = state.subagentMeta.get(subagentId) ?? {
+    id: subagentId,
+    sessionId,
+    kind: 'subagent',
+    description: 'subagent',
+    status: 'running',
+    createdAt: new Date().toISOString(),
+    subagentPhase: 'queued',
+  } satisfies AppTask;
+  const next: AppTask = { ...prev, ...patch, id: subagentId, sessionId, kind: 'subagent' };
+  state.subagentMeta.set(subagentId, next);
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +254,7 @@ function appendAssistantDelta(
 ): number {
   const msg = state.messages.find((m) => m.id === messageId);
   if (!msg) return -1;
-  const last = msg.content[msg.content.length - 1];
+  const last = msg.content.at(-1);
   if (last && last.type === kind) {
     if (kind === 'text') (last as { type: 'text'; text: string }).text += delta;
     else (last as { type: 'thinking'; thinking: string }).thinking += delta;
@@ -347,9 +426,9 @@ export function createAgentProjector(): AgentProjector {
   ): AppEvent[] {
     try {
       return _project(rawType, payload, sessionId, meta);
-    } catch (err) {
+    } catch (error) {
       // Defensive: log but never crash the caller
-      console.error('[agentProjector] Error projecting event:', rawType, err instanceof Error ? err.message : err);
+      console.error('[agentProjector] Error projecting event:', rawType, error instanceof Error ? error.message : error);
       return [];
     }
   }
@@ -704,39 +783,82 @@ export function createAgentProjector(): AgentProjector {
 
       // -----------------------------------------------------------------------
       case 'subagent.spawned': {
+        const taskId = typeof p?.subagentId === 'string' && p.subagentId.length > 0 ? p.subagentId : ulid('task_');
+        const task: AppTask = {
+          id: taskId,
+          sessionId,
+          kind: 'subagent',
+          description: typeof p?.description === 'string' ? p.description : p?.subagentName ?? 'subagent',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          subagentPhase: 'queued',
+          subagentType: typeof p?.subagentName === 'string' ? p.subagentName : undefined,
+          parentToolCallId: typeof p?.parentToolCallId === 'string' ? p.parentToolCallId : undefined,
+          swarmIndex: typeof p?.swarmIndex === 'number' ? p.swarmIndex : undefined,
+        };
+        s.subagentMeta.set(task.id, task);
         out.push({
           type: 'taskCreated',
           sessionId,
-          task: {
-            id: p?.subagentId ?? ulid('task_'),
-            sessionId,
-            kind: 'subagent',
-            description: p?.subagentName ?? 'subagent',
-            status: 'running',
-            createdAt: new Date().toISOString(),
-          },
+          task,
         });
         break;
       }
 
+      case 'subagent.started': {
+        const task = patchSubagent(s, sessionId, p?.subagentId, {
+          subagentPhase: 'working',
+          status: 'running',
+          startedAt: new Date().toISOString(),
+        });
+        if (task) out.push({ type: 'taskCreated', sessionId, task });
+        break;
+      }
+
+      case 'subagent.suspended': {
+        const task = patchSubagent(s, sessionId, p?.subagentId, {
+          subagentPhase: 'suspended',
+          status: 'running',
+          suspendedReason: typeof p?.reason === 'string' ? p.reason : undefined,
+        });
+        if (task) out.push({ type: 'taskCreated', sessionId, task });
+        break;
+      }
+
       case 'subagent.completed': {
+        const outputPreview = typeof p?.resultSummary === 'string' ? p.resultSummary : undefined;
+        const task = patchSubagent(s, sessionId, p?.subagentId, {
+          subagentPhase: 'completed',
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          outputPreview,
+        });
+        if (task) out.push({ type: 'taskCreated', sessionId, task });
         out.push({
           type: 'taskCompleted',
           sessionId,
           taskId: p?.subagentId ?? '',
           status: 'completed',
-          outputPreview: typeof p?.resultSummary === 'string' ? p.resultSummary : undefined,
+          outputPreview,
         });
         break;
       }
 
       case 'subagent.failed': {
+        const outputPreview = typeof p?.error === 'string' ? p.error : undefined;
+        const task = patchSubagent(s, sessionId, p?.subagentId, {
+          subagentPhase: 'failed',
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+          outputPreview,
+        });
+        if (task) out.push({ type: 'taskCreated', sessionId, task });
         out.push({
           type: 'taskCompleted',
           sessionId,
           taskId: p?.subagentId ?? '',
           status: 'failed',
-          outputPreview: typeof p?.error === 'string' ? p.error : undefined,
+          outputPreview,
         });
         break;
       }
@@ -854,11 +976,20 @@ export function createAgentProjector(): AgentProjector {
         break;
       }
 
+      case 'goal.updated': {
+        const goal = mapGoalSnapshot(p?.snapshot ?? null);
+        out.push({
+          type: 'goalUpdated',
+          sessionId,
+          goal: goal?.status === 'complete' ? null : goal,
+        });
+        break;
+      }
+
       // -----------------------------------------------------------------------
       // Explicitly known but not projected
       case 'compaction.blocked':
       case 'cron.fired':
-      case 'goal.updated':
       case 'hook.result':
       case 'mcp.server.status':
       case 'skill.activated':
@@ -929,9 +1060,12 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'compaction.started',
   'compaction.completed',
   'compaction.cancelled',
+  'goal.updated',
   'error',
   'warning',
   'subagent.spawned',
+  'subagent.started',
+  'subagent.suspended',
   'subagent.completed',
   'subagent.failed',
   'background.task.started',
