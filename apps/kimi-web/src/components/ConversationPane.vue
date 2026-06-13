@@ -512,11 +512,18 @@ function showAbortToast(): void {
   }, ABORT_TOAST_DURATION);
 }
 
+// Single entry point for manual interrupt so the Escape key and the composer's
+// stop button give the SAME feedback (the toast). Previously only Escape showed
+// it, so clicking stop aborted silently.
+function handleInterrupt(): void {
+  showAbortToast();
+  emit('interrupt');
+}
+
 function onKeyDown(event: KeyboardEvent): void {
   if (event.key === 'Escape' && (props.running || props.sending)) {
     event.preventDefault();
-    showAbortToast();
-    emit('interrupt');
+    handleInterrupt();
   }
 }
 
@@ -615,7 +622,7 @@ onUnmounted(() => {
             @submit="handleComposerSubmit"
             @steer="emit('steer', $event)"
             @command="emit('command', $event)"
-            @interrupt="emit('interrupt')"
+            @interrupt="handleInterrupt"
             @unqueue="emit('unqueue', $event)"
             @edit-queued="emit('editQueued', $event)"
             @set-permission="emit('setPermission', $event)"
@@ -802,7 +809,7 @@ onUnmounted(() => {
         @submit="handleComposerSubmit"
         @steer="emit('steer', $event)"
         @command="emit('command', $event)"
-        @interrupt="emit('interrupt')"
+        @interrupt="handleInterrupt"
         @unqueue="emit('unqueue', $event)"
         @edit-queued="emit('editQueued', $event)"
         @set-permission="emit('setPermission', $event)"
