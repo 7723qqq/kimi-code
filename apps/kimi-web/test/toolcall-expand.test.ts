@@ -37,4 +37,22 @@ describe('tool call summary placement', () => {
     expect(bodySummary.text()).toContain('ls -la');
     expect(w.find('.bb').text()).toContain('line one');
   });
+
+  it('expanded body shows the FULL summary (no … truncation)', () => {
+    // A command longer than BASH_MAX (64): clipped on the header, full in body.
+    // Real tool args arrive as JSON (see messagesToTurns), so the bash branch
+    // (BASH_MAX) applies — not the plain-string fallback (SUMMARY_MAX 80).
+    const longCmd = 'pnpm --filter @kimi-code/api test --run --reporter=verbose --coverage --bail';
+    const arg = JSON.stringify({ command: longCmd });
+
+    // collapsed header clips with an ellipsis
+    const collapsed = mountTool({ id: 'l1', name: 'bash', arg, status: 'ok' });
+    expect(collapsed.find('.bh .p').text()).toContain('…');
+
+    // expanded body shows the complete command, no ellipsis
+    const expanded = mountTool({ id: 'l2', name: 'bash', arg, status: 'ok', output: ['done'], defaultExpanded: true });
+    const body = expanded.find('.bb .bb-summary').text();
+    expect(body).toBe(longCmd);
+    expect(body).not.toContain('…');
+  });
 });

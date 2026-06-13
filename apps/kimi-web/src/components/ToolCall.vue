@@ -29,6 +29,8 @@ const mark = () => (props.tool.status === 'error' ? '✕' : '✓');
 const label = () => toolLabel(props.tool.name);
 const glyph = () => toolGlyph(props.tool.name);
 const summary = () => toolSummary(props.tool.name, props.tool.arg);
+// Expanded body has room to wrap → show the full, un-clipped summary (no `…`).
+const summaryFull = () => toolSummary(props.tool.name, props.tool.arg, true);
 const chip = () => toolChip({
   name: props.tool.name,
   arg: props.tool.arg,
@@ -137,7 +139,7 @@ function openMediaPreview(): void {
     <div v-if="open" class="bb">
       <!-- When expanded, the command/summary moves here (and is hidden from the
            header) so it shows exactly once. -->
-      <div v-if="summary()" class="bb-summary">{{ summary() }}</div>
+      <div v-if="summaryFull()" class="bb-summary">{{ summaryFull() }}</div>
       <div v-for="(line, i) in tool.output" :key="i">{{ line }}</div>
     </div>
   </div>

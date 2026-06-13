@@ -186,11 +186,18 @@ function filePath(d: Record<string, unknown>): string | undefined {
 
 const BASH_MAX = 64;
 
-export function toolSummary(name: string, arg: string): string {
+/**
+ * @param full when true, skip the `…` length clip and return the complete
+ *   summary — used by the expanded tool-card body (it has room to wrap). The
+ *   collapsed header passes the default (clipped) form.
+ */
+export function toolSummary(name: string, arg: string, full = false): string {
+  // Local clip that becomes a no-op (trim only) in `full` mode.
+  const c = (s: string, max = SUMMARY_MAX): string => (full ? s.trim() : clip(s, max));
   try {
     const d = parseArg(arg);
-    // Plain-string arg (already a human string) — just clip it.
-    const fallback = () => clip(arg.replace(/^·\s*/, ''));
+    // Plain-string arg (already a human string).
+    const fallback = () => c(arg.replace(/^·\s*/, ''));
     if (!d) return fallback();
 
     switch (normalizeToolName(name)) {
@@ -200,51 +207,51 @@ export function toolSummary(name: string, arg: string): string {
         const start = num(d.offset) ?? num(d.line_start) ?? num(d.start_line);
         const len = num(d.limit) ?? num(d.length);
         const end = num(d.line_end) ?? num(d.end_line) ?? (start !== undefined && len !== undefined ? start + len : undefined);
-        if (start !== undefined && end !== undefined) return clip(`${path}:${start}-${end}`);
-        if (start !== undefined) return clip(`${path}:${start}`);
-        return clip(path);
+        if (start !== undefined && end !== undefined) return c(`${path}:${start}-${end}`);
+        if (start !== undefined) return c(`${path}:${start}`);
+        return c(path);
       }
       case 'write': {
         const path = filePath(d);
-        return path ? clip(`${path}  ${t('tools.chip.created')}`) : fallback();
+        return path ? c(`${path}  ${t('tools.chip.created')}`) : fallback();
       }
       case 'edit':
       case 'multi_edit': {
         const path = filePath(d);
-        return path ? clip(path) : fallback();
+        return path ? c(path) : fallback();
       }
       case 'bash': {
         const cmd = str(d.command) ?? str(d.cmd) ?? str(d.script);
-        return cmd ? clip(cmd, BASH_MAX) : fallback();
+        return cmd ? c(cmd, BASH_MAX) : fallback();
       }
       case 'grep':
       case 'search': {
         const pattern = str(d.pattern) ?? str(d.query) ?? str(d.regex);
         const path = str(d.path) ?? str(d.glob) ?? str(d.include);
-        if (pattern && path) return clip(`${pattern}  in ${path}`);
-        return pattern ? clip(pattern) : fallback();
+        if (pattern && path) return c(`${pattern}  in ${path}`);
+        return pattern ? c(pattern) : fallback();
       }
       case 'glob': {
         const pattern = str(d.pattern) ?? str(d.glob) ?? str(d.query);
         const path = str(d.path) ?? str(d.cwd);
-        if (pattern && path) return clip(`${pattern}  in ${path}`);
-        return pattern ? clip(pattern) : (str(d.path) ? clip(str(d.path)!) : fallback());
+        if (pattern && path) return c(`${pattern}  in ${path}`);
+        return pattern ? c(pattern) : (str(d.path) ? c(str(d.path)!) : fallback());
       }
       case 'ls': {
         const dir = str(d.path) ?? str(d.dir) ?? str(d.directory) ?? str(d.cwd);
-        return dir ? clip(dir) : fallback();
+        return dir ? c(dir) : fallback();
       }
       case 'web_fetch': {
         const url = str(d.url) ?? str(d.uri);
-        return url ? clip(urlHost(url)) : fallback();
+        return url ? c(urlHost(url)) : fallback();
       }
       case 'todo':
       case 'task': {
         const label =
           str(d.description) ?? str(d.title) ?? str(d.prompt) ?? str(d.name) ?? str(d.subagent_type);
-        if (label) return clip(label);
+        if (label) return c(label);
         const items = Array.isArray(d.todos) ? d.todos : Array.isArray(d.items) ? d.items : undefined;
-        if (items) return clip(t('tools.chip.todos', { count: items.length }));
+        if (items) return c(t('tools.chip.todos', { count: items.length }));
         return fallback();
       }
       default:
