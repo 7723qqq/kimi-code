@@ -5,7 +5,7 @@
 <!-- Falls back to a paste-path escape hatch when the daemon can't browse. -->
 <!-- Light only, monospace-forward, Kimi blue #1565C0, no emoji. -->
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FsBrowseEntry, FsBrowseResult } from '../api/types';
 
@@ -14,6 +14,8 @@ const { t } = useI18n();
 const props = defineProps<{
   browseFs: (path?: string) => Promise<FsBrowseResult>;
   getFsHome: () => Promise<{ home: string; recentRoots: string[] }>;
+  /** Where the browser opens by default — the path kimi-web is working in. */
+  defaultPath?: string;
 }>();
 
 const emit = defineEmits<{
@@ -30,15 +32,84 @@ const currentPath = ref('');
 const parentPath = ref<string | null>(null);
 const entries = ref<FsBrowseEntry[]>([]);
 
-// Live filter over the current folder's subfolders (case-insensitive substring).
+// fzf-style search: typing runs a bounded RECURSIVE fuzzy search under the
+// current folder (not just a one-level filter), so a deep target is reachable
+// without clicking down the tree. The result list keeps a fixed height, so the
+// dialog never resizes while searching.
 const filter = ref('');
-const filteredEntries = computed<FsBrowseEntry[]>(() => {
-  const q = filter.value.trim().toLowerCase();
-  if (q === '') return entries.value;
-  return entries.value.filter((e) => e.name.toLowerCase().includes(q));
+const searching = ref(false);
+interface SearchHit { path: string; name: string; rel: string; isGitRepo?: boolean; branch?: string }
+const searchResults = ref<SearchHit[]>([]);
+const isSearching = computed(() => filter.value.trim().length > 0);
+let searchToken = 0;
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Subsequence fuzzy match (query chars appear in order). */
+function fuzzyMatch(query: string, text: string): boolean {
+  const q = query.toLowerCase();
+  const s = text.toLowerCase();
+  let qi = 0;
+  for (let si = 0; si < s.length && qi < q.length; si++) {
+    if (s[si] === q[qi]) qi++;
+  }
+  return qi === q.length;
+}
+
+const SEARCH_MAX_DIRS = 600;
+const SEARCH_MAX_DEPTH = 6;
+const SEARCH_MAX_RESULTS = 150;
+
+async function runSearch(query: string): Promise<void> {
+  const root = currentPath.value;
+  const q = query.trim();
+  if (!root || q === '') {
+    searchResults.value = [];
+    searching.value = false;
+    return;
+  }
+  const token = ++searchToken;
+  searching.value = true;
+  const hits: SearchHit[] = [];
+  const queue: { path: string; depth: number }[] = [{ path: root, depth: 0 }];
+  let visited = 0;
+  while (queue.length > 0 && visited < SEARCH_MAX_DIRS && hits.length < SEARCH_MAX_RESULTS) {
+    if (token !== searchToken) return; // superseded by a newer query
+    const node = queue.shift()!;
+    visited++;
+    let res: FsBrowseResult;
+    try {
+      res = await props.browseFs(node.path);
+    } catch {
+      continue;
+    }
+    if (token !== searchToken) return;
+    for (const e of res.entries) {
+      if (!e.isDir) continue;
+      const rel = e.path.startsWith(root) ? e.path.slice(root.length).replace(/^\/+/, '') : e.path;
+      if (fuzzyMatch(q, rel || e.name)) {
+        hits.push({ path: e.path, name: e.name, rel: rel || e.name, isGitRepo: e.isGitRepo, branch: e.branch });
+        if (hits.length >= SEARCH_MAX_RESULTS) break;
+      }
+      if (node.depth + 1 < SEARCH_MAX_DEPTH) queue.push({ path: e.path, depth: node.depth + 1 });
+    }
+    if (token === searchToken) searchResults.value = [...hits]; // incremental
+  }
+  if (token === searchToken) searching.value = false;
+}
+
+watch(filter, (q) => {
+  if (searchTimer) clearTimeout(searchTimer);
+  if (q.trim() === '') {
+    searchToken++; // cancel any in-flight walk
+    searchResults.value = [];
+    searching.value = false;
+    return;
+  }
+  searchTimer = setTimeout(() => void runSearch(q), 220);
 });
 
-// Paste-path escape hatch
+// Paste-path escape hatch — collapsed into a secondary "enter path" affordance.
+const pasteOpen = ref(false);
 const pathInput = ref('');
 const pathTrimmed = computed(() => pathInput.value.trim());
 
@@ -102,6 +173,11 @@ function handlePasteAdd(): void {
 onMounted(async () => {
   loading.value = true;
   try {
+    // Default to the path kimi-web is working in; fall back to $HOME.
+    if (props.defaultPath) {
+      await navigate(props.defaultPath);
+      if (!browseFailed.value) return;
+    }
     const home = await props.getFsHome();
     if (home.home) {
       await navigate(home.home);
@@ -122,7 +198,10 @@ function handleKeydown(e: KeyboardEvent): void {
 }
 
 onMounted(() => document.addEventListener('keydown', handleKeydown));
-onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown);
+  if (searchTimer) clearTimeout(searchTimer);
+});
 </script>
 
 <template>
@@ -162,8 +241,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
           </div>
         </div>
 
-        <!-- Filter the current folder's subfolders -->
-        <div v-if="!loading && entries.length > 0" class="filterbar">
+        <!-- fzf search across the whole current folder (recursive, fuzzy) -->
+        <div v-if="!loading" class="filterbar">
           <svg class="filter-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="7" cy="7" r="4.5"/><path d="M11 11l3 3"/>
           </svg>
@@ -171,19 +250,43 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
             v-model="filter"
             class="filter-input"
             type="text"
-            :placeholder="t('workspace.filterPlaceholder')"
+            :placeholder="t('workspace.searchPlaceholder')"
             autocomplete="off"
             spellcheck="false"
             @keydown.stop
           />
+          <span v-if="searching" class="search-spin" aria-hidden="true" />
         </div>
 
-        <!-- Folder list -->
+        <!-- Folder list. Fixed height → the dialog never resizes while searching. -->
         <div class="folder-list">
           <div v-if="loading" class="fl-loading">{{ t('workspace.browsing') }}</div>
+
+          <!-- Search mode: recursive fuzzy hits (relative paths) -->
+          <template v-else-if="isSearching">
+            <button
+              v-for="hit in searchResults"
+              :key="hit.path"
+              class="folder-row"
+              @click="navigate(hit.path)"
+            >
+              <svg class="dir-icon" width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2">
+                <rect x="1" y="3.5" width="12" height="8.5" rx="1"/>
+                <path d="M1 5V3.5A1 1 0 0 1 2 2.5h3.5l1.3 2"/>
+              </svg>
+              <span class="folder-name search-rel">{{ hit.rel }}</span>
+              <span v-if="hit.isGitRepo" class="git-tag">
+                {{ t('workspace.gitTag') }}<span v-if="hit.branch" class="git-branch"> {{ hit.branch }}</span>
+              </span>
+            </button>
+            <div v-if="!searching && searchResults.length === 0" class="fl-empty">{{ t('workspace.noFilterMatch', { q: filter.trim() }) }}</div>
+            <div v-else-if="searching && searchResults.length === 0" class="fl-loading">{{ t('workspace.searching') }}</div>
+          </template>
+
+          <!-- Browse mode: the current folder's subfolders -->
           <template v-else>
             <button
-              v-for="entry in filteredEntries"
+              v-for="entry in entries"
               :key="entry.path"
               class="folder-row"
               @click="openEntry(entry)"
@@ -198,29 +301,39 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
               </span>
             </button>
             <div v-if="entries.length === 0" class="fl-empty">{{ t('workspace.noSubfolders') }}</div>
-            <div v-else-if="filteredEntries.length === 0" class="fl-empty">{{ t('workspace.noFilterMatch', { q: filter.trim() }) }}</div>
           </template>
         </div>
       </template>
 
-      <!-- Paste-path fallback (always available as an escape hatch) -->
+      <!-- Paste an absolute path — secondary, collapsed behind a toggle (always
+           expanded when the daemon can't browse, since it's then the only way). -->
       <div class="paste-section" :class="{ 'paste-only': browseFailed }">
-        <label class="paste-label" for="aw-path">{{ t('workspace.pathLabel') }}</label>
-        <input
-          id="aw-path"
-          v-model="pathInput"
-          class="paste-input"
-          type="text"
-          :placeholder="t('workspace.pathPlaceholder')"
-          autocomplete="off"
-          spellcheck="false"
-          @keydown.enter.stop="handlePasteAdd"
-        />
-        <button class="paste-add" :disabled="pathTrimmed.length === 0" :title="t('workspace.add')" @click="handlePasteAdd">
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M8 3v10M3 8h10"/>
-          </svg>
+        <button
+          v-if="!browseFailed && !pasteOpen"
+          type="button"
+          class="paste-toggle"
+          @click="pasteOpen = true"
+        >
+          {{ t('workspace.pasteToggle') }}
         </button>
+        <template v-else>
+          <label class="paste-label" for="aw-path">{{ t('workspace.pathLabel') }}</label>
+          <input
+            id="aw-path"
+            v-model="pathInput"
+            class="paste-input"
+            type="text"
+            :placeholder="t('workspace.pathPlaceholder')"
+            autocomplete="off"
+            spellcheck="false"
+            @keydown.enter.stop="handlePasteAdd"
+          />
+          <button class="paste-add" :disabled="pathTrimmed.length === 0" :title="t('workspace.add')" @click="handlePasteAdd">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M8 3v10M3 8h10"/>
+            </svg>
+          </button>
+        </template>
       </div>
 
       <!-- Actions -->
@@ -356,6 +469,29 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   outline: none;
 }
 .filter-input::placeholder { color: var(--faint); }
+.search-spin {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--line);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: aw-spin 0.7s linear infinite;
+}
+@keyframes aw-spin { to { transform: rotate(360deg); } }
+.search-rel { color: var(--ink); }
+
+.paste-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--blue);
+  padding: 2px 0;
+  text-align: left;
+}
+.paste-toggle:hover { text-decoration: underline; }
 
 /* Folder list */
 .folder-list {

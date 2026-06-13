@@ -811,6 +811,7 @@ function openPr(url: string): void {
       v-if="showAddWorkspace"
       :browse-fs="client.browseFs"
       :get-fs-home="client.getFsHome"
+      :default-path="client.visibleWorkspace.value?.root ?? client.status.value.cwd"
       @add="(root) => { showAddWorkspace = false; void client.addWorkspaceByPath(root); }"
       @close="showAddWorkspace = false"
     />
