@@ -18,12 +18,17 @@ const props = defineProps<{
   accent: Accent;
   authReady: boolean;
   accountModel?: string | null;
+  /** Browser-notification-on-completion preference. */
+  notify: boolean;
+  /** OS permission state ('default' | 'granted' | 'denied') for the hint. */
+  notifyPermission?: string;
 }>();
 
 const emit = defineEmits<{
   setTheme: [theme: Theme];
   setColorScheme: [colorScheme: ColorScheme];
   setAccent: [accent: Accent];
+  setNotify: [on: boolean];
   login: [];
   logout: [];
   addWorkspace: [];
@@ -86,6 +91,28 @@ function exportLog(): void {
           <div class="row">
             <span class="rlabel">{{ t('sidebar.language') }}</span>
             <LanguageSwitcher />
+          </div>
+        </section>
+
+        <!-- Notifications -->
+        <section class="sec">
+          <h3 class="sec-title">{{ t('settings.notifications') }}</h3>
+          <div class="row">
+            <span class="rlabel">
+              {{ t('settings.notifyOnComplete') }}
+              <span v-if="notifyPermission === 'denied'" class="hint">{{ t('settings.notifyDenied') }}</span>
+            </span>
+            <button
+              type="button"
+              class="switch"
+              role="switch"
+              :class="{ on: notify }"
+              :aria-checked="notify"
+              :disabled="notifyPermission === 'denied'"
+              @click="emit('setNotify', !notify)"
+            >
+              <span class="knob" />
+            </button>
           </div>
         </section>
 

@@ -444,6 +444,69 @@ function setAccent(a: Accent): void {
 }
 
 // ---------------------------------------------------------------------------
+// Browser system notification on turn completion. Opt-in (persisted), and the
+// OS permission is requested only when the user enables the toggle.
+// ---------------------------------------------------------------------------
+const NOTIFY_STORAGE_KEY = 'kimi-web.notify-on-complete';
+function loadNotifyFromStorage(): boolean {
+  try {
+    return localStorage.getItem(NOTIFY_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+const notifyOnComplete = ref(loadNotifyFromStorage());
+const notifyPermission = ref<string>(
+  typeof Notification !== 'undefined' ? Notification.permission : 'denied',
+);
+
+/** Enable/disable completion notifications. Enabling requests OS permission;
+    if the user blocks it the preference stays off. */
+async function setNotifyOnComplete(on: boolean): Promise<void> {
+  if (!on) {
+    notifyOnComplete.value = false;
+    try { localStorage.setItem(NOTIFY_STORAGE_KEY, '0'); } catch { /* ignore */ }
+    return;
+  }
+  if (typeof Notification === 'undefined') return;
+  let perm = Notification.permission;
+  if (perm === 'default') {
+    try { perm = await Notification.requestPermission(); } catch { /* ignore */ }
+  }
+  notifyPermission.value = perm;
+  if (perm !== 'granted') return; // blocked — leave the toggle off
+  notifyOnComplete.value = true;
+  try { localStorage.setItem(NOTIFY_STORAGE_KEY, '1'); } catch { /* ignore */ }
+}
+
+/** Fire a completion notification for a finished session, but only when the
+    user isn't already looking at it (page hidden, or a different session). */
+function maybeNotifyCompletion(sid: string): void {
+  if (!notifyOnComplete.value) return;
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const isActiveAndVisible =
+    sid === rawState.activeSessionId &&
+    typeof document !== 'undefined' &&
+    document.visibilityState === 'visible';
+  if (isActiveAndVisible) return;
+  const session = rawState.sessions.find((s) => s.id === sid);
+  const title = session?.title?.trim() || 'Kimi Code';
+  try {
+    const n = new Notification(title, {
+      body: i18n.global.t('settings.notifyBody'),
+      tag: `kimi-complete-${sid}`,
+    });
+    n.onclick = () => {
+      try { window.focus(); } catch { /* ignore */ }
+      void selectSession(sid);
+      n.close();
+    };
+  } catch {
+    // Notification construction can throw on some platforms — ignore.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Onboarding: a "has the user been onboarded" flag that gates the first-run
 // onboarding screen (preferences: language + theme). Persisted; can be reset to
 // re-open the screen from the settings popover.
@@ -1508,6 +1571,9 @@ function onSessionIdle(sid: string): void {
     // its unread dot until they open it.
     rawState.unreadBySession = { ...rawState.unreadBySession, [sid]: true };
   }
+
+  // Browser notification when the user isn't watching this session.
+  maybeNotifyCompletion(sid);
 
   const queue = rawState.queuedBySession[sid] ?? [];
   if (queue.length === 0) return;
@@ -2941,6 +3007,9 @@ export function useKimiWebClient() {
 
     accent,
     setAccent,
+    notifyOnComplete,
+    notifyPermission,
+    setNotifyOnComplete,
     onboarded,
     setOnboarded,
 

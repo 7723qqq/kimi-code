@@ -8,6 +8,19 @@ import type {
 
 const now = '2026-06-11T00:00:00.000Z';
 
+class NotificationMock {
+  static permission = 'granted';
+  static requestPermission = vi.fn(async () => 'granted');
+  static instances: NotificationMock[] = [];
+  title: string;
+  onclick: (() => void) | null = null;
+  constructor(title: string) {
+    this.title = title;
+    NotificationMock.instances.push(this);
+  }
+  close(): void {}
+}
+
 function session(id: string): AppSession {
   return {
     id,
@@ -216,6 +229,36 @@ describe('useKimiWebClient session memory cache', () => {
     // Opening the background session clears its unread flag.
     await client.selectSession('sess_bg').catch(() => {});
     expect(client.unreadBySession.value['sess_bg']).toBeUndefined();
+  });
+
+  it('fires a browser notification when a background session completes (opt-in)', async () => {
+    NotificationMock.instances = [];
+    vi.stubGlobal('Notification', NotificationMock);
+    const { client, getHandlers } = await setup([]);
+    await client.createSession('/repo'); // sess_1 active
+
+    const bg = session('sess_bg');
+    getHandlers().onEvent(
+      { type: 'sessionCreated', session: bg },
+      { sessionId: 'sess_bg', seq: 1 },
+    );
+
+    // Off by default → no notification on completion.
+    getHandlers().onEvent(
+      { type: 'sessionStatusChanged', sessionId: 'sess_bg', status: 'idle', previousStatus: 'running' },
+      { sessionId: 'sess_bg', seq: 2 },
+    );
+    expect(NotificationMock.instances).toHaveLength(0);
+
+    // Opt in (permission already granted) → completion fires a notification.
+    await client.setNotifyOnComplete(true);
+    expect(client.notifyOnComplete.value).toBe(true);
+    getHandlers().onEvent(
+      { type: 'sessionStatusChanged', sessionId: 'sess_bg', status: 'idle', previousStatus: 'running' },
+      { sessionId: 'sess_bg', seq: 3 },
+    );
+    expect(NotificationMock.instances).toHaveLength(1);
+    expect(NotificationMock.instances[0]!.title).toBe('sess_bg');
   });
 
   it('keeps the optimistic user turn key stable after submit resolves', async () => {
