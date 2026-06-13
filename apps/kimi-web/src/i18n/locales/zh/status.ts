@@ -17,6 +17,11 @@ export default {
   planOn: '开',
   planOff: '关',
   planTooltip: '切换计划模式（先调研再修改）',
+  // 模式选择器（计划 / 目标 / Swarm）
+  modesLabel: '模式',
+  modesTooltip: '模式：计划 / 目标 / Swarm',
+  goalLabel: '目标',
+  modeOff: '未启用',
   // 思考强度选择
   thinkingLabel: '思考',
   thinkingTooltip: '切换思考模式',

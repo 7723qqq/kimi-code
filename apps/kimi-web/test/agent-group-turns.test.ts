@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { messagesToTurns } from '../src/composables/messagesToTurns';
+import { buildSwarmGroups } from '../src/composables/swarmGroups';
 import type { AppMessage, AppTask } from '../src/api/types';
 
 const now = '2026-06-13T00:00:00.000Z';
@@ -46,7 +47,7 @@ describe('messagesToTurns agent blocks', () => {
     expect(turns[0]?.tools).toBeUndefined();
   });
 
-  it('renders multiple subagent tasks with the same parent tool as an agentGroup block', () => {
+  it('does NOT render a swarm (subagents with a swarmIndex) inline — it is a SwarmCard', () => {
     const messages: AppMessage[] = [
       {
         id: 'msg_1',
@@ -61,26 +62,47 @@ describe('messagesToTurns agent blocks', () => {
     ];
     const tasks: AppTask[] = [
       {
-        id: 'agent_b',
-        sessionId: 'ses_1',
-        kind: 'subagent',
-        description: 'Second',
-        status: 'running',
-        createdAt: now,
-        subagentPhase: 'queued',
-        parentToolCallId: 'tc_swarm',
-        swarmIndex: 2,
+        id: 'agent_b', sessionId: 'ses_1', kind: 'subagent', description: 'Second',
+        status: 'running', createdAt: now, subagentPhase: 'queued', parentToolCallId: 'tc_swarm', swarmIndex: 2,
       },
       {
-        id: 'agent_a',
+        id: 'agent_a', sessionId: 'ses_1', kind: 'subagent', description: 'First',
+        status: 'completed', createdAt: now, subagentPhase: 'completed', parentToolCallId: 'tc_swarm', swarmIndex: 1,
+      },
+    ];
+
+    // The swarm is rendered as its own SwarmCard (buildSwarmGroups), so it must
+    // NOT also appear inline in the transcript — that was the "two blocks" bug.
+    const turns = messagesToTurns(messages, [], undefined, false, tasks);
+    const hasInlineAgent = (turns[0]?.blocks ?? []).some(
+      (b) => b.kind === 'agent' || b.kind === 'agentGroup',
+    );
+    expect(hasInlineAgent).toBe(false);
+    // ...but it IS surfaced once, as a swarm group.
+    expect(buildSwarmGroups(tasks)).toHaveLength(1);
+  });
+
+  it('renders multiple NON-swarm subagents (no swarmIndex) as an inline agentGroup', () => {
+    const messages: AppMessage[] = [
+      {
+        id: 'msg_1',
         sessionId: 'ses_1',
-        kind: 'subagent',
-        description: 'First',
-        status: 'completed',
+        role: 'assistant',
+        promptId: 'pr_1',
         createdAt: now,
-        subagentPhase: 'completed',
-        parentToolCallId: 'tc_swarm',
-        swarmIndex: 1,
+        content: [
+          { type: 'toolUse', toolCallId: 'tc_agent', toolName: 'agent', input: { description: 'review' } },
+        ],
+      },
+    ];
+    const tasks: AppTask[] = [
+      {
+        id: 'agent_a', sessionId: 'ses_1', kind: 'subagent', description: 'First',
+        status: 'completed', createdAt: '2026-06-13T00:00:00.000Z', subagentPhase: 'completed', parentToolCallId: 'tc_agent',
+      },
+      {
+        id: 'agent_b', sessionId: 'ses_1', kind: 'subagent', description: 'Second',
+        status: 'running', createdAt: '2026-06-13T00:00:01.000Z', subagentPhase: 'queued', parentToolCallId: 'tc_agent',
       },
     ];
 
@@ -89,6 +111,7 @@ describe('messagesToTurns agent blocks', () => {
     expect(block?.kind).toBe('agentGroup');
     if (block?.kind !== 'agentGroup') return;
     expect(block.members.map((member) => member.id)).toEqual(['agent_a', 'agent_b']);
-    expect(block.members.map((member) => member.phase)).toEqual(['completed', 'queued']);
+    // Not a swarm → no SwarmCard.
+    expect(buildSwarmGroups(tasks)).toHaveLength(0);
   });
 });

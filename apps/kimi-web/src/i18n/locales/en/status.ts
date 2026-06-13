@@ -17,6 +17,11 @@ export default {
   planOn: 'on',
   planOff: 'off',
   planTooltip: 'Toggle plan mode (research before editing)',
+  // Modes selector (Plan / Goal / Swarm)
+  modesLabel: 'Modes',
+  modesTooltip: 'Modes: Plan / Goal / Swarm',
+  goalLabel: 'Goal',
+  modeOff: 'Off',
   // Thinking selector
   thinkingLabel: 'thinking',
   thinkingTooltip: 'Toggle thinking mode',
