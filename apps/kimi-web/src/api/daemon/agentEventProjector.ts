@@ -29,6 +29,34 @@ import { i18n } from '../../i18n';
 import { toAppMessageContent } from './mappers';
 import type { WireMessageContent } from './wire';
 
+// Subagent turns share the parent session id: their turn / step / delta / tool
+// frames stream over the SAME session channel, each tagged with the subagent's
+// own agentId (the main agent's is 'main'). They must NOT be folded into the
+// parent transcript — doing so created empty "skeleton" assistant bubbles (a
+// subagent turn.step.started opens a parent assistant message that never gets
+// the main agent's text) and fragmented snippets (subagent deltas appended to
+// the parent). The subagent's progress is surfaced separately via the
+// subagent.* → task → AgentCard path. This mirrors the server's
+// InFlightTurnTracker, which likewise tracks only main-agent activity.
+const MAIN_AGENT_ID = 'main';
+const MAIN_AGENT_TRANSCRIPT_FRAMES = new Set<string>([
+  'turn.started',
+  'turn.step.started',
+  'turn.step.completed',
+  'turn.step.retrying',
+  'turn.step.interrupted',
+  'turn.ended',
+  'thinking.delta',
+  'assistant.delta',
+  'tool.use',
+  'tool.call.started',
+  'tool.call.delta',
+  'tool.progress',
+  'tool.result',
+  'agent.status.updated',
+  'prompt.completed',
+]);
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -456,6 +484,20 @@ export function createAgentProjector(): AgentProjector {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const p = payload as any;
     const out: AppEvent[] = [];
+
+    // Drop subagent-scoped transcript frames (see MAIN_AGENT_TRANSCRIPT_FRAMES).
+    // A subagent carries its own agentId; only the main agent's stream builds the
+    // visible transcript. Lifecycle frames (subagent.*, goal.*, background.*) are
+    // intentionally NOT in the set — they describe the subagent for the task view
+    // and must always be projected.
+    const frameAgentId: unknown = p?.agentId;
+    if (
+      typeof frameAgentId === 'string' &&
+      frameAgentId !== MAIN_AGENT_ID &&
+      MAIN_AGENT_TRANSCRIPT_FRAMES.has(rawType)
+    ) {
+      return out;
+    }
 
     switch (rawType) {
       // -----------------------------------------------------------------------

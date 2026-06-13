@@ -68,6 +68,36 @@ describe('subagent and goal projection', () => {
     ]);
   });
 
+  it('does not fold subagent transcript frames into the parent session', () => {
+    const projector = createAgentProjector();
+    const sid = 'ses_1';
+
+    // Main agent turn starts and streams text into the parent transcript.
+    projector.project('turn.started', { turnId: 1, agentId: 'main' }, sid);
+    const mainStep = projector.project('turn.step.started', { turnId: 1, agentId: 'main' }, sid);
+    expect(mainStep.some((e) => e.type === 'messageCreated')).toBe(true);
+    const mainDelta = projector.project('assistant.delta', { delta: 'main answer', agentId: 'main' }, sid, { offset: 0 });
+    expect(mainDelta.some((e) => e.type === 'assistantDelta')).toBe(true);
+
+    // A subagent turn streams over the SAME session id with its OWN agentId.
+    // None of its transcript frames may produce parent-transcript events — they
+    // used to open empty "skeleton" assistant bubbles + fragmented snippets.
+    expect(projector.project('turn.started', { turnId: 2, agentId: 'agent_1' }, sid)).toEqual([]);
+    expect(projector.project('turn.step.started', { turnId: 2, agentId: 'agent_1' }, sid)).toEqual([]);
+    expect(projector.project('thinking.delta', { delta: 'sub thinking', agentId: 'agent_1' }, sid, { offset: 0 })).toEqual([]);
+    expect(projector.project('assistant.delta', { delta: 'sub answer', agentId: 'agent_1' }, sid, { offset: 0 })).toEqual([]);
+    expect(projector.project('tool.use', { toolName: 'bash', toolCallId: 'tc_x', turnId: 2, agentId: 'agent_1' }, sid)).toEqual([]);
+
+    // The main stream keeps appending to its OWN message: the subagent frames
+    // did not hijack currentAssistantMsgId or the per-turn text offset.
+    const moreMain = projector.project('assistant.delta', { delta: ' continues', agentId: 'main' }, sid, { offset: 'main answer'.length });
+    expect(moreMain.some((e) => e.type === 'assistantDelta')).toBe(true);
+
+    // The subagent lifecycle is still surfaced as a task (AgentCard path).
+    const spawned = projector.project('subagent.spawned', { subagentId: 'agent_1', subagentName: 'coder', parentToolCallId: 'tc_x', description: 'sub' }, sid);
+    expect(spawned.some((e) => e.type === 'taskCreated')).toBe(true);
+  });
+
   it('stores active goals and clears complete/null goals in the reducer', () => {
     const projector = createAgentProjector();
     const sid = 'ses_1';
