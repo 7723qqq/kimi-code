@@ -511,9 +511,14 @@ function copyDiff(code: string, idx: number) {
   font-weight: 600;
 }
 
-/* Override markstream-vue's default table-row hover background */
-.md :deep(table-node) tbody tr:hover {
-  background-color: inherit;
+/* Drop markstream-vue's default table-row hover background — the conversation
+   tables are read-only, so the hover highlight is just noise. Its rule is the
+   component-scoped `.table-node[data-v-…] tbody tr:hover` (a CLASS, not the
+   `table-node` element the old override targeted, which is why the hover still
+   showed). Match the class and use !important to win regardless of the order
+   the scoped component style is injected. */
+.md :deep(.table-node) tbody tr:hover {
+  background-color: transparent !important;
 }
 
 /* ---------------------------------------------------------------------------
