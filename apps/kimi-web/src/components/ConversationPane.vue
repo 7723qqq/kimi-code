@@ -270,7 +270,9 @@ function distanceFromBottom(): number {
 
 let lastScrollTop = 0;
 let userActionFollowUntil = 0;
-let lastProgrammaticScroll = 0;
+// Timestamp of the last SMOOTH programmatic scroll (the only async multi-event
+// path). The synchronous streaming scrolls are intentionally NOT recorded here.
+let lastSmoothScroll = 0;
 
 function hasUserActionFollowLock(): boolean {
   return Date.now() < userActionFollowUntil;
@@ -281,9 +283,16 @@ function onPanesScroll(): void {
   if (!el) return;
   const top = el.scrollTop;
 
-  // Treat scroll events within 100 ms of a programmatic scroll as non-user;
-  // just sync lastScrollTop so the next real user scroll compares correctly.
-  if (performance.now() - lastProgrammaticScroll < 100) {
+  // Treat scroll events within 100 ms of a SMOOTH programmatic scroll as
+  // non-user; just sync lastScrollTop so the next real user scroll compares
+  // correctly. This window only covers the async, multi-event smooth path (the
+  // pill). The streaming follow uses the synchronous scrollTop setter, which
+  // updates lastScrollTop immediately — its async echo event lands at
+  // top === lastScrollTop and is a harmless no-op. Gating streaming on this
+  // window was the bug: during the thinking phase the view re-pins every
+  // ~120 ms, so a user's upward scroll almost always fell inside a fresh window
+  // and was swallowed, yanking them back to the bottom.
+  if (performance.now() - lastSmoothScroll < 100) {
     lastScrollTop = top;
     return;
   }
@@ -322,11 +331,12 @@ function onPanesScroll(): void {
 function scrollToBottom(smooth = false): void {
   const el = panesRef.value;
   if (!el) return;
-  lastProgrammaticScroll = performance.now();
   // Use the synchronous scrollTop setter for instant scrolling to avoid race
   // conditions where a delayed scroll event from el.scrollTo() sees a stale
   // lastScrollTop and incorrectly treats the scroll as upward user intent.
+  // Only the smooth path emits delayed events, so only it records the window.
   if (smooth && typeof el.scrollTo === 'function') {
+    lastSmoothScroll = performance.now();
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   } else {
     el.scrollTop = el.scrollHeight;
