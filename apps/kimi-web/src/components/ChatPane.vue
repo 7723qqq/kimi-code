@@ -5,9 +5,7 @@ import { useI18n } from 'vue-i18n';
 import type { ChatTurn, ApprovalBlock, FilePreviewRequest, ToolMedia, TurnBlock } from '../types';
 
 const { t } = useI18n();
-import type { ApprovalDecision } from '../api/types';
 import ToolCall from './ToolCall.vue';
-import ApprovalCard from './ApprovalCard.vue';
 import Markdown from './Markdown.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import ActivityNotice from './ActivityNotice.vue';
@@ -101,7 +99,6 @@ const streamingTurnId = computed<string | null>(() => {
 });
 
 const emit = defineEmits<{
-  approvalDecide: [approvalId: string, response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string }];
   openFile: [target: FilePreviewRequest];
   openMedia: [media: ToolMedia];
   copyConversationCopied: [];
@@ -333,13 +330,8 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
       </div>
     </template>
 
-    <ApprovalCard
-      v-for="a in approvals"
-      :key="a.approvalId"
-      :block="a.block"
-      :agent-name="a.agentName"
-      @decide="(response) => emit('approvalDecide', a.approvalId, response)"
-    />
+    <!-- Pending approvals are rendered in the bottom dock (ConversationPane),
+         alongside questions, so both blocking prompts share one position. -->
 
     <!-- Compaction in progress — body-sized moon activity notice -->
     <ActivityNotice v-if="compaction" :label="t('conversation.compacting')" />
@@ -433,13 +425,8 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 
     <!-- Pending approvals as standalone interrupt cards (do not depend on a
          matching tool_use being loaded in the transcript) -->
-    <ApprovalCard
-      v-for="a in approvals"
-      :key="a.approvalId"
-      :block="a.block"
-      :agent-name="a.agentName"
-      @decide="(response) => emit('approvalDecide', a.approvalId, response)"
-    />
+    <!-- Pending approvals are rendered in the bottom dock (ConversationPane),
+         alongside questions, so both blocking prompts share one position. -->
 
     <!-- Compaction in progress — body-sized moon activity notice -->
     <ActivityNotice v-if="compaction" :label="t('conversation.compacting')" />

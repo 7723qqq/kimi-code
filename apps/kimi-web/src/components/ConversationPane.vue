@@ -3,7 +3,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ConversationStatus, DiffViewLine, FilePreviewRequest, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, UIQuestion } from '../types';
-import type { AppModel, ApprovalDecision, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
+import type { AppModel, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { FileData } from './FilePreview.vue';
 import TabBar from './TabBar.vue';
@@ -17,6 +17,7 @@ import FileTree from './FileTree.vue';
 import FilePreview from './FilePreview.vue';
 import Composer from './Composer.vue';
 import QuestionCard from './QuestionCard.vue';
+import ApprovalCard from './ApprovalCard.vue';
 
 const props = defineProps<{
   turns: ChatTurn[];
@@ -139,12 +140,14 @@ const pendingQuestion = computed<UIQuestion | undefined>(() =>
   props.questions && props.questions.length > 0 ? props.questions[0] : undefined,
 );
 
-function handleApprovalDecide(
-  approvalId: string,
-  response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string },
-): void {
-  emit('approval', approvalId, response);
-}
+// The first pending approval (if any). Rendered in the SAME bottom-dock slot as
+// the question (replacing the composer) so both "agent is blocked on you"
+// prompts live in one consistent place instead of approvals scrolling away at
+// the end of the transcript while questions stay pinned.
+const pendingApproval = computed(() =>
+  props.approvals && props.approvals.length > 0 ? props.approvals[0] : undefined,
+);
+
 
 // ---------------------------------------------------------------------------
 // File browser state (local to this pane, lives here so re-mounting the pane
@@ -646,7 +649,6 @@ onUnmounted(() => {
             :sending="sending"
             :session-loading="sessionLoading"
             :compaction="compaction"
-            @approval-decide="handleApprovalDecide"
             @open-file="emit('openFile', $event)"
             @open-media="emit('openMedia', $event)"
             @copy-conversation-copied="handleCopyConversationCopied"
@@ -789,12 +791,22 @@ onUnmounted(() => {
          line is a quiet footer BELOW it (model/thinking/plan/permission left,
          ctx far right). -->
     <div ref="dockRef" class="dock" :class="[mobile ? 'align-mobile' : 'align-center']">
-      <!-- QuestionCard replaces Composer while a question is pending -->
+      <!-- A pending question or approval replaces the Composer here — both are
+           the agent blocking on the user, so they share this docked slot. A
+           question takes priority (it is a direct ask); the approval falls back
+           to the composer once resolved. -->
       <QuestionCard
         v-if="pendingQuestion"
         :question="pendingQuestion"
         @answer="handleQuestionAnswer"
         @dismiss="(qid) => emit('dismiss', qid)"
+      />
+      <ApprovalCard
+        v-else-if="pendingApproval"
+        class="dock-approval"
+        :block="pendingApproval.block"
+        :agent-name="pendingApproval.agentName"
+        @decide="(response) => emit('approval', pendingApproval!.approvalId, response)"
       />
       <Composer
         v-else-if="!(turns.length === 0 && !sessionLoading)"
@@ -942,6 +954,15 @@ onUnmounted(() => {
 .dock.align-center { margin-left: auto; margin-right: auto; }
 .dock.align-left { margin-left: 0; margin-right: auto; }
 .dock.align-mobile { max-width: none; }
+
+/* A docked approval can carry a tall diff/file preview; cap it so it never
+   pushes the rest of the dock off-screen, scrolling internally instead. Match
+   the question card's outer margin so both docked prompts sit identically. */
+.dock-approval {
+  margin: 8px 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
 
 /* Capped desktop dock (center/left): the fused composer card is the visual
    anchor. No panel border, no hard dividers — the dock blends into the (white)
