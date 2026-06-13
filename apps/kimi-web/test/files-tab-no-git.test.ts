@@ -33,7 +33,6 @@ const stubs = {
   ChatPane: true,
   Composer: true,
   TasksPane: true,
-  TasksCard: true,
   TodoCard: true,
   QuestionCard: true,
   FileTree: true,
