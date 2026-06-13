@@ -9,4 +9,6 @@ export default {
   emptyTasks: 'No background tasks running',
   emptyTodo: 'No todos yet',
   openTab: 'Open the tasks tab',
+  collapse: 'Collapse',
+  expand: 'Expand',
 } as const;

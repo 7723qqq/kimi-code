@@ -16,7 +16,16 @@ const props = defineProps<{
 
 const { t } = useI18n();
 
+// Collapse only applies to the floating CARD (it overlays the transcript). In
+// the dedicated ~/todo TAB the whole pane IS the list, so collapsing it would
+// just hide everything the user opened the tab to see — keep it always open.
 const collapsed = ref(false);
+const canCollapse = computed(() => !props.inline);
+const showList = computed(() => props.inline || !collapsed.value);
+
+function toggle(): void {
+  if (canCollapse.value) collapsed.value = !collapsed.value;
+}
 
 const doneCount = computed(() => props.todos.filter((td) => td.status === 'done').length);
 
@@ -27,7 +36,7 @@ function glyph(status: TodoView['status']): string {
 
 <template>
   <div class="todo-card" :class="{ 'tab-mode': inline }">
-    <button class="tc-head" type="button" @click="collapsed = !collapsed">
+    <component :is="canCollapse ? 'button' : 'div'" class="tc-head" :class="{ static: !canCollapse }" :type="canCollapse ? 'button' : undefined" @click="toggle">
       <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
         <polyline points="2,4.5 3.5,6 5.5,3" />
         <polyline points="2,11 3.5,12.5 5.5,9.5" />
@@ -36,12 +45,12 @@ function glyph(status: TodoView['status']): string {
       </svg>
       <span class="tc-title">{{ t('tasks.todoTag') }}</span>
       <span v-if="todos.length > 0" class="tc-count">{{ doneCount }}/{{ todos.length }}</span>
-      <svg v-if="todos.length > 0" class="tc-chev" :class="{ open: !collapsed }" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <svg v-if="canCollapse && todos.length > 0" class="tc-chev" :class="{ open: !collapsed }" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <polyline points="4,6 8,10 12,6" />
       </svg>
-    </button>
+    </component>
 
-    <div v-if="!collapsed" class="tc-list">
+    <div v-if="showList" class="tc-list">
       <div v-if="todos.length === 0" class="tc-empty">{{ t('tasks.emptyTodo') }}</div>
       <div v-for="(td, i) in todos" :key="i" class="tc-row" :class="`s-${td.status}`">
         <span class="tc-glyph">{{ glyph(td.status) }}</span>
@@ -91,6 +100,9 @@ function glyph(status: TodoView['status']): string {
   line-height: 1.4;
 }
 .tc-head:hover { color: var(--ink); }
+/* Tab-mode header is a static label, not a collapse toggle. */
+.tc-head.static { cursor: default; }
+.tc-head.static:hover { color: var(--muted); }
 .tc-title { font-weight: 700; letter-spacing: 0.04em; }
 .tc-count { color: var(--faint); }
 .tc-chev {

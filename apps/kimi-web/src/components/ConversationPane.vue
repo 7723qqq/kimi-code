@@ -871,7 +871,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: 260px;
+  /* Wider than the old 260px — the todo/task cards were cramped. */
+  width: 300px;
+  max-width: calc(100vw - 32px);
 }
 @media (max-width: 1199px) {
   .float-stack { display: none; }

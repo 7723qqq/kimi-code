@@ -9,4 +9,6 @@ export default {
   emptyTasks: '暂无后台任务',
   emptyTodo: '暂无待办事项',
   openTab: '查看全部后台任务',
+  collapse: '折叠',
+  expand: '展开',
 };
