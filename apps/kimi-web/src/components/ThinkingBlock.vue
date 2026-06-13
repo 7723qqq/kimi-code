@@ -5,7 +5,7 @@
      There is NO inline expand any more — clicking anywhere on the block emits
      `open`, and the parent shows the full text in the right-side panel. -->
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue';
+import { computed, onMounted, ref, watch, nextTick } from 'vue';
 
 const props = withDefaults(
   defineProps<{
@@ -38,6 +38,17 @@ const open = computed(() => props.streaming || !isFoldable.value);
 const teaser = computed(() => paragraphs.value.pop() ?? '');
 
 const bodyEl = ref<HTMLElement | null>(null);
+
+// On mount, a streaming block must land on its LATEST line. After a page refresh
+// mid-stream the whole thinking text is present at once with scrollTop 0, so the
+// "already at bottom?" check below would otherwise leave the live window parked
+// at the top. A static/historical block is left at its start (we don't pin it).
+onMounted(() => {
+  if (!props.streaming) return;
+  const el = bodyEl.value;
+  if (el) el.scrollTop = el.scrollHeight;
+});
+
 watch(
   () => props.text,
   () => {

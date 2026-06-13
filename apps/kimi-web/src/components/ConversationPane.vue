@@ -580,6 +580,21 @@ onMounted(() => {
   // Initial scroll to bottom on first load.
   nextTick(() => {
     scrollToBottom(false);
+    // A page refresh mid-stream lands here with the full transcript already
+    // present; markdown highlighting / images then lay out asynchronously and
+    // grow the content AFTER this first scroll, leaving the view short of the
+    // bottom. Re-pin on the next frame (and once more) so a refresh reliably
+    // ends at the latest content. `following` stays true, so the observers keep
+    // it pinned as more late layout settles.
+    const schedule = typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (cb: () => void) => setTimeout(cb, 16) as unknown as number;
+    schedule(() => {
+      if (following.value) scrollToBottom(false);
+      schedule(() => {
+        if (following.value) scrollToBottom(false);
+      });
+    });
     if (panesRef.value && typeof MutationObserver === 'function') {
       contentObserver = new MutationObserver(onContentMutated);
       contentObserver.observe(panesRef.value, {
