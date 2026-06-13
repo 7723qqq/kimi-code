@@ -142,6 +142,38 @@ describe('steerPrompt', () => {
     expect(lastUser.images).toEqual([{ url: '/files/file_1' }]);
   });
 
+  it('merges the daemon echo of an image steer into the optimistic message (no duplicate)', async () => {
+    const { client, getHandlers } = await setup({ submitStatuses: ['running', 'queued'] });
+    await client.createSession('/repo');
+    await client.sendPrompt('first');
+    await client.steerPrompt('look at this', [{ fileId: 'file_1' }]);
+
+    // The daemon echoes the steered user message with the SAME prompt_id but a
+    // different image serialization (a resolved URL rather than our file ref).
+    // Content-equality alone can't match it; the prompt_id must.
+    getHandlers().onEvent(
+      {
+        type: 'messageCreated',
+        message: {
+          id: 'msg_real_2',
+          sessionId: 'sess_1',
+          role: 'user',
+          promptId: 'pr_2',
+          content: [
+            { type: 'text', text: 'look at this' },
+            { type: 'image', source: { kind: 'url', url: 'https://daemon/img.png' } },
+          ],
+          createdAt: now,
+        },
+      },
+      { sessionId: 'sess_1', seq: 6 },
+    );
+
+    // Exactly one user turn for the steered message — the echo merged in.
+    const userTurns = client.turns.value.filter((t) => t.role === 'user');
+    expect(userTurns.map((t) => t.text)).toEqual(['first', 'look at this']);
+  });
+
   it('merges queued prompts + live text into one steered message and clears the queue', async () => {
     const { api, client } = await setup({ submitStatuses: ['running', 'queued'] });
     await client.createSession('/repo');

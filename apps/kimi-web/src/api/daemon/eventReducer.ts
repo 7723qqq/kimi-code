@@ -105,6 +105,20 @@ function sameMessageContent(a: AppMessage, b: AppMessage): boolean {
 }
 
 function findOptimisticUserEchoIndex(messages: AppMessage[], message: AppMessage): number {
+  // Prefer matching by prompt_id: image content serializes differently between
+  // our optimistic copy ({source:{kind:'file',fileId}}) and the daemon's echo
+  // (a resolved URL/base64), so content-equality alone lets an image steer's
+  // echo slip through as a duplicate. The submit response's prompt_id is stamped
+  // onto the optimistic message, so a shared prompt_id is the reliable match.
+  const promptId = message.promptId;
+  if (promptId !== undefined) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const candidate = messages[i]!;
+      if (isOptimisticUserMessage(candidate) && candidate.promptId === promptId) {
+        return i;
+      }
+    }
+  }
   for (let i = messages.length - 1; i >= 0; i--) {
     const candidate = messages[i]!;
     if (isOptimisticUserMessage(candidate) && sameMessageContent(candidate, message)) {

@@ -463,6 +463,17 @@ function setOnboarded(done: boolean): void {
 // Singleton WS connection
 let eventConn: KimiEventConnection | null = null;
 
+// Monotonic counter for optimistic user-message ids. Date.now() alone collides
+// when two prompts are submitted in the same millisecond (e.g. a queued send
+// then a steer), which gave both messages the SAME id — breaking Vue keying and
+// the prompt_id stamping that dedupes the daemon echo. The counter guarantees a
+// unique id per optimistic message.
+let optimisticMsgSeq = 0;
+function nextOptimisticMsgId(): string {
+  optimisticMsgSeq += 1;
+  return `msg_opt_${Date.now().toString(36)}_${optimisticMsgSeq}`;
+}
+
 // Per-session "a prompt is in flight" flag. Flipped SYNCHRONOUSLY the moment we
 // decide to submit (before any await), and cleared when the session returns to
 // idle. This gates concurrent prompts: `activity` only turns 'running' after the
@@ -1974,7 +1985,7 @@ async function submitPromptInternal(sid: string, text: string, attachments?: { f
   // sendPrompt sees it and enqueues. Cleared when activity returns to idle.
   inFlightPromptSessions.add(sid);
   rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: true };
-  const tempId = `msg_opt_${Date.now().toString(36)}`;
+  const tempId = nextOptimisticMsgId();
   try {
     const api = getKimiWebApi();
     const content: import('../api/types').AppMessageContent[] = [];
@@ -2125,7 +2136,7 @@ async function steerPrompt(text: string, attachments?: { fileId: string }[]): Pr
   for (const att of mergedAttachments) {
     content.push({ type: 'image', source: { kind: 'file', fileId: att.fileId } });
   }
-  const tempId = `msg_opt_${Date.now().toString(36)}`;
+  const tempId = nextOptimisticMsgId();
   const optimisticMsg: AppMessage = {
     id: tempId,
     sessionId: sid,
@@ -2153,6 +2164,18 @@ async function steerPrompt(text: string, attachments?: { fileId: string }[]): Pr
       permissionMode: rawState.permission,
       planMode: rawState.planMode,
     });
+
+    // Stamp the real prompt_id onto the optimistic echo. Unlike a normal send,
+    // a steered prompt IS echoed back by the daemon as a messageCreated user
+    // event; matching that echo by prompt_id (instead of content) is what keeps
+    // an image steer from rendering two user bubbles.
+    const echoMsgs = rawState.messagesBySession[sid] ?? [];
+    const echoIdx = echoMsgs.findIndex((m) => m.id === tempId);
+    if (echoIdx !== -1) {
+      const updated = [...echoMsgs];
+      updated[echoIdx] = { ...updated[echoIdx]!, promptId: updated[echoIdx]!.promptId ?? result.promptId };
+      rawState.messagesBySession = { ...rawState.messagesBySession, [sid]: updated };
+    }
 
     if (result.status !== 'queued') {
       // The turn ended while the user was typing — the prompt started a turn
