@@ -211,3 +211,17 @@ goal 进度卡 / swarm 看板放哪，三个候选：
 | 3 | swarm 分组 + `SwarmBoard` + `~/swarm` tab | 单测投影 + 浏览器实测 |
 
 **预估**：阶段 1 一个小 PR（可立刻做），阶段 2、3 各一个中等 PR，且 2/3 前先开一轮交互设计。
+
+---
+
+# 四、P3 展示位 · 定板纪要（2026-06-13，据用户在 mockup 上的选择）
+
+高保真选择页 `reports/web-interaction-decisions.html` + 定板预览 `reports/web-p3-refined-mockup.html`。用户最终拍板：
+
+- **/goal**：输入区上方**常驻条**，可**点击展开**（折叠=一行；展开=目标全文 + 完成判据 + 预算条）。另在状态行放紧凑徽标 `[goal ● active · 4m · 7 turns]`（TUI parity）。
+- **/swarm**：**不走** A/B/C，改为**内联进 chat 流的 TUI 风格卡片**（参考 `apps/kimi-code/.../agent-swarm-progress.ts`）：渐变标题「Agent Swarm」+ 成员网格（名字 · phase · braille 进度 · 摘要）+ 顶部计数；随 `subagent.* + swarmIndex` 事件原地更新，不切 tab。
+- **/subagent**：用户写「用 /swarm 的 B 方案」，语义有歧义；**暂按「和 swarm 一脉、内联 chat，参考 TUI 的 AgentGroup」实现**（TUI 里单个=ToolCall 卡、同一步 2+=AgentGroup 合并卡，本就内联）。**⚠ 待用户最终确认**。
+- **Terminal**：**先做单终端独立 tab**（xterm + WS 数据通道跑通）；**完全体目标 = VSCode 式灵活分屏**（任意横/竖分、每 pane 自带终端 tab 条、布局持久化；窄屏退化整屏切）。
+- **额外 · 激活态徽标**：状态行做 `[plan]` / `[goal ● active · …]` / `[swarm ⟳ x/n]` 三个徽标（参考 TUI footer），互相独立、可同时出现、可点击跳转到对应 UI；颜色沿用 token（plan/swarm 蓝、goal 绿）。
+
+**建议实现顺序**：subagent 生命周期投影（纯投影、可单测）→ swarm 内联卡 → goal 常驻条 + 展开 → 激活态徽标 → 终端单 tab → 终端灵活分屏。前四步是 P3-17，后两步是 P3-16。
