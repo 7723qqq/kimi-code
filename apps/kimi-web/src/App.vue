@@ -11,6 +11,7 @@ import ModelPicker from './components/ModelPicker.vue';
 import ProviderManager from './components/ProviderManager.vue';
 import LoginDialog from './components/LoginDialog.vue';
 import NewSessionDialog from './components/NewSessionDialog.vue';
+import SettingsDialog from './components/SettingsDialog.vue';
 import SessionsDialog from './components/SessionsDialog.vue';
 import AddWorkspaceDialog from './components/AddWorkspaceDialog.vue';
 import StatusPanel from './components/StatusPanel.vue';
@@ -354,6 +355,7 @@ const showNewSession = ref(false);
 const showSessions = ref(false);
 const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
+const showSettings = ref(false);
 
 // Loading state for model/provider fetches
 const modelsLoading = ref(false);
@@ -558,11 +560,6 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
         :active-id="client.activeSessionId.value"
         :attention-by-session="client.attentionBySession.value"
         :unread-by-session="client.unreadBySession.value"
-        :auth-ready="client.authReady.value"
-        :account-model="client.defaultModel.value"
-        :theme="client.theme.value"
-        :color-scheme="client.colorScheme.value"
-        :accent="client.accent.value"
         @select="client.selectSession($event)"
         @create="handleCreateSession"
         @create-in-workspace="handleCreateSessionInWorkspace($event)"
@@ -574,12 +571,7 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
         @rename-workspace="(id, name) => client.renameWorkspace(id, name)"
         @delete-workspace="(id) => client.deleteWorkspace(id)"
         @select-workspaces="handleSelectWorkspaces"
-        @login="openLogin"
-        @logout="client.logout"
-        @set-theme="client.setTheme($event)"
-        @set-color-scheme="client.setColorScheme($event)"
-        @set-accent="client.setAccent($event)"
-        @open-onboarding="openOnboarding"
+        @open-settings="showSettings = true"
       />
       <ResizeHandle
         :storage-key="SIDEBAR_WIDTH_KEY"
@@ -730,6 +722,24 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
       :unavailable="modelsUnavailable"
       @select="handleSelectModel($event)"
       @close="showModelPicker = false"
+    />
+
+    <!-- Settings page (modal) -->
+    <SettingsDialog
+      v-if="showSettings"
+      :theme="client.theme.value"
+      :color-scheme="client.colorScheme.value"
+      :accent="client.accent.value"
+      :auth-ready="client.authReady.value"
+      :account-model="client.defaultModel.value"
+      @set-theme="client.setTheme($event)"
+      @set-color-scheme="client.setColorScheme($event)"
+      @set-accent="client.setAccent($event)"
+      @login="() => { showSettings = false; openLogin(); }"
+      @logout="client.logout"
+      @add-workspace="() => { showSettings = false; showAddWorkspace = true; }"
+      @open-onboarding="() => { showSettings = false; openOnboarding(); }"
+      @close="showSettings = false"
     />
 
     <!-- Provider Manager overlay -->
