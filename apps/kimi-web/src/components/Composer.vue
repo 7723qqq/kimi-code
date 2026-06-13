@@ -1267,7 +1267,7 @@ function selectModel(modelId: string): void {
   padding: 6px 10px 4px;
   background: color-mix(in srgb, var(--panel2), black 1.5%);
   position: relative;
-  border-radius: 0 0 16px 16px;
+  border-radius: 0 0 var(--r-md) var(--r-md);
 }
 
 .toolbar-left,

@@ -45,7 +45,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   align-self: flex-start;
-  margin: 6px 0;
+  margin: 0;
   font-size: 14px;
   line-height: 1.6;
   color: var(--ink);

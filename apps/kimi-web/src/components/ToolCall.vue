@@ -9,8 +9,10 @@ const props = withDefaults(
     tool: ToolCall;
     /** Mobile bubble layout: drop the 33px gutter indent + use a softer radius. */
     mobile?: boolean;
+    /** Position inside a consecutive run of non-media tool cards. */
+    stackPosition?: 'single' | 'first' | 'middle' | 'last';
   }>(),
-  { mobile: false },
+  { mobile: false, stackPosition: 'single' },
 );
 const emit = defineEmits<{
   openMedia: [media: ToolMedia];
@@ -96,7 +98,19 @@ function openMediaPreview(): void {
     />
   </div>
 
-  <div v-else class="box" :class="{ open, err: isError(), mob: mobile }">
+  <div
+    v-else
+    class="box"
+    :class="{
+      open,
+      err: isError(),
+      mob: mobile,
+      stacked: stackPosition !== 'single',
+      'stack-first': stackPosition === 'first',
+      'stack-middle': stackPosition === 'middle',
+      'stack-last': stackPosition === 'last',
+    }"
+  >
     <div class="bh" @click="toggle">
       <svg class="car" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <polyline :points="open ? '4,6 8,10 12,6' : '6,4 10,8 6,12'"/>
@@ -132,7 +146,7 @@ function openMediaPreview(): void {
   flex-direction: column;
   width: 176px;
   max-width: 100%;
-  margin: 8px 8px 8px 0;
+  margin: 0 8px 0 0;
   vertical-align: top;
 }
 .media-title {
@@ -184,14 +198,16 @@ function openMediaPreview(): void {
 }
 .media-tool.mob {
   width: min(46vw, 164px);
-  margin: 7px 7px 7px 0;
+  margin: 0 7px 0 0;
 }
 
 .box {
+  --tool-card-radius: 3px;
+  --tool-head-radius: 3px;
   border: 1px solid var(--line);
-  margin: 10px 0;
+  margin: 0;
   background: var(--bg);
-  border-radius: 3px;
+  border-radius: var(--tool-card-radius);
 }
 .box.err {
   border-color: color-mix(in srgb, var(--err) 35%, var(--bg));
@@ -204,11 +220,11 @@ function openMediaPreview(): void {
   background: var(--panel);
   cursor: pointer;
   font-size: 14px;
-  border-radius: 3px;
+  border-radius: var(--tool-head-radius);
 }
 .box.open .bh {
   border-bottom: 1px solid var(--line);
-  border-radius: 3px 3px 0 0;
+  border-radius: var(--tool-head-radius) var(--tool-head-radius) 0 0;
 }
 .box.err .bh {
   background: color-mix(in srgb, var(--err) 6%, var(--bg));
@@ -272,11 +288,47 @@ function openMediaPreview(): void {
 }
 /* Mobile bubble layout: no left gutter indent, softer corners (prototype .tool). */
 .box.mob {
-  margin: 8px 0;
-  border-radius: 9px;
+  --tool-card-radius: 9px;
+  --tool-head-radius: 8px;
+  margin: 0;
 }
-.box.mob .bh { border-radius: 8px; }
-.box.mob.open .bh { border-radius: 8px 8px 0 0; }
+
+/* Consecutive non-media tool cards render as one stacked panel. The parent
+   computes the run position; this component owns the exact card/header shape. */
+.box.stack-middle,
+.box.stack-last {
+  margin-top: -1px;
+}
+.box.stacked {
+  box-shadow: none;
+}
+.box.stack-first {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.box.stack-middle {
+  border-radius: 0;
+}
+.box.stack-last {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.box.stack-first .bh {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.box.stack-middle .bh {
+  border-radius: 0;
+}
+.box.stack-last .bh,
+.box.stack-last.open .bh {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.box.stacked:hover {
+  transform: none;
+  box-shadow: none;
+}
 
 /* NOTE: Modern-theme tool-card styles live in src/style.css (global). Scoped
    `:global(html[data-theme=modern]) .box` rules here did NOT win the cascade

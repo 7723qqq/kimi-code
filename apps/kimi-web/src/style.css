@@ -478,7 +478,7 @@ html[data-color-scheme="dark"][data-theme="modern"] {
 
 /* ---- Chat bubbles (moved out of ChatPane.vue) ---- */
 :is(html[data-theme="modern"], html[data-theme="kimi"]) .chat {
-  gap: 18px;
+  gap: 0;
   padding: 22px 20px 26px;
 }
 :is(html[data-theme="modern"], html[data-theme="kimi"]) .u-bub {
@@ -497,8 +497,10 @@ html[data-color-scheme="dark"][data-theme="modern"] {
 
 /* ---- Tool cards (moved out of ToolCall.vue) ---- */
 :is(html[data-theme="modern"], html[data-theme="kimi"]) .box {
+  --tool-card-radius: var(--r-md);
+  --tool-head-radius: var(--r-md);
   background: var(--bg);
-  border-radius: var(--r-md);
+  border-radius: var(--tool-card-radius);
   box-shadow: var(--shc);
   animation: kimi-card-in 0.18s ease-out both;
   transition: box-shadow 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
@@ -507,8 +509,16 @@ html[data-color-scheme="dark"][data-theme="modern"] {
   transform: translateY(-1px);
   box-shadow: 0 3px 8px rgba(20, 23, 28, 0.06);
 }
-:is(html[data-theme="modern"], html[data-theme="kimi"]) .box .bh { border-radius: var(--r-md); }
-:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.open .bh { border-radius: var(--r-md) var(--r-md) 0 0; }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tool-stack {
+  border-radius: var(--r-md);
+  box-shadow: var(--shc);
+  animation: kimi-card-in 0.18s ease-out both;
+}
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .tool-stack .box {
+  animation: none;
+}
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box .bh { border-radius: var(--tool-head-radius); }
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .box.open .bh { border-radius: var(--tool-head-radius) var(--tool-head-radius) 0 0; }
 :is(html[data-theme="modern"], html[data-theme="kimi"]) .box .ok,
 :is(html[data-theme="modern"], html[data-theme="kimi"]) .box .er {
   display: inline-block;

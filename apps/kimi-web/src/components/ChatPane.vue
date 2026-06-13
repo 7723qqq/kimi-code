@@ -243,6 +243,85 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   return blocks;
 }
 
+type ToolStackPosition = 'single' | 'first' | 'middle' | 'last';
+
+type ToolStackItem = {
+  tool: Extract<TurnBlock, { kind: 'tool' }>['tool'];
+  sourceIndex: number;
+};
+
+type AssistantRenderBlock =
+  | { kind: 'thinking'; thinking: string; sourceIndex: number }
+  | { kind: 'text'; text: string; sourceIndex: number }
+  | { kind: 'tool'; tool: ToolStackItem['tool']; sourceIndex: number }
+  | { kind: 'tool-stack'; tools: ToolStackItem[] };
+
+function rendersToolCard(block: Extract<TurnBlock, { kind: 'tool' }>): boolean {
+  return !(block.tool.status === 'ok' && block.tool.media);
+}
+
+function toolStackPosition(index: number, count: number): ToolStackPosition {
+  if (count <= 1) return 'single';
+  if (index === 0) return 'first';
+  if (index === count - 1) return 'last';
+  return 'middle';
+}
+
+function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
+  const blocks = turnBlocks(turn);
+  const rendered: AssistantRenderBlock[] = [];
+  let toolRun: ToolStackItem[] = [];
+
+  const flushToolRun = () => {
+    if (toolRun.length === 1) {
+      const [item] = toolRun;
+      if (item) rendered.push({ kind: 'tool', tool: item.tool, sourceIndex: item.sourceIndex });
+    } else if (toolRun.length > 1) {
+      rendered.push({ kind: 'tool-stack', tools: toolRun });
+    }
+    toolRun = [];
+  };
+
+  blocks.forEach((block, sourceIndex) => {
+    if (block.kind === 'tool') {
+      if (rendersToolCard(block)) {
+        toolRun.push({ tool: block.tool, sourceIndex });
+        return;
+      }
+      flushToolRun();
+      rendered.push({ kind: 'tool', tool: block.tool, sourceIndex });
+      return;
+    }
+
+    flushToolRun();
+    if (block.kind === 'thinking') {
+      rendered.push({ kind: 'thinking', thinking: block.thinking, sourceIndex });
+    } else {
+      rendered.push({ kind: 'text', text: block.text, sourceIndex });
+    }
+  });
+
+  flushToolRun();
+  return rendered;
+}
+
+function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }): boolean {
+  if (turn.id !== streamingTurnId.value) return false;
+  return block.sourceIndex === turnBlocks(turn).length - 1;
+}
+
+function toolStackKey(item: ToolStackItem): string {
+  return item.tool.id || `tool-${item.sourceIndex}`;
+}
+
+function renderBlockKey(block: AssistantRenderBlock, index: number): string {
+  if (block.kind === 'tool-stack') {
+    return `tool-stack-${block.tools[0]?.sourceIndex ?? index}`;
+  }
+  if (block.kind === 'tool') return toolStackKey({ tool: block.tool, sourceIndex: block.sourceIndex });
+  return `${block.kind}-${block.sourceIndex}`;
+}
+
 // NOTE: the turn-summary line ("已调用 N 个工具…") was removed in f9417af. If it
 // comes back, rebuild it from turnBlocks() with i18n strings — the old
 // implementation lives in git history at f9417af^.
@@ -306,9 +385,12 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 
       <!-- Assistant turn → left-aligned, no name/role label. -->
       <div v-else class="a-msg">
-        <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
-          <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" @open="emit('openThinking', { turnId: turn.id, blockIndex: bi })" />
-          <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" :open-file="(target) => emit('openFile', target)" /></div>
+        <template v-for="(blk, bi) in assistantRenderBlocks(turn)" :key="renderBlockKey(blk, bi)">
+          <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :mobile="childBubble" :streaming="isStreamingRenderBlock(turn, blk)" @open="emit('openThinking', { turnId: turn.id, blockIndex: blk.sourceIndex })" />
+          <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="isStreamingRenderBlock(turn, blk)" :open-file="(target) => emit('openFile', target)" /></div>
+          <div v-else-if="blk.kind === 'tool-stack'" class="tool-stack">
+            <ToolCall v-for="(item, si) in blk.tools" :key="toolStackKey(item)" :tool="item.tool" :mobile="childBubble" :stack-position="toolStackPosition(si, blk.tools.length)" @open-media="emit('openMedia', $event)" />
+          </div>
           <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" @open-media="emit('openMedia', $event)" />
         </template>
         <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)" class="a-msg-ft">
@@ -413,9 +495,12 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 
           <!-- Thinking + message text + tool cards, interleaved in original call order. -->
           <template v-else>
-            <template v-for="(blk, bi) in turnBlocks(turn)" :key="bi">
-              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" @open="emit('openThinking', { turnId: turn.id, blockIndex: bi })" />
-              <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="turn.id === streamingTurnId && bi === turnBlocks(turn).length - 1" :open-file="(target) => emit('openFile', target)" />
+            <template v-for="(blk, bi) in assistantRenderBlocks(turn)" :key="renderBlockKey(blk, bi)">
+              <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" :streaming="isStreamingRenderBlock(turn, blk)" @open="emit('openThinking', { turnId: turn.id, blockIndex: blk.sourceIndex })" />
+              <Markdown v-else-if="blk.kind === 'text' && blk.text" :text="blk.text" :streaming="isStreamingRenderBlock(turn, blk)" :open-file="(target) => emit('openFile', target)" />
+              <div v-else-if="blk.kind === 'tool-stack'" class="tool-stack">
+                <ToolCall v-for="(item, si) in blk.tools" :key="toolStackKey(item)" :tool="item.tool" :stack-position="toolStackPosition(si, blk.tools.length)" @open-media="emit('openMedia', $event)" />
+              </div>
               <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" @open-media="emit('openMedia', $event)" />
             </template>
           </template>
@@ -447,6 +532,9 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 
 <style scoped>
 .term {
+  --chat-turn-gap: 10px;
+  --chat-block-gap: 10px;
+  --chat-section-gap: 16px;
   padding: 14px 18px 10px;
   flex: 1;
   min-height: 0;
@@ -490,7 +578,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   50% { opacity: 1; transform: scale(1); }
 }
 
-.ln { display: flex; gap: 11px; margin-bottom: 10px; }
+.ln { display: flex; gap: 11px; margin-bottom: var(--chat-turn-gap); }
 .no {
   color: var(--faint);
   width: 22px;
@@ -501,6 +589,20 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   padding-top: 2px;
 }
 .tx { flex: 1; min-width: 0; }
+.tx > :deep(.think),
+.tx > :deep(.md),
+.tx > .tool-stack,
+.tx > :deep(.box),
+.tx > :deep(.media-tool) {
+  margin-top: var(--chat-block-gap);
+}
+.tx > :deep(.think:first-child),
+.tx > :deep(.md:first-child),
+.tx > .tool-stack:first-child,
+.tx > :deep(.box:first-child),
+.tx > :deep(.media-tool:first-child) {
+  margin-top: 0;
+}
 
 /* Role prefix row */
 .role-row {
@@ -546,14 +648,34 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 
 /* ===================== Mobile bubble layout ===================== */
 .chat {
+  --chat-turn-gap: 16px;
+  --chat-block-gap: 10px;
+  --chat-section-gap: 18px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 0;
   padding: 16px 14px 20px;
   flex: 1;
   min-height: 0;
 }
 .chat .chat-empty { align-self: stretch; }
+.chat > .u-bub,
+.chat > .a-msg,
+.chat > .compact-divider,
+.chat > .sending-placeholder,
+.chat > :deep(.activity-notice) {
+  margin-top: var(--chat-turn-gap);
+}
+.chat > .a-msg {
+  margin-top: 10px;
+}
+.chat > .u-bub:first-child,
+.chat > .a-msg:first-child,
+.chat > .compact-divider:first-child,
+.chat > .sending-placeholder:first-child,
+.chat > :deep(.activity-notice:first-child) {
+  margin-top: 0;
+}
 
 /* User message → right-aligned soft-blue bubble */
 .u-bub {
@@ -582,7 +704,11 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   gap: 10px;
   align-self: stretch;
   width: 100%;
-  margin: 14px 0;
+  margin: var(--chat-section-gap) 0 0;
+}
+.term > .compact-divider:first-child,
+.chat > .compact-divider:first-child {
+  margin-top: 0;
 }
 .cd-line {
   flex: 1;
@@ -617,10 +743,14 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   max-width: 94%;
   width: 94%;
 }
+.tool-stack {
+  display: flex;
+  flex-direction: column;
+}
 .a-msg-ft {
   display: flex;
   height: auto;
-  margin-top: 10px;
+  margin-top: var(--chat-block-gap);
   overflow: visible;
 }
 
@@ -661,7 +791,7 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 @media (hover: none) {
   .a-msg-ft {
     height: auto;
-    margin-top: 10px;
+    margin-top: var(--chat-block-gap);
     opacity: 1;
     pointer-events: auto;
   }
@@ -685,9 +815,21 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
 }
 .a-msg .msg :deep(p) { margin: 0; }
 .a-msg .msg :deep(p + p) { margin-top: 8px; }
-/* Each block gets 8px top spacing, except the very first child sits flush. */
-.a-msg > .msg { margin-top: 12px; }
-.a-msg > .msg:first-child { margin-top: 0; }
+/* ChatPane owns block spacing; child components own only their internal layout. */
+.a-msg > .msg,
+.a-msg > :deep(.think),
+.a-msg > .tool-stack,
+.a-msg > :deep(.box),
+.a-msg > :deep(.media-tool) {
+  margin-top: var(--chat-block-gap);
+}
+.a-msg > .msg:first-child,
+.a-msg > :deep(.think:first-child),
+.a-msg > .tool-stack:first-child,
+.a-msg > :deep(.box:first-child),
+.a-msg > :deep(.media-tool:first-child) {
+  margin-top: 0;
+}
 .a-msg :deep(code) {
   font-family: var(--mono);
   font-size: 13px;
@@ -784,21 +926,4 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
   }
 }
 
-/* Merge adjacent tool calls: a run of consecutive ToolCall cards (each a `.box`)
-   collapses into one continuous panel — shared borders, squared inner corners —
-   instead of N separate cards with gaps. Text/thinking blocks between tools
-   break the DOM adjacency, so only true back-to-back tool calls merge. Media
-   tool cards use `.media-tool` (not `.box`), so galleries are untouched. */
-.term :deep(.box:has(+ .box)),
-.chat :deep(.box:has(+ .box)) {
-  margin-bottom: 0;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-.term :deep(.box + .box),
-.chat :deep(.box + .box) {
-  margin-top: -1px;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-}
 </style>

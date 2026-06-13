@@ -74,7 +74,7 @@ watch(
 
 <style scoped>
 .think {
-  margin: 6px 0 18px 0;
+  margin: 0;
 }
 
 .tc-wrap {
@@ -124,7 +124,7 @@ watch(
 
 /* ---- Mobile tweaks ---- */
 .mob {
-  margin: 10px 0;
+  margin: 0;
 }
 .mob .tc {
   color: var(--faint);
