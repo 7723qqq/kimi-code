@@ -114,15 +114,18 @@
   .swarm .sphase{color:var(--muted);font-size:11.5px;}
   .swarm .scounts{margin-left:auto;display:flex;gap:9px;font-size:11px;font-weight:700;}
   .scounts .c-ok{color:var(--ok);} .scounts .c-run{color:var(--blue2);} .scounts .c-q{color:var(--muted);} .scounts .c-fail{color:var(--err);}
-  .swarm .grid{padding:6px 12px 9px;display:flex;flex-direction:column;gap:5px;}
-  .mrow{display:flex;align-items:center;gap:9px;font-size:11.5px;}
-  .mrow .bul{flex:none;color:var(--blue2);} .mrow .bul.done{color:var(--ok);} .mrow .bul.fail{color:var(--err);} .mrow .bul.q{color:var(--faint);}
-  .mrow .mn{flex:none;width:92px;color:var(--ink);font-weight:700;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
-  .mrow .ph{flex:none;width:76px;font-size:10.5px;font-weight:700;}
+  /* 成员网格：一行可放多个（参考 TUI 的多列布局），窄屏自动回落到单列 */
+  .swarm .grid{padding:8px 12px 10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(216px,1fr));gap:8px 18px;}
+  .mcell{min-width:0;display:flex;flex-direction:column;gap:2px;font-size:11.5px;}
+  .mtop{display:flex;align-items:center;gap:7px;min-width:0;}
+  .mtop .bul{flex:none;color:var(--blue2);} .mtop .bul.done{color:var(--ok);} .mtop .bul.fail{color:var(--err);} .mtop .bul.q{color:var(--faint);}
+  .mtop .mn{min-width:0;color:var(--ink);font-weight:700;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+  .mtop .ph{margin-left:auto;flex:none;font-size:10px;font-weight:700;}
   .ph.working{color:var(--blue2);} .ph.completed{color:var(--ok);} .ph.queued{color:var(--muted);} .ph.failed{color:var(--err);} .ph.suspended{color:var(--warn);}
-  .mrow .br{flex:none;letter-spacing:-1px;}
+  .mbot{display:flex;align-items:center;gap:7px;min-width:0;padding-left:18px;}
+  .mbot .br{flex:none;letter-spacing:-1px;}
   .br.bok{color:var(--ok);} .br.brun{color:var(--blue2);} .br.bq{color:var(--faint);} .br.bfail{color:var(--err);}
-  .mrow .mt{flex:1;min-width:0;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+  .mbot .mt{flex:1;min-width:0;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:flex;align-items:center;gap:3px;}
 
   /* ── 内联 subagent 卡 ─────────────────────────────────────────────── */
   .agentcard{border:1px solid var(--line);border-radius:6px;background:var(--bg);overflow:hidden;}
@@ -154,7 +157,20 @@
   .dragv{flex:none;width:4px;background:var(--line);cursor:col-resize;}
   .dragh{flex:none;height:4px;background:var(--line);cursor:row-resize;}
   .tstack{display:flex;flex-direction:column;flex:1;min-width:0;}
+  /* 视图组（tab 维度分屏，像 VSCode 编辑器组）：每组自带一条视图 tab 条 */
+  .vgroup{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .vgroup.active .vtabs{background:var(--bg);}
+  .vtabs{flex:none;height:28px;display:flex;align-items:center;gap:14px;padding:0 13px;border-bottom:1px solid var(--line);background:var(--panel);font-size:11.5px;}
+  .vtabs .vt{color:var(--muted);font-weight:700;position:relative;}
+  .vtabs .vt.on{color:var(--blue2);}
+  .vtabs .vt.on::after{content:"";position:absolute;left:0;right:0;bottom:-8px;height:2px;background:var(--blue);}
+  .vtabs .vt .pill{background:var(--blue);color:#fff;border-radius:8px;font-size:9px;padding:0 4px;margin-left:2px;}
+  .vbody{flex:1;min-width:0;overflow:hidden;}
+  .vbody.chatbody{padding:12px 14px;display:flex;flex-direction:column;gap:9px;}
 
+  /* SVG 状态图标（替换文本 ✓ / ✗）*/
+  .ico{vertical-align:-1px;flex:none;}
+  .ico.ok{color:var(--ok);} .ico.fail{color:var(--err);}
   .legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;}
   .legend .li{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px;}
 
@@ -202,11 +218,11 @@
           <!-- 内联 swarm 卡 -->
           <div class="swarm">
             <div class="sh"><span class="stitle">Agent Swarm</span><span class="sphase">· Working…</span>
-              <span class="scounts"><span class="c-ok">✓1</span><span class="c-run">⟳2</span><span class="c-q">…0</span><span class="c-fail">✗0</span></span></div>
+              <span class="scounts"><span class="c-ok"><svg class="ico ok" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,8.5 6.5,11.5 12.5,4.5"/></svg>1</span><span class="c-run">⟳2</span><span class="c-q">…0</span><span class="c-fail"><svg class="ico fail" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>0</span></span></div>
             <div class="grid">
-              <div class="mrow"><span class="bul done">●</span><span class="mn">explore-api</span><span class="ph completed">Completed</span><span class="br bok">⣿⣿⣿⣿⣿⣿</span><span class="mt">列出 12 个端点</span></div>
-              <div class="mrow"><span class="bul">●</span><span class="mn">explore-ui</span><span class="ph working">Working…</span><span class="br brun">⣶⣶⣦⣄⣀⣀</span><span class="mt">读 8 个组件…</span></div>
-              <div class="mrow"><span class="bul q">●</span><span class="mn">verify</span><span class="ph queued">Queued…</span><span class="br bq">⣀⣀⣀⣀⣀⣀</span><span class="mt">等待派发</span></div>
+              <div class="mcell"><div class="mtop"><span class="bul done">●</span><span class="mn">explore-api</span><span class="ph completed">Completed</span></div><div class="mbot"><span class="br bok">⣿⣿⣿⣿⣿⣿</span><span class="mt">列出 12 个端点 <svg class="ico ok" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,8.5 6.5,11.5 12.5,4.5"/></svg></span></div></div>
+              <div class="mcell"><div class="mtop"><span class="bul">●</span><span class="mn">explore-ui</span><span class="ph working">Working…</span></div><div class="mbot"><span class="br brun">⣶⣶⣦⣄⣀⣀</span><span class="mt">读 8 个组件…</span></div></div>
+              <div class="mcell"><div class="mtop"><span class="bul q">●</span><span class="mn">verify</span><span class="ph queued">Queued…</span></div><div class="mbot"><span class="br bq">⣀⣀⣀⣀⣀⣀</span><span class="mt">等待派发</span></div></div>
             </div>
           </div>
         </div>
@@ -276,12 +292,12 @@
   <div class="card"><div class="cardpad">
     <div class="swarm">
       <div class="sh"><span class="stitle">Agent Swarm</span><span class="sphase">· Working…</span>
-        <span class="scounts"><span class="c-ok">✓1</span><span class="c-run">⟳2</span><span class="c-q">…1</span><span class="c-fail">✗0</span></span></div>
+        <span class="scounts"><span class="c-ok"><svg class="ico ok" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,8.5 6.5,11.5 12.5,4.5"/></svg>1</span><span class="c-run">⟳2</span><span class="c-q">…1</span><span class="c-fail"><svg class="ico fail" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>0</span></span></div>
       <div class="grid">
-        <div class="mrow"><span class="bul done">●</span><span class="mn">explore-api</span><span class="ph completed">Completed</span><span class="br bok">⣿⣿⣿⣿⣿⣿</span><span class="mt">列出 12 个端点 ✓</span></div>
-        <div class="mrow"><span class="bul">●</span><span class="mn">explore-ui</span><span class="ph working">Working…</span><span class="br brun">⣶⣶⣦⣄⣀⣀</span><span class="mt">读 src/components/* …</span></div>
-        <div class="mrow"><span class="bul">●</span><span class="mn">refactor</span><span class="ph suspended">Suspended</span><span class="br brun" style="color:var(--warn)">⣤⣤⣄⣀⣀⣀</span><span class="mt" style="color:var(--warn)">限流，自动重试…</span></div>
-        <div class="mrow"><span class="bul q">●</span><span class="mn">verify</span><span class="ph queued">Queued…</span><span class="br bq">⣀⣀⣀⣀⣀⣀</span><span class="mt">等待派发</span></div>
+        <div class="mcell"><div class="mtop"><span class="bul done">●</span><span class="mn">explore-api</span><span class="ph completed">Completed</span></div><div class="mbot"><span class="br bok">⣿⣿⣿⣿⣿⣿</span><span class="mt">列出 12 个端点 <svg class="ico ok" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,8.5 6.5,11.5 12.5,4.5"/></svg></span></div></div>
+        <div class="mcell"><div class="mtop"><span class="bul">●</span><span class="mn">explore-ui</span><span class="ph working">Working…</span></div><div class="mbot"><span class="br brun">⣶⣶⣦⣄⣀⣀</span><span class="mt">读 src/components/* …</span></div></div>
+        <div class="mcell"><div class="mtop"><span class="bul">●</span><span class="mn">refactor</span><span class="ph suspended">Suspended</span></div><div class="mbot"><span class="br brun" style="color:var(--warn)">⣤⣤⣄⣀⣀⣀</span><span class="mt" style="color:var(--warn)">限流，自动重试…</span></div></div>
+        <div class="mcell"><div class="mtop"><span class="bul q">●</span><span class="mn">verify</span><span class="ph queued">Queued…</span></div><div class="mbot"><span class="br bq">⣀⣀⣀⣀⣀⣀</span><span class="mt">等待派发</span></div></div>
       </div>
     </div>
     <p class="note" style="margin-top:12px">phase 取 TUI 同一套：<code>Orchestrating / Prompting / Working / Suspended(限流) / Queued / Completed / Failed / Cancelled / Aborted</code>。进度用 braille 条（<code>⣀…⣿</code>）模拟，complete 时填满变绿、failed 变红。事件来源 <code>subagent.* + swarmIndex</code>，投影器把同一波聚成这张卡。</p>
@@ -294,7 +310,7 @@
     <div class="card"><div class="cardpad">
       <div class="agentcard">
         <div class="ah"><span class="car">▾</span><span class="ag">Agent</span><span class="nm">refactor</span><span class="ty">· coder</span><span class="ph working">Working…</span></div>
-        <div class="subtools"><div>Read src/components/TodoCard.vue <span class="ok">✓</span></div><div>Edit src/components/TodoCard.vue <span class="ok">✓</span></div><div>Edit src/components/TasksCard.vue …</div></div>
+        <div class="subtools"><div>Read src/components/TodoCard.vue <svg class="ico ok" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,8.5 6.5,11.5 12.5,4.5"/></svg></div><div>Edit src/components/TodoCard.vue <svg class="ico ok" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,8.5 6.5,11.5 12.5,4.5"/></svg></div><div>Edit src/components/TasksCard.vue …</div></div>
       </div>
       <div class="caption">单个：像 ToolCall 卡，可展开看子工具调用</div>
     </div></div>
@@ -308,37 +324,37 @@
     </div></div>
   </div>
 
-  <!-- ── 5. terminal 灵活分屏 ────────────────────────────────────────── -->
-  <h2 class="sec"><span class="n">5</span>Terminal · 独立 tab 先做 → VSCode 式灵活分屏</h2>
-  <div class="sub">第一刀：单终端 tab，把 xterm + WS 数据通道跑通。完全体目标：tab 内可任意横/竖分屏、每个 pane 自带终端 tab 条（像 VSCode 的 panel）</div>
+  <!-- ── 5. 视图分屏（tab 维度） ─────────────────────────────────────── -->
+  <h2 class="sec"><span class="n">5</span>Terminal 独立 tab 先做 → 视图分屏（tab 维度，像 VSCode 编辑器组）</h2>
+  <div class="sub">关键澄清：「灵活分屏」<b>不是</b>在 terminal 标签内部分屏，而是把整个会话区劈成多个<b>视图组</b>，每组放任意一个视图（chat / tasks / todo / files / terminal）。terminal 只是能放进去的视图之一</div>
   <div class="card"><div class="cardpad">
-    <div class="app" style="height:320px">
-      <div class="rail"><span class="rl"></span><span class="sd"></span><span class="sd on"></span><span class="sd"></span></div>
+    <div class="app" style="height:330px">
+      <div class="rail"><span class="rl"></span><span class="sd on"></span><span class="sd"></span><span class="sd"></span></div>
       <div class="pane">
-        <div class="tabbar"><span class="tb">chat</span><span class="tb">tasks</span><span class="tb">todo</span><span class="tb on">terminal</span></div>
         <div class="splitwrap">
-          <!-- 左列：上下再分 -->
-          <div class="tstack">
-            <div class="tpane">
-              <div class="termtabs"><span class="tt on">bash <span class="x">×</span></span><span class="tt">node <span class="x">×</span></span><span class="plus">＋</span></div>
-              <div class="term"><div><span class="pr">~/kimi-web $</span> pnpm test</div><div class="out">✓ 91 passed</div><div><span class="pr">~/kimi-web $</span> <span class="cur"></span></div></div>
-            </div>
-            <div class="dragh"></div>
-            <div class="tpane">
-              <div class="termtabs"><span class="tt on">vite <span class="x">×</span></span><span class="plus">＋</span></div>
-              <div class="term"><div class="out">VITE ready in 312ms</div><div class="out">➜ localhost:5175</div></div>
+          <!-- 左视图组：chat 视图 -->
+          <div class="vgroup active">
+            <div class="vtabs"><span class="vt on">chat</span><span class="vt">~/files</span><span class="vt">~/diff</span></div>
+            <div class="vbody chatbody">
+              <div class="ubub" style="font-size:12px">边看 diff 边把测试跑起来</div>
+              <div class="arow"><div class="atext">好，我把改动应用上。</div>
+                <div class="agentcard"><div class="ah"><span class="car">▾</span><span class="ag">Agent</span><span class="nm">refactor</span><span class="ph working">Working…</span></div></div>
+              </div>
             </div>
           </div>
           <div class="dragv"></div>
-          <!-- 右列：单 pane -->
-          <div class="tpane" style="flex:.9">
-            <div class="termtabs"><span class="tt on">bash <span class="x">×</span></span><span class="plus">＋</span></div>
-            <div class="term"><div><span class="pr">~/kimi-web $</span> git status</div><div class="out">On branch feat/web</div><div class="out">nothing to commit</div><div><span class="pr">~/kimi-web $</span> <span class="cur"></span></div></div>
+          <!-- 右视图组：terminal 视图（也可换成 tasks/files…）-->
+          <div class="vgroup">
+            <div class="vtabs"><span class="vt on">terminal</span><span class="vt">tasks<span class="pill">2</span></span></div>
+            <div class="vbody" style="display:flex;flex-direction:column">
+              <div class="term"><div><span class="pr">~/kimi-web $</span> pnpm test</div><div class="out">RUN v4.1.4</div><div class="out">✓ 91 passed</div><div><span class="pr">~/kimi-web $</span> git status</div><div class="out">On branch feat/web · nothing to commit</div><div><span class="pr">~/kimi-web $</span> <span class="cur"></span></div></div>
+            </div>
           </div>
         </div>
       </div>
     </div>
-    <p class="note" style="margin-top:12px">后端 pty（<code>terminals</code> REST + <code>terminal_*</code> WS 帧，含 <code>since_seq</code> 重放）一个会话可开多个终端，天然支持多 pane。落地建议：<b>先做单终端 tab</b>（最小可用），灵活分屏作为完全体第二步——拖拽分隔 + 每 pane 一条终端 tab 条 + 分屏布局持久化（localStorage）。窄屏自动退化为单终端整屏切。</p>
+    <div class="caption">左组放 chat（还能切到 ~/files / ~/diff），右组放 terminal（还能切到 tasks）——每个视图组自带一条 tab 条，可拖拽分隔、把 tab 拖到另一组就完成分屏</div>
+    <p class="note" style="margin-top:12px"><b>两步走</b>：① 先把 <code>terminal</code> 作为一个普通 tab 加进 chat/tasks/todo 同级（xterm + WS 数据通道跑通，最小可用）；② 完全体做<b>视图分屏</b>——会话区可任意横/竖劈成多个视图组，每组独立持有 chat/tasks/todo/files/terminal 之一，可拖拽视图在组间移动、调分隔比例、布局持久化（localStorage）。窄屏退化为单组、整屏切 tab。后端 pty（<code>terminals</code> REST + <code>terminal_*</code> WS，含 <code>since_seq</code> 重放）一会话可开多终端，天然支持把终端放进任意视图组。</p>
   </div></div>
 </div>
 
@@ -353,7 +369,7 @@ function summary(){
 `## /goal\n- 输入区上方常驻条，可点击展开（折叠=一行，展开=目标全文+完成判据+预算条）\n- 同时在状态行放紧凑徽标 [goal ● active · 4m · 7 turns]（TUI parity）\n\n`+
 `## /swarm\n- 内联 chat 的 TUI 风格卡片（参考 agent-swarm-progress）：渐变标题 + 成员网格(名字·phase·braille进度·摘要) + 顶部计数\n- 不切 tab，随 subagent.*+swarmIndex 事件原地更新\n\n`+
 `## /subagent（按 TUI AgentGroup 理解，待确认）\n- 单个=可展开 Agent 卡；同一步 2+=AgentGroup 合并卡；均内联 chat，与 swarm 一脉\n\n`+
-`## Terminal\n- 先做：单终端独立 tab（xterm + WS 数据通道跑通）\n- 完全体：VSCode 式灵活分屏——任意横/竖分、每 pane 自带终端 tab 条、布局持久化；窄屏退化整屏切\n\n`+
+`## Terminal / 视图分屏\n- 先做：terminal 作为普通 tab（与 chat/tasks/todo 同级，xterm + WS 数据通道跑通）\n- 完全体：视图分屏（tab 维度，像 VSCode 编辑器组）——会话区任意横/竖劈成多个视图组，每组独立持有 chat/tasks/todo/files/terminal 之一；可拖拽视图在组间移动、调比例、布局持久化；窄屏退化单组整屏切。terminal 只是可放进视图组的视图之一\n\n`+
 `## 激活态徽标（额外）\n- 状态行徽标：[plan]（plan 模式）/ [goal ● active · …]（活跃目标）/ [swarm ⟳ x/n]（swarm 在跑）\n- 互相独立、可同时出现、可点击跳转；颜色沿用 token\n\n`+
 `> 由 reports/web-p3-refined-mockup.html 导出。下一步：据此把 P3-16/P3-17 拆成实现 PR（建议先 subagent 投影→swarm 卡→goal 常驻条→激活徽标→终端 tab→灵活分屏）。\n`;
 }
