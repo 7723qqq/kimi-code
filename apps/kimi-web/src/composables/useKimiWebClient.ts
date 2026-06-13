@@ -2699,8 +2699,8 @@ function compact(instruction?: string): void {
  * forkSession() — fork the active session into a new child session via
  * POST /sessions/{id}:fork, then add it to the list and select it.
  */
-async function forkSession(): Promise<void> {
-  const sid = rawState.activeSessionId;
+async function forkSession(sessionId?: string): Promise<void> {
+  const sid = sessionId ?? rawState.activeSessionId;
   if (!sid) return;
   try {
     const forked = await getKimiWebApi().forkSession(sid);

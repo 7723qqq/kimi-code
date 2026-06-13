@@ -19,3 +19,6 @@ Dockerfile
 !packages/daemon-e2e/Dockerfile
 docker-compose.yml
 .dockerignore
+
+# Runtime daemon event logs (not source)
+reports/latest/

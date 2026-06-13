@@ -23,6 +23,7 @@ const emit = defineEmits<{
   select: [id: string];
   rename: [id: string, title: string];
   delete: [id: string];
+  fork: [id: string];
 }>();
 
 // Kebab menu
@@ -85,6 +86,12 @@ function copySessionId(): void {
     copiedId.value = true;
     setTimeout(() => { copiedId.value = false; }, 1200);
   }).catch(() => {/* ignore */});
+}
+
+// Fork this session into a new child session
+function forkRow(): void {
+  closeMenu();
+  emit('fork', props.session.id);
 }
 
 // Delete confirm
@@ -191,6 +198,7 @@ defineExpose({ closeMenu, cancelDelete });
       </button>
       <div class="menu-divider" />
       <button class="menu-item" @click.stop="startRename">{{ t('sidebar.rename') }}</button>
+      <button class="menu-item" @click.stop="forkRow">{{ t('sidebar.fork') }}</button>
       <button class="menu-item archive" @click.stop="startDelete">{{ t('sidebar.archive') }}</button>
     </div>
   </div>

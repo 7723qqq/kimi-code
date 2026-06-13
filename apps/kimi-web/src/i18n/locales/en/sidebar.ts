@@ -13,6 +13,7 @@ export default {
   shareConversation: 'Copy conversation',
   shareConversationCopied: 'Copied',
   archive: 'Archive',
+  fork: 'Fork session',
   delete: 'Delete',
   removeWorkspace: 'Remove workspace',
   brand: 'Kimi Code',

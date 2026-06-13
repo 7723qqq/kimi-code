@@ -570,6 +570,7 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
         @add-workspace="showAddWorkspace = true"
         @rename="(id, title) => client.renameSession(id, title)"
         @delete="(id) => client.deleteSession(id)"
+        @fork="(id) => client.forkSession(id)"
         @rename-workspace="(id, name) => client.renameWorkspace(id, name)"
         @delete-workspace="(id) => client.deleteWorkspace(id)"
         @select-workspaces="handleSelectWorkspaces"

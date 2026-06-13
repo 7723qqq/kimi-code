@@ -59,6 +59,7 @@ const emit = defineEmits<{
   addWorkspace: [];
   rename: [id: string, title: string];
   delete: [id: string];
+  fork: [id: string];
   renameWorkspace: [id: string, name: string];
   deleteWorkspace: [id: string];
   login: [];
@@ -587,6 +588,7 @@ function blinkOnce(): void {
                 @select="onSelectSession($event)"
                 @rename="(id, title) => emit('rename', id, title)"
                 @delete="emit('delete', $event)"
+                @fork="emit('fork', $event)"
               />
               <button
                 v-if="!isExpanded(g.workspace.id) && visibleSessions(g.sessions, false, activeId).length < g.sessions.length"
