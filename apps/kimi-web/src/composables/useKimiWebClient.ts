@@ -2387,16 +2387,27 @@ async function setModel(modelId: string): Promise<void> {
     draftModel.value = modelId;
     return;
   }
-  // Optimistic: show the chosen model immediately.
+  // Optimistic: show the chosen model immediately, but remember the previous
+  // one so we can roll back if the switch never reaches the daemon.
+  const prevModel = rawState.sessions.find((s) => s.id === sid)?.model;
   rawState.sessions = rawState.sessions.map((s) => (s.id === sid ? { ...s, model: modelId } : s));
   try {
     await getKimiWebApi().updateSession(sid, { model: modelId });
-    // refreshSessionStatus folds the authoritative current model from /status
-    // back into the session (the profile echo can return '').
-    await refreshSessionStatus(sid);
   } catch (err) {
+    // The model change rides HTTP, not the WS, so a dropped socket alone does
+    // not fail it — but when the daemon is unreachable the request throws here.
+    // Roll the picker back to the real model so the UI can't keep showing the
+    // new one as if the switch succeeded, then surface the failure.
+    rawState.sessions = rawState.sessions.map((s) =>
+      s.id === sid ? { ...s, model: prevModel ?? s.model } : s,
+    );
     pushOperationFailure('setModel', err, { sessionId: sid });
+    return;
   }
+  // refreshSessionStatus folds the authoritative current model from /status
+  // back into the session (the profile echo can return ''). Best-effort: a
+  // failure here does not mean the switch failed, so it must not roll back.
+  await refreshSessionStatus(sid);
 }
 
 /** Add a provider, then reload providers + models */
