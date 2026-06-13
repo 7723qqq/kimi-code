@@ -3,8 +3,17 @@
 
 export interface SlashCommand {
   name: string;
-  /** i18n key for the command description; resolve with t(desc) at render time. */
+  /**
+   * Description text. For built-in commands this is an i18n KEY (resolve with
+   * t(desc)); for skills (`isSkill`) it is the skill's RAW description, rendered
+   * verbatim.
+   */
   desc: string;
+  /**
+   * True for a session skill (not a built-in command). Selecting one activates
+   * the skill instead of running an app command, and its `desc` is raw text.
+   */
+  isSkill?: boolean;
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -52,12 +61,31 @@ export function parseSlash(input: string): { cmd: string; arg: string } | null {
 }
 
 /**
- * Filter SLASH_COMMANDS by a query string.
- * Matches if the command name includes the query (prefix or substring, case-insensitive).
- * If query is empty or just "/", returns all commands.
+ * Build the full slash-item list: built-in commands followed by the session's
+ * skills (each shown as `/<skill-name>`). Skills carry their raw description and
+ * an `isSkill` flag so the caller knows to activate rather than run a command.
  */
-export function filterCommands(query: string): SlashCommand[] {
+export function buildSlashItems(
+  skills: ReadonlyArray<{ name: string; description: string }> = [],
+): SlashCommand[] {
+  const skillItems: SlashCommand[] = skills.map((s) => ({
+    name: `/${s.name}`,
+    desc: s.description,
+    isSkill: true,
+  }));
+  return [...SLASH_COMMANDS, ...skillItems];
+}
+
+/**
+ * Filter slash items by a query string (case-insensitive substring on the name).
+ * If query is empty or just "/", returns all items. Defaults to the built-in
+ * commands; pass a merged list (see buildSlashItems) to include skills.
+ */
+export function filterCommands(
+  query: string,
+  items: SlashCommand[] = SLASH_COMMANDS,
+): SlashCommand[] {
   const q = query.toLowerCase().trim();
-  if (q === '' || q === '/') return SLASH_COMMANDS;
-  return SLASH_COMMANDS.filter((c) => c.name.toLowerCase().includes(q));
+  if (q === '' || q === '/') return items;
+  return items.filter((c) => c.name.toLowerCase().includes(q));
 }

@@ -449,6 +449,14 @@ export interface AppProvider {
   models?: string[];
 }
 
+/** A session-scoped skill the user can invoke from the slash menu. */
+export interface AppSkill {
+  name: string;
+  description: string;
+  /** Skill source (e.g. 'builtin' | 'project' | 'plugin') for grouping/labels. */
+  source: string;
+}
+
 // ---------------------------------------------------------------------------
 // KimiWebApi — the app-facing interface
 // ---------------------------------------------------------------------------
@@ -475,6 +483,8 @@ export interface KimiWebApi {
   respondApproval(sessionId: string, approvalId: string, response: ApprovalResponse): Promise<{ resolved: true; resolvedAt: string }>;
   respondQuestion(sessionId: string, questionId: string, response: QuestionResponse): Promise<{ resolved: true; resolvedAt: string }>;
   dismissQuestion(sessionId: string, questionId: string): Promise<{ dismissed: true; dismissedAt: string }>;
+  listSkills(sessionId: string): Promise<AppSkill[]>;
+  activateSkill(sessionId: string, skillName: string, args?: string): Promise<{ activated: true; skillName: string }>;
   listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
   getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;

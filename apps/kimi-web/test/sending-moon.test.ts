@@ -54,6 +54,7 @@ async function setup() {
       pendingQuestions: [],
     })),
     submitPrompt: vi.fn(async () => ({ promptId: 'pr_1', userMessageId: 'msg_real' })),
+    activateSkill: vi.fn(async () => ({ activated: true, skillName: 'review' })),
     listTasks: vi.fn(async () => []),
     getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {} })),
     getSessionStatus: vi.fn(async () => ({
@@ -109,5 +110,19 @@ describe('sending moon placeholder', () => {
     );
 
     expect(client.isSending.value).toBe(false);
+  });
+
+  it('guards a slash skill activation like an in-flight prompt', async () => {
+    const { client } = await setup();
+    await client.createSession('/repo');
+
+    await client.activateSkill('review', 'src/app.ts');
+
+    expect(client.isSending.value).toBe(true);
+    const skillTurn = client.turns.value.at(-1)!;
+    expect(skillTurn.skillActivation).toEqual({ name: 'review', args: 'src/app.ts' });
+
+    await client.sendPrompt('next message');
+    expect(client.queued.value).toEqual([{ text: 'next message', attachmentCount: 0 }]);
   });
 });

@@ -488,8 +488,17 @@ function handleCommand(cmd: string): void {
     case '/login':
       openLogin();
       break;
-    default:
+    default: {
+      // Not a built-in command → treat it as a session skill activation
+      // (the user picked `/<skill>` from the menu, or typed `/<skill> args`).
+      // The daemon answers an unknown name with skill.not_found, surfaced as a
+      // warning, so a stray slash is harmless.
+      const space = cmd.indexOf(' ');
+      const name = (space === -1 ? cmd : cmd.slice(0, space)).slice(1);
+      const args = space === -1 ? undefined : cmd.slice(space + 1).trim() || undefined;
+      if (name) void client.activateSkill(name, args);
       break;
+    }
   }
 }
 
@@ -611,6 +620,7 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
       :thinking="client.thinking.value"
       :plan-mode="client.planMode.value"
       :models="client.models.value"
+      :skills="client.skills.value"
       :questions="client.questions.value"
       :running="running"
       :queued="client.queued.value"

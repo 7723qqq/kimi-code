@@ -16,6 +16,7 @@ import type {
   AppQuestionRequest,
   AppSession,
   AppSessionRuntimeStatus,
+  AppSkill,
   AppWarning,
   AppWorkspace,
   ApprovalDecision,
@@ -318,6 +319,10 @@ const rawState: ExtendedState = reactive({
 
 // Models + Providers reactive state (lazy-loaded, cached)
 const models = ref<AppModel[]>([]);
+
+// Session-scoped skills (slash-invocable). Loaded lazily per session; the active
+// session's list feeds the composer's `/` menu.
+const skillsBySession = ref<Record<string, AppSkill[]>>({});
 const providers = ref<AppProvider[]>([]);
 
 // Model picked while in the "new session draft" state (onboarding composer —
@@ -798,6 +803,17 @@ async function loadTasksForSession(sessionId: string): Promise<void> {
   }
 }
 
+async function loadSkillsForSession(sessionId: string): Promise<void> {
+  try {
+    const api = getKimiWebApi();
+    const list = await api.listSkills(sessionId);
+    skillsBySession.value = { ...skillsBySession.value, [sessionId]: list };
+  } catch {
+    // Skills are side data; an older daemon without /skills just yields no
+    // slash-skills, the built-in commands still work.
+  }
+}
+
 function hasLoadedMessages(sessionId: string): boolean {
   return Object.prototype.hasOwnProperty.call(rawState.messagesBySession, sessionId);
 }
@@ -815,6 +831,9 @@ function refreshSessionSidecars(sessionId: string): void {
   void loadTasksForSession(sessionId);
   void loadGitStatus(sessionId);
   void refreshSessionStatus(sessionId);
+  if (!Object.prototype.hasOwnProperty.call(skillsBySession.value, sessionId)) {
+    void loadSkillsForSession(sessionId);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1044,6 +1063,13 @@ const sessions = computed<Session[]>(() =>
 );
 
 const activeSessionId = computed<string>(() => rawState.activeSessionId ?? '');
+
+/** Slash-invocable skills for the active session (feeds the composer `/` menu). */
+const skills = computed<AppSkill[]>(() => {
+  const sid = rawState.activeSessionId;
+  if (!sid) return [];
+  return skillsBySession.value[sid] ?? [];
+});
 
 const isSending = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
@@ -2430,6 +2456,58 @@ async function setModel(modelId: string): Promise<void> {
   await refreshSessionStatus(sid);
 }
 
+/**
+ * Activate a session skill (the web analogue of typing `/<skill> <args>` in the
+ * TUI). The daemon starts a turn with a `skill_activation` origin; progress
+ * arrives over the WS stream like any other turn. Never crashes the caller.
+ */
+async function activateSkill(skillName: string, args?: string): Promise<void> {
+  const sid = rawState.activeSessionId;
+  if (!sid) return;
+  const guarded = activity.value === 'idle' && !inFlightPromptSessions.has(sid);
+  const tempId = `msg_skill_opt_${Date.now().toString(36)}`;
+
+  if (guarded) {
+    inFlightPromptSessions.add(sid);
+    rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: true };
+    const optimisticMsg: AppMessage = {
+      id: tempId,
+      sessionId: sid,
+      role: 'user',
+      content: [{ type: 'text', text: `/${skillName}${args ? ` ${args}` : ''}` }],
+      createdAt: new Date().toISOString(),
+      metadata: {
+        'kimiWeb.optimisticUserMessage': true,
+        origin: {
+          kind: 'skill_activation',
+          trigger: 'user-slash',
+          skillName,
+          skillArgs: args,
+        },
+      },
+    };
+    rawState.messagesBySession = {
+      ...rawState.messagesBySession,
+      [sid]: [...(rawState.messagesBySession[sid] ?? []), optimisticMsg],
+    };
+  }
+
+  try {
+    await getKimiWebApi().activateSkill(sid, skillName, args);
+  } catch (err) {
+    if (guarded) {
+      inFlightPromptSessions.delete(sid);
+      rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
+      const msgs = rawState.messagesBySession[sid] ?? [];
+      rawState.messagesBySession = {
+        ...rawState.messagesBySession,
+        [sid]: msgs.filter((m) => m.id !== tempId),
+      };
+    }
+    pushOperationFailure('activateSkill', err, { sessionId: sid });
+  }
+}
+
 /** Add a provider, then reload providers + models */
 async function addProvider(input: {
   type: string;
@@ -2843,6 +2921,8 @@ export function useKimiWebClient() {
     // Model + Provider actions
     loadModels,
     loadProviders,
+    skills,
+    activateSkill,
     setModel,
     addProvider,
     deleteProvider,

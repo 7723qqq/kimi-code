@@ -9,6 +9,7 @@ import type {
   AppModel,
   AppProvider,
   AppSession,
+  AppSkill,
   AppSessionCursor,
   AppSessionRuntimeStatus,
   AppSessionSnapshot,
@@ -111,6 +112,15 @@ interface WireQuestionResolveResult {
 
 interface WireCancelResult {
   cancelled: true;
+}
+
+interface WireSkillDescriptor {
+  name: string;
+  description: string;
+  path: string;
+  source: string;
+  type?: string;
+  disable_model_invocation?: boolean;
 }
 
 interface WireDeleteResult {
@@ -541,6 +551,35 @@ export class DaemonKimiWebApi implements KimiWebApi {
       `/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}:cancel`,
     );
     return data;
+  }
+
+  // -------------------------------------------------------------------------
+  // Skills — session-scoped slash-invocable skills
+  // GET  /sessions/{id}/skills              → { skills: WireSkillDescriptor[] }
+  // POST /sessions/{id}/skills/{name}:activate body { args? } → { activated, skill_name }
+  // -------------------------------------------------------------------------
+
+  async listSkills(sessionId: string): Promise<AppSkill[]> {
+    const data = await this.http.get<{ skills: WireSkillDescriptor[] }>(
+      `/sessions/${encodeURIComponent(sessionId)}/skills`,
+    );
+    return (data.skills ?? []).map((s) => ({
+      name: s.name,
+      description: s.description,
+      source: s.source,
+    }));
+  }
+
+  async activateSkill(
+    sessionId: string,
+    skillName: string,
+    args?: string,
+  ): Promise<{ activated: true; skillName: string }> {
+    const data = await this.http.post<{ activated: true; skill_name: string }>(
+      `/sessions/${encodeURIComponent(sessionId)}/skills/${encodeURIComponent(skillName)}:activate`,
+      args !== undefined && args.length > 0 ? { args } : {},
+    );
+    return { activated: data.activated, skillName: data.skill_name };
   }
 
   // -------------------------------------------------------------------------

@@ -5,10 +5,10 @@ import { useI18n } from 'vue-i18n';
 import SlashMenu from './SlashMenu.vue';
 import MentionMenu from './MentionMenu.vue';
 import type { SlashCommand } from '../lib/slashCommands';
-import { filterCommands, parseSlash } from '../lib/slashCommands';
+import { buildSlashItems, filterCommands, parseSlash } from '../lib/slashCommands';
 import type { FileItem } from './MentionMenu.vue';
 import type { ConversationStatus, PermissionMode, QueuedPromptView } from '../types';
-import type { AppModel, ThinkingLevel } from '../api/types';
+import type { AppModel, AppSkill, ThinkingLevel } from '../api/types';
 
 // ---------------------------------------------------------------------------
 // Attachment state
@@ -45,12 +45,15 @@ const props = withDefaults(defineProps<{
   planMode?: boolean;
   /** Available models for the quick-switch dropdown. */
   models?: AppModel[];
+  /** Session skills shown in the `/` menu (after the built-in commands). */
+  skills?: AppSkill[];
 }>(), {
   running: false,
   queued: () => [],
   searchFiles: undefined,
   uploadImage: undefined,
   models: () => [],
+  skills: () => [],
 });
 
 const placeholder = computed(() => t('composer.placeholder'));
@@ -104,7 +107,8 @@ function updateSlashMenu(): void {
   const val = text.value;
   // Only show if the value starts with / and has no space yet (single token)
   if (val.startsWith('/') && !val.includes(' ')) {
-    slashItems.value = filterCommands(val);
+    // Built-in commands + the active session's skills (shown as /<skill-name>).
+    slashItems.value = filterCommands(val, buildSlashItems(props.skills));
     slashActive.value = 0;
     slashOpen.value = slashItems.value.length > 0;
   } else {

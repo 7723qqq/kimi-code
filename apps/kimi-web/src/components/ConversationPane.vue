@@ -3,7 +3,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ActivityState, ApprovalBlock, ChatTurn, ConnectionState, ConversationStatus, DiffViewLine, FilePreviewRequest, PaneKey, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, UIQuestion } from '../types';
-import type { AppModel, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
+import type { AppModel, AppSkill, FsEntry, QuestionResponse, ThinkingLevel } from '../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { FileData } from './FilePreview.vue';
 import TabBar from './TabBar.vue';
@@ -59,6 +59,8 @@ const props = defineProps<{
   compaction?: { status: 'running' } | null;
   /** Available models for the quick-switch dropdown in the composer toolbar. */
   models?: AppModel[];
+  /** Session skills shown in the composer `/` menu. */
+  skills?: AppSkill[];
   /** Workspace name shown in the empty-session hint above the centred composer. */
   workspaceName?: string;
 }>();
@@ -622,6 +624,7 @@ onUnmounted(() => {
             :thinking="thinking"
             :plan-mode="planMode"
             :models="models"
+            :skills="skills"
             @submit="handleComposerSubmit"
             @steer="emit('steer', $event)"
             @command="emit('command', $event)"
@@ -818,6 +821,7 @@ onUnmounted(() => {
         :thinking="thinking"
         :plan-mode="planMode"
         :models="models"
+        :skills="skills"
         @submit="handleComposerSubmit"
         @steer="emit('steer', $event)"
         @command="emit('command', $event)"
