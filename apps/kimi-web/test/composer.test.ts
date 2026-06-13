@@ -63,3 +63,30 @@ describe('Composer IME input', () => {
     expect(wrapper.emitted('submit')).toEqual([[{ text: '你好', attachments: [] }]]);
   });
 });
+
+describe('Composer history recall', () => {
+  it('walks sent messages with ArrowUp/ArrowDown and restores the draft', async () => {
+    const wrapper = mountComposer();
+    const textarea = wrapper.get('textarea');
+    const el = textarea.element as HTMLTextAreaElement;
+
+    await textarea.setValue('first');
+    await textarea.trigger('keydown', { key: 'Enter' });
+    await textarea.setValue('second');
+    await textarea.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('submit')).toHaveLength(2);
+    expect(el.value).toBe('');
+
+    // ArrowUp recalls the most recent, then the older one.
+    await textarea.trigger('keydown', { key: 'ArrowUp' });
+    expect(el.value).toBe('second');
+    await textarea.trigger('keydown', { key: 'ArrowUp' });
+    expect(el.value).toBe('first');
+
+    // ArrowDown walks forward, then restores the (empty) live draft.
+    await textarea.trigger('keydown', { key: 'ArrowDown' });
+    expect(el.value).toBe('second');
+    await textarea.trigger('keydown', { key: 'ArrowDown' });
+    expect(el.value).toBe('');
+  });
+});
