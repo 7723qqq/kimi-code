@@ -119,9 +119,8 @@ function openMediaPreview(): void {
       </span>
     </div>
     <div v-if="open" class="bb">
-      <!-- Touch screens have no :title tooltip — when expanded, show the full
-           (otherwise ellipsized) summary above the output. -->
-      <div v-if="summary()" class="bb-summary">{{ summary() }}</div>
+      <!-- The command/summary already shows on the header line; don't repeat it
+           at the top of the expanded body — show only the output here. -->
       <div v-for="(line, i) in tool.output" :key="i">{{ line }}</div>
     </div>
   </div>
@@ -271,13 +270,6 @@ function openMediaPreview(): void {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.bb-summary {
-  color: var(--muted);
-  border-bottom: 1px dashed var(--line);
-  padding-bottom: 6px;
-  margin-bottom: 6px;
-}
-
 /* Mobile bubble layout: no left gutter indent, softer corners (prototype .tool). */
 .box.mob {
   margin: 8px 0;

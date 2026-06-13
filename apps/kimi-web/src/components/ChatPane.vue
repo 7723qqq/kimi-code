@@ -796,4 +796,22 @@ function turnBlocks(turn: ChatTurn): TurnBlock[] {
     font-size: 14px;
   }
 }
+
+/* Merge adjacent tool calls: a run of consecutive ToolCall cards (each a `.box`)
+   collapses into one continuous panel — shared borders, squared inner corners —
+   instead of N separate cards with gaps. Text/thinking blocks between tools
+   break the DOM adjacency, so only true back-to-back tool calls merge. Media
+   tool cards use `.media-tool` (not `.box`), so galleries are untouched. */
+.term :deep(.box:has(+ .box)),
+.chat :deep(.box:has(+ .box)) {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.term :deep(.box + .box),
+.chat :deep(.box + .box) {
+  margin-top: -1px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
 </style>
