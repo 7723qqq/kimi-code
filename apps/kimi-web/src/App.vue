@@ -478,9 +478,6 @@ function handleCommand(cmd: string): void {
     case '/status':
       showStatusPanel.value = true;
       break;
-    case '/undo':
-      client.undo();
-      break;
     case '/model':
       void openModelPicker();
       break;

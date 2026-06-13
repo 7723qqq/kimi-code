@@ -2778,15 +2778,6 @@ async function forkSession(sessionId?: string): Promise<void> {
 }
 
 /**
- * undo() — revert the last message.
- * The daemon has no undo endpoint yet, so don't silently no-op — surface a
- * warning so the user knows the command isn't connected.
- */
-function undo(): void {
-  pushWarning(i18n.global.t('commands.undoNotImplemented'));
-}
-
-/**
  * Remove a queued message for the active session by index.
  * Defensive: no-op if index out of range or no active session.
  */
@@ -3051,7 +3042,6 @@ export function useKimiWebClient() {
     deleteSession,
     compact,
     forkSession,
-    undo,
 
     // New Phase 4 actions
     unqueue,
