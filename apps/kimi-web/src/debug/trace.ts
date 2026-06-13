@@ -9,7 +9,7 @@
 
 import { ref, shallowRef } from 'vue';
 
-export type TraceSource = 'rest' | 'ws';
+export type TraceSource = 'rest' | 'ws' | 'client';
 
 export interface TraceEntry {
   id: number;
@@ -296,6 +296,77 @@ export function traceWsIn(frame: unknown): void {
     label: `← ${type}${bits.length > 0 ? ` (${bits.join(' ')})` : ''}`,
     detail: detailOf(f['payload']),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Client-side error capture — so the exported troubleshooting log includes the
+// front-end errors (uncaught exceptions, rejected promises, console.error/warn)
+// that explain a broken page, not just network traffic. Install-once, opt-in
+// (only when tracing is enabled), and never alters runtime behavior: the
+// original console methods and default error handling still run.
+// ---------------------------------------------------------------------------
+
+function traceClientLog(level: 'error' | 'warn', label: string, detail?: unknown): void {
+  if (!isTraceEnabled()) return;
+  push({
+    source: 'client',
+    kind: `client:${level}`,
+    label: `${level === 'error' ? '✕' : '⚠'} ${label}`,
+    detail: detailOf(detail),
+  });
+}
+
+let clientCaptureInstalled = false;
+
+/** Wire up window error + console.error/warn capture into the trace buffer. */
+export function installClientErrorCapture(): void {
+  if (clientCaptureInstalled || !isTraceEnabled()) return;
+  clientCaptureInstalled = true;
+
+  try {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('error', (e: ErrorEvent) => {
+        traceClientLog('error', e.message || 'window error', {
+          source: e.filename,
+          line: e.lineno,
+          col: e.colno,
+          stack: e.error instanceof Error ? e.error.stack : undefined,
+        });
+      });
+      window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
+        const reason = e.reason;
+        traceClientLog('error', 'unhandled promise rejection', {
+          reason: reason instanceof Error ? `${reason.name}: ${reason.message}` : reason,
+          stack: reason instanceof Error ? reason.stack : undefined,
+        });
+      });
+    }
+  } catch {
+    // window unavailable
+  }
+
+  for (const level of ['error', 'warn'] as const) {
+    const original = console[level];
+    if (typeof original !== 'function') continue;
+    console[level] = (...args: unknown[]): void => {
+      try {
+        traceClientLog(level, args.map(stringifyArg).join(' '), args.length > 1 ? args : args[0]);
+      } catch {
+        // never let tracing break logging
+      }
+      original.apply(console, args);
+    };
+  }
+}
+
+function stringifyArg(a: unknown): string {
+  if (typeof a === 'string') return a;
+  if (a instanceof Error) return `${a.name}: ${a.message}`;
+  try {
+    return JSON.stringify(a);
+  } catch {
+    return String(a);
+  }
 }
 
 // ---------------------------------------------------------------------------

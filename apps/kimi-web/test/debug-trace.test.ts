@@ -12,6 +12,7 @@ import { DaemonHttpClient } from '../src/api/daemon/http';
 import { DaemonEventSocket, type DaemonEventSocketHandlers } from '../src/api/daemon/ws';
 import {
   clearTrace,
+  installClientErrorCapture,
   sanitizeForTrace,
   traceEntries,
   traceToJsonl,
@@ -40,6 +41,24 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('client-side error capture', () => {
+  it('folds console.error into the trace so the export includes app errors', () => {
+    const original = console.error;
+    installClientErrorCapture();
+    try {
+      console.error('render failed', new Error('boom'));
+    } finally {
+      console.error = original; // undo the install-once wrap for other tests
+    }
+    const entry = traceEntries().find((e) => e.kind === 'client:error');
+    expect(entry).toBeDefined();
+    expect(entry!.source).toBe('client');
+    expect(entry!.label).toContain('render failed');
+    // The exported JSONL carries the client entry alongside network traffic.
+    expect(traceToJsonl().includes('"client:error"')).toBe(true);
+  });
 });
 
 describe('REST tracing via DaemonHttpClient', () => {

@@ -19,7 +19,7 @@ const open = ref(false);
 // ---------------------------------------------------------------------------
 // Filters
 // ---------------------------------------------------------------------------
-const sourceFilter = ref<'all' | 'rest' | 'ws'>('all');
+const sourceFilter = ref<'all' | 'rest' | 'ws' | 'client'>('all');
 const textFilter = ref('');
 const sessionFilter = ref<string>('');
 const errorsOnly = ref(false);
@@ -142,9 +142,16 @@ function exportJsonl(): void {
 
 function badgeClass(e: TraceEntry): string {
   if (isError(e)) return 'b-err';
+  if (e.source === 'client') return 'b-err';
   if (e.source === 'rest') return 'b-rest';
   if (e.kind === 'ws:lifecycle') return 'b-life';
   return e.kind === 'ws:out' ? 'b-out' : 'b-in';
+}
+
+function badgeLabel(e: TraceEntry): string {
+  if (e.source === 'rest') return 'REST';
+  if (e.source === 'client') return 'APP';
+  return 'WS';
 }
 </script>
 
@@ -170,9 +177,10 @@ function badgeClass(e: TraceEntry): string {
 
     <div class="kap-filters">
       <select v-model="sourceFilter" aria-label="Source filter">
-        <option value="all">rest + ws</option>
+        <option value="all">rest + ws + app</option>
         <option value="rest">rest</option>
         <option value="ws">ws</option>
+        <option value="client">app errors</option>
       </select>
       <select v-model="sessionFilter" aria-label="Session filter">
         <option value="">all sessions</option>
@@ -194,7 +202,7 @@ function badgeClass(e: TraceEntry): string {
       <div v-for="e in filtered" :key="e.id" class="kap-row-wrap">
         <button type="button" class="kap-row" :class="{ expanded: expandedId === e.id }" @click="toggleDetail(e.id)">
           <span class="kap-ts">{{ fmtTime(e.ts) }}</span>
-          <span class="kap-badge" :class="badgeClass(e)">{{ e.source === 'rest' ? 'REST' : 'WS' }}</span>
+          <span class="kap-badge" :class="badgeClass(e)">{{ badgeLabel(e) }}</span>
           <span class="kap-label">{{ e.label }}</span>
         </button>
         <div v-if="expandedId === e.id" class="kap-detail">
