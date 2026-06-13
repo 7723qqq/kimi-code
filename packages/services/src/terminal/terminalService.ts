@@ -268,7 +268,10 @@ function frameSeq(frame: TerminalFrame): number {
 }
 
 function defaultShell(): string {
-  return process.env['SHELL'] ?? (os.platform() === 'win32' ? 'powershell.exe' : '/bin/sh');
+  // Use `||` (not `??`): an EMPTY $SHELL (set but blank, as some daemon/launchd
+  // envs leave it) must still fall back, or node-pty spawns an empty path and
+  // fails with "posix_spawnp failed".
+  return process.env['SHELL'] || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/sh');
 }
 
 registerSingleton(
