@@ -285,6 +285,10 @@ interface ExtendedState extends KimiClientState {
   promptIdBySession: Record<string, string>;
   // True while a prompt is in flight but the assistant reply hasn't started yet.
   sendingBySession: Record<string, boolean>;
+  // True when a BACKGROUND session finished a turn the user hasn't opened since
+  // (drives the unread blue dot in the sidebar). Set on idle for a non-active
+  // session, cleared when the session is selected.
+  unreadBySession: Record<string, boolean>;
   // Auth state (real daemon)
   authReady: boolean;
   defaultModel: string | null;
@@ -311,6 +315,7 @@ const rawState: ExtendedState = reactive({
   gitStatusBySession: {},
   promptIdBySession: {},
   sendingBySession: {},
+  unreadBySession: {},
   authReady: false,
   defaultModel: null,
   managedProviderStatus: null,
@@ -1436,6 +1441,15 @@ const attentionBySession = computed<Record<string, number>>(() => {
   return out;
 });
 
+/** Per-session unread flag (a background turn finished, not yet opened). */
+const unreadBySession = computed<Record<string, boolean>>(() => {
+  const out: Record<string, boolean> = {};
+  for (const [sid, unread] of Object.entries(rawState.unreadBySession)) {
+    if (unread) out[sid] = true;
+  }
+  return out;
+});
+
 /**
  * Per-workspace pending-attention count = sum of attentionBySession over the
  * sessions belonging to each workspace. Drives the rail's attention badge.
@@ -1489,6 +1503,10 @@ function onSessionIdle(sid: string): void {
   if (sid === rawState.activeSessionId) {
     void loadGitStatus(sid);
     void refreshSessionStatus(sid);
+  } else {
+    // A background session just finished a turn the user hasn't seen — light up
+    // its unread dot until they open it.
+    rawState.unreadBySession = { ...rawState.unreadBySession, [sid]: true };
   }
 
   const queue = rawState.queuedBySession[sid] ?? [];
@@ -1940,6 +1958,10 @@ async function selectSession(
     writeSessionUrl(sessionId, opts?.urlMode ?? 'push');
     rawState.sessionLoading = !messagesLoaded && !knownEmpty;
     rawState.activeSessionId = sessionId;
+    // Opening a session clears its unread dot.
+    if (rawState.unreadBySession[sessionId]) {
+      rawState.unreadBySession = { ...rawState.unreadBySession, [sessionId]: false };
+    }
     // A diff belongs to the session it was loaded from — drop it on switch.
     clearFileDiff();
 
@@ -2869,6 +2891,7 @@ export function useKimiWebClient() {
     workspaceGroups,
     attentionBySession,
     attentionByWorkspace,
+    unreadBySession,
     recentRoots,
 
     turns,

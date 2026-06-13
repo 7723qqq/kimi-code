@@ -13,8 +13,10 @@ const props = withDefaults(
     session: Session;
     active: boolean;
     attention?: number;
+    /** A background turn finished here that the user hasn't opened — blue dot. */
+    unread?: boolean;
   }>(),
-  { attention: 0 },
+  { attention: 0, unread: false },
 );
 
 const emit = defineEmits<{
@@ -114,6 +116,23 @@ defineExpose({ closeMenu, cancelDelete });
 
     <template v-else>
       <div class="row">
+        <!-- Leading status slot (in the gutter left of the title): a spinner
+             while the session runs, otherwise an unread blue dot. Fixed width
+             so the title start never shifts. -->
+        <span class="lead" aria-hidden="true">
+          <svg
+            v-if="session.status === 'running'"
+            class="run-ico"
+            viewBox="0 0 16 16"
+            width="12"
+            height="12"
+            fill="none"
+          >
+            <circle class="run-track" cx="8" cy="8" r="6" stroke-width="2" />
+            <path class="run-arc" d="M8 2 a6 6 0 0 1 6 6" stroke-width="2" stroke-linecap="round" />
+          </svg>
+          <span v-else-if="unread" class="unread-dot" />
+        </span>
         <div class="left">
           <!-- Inline rename input -->
           <input
@@ -126,7 +145,7 @@ defineExpose({ closeMenu, cancelDelete });
             @keydown.esc.stop="cancelRename"
             @blur="commitRename"
           />
-          <span v-else :class="['t', { run: session.status === 'running' }]" @dblclick.stop="startRename">{{ session.title }}</span>
+          <span v-else class="t" @dblclick.stop="startRename">{{ session.title }}</span>
         </div>
 
         <span class="ts">{{ session.time }}</span>
@@ -199,12 +218,29 @@ defineExpose({ closeMenu, cancelDelete });
   min-width: 0;
 }
 
-/* Leading spacer mirrors the workspace header's icon slot. */
-.row::before {
-  content: '';
-  display: block;
+/* Leading status slot — mirrors the workspace header's icon slot (so the title
+   aligns under the workspace name) AND carries the running spinner / unread dot.
+   Fixed width keeps the title start fixed whether or not an indicator shows. */
+.lead {
   width: var(--sb-gutter, 16px);
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.run-ico {
+  animation: row-spin 0.8s linear infinite;
+}
+.run-track { stroke: var(--line); }
+.run-arc { stroke: var(--blue); }
+@keyframes row-spin {
+  to { transform: rotate(360deg); }
+}
+.unread-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--blue);
 }
 
 .t {
@@ -220,28 +256,6 @@ defineExpose({ closeMenu, cancelDelete });
 
 .ts { color: var(--muted); font-size: 10.5px; flex: none; }
 .se:hover .ts { display: none; }
-
-/* Running indicator — pulse dot absolutely positioned left of title,
-   so the text start position does not shift. */
-.t.run {
-  position: relative;
-}
-.t.run::before {
-  content: '';
-  position: absolute;
-  left: -12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--blue);
-  animation: runPulse 1.4s ease-in-out infinite;
-}
-@keyframes runPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
 
 /* Attention pill — small Kimi-blue badge with count */
 .attn {

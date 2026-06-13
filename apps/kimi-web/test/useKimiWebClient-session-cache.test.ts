@@ -189,6 +189,35 @@ describe('useKimiWebClient session memory cache', () => {
     });
   });
 
+  it('marks a background session unread on idle and clears it on open', async () => {
+    const { client, getHandlers } = await setup([]);
+    await client.createSession('/repo'); // sess_1 is active
+
+    const bg = session('sess_bg');
+    getHandlers().onEvent(
+      { type: 'sessionCreated', session: bg },
+      { sessionId: 'sess_bg', seq: 1 },
+    );
+
+    // A background session finishing a turn lights up its unread dot.
+    getHandlers().onEvent(
+      { type: 'sessionStatusChanged', sessionId: 'sess_bg', status: 'idle', previousStatus: 'running' },
+      { sessionId: 'sess_bg', seq: 2 },
+    );
+    expect(client.unreadBySession.value['sess_bg']).toBe(true);
+
+    // The ACTIVE session finishing does not mark itself unread.
+    getHandlers().onEvent(
+      { type: 'sessionStatusChanged', sessionId: 'sess_1', status: 'idle', previousStatus: 'running' },
+      { sessionId: 'sess_1', seq: 3 },
+    );
+    expect(client.unreadBySession.value['sess_1']).toBeUndefined();
+
+    // Opening the background session clears its unread flag.
+    await client.selectSession('sess_bg').catch(() => {});
+    expect(client.unreadBySession.value['sess_bg']).toBeUndefined();
+  });
+
   it('keeps the optimistic user turn key stable after submit resolves', async () => {
     const { client, eventConn } = await setup([]);
 

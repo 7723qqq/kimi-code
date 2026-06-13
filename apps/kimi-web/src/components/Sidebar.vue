@@ -24,6 +24,7 @@ withDefaults(
     groups: WorkspaceGroup[];
     activeId: string;
     attentionBySession?: Record<string, number>;
+    unreadBySession?: Record<string, boolean>;
     authReady?: boolean;
     accountModel?: string | null;
     /** Width (px) of the session column, driven by the App resize handle. */
@@ -39,6 +40,7 @@ withDefaults(
     activeWorkspace: null,
     activeWorkspaceId: null,
     attentionBySession: () => ({}),
+    unreadBySession: () => ({}),
     authReady: false,
     accountModel: null,
     colWidth: 220,
@@ -569,6 +571,7 @@ function blinkOnce(): void {
                 :session="s"
                 :active="s.id === activeId"
                 :attention="attentionBySession[s.id] ?? 0"
+                :unread="unreadBySession[s.id] ?? false"
                 @select="onSelectSession($event)"
                 @rename="(id, title) => emit('rename', id, title)"
                 @delete="emit('delete', $event)"

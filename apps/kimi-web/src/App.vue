@@ -557,6 +557,7 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
         :groups="client.workspaceGroups.value"
         :active-id="client.activeSessionId.value"
         :attention-by-session="client.attentionBySession.value"
+        :unread-by-session="client.unreadBySession.value"
         :auth-ready="client.authReady.value"
         :account-model="client.defaultModel.value"
         :theme="client.theme.value"
