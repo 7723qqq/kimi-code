@@ -7,9 +7,9 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import {
   clearTrace,
+  downloadTraceLog,
   tracePaused,
   traceEntries,
-  traceToJsonl,
   traceVersion,
   type TraceEntry,
 } from './trace';
@@ -131,13 +131,7 @@ async function copyEntry(e: TraceEntry): Promise<void> {
 }
 
 function exportJsonl(): void {
-  const blob = new Blob([traceToJsonl(filtered.value)], { type: 'application/x-ndjson' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `kap-trace-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadTraceLog(filtered.value);
 }
 
 function badgeClass(e: TraceEntry): string {

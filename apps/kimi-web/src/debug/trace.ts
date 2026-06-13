@@ -299,19 +299,30 @@ export function traceWsIn(frame: unknown): void {
 }
 
 // ---------------------------------------------------------------------------
-// Client-side error capture — so the exported troubleshooting log includes the
-// front-end errors (uncaught exceptions, rejected promises, console.error/warn)
-// that explain a broken page, not just network traffic. Install-once, opt-in
-// (only when tracing is enabled), and never alters runtime behavior: the
-// original console methods and default error handling still run.
+// Client-side log capture — so the exported troubleshooting log includes the
+// front-end console (uncaught exceptions, rejected promises, and every console
+// level: error/warn/log/info/debug) that explains a broken page, not just
+// network traffic. Install-once, opt-in (only when tracing is enabled), and
+// never alters runtime behavior: the original console methods and default error
+// handling still run.
 // ---------------------------------------------------------------------------
 
-function traceClientLog(level: 'error' | 'warn', label: string, detail?: unknown): void {
+type ClientLogLevel = 'error' | 'warn' | 'log' | 'info' | 'debug';
+
+const LEVEL_GLYPH: Record<ClientLogLevel, string> = {
+  error: '✕',
+  warn: '⚠',
+  info: 'ℹ',
+  debug: '·',
+  log: '·',
+};
+
+function traceClientLog(level: ClientLogLevel, label: string, detail?: unknown): void {
   if (!isTraceEnabled()) return;
   push({
     source: 'client',
     kind: `client:${level}`,
-    label: `${level === 'error' ? '✕' : '⚠'} ${label}`,
+    label: `${LEVEL_GLYPH[level]} ${label}`,
     detail: detailOf(detail),
   });
 }
@@ -345,7 +356,7 @@ export function installClientErrorCapture(): void {
     // window unavailable
   }
 
-  for (const level of ['error', 'warn'] as const) {
+  for (const level of ['error', 'warn', 'log', 'info', 'debug'] as const) {
     const original = console[level];
     if (typeof original !== 'function') continue;
     console[level] = (...args: unknown[]): void => {
@@ -372,6 +383,21 @@ function stringifyArg(a: unknown): string {
 // ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
+
+/** Download the captured trace as a JSONL file. Reusable so the debug panel and
+    any "Export log" UI action share one implementation. */
+export function downloadTraceLog(list: readonly TraceEntry[] = entries): void {
+  if (typeof document === 'undefined') return;
+  const blob = new Blob([traceToJsonl(list)], { type: 'application/x-ndjson' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `kimi-web-log-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 /** Serialize the given entries (default: all) as JSONL for download. */
 export function traceToJsonl(list: readonly TraceEntry[] = entries): string {
