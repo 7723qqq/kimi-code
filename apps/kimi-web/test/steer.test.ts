@@ -122,6 +122,26 @@ describe('steerPrompt', () => {
     expect(userTurns.map((t) => t.text)).toEqual(['first', 'change of plan']);
   });
 
+  it('carries an image attachment into the steered prompt and the transcript echo', async () => {
+    const { api, client } = await setup({ submitStatuses: ['running', 'queued'] });
+    await client.createSession('/repo');
+    await client.sendPrompt('first');                 // turn in flight
+    await client.steerPrompt('look at this', [{ fileId: 'file_1' }]);
+
+    // The image rides the steered prompt's content alongside the text.
+    const steered = (api.submitPrompt as ReturnType<typeof vi.fn>).mock.calls[1]![1] as {
+      content: { type: string; text?: string; source?: { kind: string; fileId: string } }[];
+    };
+    expect(steered.content).toEqual([
+      { type: 'text', text: 'look at this' },
+      { type: 'image', source: { kind: 'file', fileId: 'file_1' } },
+    ]);
+
+    // The optimistic transcript echo shows the image too.
+    const lastUser = client.turns.value.filter((t) => t.role === 'user').at(-1)!;
+    expect(lastUser.images).toEqual([{ url: '/files/file_1' }]);
+  });
+
   it('merges queued prompts + live text into one steered message and clears the queue', async () => {
     const { api, client } = await setup({ submitStatuses: ['running', 'queued'] });
     await client.createSession('/repo');
