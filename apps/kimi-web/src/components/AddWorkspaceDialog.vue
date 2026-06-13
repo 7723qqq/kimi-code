@@ -30,6 +30,14 @@ const currentPath = ref('');
 const parentPath = ref<string | null>(null);
 const entries = ref<FsBrowseEntry[]>([]);
 
+// Live filter over the current folder's subfolders (case-insensitive substring).
+const filter = ref('');
+const filteredEntries = computed<FsBrowseEntry[]>(() => {
+  const q = filter.value.trim().toLowerCase();
+  if (q === '') return entries.value;
+  return entries.value.filter((e) => e.name.toLowerCase().includes(q));
+});
+
 // Paste-path escape hatch
 const pathInput = ref('');
 const pathTrimmed = computed(() => pathInput.value.trim());
@@ -63,6 +71,7 @@ async function navigate(path?: string): Promise<void> {
     currentPath.value = result.path;
     parentPath.value = result.parent;
     entries.value = result.entries;
+    filter.value = ''; // a fresh folder starts unfiltered
     browseFailed.value = false;
   } catch {
     browseFailed.value = true;
@@ -153,12 +162,28 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
           </div>
         </div>
 
+        <!-- Filter the current folder's subfolders -->
+        <div v-if="!loading && entries.length > 0" class="filterbar">
+          <svg class="filter-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5"/><path d="M11 11l3 3"/>
+          </svg>
+          <input
+            v-model="filter"
+            class="filter-input"
+            type="text"
+            :placeholder="t('workspace.filterPlaceholder')"
+            autocomplete="off"
+            spellcheck="false"
+            @keydown.stop
+          />
+        </div>
+
         <!-- Folder list -->
         <div class="folder-list">
           <div v-if="loading" class="fl-loading">{{ t('workspace.browsing') }}</div>
           <template v-else>
             <button
-              v-for="entry in entries"
+              v-for="entry in filteredEntries"
               :key="entry.path"
               class="folder-row"
               @click="openEntry(entry)"
@@ -173,6 +198,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
               </span>
             </button>
             <div v-if="entries.length === 0" class="fl-empty">{{ t('workspace.noSubfolders') }}</div>
+            <div v-else-if="filteredEntries.length === 0" class="fl-empty">{{ t('workspace.noFilterMatch', { q: filter.trim() }) }}</div>
           </template>
         </div>
       </template>
@@ -308,6 +334,28 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 }
 .crumb:hover { color: var(--blue); background: var(--panel2); }
 .crumb.last { color: var(--ink); font-weight: 600; }
+
+/* Subfolder filter */
+.filterbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line2);
+}
+.filter-icon { flex: none; color: var(--faint); }
+.filter-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 3px 4px;
+  border: none;
+  background: none;
+  color: var(--ink);
+  outline: none;
+}
+.filter-input::placeholder { color: var(--faint); }
 
 /* Folder list */
 .folder-list {

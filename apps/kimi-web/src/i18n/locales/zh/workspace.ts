@@ -28,6 +28,8 @@ export default {
   openThisFolder: '打开此文件夹',
   up: '上一级',
   browsing: '加载中…',
+  filterPlaceholder: '过滤子文件夹…',
+  noFilterMatch: '没有匹配「{q}」的子文件夹',
   noSubfolders: '此处没有子文件夹',
   gitTag: 'git',
   browseHint: '点击文件夹进入，再点"打开此文件夹"将其添加为工作区。',

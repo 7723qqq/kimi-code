@@ -28,6 +28,8 @@ export default {
   openThisFolder: 'Open this folder',
   up: 'Up',
   browsing: 'Browsing…',
+  filterPlaceholder: 'Filter subfolders…',
+  noFilterMatch: 'No subfolders match “{q}”',
   noSubfolders: 'No subfolders here',
   gitTag: 'git',
   browseHint: 'Click a folder to enter it, then "Open this folder" to add it as a workspace.',
