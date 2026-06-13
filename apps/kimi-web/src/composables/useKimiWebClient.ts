@@ -1041,7 +1041,12 @@ const turns = computed<ChatTurn[]>(() => {
   if (!sid) return [];
   const messages = rawState.messagesBySession[sid] ?? [];
   const approvals = rawState.approvalsBySession[sid] ?? [];
-  return messagesToTurns(messages, approvals, (fileId) => getKimiWebApi().getFileUrl(fileId));
+  return messagesToTurns(
+    messages,
+    approvals,
+    (fileId) => getKimiWebApi().getFileUrl(fileId),
+    activity.value !== 'idle',
+  );
 });
 
 const tasks = computed<TaskItem[]>(() => {

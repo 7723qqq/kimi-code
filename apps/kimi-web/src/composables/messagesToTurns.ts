@@ -309,6 +309,14 @@ export function messagesToTurns(
   messages: AppMessage[],
   approvals: AppApprovalRequest[],
   getFileUrl?: (fileId: string) => string,
+  /**
+   * Whether the active session is still producing output. Only a live session's
+   * FINAL group keeps a dangling tool spinning (a genuine in-flight tool). When
+   * the session is idle, a tool that never got its result — e.g. a result frame
+   * the projector dropped on a reconnect/ordering race — must settle instead of
+   * spinning forever after the turn already finished.
+   */
+  sessionActive = true,
 ): ChatTurn[] {
   const turns: ChatTurn[] = [];
   let no = 1;
@@ -328,8 +336,10 @@ export function messagesToTurns(
     // A later message ended this turn, so a tool still 'running' simply never
     // had its result persisted (e.g. an aborted turn in an old transcript) —
     // render it settled instead of spinning forever. The FINAL group keeps
-    // 'running' so live in-flight tools show their spinner.
-    if (!final) {
+    // 'running' so live in-flight tools show their spinner — but only while the
+    // session is actually active; once it is idle a dangling tool is a missed
+    // result, not a live one, so settle it too.
+    if (!final || !sessionActive) {
       for (let i = 0; i < g.tools.length; i++) {
         const t = g.tools[i]!;
         if (t.status !== 'running') continue;
