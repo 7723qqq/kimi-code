@@ -9,6 +9,13 @@ import { useTerminal } from '../composables/useTerminal';
 
 const props = defineProps<{ sessionId: string }>();
 
+// xterm's `fontFamily` is a literal font string — it does NOT resolve CSS
+// variables, so passing `var(--mono)` silently fell back to xterm's default
+// (courier), which is why glyph metrics / spacing looked off. Use the real
+// JetBrains Mono stack (same family the app loads via @fontsource).
+const TERMINAL_FONT =
+  '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
+
 const hostRef = ref<HTMLElement | null>(null);
 const sessionId = toRef(props, 'sessionId');
 const terminalClient = useTerminal(sessionId);
@@ -79,12 +86,23 @@ async function initTerminal(): Promise<void> {
     import('@xterm/xterm'),
     import('@xterm/addon-fit'),
   ]);
+  // Wait for the variable font to load before xterm measures the cell — a
+  // not-yet-loaded webfont makes xterm cache a wrong char width, leaving the
+  // text looking loosely/unevenly spaced until a resize.
+  if (typeof document !== 'undefined' && document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      // fonts API unavailable — proceed with the fallback metric
+    }
+  }
   const next = new XTermCtor({
     cursorBlink: true,
     convertEol: true,
-    fontFamily: 'var(--mono)',
+    fontFamily: TERMINAL_FONT,
     fontSize: 13,
-    lineHeight: 1.25,
+    lineHeight: 1.1,
+    letterSpacing: 0,
     scrollback: 4000,
     theme: theme.value,
   });
