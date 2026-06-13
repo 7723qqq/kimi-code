@@ -423,6 +423,12 @@ export function messagesToTurns(
       } else if (c.type === 'toolUse') {
         const agentTasks = subagentsByTool.get(c.toolCallId);
         if (agentTasks && agentTasks.length > 0) {
+          // A multi-member swarm (subagents sharing a parent tool-call, each with
+          // a swarmIndex) renders as its OWN SwarmCard in the chat flow — see
+          // buildSwarmGroups, same membership test. Don't ALSO render it inline
+          // here, or the swarm shows up twice ("two blocks").
+          const swarmMembers = agentTasks.filter((t) => t.swarmIndex !== undefined);
+          if (swarmMembers.length > 1) continue;
           const members = agentTasks.map(toAgentMember);
           if (members.length === 1) {
             g.blocks.push({ kind: 'agent', member: members[0]! });

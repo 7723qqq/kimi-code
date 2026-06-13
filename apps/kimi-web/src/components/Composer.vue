@@ -403,6 +403,7 @@ onMounted(() => {
 // Revoke all object URLs and remove global listener on unmount
 onUnmounted(() => {
   document.removeEventListener('paste', handleDocumentPaste);
+  document.removeEventListener('mousedown', onModesDocClick);
   for (const att of attachments.value) {
     revokeAttachment(att);
   }
@@ -718,6 +719,53 @@ function toggleThinking(): void {
 // Plan toggle
 const planOn = computed(() => props.planMode === true);
 
+// Modes selector (plan / goal / swarm) — the popover that replaces the bare
+// "plan" pill. Plan is a real client toggle; goal/swarm reflect agent-driven
+// state and focus their card when active.
+const modesOpen = ref(false);
+const modesRef = ref<HTMLElement | null>(null);
+const modesMenuRef = ref<HTMLElement | null>(null);
+// The menu is position:fixed (so no composer stacking context can paint over
+// it); these coords anchor it just above the pill, computed on open.
+const modesMenuStyle = ref<Record<string, string>>({});
+const anyModeActive = computed(
+  () => planOn.value || !!props.activationBadges?.goal || !!props.activationBadges?.swarm,
+);
+function closeModes(): void {
+  modesOpen.value = false;
+  document.removeEventListener('mousedown', onModesDocClick);
+}
+function onModesDocClick(e: MouseEvent): void {
+  const t = e.target as Node;
+  if (modesRef.value?.contains(t) || modesMenuRef.value?.contains(t)) return;
+  closeModes();
+}
+function toggleModes(): void {
+  if (modesOpen.value) {
+    closeModes();
+    return;
+  }
+  const r = modesRef.value?.getBoundingClientRect();
+  if (r) {
+    modesMenuStyle.value = {
+      left: `${Math.round(r.left)}px`,
+      bottom: `${Math.round(window.innerHeight - r.top + 8)}px`,
+    };
+  }
+  modesOpen.value = true;
+  setTimeout(() => document.addEventListener('mousedown', onModesDocClick), 0);
+}
+function focusGoalFromModes(): void {
+  if (!props.activationBadges?.goal) return;
+  closeModes();
+  emit('focusGoal');
+}
+function focusSwarmFromModes(): void {
+  if (!props.activationBadges?.swarm) return;
+  closeModes();
+  emit('focusSwarm');
+}
+
 function formatElapsed(ms: number): string {
   const minutes = Math.max(0, Math.round(ms / 60000));
   if (minutes < 1) return '<1m';
@@ -962,41 +1010,54 @@ function selectModel(modelId: string): void {
             </button>
           </div>
 
-          <!-- Plan toggle pill -->
-          <span
-            v-if="status"
-            class="toggle-pill"
-            :class="{ on: planOn }"
-            role="button"
-            tabindex="0"
-            :title="t('status.planTooltip')"
-            @click="emit('togglePlan')"
-            @keydown.enter="emit('togglePlan')"
-            @keydown.space.prevent="emit('togglePlan')"
-          >{{ t('status.planLabel') }}</span>
-
-          <div v-if="activationBadges && (activationBadges.plan || activationBadges.goal || activationBadges.swarm)" class="activation-badges">
+          <!-- Modes selector (plan / goal / swarm) — replaces the plan pill. -->
+          <div v-if="status" ref="modesRef" class="modes">
             <button
-              v-if="activationBadges.plan"
-              class="abadge plan"
               type="button"
-              @click="emit('togglePlan')"
-            >plan</button>
-            <button
-              v-if="activationBadges.goal"
-              class="abadge goal"
-              type="button"
-              @click="emit('focusGoal')"
+              class="mode-pill"
+              :class="{ on: anyModeActive }"
+              :title="t('status.modesTooltip')"
+              @click.stop="toggleModes"
             >
-              <span class="abadge-dot" aria-hidden="true"></span>
-              goal {{ activationBadges.goal.status }} · {{ formatElapsed(activationBadges.goal.elapsedMs) }} · {{ activationBadges.goal.turnsUsed }} turns
+              <span class="mode-label">{{ t('status.modesLabel') }}</span>
+              <span v-if="planOn" class="mode-tag">{{ t('status.planLabel') }}</span>
+              <span v-if="activationBadges?.goal" class="mode-dot" aria-hidden="true"></span>
+              <span v-if="activationBadges?.swarm" class="mode-tag">swarm {{ activationBadges.swarm.done }}/{{ activationBadges.swarm.total }}</span>
             </button>
-            <button
-              v-if="activationBadges.swarm"
-              class="abadge swarm"
-              type="button"
-              @click="emit('focusSwarm')"
-            >swarm {{ activationBadges.swarm.done }}/{{ activationBadges.swarm.total }}</button>
+
+            <div v-if="modesOpen" ref="modesMenuRef" class="modes-menu" :style="modesMenuStyle">
+              <!-- Plan — functional client toggle -->
+              <button type="button" class="mode-row" :class="{ on: planOn }" @click="emit('togglePlan')">
+                <span class="mode-row-name">{{ t('status.planLabel') }}</span>
+                <span class="mode-switch" :class="{ on: planOn }"><span class="mode-knob" /></span>
+              </button>
+              <!-- Goal — agent-driven; focus its card when active -->
+              <button
+                type="button"
+                class="mode-row"
+                :class="{ on: !!activationBadges?.goal }"
+                :disabled="!activationBadges?.goal"
+                @click="focusGoalFromModes"
+              >
+                <span class="mode-row-name">{{ t('status.goalLabel') }}</span>
+                <span class="mode-row-meta">{{ activationBadges?.goal
+                  ? `${activationBadges.goal.status} · ${formatElapsed(activationBadges.goal.elapsedMs)} · ${activationBadges.goal.turnsUsed} turns`
+                  : t('status.modeOff') }}</span>
+              </button>
+              <!-- Swarm — agent-driven; focus its card when active -->
+              <button
+                type="button"
+                class="mode-row"
+                :class="{ on: !!activationBadges?.swarm }"
+                :disabled="!activationBadges?.swarm"
+                @click="focusSwarmFromModes"
+              >
+                <span class="mode-row-name">Swarm</span>
+                <span class="mode-row-meta">{{ activationBadges?.swarm
+                  ? `${activationBadges.swarm.done}/${activationBadges.swarm.total}`
+                  : t('status.modeOff') }}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1676,75 +1737,94 @@ function selectModel(modelId: string): void {
 }
 
 /* Toggle pills (Thinking / Plan) */
-.toggle-pill {
+/* Modes selector (plan / goal / swarm) — replaces the old plan pill + badges.
+   z-index lifts the whole control (incl. its upward-opening menu) above the
+   composer input row, which otherwise paints over the menu. */
+.modes { position: relative; display: inline-flex; z-index: 30; }
+.mode-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
+  gap: 6px;
+  padding: 2px 9px;
+  border: none;
+  background: none;
   border-radius: 6px;
   font-size: 14px;
+  font-family: var(--sans);
   color: var(--dim);
   cursor: pointer;
   user-select: none;
   transition: background 0.1s, color 0.15s;
-  font-family: var(--sans);
 }
-.toggle-pill:hover {
-  background: var(--soft);
-}
-.toggle-pill.on {
-  background: var(--soft);
-  color: var(--dim);
-}
-.toggle-pill.on:hover {
-  background: var(--soft);
-}
-
-.activation-badges {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  margin-left: 4px;
-  overflow: hidden;
-}
-.abadge {
-  min-width: 0;
-  max-width: 220px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 7px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--bg);
-  color: var(--dim);
+.mode-pill:hover { background: var(--soft); }
+.mode-pill.on { background: var(--soft); color: var(--blue2); }
+.mode-label { flex: none; }
+.mode-tag {
+  flex: none;
   font-family: var(--mono);
   font-size: 11px;
-  line-height: 16px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-.abadge:hover {
-  border-color: var(--bd);
-  background: var(--soft);
-}
-.abadge.plan,
-.abadge.swarm {
   color: var(--blue2);
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 16px;
 }
-.abadge.goal {
-  color: var(--ok);
+.mode-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); flex: none; }
+
+.modes-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 220px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
+  padding: 4px;
 }
-.abadge-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
+.mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--sans);
+  text-align: left;
+}
+.mode-row:hover:not(:disabled) { background: var(--panel2); }
+.mode-row:disabled { cursor: default; }
+.mode-row-name { font-size: 13px; color: var(--ink); }
+.mode-row.on .mode-row-name { color: var(--blue2); font-weight: 600; }
+.mode-row-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.mode-row:disabled .mode-row-meta { color: var(--faint); }
+.mode-switch {
   flex: none;
+  width: 34px;
+  height: 19px;
+  border-radius: 999px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  position: relative;
+  transition: background 0.15s;
 }
+.mode-switch.on { background: var(--blue); border-color: var(--blue); }
+.mode-knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s;
+}
+.mode-switch.on .mode-knob { transform: translateX(15px); }
 
 /* ---- Mobile composer (prototype): round attach + rounded panel input +
        round blue send with a soft shadow. The .cin container loses its border
@@ -1790,8 +1870,7 @@ function selectModel(modelId: string): void {
      chip stays: it is the ONLY context-pressure signal on a phone (it appears
      at ≥80% usage) and tapping it triggers compaction directly. */
   .perm-pill,
-  .toggle-pill,
-  .activation-badges,
+  .modes,
   .ctx-group {
     display: none;
   }
