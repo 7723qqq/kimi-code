@@ -6,15 +6,9 @@
 import { nextTick, onBeforeUnmount, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { Session, WorkspaceGroup, WorkspaceView } from '../types';
-import type { Accent, ColorScheme, Theme } from '../composables/useKimiWebClient';
-import { serverEndpointLabel } from '../api/config';
-import LanguageSwitcher from './LanguageSwitcher.vue';
 import SessionRow from './SessionRow.vue';
 
 const { t } = useI18n();
-
-/** Address of the real daemon this client connects to (shown in the settings popover). */
-const daemonEndpoint = serverEndpointLabel();
 
 withDefaults(
   defineProps<{
@@ -25,28 +19,15 @@ withDefaults(
     activeId: string;
     attentionBySession?: Record<string, number>;
     unreadBySession?: Record<string, boolean>;
-    authReady?: boolean;
-    accountModel?: string | null;
     /** Width (px) of the session column, driven by the App resize handle. */
     colWidth?: number;
-    /** Active UI theme — forwarded to the settings popover. */
-    theme?: Theme;
-    /** Active color scheme — forwarded to the settings popover. */
-    colorScheme?: ColorScheme;
-    /** Accent / colour scheme — forwarded to the settings popover. */
-    accent?: Accent;
   }>(),
   {
     activeWorkspace: null,
     activeWorkspaceId: null,
     attentionBySession: () => ({}),
     unreadBySession: () => ({}),
-    authReady: false,
-    accountModel: null,
     colWidth: 220,
-    theme: 'terminal',
-    colorScheme: 'system',
-    accent: 'blue',
   },
 );
 
@@ -62,12 +43,7 @@ const emit = defineEmits<{
   fork: [id: string];
   renameWorkspace: [id: string, name: string];
   deleteWorkspace: [id: string];
-  login: [];
-  logout: [];
-  setTheme: [theme: Theme];
-  setColorScheme: [colorScheme: ColorScheme];
-  setAccent: [accent: Accent];
-  openOnboarding: [];
+  openSettings: [];
 }>();
 
 
@@ -342,84 +318,13 @@ function deleteWs(ws: WorkspaceView): void {
   closeWsMenu();
 }
 
-// ---------------------------------------------------------------------------
-// Account popover (top-right of the column header)
-// ---------------------------------------------------------------------------
-const acctMenuOpen = ref(false);
-const triggerRef = ref<HTMLElement | null>(null);
-const menuRef = ref<HTMLElement | null>(null);
-const menuStyle = ref<Record<string, string>>({});
-
-function positionMenu(): void {
-  const trig = triggerRef.value;
-  const menu = menuRef.value;
-  if (!trig || !menu) return;
-  const r = trig.getBoundingClientRect();
-  const gap = 8;
-  const margin = 8;
-  const menuH = menu.offsetHeight;
-  const menuW = menu.offsetWidth;
-  let top = r.bottom + gap;
-  if (top + menuH > window.innerHeight - margin) {
-    top = Math.max(margin, r.top - menuH - gap);
-  }
-  let left = r.right - menuW;
-  if (left < margin) left = margin;
-  menuStyle.value = {
-    top: `${Math.round(top)}px`,
-    left: `${Math.round(left)}px`,
-  };
-}
-
-function onAcctDocClick(e: MouseEvent): void {
-  const target = e.target as Node;
-  if (menuRef.value?.contains(target) || triggerRef.value?.contains(target)) return;
-  closeAccount();
-}
-
-async function openAccount(): Promise<void> {
-  acctMenuOpen.value = true;
-  await nextTick();
-  positionMenu();
-  window.addEventListener('resize', positionMenu);
-  setTimeout(() => document.addEventListener('mousedown', onAcctDocClick), 0);
-}
-
-function toggleAccount(): void {
-  if (acctMenuOpen.value) closeAccount();
-  else void openAccount();
-}
-
-function closeAccount(): void {
-  acctMenuOpen.value = false;
-  window.removeEventListener('resize', positionMenu);
-  document.removeEventListener('mousedown', onAcctDocClick);
-}
-
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', positionMenu);
-  document.removeEventListener('mousedown', onAcctDocClick);
   document.removeEventListener('mousedown', onGhMenuDocClick, true);
   document.removeEventListener('mousedown', onWsMenuDocClick);
   document.removeEventListener('scroll', closeWsMenu, true);
   window.removeEventListener('resize', closeWsMenu);
   clearTimeout(deleteArmTimer);
 });
-
-function onLogin(): void {
-  acctMenuOpen.value = false;
-  emit('login');
-}
-
-function onLogout(): void {
-  acctMenuOpen.value = false;
-  emit('logout');
-}
-
-function onOpenOnboarding(): void {
-  acctMenuOpen.value = false;
-  emit('openOnboarding');
-}
 
 // Logo easter-egg: clicking the Kimi mark plays one quick blink. It's a one-shot
 // animation — force a reflow so rapid clicks restart it, then drop the class so
@@ -438,7 +343,7 @@ function blinkOnce(): void {
 </script>
 
 <template>
-  <aside class="side" @click="closeAccount">
+  <aside class="side">
     <!-- Session column -->
     <div class="col" :style="{ width: colWidth + 'px' }">
       <!-- Header: logo + settings (no hard border — flows into workspace list) -->
@@ -472,12 +377,11 @@ function blinkOnce(): void {
           </svg>
         </button>
         <button
-          ref="triggerRef"
           type="button"
           class="settings-btn"
-          :title="authReady ? t('sidebar.signedIn') : t('sidebar.notSignedIn')"
-          :aria-label="authReady ? t('sidebar.signedIn') : t('sidebar.notSignedIn')"
-          @click.stop="toggleAccount"
+          :title="t('settings.title')"
+          :aria-label="t('settings.title')"
+          @click.stop="emit('openSettings')"
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
@@ -601,182 +505,6 @@ function blinkOnce(): void {
             </div>
           </div>
         </template>
-      </div>
-    </div>
-
-    <!-- Account popover (position:fixed, anchored to the settings button) -->
-    <div
-      v-if="acctMenuOpen"
-      ref="menuRef"
-      class="acct-menu"
-      :style="menuStyle"
-      @click.stop
-    >
-      <template v-if="authReady">
-        <div class="am-head">
-          <div class="am-prov">managed:kimi-code</div>
-          <div v-if="accountModel" class="am-model" :title="accountModel">{{ accountModel }}</div>
-        </div>
-        <div class="am-lang">
-          <span class="am-lang-label">{{ t('theme.label') }}</span>
-          <div class="theme-seg" role="group" :aria-label="t('theme.label')">
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: theme === 'modern' }"
-              :aria-pressed="theme === 'modern'"
-              @click="emit('setTheme', 'modern')"
-            >{{ t('theme.modern') }}</button>
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: theme === 'kimi' }"
-              :aria-pressed="theme === 'kimi'"
-              @click="emit('setTheme', 'kimi')"
-            >{{ t('theme.kimi') }}</button>
-          </div>
-        </div>
-        <div class="am-lang">
-          <span class="am-lang-label">{{ t('theme.colorSchemeLabel') }}</span>
-          <div class="theme-seg" role="group" :aria-label="t('theme.colorSchemeLabel')">
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: colorScheme === 'light' }"
-              :aria-pressed="colorScheme === 'light'"
-              @click="emit('setColorScheme', 'light')"
-            >{{ t('theme.light') }}</button>
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: colorScheme === 'dark' }"
-              :aria-pressed="colorScheme === 'dark'"
-              @click="emit('setColorScheme', 'dark')"
-            >{{ t('theme.dark') }}</button>
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: colorScheme === 'system' }"
-              :aria-pressed="colorScheme === 'system'"
-              @click="emit('setColorScheme', 'system')"
-            >{{ t('theme.system') }}</button>
-          </div>
-        </div>
-        <!-- The Kimi theme pins its interaction accent (kimiDark per the design
-             system), so the accent choice would do nothing — hide it. -->
-        <div v-if="theme !== 'kimi'" class="am-lang">
-          <span class="am-lang-label">{{ t('theme.accentLabel') }}</span>
-          <div class="theme-seg" role="group" :aria-label="t('theme.accentLabel')">
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: accent === 'blue' }"
-              :aria-pressed="accent === 'blue'"
-              @click="emit('setAccent', 'blue')"
-            >{{ t('theme.accentBlue') }}</button>
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: accent === 'mono' }"
-              :aria-pressed="accent === 'mono'"
-              @click="emit('setAccent', 'mono')"
-            >{{ t('theme.accentMono') }}</button>
-          </div>
-        </div>
-        <div class="am-lang">
-          <span class="am-lang-label">{{ t('sidebar.language') }}</span>
-          <LanguageSwitcher />
-        </div>
-        <button type="button" class="am-item" @click="emit('addWorkspace'); closeAccount()">
-          {{ t('workspace.addWorkspace') }}
-        </button>
-        <button type="button" class="am-item danger" @click="onLogout">{{ t('sidebar.signOut') }}</button>
-      </template>
-      <template v-else>
-        <div class="am-head">
-          <div class="am-prov">{{ t('sidebar.notSignedIn') }}</div>
-        </div>
-        <div class="am-lang">
-          <span class="am-lang-label">{{ t('theme.label') }}</span>
-          <div class="theme-seg" role="group" :aria-label="t('theme.label')">
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: theme === 'modern' }"
-              :aria-pressed="theme === 'modern'"
-              @click="emit('setTheme', 'modern')"
-            >{{ t('theme.modern') }}</button>
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: theme === 'kimi' }"
-              :aria-pressed="theme === 'kimi'"
-              @click="emit('setTheme', 'kimi')"
-            >{{ t('theme.kimi') }}</button>
-          </div>
-        </div>
-        <div class="am-lang">
-          <span class="am-lang-label">{{ t('theme.colorSchemeLabel') }}</span>
-          <div class="theme-seg" role="group" :aria-label="t('theme.colorSchemeLabel')">
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: colorScheme === 'light' }"
-              :aria-pressed="colorScheme === 'light'"
-              @click="emit('setColorScheme', 'light')"
-            >{{ t('theme.light') }}</button>
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: colorScheme === 'dark' }"
-              :aria-pressed="colorScheme === 'dark'"
-              @click="emit('setColorScheme', 'dark')"
-            >{{ t('theme.dark') }}</button>
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: colorScheme === 'system' }"
-              :aria-pressed="colorScheme === 'system'"
-              @click="emit('setColorScheme', 'system')"
-            >{{ t('theme.system') }}</button>
-          </div>
-        </div>
-        <!-- The Kimi theme pins its interaction accent (kimiDark per the design
-             system), so the accent choice would do nothing — hide it. -->
-        <div v-if="theme !== 'kimi'" class="am-lang">
-          <span class="am-lang-label">{{ t('theme.accentLabel') }}</span>
-          <div class="theme-seg" role="group" :aria-label="t('theme.accentLabel')">
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: accent === 'blue' }"
-              :aria-pressed="accent === 'blue'"
-              @click="emit('setAccent', 'blue')"
-            >{{ t('theme.accentBlue') }}</button>
-            <button
-              type="button"
-              class="theme-opt"
-              :class="{ on: accent === 'mono' }"
-              :aria-pressed="accent === 'mono'"
-              @click="emit('setAccent', 'mono')"
-            >{{ t('theme.accentMono') }}</button>
-          </div>
-        </div>
-        <div class="am-lang">
-          <span class="am-lang-label">{{ t('sidebar.language') }}</span>
-          <LanguageSwitcher />
-        </div>
-        <button type="button" class="am-item" @click="emit('addWorkspace'); closeAccount()">
-          {{ t('workspace.addWorkspace') }}
-        </button>
-        <button type="button" class="am-item signin" @click="onLogin">{{ t('sidebar.signIn') }}</button>
-      </template>
-
-      <button type="button" class="am-item" @click="onOpenOnboarding">{{ t('onboarding.reopen') }}</button>
-
-      <div class="am-daemon">
-        <span class="am-daemon-label">{{ t('sidebar.daemon') }}</span>
-        <span class="am-daemon-url">{{ daemonEndpoint }}</span>
       </div>
     </div>
 
@@ -1165,105 +893,4 @@ function blinkOnce(): void {
   background: var(--soft);
 }
 
-/* ---------------------------------------------------------------------------
-   Account popover (position:fixed, anchored to the settings button)
-   --------------------------------------------------------------------------- */
-.acct-menu {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 220px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
-  padding: 4px;
-  z-index: 200;
-}
-.am-head {
-  padding: 6px 8px 7px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 4px;
-}
-.am-prov { color: var(--ink); font-size: 11.5px; }
-.am-model {
-  color: var(--muted);
-  font-size: 10.5px;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.am-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 11.5px;
-  color: var(--ink);
-  cursor: pointer;
-  padding: 6px 8px;
-  border-radius: 5px;
-}
-.am-item:hover { background: var(--hover, rgba(0, 0, 0, 0.04)); }
-.am-item.danger { color: var(--err); }
-.am-item.danger:hover { background: color-mix(in srgb, var(--err) 8%, transparent); }
-.am-item.signin { color: var(--blue2); }
-.am-item.signin:hover { background: var(--soft); }
-
-.am-lang {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 8px;
-}
-.am-lang-label { color: var(--muted); font-size: 11px; }
-
-.am-daemon {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 7px 8px 5px;
-  margin-top: 2px;
-  border-top: 1px solid var(--line);
-}
-.am-daemon-label { color: var(--muted); font-size: 10.5px; flex: none; }
-.am-daemon-url {
-  color: var(--ink);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  min-width: 0;
-  word-break: break-all;
-}
-
-/* Theme segmented toggle */
-.theme-seg {
-  display: inline-flex;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--bg);
-}
-.theme-opt {
-  border: none;
-  background: none;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 3px 9px;
-  line-height: 1.4;
-  transition: background 0.15s, color 0.15s;
-}
-.theme-opt + .theme-opt { border-left: 1px solid var(--line); }
-.theme-opt:hover { color: var(--ink); }
-.theme-opt.on {
-  background: var(--soft);
-  color: var(--blue2);
-  font-weight: 600;
-}
 </style>
