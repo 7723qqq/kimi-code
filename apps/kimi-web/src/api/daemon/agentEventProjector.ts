@@ -463,6 +463,11 @@ export function createAgentProjector(): AgentProjector {
         const delta: string = p?.delta ?? '';
         if (!delta) break;
 
+        // Same missed-turn-boundary self-heal as assistant.delta (see there).
+        if (meta?.offset === 0 && s.turnThinkLen > 0) {
+          s.turnThinkLen = 0;
+        }
+
         const align = alignDelta(s.turnThinkLen, meta?.offset);
         if (align === 'skip') break;
         if (align === 'gap') {
@@ -489,6 +494,17 @@ export function createAgentProjector(): AgentProjector {
         if (!msgId) break;
         const delta: string = p?.delta ?? '';
         if (!delta) break;
+
+        // Self-heal a missed turn boundary: a pre-append offset of 0 while we
+        // still believe we are mid-stream means the daemon began a fresh
+        // assistant stream (new turn / retry) whose turn.started we never saw —
+        // e.g. the durable replay and the live volatile deltas raced on the
+        // cursor after a reconnect. Without this reset every delta has
+        // offset < turnTextLen and is SILENTLY skipped forever (skip, unlike
+        // gap, never recovers), so streaming dies until a full page reload.
+        if (meta?.offset === 0 && s.turnTextLen > 0) {
+          s.turnTextLen = 0;
+        }
 
         const align = alignDelta(s.turnTextLen, meta?.offset);
         if (align === 'skip') break;
@@ -662,9 +678,13 @@ export function createAgentProjector(): AgentProjector {
           previousStatus: 'running',
         });
 
-        // Clear per-turn state
+        // Clear per-turn state. Reset the stream offsets too so a stale length
+        // from this turn can't wedge the next turn's delta alignment into a
+        // silent skip if its turn.started is missed across a reconnect.
         s.currentAssistantMsgId = undefined;
         s.currentPromptId = undefined;
+        s.turnTextLen = 0;
+        s.turnThinkLen = 0;
         break;
       }
 
