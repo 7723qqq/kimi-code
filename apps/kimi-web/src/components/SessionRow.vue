@@ -107,32 +107,36 @@ defineExpose({ closeMenu, cancelDelete });
 
 <template>
   <div class="se" :class="{ on: active }" @click="emit('select', session.id)">
-    <!-- Delete confirm overlay -->
-    <div v-if="confirming" class="archive-confirm" @click.stop>
-      <span class="archive-label">{{ t('sidebar.archiveConfirm') }}</span>
-      <button class="btn-confirm" @click.stop="confirmDelete">{{ t('sidebar.confirm') }}</button>
-      <button class="btn-cancel" @click.stop="cancelDelete">{{ t('sidebar.cancel') }}</button>
-    </div>
+    <div class="row">
+      <!-- Leading status slot (in the gutter left of the title): a spinner
+           while the session runs, otherwise an unread blue dot. Fixed width
+           so the title start never shifts. It stays put in the archive-confirm
+           state too, so the confirm strip aligns with the title and never
+           spills past its left boundary. -->
+      <span class="lead" aria-hidden="true">
+        <svg
+          v-if="session.status === 'running'"
+          class="run-ico"
+          viewBox="0 0 16 16"
+          width="12"
+          height="12"
+          fill="none"
+        >
+          <circle class="run-track" cx="8" cy="8" r="6" stroke-width="2" />
+          <path class="run-arc" d="M8 2 a6 6 0 0 1 6 6" stroke-width="2" stroke-linecap="round" />
+        </svg>
+        <span v-else-if="unread" class="unread-dot" />
+      </span>
 
-    <template v-else>
-      <div class="row">
-        <!-- Leading status slot (in the gutter left of the title): a spinner
-             while the session runs, otherwise an unread blue dot. Fixed width
-             so the title start never shifts. -->
-        <span class="lead" aria-hidden="true">
-          <svg
-            v-if="session.status === 'running'"
-            class="run-ico"
-            viewBox="0 0 16 16"
-            width="12"
-            height="12"
-            fill="none"
-          >
-            <circle class="run-track" cx="8" cy="8" r="6" stroke-width="2" />
-            <path class="run-arc" d="M8 2 a6 6 0 0 1 6 6" stroke-width="2" stroke-linecap="round" />
-          </svg>
-          <span v-else-if="unread" class="unread-dot" />
-        </span>
+      <!-- Archive confirm — replaces the title + controls but keeps the lead
+           gutter, so it aligns under the title (not the row's left edge). -->
+      <div v-if="confirming" class="archive-confirm" @click.stop>
+        <span class="archive-label">{{ t('sidebar.archiveConfirm') }}</span>
+        <button class="btn-confirm" @click.stop="confirmDelete">{{ t('sidebar.confirm') }}</button>
+        <button class="btn-cancel" @click.stop="cancelDelete">{{ t('sidebar.cancel') }}</button>
+      </div>
+
+      <template v-else>
         <div class="left">
           <!-- Inline rename input -->
           <input
@@ -177,18 +181,18 @@ defineExpose({ closeMenu, cancelDelete });
             <circle cx="8" cy="13" r="1.3" />
           </svg>
         </button>
-      </div>
+      </template>
+    </div>
 
-      <!-- Kebab dropdown -->
-      <div ref="menuRef" v-if="menuOpen" class="menu" @click.stop>
-        <button class="menu-item copy-id" @click.stop="copySessionId">
-          {{ copiedId ? '已复制 ✓' : '复制 Session ID ⧉' }}
-        </button>
-        <div class="menu-divider" />
-        <button class="menu-item" @click.stop="startRename">{{ t('sidebar.rename') }}</button>
-        <button class="menu-item archive" @click.stop="startDelete">{{ t('sidebar.archive') }}</button>
-      </div>
-    </template>
+    <!-- Kebab dropdown -->
+    <div ref="menuRef" v-if="menuOpen" class="menu" @click.stop>
+      <button class="menu-item copy-id" @click.stop="copySessionId">
+        {{ copiedId ? '已复制 ✓' : '复制 Session ID ⧉' }}
+      </button>
+      <div class="menu-divider" />
+      <button class="menu-item" @click.stop="startRename">{{ t('sidebar.rename') }}</button>
+      <button class="menu-item archive" @click.stop="startDelete">{{ t('sidebar.archive') }}</button>
+    </div>
   </div>
 </template>
 
@@ -345,10 +349,18 @@ defineExpose({ closeMenu, cancelDelete });
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 0;
+  flex: 1;
+  min-width: 0;
   font-size: 11px;
 }
-.archive-label { color: var(--err); flex: 1; }
+.archive-label {
+  color: var(--err);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .btn-confirm {
   background: var(--err);
   color: var(--bg);

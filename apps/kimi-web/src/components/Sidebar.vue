@@ -781,7 +781,7 @@ function blinkOnce(): void {
         {{ t('sidebar.rename') }}
       </button>
       <button type="button" class="ghm-item del" @click="deleteFromMenu">
-        {{ ghMenuTarget && deleteArmedWsId === ghMenuTarget.id ? t('sidebar.confirm') : t('sidebar.delete') }}
+        {{ ghMenuTarget && deleteArmedWsId === ghMenuTarget.id ? t('sidebar.confirm') : t('sidebar.removeWorkspace') }}
       </button>
     </div>
 
@@ -803,7 +803,7 @@ function blinkOnce(): void {
       </button>
       <div class="ws-menu-divider" />
       <button class="ws-menu-item del" @click.stop="deleteWs(wsMenuTarget)">
-        {{ deleteArmedWsId === wsMenuTarget.id ? t('sidebar.confirm') : t('sidebar.delete') }}
+        {{ deleteArmedWsId === wsMenuTarget.id ? t('sidebar.confirm') : t('sidebar.removeWorkspace') }}
       </button>
     </div>
   </aside>

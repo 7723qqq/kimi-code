@@ -14,6 +14,7 @@ export default {
   shareConversationCopied: 'Copied',
   archive: 'Archive',
   delete: 'Delete',
+  removeWorkspace: 'Remove workspace',
   brand: 'Kimi Code',
   signedIn: 'Signed in',
   signOut: 'Sign out',
