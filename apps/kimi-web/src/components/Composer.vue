@@ -99,6 +99,75 @@ function autosize(): void {
 watch(text, () => void nextTick(autosize));
 
 // ---------------------------------------------------------------------------
+// Sent-message history recall (shell-style ↑/↓). ArrowUp on the first line
+// recalls older messages; ArrowDown on the last line walks back toward the live
+// draft. Editing the text drops out of history browsing.
+// ---------------------------------------------------------------------------
+const inputHistory = ref<string[]>([]);
+// -1 = browsing nothing (live draft). Otherwise an index into inputHistory.
+let historyIndex = -1;
+let draftBeforeHistory = '';
+
+function pushInputHistory(entry: string): void {
+  const trimmed = entry.trim();
+  historyIndex = -1;
+  if (!trimmed) return;
+  // Skip consecutive duplicates so repeated sends don't pad the history.
+  if (inputHistory.value[inputHistory.value.length - 1] === trimmed) return;
+  inputHistory.value = [...inputHistory.value, trimmed];
+}
+
+function caretAtFirstLine(): boolean {
+  const el = textareaRef.value;
+  if (!el) return false;
+  const pos = el.selectionStart ?? 0;
+  // No newline before the caret → it sits on the first visual line.
+  return el.value.lastIndexOf('\n', pos - 1) === -1;
+}
+
+function caretAtLastLine(): boolean {
+  const el = textareaRef.value;
+  if (!el) return false;
+  const pos = el.selectionEnd ?? 0;
+  return el.value.indexOf('\n', pos) === -1;
+}
+
+function applyHistoryText(value: string): void {
+  text.value = value;
+  void nextTick(() => {
+    const el = textareaRef.value;
+    if (!el) return;
+    autosize();
+    const pos = value.length;
+    el.setSelectionRange(pos, pos);
+  });
+}
+
+function recallOlder(): void {
+  if (inputHistory.value.length === 0) return;
+  if (historyIndex === -1) {
+    draftBeforeHistory = text.value;
+    historyIndex = inputHistory.value.length - 1;
+  } else if (historyIndex > 0) {
+    historyIndex -= 1;
+  } else {
+    return; // already at the oldest entry
+  }
+  applyHistoryText(inputHistory.value[historyIndex]!);
+}
+
+function recallNewer(): void {
+  if (historyIndex === -1) return;
+  if (historyIndex < inputHistory.value.length - 1) {
+    historyIndex += 1;
+    applyHistoryText(inputHistory.value[historyIndex]!);
+  } else {
+    historyIndex = -1;
+    applyHistoryText(draftBeforeHistory);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Slash-command menu
 // ---------------------------------------------------------------------------
 
@@ -198,6 +267,8 @@ function selectMentionItem(item: FileItem): void {
 // ---------------------------------------------------------------------------
 
 function handleInput(): void {
+  // Manual typing leaves history-browsing mode — the text is now a fresh draft.
+  historyIndex = -1;
   updateSlashMenu();
   updateMentionMenu();
 }
@@ -398,6 +469,7 @@ function handleSubmit(): void {
   }
   attachments.value = [];
 
+  pushInputHistory(trimmed);
   text.value = '';
   slashOpen.value = false;
   mentionOpen.value = false;
@@ -425,6 +497,7 @@ function handleSteer(): void {
     revokeAttachment(att);
   }
   attachments.value = [];
+  pushInputHistory(trimmed);
   text.value = '';
   slashOpen.value = false;
   mentionOpen.value = false;
@@ -532,6 +605,23 @@ function handleKeydown(e: KeyboardEvent): void {
       handleSteer();
     }
     return;
+  }
+
+  // History recall (shell-style) — no menu open, and only at the caret's edge
+  // line so multi-line editing with the arrows still works. A plain ArrowUp on
+  // the first line walks back through sent messages; ArrowDown on the last line
+  // walks forward and finally restores the live draft.
+  if (!slashOpen.value && !mentionOpen.value && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+    if (e.key === 'ArrowUp' && inputHistory.value.length > 0 && caretAtFirstLine()) {
+      e.preventDefault();
+      recallOlder();
+      return;
+    }
+    if (e.key === 'ArrowDown' && historyIndex !== -1 && caretAtLastLine()) {
+      e.preventDefault();
+      recallNewer();
+      return;
+    }
   }
 
   // Normal Enter / Shift+Enter
