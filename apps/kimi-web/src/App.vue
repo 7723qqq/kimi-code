@@ -541,6 +541,11 @@ function handleCreateSession(): void {
 function handleCreateSessionInWorkspace(workspaceId: string): void {
   client.openWorkspaceDraft(workspaceId);
 }
+
+// Chat header: open a GitHub PR in a new tab.
+function openPr(url: string): void {
+  if (url) window.open(url, '_blank', 'noopener');
+}
 </script>
 
 <template>
@@ -636,7 +641,11 @@ function handleCreateSessionInWorkspace(workspaceId: string): void {
       :workspace-name="client.visibleWorkspace.value?.name"
       :workspaces="client.workspacesView.value"
       :active-workspace-id="client.activeWorkspaceId.value"
+      :session-title="activeSessionTitle"
+      :pr="null"
       @select-workspace="handleCreateSessionInWorkspace($event)"
+      @open-in-editor="client.openWorkspaceFile('.')"
+      @open-pr="openPr"
       @submit="handleSubmit($event)"
       @steer="client.steerPrompt($event.text, $event.attachments)"
       @approval="(approvalId, response) => client.respondApproval(approvalId, response)"

@@ -11,6 +11,7 @@ import type { FileItem } from './MentionMenu.vue';
 import type { FileData } from './FilePreview.vue';
 import TabBar from './TabBar.vue';
 import ChatPane from './ChatPane.vue';
+import ChatHeader from './ChatHeader.vue';
 import DiffView from './DiffView.vue';
 import ChangedTree from './ChangedTree.vue';
 import TasksPane from './TasksPane.vue';
@@ -78,6 +79,10 @@ const props = defineProps<{
   workspaces?: WorkspaceView[];
   /** Active workspace id, to highlight the current entry in the picker. */
   activeWorkspaceId?: string | null;
+  /** Active session title, shown in the chat header. */
+  sessionTitle?: string;
+  /** GitHub PR for the current branch, when known (shown in the chat header). */
+  pr?: { number: number; state: string; url: string } | null;
 }>();
 
 const emit = defineEmits<{
@@ -103,6 +108,10 @@ const emit = defineEmits<{
   openCompaction: [target: { turnId: string }];
   /** Empty-composer workspace picker: start a new conversation elsewhere. */
   selectWorkspace: [workspaceId: string];
+  /** Chat header: open the workspace in the user's editor. */
+  openInEditor: [];
+  /** Chat header: open the GitHub PR in a new tab. */
+  openPr: [url: string];
 }>();
 
 // Empty-composer workspace picker.
@@ -650,6 +659,24 @@ onUnmounted(() => {
 
 <template>
   <section class="con" :class="{ mobile }">
+    <!-- Chat context header: workspace/session, git status, open-in-editor,
+         copy-all, PR. Hidden for the empty-composer (no session context yet). -->
+    <ChatHeader
+      v-if="!mobile && !(turns.length === 0 && !sessionLoading)"
+      :workspace-name="workspaceName"
+      :session-title="sessionTitle"
+      :branch="gitInfo?.branch"
+      :ahead="gitInfo?.ahead"
+      :behind="gitInfo?.behind"
+      :changes-count="changesCount"
+      :is-git-repo="!!gitInfo"
+      :pr="pr"
+      :copied="copyConversationCopied"
+      @open-in-editor="emit('openInEditor')"
+      @copy-all="chatPaneRef?.copyConversation()"
+      @open-pr="pr && emit('openPr', pr.url)"
+    />
+
     <TabBar
       v-if="mobile && !(turns.length === 0 && !sessionLoading)"
       :active="active"
