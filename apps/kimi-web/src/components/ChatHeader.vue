@@ -140,16 +140,16 @@ const changes = computed(() => props.changesCount ?? 0);
   align-items: center;
   gap: 5px;
   flex: none;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--bg);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: var(--dim);
   font-family: var(--sans);
   font-size: 12px;
-  padding: 4px 9px;
+  padding: 0;
   cursor: pointer;
 }
-.ch-act:hover { background: var(--soft); color: var(--ink); border-color: var(--bd); }
+.ch-act:hover { color: var(--ink); }
 .ch-act svg { flex: none; }
 
 .ch-pr {
@@ -174,7 +174,6 @@ const changes = computed(() => props.changesCount ?? 0);
 /* On a narrow conversation column, the action labels collapse to icons. */
 @media (max-width: 900px) {
   .ch-act-label { display: none; }
-  .ch-act { padding: 5px; }
 }
 @media (max-width: 640px) {
   .chat-header { display: none; }
