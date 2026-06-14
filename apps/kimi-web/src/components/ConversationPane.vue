@@ -505,6 +505,38 @@ watch(
   },
 );
 
+// Re-pin when a turn finishes (running true -> false). The end of a stream is the
+// one moment the content keeps changing height AFTER the last delta the observers
+// saw: the moon/working footer is removed, the streamed Markdown re-renders in
+// its final (non-streaming) form, late syntax highlighting reflows code blocks,
+// and the copy-button footer appears. Each can leave the view a hair short of the
+// bottom. Re-pin across the next few frames + once more after highlighting likely
+// settled, but only while still following (never yank a user who scrolled up).
+watch(
+  () => props.running,
+  async (now, was) => {
+    if (now || !was) return; // only on the run-finished edge
+    if (active.value !== 'chat') return;
+    if (!following.value && !hasUserActionFollowLock()) return;
+    await nextTick();
+    scrollToBottom(false);
+    const schedule = typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (cb: () => void) => setTimeout(cb, 16) as unknown as number;
+    schedule(() => {
+      if (following.value) scrollToBottom(false);
+      schedule(() => {
+        if (following.value) scrollToBottom(false);
+      });
+    });
+    // Final catch-up for async syntax highlighting / image layout that lands a
+    // few hundred ms after the turn ends.
+    setTimeout(() => {
+      if (following.value) scrollToBottom(false);
+    }, 250);
+  },
+);
+
 // The user sent a prompt (or answered an agent question): always jump to the
 // bottom, even if they were scrolled up reading history.
 function followAfterUserAction(): void {
