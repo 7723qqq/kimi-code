@@ -76,6 +76,8 @@ export interface AgentMember {
   subagentType?: string;
   phase: AgentPhase;
   status: 'running' | 'completed' | 'failed' | 'cancelled';
+  /** The prompt/task the subagent was given (from the Agent tool input). */
+  prompt?: string;
   summary?: string;
   suspendedReason?: string;
   swarmIndex?: number;

@@ -5,7 +5,9 @@ import type { AgentMember } from '../types';
 const props = defineProps<{ member: AgentMember; compact?: boolean }>();
 
 const expanded = ref(false);
-const hasDetail = computed(() => Boolean(props.member.summary || props.member.suspendedReason));
+const hasDetail = computed(() =>
+  Boolean(props.member.summary || props.member.suspendedReason || props.member.prompt),
+);
 
 function phaseLabel(phase: AgentMember['phase']): string {
   switch (phase) {
@@ -48,7 +50,14 @@ function toggle(): void {
     </button>
     <div v-if="hasDetail && expanded" class="agent-detail">
       <div v-if="member.suspendedReason" class="agent-reason">{{ member.suspendedReason }}</div>
-      <div v-if="member.summary" class="agent-summary">{{ member.summary }}</div>
+      <div v-if="member.prompt" class="agent-field">
+        <span class="agent-field-label">Task</span>
+        <div class="agent-field-body">{{ member.prompt }}</div>
+      </div>
+      <div v-if="member.summary" class="agent-field">
+        <span class="agent-field-label">Result</span>
+        <div class="agent-field-body agent-summary">{{ member.summary }}</div>
+      </div>
     </div>
   </div>
 </template>
@@ -140,6 +149,22 @@ function toggle(): void {
 .agent-reason {
   color: var(--warn);
   margin-bottom: 4px;
+}
+.agent-field + .agent-field {
+  margin-top: 8px;
+}
+.agent-field-label {
+  display: block;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+.agent-field-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .agent-summary {
   white-space: pre-wrap;

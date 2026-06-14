@@ -860,6 +860,8 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 .a-msg > .msg,
 .a-msg > :deep(.think),
 .a-msg > .tool-stack,
+.a-msg > :deep(.agent-card),
+.a-msg > :deep(.agent-group),
 .a-msg > :deep(.box),
 .a-msg > :deep(.media-tool) {
   margin-top: var(--chat-block-gap);
@@ -867,6 +869,8 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 .a-msg > .msg:first-child,
 .a-msg > :deep(.think:first-child),
 .a-msg > .tool-stack:first-child,
+.a-msg > :deep(.agent-card:first-child),
+.a-msg > :deep(.agent-group:first-child),
 .a-msg > :deep(.box:first-child),
 .a-msg > :deep(.media-tool:first-child) {
   margin-top: 0;
