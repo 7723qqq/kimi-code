@@ -14,6 +14,12 @@ import { COMPACTION_MARKER_METADATA_KEY } from '../api/types';
 import type { AgentMember, ApprovalBlock, ChatTurn, DiffLine, ToolCall, ToolMedia, TurnBlock } from '../types';
 
 const READ_MEDIA_TOOL_RE = /^read[_-]?media(?:file)?$/i;
+// The builtin single-subagent spawn tool (collaboration/agent.ts). Detected by
+// name so a subagent renders as an AgentCard from the persisted transcript
+// alone — i.e. it survives a refresh even when the live task record (which only
+// background subagents persist) is gone. Swarms use 'AgentSwarm' and are handled
+// via buildSwarmGroups, so they are deliberately NOT matched here.
+const SUBAGENT_TOOL_RE = /^agent$/i;
 const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/s;
 const MEDIA_PATH_TAG_RE = /^<(image|video|audio)\s+path="([^"]+)">$/;
 const SYSTEM_MIME_RE = /Mime type:\s*([^.\s]+)/i;
@@ -146,6 +152,62 @@ function toAgentMember(task: AppTask): AgentMember {
     summary: task.outputPreview,
     suspendedReason: task.suspendedReason,
     swarmIndex: task.swarmIndex,
+  };
+}
+
+/** Parse the Agent tool's input (object or JSON string) into the fields an
+    AgentCard needs. Tolerant of missing/garbled input. */
+function parseAgentToolInput(input: unknown): {
+  description?: string;
+  subagentType?: string;
+  prompt?: string;
+} {
+  let obj: Record<string, unknown> | null = null;
+  if (typeof input === 'string') {
+    try {
+      const parsed = JSON.parse(input);
+      if (parsed && typeof parsed === 'object') obj = parsed as Record<string, unknown>;
+    } catch {
+      obj = null;
+    }
+  } else if (input && typeof input === 'object') {
+    obj = input as Record<string, unknown>;
+  }
+  if (!obj) return {};
+  return {
+    description: typeof obj['description'] === 'string' ? obj['description'] : undefined,
+    subagentType: typeof obj['subagent_type'] === 'string' ? obj['subagent_type'] : undefined,
+    prompt: typeof obj['prompt'] === 'string' ? obj['prompt'] : undefined,
+  };
+}
+
+/** Build an AgentMember from an `Agent` tool call + its result, used when no
+    live subagent task is available (e.g. after a refresh). The result text is
+    the subagent's full output — richer detail than a task's short preview. */
+function agentMemberFromToolUse(
+  toolCallId: string,
+  input: unknown,
+  result: { output: unknown; isError: boolean } | undefined,
+  sessionActive: boolean,
+): AgentMember {
+  const parsed = parseAgentToolInput(input);
+  const phase: AgentMember['phase'] = result
+    ? result.isError
+      ? 'failed'
+      : 'completed'
+    : sessionActive
+      ? 'working'
+      : 'completed';
+  const summaryLines = result ? normalizeToolOutput(result.output) : undefined;
+  return {
+    id: toolCallId,
+    toolCallId,
+    name: parsed.description && parsed.description.length > 0 ? parsed.description : 'subagent',
+    subagentType: parsed.subagentType,
+    prompt: parsed.prompt,
+    phase,
+    status: result ? (result.isError ? 'failed' : 'completed') : sessionActive ? 'running' : 'completed',
+    summary: summaryLines && summaryLines.length > 0 ? summaryLines.join('\n') : undefined,
   };
 }
 
@@ -365,6 +427,19 @@ export function messagesToTurns(
     subagentsByTool.set(key, list.toSorted(sortAgentTasks));
   }
 
+  // Index every tool result by its tool-call id. When an `Agent` tool call has
+  // no live subagent task (the common case after a refresh — foreground
+  // subagents are never persisted as background tasks), we rebuild its AgentCard
+  // straight from the transcript, and the result text comes from this map.
+  const toolResultByCallId = new Map<string, { output: unknown; isError: boolean }>();
+  for (const msg of messages) {
+    for (const c of msg.content) {
+      if (c.type === 'toolResult') {
+        toolResultByCallId.set(c.toolCallId, { output: c.output, isError: Boolean(c.isError) });
+      }
+    }
+  }
+
   let pendingGroup: Group | null = null;
 
   function flushGroup(final = false): void {
@@ -435,6 +510,21 @@ export function messagesToTurns(
           } else {
             g.blocks.push({ kind: 'agentGroup', members });
           }
+          continue;
+        }
+
+        // No live task, but this IS a single-subagent spawn (`Agent` tool):
+        // rebuild the AgentCard from the persisted tool call + result so the
+        // subagent keeps its rich card after a refresh instead of degrading to
+        // a plain tool card.
+        if (SUBAGENT_TOOL_RE.test(c.toolName)) {
+          const member = agentMemberFromToolUse(
+            c.toolCallId,
+            c.input,
+            toolResultByCallId.get(c.toolCallId),
+            sessionActive,
+          );
+          g.blocks.push({ kind: 'agent', member });
           continue;
         }
 

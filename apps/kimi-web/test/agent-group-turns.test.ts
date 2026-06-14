@@ -82,6 +82,55 @@ describe('messagesToTurns agent blocks', () => {
     expect(buildSwarmGroups(tasks)).toHaveLength(1);
   });
 
+  it('rebuilds a subagent AgentCard from the transcript when no live task exists (refresh)', () => {
+    // After a refresh, a foreground subagent has no background-task record, only
+    // the persisted Agent tool call + result. It must still render as an
+    // AgentCard (not degrade to a plain tool card), carrying the prompt + result.
+    const messages: AppMessage[] = [
+      {
+        id: 'msg_1',
+        sessionId: 'ses_1',
+        role: 'assistant',
+        promptId: 'pr_1',
+        createdAt: now,
+        content: [
+          {
+            type: 'toolUse',
+            toolCallId: 'tc_agent',
+            toolName: 'Agent',
+            input: { description: 'Audit auth', subagent_type: 'security', prompt: 'Look for auth bugs' },
+          },
+        ],
+      },
+      {
+        id: 'msg_2',
+        sessionId: 'ses_1',
+        role: 'tool',
+        createdAt: now,
+        content: [
+          { type: 'toolResult', toolCallId: 'tc_agent', output: 'Found 2 issues', isError: false },
+        ],
+      },
+    ];
+
+    // No tasks passed (the refresh case).
+    const turns = messagesToTurns(messages, [], undefined, false, []);
+    const block = turns[0]?.blocks?.[0];
+    expect(block?.kind).toBe('agent');
+    if (block?.kind !== 'agent') return;
+    expect(block.member).toEqual(
+      expect.objectContaining({
+        name: 'Audit auth',
+        subagentType: 'security',
+        prompt: 'Look for auth bugs',
+        phase: 'completed',
+        summary: 'Found 2 issues',
+      }),
+    );
+    // It must NOT also appear as a plain tool call.
+    expect(turns[0]?.tools).toBeUndefined();
+  });
+
   it('renders multiple NON-swarm subagents (no swarmIndex) as an inline agentGroup', () => {
     const messages: AppMessage[] = [
       {
