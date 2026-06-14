@@ -474,6 +474,22 @@ function editQueued(index: number, msg: string): void {
   });
 }
 
+/** Imperatively load text into the box for editing (used by "edit & resend the
+    last message" after an undo). Focuses with the caret at the end. */
+function loadForEdit(value: string): void {
+  text.value = value;
+  void nextTick(() => {
+    const el = textareaRef.value;
+    if (!el) return;
+    el.focus();
+    const pos = value.length;
+    el.setSelectionRange(pos, pos);
+    autosize();
+  });
+}
+
+defineExpose({ loadForEdit });
+
 function handleSubmit(): void {
   const trimmed = text.value.trim();
 

@@ -114,6 +114,8 @@ const emit = defineEmits<{
   openMedia: [media: ToolMedia];
   openThinking: [target: { turnId: string; blockIndex: number }];
   openCompaction: [target: { turnId: string }];
+  /** Edit + resend the last user message (App undoes, then refills composer). */
+  editMessage: [text: string];
   /** Empty-composer workspace picker: start a new conversation elsewhere. */
   selectWorkspace: [workspaceId: string];
   /** Empty-composer workspace picker: create a new workspace. */
@@ -156,6 +158,8 @@ try {
 const active = ref<PaneKey>('chat');
 const paneLayout = usePaneLayout();
 const chatPaneRef = ref<InstanceType<typeof ChatPane> | null>(null);
+const emptyComposerRef = ref<{ loadForEdit: (v: string) => void } | null>(null);
+const dockedComposerRef = ref<{ loadForEdit: (v: string) => void } | null>(null);
 const copyConversationCopied = ref(false);
 const goalExpandSignal = ref(0);
 let copyConversationCopiedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -167,7 +171,13 @@ function switchTab(tab: PaneKey): void {
   const groupId = root.type === 'group' ? root.id : firstGroupId(root);
   if (groupId) paneLayout.setActive(groupId, tab);
 }
-defineExpose({ switchTab });
+
+/** Load text into whichever composer is currently mounted (docked vs the
+    empty-session composer). Used by App for "edit & resend the last message". */
+function loadComposerForEdit(value: string): void {
+  (dockedComposerRef.value ?? emptyComposerRef.value)?.loadForEdit(value);
+}
+defineExpose({ switchTab, loadComposerForEdit });
 
 function firstGroupId(node: PaneLayout): string | undefined {
   if (node.type === 'group') return node.id;
@@ -781,6 +791,7 @@ onUnmounted(() => {
                 @copy-conversation-copied="handleCopyConversationCopied"
                 @open-thinking="emit('openThinking', $event)"
                 @open-compaction="emit('openCompaction', $event)"
+                @edit-message="emit('editMessage', $event)"
               />
               <div v-if="(swarms?.length ?? 0) > 0" class="swarm-stack">
                 <SwarmCard v-for="groupItem in swarms" :key="groupItem.id" :group="groupItem" />
@@ -896,6 +907,7 @@ onUnmounted(() => {
             </div>
           </div>
           <Composer
+            ref="emptyComposerRef"
             class="empty-composer"
             :session-id="sessionId"
             :running="running"
@@ -946,6 +958,7 @@ onUnmounted(() => {
             @copy-conversation-copied="handleCopyConversationCopied"
             @open-thinking="emit('openThinking', $event)"
             @open-compaction="emit('openCompaction', $event)"
+            @edit-message="emit('editMessage', $event)"
           />
           <div v-if="(swarms?.length ?? 0) > 0" class="swarm-stack">
             <SwarmCard v-for="group in swarms" :key="group.id" :group="group" />
@@ -1116,6 +1129,7 @@ onUnmounted(() => {
         @decide="(response) => emit('approval', pendingApproval!.approvalId, response)"
       />
       <Composer
+        ref="dockedComposerRef"
         v-else-if="!(turns.length === 0 && !sessionLoading)"
         :session-id="sessionId"
         :running="running"

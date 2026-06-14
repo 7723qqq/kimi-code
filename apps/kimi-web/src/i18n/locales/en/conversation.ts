@@ -13,4 +13,5 @@ export default {
   summaryTitle: 'Compaction summary',
   manuallyAborted: 'Manually stopped',
   activatedSkill: 'Activated skill: {name}',
+  editResend: 'Edit & resend',
 } as const;

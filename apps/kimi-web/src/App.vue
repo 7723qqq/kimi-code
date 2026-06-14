@@ -1,6 +1,6 @@
 <!-- apps/kimi-web/src/App.vue -->
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, provide, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Sidebar from './components/Sidebar.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
@@ -430,6 +430,14 @@ async function handleLoginSuccess(): Promise<void> {
   await client.load();
 }
 
+// Edit + resend the last user message: undo the latest exchange on the daemon,
+// then drop that message's text back into the composer for editing.
+async function handleEditMessage(text: string): Promise<void> {
+  await client.undo(1);
+  await nextTick();
+  conversationPaneRef.value?.loadComposerForEdit(text);
+}
+
 // Handler for slash commands emitted by Composer (via ConversationPane)
 function handleCommand(cmd: string): void {
   // `/compact <text>` carries an optional free-text instruction steering what
@@ -448,6 +456,9 @@ function handleCommand(cmd: string): void {
       break;
     case '/fork':
       void client.forkSession();
+      break;
+    case '/undo':
+      void client.undo();
       break;
     case '/permission': {
       // Cycle manual → auto → yolo → manual
@@ -673,6 +684,7 @@ function openPr(url: string): void {
       @open-media="openMediaPreview($event)"
       @open-thinking="openThinkingPanel($event)"
       @open-compaction="openCompactionPanel($event)"
+      @edit-message="handleEditMessage"
     />
 
     <!-- Multi-workspace selection placeholder -->

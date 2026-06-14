@@ -499,6 +499,17 @@ export class DaemonKimiWebApi implements KimiWebApi {
     );
   }
 
+  // POST /sessions/{id}:undo — remove the last `count` turns from history. The
+  // response carries the resulting messages + status, but we re-sync the session
+  // afterwards for the authoritative (un-paginated) transcript, so we only need
+  // the call to succeed here.
+  async undoSession(sessionId: string, count = 1): Promise<void> {
+    await this.http.post(
+      `/sessions/${encodeURIComponent(sessionId)}:undo`,
+      { count },
+    );
+  }
+
   // POST /sessions/{id}:fork — fork the session into a new child session.
   async forkSession(sessionId: string, input?: { title?: string }): Promise<AppSession> {
     const body: Record<string, unknown> = {};

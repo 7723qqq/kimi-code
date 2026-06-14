@@ -2930,6 +2930,39 @@ async function forkSession(sessionId?: string): Promise<void> {
 }
 
 /**
+ * Undo the last `count` turns of the active session (daemon :undo), then re-sync
+ * the snapshot so the local transcript matches the daemon's post-undo history.
+ * Returns the text of the most-recent user message that was undone, so the UI
+ * can offer "edit + resend" (load it back into the composer).
+ */
+async function undo(count = 1): Promise<string | null> {
+  const sid = rawState.activeSessionId;
+  if (!sid) return null;
+  // Capture the last user message text BEFORE the undo removes it.
+  const lastUserText = (() => {
+    const msgs = rawState.messagesBySession[sid] ?? [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]!;
+      if (m.role !== 'user') continue;
+      if (m.metadata?.['origin'] && (m.metadata['origin'] as { kind?: string }).kind !== 'user') continue;
+      return m.content
+        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+        .map((c) => c.text)
+        .join('\n');
+    }
+    return null;
+  })();
+  try {
+    await getKimiWebApi().undoSession(sid, count);
+    await syncSessionFromSnapshot(sid);
+    return lastUserText;
+  } catch (err) {
+    pushOperationFailure('undo', err, { sessionId: sid });
+    return null;
+  }
+}
+
+/**
  * Remove a queued message for the active session by index.
  * Defensive: no-op if index out of range or no active session.
  */
@@ -3214,6 +3247,7 @@ export function useKimiWebClient() {
     deleteSession,
     compact,
     forkSession,
+    undo,
 
     // New Phase 4 actions
     unqueue,

@@ -115,7 +115,30 @@ const emit = defineEmits<{
   openThinking: [target: { turnId: string; blockIndex: number }];
   /** Show a compaction divider's summary text in the right-side panel. */
   openCompaction: [target: { turnId: string }];
+  /** Edit + resend the last user message (parent undoes, then refills composer). */
+  editMessage: [text: string];
 }>();
+
+// Id of the most recent user turn — the only one offered an "edit & resend"
+// affordance (undo only rewinds the latest exchange).
+const lastUserTurnId = computed<string | null>(() => {
+  for (let i = props.turns.length - 1; i >= 0; i--) {
+    if (props.turns[i]!.role === 'user') return props.turns[i]!.id;
+  }
+  return null;
+});
+
+/** Whether to offer "edit & resend" on this turn: the latest user message, only
+    while the session is idle (not mid-reply) and it isn't a slash activation. */
+function canEditTurn(turn: ChatTurn): boolean {
+  return (
+    turn.role === 'user' &&
+    turn.id === lastUserTurnId.value &&
+    !props.running &&
+    !props.sending &&
+    !turn.skillActivation
+  );
+}
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -393,6 +416,18 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
         </div>
         <!-- User input renders verbatim (pre-wrap), never through Markdown -->
         <div v-else class="u-text">{{ turn.text }}</div>
+        <button
+          v-if="canEditTurn(turn)"
+          type="button"
+          class="u-edit"
+          :title="t('conversation.editResend')"
+          @click="emit('editMessage', turn.text)"
+        >
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10z"/>
+          </svg>
+          <span>{{ t('conversation.editResend') }}</span>
+        </button>
       </div>
 
       <!-- Compaction divider — prior turns stay untouched; summary opens in
@@ -524,6 +559,18 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
               <div v-if="turn.skillActivation.args" class="skill-act-args">{{ turn.skillActivation.args }}</div>
             </div>
             <template v-else>{{ turn.text }}</template>
+            <button
+              v-if="canEditTurn(turn)"
+              type="button"
+              class="u-edit"
+              :title="t('conversation.editResend')"
+              @click="emit('editMessage', turn.text)"
+            >
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10z"/>
+              </svg>
+              <span class="u-edit-text">{{ t('conversation.editResend') }}</span>
+            </button>
           </div>
 
           <!-- Thinking + message text + tool cards, interleaved in original call order. -->
@@ -735,6 +782,35 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* "Edit & resend" affordance on the most recent user message. Subtle by default,
+   coloured on hover. In the bubble layout it sits under the text, right-aligned. */
+.u-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  padding: 2px 5px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+}
+.u-edit:hover { opacity: 1; color: var(--blue); background: var(--hover); }
+.u-bub .u-edit { margin-left: auto; }
+/* Desktop line layout: show only the icon until hover, then reveal the label. */
+.ln .u-edit-text {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width 0.15s ease;
+}
+.ln .u-edit:hover .u-edit-text { max-width: 120px; }
 
 /* Compaction divider — a full-width separator marking where the daemon
    compacted the context. Prior turns above it are untouched; clicking the
