@@ -8,15 +8,12 @@ defineProps<{
   changesCount?: number;
   todos?: TodoView[];
   canClose?: boolean;
-  showCopyConversation?: boolean;
-  copyConversationCopied?: boolean;
 }>();
 
 const emit = defineEmits<{
   select: [pane: PaneKey];
   split: [dir: 'row' | 'col'];
   close: [];
-  copyConversation: [];
 }>();
 </script>
 
@@ -28,10 +25,7 @@ const emit = defineEmits<{
         :running-tasks="runningTasks"
         :changes-count="changesCount"
         :todos="todos ?? []"
-        :show-copy-conversation="showCopyConversation"
-        :copy-conversation-copied="copyConversationCopied"
         @select="emit('select', $event)"
-        @copy-conversation="emit('copyConversation')"
       />
       <div class="view-actions">
         <button type="button" class="view-btn" title="Split right" @click="emit('split', 'row')">
