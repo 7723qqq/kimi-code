@@ -21,6 +21,10 @@ const emit = defineEmits<{
 
 const step = ref(0);
 
+// Temporarily collapse the card to a thin bar so it stops covering the chat
+// while the user reads. State is local — answers/step are kept either way.
+const minimized = ref(false);
+
 const current = computed(() => props.question.questions[step.value]!);
 const total = computed(() => props.question.questions.length);
 
@@ -136,6 +140,9 @@ function dismiss(): void {
 function handleKeydown(e: KeyboardEvent): void {
   const tag = (document.activeElement?.tagName ?? '').toLowerCase();
   if (tag === 'input' || tag === 'textarea') return;
+  // While minimized the options aren't visible, so don't let number keys pick
+  // an unseen answer; only Escape (dismiss) stays live.
+  if (minimized.value && e.key !== 'Escape') return;
 
   if (e.key === 'Escape') { e.preventDefault(); dismiss(); return; }
   if (e.key === 'Enter') { e.preventDefault(); submit(); return; }
@@ -161,19 +168,30 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 </script>
 
 <template>
-  <div class="qcard">
+  <div class="qcard" :class="{ minimized }">
     <!-- Step indicator (multi-question) -->
     <div class="qh">
       <span class="qtitle">{{ t('question.title') }}</span>
-      <template v-if="total > 1">
+      <template v-if="total > 1 && !minimized">
         <span class="qstep">{{ t('question.step', { current: step + 1, total }) }}</span>
         <button class="qnav" :disabled="step === 0" @click="goBack">{{ t('question.prev') }}</button>
         <button class="qnav" :disabled="step === total - 1" @click="goNext">{{ t('question.next') }}</button>
       </template>
+      <!-- When minimized, surface the question text so the bar stays identifiable -->
+      <span v-if="minimized" class="qmin-peek">{{ current.question }}</span>
+      <button
+        class="qmin"
+        :title="minimized ? t('question.expand') : t('question.minimize')"
+        :aria-label="minimized ? t('question.expand') : t('question.minimize')"
+        @click="minimized = !minimized"
+      >
+        <svg v-if="minimized" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6l5 5 5-5"/></svg>
+        <svg v-else viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 8h10"/></svg>
+      </button>
     </div>
 
     <!-- Current question -->
-    <div class="qbody">
+    <div v-if="!minimized" class="qbody">
       <!-- Header chip -->
       <div v-if="current.header" class="qheader-chip">{{ current.header }}</div>
 
@@ -201,8 +219,10 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
               <span class="rad">{{ isSelected(current.id, opt.id) ? '●' : '○' }}</span>
             </template>
           </span>
-          <span class="qopt-label">{{ opt.label }}</span>
-          <span v-if="opt.description" class="qopt-desc">{{ opt.description }}</span>
+          <span class="qopt-text">
+            <span class="qopt-label">{{ opt.label }}</span>
+            <span v-if="opt.description" class="qopt-desc">{{ opt.description }}</span>
+          </span>
         </label>
 
         <!-- Other option -->
@@ -235,7 +255,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
     </div>
 
     <!-- Action buttons -->
-    <div class="qfooter">
+    <div v-if="!minimized" class="qfooter">
       <button class="qbtn pri" :disabled="!canSubmit()" @click="submit">{{ t('question.submit') }}</button>
       <button class="qbtn" @click="dismiss">{{ t('question.dismiss') }}</button>
     </div>
@@ -276,6 +296,36 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .qnav:disabled { color: var(--faint); cursor: default; }
 .qnav:not(:disabled):hover { background: var(--panel2); }
 
+/* Minimize toggle — pinned to the right of the header row. */
+.qmin {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--dim);
+  cursor: pointer;
+}
+.qmin:hover { background: var(--panel2); color: var(--blue); }
+/* Question preview shown only while minimized — truncated to one line. */
+.qmin-peek {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  font-size: 12px;
+  font-weight: 400;
+}
+.qcard.minimized { margin: 8px 0; }
+.qcard.minimized .qh { border-bottom: none; border-radius: 3px; }
+
 /* Body */
 .qbody { padding: 12px 14px; }
 
@@ -306,7 +356,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 
 .qopt {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 6px 10px;
   border: 1px solid var(--line);
@@ -325,10 +375,20 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   width: 12px;
   flex: none;
   text-align: center;
+  padding-top: 2px;
 }
-.qopt-glyph { color: var(--blue2); font-size: 13px; flex: none; }
-.qopt-label { color: var(--text); flex: 1; }
-.qopt-desc { color: var(--muted); font-size: 11px; }
+.qopt-glyph { color: var(--blue2); font-size: 13px; flex: none; padding-top: 1px; }
+/* Label + description stack vertically (top-to-bottom) so a long description
+   never squeezes the label sideways into a thin, many-line column. */
+.qopt-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.qopt-label { color: var(--text); }
+.qopt-desc { color: var(--muted); font-size: 11px; line-height: 1.45; }
 
 .chk { font-family: var(--mono); }
 .rad { font-family: var(--mono); }
@@ -389,15 +449,15 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   .qbody { padding: 14px; }
   .qtext { font-size: 14px; }
 
-  /* Options → taller, finger-friendly rows; long descriptions wrap below. */
+  /* Options → taller, finger-friendly rows. Label + description already stack
+     via .qopt-text, so no flex-wrap hack is needed. */
   .qopt {
     min-height: 44px;
     padding: 10px 12px;
     font-size: 13.5px;
     border-radius: 8px;
-    flex-wrap: wrap;
   }
-  .qopt-desc { flex-basis: 100%; padding-left: 28px; }
+  .qopt-desc { font-size: 12px; }
   .other-input { flex-basis: 100%; min-height: 28px; }
 
   /* Footer → full-width stacked buttons, Submit on top. */

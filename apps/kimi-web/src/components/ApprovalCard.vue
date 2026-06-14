@@ -16,6 +16,10 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+// Temporarily collapse to a thin bar so the approval stops covering the chat
+// while the user reads. The decision buttons + body return on expand.
+const minimized = ref(false);
+
 // ---------------------------------------------------------------------------
 // Title by kind
 // ---------------------------------------------------------------------------
@@ -80,6 +84,8 @@ function reject(): void { emit('decide', { decision: 'rejected' }); }
 function handleKeydown(e: KeyboardEvent): void {
   const tag = (document.activeElement?.tagName ?? '').toLowerCase();
   if (tag === 'input' || tag === 'textarea') return;
+  // Hidden actions shouldn't fire from number keys while minimized.
+  if (minimized.value) return;
   if (e.key === '1') { e.preventDefault(); approve(); }
   else if (e.key === '2') { e.preventDefault(); approveSession(); }
   else if (e.key === '3') { e.preventDefault(); reject(); }
@@ -91,7 +97,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 </script>
 
 <template>
-  <div class="appr">
+  <div class="appr" :class="{ minimized }">
     <!-- Header -->
     <div class="ah">
       <span class="akind">{{ title() }}</span>
@@ -103,10 +109,21 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
         <template v-else-if="block.kind === 'invocation'">{{ block.name }}</template>
         <template v-else-if="block.kind === 'generic'">{{ block.summary }}</template>
       </span>
-      <span v-if="agentName" class="abadge">{{ t('approval.subagentBadge', { name: agentName }) }}</span>
-      <span class="aw">{{ t('approval.required') }}</span>
+      <span v-if="agentName && !minimized" class="abadge">{{ t('approval.subagentBadge', { name: agentName }) }}</span>
+      <span v-if="!minimized" class="aw">{{ t('approval.required') }}</span>
+      <button
+        class="amin"
+        :title="minimized ? t('question.expand') : t('question.minimize')"
+        :aria-label="minimized ? t('question.expand') : t('question.minimize')"
+        @click="minimized = !minimized"
+      >
+        <svg v-if="minimized" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6l5 5 5-5"/></svg>
+        <svg v-else viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 8h10"/></svg>
+      </button>
     </div>
 
+    <!-- Body + actions collapse when minimized -->
+    <template v-if="!minimized">
     <!-- Body by kind -->
 
     <!-- diff -->
@@ -195,6 +212,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       <div class="kbtn" @click="reject">{{ t('approval.reject') }}<span class="k">[3]</span></div>
       <div class="kbtn" @click="openFeedback">{{ t('approval.feedback') }}<span class="k">[4]</span></div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -239,6 +257,25 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
+
+/* Minimize toggle — when the "required" badge is hidden (minimized) it falls
+   to the right via its own margin. */
+.amin {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--bd);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--dim);
+  cursor: pointer;
+}
+.appr.minimized .amin { margin-left: auto; }
+.amin:hover { background: var(--panel2); color: var(--blue); }
+.appr.minimized .ah { border-bottom: none; border-radius: 3px; }
 
 /* Diff */
 .diff { padding: 6px 0; font-size: 14px; line-height: 1.85; }

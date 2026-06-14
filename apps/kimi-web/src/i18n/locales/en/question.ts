@@ -6,4 +6,6 @@ export default {
   otherDefault: 'Other…',
   submit: 'Submit',
   dismiss: 'Dismiss',
+  minimize: 'Minimize',
+  expand: 'Expand',
 } as const;

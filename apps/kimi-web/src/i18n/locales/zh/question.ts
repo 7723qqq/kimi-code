@@ -6,4 +6,6 @@ export default {
   otherDefault: '其他…',
   submit: '提交',
   dismiss: '放弃',
+  minimize: '最小化',
+  expand: '展开',
 } as const;

@@ -1101,12 +1101,14 @@ onUnmounted(() => {
            to the composer once resolved. -->
       <QuestionCard
         v-if="pendingQuestion"
+        :key="pendingQuestion.questionId"
         :question="pendingQuestion"
         @answer="handleQuestionAnswer"
         @dismiss="(qid) => emit('dismiss', qid)"
       />
       <ApprovalCard
         v-else-if="pendingApproval"
+        :key="pendingApproval.approvalId"
         class="dock-approval"
         :block="pendingApproval.block"
         :agent-name="pendingApproval.agentName"
