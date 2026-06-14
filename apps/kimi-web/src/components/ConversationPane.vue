@@ -118,6 +118,12 @@ const emit = defineEmits<{
   openInEditor: [];
   /** Chat header: open the GitHub PR in a new tab. */
   openPr: [url: string];
+  /** Chat header / session row: rename current session. */
+  renameSession: [id: string, title: string];
+  /** Chat header / session row: fork current session. */
+  forkSession: [id: string];
+  /** Chat header / session row: archive current session. */
+  archiveSession: [id: string];
 }>();
 
 // Empty-composer workspace picker.
@@ -669,6 +675,7 @@ onUnmounted(() => {
          copy-all, PR. Hidden for the empty-composer (no session context yet). -->
     <ChatHeader
       v-if="!mobile && !(turns.length === 0 && !sessionLoading)"
+      :session-id="sessionId"
       :workspace-name="workspaceName"
       :session-title="sessionTitle"
       :branch="gitInfo?.branch"
@@ -681,6 +688,9 @@ onUnmounted(() => {
       @open-in-editor="emit('openInEditor')"
       @copy-all="chatPaneRef?.copyConversation()"
       @open-pr="pr && emit('openPr', pr.url)"
+      @rename-session="(id, title) => emit('renameSession', id, title)"
+      @fork-session="(id) => emit('forkSession', id)"
+      @archive-session="(id) => emit('archiveSession', id)"
     />
 
     <TabBar

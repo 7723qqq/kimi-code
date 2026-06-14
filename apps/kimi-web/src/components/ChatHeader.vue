@@ -1,14 +1,15 @@
 <!-- apps/kimi-web/src/components/ChatHeader.vue -->
 <!-- Thin context bar above the chat: workspace / session name, git branch +
-     status, "open in editor", copy-all-conversation, and (when available) the
-     GitHub PR status. -->
+     status, "open in editor", and a ⋮ more-menu that bundles copy-all plus
+     the same session actions available from the sidebar session row. -->
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
 
 const props = defineProps<{
+  sessionId?: string;
   workspaceName?: string;
   sessionTitle?: string;
   branch?: string;
@@ -25,12 +26,165 @@ const props = defineProps<{
 const emit = defineEmits<{
   openInEditor: [];
   copyAll: [];
-  openPr: [];
+  openPr: [url: string];
+  renameSession: [id: string, title: string];
+  forkSession: [id: string];
+  archiveSession: [id: string];
 }>();
 
 const ahead = computed(() => props.ahead ?? 0);
 const behind = computed(() => props.behind ?? 0);
 const changes = computed(() => props.changesCount ?? 0);
+
+// ---------------------------------------------------------------------------
+// More-menu (kebab dropdown)
+// ---------------------------------------------------------------------------
+const menuOpen = ref(false);
+const kebabRef = ref<HTMLButtonElement | null>(null);
+const menuRef = ref<HTMLElement | null>(null);
+const menuStyle = ref<Record<string, string>>({});
+
+function onDocClick(e: MouseEvent): void {
+  const target = e.target as Node;
+  if (menuRef.value?.contains(target) || kebabRef.value?.contains(target)) return;
+  closeMenu();
+}
+
+function onScrollOrResize(): void {
+  closeMenu();
+}
+
+async function toggleMenu(e: Event): Promise<void> {
+  e.stopPropagation();
+  if (menuOpen.value) {
+    closeMenu();
+    return;
+  }
+  menuOpen.value = true;
+  document.addEventListener('mousedown', onDocClick);
+  document.addEventListener('scroll', onScrollOrResize, true);
+  window.addEventListener('resize', onScrollOrResize);
+  await nextTick();
+  const btn = kebabRef.value;
+  const menu = menuRef.value;
+  if (!btn || !menu) return;
+  const r = btn.getBoundingClientRect();
+  const gap = 4;
+  const margin = 8;
+  const menuW = menu.offsetWidth;
+  const menuH = menu.offsetHeight;
+  let top = r.bottom + gap;
+  if (top + menuH > window.innerHeight - margin) {
+    top = Math.max(margin, r.top - menuH - gap);
+  }
+  let left = r.left;
+  if (left + menuW > window.innerWidth - margin) {
+    left = Math.max(margin, r.right - menuW);
+  }
+  menuStyle.value = {
+    top: `${Math.round(top)}px`,
+    left: `${Math.round(left)}px`,
+  };
+}
+
+function closeMenu(): void {
+  menuOpen.value = false;
+  disarmDelete();
+  document.removeEventListener('mousedown', onDocClick);
+  document.removeEventListener('scroll', onScrollOrResize, true);
+  window.removeEventListener('resize', onScrollOrResize);
+}
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', onDocClick);
+  document.removeEventListener('scroll', onScrollOrResize, true);
+  window.removeEventListener('resize', onScrollOrResize);
+});
+
+function onCopyAll(): void {
+  emit('copyAll');
+  closeMenu();
+}
+
+// ---------------------------------------------------------------------------
+// Copy session ID
+// ---------------------------------------------------------------------------
+const copiedId = ref(false);
+function copySessionId(): void {
+  if (!props.sessionId) return;
+  navigator.clipboard.writeText(props.sessionId).then(() => {
+    copiedId.value = true;
+    setTimeout(() => {
+      copiedId.value = false;
+    }, 1200);
+  }).catch(() => { /* ignore */ });
+}
+
+// ---------------------------------------------------------------------------
+// Inline rename (mirrors SessionRow)
+// ---------------------------------------------------------------------------
+const renaming = ref(false);
+const renameValue = ref('');
+const renameInputRef = ref<HTMLInputElement | null>(null);
+
+async function startRename(): Promise<void> {
+  closeMenu();
+  if (!props.sessionId) return;
+  renaming.value = true;
+  renameValue.value = props.sessionTitle ?? '';
+  await nextTick();
+  try {
+    renameInputRef.value?.focus();
+    renameInputRef.value?.select();
+  } catch {
+    // jsdom may not implement focus/select
+  }
+}
+
+function commitRename(): void {
+  const newTitle = renameValue.value.trim();
+  if (newTitle && props.sessionId && newTitle !== (props.sessionTitle ?? '').trim()) {
+    emit('renameSession', props.sessionId, newTitle);
+  }
+  renaming.value = false;
+}
+
+function cancelRename(): void {
+  renaming.value = false;
+}
+
+// ---------------------------------------------------------------------------
+// Fork
+// ---------------------------------------------------------------------------
+function forkSession(): void {
+  if (!props.sessionId) return;
+  closeMenu();
+  emit('forkSession', props.sessionId);
+}
+
+// ---------------------------------------------------------------------------
+// Archive (two-step confirm, same pattern as the workspace menus)
+// ---------------------------------------------------------------------------
+const deleteArmed = ref(false);
+let deleteArmTimer: ReturnType<typeof setTimeout> | undefined;
+
+function disarmDelete(): void {
+  clearTimeout(deleteArmTimer);
+  deleteArmed.value = false;
+}
+
+function startArchive(): void {
+  if (!props.sessionId) return;
+  if (deleteArmed.value) {
+    emit('archiveSession', props.sessionId);
+    closeMenu();
+    return;
+  }
+  deleteArmed.value = true;
+  deleteArmTimer = setTimeout(() => {
+    deleteArmed.value = false;
+  }, 2500);
+}
 </script>
 
 <template>
@@ -39,19 +193,63 @@ const changes = computed(() => props.changesCount ?? 0);
     <div class="ch-id">
       <span v-if="workspaceName" class="ch-ws">{{ workspaceName }}</span>
       <span v-if="workspaceName && sessionTitle" class="ch-sep">/</span>
-      <span v-if="sessionTitle" class="ch-ses" :title="sessionTitle">{{ sessionTitle }}</span>
+      <input
+        v-if="renaming"
+        ref="renameInputRef"
+        v-model="renameValue"
+        class="ch-rename"
+        type="text"
+        @keydown.enter.stop="commitRename"
+        @keydown.esc.stop="cancelRename"
+        @blur="commitRename"
+        @click.stop
+      />
+      <span v-else-if="sessionTitle" class="ch-ses" :title="sessionTitle">{{ sessionTitle }}</span>
     </div>
 
-    <!-- Copy all conversation — kept close to the title on the left -->
-    <button type="button" class="ch-act ch-act-copy" :title="t('header.copyAll')" @click="emit('copyAll')">
-      <svg v-if="!copied" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="3" y="3" width="9" height="9" rx="1.5" /><path d="M6 1h7a1 1 0 0 1 1 1v7" />
+    <!-- More menu trigger: copy-all + session actions -->
+    <button
+      ref="kebabRef"
+      type="button"
+      class="ch-act ch-act-more"
+      :class="{ open: menuOpen }"
+      :title="t('header.options')"
+      @click.stop="toggleMenu($event)"
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+        <circle cx="3" cy="8" r="1.3" />
+        <circle cx="8" cy="8" r="1.3" />
+        <circle cx="13" cy="8" r="1.3" />
       </svg>
-      <svg v-else viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <polyline points="3,8 6.5,11.5 13,5" />
-      </svg>
-      <span class="ch-act-label">{{ copied ? t('header.copied') : t('header.copyAll') }}</span>
     </button>
+
+    <!-- Fixed more menu -->
+    <div
+      v-if="menuOpen"
+      ref="menuRef"
+      class="ch-menu"
+      :style="menuStyle"
+      @click.stop
+    >
+      <button type="button" class="chm-item" @click.stop="onCopyAll">
+        {{ copied ? t('header.copied') : t('header.copyAll') }}
+      </button>
+      <template v-if="sessionId">
+        <div class="chm-divider" />
+        <button type="button" class="chm-item" @click.stop="copySessionId">
+          <span>{{ copiedId ? t('header.copied') : t('header.copySessionId') }}</span>
+        </button>
+        <button type="button" class="chm-item" @click.stop="startRename">
+          {{ t('header.renameSession') }}
+        </button>
+        <button type="button" class="chm-item" @click.stop="forkSession">
+          {{ t('header.forkSession') }}
+        </button>
+        <button type="button" class="chm-item del" @click.stop="startArchive">
+          {{ deleteArmed ? t('header.confirmArchive') : t('header.archiveSession') }}
+        </button>
+      </template>
+    </div>
 
     <div class="ch-spacer" />
 
@@ -74,7 +272,7 @@ const changes = computed(() => props.changesCount ?? 0);
       class="ch-pr"
       :class="`pr-${pr.state}`"
       :title="t('header.openPr')"
-      @click="emit('openPr')"
+      @click="pr && emit('openPr', pr.url)"
     >
       <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
         <path d="M11.5 4.5a2 2 0 1 0-2.7 1.86V9.6A2 2 0 1 0 10 11.5V6.36A2 2 0 0 0 11.5 4.5zM4.5 2.5a2 2 0 0 0-.7 3.86v3.28a2 2 0 1 0 1.4 0V6.36A2 2 0 0 0 4.5 2.5z"/>
@@ -116,6 +314,19 @@ const changes = computed(() => props.changesCount ?? 0);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ch-rename {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--blue);
+  border-radius: 3px;
+  padding: 2px 5px;
+  outline: none;
+}
 .ch-git {
   display: flex;
   align-items: center;
@@ -150,6 +361,7 @@ const changes = computed(() => props.changesCount ?? 0);
   cursor: pointer;
 }
 .ch-act:hover { color: var(--ink); }
+.ch-act.open { color: var(--ink); }
 .ch-act svg { flex: none; }
 
 .ch-pr {
@@ -170,6 +382,43 @@ const changes = computed(() => props.changesCount ?? 0);
 .ch-pr.pr-merged { color: #8250df; border-color: color-mix(in srgb, #8250df 30%, var(--line)); }
 .ch-pr.pr-closed { color: var(--err); }
 .ch-pr:hover { background: var(--soft); }
+
+/* Fixed more-menu, anchored to the kebab trigger */
+.ch-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  z-index: 200;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  overflow: hidden;
+  min-width: 140px;
+}
+.chm-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  padding: 6px 12px;
+}
+.chm-item:hover { background: var(--panel2); }
+.chm-item.del { color: var(--err); }
+.chm-item.del:hover { background: color-mix(in srgb, var(--err) 10%, transparent); }
+
+.chm-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 2px 0;
+}
 
 /* On a narrow conversation column, the action labels collapse to icons. */
 @media (max-width: 900px) {

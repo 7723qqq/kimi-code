@@ -1,9 +1,15 @@
 export default {
   openInEditor: '在编辑器中打开',
   openInEditorShort: '打开',
-  copyAll: '复制全部',
+  copyAll: '复制全部对话为 Markdown',
   copied: '已复制',
   changed: '{n} 处改动',
   gitTooltip: 'Git 分支与状态',
   openPr: '打开 Pull Request',
+  options: '选项',
+  copySessionId: '复制 Session ID',
+  renameSession: '重命名',
+  forkSession: '分叉会话',
+  archiveSession: '归档',
+  confirmArchive: '确认归档？',
 };

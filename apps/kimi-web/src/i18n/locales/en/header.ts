@@ -1,9 +1,15 @@
 export default {
   openInEditor: 'Open in editor',
   openInEditorShort: 'Open',
-  copyAll: 'Copy all',
+  copyAll: 'Copy all as Markdown',
   copied: 'Copied',
   changed: '{n} changed',
   gitTooltip: 'Git branch & status',
   openPr: 'Open pull request',
+  options: 'Options',
+  copySessionId: 'Copy Session ID',
+  renameSession: 'Rename',
+  forkSession: 'Fork session',
+  archiveSession: 'Archive',
+  confirmArchive: 'Confirm archive?',
 };
