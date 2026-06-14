@@ -85,6 +85,9 @@ export interface WireSession {
     thinking?: string;
     permission_mode?: string;
     plan_mode?: boolean;
+    swarm_mode?: boolean;
+    goal_objective?: string;
+    goal_control?: 'pause' | 'resume' | 'cancel';
   };
   usage: WireSessionUsage;
   permission_rules: WirePermissionRule[];
@@ -98,6 +101,7 @@ export interface WireSessionRuntimeStatus {
   thinking_level: string;
   permission: string;
   plan_mode: boolean;
+  swarm_mode: boolean;
   context_tokens: number;
   max_context_tokens: number;
   context_usage: number;
@@ -176,6 +180,9 @@ export interface WirePromptSubmission {
   thinking?: string;
   permission_mode?: string;
   plan_mode?: boolean;
+  swarm_mode?: boolean;
+  goal_objective?: string;
+  goal_control?: 'pause' | 'resume' | 'cancel';
 }
 
 export interface WirePromptSubmitResult {

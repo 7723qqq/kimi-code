@@ -51,6 +51,9 @@ export const promptSubmissionSchema = z.object({
   thinking: promptThinkingSchema.optional(),
   permission_mode: promptPermissionModeSchema.optional(),
   plan_mode: z.boolean().optional(),
+  swarm_mode: z.boolean().optional(),
+  goal_objective: z.string().optional(),
+  goal_control: z.enum(['pause', 'resume', 'cancel']).optional(),
 });
 export type PromptSubmission = z.infer<typeof promptSubmissionSchema>;
 

@@ -43,6 +43,7 @@ const props = withDefaults(defineProps<{
   status?: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
+  swarmMode?: boolean;
   activationBadges?: ActivationBadges;
   /** Available models for the quick-switch dropdown. */
   models?: AppModel[];
@@ -71,6 +72,9 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
+  toggleSwarm: [];
+  createGoal: [objective: string];
+  controlGoal: [action: 'pause' | 'resume' | 'cancel'];
   focusGoal: [];
   focusSwarm: [];
   compact: [];
@@ -755,15 +759,21 @@ function toggleModes(): void {
   modesOpen.value = true;
   setTimeout(() => document.addEventListener('mousedown', onModesDocClick), 0);
 }
-function focusGoalFromModes(): void {
-  if (!props.activationBadges?.goal) return;
+const swarmOn = computed(() => props.swarmMode === true);
+
+const goalDraft = ref('');
+const goalMenuExpanded = ref(false);
+function startGoalFromMenu(): void {
+  const text = goalDraft.value.trim();
+  if (!text) return;
+  emit('createGoal', text);
+  goalDraft.value = '';
+  goalMenuExpanded.value = false;
   closeModes();
-  emit('focusGoal');
 }
-function focusSwarmFromModes(): void {
-  if (!props.activationBadges?.swarm) return;
+function sendGoalControl(action: 'pause' | 'resume' | 'cancel'): void {
+  emit('controlGoal', action);
   closeModes();
-  emit('focusSwarm');
 }
 
 function formatElapsed(ms: number): string {
@@ -1031,32 +1041,46 @@ function selectModel(modelId: string): void {
                 <span class="mode-row-name">{{ t('status.planLabel') }}</span>
                 <span class="mode-switch" :class="{ on: planOn }"><span class="mode-knob" /></span>
               </button>
-              <!-- Goal — agent-driven; focus its card when active -->
-              <button
-                type="button"
-                class="mode-row"
-                :class="{ on: !!activationBadges?.goal }"
-                :disabled="!activationBadges?.goal"
-                @click="focusGoalFromModes"
-              >
+              <!-- Swarm — functional client toggle -->
+              <button type="button" class="mode-row" :class="{ on: swarmOn }" @click="emit('toggleSwarm')">
+                <span class="mode-row-name">{{ t('status.swarmLabel') }}</span>
+                <span class="mode-switch" :class="{ on: swarmOn }"><span class="mode-knob" /></span>
+              </button>
+              <!-- Goal creation + control -->
+              <div class="mode-row mode-row-goal" :class="{ on: !!activationBadges?.goal }" @mousedown.stop>
                 <span class="mode-row-name">{{ t('status.goalLabel') }}</span>
-                <span class="mode-row-meta">{{ activationBadges?.goal
-                  ? `${activationBadges.goal.status} · ${formatElapsed(activationBadges.goal.elapsedMs)} · ${activationBadges.goal.turnsUsed} turns`
-                  : t('status.modeOff') }}</span>
-              </button>
-              <!-- Swarm — agent-driven; focus its card when active -->
-              <button
-                type="button"
-                class="mode-row"
-                :class="{ on: !!activationBadges?.swarm }"
-                :disabled="!activationBadges?.swarm"
-                @click="focusSwarmFromModes"
-              >
-                <span class="mode-row-name">Swarm</span>
-                <span class="mode-row-meta">{{ activationBadges?.swarm
-                  ? `${activationBadges.swarm.done}/${activationBadges.swarm.total}`
-                  : t('status.modeOff') }}</span>
-              </button>
+                <template v-if="!activationBadges?.goal">
+                  <button
+                    v-if="!goalMenuExpanded"
+                    type="button"
+                    class="mode-row-action"
+                    @click="goalMenuExpanded = true"
+                  >{{ t('status.goalStart') }}</button>
+                  <template v-else>
+                    <input
+                      v-model="goalDraft"
+                      type="text"
+                      class="mode-row-input"
+                      :placeholder="t('status.goalPlaceholder')"
+                      @keydown.enter.prevent="startGoalFromMenu"
+                    />
+                    <button
+                      type="button"
+                      class="mode-row-action"
+                      :disabled="!goalDraft.trim()"
+                      @click="startGoalFromMenu"
+                    >{{ t('status.goalStart') }}</button>
+                  </template>
+                </template>
+                <template v-else>
+                  <span class="mode-row-meta">{{ activationBadges.goal.status }} · {{ formatElapsed(activationBadges.goal.elapsedMs) }} · {{ activationBadges.goal.turnsUsed }} turns</span>
+                  <div class="mode-row-actions">
+                    <button type="button" class="mode-row-action" @click="sendGoalControl('pause')">{{ t('status.goalPause') }}</button>
+                    <button type="button" class="mode-row-action" @click="sendGoalControl('resume')">{{ t('status.goalResume') }}</button>
+                    <button type="button" class="mode-row-action" @click="sendGoalControl('cancel')">{{ t('status.goalCancel') }}</button>
+                  </div>
+                </template>
+              </div>
             </div>
           </div>
         </div>
@@ -1825,6 +1849,39 @@ function selectModel(modelId: string): void {
   transition: transform 0.15s;
 }
 .mode-switch.on .mode-knob { transform: translateX(15px); }
+
+.mode-row-goal {
+  flex-wrap: wrap;
+  cursor: default;
+}
+.mode-row-goal:hover { background: transparent; }
+.mode-row-actions {
+  display: flex;
+  gap: 6px;
+  flex: 1 1 100%;
+  justify-content: flex-end;
+}
+.mode-row-action {
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 11px;
+  cursor: pointer;
+}
+.mode-row-action:hover:not(:disabled) { background: var(--panel2); }
+.mode-row-action:disabled { opacity: 0.5; cursor: default; }
+.mode-row-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 12px;
+}
 
 /* ---- Mobile composer (prototype): round attach + rounded panel input +
        round blue send with a soft shadow. The .cin container loses its border

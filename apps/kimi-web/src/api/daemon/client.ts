@@ -329,6 +329,9 @@ export class DaemonKimiWebApi implements KimiWebApi {
       model?: string;
       permissionMode?: string;
       planMode?: boolean;
+      swarmMode?: boolean;
+      goalObjective?: string;
+      goalControl?: 'pause' | 'resume' | 'cancel';
       thinking?: string;
     },
   ): Promise<AppSession> {
@@ -339,6 +342,9 @@ export class DaemonKimiWebApi implements KimiWebApi {
     if (input.model !== undefined) agentConfig['model'] = input.model;
     if (input.permissionMode !== undefined) agentConfig['permission_mode'] = input.permissionMode;
     if (input.planMode !== undefined) agentConfig['plan_mode'] = input.planMode;
+    if (input.swarmMode !== undefined) agentConfig['swarm_mode'] = input.swarmMode;
+    if (input.goalObjective !== undefined) agentConfig['goal_objective'] = input.goalObjective;
+    if (input.goalControl !== undefined) agentConfig['goal_control'] = input.goalControl;
     if (input.thinking !== undefined) agentConfig['thinking'] = input.thinking;
     if (Object.keys(agentConfig).length > 0) body['agent_config'] = agentConfig;
     const data = await this.http.post<WireSession>(
@@ -363,6 +369,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       thinkingLevel: data.thinking_level,
       permission: data.permission,
       planMode: data.plan_mode === true,
+      swarmMode: data.swarm_mode === true,
       contextTokens: data.context_tokens ?? 0,
       maxContextTokens: data.max_context_tokens ?? 0,
       contextUsage: data.context_usage ?? 0,

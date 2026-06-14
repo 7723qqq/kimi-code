@@ -764,6 +764,7 @@ export function createAgentProjector(): AgentProjector {
           // Carry the live model so the status bar shows the real running model
           // instead of falling back to the daemon's (empty) REST model.
           model: s.model || undefined,
+          swarmMode: p?.swarmMode === true ? true : p?.swarmMode === false ? false : undefined,
         });
         break;
       }

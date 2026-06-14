@@ -45,7 +45,7 @@ const MAIN_AGENT_ID = 'main';
 const DISPATCH_LOG_CAP = 100;
 
 /**
- * `true` iff any of the four runtime-control fields is defined on the patch.
+ * `true` iff any of the runtime-control fields is defined on the patch.
  * Used to short-circuit `applyAgentState` / the prompt-body override path
  * when the caller carries nothing actionable.
  */
@@ -54,15 +54,18 @@ function hasAnyAgentStateField(patch: AgentStatePatch): boolean {
     patch.model !== undefined ||
     patch.thinking !== undefined ||
     patch.permission_mode !== undefined ||
-    patch.plan_mode !== undefined
+    patch.plan_mode !== undefined ||
+    patch.swarm_mode !== undefined ||
+    patch.goal_objective !== undefined ||
+    patch.goal_control !== undefined
   );
 }
 
 /**
- * Extract the four optional runtime-control fields from a `PromptSubmission`
- * body into a shadow-shaped patch. Returns `undefined` when the body carries
- * none of the four fields — the submit path skips both shadow bootstrap and
- * diff-dispatch in that case, saving three RPCs on hot content-only prompts.
+ * Extract the runtime-control fields from a `PromptSubmission` body into a
+ * shadow-shaped patch. Returns `undefined` when the body carries none of the
+ * fields — the submit path skips both shadow bootstrap and diff-dispatch in
+ * that case, saving RPCs on hot content-only prompts.
  */
 function pickAgentStatePatch(body: PromptSubmission): AgentStatePatch | undefined {
   const patch: AgentStatePatch = {};
@@ -70,6 +73,9 @@ function pickAgentStatePatch(body: PromptSubmission): AgentStatePatch | undefine
   if (body.thinking !== undefined) patch.thinking = body.thinking;
   if (body.permission_mode !== undefined) patch.permission_mode = body.permission_mode;
   if (body.plan_mode !== undefined) patch.plan_mode = body.plan_mode;
+  if (body.swarm_mode !== undefined) patch.swarm_mode = body.swarm_mode;
+  if (body.goal_objective !== undefined) patch.goal_objective = body.goal_objective;
+  if (body.goal_control !== undefined) patch.goal_control = body.goal_control;
   return hasAnyAgentStateField(patch) ? patch : undefined;
 }
 
@@ -609,6 +615,32 @@ export class PromptService
       }
       shadow.planMode = patch.plan_mode;
     }
+
+    // Stub dispatch for swarm/goal controls — web sends these today, back-end
+    // RPCs will be wired in a follow-up. We update the shadow and record a
+    // dispatch log entry so tests and the debug surface can see them flow.
+    if (patch.swarm_mode !== undefined && patch.swarm_mode !== shadow.swarmMode) {
+      const payload = { sessionId: sid, agentId, enabled: patch.swarm_mode };
+      // TODO: replace with `core.rpc.setSwarmMode(payload)` once available.
+      this._recordDispatch(sid, 'setSwarmMode', payload, promptId, source);
+      shadow.swarmMode = patch.swarm_mode;
+    }
+
+    if (patch.goal_objective !== undefined) {
+      const payload = { sessionId: sid, agentId, objective: patch.goal_objective };
+      // TODO: replace with `core.rpc.createGoal(payload)` once available.
+      this._recordDispatch(sid, 'createGoal', payload, promptId, source);
+      // `goal_objective` is a one-shot creation trigger; do not keep it on
+      // the shadow.
+    }
+
+    if (patch.goal_control !== undefined) {
+      const payload = { sessionId: sid, agentId, action: patch.goal_control };
+      // TODO: replace with the matching goal control RPC once available.
+      this._recordDispatch(sid, 'controlGoal', payload, promptId, source);
+      // `goal_control` is a one-shot action trigger; do not keep it on the
+      // shadow.
+    }
   }
 
   /**
@@ -738,12 +770,20 @@ export class PromptService
   }
 
   /**
+   * Read the current runtime-controls shadow for a session, if it has been
+   * bootstrapped. Returns a copy so callers cannot mutate internal state.
+   */
+  getAgentStateSnapshot(sid: string): AgentStateSnapshot | undefined {
+    const snap = this._agentState.get(sid);
+    return snap === undefined ? undefined : { ...snap };
+  }
+
+  /**
    * Test helper — peek at the per-session stateless-controls shadow.
    * Undefined before first submit on a session.
    */
   _agentStateForTest(sid: string): Readonly<AgentStateSnapshot> | undefined {
-    const snap = this._agentState.get(sid);
-    return snap === undefined ? undefined : { ...snap };
+    return this.getAgentStateSnapshot(sid);
   }
 
   /**

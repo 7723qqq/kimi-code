@@ -66,6 +66,7 @@ const PERMISSION_STORAGE_KEY = 'kimi-web.permission';
 const ACTIVE_WORKSPACE_KEY = 'kimi-active-workspace';
 const THINKING_STORAGE_KEY = 'kimi-web.thinking';
 const PLAN_MODE_STORAGE_KEY = 'kimi-web.plan-mode';
+const SWARM_MODE_STORAGE_KEY = 'kimi-web.swarm-mode';
 const THEME_STORAGE_KEY = 'kimi-web.theme';
 const SESSION_NOT_FOUND_CODE = 40401;
 const ONBOARDED_STORAGE_KEY = 'kimi-web.onboarded';
@@ -199,6 +200,22 @@ function savePlanModeToStorage(v: boolean): void {
   }
 }
 
+function loadSwarmModeFromStorage(): boolean {
+  try {
+    return localStorage.getItem(SWARM_MODE_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function saveSwarmModeToStorage(v: boolean): void {
+  try {
+    localStorage.setItem(SWARM_MODE_STORAGE_KEY, v ? 'true' : 'false');
+  } catch {
+    // ignore
+  }
+}
+
 function loadThemeFromStorage(): Theme {
   try {
     const v = localStorage.getItem(THEME_STORAGE_KEY);
@@ -275,6 +292,7 @@ interface ExtendedState extends KimiClientState {
   permission: PermissionMode;
   thinking: ThinkingLevel;
   planMode: boolean;
+  swarmMode: boolean;
   loading: boolean;
   sessionLoading: boolean;
   queuedBySession: Record<string, QueuedPrompt[]>;
@@ -309,6 +327,7 @@ const rawState: ExtendedState = reactive({
   permission: loadPermissionFromStorage(),
   thinking: loadThinkingFromStorage(),
   planMode: loadPlanModeFromStorage(),
+  swarmMode: loadSwarmModeFromStorage(),
   loading: false,
   sessionLoading: false,
   queuedBySession: {},
@@ -370,6 +389,7 @@ async function refreshSessionStatus(sessionId: string): Promise<void> {
         }
       : s,
   );
+  rawState.swarmMode = st.swarmMode;
 }
 
 /** Persist runtime controls to the active session via POST /profile, then
@@ -378,6 +398,9 @@ function persistSessionProfile(patch: {
   model?: string;
   permissionMode?: string;
   planMode?: boolean;
+  swarmMode?: boolean;
+  goalObjective?: string;
+  goalControl?: 'pause' | 'resume' | 'cancel';
   thinking?: string;
 }): void {
   const sid = rawState.activeSessionId;
@@ -444,15 +467,16 @@ function setAccent(a: Accent): void {
 }
 
 // ---------------------------------------------------------------------------
-// Browser system notification on turn completion. Opt-in (persisted), and the
-// OS permission is requested only when the user enables the toggle.
+// Browser system notification on turn completion. Default on; the preference
+// is persisted per browser, and allowing notifications requires OS permission.
 // ---------------------------------------------------------------------------
 const NOTIFY_STORAGE_KEY = 'kimi-web.notify-on-complete';
 function loadNotifyFromStorage(): boolean {
   try {
-    return localStorage.getItem(NOTIFY_STORAGE_KEY) === '1';
+    const v = localStorage.getItem(NOTIFY_STORAGE_KEY);
+    return v === null ? true : v === '1';
   } catch {
-    return false;
+    return true;
   }
 }
 const notifyOnComplete = ref(loadNotifyFromStorage());
@@ -483,7 +507,21 @@ async function setNotifyOnComplete(on: boolean): Promise<void> {
     user isn't already looking at it (page hidden, or a different session). */
 function maybeNotifyCompletion(sid: string): void {
   if (!notifyOnComplete.value) return;
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if (typeof Notification === 'undefined') return;
+  const perm = Notification.permission;
+  if (perm === 'denied') return;
+  if (perm === 'default') {
+    // Request permission asynchronously; if granted, fire the notification.
+    void Notification.requestPermission().then((p) => {
+      notifyPermission.value = p;
+      if (p === 'granted') fireCompletionNotification(sid);
+    });
+    return;
+  }
+  fireCompletionNotification(sid);
+}
+
+function fireCompletionNotification(sid: string): void {
   const isActiveAndVisible =
     sid === rawState.activeSessionId &&
     typeof document !== 'undefined' &&
@@ -575,6 +613,10 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   rawState.lastSeqBySession = next.lastSeqBySession;
   rawState.compactionBySession = next.compactionBySession;
   rawState.warnings = next.warnings;
+
+  if (event.type === 'sessionUsageUpdated' && event.swarmMode !== undefined) {
+    rawState.swarmMode = event.swarmMode;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1201,6 +1243,7 @@ const sessionLoading = computed<boolean>(() => rawState.sessionLoading);
 const permission = computed<PermissionMode>(() => rawState.permission);
 const thinking = computed<ThinkingLevel>(() => rawState.thinking);
 const planMode = computed<boolean>(() => rawState.planMode);
+const swarmMode = computed<boolean>(() => rawState.swarmMode);
 
 const activationBadges = computed<ActivationBadges>(() => {
   const swarmCounts = countSwarmMembers(swarms.value);
@@ -2126,6 +2169,7 @@ async function submitPromptInternal(sid: string, text: string, attachments?: { f
       thinking: rawState.thinking,
       permissionMode: rawState.permission,
       planMode: rawState.planMode,
+      swarmMode: rawState.swarmMode,
     });
 
     // Authoritative prompt_id for :abort — race-free (the projector binding can
@@ -2259,6 +2303,7 @@ async function steerPrompt(text: string, attachments?: { fileId: string }[]): Pr
       thinking: rawState.thinking,
       permissionMode: rawState.permission,
       planMode: rawState.planMode,
+      swarmMode: rawState.swarmMode,
     });
 
     // Stamp the real prompt_id onto the optimistic echo. Unlike a normal send,
@@ -2438,6 +2483,30 @@ function setPlanMode(on: boolean): void {
 /** Flip plan mode on/off. */
 function togglePlanMode(): void {
   setPlanMode(!rawState.planMode);
+}
+
+/** Persist and apply swarm mode (pushed to the session profile + sent per-prompt). */
+function setSwarmMode(on: boolean): void {
+  rawState.swarmMode = on;
+  saveSwarmModeToStorage(on);
+  persistSessionProfile({ swarmMode: on });
+}
+
+/** Flip swarm mode on/off. */
+function toggleSwarmMode(): void {
+  setSwarmMode(!rawState.swarmMode);
+}
+
+/** Create a goal by sending its objective to the session profile. */
+function createGoal(objective: string): void {
+  const trimmed = objective.trim();
+  if (!trimmed) return;
+  persistSessionProfile({ goalObjective: trimmed });
+}
+
+/** Send a one-shot goal control action (pause/resume/cancel). */
+function controlGoal(action: 'pause' | 'resume' | 'cancel'): void {
+  persistSessionProfile({ goalControl: action });
 }
 
 /** Persist and apply a new permission mode; auto-approve pending approvals if switching to auto/yolo */
@@ -2977,6 +3046,7 @@ export function useKimiWebClient() {
     permission,
     thinking,
     planMode,
+    swarmMode,
     queued,
     warnings,
     questions,
@@ -3034,6 +3104,10 @@ export function useKimiWebClient() {
     setThinking,
     setPlanMode,
     togglePlanMode,
+    setSwarmMode,
+    toggleSwarmMode,
+    createGoal,
+    controlGoal,
     enqueue,
     dismissWarning,
     renameSession,

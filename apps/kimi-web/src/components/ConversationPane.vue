@@ -48,6 +48,7 @@ const props = defineProps<{
   status: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
+  swarmMode?: boolean;
   questions?: UIQuestion[];
   running?: boolean;
   queued?: QueuedPromptView[];
@@ -99,6 +100,9 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
+  toggleSwarm: [];
+  createGoal: [objective: string];
+  controlGoal: [action: 'pause' | 'resume' | 'cancel'];
   compact: [];
   pickModel: [];
   selectModel: [modelId: string];
@@ -858,6 +862,7 @@ onUnmounted(() => {
             :status="status"
             :thinking="thinking"
             :plan-mode="planMode"
+            :swarm-mode="swarmMode"
             :activation-badges="activationBadges"
             :models="models"
             :skills="skills"
@@ -870,6 +875,9 @@ onUnmounted(() => {
             @set-permission="emit('setPermission', $event)"
             @set-thinking="emit('setThinking', $event)"
             @toggle-plan="emit('togglePlan')"
+            @toggle-swarm="emit('toggleSwarm')"
+            @create-goal="emit('createGoal', $event)"
+            @control-goal="emit('controlGoal', $event)"
             @focus-goal="focusGoal"
             @focus-swarm="focusSwarm"
             @compact="emit('compact')"
@@ -1071,6 +1079,7 @@ onUnmounted(() => {
         :status="status"
         :thinking="thinking"
         :plan-mode="planMode"
+        :swarm-mode="swarmMode"
         :activation-badges="activationBadges"
         :models="models"
         :skills="skills"
@@ -1083,6 +1092,9 @@ onUnmounted(() => {
         @set-permission="emit('setPermission', $event)"
         @set-thinking="emit('setThinking', $event)"
         @toggle-plan="emit('togglePlan')"
+        @toggle-swarm="emit('toggleSwarm')"
+        @create-goal="emit('createGoal', $event)"
+        @control-goal="emit('controlGoal', $event)"
         @focus-goal="focusGoal"
         @focus-swarm="focusSwarm"
         @compact="emit('compact')"

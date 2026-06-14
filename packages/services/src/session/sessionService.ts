@@ -211,11 +211,17 @@ export class SessionService extends Disposable implements ISessionService {
       if (ac.thinking !== undefined) patch.thinking = ac.thinking;
       if (ac.permission_mode !== undefined) patch.permission_mode = ac.permission_mode;
       if (ac.plan_mode !== undefined) patch.plan_mode = ac.plan_mode;
+      if (ac.swarm_mode !== undefined) patch.swarm_mode = ac.swarm_mode;
+      if (ac.goal_objective !== undefined) patch.goal_objective = ac.goal_objective;
+      if (ac.goal_control !== undefined) patch.goal_control = ac.goal_control;
       if (
         patch.model !== undefined ||
         patch.thinking !== undefined ||
         patch.permission_mode !== undefined ||
-        patch.plan_mode !== undefined
+        patch.plan_mode !== undefined ||
+        patch.swarm_mode !== undefined ||
+        patch.goal_objective !== undefined ||
+        patch.goal_control !== undefined
       ) {
         const promptService = this.instantiation.invokeFunction((a) =>
           a.get(IPromptService),
@@ -335,11 +341,17 @@ export class SessionService extends Disposable implements ISessionService {
     const contextTokens = context.tokenCount;
     const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
 
+    const promptService = this.instantiation.invokeFunction((a) =>
+      a.get(IPromptService),
+    );
+    const agentState = promptService.getAgentStateSnapshot(id);
+
     return {
       model: config.modelAlias ?? config.provider?.model,
       thinking_level: config.thinkingLevel,
       permission: permission.mode,
       plan_mode: plan !== null,
+      swarm_mode: agentState?.swarmMode ?? false,
       context_tokens: contextTokens,
       max_context_tokens: maxContextTokens,
       context_usage: contextUsage,

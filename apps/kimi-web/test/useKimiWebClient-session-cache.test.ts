@@ -90,6 +90,7 @@ async function setup(messages: AppMessage[] = []) {
       thinkingLevel: 'high',
       permission: 'manual',
       planMode: false,
+      swarmMode: false,
       contextTokens: 0,
       maxContextTokens: 128_000,
       contextUsage: 0,
@@ -242,6 +243,9 @@ describe('useKimiWebClient session memory cache', () => {
       { type: 'sessionCreated', session: bg },
       { sessionId: 'sess_bg', seq: 1 },
     );
+
+    // Ensure notifications are off before testing opt-in behavior.
+    await client.setNotifyOnComplete(false);
 
     // Off by default → no notification on completion.
     getHandlers().onEvent(

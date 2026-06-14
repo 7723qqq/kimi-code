@@ -89,6 +89,7 @@ export interface AppSessionRuntimeStatus {
   thinkingLevel: string;
   permission: string;
   planMode: boolean;
+  swarmMode: boolean;
   contextTokens: number;
   maxContextTokens: number;
   contextUsage: number;
@@ -191,6 +192,9 @@ export interface PromptSubmission {
   thinking?: ThinkingLevel;
   permissionMode?: 'manual' | 'auto' | 'yolo';
   planMode?: boolean;
+  swarmMode?: boolean;
+  goalObjective?: string;
+  goalControl?: 'pause' | 'resume' | 'cancel';
 }
 
 export interface PromptSubmitResult {
@@ -373,7 +377,7 @@ export type AppEvent =
   | { type: 'sessionDeleted'; sessionId: string }
   | { type: 'sessionStatusChanged'; sessionId: string; status: AppSessionStatus; previousStatus: AppSessionStatus; currentPromptId?: string }
   | { type: 'sessionMetaUpdated'; sessionId: string; title: string }
-  | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string }
+  | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string; swarmMode?: boolean }
   | { type: 'historyCompacted'; sessionId: string; beforeSeq: number; reason: string; summaryMessageId?: string }
   | { type: 'compactionStarted'; sessionId: string; trigger: 'manual' | 'auto'; instruction?: string }
   | { type: 'compactionCompleted'; sessionId: string; tokensBefore?: number; tokensAfter?: number; summary?: string }

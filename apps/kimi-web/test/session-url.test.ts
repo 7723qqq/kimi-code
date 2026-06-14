@@ -106,6 +106,7 @@ async function setup(opts: {
       thinkingLevel: 'high',
       permission: 'manual',
       planMode: false,
+      swarmMode: false,
       contextTokens: 0,
       maxContextTokens: 128_000,
       contextUsage: 0,

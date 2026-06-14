@@ -13,6 +13,7 @@ const props = defineProps<{
   status: ConversationStatus;
   thinking: ThinkingLevel;
   planMode: boolean;
+  swarmMode?: boolean;
   /** Cumulative session cost in USD, when known (>= 0). */
   costUsd?: number;
 }>();
@@ -49,6 +50,7 @@ const permColor = computed(() => {
 });
 
 const planText = computed(() => (props.planMode ? t('status.planOn') : t('status.planOff')));
+const swarmText = computed(() => (props.swarmMode ? t('status.swarmOn') : t('status.swarmOff')));
 
 const showCost = computed(() => typeof props.costUsd === 'number' && props.costUsd > 0);
 const costText = computed(() =>
@@ -87,6 +89,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
         <div class="row">
           <dt>{{ t('status.statusPlanMode') }}</dt>
           <dd :class="{ 'plan-on': planMode }">{{ planText }}</dd>
+        </div>
+        <div class="row">
+          <dt>{{ t('status.statusSwarmMode') }}</dt>
+          <dd :class="{ 'swarm-on': swarmMode }">{{ swarmText }}</dd>
         </div>
         <div class="row">
           <dt>{{ t('status.statusContext') }}</dt>
@@ -181,6 +187,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
   min-width: 0;
 }
 .row dd.plan-on { color: var(--blue); }
+.row dd.swarm-on { color: var(--blue); }
 
 .ctx-text { flex: none; }
 .bar {

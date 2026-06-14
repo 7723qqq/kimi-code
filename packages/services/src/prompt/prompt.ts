@@ -98,6 +98,9 @@ export interface AgentStatePatch {
   thinking?: string;
   permission_mode?: string;
   plan_mode?: boolean;
+  swarm_mode?: boolean;
+  goal_objective?: string;
+  goal_control?: 'pause' | 'resume' | 'cancel';
 }
 
 /**
@@ -191,6 +194,12 @@ export interface IPromptService {
    * a prompt-lifecycle event, BEFORE `bus.publish(synth)`.
    */
   readonly onDidAbort: Event<SyntheticPromptAbortedEvent>;
+
+  /**
+   * Read the current runtime-controls shadow for a session, if it has been
+   * bootstrapped. Returns a copy so callers cannot mutate internal state.
+   */
+  getAgentStateSnapshot(sid: string): AgentStateSnapshot | undefined;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -298,6 +307,7 @@ export interface AgentStateSnapshot {
   thinking?: string;
   permissionMode?: string;
   planMode?: boolean;
+  swarmMode?: boolean;
 }
 
 /**

@@ -246,6 +246,9 @@ export function toWirePromptSubmission(input: PromptSubmission): WirePromptSubmi
     thinking: input.thinking,
     permission_mode: input.permissionMode,
     plan_mode: input.planMode,
+    swarm_mode: input.swarmMode,
+    goal_objective: input.goalObjective,
+    goal_control: input.goalControl,
   };
 }
 

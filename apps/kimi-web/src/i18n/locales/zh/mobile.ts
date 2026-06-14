@@ -13,4 +13,5 @@ export default {
   permAutoSub: '自动批准编辑',
   permYoloSub: '全部自动批准',
   planModeSub: 'Plan mode',
+  swarmModeSub: 'Swarm mode',
 } as const;

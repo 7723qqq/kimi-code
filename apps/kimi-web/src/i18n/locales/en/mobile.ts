@@ -13,4 +13,5 @@ export default {
   permAutoSub: 'auto-approve edits',
   permYoloSub: 'auto-approve all',
   planModeSub: 'Plan mode',
+  swarmModeSub: 'Swarm mode',
 } as const;
