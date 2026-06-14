@@ -129,13 +129,6 @@ function caretAtFirstLine(): boolean {
   return el.value.lastIndexOf('\n', pos - 1) === -1;
 }
 
-function caretAtLastLine(): boolean {
-  const el = textareaRef.value;
-  if (!el) return false;
-  const pos = el.selectionEnd ?? 0;
-  return el.value.indexOf('\n', pos) === -1;
-}
-
 function applyHistoryText(value: string): void {
   text.value = value;
   void nextTick(() => {
@@ -612,17 +605,24 @@ function handleKeydown(e: KeyboardEvent): void {
     return;
   }
 
-  // History recall (shell-style) — no menu open, and only at the caret's edge
-  // line so multi-line editing with the arrows still works. A plain ArrowUp on
-  // the first line walks back through sent messages; ArrowDown on the last line
-  // walks forward and finally restores the live draft.
+  // History recall (shell-style ↑/↓).
+  //
+  // ENTERING history: a plain ArrowUp only recalls when the caret is on the
+  // first line, so editing a multi-line draft with the arrows still works.
+  // ONCE BROWSING (historyIndex !== -1), the arrows walk history directly,
+  // regardless of where the caret landed — a recalled multi-line entry leaves
+  // the caret at its end, and the old "must be on the first line" gate then
+  // trapped it there, so further ArrowUp did nothing ("only one step back").
+  // Walking freely while browsing fixes that; typing exits history (handleInput
+  // resets historyIndex), after which the arrows move the caret normally again.
   if (!slashOpen.value && !mentionOpen.value && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-    if (e.key === 'ArrowUp' && inputHistory.value.length > 0 && caretAtFirstLine()) {
+    const browsing = historyIndex !== -1;
+    if (e.key === 'ArrowUp' && inputHistory.value.length > 0 && (browsing || caretAtFirstLine())) {
       e.preventDefault();
       recallOlder();
       return;
     }
-    if (e.key === 'ArrowDown' && historyIndex !== -1 && caretAtLastLine()) {
+    if (e.key === 'ArrowDown' && browsing) {
       e.preventDefault();
       recallNewer();
       return;

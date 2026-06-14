@@ -89,4 +89,29 @@ describe('Composer history recall', () => {
     await textarea.trigger('keydown', { key: 'ArrowDown' });
     expect(el.value).toBe('');
   });
+
+  it('keeps walking past a multi-line entry (caret lands off the first line)', async () => {
+    const wrapper = mountComposer();
+    const textarea = wrapper.get('textarea');
+    const el = textarea.element as HTMLTextAreaElement;
+
+    // Three sends; the middle one is multi-line. After recalling it the caret
+    // sits on its LAST line, so the old "ArrowUp only on the first line" gate
+    // trapped it there and you could never reach the oldest entry.
+    await textarea.setValue('oldest');
+    await textarea.trigger('keydown', { key: 'Enter' });
+    await textarea.setValue('multi\nline');
+    await textarea.trigger('keydown', { key: 'Enter' });
+    await textarea.setValue('newest');
+    await textarea.trigger('keydown', { key: 'Enter' });
+
+    await textarea.trigger('keydown', { key: 'ArrowUp' });
+    expect(el.value).toBe('newest');
+    await textarea.trigger('keydown', { key: 'ArrowUp' });
+    expect(el.value).toBe('multi\nline');
+    // The fix: still recalls the oldest even though the caret is on the last
+    // line of the multi-line entry.
+    await textarea.trigger('keydown', { key: 'ArrowUp' });
+    expect(el.value).toBe('oldest');
+  });
 });
