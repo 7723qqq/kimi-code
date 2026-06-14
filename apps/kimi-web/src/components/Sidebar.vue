@@ -479,7 +479,7 @@ function blinkOnce(): void {
                 </button>
               </div>
 
-              <div class="gh-path" :title="g.workspace.root">{{ g.workspace.branch || g.workspace.shortPath }}</div>
+              <div class="gh-path" :title="g.workspace.root">{{ g.workspace.shortPath || g.workspace.root }}</div>
             </div>
             <div v-show="!isCollapsed(g.workspace.id)" class="group-sessions">
               <SessionRow
