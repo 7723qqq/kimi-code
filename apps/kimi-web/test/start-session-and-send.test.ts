@@ -190,6 +190,53 @@ describe('startSessionAndSendPrompt', () => {
   });
 });
 
+describe('plan mode sync from the agent', () => {
+  it('activates the composer plan toggle when the agent reports plan mode', async () => {
+    const { client, getHandlers } = await setup();
+    await client.addWorkspaceByPath('/repo');
+    await client.startSessionAndSendPrompt('ws_repo', 'enter plan mode and write hello.ts');
+
+    expect(client.planMode.value).toBe(false);
+
+    // The agent auto-entered plan mode and reports it via agent.status.updated,
+    // which the projector forwards on sessionUsageUpdated.
+    getHandlers().onEvent(
+      {
+        type: 'sessionUsageUpdated',
+        sessionId: 'sess_new',
+        usage: makeSession('sess_new').usage,
+        planMode: true,
+      },
+      { sessionId: 'sess_new', seq: 2 },
+    );
+
+    expect(client.planMode.value).toBe(true);
+  });
+
+  it('ignores plan/swarm mode updates from a background session', async () => {
+    const { client, getHandlers } = await setup();
+    await client.addWorkspaceByPath('/repo');
+    await client.startSessionAndSendPrompt('ws_repo', 'active session prompt');
+
+    expect(client.planMode.value).toBe(false);
+    expect(client.swarmMode.value).toBe(false);
+
+    getHandlers().onEvent(
+      {
+        type: 'sessionUsageUpdated',
+        sessionId: 'sess_background',
+        usage: makeSession('sess_background').usage,
+        planMode: true,
+        swarmMode: true,
+      },
+      { sessionId: 'sess_background', seq: 3 },
+    );
+
+    expect(client.planMode.value).toBe(false);
+    expect(client.swarmMode.value).toBe(false);
+  });
+});
+
 describe('openWorkspaceDraft', () => {
   it('clears activeSessionId without removing sessions', async () => {
     const { client } = await setup();

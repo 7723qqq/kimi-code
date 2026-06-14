@@ -419,6 +419,7 @@ async function refreshSessionStatus(sessionId: string): Promise<void> {
       : s,
   );
   rawState.swarmMode = st.swarmMode;
+  rawState.planMode = st.planMode;
 }
 
 /** Persist runtime controls to the active session via POST /profile, then
@@ -643,8 +644,13 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   rawState.compactionBySession = next.compactionBySession;
   rawState.warnings = next.warnings;
 
-  if (event.type === 'sessionUsageUpdated' && event.swarmMode !== undefined) {
+  if (event.type === 'sessionUsageUpdated' && event.sessionId === rawState.activeSessionId && event.swarmMode !== undefined) {
     rawState.swarmMode = event.swarmMode;
+  }
+  // Reflect the agent's live plan-mode state (e.g. it auto-entered plan mode)
+  // in the composer toggle.
+  if (event.type === 'sessionUsageUpdated' && event.sessionId === rawState.activeSessionId && event.planMode !== undefined) {
+    rawState.planMode = event.planMode;
   }
 }
 

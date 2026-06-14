@@ -377,7 +377,7 @@ export type AppEvent =
   | { type: 'sessionDeleted'; sessionId: string }
   | { type: 'sessionStatusChanged'; sessionId: string; status: AppSessionStatus; previousStatus: AppSessionStatus; currentPromptId?: string }
   | { type: 'sessionMetaUpdated'; sessionId: string; title: string }
-  | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string; swarmMode?: boolean }
+  | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string; swarmMode?: boolean; planMode?: boolean }
   | { type: 'historyCompacted'; sessionId: string; beforeSeq: number; reason: string; summaryMessageId?: string }
   | { type: 'compactionStarted'; sessionId: string; trigger: 'manual' | 'auto'; instruction?: string }
   | { type: 'compactionCompleted'; sessionId: string; tokensBefore?: number; tokensAfter?: number; summary?: string }
