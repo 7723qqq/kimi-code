@@ -765,6 +765,10 @@ export function createAgentProjector(): AgentProjector {
           // instead of falling back to the daemon's (empty) REST model.
           model: s.model || undefined,
           swarmMode: p?.swarmMode === true ? true : p?.swarmMode === false ? false : undefined,
+          // The agent reports plan mode here too (e.g. it auto-entered plan mode
+          // for a "make a plan" prompt). Carry it so the composer's plan toggle
+          // reflects the agent's real state, not just the user's manual choice.
+          planMode: p?.planMode === true ? true : p?.planMode === false ? false : undefined,
         });
         break;
       }
