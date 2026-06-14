@@ -897,6 +897,7 @@ onUnmounted(() => {
           </div>
           <Composer
             class="empty-composer"
+            :session-id="sessionId"
             :running="running"
             :queued="queued"
             :search-files="searchFiles"
@@ -1116,6 +1117,7 @@ onUnmounted(() => {
       />
       <Composer
         v-else-if="!(turns.length === 0 && !sessionLoading)"
+        :session-id="sessionId"
         :running="running"
         :queued="queued"
         :search-files="searchFiles"

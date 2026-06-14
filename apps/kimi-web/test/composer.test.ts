@@ -3,7 +3,7 @@ import { createI18n } from 'vue-i18n';
 import { afterEach, describe, expect, it } from 'vitest';
 import Composer from '../src/components/Composer.vue';
 
-function mountComposer() {
+function mountComposer(props: Record<string, unknown> = {}) {
   const i18n = createI18n({
     legacy: false,
     locale: 'en',
@@ -20,6 +20,7 @@ function mountComposer() {
   });
 
   return mount(Composer, {
+    props,
     global: {
       plugins: [i18n],
     },
@@ -32,6 +33,7 @@ function waitForCompositionEndTimer(): Promise<void> {
 
 afterEach(() => {
   document.body.innerHTML = '';
+  try { localStorage.clear(); } catch { /* ignore */ }
 });
 
 describe('Composer IME input', () => {
@@ -113,5 +115,39 @@ describe('Composer history recall', () => {
     // line of the multi-line entry.
     await textarea.trigger('keydown', { key: 'ArrowUp' });
     expect(el.value).toBe('oldest');
+  });
+});
+
+describe('Composer draft persistence', () => {
+  it('saves the unsent draft per session and restores it on switch', async () => {
+    const wrapper = mountComposer({ sessionId: 'sess_A' });
+    const textarea = wrapper.get('textarea');
+    const el = textarea.element as HTMLTextAreaElement;
+
+    await textarea.setValue('draft for A');
+    expect(localStorage.getItem('kimi-web.draft.sess_A')).toBe('draft for A');
+
+    // Switch to another session → box clears (B has no draft), A is preserved.
+    await wrapper.setProps({ sessionId: 'sess_B' });
+    expect(el.value).toBe('');
+    await textarea.setValue('draft for B');
+
+    // Back to A → its draft comes back.
+    await wrapper.setProps({ sessionId: 'sess_A' });
+    expect(el.value).toBe('draft for A');
+    // B's draft is still stored too.
+    expect(localStorage.getItem('kimi-web.draft.sess_B')).toBe('draft for B');
+  });
+
+  it('restores a saved draft on mount and clears it after sending', async () => {
+    localStorage.setItem('kimi-web.draft.sess_X', 'unfinished');
+    const wrapper = mountComposer({ sessionId: 'sess_X' });
+    const textarea = wrapper.get('textarea');
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('unfinished');
+
+    await textarea.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('submit')).toHaveLength(1);
+    // Draft cleared once sent.
+    expect(localStorage.getItem('kimi-web.draft.sess_X')).toBe(null);
   });
 });

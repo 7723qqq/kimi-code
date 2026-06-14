@@ -35,6 +35,8 @@ interface Attachment {
 
 const props = withDefaults(defineProps<{
   running?: boolean;
+  /** Active session id — scopes the persisted unsent draft (per session). */
+  sessionId?: string;
   queued?: QueuedPromptView[];
   searchFiles?: (q: string) => Promise<FileItem[]>;
   /** If undefined, attach button is hidden and paste/drag are no-ops. */
@@ -88,7 +90,31 @@ const { t } = useI18n();
 // Textarea
 // ---------------------------------------------------------------------------
 
-const text = ref('');
+// Unsent-draft persistence: the composer text is kept in localStorage PER
+// SESSION, so switching away and back (or a page refresh) restores whatever the
+// user was typing for that session. Cleared when the draft is sent/steered.
+const DRAFT_PREFIX = 'kimi-web.draft.';
+function draftKey(sid: string | undefined): string {
+  return DRAFT_PREFIX + (sid && sid.length > 0 ? sid : '__new__');
+}
+function loadDraft(sid: string | undefined): string {
+  try {
+    return localStorage.getItem(draftKey(sid)) ?? '';
+  } catch {
+    return '';
+  }
+}
+function saveDraft(sid: string | undefined, value: string): void {
+  try {
+    const key = draftKey(sid);
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    // localStorage unavailable (private mode / quota) — drafts just don't persist.
+  }
+}
+
+const text = ref(loadDraft(props.sessionId));
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
 function autosize(): void {
@@ -100,7 +126,23 @@ function autosize(): void {
   el.style.height = `${next}px`;
 }
 
-watch(text, () => void nextTick(autosize));
+watch(text, (value) => {
+  void nextTick(autosize);
+  // Persist the live draft for the current session (empty clears the entry).
+  saveDraft(props.sessionId, value);
+});
+
+// Switching sessions: stash the draft under the OLD session, then load the new
+// session's draft into the box.
+watch(
+  () => props.sessionId,
+  (newSid, oldSid) => {
+    if (newSid === oldSid) return;
+    saveDraft(oldSid, text.value);
+    text.value = loadDraft(newSid);
+    void nextTick(autosize);
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Sent-message history recall (shell-style ↑/↓). ArrowUp on the first line
@@ -395,6 +437,8 @@ function handleDrop(e: DragEvent): void {
 
 onMounted(() => {
   document.addEventListener('paste', handleDocumentPaste);
+  // Fit the box to a restored draft on first render.
+  if (text.value) void nextTick(autosize);
 });
 
 // Revoke all object URLs and remove global listener on unmount
