@@ -1,10 +1,10 @@
 # kimi-web TODO 第二轮 · 结果汇报
 
-> 范围：`apps/kimi-web`（Vue3 前端）。每条 TODO 对应一个 commit；改动均通过 `vue-tsc --noEmit`（0 错）+ `vitest run`（107 passed）+ `oxlint`（0 error），并对 UI 改动用 kimi-webbridge 在真实浏览器（stub daemon + vite）核对过。
+> 范围：`apps/kimi-web`（Vue3 前端）。每条 TODO 对应一个 commit；改动均通过 `vue-tsc --noEmit`（0 错）+ `vitest run`（108 passed）+ `oxlint`（0 error），并对 UI 改动用 kimi-webbridge 在真实浏览器（stub daemon + vite）核对过。
 >
-> 基线：`c9f5a62d`（上一轮收尾）。本轮 19 个 commit：`71036ecd … 26ac63ec`。
+> 基线：`c9f5a62d`（上一轮收尾）。本轮 19 个 TODO commit：`71036ecd … 451dee93`。严格验收补充 commit：`b0a25b8e`。
 
-整体测试基线从 99 → **107 passed**（新增 8 个用例：steer 去重、空 session 不闪、subagent 不污染父流、未读、通知、历史回溯、swarm 去重×2）。
+整体测试基线从 99 → **108 passed**（新增 9 个用例：steer 去重、空 session 不闪、subagent 不污染父流、未读、通知、历史回溯、swarm 去重×2、fs browse fallback）。
 
 ---
 
@@ -67,11 +67,13 @@
 - shell 风格：ArrowUp 在**首行**回溯已发送消息，ArrowDown 在**末行**前进、到底恢复实时草稿；手动输入退出浏览。边缘行判断保证多行光标移动不受影响。提交/steer 时入栈（跳过连续重复）。
 
 ### 12. 新建 workspace 目录选择增强（默认路径 + fzf + 折叠绝对路径）
-**commit `db248410`** · `AddWorkspaceDialog.vue`、`App.vue`
+**commit `961e4f66`** · `AddWorkspaceDialog.vue`、`App.vue`
 
 1. **默认路径**：浏览器默认打开 kimi-web 当前工作的路径（活动工作区 root，退回 $HOME）。
 2. **fzf**：输入即在当前目录下做**有界递归**子序列模糊搜索（限深度/数量、防抖、可取消），按相对路径列出匹配目录；结果列表固定高度 → **搜索时窗口大小不变**。
 3. **绝对路径输入折叠**为次选「直接输入绝对路径」按钮（daemon 无法浏览时自动展开）。
+
+严格验收补充：`browseFs` 失败时现在返回空 `path`，避免把失败的请求路径误判为「浏览成功但无子目录」，从而保证 daemon 无法浏览时确实进入 fallback。
 
 ✅ 浏览器验证（默认定位到 …/code/kimi-code-web；搜「doc」命中 docs；折叠按钮）。
 
@@ -98,7 +100,7 @@
 - **⚠️ GitHub PR 状态**：header 已留 PR 槽位（有数据时渲染、可点开），但 daemon 目前**不暴露 PR 状态**（需 GitHub API + remote 解析），所以暂传 `null`、优雅隐藏。后端接入 PR 数据后即可点亮。
 
 ### 17. 梳理 slash 命令并给删除建议
-**commit `26ac63ec`**（删除 `/undo`）· 完整梳理见下
+**commit `451dee93`**（删除 `/undo`）· 完整梳理见下
 
 直接删了 1 个**确属失效**的：`/undo`——没有 daemon endpoint，点了只弹「未实现」警告，是死菜单项。其余给**建议**（未擅自删，等你拍板）：
 
@@ -144,3 +146,10 @@
 2. **T16 GitHub PR 状态**：daemon 没有 PR 数据源。header 已留好插槽，接入后即点亮。
 
 其余 17 条均已端到端落地并验证。
+
+## 严格验收补充
+
+- 修复 1 个严重验收问题：T12 的 folder browser fallback 原先在 `browseFs('/some/path')` 失败时会返回原请求 path，UI 会误判为成功浏览空目录，导致「daemon 无法浏览时自动展开绝对路径输入」不成立。已合入 T12 对应 commit `961e4f66`。
+- 修复 1 个验证环境问题：Node 24 下全局 `localStorage` 会被 Node 的实验入口挡住，导致 `debug-trace.test.ts` / `session-url.test.ts` 在当前机器全量跑不过。已新增 Vitest setup `b0a25b8e`，把测试全局 storage 固定到 jsdom 或内存实现。
+- 后端缺口仍然只有原报告列出的两项：T10 goal/swarm 启动 REST 路由、T16 GitHub PR 状态数据源。
+- 验证：`pnpm exec vitest run`（20 files / 108 passed）、`pnpm exec vue-tsc --noEmit`、`pnpm exec vite build`、`pnpm exec oxlint --quiet apps/kimi-web`（0 errors；仍有既有 warnings）。
