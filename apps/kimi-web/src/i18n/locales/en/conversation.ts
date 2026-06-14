@@ -13,5 +13,8 @@ export default {
   summaryTitle: 'Compaction summary',
   manuallyAborted: 'Manually stopped',
   activatedSkill: 'Activated skill: {name}',
-  editResend: 'Edit & resend',
+  undo: 'Undo',
+  undoConfirm: 'Undo last message?',
+  confirm: 'Confirm',
+  cancel: 'Cancel',
 } as const;

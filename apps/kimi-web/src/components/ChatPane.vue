@@ -166,6 +166,9 @@ function compactionDividerLabel(turn: ChatTurn): string {
 // Per-turn copy button state (keyed by turn id)
 const copiedTurn = ref<string | null>(null);
 
+// Undo/edit-and-resend confirmation state (keyed by turn id)
+const confirmingEditTurnId = ref<string | null>(null);
+
 // Copy-whole-conversation state
 const copiedConversation = ref(false);
 let copiedConversationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -393,42 +396,65 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
     <div v-else-if="turns.length === 0 && (!approvals || approvals.length === 0)" class="chat-empty" />
 
     <template v-for="(turn, ti) in turns" :key="turn.id">
-      <!-- User turn → right-aligned soft-blue bubble -->
-      <div v-if="turn.role === 'user'" class="u-bub">
-        <!-- Image attachments -->
-        <div v-if="turn.images && turn.images.length > 0" class="u-imgs">
-          <img
-            v-for="(img, ii) in turn.images"
-            :key="ii"
-            class="u-img"
-            :src="img.url"
-            :alt="img.alt || ''"
-            loading="lazy"
-          />
-        </div>
-        <!-- Skill activation card (replaces raw XML) -->
-        <div v-if="turn.skillActivation" class="skill-act">
-          <div class="skill-act-head">
-            <span class="skill-act-arrow">▶</span>
-            <span>{{ t('conversation.activatedSkill', { name: turn.skillActivation.name }) }}</span>
+      <!-- User turn → right-aligned soft-blue bubble (undo affordance lives
+           outside the bubble with an inline confirm step). -->
+      <template v-if="turn.role === 'user'">
+        <div class="u-bub">
+          <!-- Image attachments -->
+          <div v-if="turn.images && turn.images.length > 0" class="u-imgs">
+            <img
+              v-for="(img, ii) in turn.images"
+              :key="ii"
+              class="u-img"
+              :src="img.url"
+              :alt="img.alt || ''"
+              loading="lazy"
+            />
           </div>
-          <div v-if="turn.skillActivation.args" class="skill-act-args">{{ turn.skillActivation.args }}</div>
+          <!-- Skill activation card (replaces raw XML) -->
+          <div v-if="turn.skillActivation" class="skill-act">
+            <div class="skill-act-head">
+              <span class="skill-act-arrow">▶</span>
+              <span>{{ t('conversation.activatedSkill', { name: turn.skillActivation.name }) }}</span>
+            </div>
+            <div v-if="turn.skillActivation.args" class="skill-act-args">{{ turn.skillActivation.args }}</div>
+          </div>
+          <!-- User input renders verbatim (pre-wrap), never through Markdown -->
+          <div v-else class="u-text">{{ turn.text }}</div>
         </div>
-        <!-- User input renders verbatim (pre-wrap), never through Markdown -->
-        <div v-else class="u-text">{{ turn.text }}</div>
-        <button
-          v-if="canEditTurn(turn)"
-          type="button"
-          class="u-edit"
-          :title="t('conversation.editResend')"
-          @click="emit('editMessage', turn.text)"
-        >
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10z"/>
-          </svg>
-          <span>{{ t('conversation.editResend') }}</span>
-        </button>
-      </div>
+        <div v-if="canEditTurn(turn)" class="u-edit-wrap">
+          <button
+            v-if="confirmingEditTurnId !== turn.id"
+            type="button"
+            class="u-edit"
+            :title="t('conversation.undo')"
+            @click="confirmingEditTurnId = turn.id"
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6.5 2.5 3 6l3.5 3.5"/>
+              <path d="M3 6h6.5a3.8 3.8 0 1 1 0 7.6H7.5"/>
+            </svg>
+            <span>{{ t('conversation.undo') }}</span>
+          </button>
+          <div v-else class="u-edit-confirm" @click.stop>
+            <span>{{ t('conversation.undoConfirm') }}</span>
+            <button
+              type="button"
+              class="u-edit-confirm-btn confirm"
+              @click.stop="emit('editMessage', turn.text); confirmingEditTurnId = null"
+            >
+              {{ t('conversation.confirm') }}
+            </button>
+            <button
+              type="button"
+              class="u-edit-confirm-btn"
+              @click.stop="confirmingEditTurnId = null"
+            >
+              {{ t('conversation.cancel') }}
+            </button>
+          </div>
+        </div>
+      </template>
 
       <!-- Compaction divider — prior turns stay untouched; summary opens in
            the right-side panel on click. -->
@@ -559,18 +585,6 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
               <div v-if="turn.skillActivation.args" class="skill-act-args">{{ turn.skillActivation.args }}</div>
             </div>
             <template v-else>{{ turn.text }}</template>
-            <button
-              v-if="canEditTurn(turn)"
-              type="button"
-              class="u-edit"
-              :title="t('conversation.editResend')"
-              @click="emit('editMessage', turn.text)"
-            >
-              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10z"/>
-              </svg>
-              <span class="u-edit-text">{{ t('conversation.editResend') }}</span>
-            </button>
           </div>
 
           <!-- Thinking + message text + tool cards, interleaved in original call order. -->
@@ -586,6 +600,42 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
               <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" @open-media="emit('openMedia', $event)" />
             </template>
           </template>
+        </div>
+
+        <div
+          v-if="turn.role === 'user' && canEditTurn(turn)"
+          class="u-edit-wrap ln-edit-wrap"
+        >
+          <button
+            v-if="confirmingEditTurnId !== turn.id"
+            type="button"
+            class="u-edit"
+            :title="t('conversation.undo')"
+            @click="confirmingEditTurnId = turn.id"
+          >
+            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6.5 2.5 3 6l3.5 3.5"/>
+              <path d="M3 6h6.5a3.8 3.8 0 1 1 0 7.6H7.5"/>
+            </svg>
+            <span class="u-edit-text">{{ t('conversation.undo') }}</span>
+          </button>
+          <div v-else class="u-edit-confirm" @click.stop>
+            <span>{{ t('conversation.undoConfirm') }}</span>
+            <button
+              type="button"
+              class="u-edit-confirm-btn confirm"
+              @click.stop="emit('editMessage', turn.text); confirmingEditTurnId = null"
+            >
+              {{ t('conversation.confirm') }}
+            </button>
+            <button
+              type="button"
+              class="u-edit-confirm-btn"
+              @click.stop="confirmingEditTurnId = null"
+            >
+              {{ t('conversation.cancel') }}
+            </button>
+          </div>
         </div>
       </div>
     </template>
@@ -783,13 +833,13 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   overflow-wrap: anywhere;
 }
 
-/* "Edit & resend" affordance on the most recent user message. Subtle by default,
-   coloured on hover. In the bubble layout it sits under the text, right-aligned. */
+/* Undo/edit-and-resend affordance on the most recent user message. The trigger
+   button sits outside the user bubble; clicking it swaps in an inline confirm
+   row with Confirm/Cancel actions. */
 .u-edit {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 5px;
   padding: 2px 5px;
   background: none;
   border: none;
@@ -801,9 +851,24 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   opacity: 0.7;
   transition: opacity 0.12s, color 0.12s, background-color 0.12s;
 }
+.u-edit svg {
+  display: block;
+  flex: none;
+}
+.u-edit span { line-height: 1; }
 .u-edit:hover { opacity: 1; color: var(--blue); background: var(--hover); }
-.u-bub .u-edit { margin-left: auto; }
-/* Desktop line layout: show only the icon until hover, then reveal the label. */
+/* Mobile bubble layout: right-align the undo button below the bubble. */
+.u-edit-wrap { display: flex; justify-content: flex-end; }
+.chat > .u-edit-wrap { margin-top: 4px; }
+.chat > .u-edit-wrap + .a-msg { margin-top: 8px; }
+/* Desktop line layout: place the affordance after the message text with the
+   same icon-only-then-label hover reveal behaviour. */
+.ln-edit-wrap {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+}
 .ln .u-edit-text {
   max-width: 0;
   overflow: hidden;
@@ -811,6 +876,31 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   transition: max-width 0.15s ease;
 }
 .ln .u-edit:hover .u-edit-text { max-width: 120px; }
+/* Inline confirm state shown after the user clicks the undo affordance. */
+.u-edit-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 5px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  border-radius: 5px;
+  background: var(--hover);
+}
+.u-edit-confirm span { line-height: 1; }
+.u-edit-confirm-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--blue);
+  cursor: pointer;
+}
+.u-edit-confirm-btn:hover { text-decoration: underline; }
+.u-edit-confirm-btn.confirm { color: var(--blue); }
 
 /* Compaction divider — a full-width separator marking where the daemon
    compacted the context. Prior turns above it are untouched; clicking the

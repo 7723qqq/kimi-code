@@ -13,5 +13,8 @@ export default {
   summaryTitle: '压缩摘要',
   manuallyAborted: '您已手动终止',
   activatedSkill: '已激活技能: {name}',
-  editResend: '编辑并重发',
+  undo: '撤销',
+  undoConfirm: '确定撤销？',
+  confirm: '确定',
+  cancel: '取消',
 } as const;
