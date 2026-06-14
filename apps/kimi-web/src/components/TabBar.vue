@@ -1,20 +1,28 @@
 <!-- apps/kimi-web/src/components/TabBar.vue -->
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { PaneKey, TodoView } from '../types';
 
-defineProps<{ active: PaneKey; runningTasks: number; changesCount?: number; todos?: TodoView[]; mobile?: boolean }>();
+const props = defineProps<{ active: PaneKey; runningTasks: number; changesCount?: number; todos?: TodoView[]; mobile?: boolean; hasPreview?: boolean }>();
 const emit = defineEmits<{ select: [pane: PaneKey] }>();
 
 const { t } = useI18n();
 
-const tabs: { key: PaneKey; labelKey: string }[] = [
+const BASE_TABS: { key: PaneKey; labelKey: string }[] = [
   { key: 'chat', labelKey: 'sidebar.tabChat' },
   { key: 'files', labelKey: 'sidebar.tabFiles' },
   { key: 'tasks', labelKey: 'sidebar.tabTasks' },
   { key: 'todo', labelKey: 'sidebar.tabTodo' },
   { key: 'terminal', labelKey: 'sidebar.tabTerminal' },
 ];
+
+// 'preview' is a transient tab — shown only while this group hosts a preview.
+const tabs = computed(() =>
+  props.hasPreview
+    ? [...BASE_TABS, { key: 'preview' as PaneKey, labelKey: 'sidebar.tabPreview' }]
+    : BASE_TABS,
+);
 </script>
 
 <template>

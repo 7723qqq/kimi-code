@@ -26,6 +26,7 @@ export default {
   tabTasks: 'tasks',
   tabTodo: 'todo',
   tabTerminal: 'terminal',
+  tabPreview: 'preview',
   noSessions: 'No conversations yet',
   showMore: 'Show more ({count})',
 } as const;

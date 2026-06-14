@@ -88,6 +88,15 @@ const props = defineProps<{
   sessionTitle?: string;
   /** GitHub PR for the current branch, when known (shown in the chat header). */
   pr?: { number: number; state: string; url: string } | null;
+  // ---- Global preview pane (file/media opened from chat links) ------------
+  // Owned by App; rendered here as a split pane (a peer of chat/files) so the
+  // preview lives at the same level as the other views, not in a separate panel.
+  previewFile?: FileData | null;
+  previewLoading?: boolean;
+  previewError?: string | null;
+  previewLine?: number;
+  previewDownloadUrl?: string | null;
+  previewExternalActions?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -116,6 +125,12 @@ const emit = defineEmits<{
   openCompaction: [target: { turnId: string }];
   /** Edit + resend the last user message (App undoes, then refills composer). */
   editMessage: [text: string];
+  /** Preview pane: close it (App clears the preview state). */
+  closePreview: [];
+  /** Preview pane: open the previewed file in the external editor. */
+  openPreviewExternal: [];
+  /** Preview pane: reveal the previewed file in the OS file manager. */
+  revealPreview: [];
   /** Empty-composer workspace picker: start a new conversation elsewhere. */
   selectWorkspace: [workspaceId: string];
   /** Empty-composer workspace picker: create a new workspace. */
@@ -177,7 +192,29 @@ function switchTab(tab: PaneKey): void {
 function loadComposerForEdit(value: string): void {
   (dockedComposerRef.value ?? emptyComposerRef.value)?.loadForEdit(value);
 }
-defineExpose({ switchTab, loadComposerForEdit });
+
+/** Open (or focus) the preview pane — App calls this when a file/media preview
+    is requested, so the preview shows as a split pane at the chat/files level. */
+function openPreviewPane(): void {
+  paneLayout.openPreview();
+}
+
+/** Close the preview pane and tell App to clear the preview state. */
+function closePreviewPane(): void {
+  paneLayout.closePreview();
+  emit('closePreview');
+}
+
+// When App clears the preview (e.g. on a session switch), drop the now-empty
+// preview pane. Watcher batching means the transient null state while a preview
+// is opening (loading already true by then) never triggers this.
+watch(
+  () => [props.previewFile, props.previewLoading, props.previewError] as const,
+  ([file, loading, error]) => {
+    if (!file && !loading && !error) paneLayout.closePreview();
+  },
+);
+defineExpose({ switchTab, loadComposerForEdit, openPreviewPane });
 
 function firstGroupId(node: PaneLayout): string | undefined {
   if (node.type === 'group') return node.id;
@@ -764,9 +801,10 @@ onUnmounted(() => {
           :changes-count="changesCount"
           :todos="todos ?? []"
           :can-close="paneLayout.layout.value.type !== 'group'"
+          :has-preview="group.views.includes('preview')"
           @select="selectGroupPane(group, $event)"
           @split="paneLayout.split(group.id, $event)"
-          @close="paneLayout.close(group.id)"
+          @close="group.active === 'preview' ? closePreviewPane() : paneLayout.close(group.id)"
         >
           <div
             :ref="group.active === 'chat' ? 'panesRef' : undefined"
@@ -810,6 +848,21 @@ onUnmounted(() => {
             <Terminal
               v-else-if="group.active === 'terminal' && sessionId"
               :session-id="sessionId"
+            />
+            <!-- Preview pane: a file/media preview opened from a chat link, shown
+                 here as a peer of chat/files instead of a separate side panel. -->
+            <FilePreview
+              v-else-if="group.active === 'preview'"
+              :file="previewFile ?? null"
+              :loading="previewLoading ?? false"
+              :error="previewError ?? null"
+              :line="previewLine"
+              :download-url="previewDownloadUrl ?? null"
+              closable
+              :external-actions="previewExternalActions"
+              @close="closePreviewPane"
+              @open-external="emit('openPreviewExternal')"
+              @reveal="emit('revealPreview')"
             />
             <template v-else-if="group.active === 'files'">
               <div v-show="!mobile || !filesShowPreview" class="files-nav">
