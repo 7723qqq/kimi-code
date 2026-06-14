@@ -5,12 +5,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import OpenInMenu from './OpenInMenu.vue';
 
 const { t } = useI18n();
 
 const props = defineProps<{
   sessionId?: string;
   workspaceName?: string;
+  /** Absolute path to the active workspace root (shown in the Open menu). */
+  workspaceRoot?: string;
   sessionTitle?: string;
   branch?: string;
   ahead?: number;
@@ -24,7 +27,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  openInEditor: [];
+  openInApp: [appId: string];
   copyAll: [];
   openPr: [url: string];
   renameSession: [id: string, title: string];
@@ -280,13 +283,8 @@ function startArchive(): void {
       <span>PR #{{ pr.number }} · {{ pr.state }}</span>
     </button>
 
-    <!-- Open in editor — shorter label on desktop, icon-only on narrow widths -->
-    <button type="button" class="ch-act ch-act-editor" :title="t('header.openInEditor')" @click="emit('openInEditor')">
-      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M9 2h5v5M14 2 7 9M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5" />
-      </svg>
-      <span class="ch-act-label">{{ t('header.openInEditorShort') }}</span>
-    </button>
+    <!-- Open workspace in an external app (style + behaviour mirrors kimi-cli/web). -->
+    <OpenInMenu v-if="sessionId" :work-dir="workspaceRoot" @open-in-app="(app) => emit('openInApp', app)" />
   </header>
 </template>
 

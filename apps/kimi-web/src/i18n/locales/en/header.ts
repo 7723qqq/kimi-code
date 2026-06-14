@@ -1,8 +1,10 @@
 export default {
   openInEditor: 'Open in editor',
   openInEditorShort: 'Open',
+  chooseOpenApp: 'Choose application',
   copyAll: 'Copy all as Markdown',
   copied: 'Copied',
+  copyPath: 'Copy path',
   changed: '{n} changed',
   gitTooltip: 'Git branch & status',
   openPr: 'Open pull request',

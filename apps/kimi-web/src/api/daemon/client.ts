@@ -846,6 +846,17 @@ export class DaemonKimiWebApi implements KimiWebApi {
     );
   }
 
+  async openInApp(
+    sessionId: string,
+    appId: string,
+    path: string,
+  ): Promise<void> {
+    // TODO: wire to a per-app daemon endpoint once the backend supports it.
+    // For now, fall back to the generic file opener so the UI stays useful.
+    await this.openFile(sessionId, { path });
+    void appId;
+  }
+
   // -------------------------------------------------------------------------
   // Workspaces + daemon folder browser
   // PRESUMED — falls back until the daemon ships /workspaces, /fs:browse, /fs:home.

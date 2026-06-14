@@ -2933,6 +2933,21 @@ async function openWorkspaceFile(path: string, line?: number): Promise<boolean> 
   }
 }
 
+/**
+ * Open the current workspace in an external application (Finder, Cursor, etc.).
+ * TODO: once the daemon supports a per-app open endpoint, route by appId there.
+ */
+async function openInApp(appId: string): Promise<void> {
+  const sid = rawState.activeSessionId;
+  if (!sid) return;
+  const path = status.value.cwd || '.';
+  try {
+    await getKimiWebApi().openInApp(sid, appId, path);
+  } catch (err) {
+    pushOperationFailure('openInApp', err, { sessionId: sid });
+  }
+}
+
 async function revealWorkspaceFile(path: string): Promise<boolean> {
   const sid = rawState.activeSessionId;
   if (!sid) return false;
@@ -3129,6 +3144,7 @@ export function useKimiWebClient() {
     readFileContent,
     getFileDownloadUrl,
     openWorkspaceFile,
+    openInApp,
     revealWorkspaceFile,
     resolveImageUrl,
 

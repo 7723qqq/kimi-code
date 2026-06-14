@@ -76,6 +76,8 @@ const props = defineProps<{
   skills?: AppSkill[];
   /** Workspace name shown in the empty-session hint above the centred composer. */
   workspaceName?: string;
+  /** Absolute workspace root path shown by the Open menu. */
+  workspaceRoot?: string;
   /** Workspaces for the empty-composer picker (start a conversation elsewhere). */
   workspaces?: WorkspaceView[];
   /** Active workspace id, to highlight the current entry in the picker. */
@@ -114,8 +116,8 @@ const emit = defineEmits<{
   selectWorkspace: [workspaceId: string];
   /** Empty-composer workspace picker: create a new workspace. */
   addWorkspace: [];
-  /** Chat header: open the workspace in the user's editor. */
-  openInEditor: [];
+  /** Chat header: open the workspace in an external application. */
+  openInApp: [appId: string];
   /** Chat header: open the GitHub PR in a new tab. */
   openPr: [url: string];
   /** Chat header / session row: rename current session. */
@@ -677,6 +679,7 @@ onUnmounted(() => {
       v-if="!mobile && !(turns.length === 0 && !sessionLoading)"
       :session-id="sessionId"
       :workspace-name="workspaceName"
+      :workspace-root="workspaceRoot"
       :session-title="sessionTitle"
       :branch="gitInfo?.branch"
       :ahead="gitInfo?.ahead"
@@ -685,7 +688,7 @@ onUnmounted(() => {
       :is-git-repo="!!gitInfo"
       :pr="pr"
       :copied="copyConversationCopied"
-      @open-in-editor="emit('openInEditor')"
+      @open-in-app="(app) => emit('openInApp', app)"
       @copy-all="chatPaneRef?.copyConversation()"
       @open-pr="pr && emit('openPr', pr.url)"
       @rename-session="(id, title) => emit('renameSession', id, title)"

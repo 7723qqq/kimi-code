@@ -564,6 +564,12 @@ export interface KimiWebApi {
   getFileDownloadUrl(sessionId: string, path: string): string;
   openFile(sessionId: string, input: { path: string; line?: number }): Promise<{ opened: true }>;
   revealFile(sessionId: string, input: { path: string }): Promise<{ revealed: true }>;
+  /**
+   * Open the session working directory in an external application.
+   * TODO: this currently falls back to the generic `openFile` endpoint until
+   * the daemon ships a per-app `/open-in` route.
+   */
+  openInApp(sessionId: string, appId: string, path: string): Promise<void>;
   connectEvents(handlers: KimiEventHandlers): KimiEventConnection;
 
   // Workspaces + daemon folder browser

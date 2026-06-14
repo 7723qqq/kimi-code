@@ -1,8 +1,10 @@
 export default {
   openInEditor: '在编辑器中打开',
   openInEditorShort: '打开',
+  chooseOpenApp: '选择应用',
   copyAll: '复制全部对话为 Markdown',
   copied: '已复制',
+  copyPath: '复制路径',
   changed: '{n} 处改动',
   gitTooltip: 'Git 分支与状态',
   openPr: '打开 Pull Request',
