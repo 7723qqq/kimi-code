@@ -28,6 +28,7 @@ export default {
   goalPause: 'Pause',
   goalResume: 'Resume',
   goalCancel: 'Cancel',
+  modeNotSupported: 'Not supported',
   // Thinking selector
   thinkingLabel: 'thinking',
   thinkingTooltip: 'Toggle thinking mode',

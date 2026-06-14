@@ -792,9 +792,7 @@ const modesMenuRef = ref<HTMLElement | null>(null);
 // The menu is position:fixed (so no composer stacking context can paint over
 // it); these coords anchor it just above the pill, computed on open.
 const modesMenuStyle = ref<Record<string, string>>({});
-const anyModeActive = computed(
-  () => planOn.value || !!props.activationBadges?.goal || !!props.activationBadges?.swarm,
-);
+const anyModeActive = computed(() => planOn.value);
 function closeModes(): void {
   modesOpen.value = false;
   document.removeEventListener('mousedown', onModesDocClick);
@@ -819,30 +817,6 @@ function toggleModes(): void {
   modesOpen.value = true;
   setTimeout(() => document.addEventListener('mousedown', onModesDocClick), 0);
 }
-const swarmOn = computed(() => props.swarmMode === true);
-
-const goalDraft = ref('');
-const goalMenuExpanded = ref(false);
-function startGoalFromMenu(): void {
-  const text = goalDraft.value.trim();
-  if (!text) return;
-  emit('createGoal', text);
-  goalDraft.value = '';
-  goalMenuExpanded.value = false;
-  closeModes();
-}
-function sendGoalControl(action: 'pause' | 'resume' | 'cancel'): void {
-  emit('controlGoal', action);
-  closeModes();
-}
-
-function formatElapsed(ms: number): string {
-  const minutes = Math.max(0, Math.round(ms / 60000));
-  if (minutes < 1) return '<1m';
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
 // Permission modes
 const PERM_MODES: { mode: PermissionMode; color: string; labelKey: string; descKey: string }[] = [
   { mode: 'manual', color: 'var(--dim)', labelKey: 'status.permissionManual', descKey: 'status.permissionManualDesc' },
@@ -1091,8 +1065,6 @@ function selectModel(modelId: string): void {
             >
               <span class="mode-label">{{ t('status.modesLabel') }}</span>
               <span v-if="planOn" class="mode-tag">{{ t('status.planLabel') }}</span>
-              <span v-if="activationBadges?.goal" class="mode-dot" aria-hidden="true"></span>
-              <span v-if="activationBadges?.swarm" class="mode-tag">swarm {{ activationBadges.swarm.done }}/{{ activationBadges.swarm.total }}</span>
             </button>
 
             <div v-if="modesOpen" ref="modesMenuRef" class="modes-menu" :style="modesMenuStyle">
@@ -1101,45 +1073,15 @@ function selectModel(modelId: string): void {
                 <span class="mode-row-name">{{ t('status.planLabel') }}</span>
                 <span class="mode-switch" :class="{ on: planOn }"><span class="mode-knob" /></span>
               </button>
-              <!-- Swarm — functional client toggle -->
-              <button type="button" class="mode-row" :class="{ on: swarmOn }" @click="emit('toggleSwarm')">
+              <!-- Swarm — temporarily disabled -->
+              <button type="button" class="mode-row" disabled>
                 <span class="mode-row-name">{{ t('status.swarmLabel') }}</span>
-                <span class="mode-switch" :class="{ on: swarmOn }"><span class="mode-knob" /></span>
+                <span class="mode-row-not-supported">{{ t('status.modeNotSupported') }}</span>
               </button>
-              <!-- Goal creation + control -->
-              <div class="mode-row mode-row-goal" :class="{ on: !!activationBadges?.goal }" @mousedown.stop>
+              <!-- Goal — temporarily disabled -->
+              <div class="mode-row" disabled>
                 <span class="mode-row-name">{{ t('status.goalLabel') }}</span>
-                <template v-if="!activationBadges?.goal">
-                  <button
-                    v-if="!goalMenuExpanded"
-                    type="button"
-                    class="mode-row-action"
-                    @click="goalMenuExpanded = true"
-                  >{{ t('status.goalStart') }}</button>
-                  <template v-else>
-                    <input
-                      v-model="goalDraft"
-                      type="text"
-                      class="mode-row-input"
-                      :placeholder="t('status.goalPlaceholder')"
-                      @keydown.enter.prevent="startGoalFromMenu"
-                    />
-                    <button
-                      type="button"
-                      class="mode-row-action"
-                      :disabled="!goalDraft.trim()"
-                      @click="startGoalFromMenu"
-                    >{{ t('status.goalStart') }}</button>
-                  </template>
-                </template>
-                <template v-else>
-                  <span class="mode-row-meta">{{ activationBadges.goal.status }} · {{ formatElapsed(activationBadges.goal.elapsedMs) }} · {{ activationBadges.goal.turnsUsed }} turns</span>
-                  <div class="mode-row-actions">
-                    <button type="button" class="mode-row-action" @click="sendGoalControl('pause')">{{ t('status.goalPause') }}</button>
-                    <button type="button" class="mode-row-action" @click="sendGoalControl('resume')">{{ t('status.goalResume') }}</button>
-                    <button type="button" class="mode-row-action" @click="sendGoalControl('cancel')">{{ t('status.goalCancel') }}</button>
-                  </div>
-                </template>
+                <span class="mode-row-not-supported">{{ t('status.modeNotSupported') }}</span>
               </div>
             </div>
           </div>
@@ -1881,8 +1823,13 @@ function selectModel(modelId: string): void {
   text-align: left;
 }
 .mode-row:hover:not(:disabled) { background: var(--panel2); }
-.mode-row:disabled { cursor: default; }
+.mode-row:disabled { cursor: not-allowed; opacity: 0.45; }
 .mode-row-name { font-size: 13px; color: var(--ink); }
+.mode-row-not-supported {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
 .mode-row.on .mode-row-name { color: var(--blue2); font-weight: 600; }
 .mode-row-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .mode-row:disabled .mode-row-meta { color: var(--faint); }

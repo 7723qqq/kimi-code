@@ -28,6 +28,7 @@ export default {
   goalPause: '暂停',
   goalResume: '继续',
   goalCancel: '取消',
+  modeNotSupported: '暂不支持',
   // 思考强度选择
   thinkingLabel: '思考',
   thinkingTooltip: '切换思考模式',
