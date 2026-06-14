@@ -10,8 +10,6 @@ export default {
   options: 'Options',
   rename: 'Rename',
   copyPath: 'Copy path',
-  shareConversation: 'Copy conversation',
-  shareConversationCopied: 'Copied',
   archive: 'Archive',
   fork: 'Fork session',
   delete: 'Delete',

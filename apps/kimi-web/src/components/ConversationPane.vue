@@ -690,10 +690,7 @@ onUnmounted(() => {
       :changes-count="changesCount"
       :todos="todos ?? []"
       :mobile="mobile"
-      :show-copy-conversation="turns.length > 0"
-      :copy-conversation-copied="copyConversationCopied"
       @select="active = $event"
-      @copy-conversation="chatPaneRef?.copyConversation()"
     />
 
     <SplitLayout
@@ -709,12 +706,9 @@ onUnmounted(() => {
           :changes-count="changesCount"
           :todos="todos ?? []"
           :can-close="paneLayout.layout.value.type !== 'group'"
-          :show-copy-conversation="group.active === 'chat' && turns.length > 0"
-          :copy-conversation-copied="copyConversationCopied"
           @select="selectGroupPane(group, $event)"
           @split="paneLayout.split(group.id, $event)"
           @close="paneLayout.close(group.id)"
-          @copy-conversation="chatPaneRef?.copyConversation()"
         >
           <div
             :ref="group.active === 'chat' ? 'panesRef' : undefined"
