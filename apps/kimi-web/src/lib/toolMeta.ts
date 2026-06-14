@@ -148,6 +148,17 @@ function clip(s: string, max = SUMMARY_MAX): string {
   return trimmed.length > max ? trimmed.slice(0, max - 1) + '…' : trimmed;
 }
 
+/** True when the tool argument carries nothing worth showing — an empty object
+    `{}`, empty array `[]`, empty/`null` string, or a parsed record with no keys.
+    Used to drop the noisy `{}` from the collapsed header (the expanded body
+    still renders it). */
+function isEmptyArg(arg: string, d: Record<string, unknown> | null): boolean {
+  const s = arg.trim();
+  if (s === '' || s === '{}' || s === '[]' || s === 'null') return true;
+  if (d && Object.keys(d).length === 0) return true;
+  return false;
+}
+
 /** Parse the JSON-stringified `arg` into a record, or null for plain strings. */
 function parseArg(arg: string): Record<string, unknown> | null {
   const s = arg.trim();
@@ -196,6 +207,9 @@ export function toolSummary(name: string, arg: string, full = false): string {
   const c = (s: string, max = SUMMARY_MAX): string => (full ? s.trim() : clip(s, max));
   try {
     const d = parseArg(arg);
+    // Empty argument (e.g. `{}`): keep it OUT of the collapsed header title, but
+    // still show it in the expanded body (full mode) so the detail isn't lost.
+    if (!full && isEmptyArg(arg, d)) return '';
     // Plain-string arg (already a human string).
     const fallback = () => c(arg.replace(/^·\s*/, ''));
     if (!d) return fallback();
