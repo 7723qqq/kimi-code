@@ -108,6 +108,8 @@ const emit = defineEmits<{
   openCompaction: [target: { turnId: string }];
   /** Empty-composer workspace picker: start a new conversation elsewhere. */
   selectWorkspace: [workspaceId: string];
+  /** Empty-composer workspace picker: create a new workspace. */
+  addWorkspace: [];
   /** Chat header: open the workspace in the user's editor. */
   openInEditor: [];
   /** Chat header: open the GitHub PR in a new tab. */
@@ -833,6 +835,17 @@ onUnmounted(() => {
                   <span class="ws-pick-item-name">{{ w.name }}</span>
                   <span class="ws-pick-item-path">{{ w.shortPath }}</span>
                 </button>
+                <div class="ws-pick-divider" />
+                <button
+                  type="button"
+                  class="ws-pick-action"
+                  @click.stop="wsPickOpen = false; emit('addWorkspace')"
+                >
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+                    <path d="M8 3v10M3 8h10"/>
+                  </svg>
+                  <span>{{ t('conversation.addWorkspace') }}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1234,6 +1247,28 @@ onUnmounted(() => {
 .ws-pick-item-name { font-size: 13px; color: var(--ink); }
 .ws-pick-item.on .ws-pick-item-name { color: var(--blue2); font-weight: 600; }
 .ws-pick-item-path { font-size: 11px; color: var(--muted); }
+.ws-pick-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+.ws-pick-action {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--dim);
+}
+.ws-pick-action:hover { background: var(--panel2); color: var(--ink); }
+.ws-pick-action svg { flex: none; }
 
 /* Larger textarea in the centred empty-session composer */
 :deep(.empty-composer .ph) {

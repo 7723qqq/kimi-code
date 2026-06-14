@@ -31,7 +31,6 @@ const emit = defineEmits<{
   setNotify: [on: boolean];
   login: [];
   logout: [];
-  addWorkspace: [];
   openOnboarding: [];
   close: [];
 }>();
@@ -124,7 +123,6 @@ function exportLog(): void {
             <span v-if="authReady && accountModel" class="rvalue" :title="accountModel">{{ accountModel }}</span>
           </div>
           <div class="actions">
-            <button type="button" class="act" @click="emit('addWorkspace'); emit('close')">{{ t('workspace.addWorkspace') }}</button>
             <button type="button" class="act" @click="emit('openOnboarding'); emit('close')">{{ t('onboarding.reopen') }}</button>
             <button v-if="authReady" type="button" class="act danger" @click="emit('logout')">{{ t('sidebar.signOut') }}</button>
             <button v-else type="button" class="act signin" @click="emit('login')">{{ t('sidebar.signIn') }}</button>

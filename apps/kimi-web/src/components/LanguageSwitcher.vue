@@ -28,34 +28,27 @@ function choose(code: LocaleCode): void {
 <style scoped>
 .lang-switch {
   display: inline-flex;
-  align-items: center;
-  gap: 0;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 8px;
   overflow: hidden;
   font-family: var(--mono);
 }
 .lang-opt {
   appearance: none;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  font: inherit;
-  font-size: 10.5px;
-  line-height: 1;
-  color: var(--muted);
-  padding: 3px 8px;
-}
-.lang-opt + .lang-opt {
+  border: none;
   border-left: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
 }
-.lang-opt:hover {
-  color: var(--ink);
-  background: var(--panel2);
-}
+.lang-opt:first-child { border-left: none; }
+.lang-opt:hover { color: var(--ink); }
 .lang-opt.on {
-  color: var(--ink);
-  background: var(--line2);
+  background: var(--soft);
+  color: var(--blue2);
   font-weight: 600;
 }
 </style>

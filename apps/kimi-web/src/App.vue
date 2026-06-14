@@ -642,6 +642,7 @@ function openPr(url: string): void {
       :pr="null"
       @select-workspace="handleCreateSessionInWorkspace($event)"
       @open-in-editor="client.openWorkspaceFile('.')"
+      @add-workspace="showAddWorkspace = true"
       @open-pr="openPr"
       @submit="handleSubmit($event)"
       @steer="client.steerPrompt($event.text, $event.attachments)"
@@ -746,7 +747,6 @@ function openPr(url: string): void {
       @set-notify="client.setNotifyOnComplete($event)"
       @login="() => { showSettings = false; openLogin(); }"
       @logout="client.logout"
-      @add-workspace="() => { showSettings = false; showAddWorkspace = true; }"
       @open-onboarding="() => { showSettings = false; openOnboarding(); }"
       @close="showSettings = false"
     />

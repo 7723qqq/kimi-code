@@ -4,6 +4,7 @@ export default {
   loading: 'Loading…',
   emptyWorkspaceHint: 'Send in {name}',
   switchWorkspace: 'Switch workspace',
+  addWorkspace: 'New workspace',
   compacting: 'Compacting context…',
   compactedPlain: 'Context compacted',
   compactedAuto: 'Context auto-compacted',
