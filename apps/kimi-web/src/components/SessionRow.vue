@@ -363,6 +363,9 @@ defineExpose({ closeMenu, cancelDelete });
 }
 .archive-label {
   color: var(--err);
+  /* Match the normal session title (.t) so the confirm text lines up with it
+     in size and baseline, not as a smaller note. */
+  font-size: 14px;
   flex: 1;
   min-width: 0;
   overflow: hidden;

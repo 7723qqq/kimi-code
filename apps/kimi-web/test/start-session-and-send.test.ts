@@ -58,6 +58,7 @@ async function setup() {
     createSession: vi.fn(async () => created),
     submitPrompt: vi.fn(async () => ({ promptId: 'pr_1', userMessageId: 'msg_real' })),
     addWorkspace: vi.fn(async () => ({ id: 'ws_repo', root: '/repo', name: 'repo', isGitRepo: false, sessionCount: 0 })),
+    deleteWorkspace: vi.fn(async () => ({ deleted: true })),
     listWorkspaces: vi.fn(async () => []),
     browseFs: vi.fn(async (path?: string) => ({ path: path ?? '/home/user', parent: null, entries: [] })),
     getFsHome: vi.fn(async () => ({ home: '/home/user', recentRoots: [] })),
@@ -203,6 +204,22 @@ describe('openWorkspaceDraft', () => {
     expect(client.activeSessionId.value).toBe('');
     expect(client.sessions.value).toHaveLength(1);
     expect(client.activeWorkspaceId.value).toBe('ws_repo');
+  });
+
+  it('clears the active session when the active workspace is removed', async () => {
+    const { api, client } = await setup();
+    await client.addWorkspaceByPath('/repo');
+    await client.startSessionAndSendPrompt('ws_repo', 'hello');
+
+    expect(client.activeSessionId.value).toBe('sess_new');
+    expect(client.activeWorkspaceId.value).toBe('ws_repo');
+
+    await client.deleteWorkspace('ws_repo');
+
+    expect(api.deleteWorkspace).toHaveBeenCalledWith('ws_repo');
+    expect(client.activeSessionId.value).toBe('');
+    expect(client.activeWorkspaceId.value).toBeNull();
+    expect(client.sessions.value).toHaveLength(1);
   });
 });
 

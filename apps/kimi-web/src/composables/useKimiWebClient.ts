@@ -244,6 +244,32 @@ function loadActiveWorkspaceFromStorage(): string | null {
   }
 }
 
+// Roots the user removed from the sidebar. "Remove workspace" must hide a
+// workspace even when it still has sessions (the daemon DELETE is registry-only
+// and mergedWorkspaces would otherwise re-derive it from those sessions' cwds).
+// History is untouched — only the sidebar entry is hidden — so this is persisted
+// per browser, keyed by root path.
+const HIDDEN_WORKSPACES_KEY = 'kimi-web.hidden-workspaces';
+
+function loadHiddenWorkspacesFromStorage(): string[] {
+  try {
+    const v = localStorage.getItem(HIDDEN_WORKSPACES_KEY);
+    if (!v) return [];
+    const parsed = JSON.parse(v);
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHiddenWorkspacesToStorage(roots: string[]): void {
+  try {
+    localStorage.setItem(HIDDEN_WORKSPACES_KEY, JSON.stringify(roots));
+  } catch {
+    // ignore
+  }
+}
+
 function saveActiveWorkspaceToStorage(id: string): void {
   try {
     localStorage.setItem(ACTIVE_WORKSPACE_KEY, id);
@@ -316,6 +342,8 @@ interface ExtendedState extends KimiClientState {
   activeWorkspaceId: string | null;
   fsHome: string | null;
   recentRoots: string[];
+  // Root paths the user removed from the sidebar (see HIDDEN_WORKSPACES_KEY).
+  hiddenWorkspaceRoots: string[];
 }
 
 const rawState: ExtendedState = reactive({
@@ -342,6 +370,7 @@ const rawState: ExtendedState = reactive({
   activeWorkspaceId: loadActiveWorkspaceFromStorage(),
   fsHome: null,
   recentRoots: [],
+  hiddenWorkspaceRoots: loadHiddenWorkspacesFromStorage(),
 });
 
 // Models + Providers reactive state (lazy-loaded, cached)
@@ -1443,15 +1472,18 @@ function workspaceIdForSession(s: { workspaceId?: string; cwd: string }): string
  * immediately off existing sessions until /workspaces ships.
  */
 const mergedWorkspaces = computed<AppWorkspace[]>(() => {
+  const hidden = new Set(rawState.hiddenWorkspaceRoots);
   const byRoot = new Map<string, AppWorkspace>();
-  // Real workspaces win on root.
+  // Real workspaces win on root (unless the user removed them from the sidebar).
   for (const w of rawState.workspaces) {
+    if (hidden.has(w.root)) continue;
     byRoot.set(w.root, { ...w });
   }
   // Derive from sessions for any cwd without a real workspace.
   for (const s of rawState.sessions) {
     const root = s.cwd;
     if (!root) continue;
+    if (hidden.has(root)) continue; // removed from the sidebar — keep it hidden
     if (!byRoot.has(root)) {
       byRoot.set(root, {
         // Use the session's REAL daemon workspace_id (wd_<slug>_<hash>) so
@@ -1836,6 +1868,11 @@ function openWorkspace(id: string): void {
 /** Upsert a workspace: preserve existing order when updating; prepend only
  *  for truly new workspaces. */
 function upsertWorkspacePreserveOrder(workspace: AppWorkspace): void {
+  // Re-adding a path the user previously removed should bring it back.
+  if (rawState.hiddenWorkspaceRoots.includes(workspace.root)) {
+    rawState.hiddenWorkspaceRoots = rawState.hiddenWorkspaceRoots.filter((r) => r !== workspace.root);
+    saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
+  }
   const index = rawState.workspaces.findIndex(
     (w) => w.id === workspace.id || w.root === workspace.root,
   );
@@ -2582,27 +2619,50 @@ function renameWorkspace(id: string, name: string): void {
 
 /** Delete a workspace — calls API, removes locally */
 async function deleteWorkspace(id: string): Promise<void> {
-  // A workspace with sessions can't actually disappear: the daemon's DELETE is
-  // registry-only (it does not cascade to sessions), and mergedWorkspaces
-  // re-derives the workspace from any session cwd that still points at it —
-  // so it would pop right back. Refuse with an explanation instead of letting
-  // the delete LOOK like it did nothing.
-  const hasSessions = rawState.sessions.some((s) => workspaceIdForSession(s) === id);
-  if (hasSessions) {
-    pushWarning(i18n.global.t('workspace.deleteHasSessions'));
-    return;
+  // "Remove workspace" only hides the sidebar entry — it never deletes sessions
+  // or history. The daemon DELETE is registry-only and mergedWorkspaces would
+  // otherwise re-derive the workspace from any session cwd still pointing at it,
+  // so it would pop right back. To make remove actually stick (even when the
+  // workspace has sessions), record its ROOT in the persisted hidden set; the
+  // merge then skips it. Re-adding the same path un-hides it (see addWorkspace).
+  const root =
+    rawState.workspaces.find((w) => w.id === id)?.root ??
+    mergedWorkspaces.value.find((w) => w.id === id)?.root ??
+    id; // derived workspaces use the cwd as their id
+  const activeSession = rawState.activeSessionId
+    ? rawState.sessions.find((s) => s.id === rawState.activeSessionId)
+    : undefined;
+  const removingActiveWorkspace = rawState.activeWorkspaceId === id || rawState.activeWorkspaceId === root;
+  const activeSessionInRemovedWorkspace = Boolean(
+    activeSession &&
+      (activeSession.cwd === root ||
+        activeSession.workspaceId === id ||
+        workspaceIdForSession(activeSession) === id),
+  );
+  if (root && !rawState.hiddenWorkspaceRoots.includes(root)) {
+    rawState.hiddenWorkspaceRoots = [...rawState.hiddenWorkspaceRoots, root];
+    saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
   }
+  // Best-effort registry cleanup; ignore failures (the hide already took effect).
   try {
-    const api = getKimiWebApi();
-    await api.deleteWorkspace(id);
-    rawState.workspaces = rawState.workspaces.filter((w) => w.id !== id);
-    // Clear active workspace if it was the deleted one
-    if (rawState.activeWorkspaceId === id) {
-      rawState.activeWorkspaceId = null;
+    await getKimiWebApi().deleteWorkspace(id);
+  } catch {
+    // registry delete is optional — the sidebar hide is what the user sees.
+  }
+  rawState.workspaces = rawState.workspaces.filter((w) => w.id !== id && w.root !== root);
+  if (removingActiveWorkspace || activeSessionInRemovedWorkspace) {
+    const nextWorkspace = mergedWorkspaces.value[0]?.id ?? null;
+    rawState.activeWorkspaceId = nextWorkspace;
+    if (nextWorkspace) saveActiveWorkspaceToStorage(nextWorkspace);
+    else {
       try { localStorage.removeItem(ACTIVE_WORKSPACE_KEY); } catch { /* ignore */ }
     }
-  } catch (err) {
-    pushOperationFailure('deleteWorkspace', err);
+  }
+  if (removingActiveWorkspace || activeSessionInRemovedWorkspace) {
+    rawState.activeSessionId = undefined;
+    rawState.sessionLoading = false;
+    clearFileDiff();
+    writeSessionUrl(undefined, 'replace');
   }
 }
 
