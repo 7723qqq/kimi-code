@@ -175,6 +175,37 @@ describe('steerPrompt', () => {
     expect(userTurns.map((t) => t.text)).toEqual(['first', 'look at this']);
   });
 
+  it('merges an image-steer echo even when it carries no matching prompt_id (race)', async () => {
+    const { client, getHandlers } = await setup({ submitStatuses: ['running', 'queued'] });
+    await client.createSession('/repo');
+    await client.sendPrompt('first');
+    await client.steerPrompt('look at this', [{ fileId: 'file_1' }]);
+
+    // The echo arrives WITHOUT a prompt_id (the WS event can land before the
+    // submit response stamps it onto the optimistic copy) AND with a different
+    // image serialization. Neither prompt_id nor exact-content matches, so only
+    // the loose (text + image-count) fallback can reconcile it.
+    getHandlers().onEvent(
+      {
+        type: 'messageCreated',
+        message: {
+          id: 'msg_real_x',
+          sessionId: 'sess_1',
+          role: 'user',
+          content: [
+            { type: 'text', text: 'look at this' },
+            { type: 'image', source: { kind: 'url', url: 'https://daemon/img.png' } },
+          ],
+          createdAt: now,
+        },
+      },
+      { sessionId: 'sess_1', seq: 7 },
+    );
+
+    const userTurns = client.turns.value.filter((t) => t.role === 'user');
+    expect(userTurns.map((t) => t.text)).toEqual(['first', 'look at this']);
+  });
+
   it('merges queued prompts + live text into one steered message and clears the queue', async () => {
     const { api, client } = await setup({ submitStatuses: ['running', 'queued'] });
     await client.createSession('/repo');
