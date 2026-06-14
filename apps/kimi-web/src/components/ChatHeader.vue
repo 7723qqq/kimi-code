@@ -42,19 +42,30 @@ const changes = computed(() => props.changesCount ?? 0);
       <span v-if="sessionTitle" class="ch-ses" :title="sessionTitle">{{ sessionTitle }}</span>
     </div>
 
-    <!-- Git branch + status -->
+    <!-- Copy all conversation — kept close to the title on the left -->
+    <button type="button" class="ch-act ch-act-copy" :title="t('header.copyAll')" @click="emit('copyAll')">
+      <svg v-if="!copied" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="9" height="9" rx="1.5" /><path d="M6 1h7a1 1 0 0 1 1 1v7" />
+      </svg>
+      <svg v-else viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="3,8 6.5,11.5 13,5" />
+      </svg>
+      <span class="ch-act-label">{{ copied ? t('header.copied') : t('header.copyAll') }}</span>
+    </button>
+
+    <div class="ch-spacer" />
+
+    <!-- Git branch + status — plain text with semantic colors -->
     <div v-if="isGitRepo && branch" class="ch-git" :title="t('header.gitTooltip')">
       <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
         <circle cx="4" cy="4" r="1.7" /><circle cx="4" cy="12" r="1.7" /><circle cx="12" cy="6" r="1.7" />
         <path d="M4 5.7v4.6M5.7 4H9a2 2 0 0 1 2 2v.3" />
       </svg>
       <span class="ch-branch">{{ branch }}</span>
-      <span v-if="ahead > 0" class="ch-num">↑{{ ahead }}</span>
-      <span v-if="behind > 0" class="ch-num">↓{{ behind }}</span>
+      <span v-if="ahead > 0" class="ch-ahead">↑{{ ahead }}</span>
+      <span v-if="behind > 0" class="ch-behind">↓{{ behind }}</span>
       <span v-if="changes > 0" class="ch-changes">{{ t('header.changed', { n: changes }) }}</span>
     </div>
-
-    <div class="ch-spacer" />
 
     <!-- GitHub PR status -->
     <button
@@ -71,23 +82,12 @@ const changes = computed(() => props.changesCount ?? 0);
       <span>PR #{{ pr.number }} · {{ pr.state }}</span>
     </button>
 
-    <!-- Open in editor -->
-    <button type="button" class="ch-act" :title="t('header.openInEditor')" @click="emit('openInEditor')">
+    <!-- Open in editor — shorter label on desktop, icon-only on narrow widths -->
+    <button type="button" class="ch-act ch-act-editor" :title="t('header.openInEditor')" @click="emit('openInEditor')">
       <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M9 2h5v5M14 2 7 9M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5" />
       </svg>
-      <span class="ch-act-label">{{ t('header.openInEditor') }}</span>
-    </button>
-
-    <!-- Copy all conversation -->
-    <button type="button" class="ch-act" :title="t('header.copyAll')" @click="emit('copyAll')">
-      <svg v-if="!copied" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="3" y="3" width="9" height="9" rx="1.5" /><path d="M6 1h7a1 1 0 0 1 1 1v7" />
-      </svg>
-      <svg v-else viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <polyline points="3,8 6.5,11.5 13,5" />
-      </svg>
-      <span class="ch-act-label">{{ copied ? t('header.copied') : t('header.copyAll') }}</span>
+      <span class="ch-act-label">{{ t('header.openInEditorShort') }}</span>
     </button>
   </header>
 </template>
@@ -127,14 +127,11 @@ const changes = computed(() => props.changesCount ?? 0);
 }
 .ch-git svg { flex: none; }
 .ch-branch { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
-.ch-num { color: var(--muted); flex: none; }
+.ch-ahead { color: var(--warn); flex: none; }
+.ch-behind { color: var(--blue2); flex: none; }
 .ch-changes {
   flex: none;
-  color: var(--blue2);
-  background: var(--soft);
-  border-radius: 999px;
-  padding: 0 7px;
-  line-height: 16px;
+  color: var(--warn);
 }
 .ch-spacer { flex: 1; min-width: 0; }
 
