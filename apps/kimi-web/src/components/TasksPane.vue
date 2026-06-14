@@ -2,6 +2,7 @@
 <!-- TUI-inspired todo list: clean rows with status glyphs, strikethrough done,
      compact output, minimal chrome. Matches the terminal todo-panel style. -->
 <script setup lang="ts">
+import { reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { TaskItem } from '../types';
 
@@ -10,6 +11,20 @@ defineProps<{ tasks: TaskItem[] }>();
 const emit = defineEmits<{ cancel: [taskId: string] }>();
 
 const { t } = useI18n();
+
+// Which task rows are expanded (showing their output/detail). Click a row to
+// toggle. Persisted only for the component's lifetime.
+const expandedIds = reactive(new Set<string>());
+
+function hasDetail(task: TaskItem): boolean {
+  return Boolean((task.output && task.output.length > 0) || task.meta);
+}
+
+function toggle(task: TaskItem): void {
+  if (!hasDetail(task)) return;
+  if (expandedIds.has(task.id)) expandedIds.delete(task.id);
+  else expandedIds.add(task.id);
+}
 
 function statusGlyph(state: string): string {
   switch (state) {
@@ -46,9 +61,9 @@ function statusClass(state: string): string {
           v-for="task in tasks"
           :key="task.id"
           class="tp-row"
-          :class="{ done: task.state === 'done', fail: task.state === 'fail' }"
+          :class="{ done: task.state === 'done', fail: task.state === 'fail', expandable: hasDetail(task) }"
         >
-          <div class="tp-main">
+          <div class="tp-main" :role="hasDetail(task) ? 'button' : undefined" @click="toggle(task)">
             <span class="tp-glyph" :class="statusClass(task.state)">{{ statusGlyph(task.state) }}</span>
             <span class="tp-name">{{ task.name }}</span>
             <span class="tp-kind">{{ task.kind }}</span>
@@ -56,13 +71,25 @@ function statusClass(state: string): string {
             <button
               v-if="task.state === 'run'"
               class="tp-stop"
-              @click="emit('cancel', task.id)"
+              @click.stop="emit('cancel', task.id)"
             >{{ t('tasks.stop') }}</button>
+            <svg
+              v-if="hasDetail(task)"
+              class="tp-chevron"
+              :class="{ open: expandedIds.has(task.id) }"
+              viewBox="0 0 16 16" width="12" height="12"
+              fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+            >
+              <path d="M6 4l4 4-4 4" />
+            </svg>
           </div>
-          <div v-if="task.meta" class="tp-meta">{{ task.meta }}</div>
-          <div v-if="task.output" class="tp-out">
-            <div v-for="(line, i) in task.output" :key="i">{{ line }}</div>
-          </div>
+          <template v-if="expandedIds.has(task.id)">
+            <div v-if="task.meta" class="tp-meta">{{ task.meta }}</div>
+            <div v-if="task.output" class="tp-out">
+              <div v-for="(line, i) in task.output" :key="i">{{ line }}</div>
+            </div>
+          </template>
         </div>
       </template>
     </div>
@@ -125,6 +152,21 @@ function statusClass(state: string): string {
   align-items: center;
   gap: 8px;
   font-size: 12.5px;
+}
+.tp-row.expandable > .tp-main {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.tp-row.expandable > .tp-main:hover {
+  background: var(--panel2);
+}
+.tp-chevron {
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.12s;
+}
+.tp-chevron.open {
+  transform: rotate(90deg);
 }
 
 /* Status glyph */

@@ -1209,7 +1209,30 @@ const turns = computed<ChatTurn[]>(() => {
   );
 });
 
+// A 1-second clock that only ticks while a task is running, so a running task's
+// elapsed-time label keeps counting up. toUiTask reads Date.now() once per
+// evaluation; without this the `tasks` computed only re-ran when tasksBySession
+// changed, freezing the timer at whatever it read on the first render.
+const taskClock = ref(0);
+let taskClockTimer: ReturnType<typeof setInterval> | null = null;
+watch(
+  () => activeAppTasks.value.some((tk) => tk.status === 'running'),
+  (hasRunning) => {
+    if (hasRunning && taskClockTimer === null) {
+      taskClockTimer = setInterval(() => {
+        taskClock.value = (taskClock.value + 1) % Number.MAX_SAFE_INTEGER;
+      }, 1000);
+    } else if (!hasRunning && taskClockTimer !== null) {
+      clearInterval(taskClockTimer);
+      taskClockTimer = null;
+    }
+  },
+  { immediate: true },
+);
+
 const tasks = computed<TaskItem[]>(() => {
+  // Touch the clock so a running task's elapsed time recomputes each tick.
+  void taskClock.value;
   return activeAppTasks.value.map(toUiTask);
 });
 
