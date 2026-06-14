@@ -232,6 +232,34 @@ describe('useKimiWebClient session memory cache', () => {
     expect(client.unreadBySession.value['sess_bg']).toBeUndefined();
   });
 
+  it('uses the fast moon class only for high-speed active-session output', async () => {
+    vi.useFakeTimers();
+    try {
+      const { client, getHandlers } = await setup([]);
+      await client.createSession('/repo');
+
+      getHandlers().onEvent(
+        { type: 'assistantDelta', sessionId: 'sess_bg', messageId: 'msg_bg', contentIndex: 0, delta: { text: 'x'.repeat(80) } },
+        { sessionId: 'sess_bg', seq: 1 },
+      );
+      expect(client.fastMoon.value).toBe(false);
+
+      getHandlers().onEvent(
+        { type: 'assistantDelta', sessionId: 'sess_1', messageId: 'msg_1', contentIndex: 0, delta: { text: 'x'.repeat(80) } },
+        { sessionId: 'sess_1', seq: 2 },
+      );
+      expect(client.fastMoon.value).toBe(true);
+
+      getHandlers().onEvent(
+        { type: 'sessionStatusChanged', sessionId: 'sess_1', status: 'idle', previousStatus: 'running' },
+        { sessionId: 'sess_1', seq: 3 },
+      );
+      expect(client.fastMoon.value).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('fires a browser notification when a background session completes (opt-in)', async () => {
     NotificationMock.instances = [];
     vi.stubGlobal('Notification', NotificationMock);

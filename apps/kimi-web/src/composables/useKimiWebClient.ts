@@ -381,6 +381,58 @@ const models = ref<AppModel[]>([]);
 const skillsBySession = ref<Record<string, AppSkill[]>>({});
 const providers = ref<AppProvider[]>([]);
 
+// CSS handles the moon frames; this only flips the spinner between normal and
+// fast classes when the active session is visibly producing content quickly.
+const MOON_FAST_WINDOW_MS = 600;
+const MOON_FAST_MIN_ELAPSED_MS = 250;
+const MOON_FAST_CHECK_INTERVAL_MS = 250;
+const MOON_FAST_HOLD_MS = 1000;
+const MOON_FAST_CHARS_PER_SECOND = 160;
+
+type MoonSpeedSample = { time: number; chars: number };
+const fastMoon = ref(false);
+let moonSpeedSamples: MoonSpeedSample[] = [];
+let moonFastResetTimer: ReturnType<typeof setTimeout> | null = null;
+let lastMoonFastCheckAt = -MOON_FAST_CHECK_INTERVAL_MS;
+
+function resetFastMoon(): void {
+  moonSpeedSamples = [];
+  lastMoonFastCheckAt = -MOON_FAST_CHECK_INTERVAL_MS;
+  fastMoon.value = false;
+  if (moonFastResetTimer !== null) {
+    clearTimeout(moonFastResetTimer);
+    moonFastResetTimer = null;
+  }
+}
+
+function holdFastMoon(): void {
+  fastMoon.value = true;
+  if (moonFastResetTimer !== null) clearTimeout(moonFastResetTimer);
+  moonFastResetTimer = setTimeout(() => {
+    moonFastResetTimer = null;
+    moonSpeedSamples = [];
+    lastMoonFastCheckAt = -MOON_FAST_CHECK_INTERVAL_MS;
+    fastMoon.value = false;
+  }, MOON_FAST_HOLD_MS);
+}
+
+function recordMoonDelta(chars: number): void {
+  if (chars <= 0) return;
+  const now = Date.now();
+  moonSpeedSamples.push({ time: now, chars });
+  const cutoff = now - MOON_FAST_WINDOW_MS;
+  moonSpeedSamples = moonSpeedSamples.filter((s) => s.time >= cutoff);
+
+  if (now - lastMoonFastCheckAt < MOON_FAST_CHECK_INTERVAL_MS) return;
+  lastMoonFastCheckAt = now;
+
+  const oldest = moonSpeedSamples[0]?.time ?? now;
+  const elapsed = Math.max(now - oldest, MOON_FAST_MIN_ELAPSED_MS);
+  const totalChars = moonSpeedSamples.reduce((sum, s) => sum + s.chars, 0);
+  const charsPerSecond = (totalChars / elapsed) * 1000;
+  if (charsPerSecond >= MOON_FAST_CHARS_PER_SECOND) holdFastMoon();
+}
+
 // Model picked while in the "new session draft" state (onboarding composer —
 // no backend session exists yet, so POST /profile has nothing to target).
 // Applied and cleared when the first prompt creates the session.
@@ -674,6 +726,10 @@ function connectEventsIfNeeded(): void {
       // persistent divider marker in the reducer (TUI parity: the scrollback
       // is kept, only a marker line records the compaction).
       applyEvent(appEvent, meta.sessionId, meta.seq);
+
+      if (appEvent.type === 'assistantDelta' && meta.sessionId === rawState.activeSessionId) {
+        recordMoonDelta((appEvent.delta.text?.length ?? 0) + (appEvent.delta.thinking?.length ?? 0));
+      }
 
       // Turn-end cleanup for the session the event belongs to — including
       // sessions running in the background (see onSessionIdle).
@@ -1668,6 +1724,7 @@ function onSessionIdle(sid: string): void {
   // For the session on screen, refresh git status (edits the agent just made)
   // and runtime status (model/context usage may have changed this turn).
   if (sid === rawState.activeSessionId) {
+    resetFastMoon();
     void loadGitStatus(sid);
     void refreshSessionStatus(sid);
   } else {
@@ -2133,6 +2190,7 @@ async function selectSession(
     writeSessionUrl(sessionId, opts?.urlMode ?? 'push');
     rawState.sessionLoading = !messagesLoaded && !knownEmpty;
     rawState.activeSessionId = sessionId;
+    resetFastMoon();
     // Opening a session clears its unread dot.
     if (rawState.unreadBySession[sessionId]) {
       rawState.unreadBySession = { ...rawState.unreadBySession, [sessionId]: false };
@@ -3189,6 +3247,7 @@ export function useKimiWebClient() {
     questions,
     activity,
     isSending,
+    fastMoon,
 
     // Model + Provider reactive state
     models,

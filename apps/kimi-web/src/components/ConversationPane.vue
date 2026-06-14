@@ -57,6 +57,7 @@ const props = defineProps<{
   connection?: ConnectionState;
   activity?: ActivityState;
   sending?: boolean;
+  fastMoon?: boolean;
   // File browser props
   loadDir?: (path: string) => Promise<FsEntry[]>;
   readFile?: (path: string) => Promise<FileData | null>;
@@ -822,6 +823,7 @@ onUnmounted(() => {
                 :mobile="mobile"
                 :running="running"
                 :sending="sending"
+                :fast-moon="fastMoon"
                 :session-loading="sessionLoading"
                 :compaction="compaction"
                 @open-file="emit('openFile', $event)"
@@ -1004,6 +1006,7 @@ onUnmounted(() => {
             :mobile="mobile"
             :running="running"
             :sending="sending"
+            :fast-moon="fastMoon"
             :session-loading="sessionLoading"
             :compaction="compaction"
             @open-file="emit('openFile', $event)"

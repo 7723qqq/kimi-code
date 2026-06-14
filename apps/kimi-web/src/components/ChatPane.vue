@@ -1,6 +1,6 @@
 <!-- apps/kimi-web/src/components/ChatPane.vue -->
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ChatTurn, ApprovalBlock, FilePreviewRequest, ToolMedia, TurnBlock } from '../types';
 import ToolCall from './ToolCall.vue';
@@ -13,22 +13,17 @@ import AgentGroup from './AgentGroup.vue';
 const { t } = useI18n();
 
 const MOON_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
-const MOON_INTERVAL_MS = 120;
+const MOON_FRAME_MS = 120;
+const MOON_FAST_FRAME_MS = 60;
 
-const moonFrame = ref(0);
-let moonInterval: ReturnType<typeof setInterval> | null = null;
-
-onMounted(() => {
-  moonInterval = setInterval(() => {
-    moonFrame.value = (moonFrame.value + 1) % MOON_FRAMES.length;
-  }, MOON_INTERVAL_MS);
-});
+function moonFrameStyle(index: number): Record<string, string> {
+  return {
+    '--moon-frame-delay': `${index * MOON_FRAME_MS}ms`,
+    '--moon-frame-fast-delay': `${index * MOON_FAST_FRAME_MS}ms`,
+  };
+}
 
 onUnmounted(() => {
-  if (moonInterval) {
-    clearInterval(moonInterval);
-    moonInterval = null;
-  }
   if (copiedTimer !== null) {
     clearTimeout(copiedTimer);
     copiedTimer = null;
@@ -67,6 +62,8 @@ const props = withDefaults(
      * transcript so the user knows the request is in flight.
      */
     sending?: boolean;
+    /** Switches the CSS-only working moon to the faster visual cadence. */
+    fastMoon?: boolean;
     /**
      * True while the session turns are being fetched (e.g. after switching to
      * a historical session). Shows a lightweight loading placeholder instead of
@@ -83,7 +80,7 @@ const props = withDefaults(
      * @deprecated No longer used — Composer is rendered by ConversationPane.
      */
   }>(),
-  { approvals: () => [], bubble: false, mobile: false, running: false, sending: false, compaction: null },
+  { approvals: () => [], bubble: false, mobile: false, running: false, sending: false, fastMoon: false, compaction: null },
 );
 
 // Bubble layout is active on phones AND on the Modern desktop theme. ThinkingBlock
@@ -514,7 +511,17 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
          a page refresh mid-stream, where `sending` was lost but the session is
          still running). -->
     <div v-if="showWorking" class="sending-placeholder">
-      <span class="moon-spin" aria-label="Working…">{{ MOON_FRAMES[moonFrame] }}</span>
+      <span class="moon-spin" :class="{ 'moon-spin--fast': fastMoon }" aria-label="Working…" role="img">
+        <span
+          v-for="(frame, index) in MOON_FRAMES"
+          :key="frame"
+          class="moon-frame"
+          :style="moonFrameStyle(index)"
+          aria-hidden="true"
+        >
+          {{ frame }}
+        </span>
+      </span>
     </div>
   </div>
 
@@ -658,7 +665,17 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
           <span class="pr">kimi</span>
           <span class="who"> &gt; </span>
         </div>
-        <span class="moon-spin" aria-label="Sending…">{{ MOON_FRAMES[moonFrame] }}</span>
+        <span class="moon-spin" :class="{ 'moon-spin--fast': fastMoon }" aria-label="Sending…" role="img">
+          <span
+            v-for="(frame, index) in MOON_FRAMES"
+            :key="frame"
+            class="moon-frame"
+            :style="moonFrameStyle(index)"
+            aria-hidden="true"
+          >
+            {{ frame }}
+          </span>
+        </span>
       </div>
     </div>
   </div>
@@ -1070,10 +1087,40 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 
 /* ---- Moon spinner — shown while the prompt is in flight ---- */
 .moon-spin {
+  --moon-frame: 1.15em;
   display: inline-block;
+  position: relative;
+  width: var(--moon-frame);
+  height: var(--moon-frame);
   font-size: 14px;
   line-height: 1;
   user-select: none;
+  vertical-align: -0.1em;
+}
+
+.moon-frame {
+  position: absolute;
+  inset: 0;
+  display: block;
+  text-align: center;
+  opacity: 0;
+  animation-name: moon-frame;
+  animation-duration: 960ms;
+  animation-timing-function: steps(1, end);
+  animation-iteration-count: infinite;
+  animation-delay: var(--moon-frame-delay);
+}
+
+.moon-spin--fast .moon-frame {
+  animation-duration: 480ms;
+  animation-delay: var(--moon-frame-fast-delay);
+}
+
+@keyframes moon-frame {
+  0%,
+  12.49% { opacity: 1; }
+  12.5%,
+  100% { opacity: 0; }
 }
 
 /* Mobile bubble layout sending placeholder */

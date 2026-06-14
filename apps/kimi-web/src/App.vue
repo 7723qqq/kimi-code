@@ -648,6 +648,7 @@ function openPr(url: string): void {
       :connection="client.connection.value"
       :activity="client.activity.value"
       :sending="client.isSending.value"
+      :fast-moon="client.fastMoon.value"
       :load-dir="client.listDir"
       :read-file="client.readFileContent"
       :changes-by-path="client.changesByPath.value"
