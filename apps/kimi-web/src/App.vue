@@ -177,6 +177,8 @@ function normalizePreviewPath(inputPath: string): { path: string } | { error: st
 async function openFilePreview(target: FilePreviewRequest): Promise<void> {
   thinkingTarget.value = null; // shared right-side slot
   compactionTarget.value = null;
+  // Desktop: surface the preview as a split pane (a peer of chat/files).
+  if (!isMobile.value) conversationPaneRef.value?.openPreviewPane();
   const normalized = normalizePreviewPath(target.path);
   previewTarget.value = target;
   previewFile.value = null;
@@ -213,6 +215,7 @@ function openMediaPreview(media: ToolMedia): void {
   if (media.kind !== 'image') return;
   thinkingTarget.value = null;
   compactionTarget.value = null;
+  if (!isMobile.value) conversationPaneRef.value?.openPreviewPane();
   previewRequestSeq++;
   previewTarget.value = null;
   previewError.value = null;
@@ -303,8 +306,12 @@ function closeCompactionPanel(): void {
 }
 
 /** Any occupant of the shared right-side slot. */
+// File/media preview lives in the split-pane system on desktop (a peer of
+// chat/files); the right-side panel only hosts it on mobile, where there is no
+// split layout. Thinking/compaction summaries stay in the side panel always.
+const sidePreviewVisible = computed(() => previewVisible.value && isMobile.value);
 const sidePanelVisible = computed(
-  () => previewVisible.value || thinkingVisible.value || compactionPanelVisible.value,
+  () => sidePreviewVisible.value || thinkingVisible.value || compactionPanelVisible.value,
 );
 
 /** True while the panel's resize handle is being dragged — the width
@@ -654,6 +661,15 @@ function openPr(url: string): void {
       :active-workspace-id="client.activeWorkspaceId.value"
       :session-title="activeSessionTitle"
       :pr="null"
+      :preview-file="previewFile"
+      :preview-loading="previewLoading"
+      :preview-error="previewError"
+      :preview-line="previewTarget?.line"
+      :preview-download-url="previewDownloadUrl"
+      :preview-external-actions="previewExternalActions"
+      @close-preview="closeFilePreview"
+      @open-preview-external="openPreviewInEditor"
+      @reveal-preview="revealPreviewFile"
       @select-workspace="handleCreateSessionInWorkspace($event)"
       @open-in-app="(app) => client.openInApp(app)"
       @add-workspace="showAddWorkspace = true"
@@ -727,7 +743,7 @@ function openPr(url: string): void {
         @close="closeCompactionPanel"
       />
       <FilePreview
-        v-else-if="previewVisible"
+        v-else-if="sidePreviewVisible"
         :file="previewFile"
         :loading="previewLoading"
         :error="previewError"

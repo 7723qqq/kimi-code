@@ -8,6 +8,8 @@ defineProps<{
   changesCount?: number;
   todos?: TodoView[];
   canClose?: boolean;
+  /** This group currently hosts a preview pane → show its 'preview' tab. */
+  hasPreview?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -25,6 +27,7 @@ const emit = defineEmits<{
         :running-tasks="runningTasks"
         :changes-count="changesCount"
         :todos="todos ?? []"
+        :has-preview="hasPreview"
         @select="emit('select', $event)"
       />
       <div class="view-actions">

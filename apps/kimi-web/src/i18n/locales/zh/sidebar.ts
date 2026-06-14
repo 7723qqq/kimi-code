@@ -26,6 +26,7 @@ export default {
   tabTasks: '后台任务',
   tabTodo: '待办',
   tabTerminal: '终端',
+  tabPreview: '预览',
   noSessions: '暂无对话',
   showMore: '展开更多 ({count})',
 };
