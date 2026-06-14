@@ -372,8 +372,7 @@ function blinkOnce(): void {
           @click.stop="emit('create')"
         >
           <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M10.5 2.5l3 3L6 13l-3.5.5.5-3.5z" />
-            <path d="M9.5 3.5l3 3" />
+            <path d="M4 2.5h8a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H8.5l-2.5 2V11.5H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2z" />
           </svg>
         </button>
         <button
