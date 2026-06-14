@@ -78,6 +78,8 @@ const props = defineProps<{
   workspaceName?: string;
   /** Absolute workspace root path shown by the Open menu. */
   workspaceRoot?: string;
+  /** Git diff line stats for the header diff counter (mirrors kimi-cli/web). */
+  gitDiffStats?: { totalAdditions: number; totalDeletions: number } | null;
   /** Workspaces for the empty-composer picker (start a conversation elsewhere). */
   workspaces?: WorkspaceView[];
   /** Active workspace id, to highlight the current entry in the picker. */
@@ -685,6 +687,7 @@ onUnmounted(() => {
       :ahead="gitInfo?.ahead"
       :behind="gitInfo?.behind"
       :changes-count="changesCount"
+      :git-diff-stats="gitDiffStats"
       :is-git-repo="!!gitInfo"
       :pr="pr"
       :copied="copyConversationCopied"

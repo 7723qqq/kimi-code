@@ -19,6 +19,8 @@ const props = defineProps<{
   ahead?: number;
   behind?: number;
   changesCount?: number;
+  /** Git diff line stats: additions / deletions. Zero/null values are hidden. */
+  gitDiffStats?: { totalAdditions: number; totalDeletions: number } | null;
   isGitRepo?: boolean;
   /** GitHub PR for the current branch, when known (null/undefined = none). */
   pr?: { number: number; state: string; url: string } | null;
@@ -38,6 +40,9 @@ const emit = defineEmits<{
 const ahead = computed(() => props.ahead ?? 0);
 const behind = computed(() => props.behind ?? 0);
 const changes = computed(() => props.changesCount ?? 0);
+const adds = computed(() => props.gitDiffStats?.totalAdditions ?? 0);
+const dels = computed(() => props.gitDiffStats?.totalDeletions ?? 0);
+const hasLineStats = computed(() => adds.value > 0 || dels.value > 0);
 
 // ---------------------------------------------------------------------------
 // More-menu (kebab dropdown)
@@ -265,7 +270,11 @@ function startArchive(): void {
       <span class="ch-branch">{{ branch }}</span>
       <span v-if="ahead > 0" class="ch-ahead">↑{{ ahead }}</span>
       <span v-if="behind > 0" class="ch-behind">↓{{ behind }}</span>
-      <span v-if="changes > 0" class="ch-changes">{{ t('header.changed', { n: changes }) }}</span>
+      <template v-if="hasLineStats">
+        <span v-if="adds > 0" class="ch-add">+{{ adds }}</span>
+        <span v-if="dels > 0" class="ch-del">-{{ dels }}</span>
+      </template>
+      <span v-else-if="changes > 0" class="ch-changes">{{ t('header.changed', { n: changes }) }}</span>
     </div>
 
     <!-- GitHub PR status -->
@@ -341,6 +350,14 @@ function startArchive(): void {
 .ch-changes {
   flex: none;
   color: var(--warn);
+}
+.ch-add {
+  flex: none;
+  color: var(--ok);
+}
+.ch-del {
+  flex: none;
+  color: var(--err);
 }
 .ch-spacer { flex: 1; min-width: 0; }
 
