@@ -100,7 +100,7 @@ async function setup(opts: {
       };
     }),
     listTasks: vi.fn(async () => []),
-    getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {} })),
+    getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {}, additions: 0, deletions: 0 })),
     getSessionStatus: vi.fn(async () => ({
       model: 'kimi-test',
       thinkingLevel: 'high',

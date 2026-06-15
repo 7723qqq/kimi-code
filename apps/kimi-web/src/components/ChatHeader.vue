@@ -263,13 +263,15 @@ function startArchive(): void {
 
     <div class="ch-spacer" />
 
-    <!-- Git branch + status — plain text with semantic colors -->
-    <div v-if="isGitRepo && branch" class="ch-git" :title="t('header.gitTooltip')">
+    <!-- Git branch + status — plain text with semantic colors. Renders for any
+         git repo, even a detached HEAD (empty branch → "detached" label), so the
+         diff counter below is never hidden just because there's no branch name. -->
+    <div v-if="isGitRepo" class="ch-git" :title="t('header.gitTooltip')">
       <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
         <circle cx="4" cy="4" r="1.7" /><circle cx="4" cy="12" r="1.7" /><circle cx="12" cy="6" r="1.7" />
         <path d="M4 5.7v4.6M5.7 4H9a2 2 0 0 1 2 2v.3" />
       </svg>
-      <span class="ch-branch">{{ branch }}</span>
+      <span class="ch-branch" :class="{ 'ch-detached': !branch }">{{ branch || t('header.detached') }}</span>
       <span v-if="ahead > 0" class="ch-ahead">↑{{ ahead }}</span>
       <span v-if="behind > 0" class="ch-behind">↓{{ behind }}</span>
       <template v-if="hasLineStats">
@@ -348,6 +350,7 @@ function startArchive(): void {
 }
 .ch-git svg { flex: none; }
 .ch-branch { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+.ch-detached { color: var(--muted); font-style: italic; }
 .ch-ahead { color: var(--warn); flex: none; }
 .ch-behind { color: var(--blue2); flex: none; }
 .ch-changes {

@@ -7,6 +7,7 @@ export default {
   copyPath: '复制路径',
   changed: '{n} 处改动',
   gitTooltip: 'Git 分支与状态',
+  detached: 'detached',
   openPr: '打开 Pull Request',
   options: '选项',
   copySessionId: '复制 Session ID',

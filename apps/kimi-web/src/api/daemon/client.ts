@@ -180,6 +180,8 @@ interface WireGitStatusResult {
   ahead: number;
   behind: number;
   entries: Record<string, string>;
+  additions: number;
+  deletions: number;
 }
 
 interface WireDiffResult {
@@ -804,7 +806,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
   async getGitStatus(
     sessionId: string,
     paths?: string[],
-  ): Promise<{ branch: string; ahead: number; behind: number; entries: Record<string, string> }> {
+  ): Promise<{ branch: string; ahead: number; behind: number; entries: Record<string, string>; additions: number; deletions: number }> {
     const body: Record<string, unknown> = {};
     if (paths !== undefined) body['paths'] = paths;
     const data = await this.http.post<WireGitStatusResult>(
@@ -816,6 +818,8 @@ export class DaemonKimiWebApi implements KimiWebApi {
       ahead: data.ahead,
       behind: data.behind,
       entries: data.entries,
+      additions: data.additions,
+      deletions: data.deletions,
     };
   }
 

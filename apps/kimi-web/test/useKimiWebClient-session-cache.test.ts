@@ -84,7 +84,7 @@ async function setup(messages: AppMessage[] = []) {
     })),
     submitPrompt: vi.fn(async () => ({ promptId: 'pr_1', userMessageId: 'msg_real' })),
     listTasks: vi.fn(async () => []),
-    getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {} })),
+    getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {}, additions: 0, deletions: 0 })),
     getSessionStatus: vi.fn(async () => ({
       model: 'kimi-test',
       thinkingLevel: 'high',

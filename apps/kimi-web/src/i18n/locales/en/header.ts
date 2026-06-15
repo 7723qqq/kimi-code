@@ -7,6 +7,7 @@ export default {
   copyPath: 'Copy path',
   changed: '{n} changed',
   gitTooltip: 'Git branch & status',
+  detached: 'detached',
   openPr: 'Open pull request',
   options: 'Options',
   copySessionId: 'Copy Session ID',

@@ -86,7 +86,7 @@ async function setup() {
       pendingQuestions: [],
     })),
     listTasks: vi.fn(async () => []),
-    getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {} })),
+    getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {}, additions: 0, deletions: 0 })),
     connectEvents: vi.fn((nextHandlers: KimiEventHandlers) => {
       handlers = nextHandlers;
       return eventConn;

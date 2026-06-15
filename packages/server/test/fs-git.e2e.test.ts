@@ -14,7 +14,7 @@ import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';
-import { parsePorcelain } from '@moonshot-ai/services';
+import { parsePorcelain, parseNumstat } from '@moonshot-ai/services';
 
 let tmpDir: string;
 let lockPath: string;
@@ -135,12 +135,65 @@ describe('POST /api/v1/sessions/{sid}/fs:git_status (W11.2)', () => {
       ahead: number;
       behind: number;
       entries: Record<string, string>;
+      additions: number;
+      deletions: number;
     }>(res.json());
     expect(env.code).toBe(0);
     expect(env.data!.branch).toBe('main');
     expect(env.data!.ahead).toBe(0);
     expect(env.data!.behind).toBe(0);
     expect(Object.keys(env.data!.entries)).toEqual([]);
+    // Clean tree → no line stats.
+    expect(env.data!.additions).toBe(0);
+    expect(env.data!.deletions).toBe(0);
+  });
+
+  it('dirty repo: aggregate additions/deletions vs HEAD', async () => {
+    initRepo();
+    // seed.txt: one line "seed\n" → replace with two lines (1 deleted, 2 added).
+    writeFileSync(join(workspace, 'seed.txt'), 'one\ntwo\n');
+    // new.txt untracked: `git diff --numstat HEAD` does NOT count untracked
+    // files, so these 3 lines are intentionally excluded from the totals.
+    writeFileSync(join(workspace, 'new.txt'), 'a\nb\nc\n');
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:git_status`,
+      payload: {},
+    });
+    const env = envelopeOf<{ additions: number; deletions: number }>(res.json());
+    expect(env.code).toBe(0);
+    // Only the tracked seed.txt rewrite counts: 2 added, 1 deleted.
+    expect(env.data!.additions).toBe(2);
+    expect(env.data!.deletions).toBe(1);
+  });
+
+  it('paths filter does not scope the line stats (whole-tree totals)', async () => {
+    initRepo();
+    writeFileSync(join(workspace, 'seed.txt'), 'changed\n');
+    // extra.txt is untracked → excluded from `git diff --numstat HEAD`.
+    writeFileSync(join(workspace, 'extra.txt'), 'x\ny\n');
+
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/fs:git_status`,
+      payload: { paths: ['seed.txt'] },
+    });
+    const env = envelopeOf<{
+      entries: Record<string, string>;
+      additions: number;
+      deletions: number;
+    }>(res.json());
+    expect(env.code).toBe(0);
+    // entries scoped to seed.txt; the counter reflects the whole tree, but
+    // untracked extra.txt does not contribute, so only seed.txt's edit counts.
+    expect(Object.keys(env.data!.entries)).toEqual(['seed.txt']);
+    expect(env.data!.additions).toBe(1); // seed line replaced
+    expect(env.data!.deletions).toBe(1); // seed line removed
   });
 
   it('dirty repo: modified + untracked + deleted entries', async () => {
@@ -481,5 +534,37 @@ describe('parsePorcelain (W11.2)', () => {
       new Set(['a.txt']),
     );
     expect(out.entries).toEqual({ 'a.txt': 'untracked' });
+  });
+
+  it('defaults additions/deletions to 0 (filled in by the service)', () => {
+    const out = parsePorcelain('## main\n M a.ts\n', undefined);
+    expect(out.additions).toBe(0);
+    expect(out.deletions).toBe(0);
+  });
+});
+
+describe('parseNumstat', () => {
+  it('sums added/deleted counts across files', () => {
+    const out = parseNumstat('3\t1\ta.ts\n10\t0\tb.ts\n0\t4\tc.ts\n');
+    expect(out.additions).toBe(13);
+    expect(out.deletions).toBe(5);
+  });
+
+  it('treats binary files (-\t-) as 0', () => {
+    const out = parseNumstat('-\t-\timg.png\n2\t1\ta.ts\n');
+    expect(out.additions).toBe(2);
+    expect(out.deletions).toBe(1);
+  });
+
+  it('empty output → 0/0', () => {
+    const out = parseNumstat('');
+    expect(out.additions).toBe(0);
+    expect(out.deletions).toBe(0);
+  });
+
+  it('ignores blank trailing lines', () => {
+    const out = parseNumstat('5\t2\ta.ts\n\n');
+    expect(out.additions).toBe(5);
+    expect(out.deletions).toBe(2);
   });
 });

@@ -13,7 +13,7 @@ import type {
 import { ISessionService } from '../session/session';
 
 import { FsPathNotFoundError } from './fs';
-import { IFsGitService, FsGitUnavailableError, parsePorcelain } from './fsGit';
+import { IFsGitService, FsGitUnavailableError, parsePorcelain, parseNumstat } from './fsGit';
 import { resolveSafePath } from './fsPathSafety';
 
 /** Cap a single file's unified diff (a runaway generated file should not blow
@@ -65,7 +65,38 @@ export class FsGitService extends Disposable implements IFsGitService {
       );
     }
 
-    return parsePorcelain(porcRes.stdout, filterSet);
+    const result = parsePorcelain(porcRes.stdout, filterSet);
+
+    // Aggregate line stats against HEAD. Only worth a second spawn when the
+    // tree is dirty AND there is a HEAD to diff against (a repo with no commits
+    // yet has neither side); otherwise the stats are 0. Dirtiness is read from
+    // the UNFILTERED porcelain and the numstat is NOT scoped by `req.paths` —
+    // the header counter reflects the whole working tree, matching kimi-cli's
+    // git status line.
+    const dirty = porcRes.stdout
+      .split('\n')
+      .some((line) => line.length > 0 && !line.startsWith('## '));
+    if (dirty) {
+      const headRes = await runCommand(
+        'git',
+        ['rev-parse', '--verify', '--quiet', 'HEAD'],
+        realCwd,
+      );
+      if (headRes.exitCode === 0) {
+        const numstatRes = await runCommand(
+          'git',
+          ['diff', '--no-color', '--numstat', 'HEAD', '--'],
+          realCwd,
+        );
+        if (numstatRes.exitCode === 0) {
+          const stats = parseNumstat(numstatRes.stdout);
+          result.additions = stats.additions;
+          result.deletions = stats.deletions;
+        }
+      }
+    }
+
+    return result;
   }
 
   async diff(sessionId: string, req: FsDiffRequest): Promise<FsDiffResponse> {

@@ -71,7 +71,33 @@ export function parsePorcelain(
     entries[wirePath] = status;
   }
 
-  return { branch, ahead, behind, entries };
+  return { branch, ahead, behind, entries, additions: 0, deletions: 0 };
+}
+
+/**
+ * Sum added/deleted line counts from `git diff --numstat` output. Each line is
+ * `<added>\t<deleted>\t<path>`; a binary file reports `-` for both counts, which
+ * we treat as 0. Returns the aggregate across all files.
+ */
+export function parseNumstat(stdout: string): {
+  additions: number;
+  deletions: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of stdout.split('\n')) {
+    if (line.length === 0) continue;
+    const [addedText, deletedText] = line.split('\t');
+    additions += parseNumstatCount(addedText);
+    deletions += parseNumstatCount(deletedText);
+  }
+  return { additions, deletions };
+}
+
+function parseNumstatCount(value: string | undefined): number {
+  if (value === undefined || value === '-') return 0;
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 function parseBranchHeader(rest: string): {

@@ -72,7 +72,7 @@ async function setup(opts?: { submitStatuses?: ('running' | 'queued')[] }) {
     }),
     steerPrompts: vi.fn(async (_sid: string, ids: string[]) => ({ steered: true, promptIds: ids })),
     listTasks: vi.fn(async () => []),
-    getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {} })),
+    getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {}, additions: 0, deletions: 0 })),
     getSessionStatus: vi.fn(async () => ({
       model: 'kimi-test',
       thinkingLevel: 'high',

@@ -58,6 +58,7 @@ export {
   IFsGitService,
   FsGitUnavailableError,
   parsePorcelain,
+  parseNumstat,
 } from './fs/fsGit';
 export { FsGitService } from './fs/fsGitService';
 export {

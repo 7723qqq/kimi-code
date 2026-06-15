@@ -1569,6 +1569,8 @@ const server = http.createServer((req, res) => {
             'packages/daemon/src/middleware/schema.ts': 'added',
             'apps/kimi-web/src/composables/useKimiWebClient.ts': 'modified',
           },
+          additions: 128,
+          deletions: 34,
         },
         ses_2: {
           branch: 'fix/tui-render',
@@ -1577,6 +1579,8 @@ const server = http.createServer((req, res) => {
           entries: {
             'apps/kimi-tui/src/renderer/loop.ts': 'modified',
           },
+          additions: 12,
+          deletions: 9,
         },
         ses_3: {
           branch: 'refactor/auth-errors',
@@ -1588,12 +1592,16 @@ const server = http.createServer((req, res) => {
             'apps/kimi-cli/src/auth/refresh.ts': 'modified',
             'apps/kimi-cli/src/commands/auth.ts': 'modified',
           },
+          additions: 87,
+          deletions: 41,
         },
         ses_4: {
           branch: 'feat/file-search',
           ahead: 0,
           behind: 0,
           entries: {},
+          additions: 0,
+          deletions: 0,
         },
       };
       const gs = gitStatusBySid[sid] ?? {
@@ -1601,6 +1609,8 @@ const server = http.createServer((req, res) => {
         ahead: 0,
         behind: 0,
         entries: {},
+        additions: 0,
+        deletions: 0,
       };
       return res.end(ok(gs));
     }

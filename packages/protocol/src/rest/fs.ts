@@ -36,7 +36,8 @@
  *     Errors: 40401, 41303, 41304, 41305 (>30s grep timeout)
  *   POST /v1/sessions/{sid}/fs:git_status
  *     Body: FsGitStatusRequest  { paths? }
- *     Response data: FsGitStatusResponse  { branch, ahead, behind, entries }
+ *     Response data: FsGitStatusResponse  { branch, ahead, behind, entries,
+ *                                           additions, deletions }
  *     Errors: 40401, 40908 (not a git repo), 41304
  *
  *   POST /v1/sessions/{sid}/fs:diff
@@ -251,6 +252,11 @@ export const fsGitStatusResponseSchema = z.object({
   ahead: z.number().int().nonnegative(),
   behind: z.number().int().nonnegative(),
   entries: z.record(z.string(), fsGitStatusSchema),
+  // Aggregate working-tree diff against HEAD (`git diff --numstat HEAD`):
+  // summed added/deleted lines across all changed files. Binary files (numstat
+  // `-`) contribute 0. Both 0 for a clean tree or a repo with no commits yet.
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
 });
 export type FsGitStatusResponse = z.infer<typeof fsGitStatusResponseSchema>;
 

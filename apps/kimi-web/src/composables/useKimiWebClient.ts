@@ -301,6 +301,8 @@ interface GitStatusEntry {
   ahead: number;
   behind: number;
   entries: Record<string, string>;
+  additions: number;
+  deletions: number;
 }
 
 /** A prompt waiting for the session to go idle. Keeps the uploaded image
@@ -1695,6 +1697,16 @@ const changes = computed<{ path: string; status: string }[]>(() => {
   return Object.entries(gs.entries)
     .map(([path, status]) => ({ path, status }))
     .sort((a, b) => a.path.localeCompare(b.path));
+});
+
+/** Aggregate working-tree line stats (vs HEAD) for the active session's header
+    diff counter. Null when no git status is loaded, so the header hides it. */
+const gitDiffStats = computed<{ totalAdditions: number; totalDeletions: number } | null>(() => {
+  const sid = rawState.activeSessionId;
+  if (!sid) return null;
+  const gs = rawState.gitStatusBySession[sid];
+  if (!gs) return null;
+  return { totalAdditions: gs.additions, totalDeletions: gs.deletions };
 });
 
 const status = computed<ConversationStatus>(() => {
@@ -3496,6 +3508,7 @@ export function useKimiWebClient() {
     fileDiffLoading,
     changes,
     gitInfo,
+    gitDiffStats,
     changesByPath,
     pendingApprovals,
     recentCwds,
