@@ -1,6 +1,4 @@
 ---
-"@moonshot-ai/agent-core": major
-"@moonshot-ai/server": patch
 "@moonshot-ai/kimi-code": major
 ---
 

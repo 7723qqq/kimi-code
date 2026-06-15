@@ -2,6 +2,7 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import tailwindcss from '@tailwindcss/vite';
+import pkg from './package.json';
 
 const webPort = Number(process.env.WEB_PORT) || 5175;
 // Where the dev proxy forwards server traffic. Defaults to the local server
@@ -15,6 +16,7 @@ export default defineConfig({
   // own same-origin URL). Unused by the same-origin production build.
   define: {
     __KIMI_DEV_PROXY_TARGET__: JSON.stringify(serverTarget),
+    __KIMI_WEB_VERSION__: JSON.stringify(`v${pkg.version}`),
   },
   server: {
     port: webPort,

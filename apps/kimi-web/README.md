@@ -107,6 +107,46 @@ tools/diff/files, model/provider/login, thinking/plan/permission controls,
 
 ---
 
+## Release & deployment
+
+Kimi Web is **not published as a standalone package**. It ships as the built-in
+web UI of the `kimi` CLI (`apps/kimi-code`).
+
+### Current release flow
+
+1. **Develop** — `pnpm dev:web` (or `pnpm -C apps/kimi-web run dev`).
+2. **Build** — `pnpm -C apps/kimi-web run build` produces `apps/kimi-web/dist`.
+3. **Bundle into CLI** — `pnpm -C apps/kimi-code run build` runs
+   `scripts/copy-web-assets.mjs`, which copies `apps/kimi-web/dist` into
+   `apps/kimi-code/dist-web`.
+4. **Publish** — the root `.github/workflows/release.yml` publishes
+   `@moonshot-ai/kimi-code` to npm; `dist-web` is listed in the package `files`
+   array, so the built web assets travel with the CLI package.
+5. **Serve** — `kimi server run` / `kimi web` serves `dist-web` from the
+   installed package.
+
+The version pill shown in the sidebar (`vX.Y.Z`) comes from
+`apps/kimi-web/package.json` and is injected at build time in
+`vite.config.ts` (`__KIMI_WEB_VERSION__`).
+
+### Suggested improvements
+
+- **Keep the current coupling for now.** Because Kimi Code is primarily a local
+  CLI/server product, bundling the web UI into the CLI package keeps installs
+  self-contained and avoids cross-origin/CORS complexity.
+- **Add an independent web-deploy workflow only when needed.** If a public
+  standalone web deployment is required later, create
+  `.github/workflows/web-deploy.yml` that builds `apps/kimi-web` and uploads
+  `dist/` to the chosen static host (S3/CloudFront, Cloudflare Pages, Vercel,
+  etc.). Until then, do not maintain a separate deploy target.
+- **Align versions if confusion appears.** `apps/kimi-web/package.json` is
+  versioned independently of `apps/kimi-code`. If users start comparing the two,
+  consider pinning the web version to the CLI version or removing the web
+  version from the UI. At the moment the sidebar shows the web package version.
+- **Ensure the web build is exercised in CI.** The root `build` script already
+  builds every workspace, so `pnpm run build` in CI covers `apps/kimi-web`.
+  Keep it that way; do not bypass the web build in release pipelines.
+
 ## Design docs
 
 Living under `docs/` (design rationale + plans):

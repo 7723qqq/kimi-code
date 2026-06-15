@@ -1,6 +1,4 @@
 ---
-"@moonshot-ai/services": patch
-"@moonshot-ai/server": patch
 "@moonshot-ai/kimi-code": patch
 ---
 

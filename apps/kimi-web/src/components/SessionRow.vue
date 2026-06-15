@@ -12,11 +12,14 @@ const props = withDefaults(
   defineProps<{
     session: Session;
     active: boolean;
-    attention?: number;
+    /** Pending permission requests waiting for the user's approval. */
+    approvalCount?: number;
+    /** Pending askUserQuestion prompts waiting for the user's answer. */
+    questionCount?: number;
     /** A background turn finished here that the user hasn't opened — blue dot. */
     unread?: boolean;
   }>(),
-  { attention: 0, unread: false },
+  { approvalCount: 0, questionCount: 0, unread: false },
 );
 
 const emit = defineEmits<{
@@ -161,16 +164,30 @@ defineExpose({ closeMenu, cancelDelete });
 
         <span class="ts">{{ session.time }}</span>
 
-        <!-- Attention pill — shown even when the row isn't active -->
+        <!-- Pending tags — coloured per kind, shown even when the row isn't
+             active. "Answer" = an askUserQuestion is waiting; "Approve" = a
+             permission request is waiting. -->
         <span
-          v-if="!renaming && attention > 0"
-          class="attn"
-          :title="t('workspace.attentionTitle', attention)"
+          v-if="!renaming && questionCount > 0"
+          class="tag tag-ask"
+          :title="t('workspace.awaitingAnswerTitle')"
         >
-          <svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2">
-            <path d="M8 4v5" /><circle cx="8" cy="12" r="0.6" fill="currentColor" stroke="none" />
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M6 6a2 2 0 1 1 2.6 1.9c-.4.15-.6.5-.6.95V10" stroke-linecap="round" />
+            <circle cx="8" cy="12.5" r="0.7" fill="currentColor" stroke="none" />
           </svg>
-          {{ attention }}
+          {{ t('workspace.awaitingAnswer') }}
+        </span>
+        <span
+          v-if="!renaming && approvalCount > 0"
+          class="tag tag-approve"
+          :title="t('workspace.awaitingPermissionTitle')"
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="3.5" y="7" width="9" height="6" rx="1.2" />
+            <path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" stroke-linecap="round" />
+          </svg>
+          {{ t('workspace.awaitingPermission') }}
         </span>
 
         <!-- Kebab button (visible on hover) -->
@@ -269,22 +286,32 @@ defineExpose({ closeMenu, cancelDelete });
 .ts { color: var(--muted); font-size: max(9px, calc(var(--ui-font-size) - 3.5px)); flex: none; }
 .se:hover .ts { display: none; }
 
-/* Attention pill — small Kimi-blue badge with count */
-.attn {
+/* Pending tags — small coloured pills, one per kind. "Ask" reuses the Kimi-blue
+   accent; "Approve" uses the warn tone so the two read as distinct at a glance. */
+.tag {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: var(--ui-font-size);
+  line-height: 1;
+  padding: 2px 8px 2px 7px;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.tag svg { flex: none; }
+.tag-ask {
   background: var(--soft);
   color: var(--blue2);
-  border: 1px solid var(--bd);
-  border-radius: 9px;
-  font-size: max(9px, calc(var(--ui-font-size) - 4px));
-  line-height: 1;
-  padding: 1px 5px 1px 4px;
-  font-family: var(--mono);
+  border-color: var(--bd);
 }
-.attn svg { flex: none; }
+.tag-approve {
+  background: color-mix(in srgb, var(--warn) 16%, var(--bg));
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 38%, var(--bg));
+}
 
 /* Kebab button — hidden until hover. Sits at the RIGHT of the timestamp
    and attention badge so it is the right-most element. */

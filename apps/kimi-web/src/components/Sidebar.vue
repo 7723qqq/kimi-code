@@ -8,7 +8,10 @@ import { useI18n } from 'vue-i18n';
 import type { Session, WorkspaceGroup, WorkspaceView } from '../types';
 import SessionRow from './SessionRow.vue';
 
+declare const __KIMI_WEB_VERSION__: string;
+
 const { t } = useI18n();
+const webVersion = __KIMI_WEB_VERSION__;
 
 withDefaults(
   defineProps<{
@@ -18,6 +21,8 @@ withDefaults(
     groups: WorkspaceGroup[];
     activeId: string;
     attentionBySession?: Record<string, number>;
+    /** Per-session pending counts split by kind, for the coloured tags. */
+    pendingBySession?: Record<string, { approvals: number; questions: number }>;
     unreadBySession?: Record<string, boolean>;
     /** Width (px) of the session column, driven by the App resize handle. */
     colWidth?: number;
@@ -26,6 +31,7 @@ withDefaults(
     activeWorkspace: null,
     activeWorkspaceId: null,
     attentionBySession: () => ({}),
+    pendingBySession: () => ({}),
     unreadBySession: () => ({}),
     colWidth: 220,
   },
@@ -361,8 +367,8 @@ function blinkOnce(): void {
             </defs>
             <rect x="1" y="1" width="30" height="20" rx="6" fill="var(--logo)" mask="url(#kimiEyes)" />
           </svg>
-          <span class="ch-name">Kimi Code Web</span>
-          <span class="ch-beta">beta</span>
+          <span class="ch-name">Kimi Code</span>
+          <span class="ch-version">{{ webVersion }}</span>
         </div>
         <button
           type="button"
@@ -486,7 +492,8 @@ function blinkOnce(): void {
                 :key="s.id"
                 :session="s"
                 :active="s.id === activeId"
-                :attention="attentionBySession[s.id] ?? 0"
+                :approval-count="pendingBySession[s.id]?.approvals ?? 0"
+                :question-count="pendingBySession[s.id]?.questions ?? 0"
                 :unread="unreadBySession[s.id] ?? false"
                 @select="onSelectSession($event)"
                 @rename="(id, title) => emit('rename', id, title)"
@@ -622,17 +629,17 @@ function blinkOnce(): void {
 @container sidebar-col (max-width: 250px) {
   .ch-name { display: none; }
 }
-.ch-beta {
+.ch-version {
   flex: none;
   font-size: max(9px, calc(var(--ui-font-size) - 4px));
   font-weight: 600;
-  color: var(--blue2);
+  color: var(--muted);
   background: var(--soft);
   border: 1px solid var(--line2, var(--line));
   border-radius: 4px;
   padding: 1px 5px;
   line-height: 1.2;
-  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 }
 .new-chat-btn,

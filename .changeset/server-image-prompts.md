@@ -1,6 +1,4 @@
 ---
-"@moonshot-ai/server": minor
-"@moonshot-ai/services": minor
 "@moonshot-ai/kimi-code": minor
 ---
 
