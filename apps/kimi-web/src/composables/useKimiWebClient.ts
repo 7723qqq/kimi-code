@@ -70,6 +70,7 @@ const PLAN_MODE_STORAGE_KEY = 'kimi-web.plan-mode';
 const SWARM_MODE_STORAGE_KEY = 'kimi-web.swarm-mode';
 const THEME_STORAGE_KEY = 'kimi-web.theme';
 const SESSION_NOT_FOUND_CODE = 40401;
+const PROMPT_NOT_FOUND_CODE = 40402;
 const ONBOARDED_STORAGE_KEY = 'kimi-web.onboarded';
 const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -743,6 +744,23 @@ function connectEventsIfNeeded(): void {
       // persistent divider marker in the reducer (TUI parity: the scrollback
       // is kept, only a marker line records the compaction).
       applyEvent(appEvent, meta.sessionId, meta.seq);
+
+      // The daemon's prompt.submitted event is projected as a user messageCreated
+      // carrying the real prompt_id. When the HTTP submit response is lost
+      // (timeout / network error) this is the fallback that lets Stop work.
+      if (
+        appEvent.type === 'messageCreated' &&
+        appEvent.message.role === 'user' &&
+        appEvent.message.promptId !== undefined
+      ) {
+        const sid = appEvent.message.sessionId;
+        if (rawState.promptIdBySession[sid] !== appEvent.message.promptId) {
+          rawState.promptIdBySession = {
+            ...rawState.promptIdBySession,
+            [sid]: appEvent.message.promptId,
+          };
+        }
+      }
 
       if (appEvent.type === 'assistantDelta' && meta.sessionId === rawState.activeSessionId) {
         recordMoonDelta((appEvent.delta.text?.length ?? 0) + (appEvent.delta.thinking?.length ?? 0));
@@ -1982,6 +2000,13 @@ function onSessionIdle(sid: string): void {
   // The turn finished — this session no longer has a prompt in flight.
   inFlightPromptSessions.delete(sid);
   rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
+  // Drop any cached prompt_id so a later skill activation (which has no
+  // prompt_id) doesn't accidentally reuse this stale id for :abort.
+  if (rawState.promptIdBySession[sid] !== undefined) {
+    const next = { ...rawState.promptIdBySession };
+    delete next[sid];
+    rawState.promptIdBySession = next;
+  }
 
   // For the session on screen, refresh git status (edits the agent just made)
   // and runtime status (model/context usage may have changed this turn).
@@ -2780,13 +2805,41 @@ async function abortCurrentPrompt(): Promise<void> {
   const sid = rawState.activeSessionId;
   if (!sid) return;
   const session = rawState.sessions.find((s) => s.id === sid);
-  // Prefer the authoritative prompt_id captured at submit time; fall back to the
-  // projector-derived one only if we never recorded a submit (e.g. resumed turn).
-  const promptId = rawState.promptIdBySession[sid] ?? session?.currentPromptId;
-  if (!promptId) return;
+
+  // 1. Authoritative id captured at submit time.
+  let promptId = rawState.promptIdBySession[sid];
+
+  // 2. Fallback to projector-derived id only when it is a real daemon prompt_id
+  //    (synthetic `pr_...` ids are rejected by the daemon).
+  if (promptId === undefined) {
+    const candidate = session?.currentPromptId;
+    if (candidate?.startsWith('prompt_')) {
+      promptId = candidate;
+    }
+  }
+
+  const api = getKimiWebApi();
+
+  // 3. If we have a real id, try the per-prompt abort first. On 40402 fall back
+  //    to session-level abort (the daemon may have restarted or the id is stale).
+  if (promptId !== undefined) {
+    try {
+      await api.abortPrompt(sid, promptId);
+      return;
+    } catch (err) {
+      if (isDaemonApiError(err) && err.code === PROMPT_NOT_FOUND_CODE) {
+        // Stale id — try the session-level fallback below.
+      } else {
+        pushOperationFailure('abortCurrentPrompt', err, { sessionId: sid });
+        return;
+      }
+    }
+  }
+
+  // 4. No real id, or the prompt id is no longer recognized: cancel whatever
+  //    is running in the session (including skill activations).
   try {
-    const api = getKimiWebApi();
-    await api.abortPrompt(sid, promptId);
+    await api.abortSession(sid);
   } catch (err) {
     pushOperationFailure('abortCurrentPrompt', err, { sessionId: sid });
   }

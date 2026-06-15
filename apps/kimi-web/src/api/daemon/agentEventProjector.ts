@@ -410,7 +410,7 @@ export function createAgentProjector(): AgentProjector {
     reset(sessionId);
     const s = getOrCreate(sessionId);
 
-    const promptId = ulid('pr_');
+    const promptId = turn.promptId ?? ulid('pr_');
     s.currentPromptId = promptId;
     s.turnPromptId.set(turn.turnId, promptId);
 

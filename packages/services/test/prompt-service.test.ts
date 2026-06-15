@@ -773,6 +773,89 @@ describe('PromptService.abort', () => {
   });
 });
 
+describe('PromptService.getCurrentPromptId', () => {
+  it('returns the active prompt id while running', async () => {
+    const { bridge } = makeBridge();
+    const { bus } = makeBus();
+    const impl = newSvc(bridge, bus);
+    const submit = await impl.submit(SID, mkBody());
+    expect(impl.getCurrentPromptId(SID)).toBe(submit.prompt_id);
+  });
+
+  it('returns undefined when idle', async () => {
+    const { bridge } = makeBridge();
+    const { bus } = makeBus();
+    const impl = newSvc(bridge, bus);
+    expect(impl.getCurrentPromptId(SID)).toBeUndefined();
+  });
+
+  it('returns undefined after the prompt completes', async () => {
+    const { bridge } = makeBridge();
+    const { bus, triggerSubscribers } = makeBus();
+    const impl = newSvc(bridge, bus);
+    const submit = await impl.submit(SID, mkBody());
+    triggerSubscribers({
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+    triggerSubscribers({
+      type: 'turn.ended',
+      turnId: 1,
+      reason: 'completed',
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+    expect(impl.getCurrentPromptId(SID)).toBeUndefined();
+  });
+});
+
+describe('PromptService.abortBySession', () => {
+  it('delegates to abort when a daemon prompt is active', async () => {
+    const { bridge, record } = makeBridge();
+    const { bus, events, triggerSubscribers } = makeBus();
+    const impl = newSvc(bridge, bus);
+    const submit = await impl.submit(SID, mkBody());
+    triggerSubscribers({
+      type: 'turn.started',
+      turnId: 7,
+      origin: { kind: 'user' },
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+    events.length = 0;
+
+    const result = await impl.abortBySession(SID);
+
+    expect(result.aborted).toBe(true);
+    expect(record.cancelCalls).toHaveLength(1);
+    expect(record.cancelCalls[0]).toEqual({
+      sessionId: SID,
+      agentId: 'main',
+      turnId: 7,
+    });
+    expect(events).toHaveLength(1);
+    expect((events[0] as unknown as { type: string }).type).toBe('prompt.aborted');
+  });
+
+  it('calls core.rpc.cancel without turnId when no daemon prompt is active', async () => {
+    const { bridge, record } = makeBridge();
+    const { bus } = makeBus();
+    const impl = newSvc(bridge, bus);
+
+    const result = await impl.abortBySession(SID);
+
+    expect(result.aborted).toBe(true);
+    expect(record.cancelCalls).toHaveLength(1);
+    expect(record.cancelCalls[0]).toEqual({
+      sessionId: SID,
+      agentId: 'main',
+    });
+  });
+});
+
 describe('PromptService queue steer', () => {
   it('steers a queued prompt into the active turn without starting a new prompt', async () => {
     const { bridge, record } = makeBridge();

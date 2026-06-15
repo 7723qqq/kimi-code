@@ -270,6 +270,8 @@ function makePromptServiceStub(): {
     submit: vi.fn() as unknown as IPromptService['submit'],
     steer: vi.fn() as unknown as IPromptService['steer'],
     abort: vi.fn() as unknown as IPromptService['abort'],
+    abortBySession: vi.fn() as unknown as IPromptService['abortBySession'],
+    getCurrentPromptId: vi.fn().mockReturnValue(undefined) as unknown as IPromptService['getCurrentPromptId'],
     applyAgentState,
     onDidComplete: emitter.event as unknown as IPromptService['onDidComplete'],
     onDidAbort: emitter.event as unknown as IPromptService['onDidAbort'],

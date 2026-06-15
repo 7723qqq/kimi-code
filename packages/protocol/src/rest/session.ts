@@ -123,3 +123,8 @@ export const deleteSessionResponseSchema = z.object({
   deleted: z.literal(true),
 });
 export type DeleteSessionResponse = z.infer<typeof deleteSessionResponseSchema>;
+
+export const sessionAbortResponseSchema = z.object({
+  aborted: z.boolean(),
+});
+export type SessionAbortResponse = z.infer<typeof sessionAbortResponseSchema>;

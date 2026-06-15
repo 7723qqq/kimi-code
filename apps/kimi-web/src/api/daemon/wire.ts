@@ -505,6 +505,7 @@ export interface WireInFlightTurn {
   assistant_text: string;
   thinking_text: string;
   running_tools: WireInFlightToolCall[];
+  current_prompt_id?: string;
 }
 
 /** `GET /sessions/{sid}/snapshot` — atomic rebuild state at a watermark. */
@@ -516,6 +517,10 @@ export interface WireSessionSnapshot {
   in_flight_turn: WireInFlightTurn | null;
   pending_approvals: WireApprovalRequest[];
   pending_questions: WireQuestionRequest[];
+}
+
+export interface WireSessionAbortResult {
+  aborted: boolean;
 }
 
 export interface WireErrorFrame {

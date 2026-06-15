@@ -22,7 +22,7 @@ import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { Event, SessionSnapshotResponse } from '@moonshot-ai/protocol';
-import { IEventService } from '@moonshot-ai/services';
+import { IEventService, IPromptService, PromptService } from '@moonshot-ai/services';
 
 import { IRestGateway, IWSBroadcastService, startServer, type RunningServer } from '../src';
 import { WSBroadcastService } from '#/services/gateway/wsBroadcastService';
@@ -205,6 +205,39 @@ describe('GET /api/v1/sessions/{sid}/snapshot (v2 initial sync)', () => {
 
     const after = await getSnapshot(r, sid);
     expect(after.env.data!.in_flight_turn).toBeNull();
+  });
+
+  it('in_flight_turn carries current_prompt_id from the active prompt', async () => {
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const bus = r.services.invokeFunction((a) => a.get(IEventService));
+
+    bus.publish({
+      type: 'turn.started',
+      sessionId: sid,
+      agentId: 'main',
+      turnId: 1,
+      origin: { kind: 'user' },
+    } as unknown as Event);
+    bus.publish({
+      type: 'assistant.delta',
+      sessionId: sid,
+      agentId: 'main',
+      turnId: 1,
+      delta: 'partial',
+    } as unknown as Event);
+
+    // Inject an active prompt record so the snapshot route can read its id.
+    const promptId = `prompt_SNAPSHOT_TEST_${sid}`;
+    const impl = r.services.invokeFunction(
+      (a) => a.get(IPromptService) as PromptService,
+    );
+    impl._injectActiveForTest(sid, promptId, 1);
+
+    const { env } = await getSnapshot(r, sid);
+    const turn = env.data!.in_flight_turn;
+    expect(turn).not.toBeNull();
+    expect(turn!.current_prompt_id).toBe(promptId);
   });
 
   it('returns 40401 for an unknown session id', async () => {

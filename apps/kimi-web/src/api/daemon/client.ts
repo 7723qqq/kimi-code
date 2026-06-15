@@ -71,6 +71,7 @@ import type {
   WirePromptSteerResult,
   WireProvider,
   WireSession,
+  WireSessionAbortResult,
   WireSessionRuntimeStatus,
   WireSessionSnapshot,
   WireWorkspace,
@@ -444,6 +445,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
                 description: t.description,
                 lastProgress: t.last_progress,
               })),
+              promptId: data.in_flight_turn.current_prompt_id,
             },
       pendingApprovals: data.pending_approvals.map(toAppApprovalRequest),
       pendingQuestions: data.pending_questions.map(toAppQuestionRequest),
@@ -495,6 +497,16 @@ export class DaemonKimiWebApi implements KimiWebApi {
     );
     // data.aborted is false when 40903 (prompt already completed) — that's correct
     return { aborted: data.aborted, atSeq: data.at_seq };
+  }
+
+  // POST /sessions/{id}:abort — cancel whatever is running in the session,
+  // including skill activations that bypass IPromptService.
+  async abortSession(sessionId: string): Promise<{ aborted: boolean }> {
+    const data = await this.http.post<WireSessionAbortResult>(
+      `/sessions/${encodeURIComponent(sessionId)}:abort`,
+      {},
+    );
+    return { aborted: data.aborted };
   }
 
   // POST /sessions/{id}:compact — request history compaction. Returns {};

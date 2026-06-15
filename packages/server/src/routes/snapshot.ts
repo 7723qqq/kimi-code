@@ -30,6 +30,7 @@ import {
 import {
   IApprovalService,
   IMessageService,
+  IPromptService,
   IQuestionService,
   ISessionService,
   SessionNotFoundError,
@@ -86,6 +87,7 @@ export function registerSnapshotRoutes(
           const broadcast = a.get(IWSBroadcastService);
           const sessionService = a.get(ISessionService);
           const messageService = a.get(IMessageService);
+          const promptService = a.get(IPromptService);
           const approvals = a.get(IApprovalService) as ApprovalService;
           const questions = a.get(IQuestionService) as QuestionService;
 
@@ -109,12 +111,18 @@ export function registerSnapshotRoutes(
             if (stable) break;
           }
 
+          const currentPromptId = promptService.getCurrentPromptId(session_id);
+          const inFlightTurn = snapState.inFlightTurn;
+          if (inFlightTurn !== null && currentPromptId !== undefined) {
+            inFlightTurn.current_prompt_id = currentPromptId;
+          }
+
           return {
             as_of_seq: snapState.seq,
             epoch: snapState.epoch,
             session: session!,
             messages: { items, has_more: hasMore },
-            in_flight_turn: snapState.inFlightTurn,
+            in_flight_turn: inFlightTurn,
             pending_approvals: approvals.listPending(session_id),
             pending_questions: questions.listPending(session_id),
           };

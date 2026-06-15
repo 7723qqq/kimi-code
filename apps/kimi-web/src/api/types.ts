@@ -424,6 +424,8 @@ export interface AppInFlightTurn {
   assistantText: string;
   thinkingText: string;
   runningTools: AppInFlightToolCall[];
+  /** Authoritative daemon prompt_id for the active prompt, if known. */
+  promptId?: string;
 }
 
 /**
@@ -573,6 +575,8 @@ export interface KimiWebApi {
   /** Steer daemon-queued prompts into the active turn (TUI ctrl+s). */
   steerPrompts(sessionId: string, promptIds: string[]): Promise<{ steered: boolean; promptIds: string[] }>;
   abortPrompt(sessionId: string, promptId: string): Promise<{ aborted: boolean; atSeq?: number }>;
+  /** Cancel whatever is running in the session, including skill activations. */
+  abortSession(sessionId: string): Promise<{ aborted: boolean }>;
   compactSession(sessionId: string, instruction?: string): Promise<void>;
   undoSession(sessionId: string, count?: number): Promise<void>;
   forkSession(sessionId: string, input?: { title?: string }): Promise<AppSession>;

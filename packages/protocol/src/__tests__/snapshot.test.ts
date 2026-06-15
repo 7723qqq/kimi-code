@@ -82,6 +82,30 @@ describe('rest/snapshot — session snapshot', () => {
     expect(result.success).toBe(true);
   });
 
+  it('parses an in-flight turn with current_prompt_id', () => {
+    const result = sessionSnapshotResponseSchema.safeParse({
+      as_of_seq: 12,
+      epoch: 'ep_01ABC',
+      session: SESSION,
+      messages: { items: [], has_more: false },
+      in_flight_turn: {
+        turn_id: 3,
+        assistant_text: 'partial answer…',
+        thinking_text: '',
+        running_tools: [],
+        current_prompt_id: 'prompt_01KV589KCS5PG9ZYDNP8KFDQHZ',
+      },
+      pending_approvals: [],
+      pending_questions: [],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.in_flight_turn?.current_prompt_id).toBe(
+        'prompt_01KV589KCS5PG9ZYDNP8KFDQHZ',
+      );
+    }
+  });
+
   it('rejects a snapshot missing the watermark', () => {
     const result = sessionSnapshotResponseSchema.safeParse({
       epoch: 'ep_01ABC',

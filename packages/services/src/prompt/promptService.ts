@@ -487,6 +487,28 @@ export class PromptService
     return { aborted: true };
   }
 
+  async abortBySession(sid: string): Promise<PromptAbortResult> {
+    await this._requireSession(sid);
+    const state = this._active.get(sid);
+    if (state !== undefined && !state.completed && !state.aborted) {
+      // Normal prompt path: let abort() handle turnId mapping and event synthesis.
+      return this.abort(sid, state.promptId);
+    }
+    // No daemon-managed active prompt. Cancel whatever agent-core turn is
+    // running (e.g. a skill activation) without requiring a turnId.
+    // TurnFlow.cancel(undefined) is a safe no-op when idle.
+    await this.core.rpc.cancel({ sessionId: sid, agentId: MAIN_AGENT_ID });
+    return { aborted: true };
+  }
+
+  getCurrentPromptId(sid: string): string | undefined {
+    const state = this._active.get(sid);
+    if (state === undefined || state.completed || state.aborted) {
+      return undefined;
+    }
+    return state.promptId;
+  }
+
   /**
    * `IPromptService.applyAgentState` — entry point shared by
    * `submit` (per-turn override) and `SessionService.update`

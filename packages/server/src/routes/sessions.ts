@@ -11,6 +11,7 @@ import {
   forkSessionRequestSchema,
   listSessionChildrenResponseSchema,
   pageResponseSchema,
+  sessionAbortResponseSchema,
   sessionSchema,
   sessionStatusResponseSchema,
   sessionStatusSchema,
@@ -20,6 +21,7 @@ import {
   workspaceIdSchema,
 } from '@moonshot-ai/protocol';
 import {
+  IPromptService,
   ISessionService,
   SessionNotFoundError,
   SessionUndoUnavailableError,
@@ -366,7 +368,7 @@ export function registerSessionsRoutes(
       path: '/sessions/{tail}',
       params: sessionActionTailParamSchema,
       body: sessionActionRequestSchema,
-      success: { data: z.union([sessionSchema, compactSessionResponseSchema, undoSessionResponseSchema]) },
+      success: { data: z.union([sessionSchema, compactSessionResponseSchema, undoSessionResponseSchema, sessionAbortResponseSchema]) },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
@@ -383,7 +385,7 @@ export function registerSessionsRoutes(
         const { tail } = req.params;
         const parsed = parseActionSuffix({
           tail,
-          allowedActions: ['fork', 'compact', 'undo'] as const,
+          allowedActions: ['fork', 'compact', 'undo', 'abort'] as const,
           resourceLabel: 'session',
         });
         if (parsed.kind !== 'action') {
@@ -412,6 +414,14 @@ export function registerSessionsRoutes(
           const body = compactSessionRequestSchema.parse(req.body);
           const result = await ix.invokeFunction((a) =>
             a.get(ISessionService).compact(parsed.id, body),
+          );
+          reply.send(okEnvelope(result, req.id));
+          return;
+        }
+
+        if (parsed.action === 'abort') {
+          const result = await ix.invokeFunction((a) =>
+            a.get(IPromptService).abortBySession(parsed.id),
           );
           reply.send(okEnvelope(result, req.id));
           return;

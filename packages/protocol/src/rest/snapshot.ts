@@ -54,6 +54,8 @@ export const inFlightTurnSchema = z.object({
   thinking_text: z.string(),
   /** Tool calls started but without a `tool.result` yet. */
   running_tools: z.array(inFlightToolCallSchema),
+  /** Daemon prompt_id of the active prompt, if the turn was started by IPromptService. */
+  current_prompt_id: z.string().optional(),
 });
 export type InFlightTurn = z.infer<typeof inFlightTurnSchema>;
 

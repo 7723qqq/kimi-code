@@ -155,6 +155,29 @@ export interface IPromptService {
   abort(sid: string, pid: string): Promise<PromptAbortResult>;
 
   /**
+   * `POST /v1/sessions/{sid}:abort` — cancel whatever is currently running in
+   * the session without requiring a prompt_id.
+   *
+   * If `IPromptService` has an active prompt, this delegates to `abort()` so
+   * the normal synthetic `prompt.aborted` event is emitted. Otherwise it calls
+   * `core.rpc.cancel({ sessionId, agentId: 'main' })` without a `turnId`, which
+   * cancels any active agent-core turn (including skill activations).
+   *
+   * Returns `{ aborted: true }` when a cancel RPC was issued, `{ aborted: false }`
+   * when the session was idle. Throws `SessionNotFoundError` (→ 40401) for
+   * unknown `sid`.
+   */
+  abortBySession(sid: string): Promise<PromptAbortResult>;
+
+  /**
+   * Return the daemon prompt_id currently active for a session, if any.
+   * Returns `undefined` when the session is idle or the active prompt has
+   * already completed/aborted. Used by the snapshot route to expose the
+   * authoritative id for reconnecting clients.
+   */
+  getCurrentPromptId(sid: string): string | undefined;
+
+  /**
    * Apply a partial runtime-controls patch to a session's shadow,
    * diff-dispatching the matching `core.rpc.*` setter for any field that
    * differs. Used by both `submit` (per-turn override path) and

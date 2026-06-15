@@ -118,6 +118,8 @@ function createPromptServiceOverride(
       prompt_ids: [...promptIds],
     }),
     abort: async () => ({ aborted: true }),
+    abortBySession: async () => ({ aborted: true }),
+    getCurrentPromptId: () => undefined,
     applyAgentState: async () => undefined,
     getAgentStateSnapshot: () => undefined,
     onDidComplete: noopComplete,
@@ -748,5 +750,60 @@ describe('Prompt lifecycle: WS receives events + synthesized prompt.completed (W
     expect(payload.promptId).toBe(promptId);
 
     ws.close();
+  });
+});
+
+describe('POST /api/v1/sessions/{sid}:abort — session-level cancel', () => {
+  it('cancels an active daemon prompt', async () => {
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+
+    const promptId = `prompt_SESSION_ABORT_${sid}`;
+    const turnId = 9;
+    const impl = r.services.invokeFunction(
+      (a) => a.get(IPromptService) as PromptService,
+    );
+    impl._injectActiveForTest(sid, promptId, turnId);
+
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}:abort`,
+    });
+    const env = envelopeOf<{ aborted: boolean }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data).toEqual({ aborted: true });
+  });
+
+  it('cancels a non-prompt turn (skill activation) without requiring prompt_id', async () => {
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+
+    // Publish a running turn without creating a daemon prompt.
+    const eventBus = r.services.invokeFunction((a) => a.get(IEventService));
+    eventBus.publish({
+      type: 'turn.started',
+      turnId: 3,
+      origin: { kind: 'skill_activation', skillName: 'demo', activationId: 'act_1' },
+      sessionId: sid,
+      agentId: 'main',
+    } as unknown as Event);
+
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}:abort`,
+    });
+    const env = envelopeOf<{ aborted: boolean }>(res.json());
+    expect(env.code).toBe(0);
+    expect(env.data).toEqual({ aborted: true });
+  });
+
+  it('returns 40401 for an unknown session id', async () => {
+    const r = await bootDaemon();
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: '/api/v1/sessions/sess_missing:abort',
+    });
+    const env = envelopeOf<unknown>(res.json());
+    expect(env.code).toBe(40401);
   });
 });
