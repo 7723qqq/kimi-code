@@ -709,6 +709,7 @@ function testSessionStatus(): SessionStatusResponse {
     thinking_level: 'off',
     permission: 'manual',
     plan_mode: false,
+    swarm_mode: false,
     context_tokens: 0,
     max_context_tokens: 100,
     context_usage: 0,

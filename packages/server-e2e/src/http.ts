@@ -29,6 +29,7 @@ import type {
   PromptSubmitResult,
   QuestionResolveResult,
   QuestionResponse,
+  SessionAbortResponse,
   SetDefaultModelResponse,
   Session,
   SessionChildCreate,
@@ -382,6 +383,9 @@ export class HttpClient {
       `/sessions/${encodeURIComponent(sid)}/prompts/${encodeURIComponent(pid)}:abort`,
       {},
     );
+  }
+  abortSession(sid: string): Promise<SessionAbortResponse> {
+    return this.request('POST', `/sessions/${encodeURIComponent(sid)}:abort`, {});
   }
 
   // ── Approvals / Questions (reverse-RPC resolves) ────────────────────────

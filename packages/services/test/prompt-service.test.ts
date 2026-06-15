@@ -771,6 +771,32 @@ describe('PromptService.abort', () => {
       PromptAlreadyCompletedError,
     );
   });
+
+  it('aborts a queued prompt without calling core.rpc.cancel', async () => {
+    const { bridge, record } = makeBridge();
+    const { bus, events } = makeBus();
+    const impl = newSvc(bridge, bus);
+
+    const first = await impl.submit(SID, mkBody());
+    const second = await impl.submit(
+      SID,
+      mkBodyMinimal({ content: [{ type: 'text', text: 'queued' }] }),
+    );
+    expect(second.status).toBe('queued');
+
+    events.length = 0;
+    const result = await impl.abort(SID, second.prompt_id);
+
+    expect(result.aborted).toBe(true);
+    expect(record.cancelCalls).toHaveLength(0);
+    const listed = await impl.list(SID);
+    expect(listed.active?.prompt_id).toBe(first.prompt_id);
+    expect(listed.queued).toHaveLength(0);
+    expect(events).toHaveLength(1);
+    const ev = events[0] as unknown as { type: string; promptId?: string };
+    expect(ev.type).toBe('prompt.aborted');
+    expect(ev.promptId).toBe(second.prompt_id);
+  });
 });
 
 describe('PromptService.getCurrentPromptId', () => {

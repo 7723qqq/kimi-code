@@ -61,13 +61,15 @@ function mapMcpStatus(s: McpServerInfo['status']): McpServerStatus {
 }
 
 function mapMcpTransport(t: McpServerInfo['transport']): McpServerTransport {
-  // SCHEMAS §8 transport is a superset (adds 'sse'); the two agent-core
-  // literals pass through unchanged.
+  // SCHEMAS §8 transport is a superset (adds 'sse'); agent-core literals
+  // pass through unchanged, and 'sse' is already a valid wire value.
   switch (t) {
     case 'stdio':
       return 'stdio';
     case 'http':
       return 'http';
+    case 'sse':
+      return 'sse';
   }
 }
 

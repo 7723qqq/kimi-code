@@ -43,6 +43,7 @@ import type {
   QuestionResolveResult,
   QuestionResponse,
   ServerHelloMessage,
+  SessionAbortResponse,
   SetDefaultModelResponse,
   Session,
   SessionChildCreate,
@@ -332,6 +333,9 @@ export class DaemonClient {
   }
   abortPrompt(sid: string, pid: string): Promise<PromptAbortResponse> {
     return this.http.abortPrompt(sid, pid);
+  }
+  abortSession(sid: string): Promise<SessionAbortResponse> {
+    return this.http.abortSession(sid);
   }
   resolveApproval(
     sid: string,

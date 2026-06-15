@@ -445,33 +445,7 @@ export class PromptService
     this.eventService.publish(event);
   }
 
-  async abort(sid: string, pid: string): Promise<PromptAbortResult> {
-    await this._requireSession(sid);
-    const state = this._active.get(sid);
-    if (state === undefined || state.promptId !== pid) {
-      throw new PromptNotFoundError(sid, pid);
-    }
-    if (state.completed || state.aborted) {
-      throw new PromptAlreadyCompletedError(sid, pid);
-    }
-    // Mark aborted optimistically — _handleBusEvent will not re-synthesize.
-    state.aborted = true;
-    try {
-      const cancelArgs: { sessionId: string; agentId: string; turnId?: number } = {
-        sessionId: sid,
-        agentId: MAIN_AGENT_ID,
-      };
-      if (state.turnId !== null) cancelArgs.turnId = state.turnId;
-      await this.core.rpc.cancel(cancelArgs);
-    } catch (error) {
-      // Roll back the optimistic flag so the route surfaces a real error;
-      // the caller will see a 50001 (internal) via the global error handler.
-      state.aborted = false;
-      throw error;
-    }
-    // Synthesize the prompt.aborted event immediately. agent-core may also
-    // emit a turn.ended(cancelled) later; _handleBusEvent suppresses a second
-    // synthesis since `state.aborted === true`.
+  private _publishAborted(sid: string, pid: string): void {
     const ev: SyntheticPromptAbortedEvent = {
       type: 'prompt.aborted',
       agentId: MAIN_AGENT_ID,
@@ -484,6 +458,46 @@ export class PromptService
     // event.
     this._onDidAbort.fire(ev);
     this.eventService.publish(ev as unknown as Event);
+  }
+
+  async abort(sid: string, pid: string): Promise<PromptAbortResult> {
+    await this._requireSession(sid);
+    const state = this._active.get(sid);
+    if (state !== undefined && state.promptId === pid) {
+      if (state.completed || state.aborted) {
+        throw new PromptAlreadyCompletedError(sid, pid);
+      }
+      // Mark aborted optimistically — _handleBusEvent will not re-synthesize.
+      state.aborted = true;
+      try {
+        const cancelArgs: { sessionId: string; agentId: string; turnId?: number } = {
+          sessionId: sid,
+          agentId: MAIN_AGENT_ID,
+        };
+        if (state.turnId !== null) cancelArgs.turnId = state.turnId;
+        await this.core.rpc.cancel(cancelArgs);
+      } catch (error) {
+        // Roll back the optimistic flag so the route surfaces a real error;
+        // the caller will see a 50001 (internal) via the global error handler.
+        state.aborted = false;
+        throw error;
+      }
+      this._publishAborted(sid, pid);
+      return { aborted: true };
+    }
+
+    // Queued prompt: remove it from the queue and synthesize prompt.aborted.
+    // No core RPC is needed because the prompt was never dispatched.
+    const queue = this._queued.get(sid) ?? [];
+    const index = queue.findIndex((item) => item.promptId === pid);
+    if (index === -1) {
+      throw new PromptNotFoundError(sid, pid);
+    }
+    queue.splice(index, 1);
+    if (queue.length === 0) {
+      this._queued.delete(sid);
+    }
+    this._publishAborted(sid, pid);
     return { aborted: true };
   }
 
