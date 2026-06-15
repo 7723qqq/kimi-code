@@ -267,6 +267,7 @@ defineExpose({ closeMenu, cancelDelete });
 .t {
   color: var(--ink);
   font-size: var(--ui-font-size);
+  font-weight: 400;
   flex: 1;
   min-width: 0;
   overflow: hidden;

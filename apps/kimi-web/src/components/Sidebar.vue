@@ -569,8 +569,8 @@ function blinkOnce(): void {
   /* Alignment contract, inherited by SessionRow and the theme overrides in
      style.css: text in the workspace header, the path line and session rows
      all starts at --sb-pad-x + --sb-gutter + --sb-gap from the sidebar edge. */
-  --sb-pad-x: 12px;  /* row horizontal padding */
-  --sb-gutter: 16px; /* leading icon slot (14px folder icon + 2px margin) */
+  --sb-pad-x: 16px;  /* row horizontal padding */
+  --sb-gutter: 20px; /* leading icon slot (14px folder icon + 6px margin) */
   --sb-gap: 6px;     /* gap between the icon slot and the text */
 }
 
@@ -617,8 +617,9 @@ function blinkOnce(): void {
   flex: 1;
 }
 .ch-name {
-  font-size: calc(var(--ui-font-size) - 1.5px);
-  font-weight: 600;
+  font-size: var(--ui-font-size);
+  font-weight: 500;
+  line-height: 22px;
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -671,8 +672,9 @@ function blinkOnce(): void {
   gap: 6px;
   padding: 9px 10px;
   font-family: var(--mono);
-  font-size: var(--ui-font-size-sm);
+  font-size: var(--ui-font-size);
   font-weight: 400;
+  line-height: 1;
   border-radius: 8px;
   cursor: pointer;
   text-align: left;
@@ -685,6 +687,7 @@ function blinkOnce(): void {
 }
 .btn-new-chat {
   flex: 1;
+  gap: 10px;
   color: var(--dim);
   background: transparent;
   border: 1px solid var(--line);
@@ -697,9 +700,8 @@ function blinkOnce(): void {
 .btn-new-ws {
   flex: none;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  padding: 0;
+  aspect-ratio: 1;
+  padding: 9px 10px;
   color: var(--muted);
   background: transparent;
   border: 1px solid var(--line);

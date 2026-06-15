@@ -1007,6 +1007,7 @@ function openPr(url: string): void {
       :attention-by-session="client.attentionBySession.value"
       :attention-by-workspace="client.attentionByWorkspace.value"
       @select="client.selectSession($event)"
+      @create="handleCreateSession"
       @create-in-workspace="handleCreateSessionInWorkspace($event)"
       @add-workspace="showAddWorkspace = true"
       @rename="(id, title) => client.renameSession(id, title)"

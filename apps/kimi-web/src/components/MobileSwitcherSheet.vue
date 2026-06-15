@@ -1,6 +1,6 @@
 <!-- apps/kimi-web/src/components/MobileSwitcherSheet.vue -->
-<!-- Mobile switcher bottom sheet, mirroring the desktop sidebar: a "+ new
-     workspace" row, then collapsible workspace groups (folder icon + name +
+<!-- Mobile switcher bottom sheet, mirroring the desktop sidebar: a "+ New
+     chat" row, then collapsible workspace groups (folder icon + name +
      branch/path sub-line + per-group "+") with their session rows beneath.
      Tapping a session selects it AND closes the sheet; tapping a group header
      folds it, same as the desktop sidebar. -->
@@ -32,6 +32,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:modelValue': [open: boolean];
   select: [sessionId: string];
+  create: [];
   createInWorkspace: [workspaceId: string];
   addWorkspace: [];
   rename: [id: string, title: string];
@@ -51,6 +52,11 @@ function onSelectSession(id: string): void {
 
 function onCreateInWorkspace(id: string): void {
   emit('createInWorkspace', id);
+  close();
+}
+
+function onCreate(): void {
+  emit('create');
   close();
 }
 
@@ -211,10 +217,17 @@ onUnmounted(() => {
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <!-- + New workspace (mirrors the sidebar's top button) -->
-    <button type="button" class="newrow" @click="onAddWorkspace">
+    <!-- + New chat (mirrors the sidebar's top button) -->
+    <button type="button" class="newrow" @click="onCreate">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 2.5h8a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H8.5l-2.5 2V11.5H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2z" />
+      </svg>
+      {{ t('sidebar.newChat') }}
+    </button>
+    <button type="button" class="newrow secondary" @click="onAddWorkspace">
       <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-        <path d="M8 3v10M3 8h10" />
+        <path d="M1 3.5V2.5A1 1 0 0 1 2 1.5h3.5l1.3 2h5.2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1z"/>
+        <path d="M1 5.5h12"/>
       </svg>
       {{ t('sidebar.newWorkspace') }}
     </button>
@@ -363,6 +376,14 @@ onUnmounted(() => {
   text-align: left;
 }
 .newrow:active { background: var(--panel); }
+.newrow.secondary {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  color: var(--muted);
+  font-weight: 400;
+  border-bottom: 1px solid var(--line2);
+}
+.newrow.secondary:active { background: var(--panel); color: var(--dim); }
 
 /* ---- List + alignment contract (mirrors the desktop sidebar):
         session titles start at --m-pad + --m-gutter + --m-gap, exactly under

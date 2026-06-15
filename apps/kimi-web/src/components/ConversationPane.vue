@@ -107,8 +107,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  submit: [payload: { text: string; attachments: { fileId: string }[] }];
-  steer: [payload: { text: string; attachments: { fileId: string }[] }];
+  submit: [payload: { text: string; attachments: { fileId: string; kind: 'image' | 'video' }[] }];
+  steer: [payload: { text: string; attachments: { fileId: string; kind: 'image' | 'video' }[] }];
   approval: [approvalId: string, response: { decision: 'approved' | 'rejected' | 'cancelled'; scope?: 'session'; feedback?: string }];
   cancelTask: [taskId: string];
   answer: [questionId: string, response: QuestionResponse];
@@ -131,6 +131,7 @@ const emit = defineEmits<{
   openMedia: [media: ToolMedia];
   openThinking: [target: { turnId: string; blockIndex: number }];
   openCompaction: [target: { turnId: string }];
+  openAgent: [target: { turnId: string; blockIndex: number; memberId: string }];
   /** Edit + resend the last user message (App undoes, then refills composer). */
   editMessage: [text: string];
   /** Preview pane: close it (App clears the preview state). */
@@ -849,7 +850,7 @@ function followAfterUserAction(): void {
   });
 }
 
-function handleComposerSubmit(payload: { text: string; attachments: { fileId: string }[] }): void {
+function handleComposerSubmit(payload: { text: string; attachments: { fileId: string; kind: 'image' | 'video' }[] }): void {
   followAfterUserAction();
   emit('submit', payload);
 }
@@ -1102,6 +1103,7 @@ onUnmounted(() => {
                 @open-media="emit('openMedia', $event)"
                 @copy-conversation-copied="handleCopyConversationCopied"
                 @open-thinking="emit('openThinking', $event)"
+                @open-agent="emit('openAgent', $event)"
                 @open-compaction="emit('openCompaction', $event)"
                 @edit-message="emit('editMessage', $event)"
               />

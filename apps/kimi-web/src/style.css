@@ -2,23 +2,26 @@
 
 :root {
   --ink: #14171c;
-  --text: #3f454d;
-  --dim: #697079;
-  --muted: #8b929b;
-  --faint: #aeb4bc;
+  --text: #262626;
+  --dim: #595959;
+  --muted: #8a8a8a;
+  --faint: #b5b5b5;
   --line: #e7eaee;
   --line2: #eef1f4;
   --panel: #fafbfc;
   --panel2: #f3f5f8;
   --bg: #ffffff;
-  --blue: #1565c0;
-  --blue2: #0d4f9e;
-  --soft: #e9f0fa;
-  --bd: #cfe0f6;
-  --logo: #1e8fff;
+  /* Brand blue = Kimi KMBlue (#1783ff), matched to kimi.com's palette.
+     --blue2 is a darker press/hover shade; --soft/--bd/--bluebg/--blueln are
+     the light-blue fills + borders derived from the same hue. */
+  --blue: #1783ff;
+  --blue2: #0f6fe0;
+  --soft: #e8f3ff;
+  --bd: #cfe6ff;
+  --logo: #1783ff;
   /* Soft-blue bubble fill + border (mobile user message bubble). */
-  --bluebg: #eef4fc;
-  --blueln: #cfe0f7;
+  --bluebg: #e8f3ff;
+  --blueln: #cfe6ff;
   --ok: #0e7a38;
   --warn: #92660a;
   --err: #b91c1c;
@@ -31,11 +34,12 @@
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 16px;
-  --ui-font-size: 15px;
+  --ui-font-size: 14px;
   --ui-font-size-sm: calc(var(--ui-font-size) - 1px);
   --ui-font-size-xs: calc(var(--ui-font-size) - 2px);
   --ui-font-size-lg: calc(var(--ui-font-size) + 1px);
   --ui-font-size-xl: calc(var(--ui-font-size) + 2px);
+  --content-font-size: 16px;
   --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --sans: var(--mono);
   color-scheme: light dark;
@@ -205,6 +209,7 @@ body {
   color: var(--text);
   background: var(--bg);
   font-size: var(--ui-font-size);
+  font-weight: 400;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -264,8 +269,9 @@ html[data-theme="modern"] {
      Shadow tokens are shared by the per-element card rules below. */
   --line: #e9edf3;
   --line2: #f1f4f8;
-  --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
-    "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Helvetica Neue", Arial, sans-serif;
   --canvas: #f4f6fa;
   --sh: 0 1px 3px rgba(28, 40, 66, 0.05), 0 6px 18px rgba(28, 40, 66, 0.06);
   --shc: 0 1px 2px rgba(28, 40, 66, 0.05);
@@ -576,6 +582,7 @@ html[data-color-scheme="dark"][data-theme="modern"] {
 :is(html[data-theme="modern"], html[data-theme="kimi"]) .gload-text { font-family: var(--sans); }
 
 /* ---- Sidebar: buttons, rename inputs, kebab menu, settings popover ---- */
+:is(html[data-theme="modern"], html[data-theme="kimi"]) .btn-new-chat,
 :is(html[data-theme="modern"], html[data-theme="kimi"]) .btn-new-ws { font-family: var(--sans); }
 :is(html[data-theme="modern"], html[data-theme="kimi"]) .theme-opt { font-family: var(--sans); }
 :is(html[data-theme="modern"], html[data-theme="kimi"]) .gh-rename { border-radius: var(--r-xs); font-family: var(--sans); }
@@ -1075,6 +1082,7 @@ html[data-color-scheme="dark"][data-theme="kimi"] ::selection {
 .app {
   font-size: var(--ui-font-size);
 }
+/* Chat/message content → 16px (like Feishu doc body). */
 .md,
 .md .markdown-renderer,
 .md .markdown-renderer p,
@@ -1082,16 +1090,20 @@ html[data-color-scheme="dark"][data-theme="kimi"] ::selection {
 .md .markdown-renderer blockquote,
 .md .markdown-renderer td,
 .md .markdown-renderer th,
+.u-bub,
+.u-bub .u-text,
+.a-msg .msg,
+.box .bb,
+.ph {
+  font-size: var(--content-font-size);
+}
+
+/* UI chrome + code surfaces → 14px (like Feishu/Ant Design shell). */
 .md .code-block-container pre,
 .md .markstream-pre,
 .md .code-block-container pre code,
 .md .diff-pre code,
-.u-bub,
-.u-bub .u-text,
-.a-msg .msg,
 .box .bh,
-.box .bb,
-.ph,
 .queue-item,
 .queue-text,
 .ctx-num,
