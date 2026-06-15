@@ -14,7 +14,6 @@ const BASE_TABS: { key: PaneKey; labelKey: string }[] = [
   { key: 'files', labelKey: 'sidebar.tabFiles' },
   { key: 'tasks', labelKey: 'sidebar.tabTasks' },
   { key: 'todo', labelKey: 'sidebar.tabTodo' },
-  { key: 'terminal', labelKey: 'sidebar.tabTerminal' },
 ];
 
 // 'preview' is a transient tab — shown only while this group hosts a preview.

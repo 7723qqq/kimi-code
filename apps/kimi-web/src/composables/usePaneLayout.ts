@@ -22,7 +22,7 @@ const STORAGE_KEY = 'kimi-web.layout';
 // Default tab set for a group. 'preview' is intentionally NOT here — it's a
 // transient view added to a group only while a file/media preview is open, so
 // groups don't show an empty "Preview" tab the rest of the time.
-const ALL_VIEWS: PaneKey[] = ['chat', 'files', 'tasks', 'todo', 'terminal'];
+const ALL_VIEWS: PaneKey[] = ['chat', 'files', 'tasks', 'todo'];
 
 function nextId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -38,7 +38,6 @@ function isPaneKey(value: unknown): value is PaneKey {
     value === 'files' ||
     value === 'tasks' ||
     value === 'todo' ||
-    value === 'terminal' ||
     value === 'preview'
   );
 }
@@ -163,7 +162,7 @@ export function usePaneLayout() {
       type: 'split',
       id: nextId('split'),
       dir,
-      children: [group, defaultGroup(group.active === 'terminal' ? 'chat' : 'terminal')],
+      children: [group, defaultGroup(group.active === 'files' ? 'chat' : 'files')],
       sizes: [1, 1],
     })));
   }
