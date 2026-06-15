@@ -294,4 +294,21 @@ describe('CustomEditor narrow width safety', () => {
       }
     }
   });
+
+  it('does not crash when recalling history at an extremely narrow width', () => {
+    const editor = makeEditor();
+    editor.setText('你好世界');
+    editor.addToHistory('你好世界');
+    editor.setText('');
+
+    // Simulate that the last render happened at a 1-column layout width.
+    (editor as unknown as { lastWidth: number }).lastWidth = 1;
+
+    expect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (editor as any).navigateHistory(-1);
+    }).not.toThrow();
+
+    expect(editor.getText()).toBe('你好世界');
+  });
 });
