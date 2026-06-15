@@ -107,6 +107,12 @@ export class SubAgentEventHandler {
         name: event.name,
         argumentsPart: event.argumentsPart ?? null,
       });
+    } else if (
+      event.type === 'tool.progress' &&
+      (event.update.kind === 'stdout' || event.update.kind === 'stderr') &&
+      event.update.text !== undefined
+    ) {
+      toolCall.appendSubToolLiveOutput(`${childAgentId}:${event.toolCallId}`, event.update.text);
     } else if (event.type === 'tool.result') {
       toolCall.finishSubToolCall({
         tool_call_id: `${childAgentId}:${event.toolCallId}`,
@@ -523,7 +529,6 @@ export class SubAgentEventHandler {
 
     const progress = new AgentSwarmProgressComponent({
       description: agentSwarmDescriptionFromArgs(args),
-      colors: this.host.state.theme.colors,
       availableGridHeight: () => this.agentSwarmGridHeight(),
       requestRender: () => {
         this.requestRender();

@@ -21,15 +21,6 @@ const OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS = new Set([
   'o4-mini',
 ]);
 
-// OpenAI models that document `xhigh` and keep `v1/chat/completions` enabled.
-// Pro/Codex xhigh models are Responses-only, so the Chat Completions adapter
-// must clamp them at `high`.
-const OPENAI_CHAT_COMPLETIONS_XHIGH_REASONING_MODELS = new Set([
-  'gpt-5.2',
-  'gpt-5.4',
-  'gpt-5.5',
-]);
-
 const OPENAI_VISION_TOOL_PREFIXES = [
   'gpt-4o',
   'gpt-4-turbo',
@@ -37,12 +28,19 @@ const OPENAI_VISION_TOOL_PREFIXES = [
   'gpt-4.5',
 ] as const;
 
-const CLAUDE_3_PREFIXES = ['claude-3-', 'claude-3.5-', 'claude-3.7-'] as const;
+// Claude prefixes are grouped by capability set, not by version family:
+// a new model joins the group whose capability it matches (e.g. Fable sits
+// with Opus/Sonnet/Haiku 4), rather than getting a per-version group.
 
-const CLAUDE_4_PREFIXES = [
+// Vision + tool use, no thinking (-> ANTHROPIC_VISION_TOOL_CAPABILITY).
+const CLAUDE_VISION_TOOL_PREFIXES = ['claude-3-', 'claude-3.5-', 'claude-3.7-'] as const;
+
+// Vision + tool use + thinking (-> ANTHROPIC_THINKING_VISION_TOOL_CAPABILITY).
+const CLAUDE_THINKING_VISION_TOOL_PREFIXES = [
   'claude-opus-4',
   'claude-sonnet-4',
   'claude-haiku-4',
+  'claude-fable',
 ] as const;
 
 const GEMINI_CATALOGUED_PREFIXES = [
@@ -145,21 +143,17 @@ const OPENAI_RESPONSES_CAPABILITY_CATALOG: readonly CapabilityCatalogEntry[] = [
 
 const ANTHROPIC_CAPABILITY_CATALOG: readonly CapabilityCatalogEntry[] = [
   {
-    matches: (name) => hasPrefix(name, CLAUDE_3_PREFIXES),
+    matches: (name) => hasPrefix(name, CLAUDE_VISION_TOOL_PREFIXES),
     capability: ANTHROPIC_VISION_TOOL_CAPABILITY,
   },
   {
-    matches: (name) => hasPrefix(name, CLAUDE_4_PREFIXES),
+    matches: (name) => hasPrefix(name, CLAUDE_THINKING_VISION_TOOL_PREFIXES),
     capability: ANTHROPIC_THINKING_VISION_TOOL_CAPABILITY,
   },
 ];
 
 function normalizeModelName(modelName: string): string {
   return modelName.toLowerCase();
-}
-
-function modelIdLeaf(modelName: string): string {
-  return normalizeModelName(modelName).trim().split('/').at(-1) ?? '';
 }
 
 function hasPrefix(modelName: string, prefixes: readonly string[]): boolean {
@@ -204,10 +198,6 @@ export function getGoogleGenAIModelCapability(modelName: string): ModelCapabilit
     return GEMINI_THINKING_MULTIMODAL_TOOL_CAPABILITY;
   }
   return GEMINI_MULTIMODAL_TOOL_CAPABILITY;
-}
-
-export function supportsOpenAIChatCompletionsXHighReasoning(modelName: string): boolean {
-  return OPENAI_CHAT_COMPLETIONS_XHIGH_REASONING_MODELS.has(modelIdLeaf(modelName));
 }
 
 export function usesOpenAIResponsesDeveloperRole(modelName: string): boolean {

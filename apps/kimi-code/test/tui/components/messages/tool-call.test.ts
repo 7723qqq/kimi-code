@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { darkColors } from '#/tui/theme/colors';
-import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 
 import { captureProcessWrite } from '../../../helpers/process';
 
@@ -42,7 +41,6 @@ describe('ToolCallComponent', () => {
         output: 'content',
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -63,7 +61,6 @@ describe('ToolCallComponent', () => {
         output: ['line1', 'line2', 'line3', 'line4', 'line5'].join('\n'),
         is_error: false,
       },
-      darkColors,
     );
 
     const collapsed = strip(component.render(100).join('\n'));
@@ -81,6 +78,48 @@ describe('ToolCallComponent', () => {
     expect(expanded).not.toContain('ctrl+o to expand');
   });
 
+  it('renders live Bash output while the command is running', () => {
+    const component = new ToolCallComponent(
+      {
+        id: 'call_shell_live',
+        name: 'Bash',
+        args: { command: 'printf output' },
+      },
+      undefined,
+    );
+
+    component.appendLiveOutput('line1\n');
+    component.appendLiveOutput('line2\n');
+
+    const out = strip(component.render(100).join('\n'));
+    expect(out).toContain('Using Bash');
+    expect(out).toContain('line1');
+    expect(out).toContain('line2');
+  });
+
+  it('clears live Bash output when the final result arrives', () => {
+    const component = new ToolCallComponent(
+      {
+        id: 'call_shell_live_done',
+        name: 'Bash',
+        args: { command: 'printf output' },
+      },
+      undefined,
+    );
+
+    component.appendLiveOutput('streamed-only\n');
+    component.setResult({
+      tool_call_id: 'call_shell_live_done',
+      output: 'final-only\n',
+      is_error: false,
+    });
+
+    const out = strip(component.render(100).join('\n'));
+    expect(out).toContain('Used Bash');
+    expect(out).toContain('final-only');
+    expect(out).not.toContain('streamed-only');
+  });
+
   it('hides tool output bodies that start with a <system tag', () => {
     const reminderOutput =
       '<system-reminder>\nThe task tools have not been used recently.\n</system-reminder>';
@@ -95,7 +134,6 @@ describe('ToolCallComponent', () => {
         output: reminderOutput,
         is_error: false,
       },
-      darkColors,
     );
 
     const collapsed = strip(component.render(100).join('\n'));
@@ -121,7 +159,6 @@ describe('ToolCallComponent', () => {
         output: '<system-reminder>do not show</system-reminder>',
         is_error: true,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -152,7 +189,6 @@ describe('ToolCallComponent', () => {
         output,
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(120).join('\n'));
@@ -175,7 +211,6 @@ describe('ToolCallComponent', () => {
         output: 'provider request failed',
         is_error: true,
       },
-      darkColors,
     );
 
     const out = strip(component.render(120).join('\n'));
@@ -196,7 +231,6 @@ describe('ToolCallComponent', () => {
         output: 'first line\n<system-reminder>nope</system-reminder>',
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -218,12 +252,11 @@ describe('ToolCallComponent', () => {
           '## Approved Plan:\n# File Plan\n\n1. Do the focused fix.',
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
     expect(out).toContain('Current plan');
-    expect(out).toContain('# File Plan');
+    expect(out).toContain('File Plan');
     expect(out).toContain('1. Do the focused fix.');
     expect(out).not.toContain('Plan saved to: /tmp/plan.md');
   });
@@ -236,9 +269,7 @@ describe('ToolCallComponent', () => {
         args: {},
       },
       undefined,
-      darkColors,
       undefined,
-      createMarkdownTheme(darkColors),
     );
 
     // A fresh tool card only shows the 'Current plan' title; no plan box renders yet.
@@ -265,15 +296,31 @@ describe('ToolCallComponent', () => {
         args: { plan: longPlan },
       },
       undefined,
-      darkColors,
       stubTui(24),
-      createMarkdownTheme(darkColors),
     );
 
     const out = strip(component.render(100).join('\n'));
     expect(out).toContain('step 1');
     expect(out).toContain('step 40');
     expect(out).not.toContain('more lines');
+  });
+
+  it('plan preview controls are no-ops for non-ExitPlanMode tool calls', () => {
+    const component = new ToolCallComponent(
+      {
+        id: 'call_bash_plan',
+        name: 'Bash',
+        args: { command: 'echo hi' },
+      },
+      undefined,
+      undefined,
+    );
+
+    component.setPlanInfo({ plan: 'should be ignored', path: '/etc/hosts' });
+
+    const out = strip(component.render(100).join('\n'));
+    expect(out).not.toContain('should be ignored');
+    expect(out).not.toContain('plan:');
   });
 
   it('ctrl+o does not affect the full plan preview', () => {
@@ -285,9 +332,7 @@ describe('ToolCallComponent', () => {
         args: { plan: longPlan },
       },
       undefined,
-      darkColors,
       stubTui(24),
-      createMarkdownTheme(darkColors),
     );
     component.setExpanded(true);
     const out = strip(component.render(100).join('\n'));
@@ -310,7 +355,6 @@ describe('ToolCallComponent', () => {
           '## Approved Plan:\n# Plan body',
         is_error: false,
       },
-      darkColors,
     );
 
     const header = strip(component.render(100).join('\n')).split('\n')[1] ?? '';
@@ -334,7 +378,6 @@ describe('ToolCallComponent', () => {
           '## Approved Plan:\n# body',
         is_error: false,
       },
-      darkColors,
     );
 
     const header = strip(component.render(100).join('\n')).split('\n')[1] ?? '';
@@ -353,9 +396,7 @@ describe('ToolCallComponent', () => {
         output: 'User rejected the plan. Feedback:\n\nplease rethink step 2',
         is_error: false,
       },
-      darkColors,
       undefined,
-      createMarkdownTheme(darkColors),
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -376,9 +417,7 @@ describe('ToolCallComponent', () => {
         output: 'Plan rejected by user. Plan mode remains active.',
         is_error: true,
       },
-      darkColors,
       undefined,
-      createMarkdownTheme(darkColors),
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -407,7 +446,6 @@ describe('ToolCallComponent', () => {
           'Do NOT edit files other than the plan file while plan mode is active.',
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -429,7 +467,6 @@ describe('ToolCallComponent', () => {
         output: 'Plan mode is already active. Use ExitPlanMode when the plan is ready.',
         is_error: true,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -452,7 +489,6 @@ describe('ToolCallComponent', () => {
         }),
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -478,7 +514,6 @@ describe('ToolCallComponent', () => {
         ].join('\n'),
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -524,7 +559,6 @@ describe('ToolCallComponent', () => {
         }),
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -546,7 +580,6 @@ describe('ToolCallComponent', () => {
         output: 'Goal budget set: 10 turns.',
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -571,7 +604,6 @@ describe('ToolCallComponent', () => {
           output: 'Goal budget set: 10 turns.',
           is_error: false,
         },
-        darkColors,
       );
 
       const out = component.render(100).join('\n');
@@ -594,7 +626,6 @@ describe('ToolCallComponent', () => {
         output: 'Goal marked blocked.',
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -621,7 +652,6 @@ describe('ToolCallComponent', () => {
             output: `Goal marked ${status}.`,
             is_error: false,
           },
-          darkColors,
         );
 
         const out = component.render(100).join('\n');
@@ -645,7 +675,6 @@ describe('ToolCallComponent', () => {
         output: '1\tfoo\n2\tbar\n3\tbaz',
         is_error: false,
       },
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -663,7 +692,6 @@ describe('ToolCallComponent', () => {
         args: { path: longPath },
       },
       undefined,
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -684,8 +712,6 @@ describe('ToolCallComponent', () => {
         output: '1\tcontent',
         is_error: false,
       },
-      darkColors,
-      undefined,
       undefined,
       '/tmp/proj-a',
     );
@@ -704,8 +730,6 @@ describe('ToolCallComponent', () => {
         args: { path: '/tmp/proj-ab/src/main.ts' },
       },
       undefined,
-      darkColors,
-      undefined,
       undefined,
       '/tmp/proj-a',
     );
@@ -723,7 +747,6 @@ describe('ToolCallComponent', () => {
         args: { path: 'foo.ts' },
       },
       undefined,
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -741,7 +764,6 @@ describe('ToolCallComponent', () => {
         args: { description: 'explore project xxx' },
       },
       undefined,
-      darkColors,
     );
 
     component.onSubagentSpawned({
@@ -804,7 +826,6 @@ describe('ToolCallComponent', () => {
         args: { description: 'inspect tools' },
       },
       undefined,
-      darkColors,
     );
     component.onSubagentSpawned({
       agentId: 'sub_tools',
@@ -844,7 +865,6 @@ describe('ToolCallComponent', () => {
         args: { description: 'inspect tools' },
       },
       undefined,
-      darkColors,
     );
     component.onSubagentSpawned({
       agentId: 'sub_tools',
@@ -888,7 +908,6 @@ describe('ToolCallComponent', () => {
         args: { description: 'inspect wrapping' },
       },
       undefined,
-      darkColors,
     );
     component.onSubagentSpawned({
       agentId: 'sub_wrapped',
@@ -925,7 +944,6 @@ describe('ToolCallComponent', () => {
         args: { description: 'long think' },
       },
       undefined,
-      darkColors,
     );
     component.onSubagentSpawned({
       agentId: 'sub_scroll',
@@ -954,7 +972,6 @@ describe('ToolCallComponent', () => {
         args: { description: 'run bash' },
       },
       undefined,
-      darkColors,
     );
     component.onSubagentSpawned({
       agentId: 'sub_bash',
@@ -995,7 +1012,6 @@ describe('ToolCallComponent', () => {
         args: { description: 'mixed tools' },
       },
       undefined,
-      darkColors,
     );
     component.onSubagentSpawned({
       agentId: 'sub_mixed',
@@ -1042,7 +1058,6 @@ describe('ToolCallComponent', () => {
         args: { description: 'check failure' },
       },
       undefined,
-      darkColors,
     );
     component.onSubagentSpawned({
       agentId: 'sub_failed',
@@ -1090,7 +1105,6 @@ describe('ToolCallComponent', () => {
           },
         },
         spawnSuccessResult,
-        darkColors,
       );
       component.onSubagentSpawned({
         agentId: 'agent-0',
@@ -1155,7 +1169,6 @@ describe('ToolCallComponent', () => {
           args: { description: 'background agent A', run_in_background: true },
         },
         undefined,
-        darkColors,
       );
       component.setBackgroundTaskTerminalStatus('lost');
       // Now the spawn-success result lands.
@@ -1206,7 +1219,6 @@ describe('ToolCallComponent', () => {
           args: { description: 'background agent 1', run_in_background: true },
         },
         spawnSuccessResult,
-        darkColors,
       );
       // No spawn metadata was wired in — exactly the resume / backgrounded
       // case we are guarding against.
@@ -1224,7 +1236,6 @@ describe('ToolCallComponent', () => {
           args: { description: 'X', run_in_background: true },
         },
         spawnSuccessResult,
-        darkColors,
       );
       component.setSubagentMeta('agent-explicit', 'coder');
       expect(component.getSubagentAgentId()).toBe('agent-explicit');
@@ -1242,7 +1253,6 @@ describe('ToolCallComponent', () => {
           output: 'agent_id: agent-fake\nstatus: running',
           is_error: false,
         },
-        darkColors,
       );
       expect(component.getSubagentAgentId()).toBeUndefined();
     });
@@ -1293,7 +1303,6 @@ describe('ToolCallComponent', () => {
         streamingArguments: `{"file_path":"foo.ts","content":"${escaped}`,
       },
       undefined,
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -1322,7 +1331,6 @@ describe('ToolCallComponent', () => {
         truncated: true,
       },
       undefined,
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -1361,7 +1369,6 @@ describe('ToolCallComponent', () => {
         streamingStartedAtMs: 0,
       },
       undefined,
-      darkColors,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -1395,7 +1402,6 @@ describe('ToolCallComponent', () => {
         // No streamingArguments → finalized args; no result yet.
       },
       undefined,
-      darkColors,
     );
     const out = strip(component.render(100).join('\n'));
     expect(out).toContain('line1');
@@ -1417,7 +1423,6 @@ describe('ToolCallComponent', () => {
         streamingArguments: `{"file_path":"big.txt","content":"${escaped}"}`,
       },
       undefined,
-      darkColors,
     );
     expect(strip(component.render(100).join('\n'))).toContain('line25');
 
@@ -1443,7 +1448,6 @@ describe('ToolCallComponent', () => {
         streamingArguments: '{',
       },
       undefined,
-      darkColors,
     );
     const before = strip(component.render(100).join('\n'));
     expect(before).toContain('Using Write');
@@ -1470,7 +1474,6 @@ describe('ToolCallComponent', () => {
         streamingArguments: '{"file_path":"foo.ts","content":"a\\nb',
       },
       undefined,
-      darkColors,
     );
     // While streaming, body is rendered live from streamingArguments.
     expect(strip(component.render(100).join('\n'))).toMatch(/^\s*1\s+a\s*$/m);
@@ -1497,7 +1500,6 @@ describe('ToolCallComponent', () => {
         streamingStartedAtMs: Date.now(),
       },
       undefined,
-      darkColors,
     );
     expect(strip(component.render(100).join('\n'))).toContain('Preparing changes');
     expect(strip(component.render(100).join('\n'))).not.toMatch(/^\s*\d+\s+[+-]\s/m);
@@ -1526,7 +1528,6 @@ describe('ToolCallComponent', () => {
         streamingStartedAtMs: 0,
       },
       undefined,
-      darkColors,
       ui as never,
     );
 
@@ -1553,7 +1554,6 @@ describe('ToolCallComponent', () => {
         streamingStartedAtMs: 0,
       },
       undefined,
-      darkColors,
       ui as never,
     );
     ui.requestRender.mockClear();
@@ -1576,7 +1576,6 @@ describe('ToolCallComponent', () => {
         output: 'Wrote big.txt',
         is_error: false,
       },
-      darkColors,
     );
 
     const collapsed = strip(component.render(100).join('\n'));
@@ -1607,7 +1606,6 @@ describe('ToolCallComponent', () => {
           output: 'Wrote demo.abcxyz',
           is_error: false,
         },
-        darkColors,
       );
 
       const collapsed = strip(component.render(100).join('\n'));

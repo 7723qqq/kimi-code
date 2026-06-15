@@ -2,7 +2,7 @@ import type { Component, Focusable } from '@earendil-works/pi-tui';
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
 import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 
-import type { Theme } from '../theme';
+import type { ColorToken, ThemeName } from '#/tui/theme';
 import type { ResolvedTheme } from '../theme/colors';
 import {
   LLM_NOT_SET_MESSAGE,
@@ -18,7 +18,12 @@ import type { AuthFlowController } from '../controllers/auth-flow';
 import type { BtwPanelController } from '../controllers/btw-panel';
 import type { StreamingUIController } from '../controllers/streaming-ui';
 import type { TasksBrowserController } from '../controllers/tasks-browser';
-import type { AppState, LoginProgressSpinnerHandle, QueuedMessage } from '../types';
+import type {
+  AppState,
+  LoginProgressSpinnerHandle,
+  QueuedMessage,
+  TranscriptEntry,
+} from '../types';
 import type { TUIState } from '../tui-state';
 
 import { handleLoginCommand, handleLogoutCommand } from './auth';
@@ -107,8 +112,9 @@ export interface SlashCommandHost {
   setAppState(patch: Partial<AppState>): void;
   resetLivePane(): void;
   showError(msg: string): void;
-  showStatus(msg: string, color?: string): void;
+  showStatus(msg: string, color?: ColorToken): void;
   showNotice(title: string, detail?: string): void;
+  appendTranscriptEntry(entry: TranscriptEntry): void;
   track(event: string, props?: Record<string, unknown>): void;
   mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;
@@ -130,7 +136,7 @@ export interface SlashCommandHost {
   showProgressSpinner(label: string): LoginProgressSpinnerHandle;
 
   // Theme
-  applyTheme(theme: Theme, resolved?: ResolvedTheme): void;
+  applyTheme(theme: ThemeName, resolved?: ResolvedTheme): Promise<void>;
   refreshTerminalThemeTracking(): void;
 
   // Dispatch
@@ -267,7 +273,7 @@ async function handleBuiltInSlashCommand(
       await handleThemeCommand(host, args);
       return;
     case 'model':
-      handleModelCommand(host, args);
+      await handleModelCommand(host, args);
       return;
     case 'provider':
       await handleProviderCommand(host);

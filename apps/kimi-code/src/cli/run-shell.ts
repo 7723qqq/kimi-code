@@ -22,7 +22,8 @@ import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { KimiTUI } from '#/tui/index';
-import { detectTerminalTheme } from '#/tui/theme/detect';
+import { currentTheme, getColorPalette } from '#/tui/theme';
+import { combineStartupNotice } from '#/tui/utils/startup';
 
 import type { CLIOptions } from './options';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
@@ -45,9 +46,9 @@ export async function runShell(
     configWarning = error.message;
   }
 
-  // Resolve `theme = "auto"` against the live terminal once, before pi-tui
-  // grabs stdin. Explicit `dark` / `light` skip detection.
-  const resolvedTheme = tuiConfig.theme === 'auto' ? await detectTerminalTheme() : tuiConfig.theme;
+  // Initialise the global Theme singleton before pi-tui grabs stdin.
+  const palette = await getColorPalette(tuiConfig.theme);
+  currentTheme.setPalette(palette);
 
   const workDir = process.cwd();
   const telemetryBootstrap = createCliTelemetryBootstrap();
@@ -91,6 +92,9 @@ export async function runShell(
     return;
   }
   const config = await harness.getConfig();
+  for (const warning of (await harness.getConfigDiagnostics()).warnings) {
+    configWarning = combineStartupNotice(configWarning, warning);
+  }
   const configMs = Date.now() - configStartedAt;
   const tui = new KimiTUI(harness, {
     cliOptions: opts,
@@ -98,7 +102,6 @@ export async function runShell(
     version,
     workDir,
     startupNotice: configWarning,
-    resolvedTheme,
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
   });

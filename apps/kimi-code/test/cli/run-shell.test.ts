@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
       defaultModel: 'k2',
       telemetry: true,
     })),
+    harnessGetConfigDiagnostics: vi.fn(async () => ({ warnings: [] as readonly string[] })),
     harnessGetCachedAccessToken: vi.fn(),
     harnessClose: vi.fn(),
     detectPendingMigration: vi.fn<() => Promise<unknown>>(async () => null),
@@ -82,6 +83,7 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
         },
         ensureConfigFile: mocks.harnessEnsureConfigFile,
         getConfig: mocks.harnessGetConfig,
+        getConfigDiagnostics: mocks.harnessGetConfigDiagnostics,
         close: mocks.harnessClose,
         track: mocks.harnessTrack,
       };
@@ -224,7 +226,6 @@ describe('runShell', () => {
       },
       version: '1.2.3-test',
       workDir: process.cwd(),
-      resolvedTheme: 'dark',
     });
     expect(mocks.tuiStart).toHaveBeenCalledOnce();
     expect(mocks.harnessTrack).not.toHaveBeenCalledWith('started', expect.anything());
@@ -476,12 +477,43 @@ describe('runShell', () => {
     const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
     expect(startupInput).toMatchObject({
       startupNotice: 'Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.',
-      resolvedTheme: 'light',
       tuiConfig: {
         theme: 'auto',
         editorCommand: 'vim',
         notifications: { enabled: true, condition: 'always' },
       },
+    });
+  });
+
+  it('forwards config.toml diagnostics as startup notices', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+    });
+    mocks.harnessGetConfigDiagnostics.mockResolvedValue({
+      warnings: ['Ignored invalid config in config.toml: loop_control.'],
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(
+      {
+        session: '',
+        continue: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+        model: undefined,
+        outputFormat: undefined,
+        prompt: undefined,
+        skillsDirs: [],
+      },
+      '1.2.3-test',
+    );
+
+    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
+    expect(startupInput).toMatchObject({
+      startupNotice: 'Ignored invalid config in config.toml: loop_control.',
     });
   });
 

@@ -133,31 +133,47 @@ export class ContextMemory {
     ) {
       throw new KimiError(
         ErrorCodes.REQUEST_INVALID,
-        'Nothing to undo in the active context.',
+        formatUndoUnavailableMessage(count, removedUserCount, stoppedAtBoundary),
+        {
+          details: {
+            reason: 'undo_limit',
+            requestedCount: count,
+            undoableCount: removedUserCount,
+            stoppedAtCompaction: stoppedAtBoundary,
+          },
+        },
       );
     }
   }
 
-  applyCompaction(summary: CompactionResult): void {
+  applyCompaction(result: CompactionResult): void {
     this.agent.records.logRecord({
       type: 'context.apply_compaction',
-      ...summary,
+      ...result,
+    });
+    this.agent.replayBuilder.patchLast('compaction', {
+      result: {
+        summary: result.summary,
+        compactedCount: result.compactedCount,
+        tokensBefore: result.tokensBefore,
+        tokensAfter: result.tokensAfter,
+      },
     });
     this._history = [
       {
         role: 'assistant',
-        content: [{ type: 'text', text: summary.summary }],
+        content: [{ type: 'text', text: result.summary }],
         toolCalls: [],
         origin: { kind: 'compaction_summary' },
       },
-      ...this._history.slice(summary.compactedCount),
+      ...this._history.slice(result.compactedCount),
     ];
     this.openSteps.clear();
     this.flushDeferredMessagesIfToolExchangeClosed();
-    this._tokenCount = summary.tokensAfter;
+    this._tokenCount = result.tokensAfter;
     this.tokenCountCoveredMessageCount = this._history.length;
     this.agent.microCompaction.reset();
-    this.agent.injection.onContextCompacted(summary.compactedCount);
+    this.agent.injection.onContextCompacted(result.compactedCount);
     this.agent.emitStatusUpdated();
   }
 
@@ -344,4 +360,17 @@ function isRealUserPrompt(message: ContextMessage): boolean {
     return origin.trigger === 'user-slash';
   }
   return false;
+}
+
+function formatUndoUnavailableMessage(
+  requestedCount: number,
+  undoableCount: number,
+  stoppedAtCompaction: boolean,
+): string {
+  const reason = stoppedAtCompaction ? ' after the last compaction' : '';
+  return `Cannot undo ${formatPromptCount(requestedCount)}; only ${formatPromptCount(undoableCount)} can be undone in the active context${reason}.`;
+
+  function formatPromptCount(count: number): string {
+    return `${String(count)} ${count === 1 ? 'prompt' : 'prompts'}`;
+  }
 }

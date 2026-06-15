@@ -57,7 +57,6 @@ function showSwarmStartPermissionPrompt(
   };
   host.mountEditorReplacement(
     new SwarmStartPermissionPromptComponent({
-      colors: host.state.theme.colors,
       onSelect: (choice) => {
         host.restoreEditor();
         void onSelect(choice);
@@ -72,7 +71,7 @@ async function startSwarmWithPermission(
   prompt: string,
   choice: SwarmStartPermissionChoice,
 ): Promise<void> {
-  if (choice === 'auto') {
+  if (choice === 'auto' || choice === 'yolo') {
     if (!(await setPermissionForSwarm(host, choice))) return;
   }
   await startSwarmTask(host, prompt);
@@ -112,7 +111,9 @@ async function applySwarmMode(
   }
   if (enabled && host.state.appState.permissionMode === 'manual') {
     showSwarmStartPermissionPrompt(host, commandText, 'Swarm mode not enabled.', async (choice) => {
-      if (choice === 'auto' && !(await setPermissionForSwarm(host, choice))) return;
+      if ((choice === 'auto' || choice === 'yolo') && !(await setPermissionForSwarm(host, choice))) {
+        return;
+      }
       if (!(await setSwarmMode(host, true, 'manual'))) return;
       renderSwarmModeMarker(host, 'active');
     });
@@ -149,7 +150,7 @@ function swarmModeSubcommand(input: string): boolean | undefined {
 
 function renderSwarmModeMarker(host: SlashCommandHost, state: SwarmModeMarkerState): void {
   host.state.transcriptContainer.addChild(
-    new SwarmModeMarkerComponent(state, host.state.theme.colors),
+    new SwarmModeMarkerComponent(state),
   );
   host.state.ui.requestRender();
 }
