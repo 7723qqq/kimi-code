@@ -8,6 +8,7 @@ import { getKimiWebApi } from '../api';
 import { isDaemonApiError, isDaemonNetworkError } from '../api/errors';
 import type {
   AppApprovalRequest,
+  AppConfig,
   AppGoal,
   AppNotice,
   AppNoticeDetail,
@@ -348,6 +349,8 @@ interface ExtendedState extends KimiClientState {
   hiddenWorkspaceRoots: string[];
   /** Installed external apps that can be used with "Open in app". */
   availableOpenInApps: string[];
+  /** Global daemon configuration (secrets redacted). */
+  config: AppConfig | null;
 }
 
 const rawState: ExtendedState = reactive({
@@ -376,6 +379,7 @@ const rawState: ExtendedState = reactive({
   recentRoots: [],
   hiddenWorkspaceRoots: loadHiddenWorkspacesFromStorage(),
   availableOpenInApps: [],
+  config: null,
 });
 
 // Models + Providers reactive state (lazy-loaded, cached)
@@ -1758,6 +1762,7 @@ const sessionCost = computed<number>(() => {
 const authReady = computed<boolean>(() => rawState.authReady);
 const defaultModel = computed<string | null>(() => rawState.defaultModel);
 const managedProviderStatus = computed<string | null>(() => rawState.managedProviderStatus);
+const config = computed<AppConfig | null>(() => rawState.config);
 
 /** path → status map for quick badge lookup in the file tree */
 const changesByPath = computed<Record<string, string>>(() => {
@@ -2082,6 +2087,22 @@ async function checkAuth(): Promise<void> {
   }
 }
 
+/** Fetch global config from GET /api/v1/config. Defensive — never throws. */
+async function loadConfig(): Promise<void> {
+  try {
+    const api = getKimiWebApi();
+    rawState.config = await api.getConfig();
+  } catch {
+    // Daemon may not have this endpoint yet; leave null
+  }
+}
+
+/** Update global config via POST /api/v1/config. */
+async function updateConfig(patch: Partial<AppConfig>): Promise<void> {
+  const api = getKimiWebApi();
+  rawState.config = await api.setConfig(patch);
+}
+
 // False until the very first load() settles (success OR failure). Gates the
 // global connecting-splash so a page refresh doesn't flash a half-empty app.
 const initialized = ref(false);
@@ -2101,8 +2122,9 @@ async function load(): Promise<void> {
       loadModels(),
     ]);
 
-    // Check auth readiness (separate call — defensive)
+    // Check auth readiness and global config (separate calls — defensive)
     await checkAuth();
+    await loadConfig();
 
     rawState.sessions = sessionsPage.items;
 
@@ -3625,6 +3647,10 @@ export function useKimiWebClient() {
     authReady,
     defaultModel,
     managedProviderStatus,
+
+    // Config state + actions
+    config,
+    updateConfig,
 
     // Auth actions
     checkAuth,

@@ -4,6 +4,7 @@ import { ulid } from 'ulid';
 import { okEnvelope } from '../envelope';
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
+import { registerConfigRoutes } from './config';
 import { registerDebugRoutes } from './debug';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
@@ -62,6 +63,7 @@ export async function registerApiV1Routes(
     });
 
     registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], ix);
+    registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], ix);
     registerOAuthRoutes(apiV1 as unknown as Parameters<typeof registerOAuthRoutes>[0], ix);
     registerModelCatalogRoutes(
       apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],

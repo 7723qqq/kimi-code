@@ -397,6 +397,7 @@ export type AppEvent =
   | { type: 'taskProgress'; sessionId: string; taskId: string; outputChunk: string; stream: 'stdout' | 'stderr' }
   | { type: 'taskCompleted'; sessionId: string; taskId: string; status: AppTaskStatus; outputPreview?: string; outputBytes?: number }
   | { type: 'goalUpdated'; sessionId: string; goal: AppGoal | null }
+  | { type: 'configChanged'; changedFields: string[]; config: AppConfig }
   | { type: 'unknown'; raw: unknown };
 
 // ---------------------------------------------------------------------------
@@ -513,6 +514,36 @@ export interface AppProvider {
   models?: string[];
 }
 
+export interface AppConfigProvider {
+  type: string;
+  baseUrl?: string;
+  defaultModel?: string;
+  hasApiKey: boolean;
+}
+
+export interface AppConfig {
+  providers: Record<string, AppConfigProvider>;
+  defaultProvider?: string;
+  defaultModel?: string;
+  models?: Record<string, unknown>;
+  thinking?: unknown;
+  planMode?: boolean;
+  yolo?: boolean;
+  defaultThinking?: boolean;
+  defaultPermissionMode?: string;
+  defaultPlanMode?: boolean;
+  permission?: unknown;
+  hooks?: unknown[];
+  services?: unknown;
+  mergeAllAvailableSkills?: boolean;
+  extraSkillDirs?: string[];
+  loopControl?: unknown;
+  background?: unknown;
+  experimental?: Record<string, boolean>;
+  telemetry?: boolean;
+  raw?: Record<string, unknown>;
+}
+
 /** A session-scoped skill the user can invoke from the slash menu. */
 export interface AppSkill {
   name: string;
@@ -588,6 +619,10 @@ export interface KimiWebApi {
   // File upload / download
   uploadFile(input: { file: Blob; name?: string }): Promise<{ id: string; name: string; mediaType: string; size: number }>;
   getFileUrl(fileId: string): string;
+
+  // Config — REAL endpoints
+  getConfig(): Promise<AppConfig>;
+  setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
 
   // Auth — REAL endpoints
   getAuth(): Promise<{

@@ -338,6 +338,36 @@ export interface WireProvider {
   models?: string[];
 }
 
+export interface WireConfigProvider {
+  type: string;
+  base_url?: string;
+  default_model?: string;
+  has_api_key: boolean;
+}
+
+export interface WireConfig {
+  providers: Record<string, WireConfigProvider>;
+  default_provider?: string;
+  default_model?: string;
+  models?: Record<string, unknown>;
+  thinking?: unknown;
+  plan_mode?: boolean;
+  yolo?: boolean;
+  default_thinking?: boolean;
+  default_permission_mode?: string;
+  default_plan_mode?: boolean;
+  permission?: unknown;
+  hooks?: unknown[];
+  services?: unknown;
+  merge_all_available_skills?: boolean;
+  extra_skill_dirs?: string[];
+  loop_control?: unknown;
+  background?: unknown;
+  experimental?: Record<string, boolean>;
+  telemetry?: boolean;
+  raw?: Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // Auth wire DTOs — REAL endpoints (GET /api/v1/auth, POST/GET/DELETE /api/v1/oauth/login, POST /api/v1/oauth/logout)
 // ---------------------------------------------------------------------------
@@ -686,6 +716,11 @@ type WireEventTaskCompleted = WireEventBase<'event.task.completed', {
   output_bytes?: number;
 }>;
 
+type WireEventConfigChanged = WireEventBase<'event.config.changed', {
+  changed_fields: string[];
+  config: WireConfig;
+}>;
+
 /** Catch-all for unrecognised event frames — keeps lastSeq advancing without warnings */
 type WireEventUnknown = { type: string; seq: number; session_id: string; timestamp: string; payload: unknown };
 
@@ -729,5 +764,7 @@ export type WireEvent =
   | WireEventTaskCreated
   | WireEventTaskProgress
   | WireEventTaskCompleted
+  // Config
+  | WireEventConfigChanged
   // Unknown / future events
   | WireEventUnknown;

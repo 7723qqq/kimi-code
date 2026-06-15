@@ -4,6 +4,7 @@ import { ToolInputDisplaySchema, type ToolInputDisplay } from './display';
 import { messageContentSchema, type MessageContent } from './message';
 import { sessionSchema, type Session } from './session';
 import { isoDateTimeSchema } from './time';
+import { configResponseSchema, type ConfigResponse } from './rest/config';
 
 export interface TokenUsage {
   readonly inputOther: number;
@@ -314,6 +315,12 @@ export interface SessionCreatedEvent {
   readonly session: Session;
 }
 
+export interface ConfigChangedEvent {
+  readonly type: 'event.config.changed';
+  readonly changedFields: string[];
+  readonly config: ConfigResponse;
+}
+
 export interface GoalUpdatedEvent {
   readonly type: 'goal.updated';
   readonly snapshot: GoalSnapshot | null;
@@ -559,6 +566,7 @@ export type AgentEvent =
   | AgentStatusUpdatedEvent
   | SessionMetaUpdatedEvent
   | SessionCreatedEvent
+  | ConfigChangedEvent
   | GoalUpdatedEvent
   | SkillActivatedEvent
   | TurnStartedEvent
@@ -904,6 +912,12 @@ export const sessionCreatedEventSchema = z.object({
   type: z.literal('event.session.created'),
   session: sessionSchema,
 }) satisfies z.ZodType<SessionCreatedEvent>;
+
+export const configChangedEventSchema = z.object({
+  type: z.literal('event.config.changed'),
+  changedFields: z.array(z.string()),
+  config: configResponseSchema,
+}) satisfies z.ZodType<ConfigChangedEvent>;
 
 export const goalUpdatedEventSchema = z.object({
   type: z.literal('goal.updated'),

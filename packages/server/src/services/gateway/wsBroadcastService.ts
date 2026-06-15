@@ -240,7 +240,7 @@ function extractSessionId(event: Event): string | undefined {
 }
 
 function isGlobalSessionEvent(type: string): boolean {
-  return type === 'event.session.created';
+  return type === 'event.session.created' || type === 'event.config.changed';
 }
 
 /** Session ids are ULID-ish, but never trust an id used as a path segment. */

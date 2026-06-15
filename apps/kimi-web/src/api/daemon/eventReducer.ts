@@ -10,6 +10,7 @@
 
 import type {
   AppApprovalRequest,
+  AppConfig,
   AppEvent,
   AppGoal,
   AppMessage,
@@ -47,6 +48,7 @@ export interface KimiClientState {
   goalBySession: Record<string, AppGoal>;
   lastSeqBySession: Record<string, number>;
   compactionBySession: Record<string, CompactionStatus>;
+  config?: AppConfig | null;
   warnings: AppWarning[];
 }
 
@@ -496,6 +498,12 @@ export function reduceAppEvent(
       } else {
         next.goalBySession[sid] = event.goal;
       }
+      break;
+    }
+
+    // -------------------------------------------------------------------------
+    case 'configChanged': {
+      next.config = event.config;
       break;
     }
 

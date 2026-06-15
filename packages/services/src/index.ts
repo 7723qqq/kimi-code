@@ -118,6 +118,9 @@ export {
 export type { ProviderCredentialState } from './modelCatalog/modelCatalog';
 export { ModelCatalogService } from './modelCatalog/modelCatalogService';
 
+export { IConfigService } from './config/config';
+export { ConfigService } from './config/configService';
+
 export {
   ISessionService,
   SessionNotFoundError,

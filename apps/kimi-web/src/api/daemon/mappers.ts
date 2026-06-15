@@ -4,6 +4,7 @@
 
 import type {
   AppApprovalRequest,
+  AppConfig,
   AppEvent,
   AppGoal,
   AppModel,
@@ -49,6 +50,7 @@ import type {
   WireSessionUsage,
   WireWorkspace,
   WireEvent,
+  WireConfig,
 } from './wire';
 
 // ---------------------------------------------------------------------------
@@ -628,6 +630,13 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         outputBytes: w.payload.output_bytes,
       };
 
+    case 'event.config.changed':
+      return {
+        type: 'configChanged',
+        changedFields: w.payload.changed_fields,
+        config: toAppConfig(w.payload.config),
+      };
+
     default: {
       // Truly unknown event — record warning
       return { type: 'unknown', raw: wire };
@@ -660,6 +669,40 @@ export function toAppProvider(wire: WireProvider): AppProvider {
     hasApiKey: wire.has_api_key,
     status: wire.status,
     models: wire.models,
+  };
+}
+
+export function toAppConfig(wire: WireConfig): AppConfig {
+  const providers: Record<string, { type: string; baseUrl?: string; defaultModel?: string; hasApiKey: boolean }> = {};
+  for (const [id, provider] of Object.entries(wire.providers)) {
+    providers[id] = {
+      type: provider.type,
+      baseUrl: provider.base_url,
+      defaultModel: provider.default_model,
+      hasApiKey: provider.has_api_key,
+    };
+  }
+  return {
+    providers,
+    defaultProvider: wire.default_provider,
+    defaultModel: wire.default_model,
+    models: wire.models,
+    thinking: wire.thinking,
+    planMode: wire.plan_mode,
+    yolo: wire.yolo,
+    defaultThinking: wire.default_thinking,
+    defaultPermissionMode: wire.default_permission_mode,
+    defaultPlanMode: wire.default_plan_mode,
+    permission: wire.permission,
+    hooks: wire.hooks,
+    services: wire.services,
+    mergeAllAvailableSkills: wire.merge_all_available_skills,
+    extraSkillDirs: wire.extra_skill_dirs,
+    loopControl: wire.loop_control,
+    background: wire.background,
+    experimental: wire.experimental,
+    telemetry: wire.telemetry,
+    raw: wire.raw,
   };
 }
 

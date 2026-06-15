@@ -4,6 +4,7 @@
 import type { KimiApiConfig } from '../config';
 import { buildRestUrl, buildWsUrl } from '../config';
 import type {
+  AppConfig,
   AppMessage,
   AppMessageRole,
   AppModel,
@@ -34,6 +35,7 @@ import { createAgentProjector } from './agentEventProjector';
 import { DaemonHttpClient } from './http';
 import {
   toAppApprovalRequest,
+  toAppConfig,
   toAppEvent,
   toAppFsEntry,
   toAppMessage,
@@ -53,6 +55,7 @@ import {
 import type {
   WireAuthResult,
   WireBackgroundTask,
+  WireConfig,
   WireEvent,
   WireFileMeta,
   WireFsBrowseResult,
@@ -999,6 +1002,49 @@ export class DaemonKimiWebApi implements KimiWebApi {
       `/providers/${encodeURIComponent(id)}:refresh`,
     );
     return toAppProvider(data);
+  }
+
+  // -------------------------------------------------------------------------
+  // Config — REAL endpoints
+  // -------------------------------------------------------------------------
+
+  async getConfig(): Promise<AppConfig> {
+    const data = await this.http.get<WireConfig>('/config');
+    return toAppConfig(data);
+  }
+
+  async setConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
+    const wirePatch: Record<string, unknown> = {};
+    const keyMap: Record<keyof AppConfig, string> = {
+      providers: 'providers',
+      defaultProvider: 'default_provider',
+      defaultModel: 'default_model',
+      models: 'models',
+      thinking: 'thinking',
+      planMode: 'plan_mode',
+      yolo: 'yolo',
+      defaultThinking: 'default_thinking',
+      defaultPermissionMode: 'default_permission_mode',
+      defaultPlanMode: 'default_plan_mode',
+      permission: 'permission',
+      hooks: 'hooks',
+      services: 'services',
+      mergeAllAvailableSkills: 'merge_all_available_skills',
+      extraSkillDirs: 'extra_skill_dirs',
+      loopControl: 'loop_control',
+      background: 'background',
+      experimental: 'experimental',
+      telemetry: 'telemetry',
+      raw: 'raw',
+    };
+    for (const [key, value] of Object.entries(patch)) {
+      const wireKey = keyMap[key as keyof AppConfig];
+      if (wireKey !== undefined) {
+        wirePatch[wireKey] = value;
+      }
+    }
+    const data = await this.http.post<WireConfig>('/config', wirePatch);
+    return toAppConfig(data);
   }
 
   // -------------------------------------------------------------------------
