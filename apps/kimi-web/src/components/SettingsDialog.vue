@@ -220,7 +220,7 @@ function exportLog(): void {
   padding: 14px 16px;
   border-bottom: 1px solid var(--line);
 }
-.dtitle { font-family: var(--sans); font-size: 15px; font-weight: 600; color: var(--ink); }
+.dtitle { font-family: var(--sans); font-size: var(--ui-font-size-lg); font-weight: 600; color: var(--ink); }
 .close-btn {
   display: inline-flex;
   align-items: center;
@@ -241,7 +241,7 @@ function exportLog(): void {
 .sec-title {
   margin: 0 0 10px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -255,10 +255,10 @@ function exportLog(): void {
   min-height: 34px;
   padding: 3px 0;
 }
-.rlabel { font-family: var(--sans); font-size: 13.5px; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
-.rvalue { font-family: var(--sans); font-size: 12.5px; color: var(--muted); max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rvalue.mono { font-family: var(--mono); font-size: 12px; }
-.hint { font-size: 11px; color: var(--faint); font-family: var(--sans); }
+.rlabel { font-family: var(--sans); font-size: calc(var(--ui-font-size) - 0.5px); color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
+.rvalue { font-family: var(--sans); font-size: calc(var(--ui-font-size) - 1.5px); color: var(--muted); max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rvalue.mono { font-family: var(--mono); font-size: var(--ui-font-size-xs); }
+.hint { font-size: calc(var(--ui-font-size) - 3px); color: var(--faint); font-family: var(--sans); }
 
 .num-field {
   display: inline-flex;
@@ -278,13 +278,13 @@ function exportLog(): void {
   background: transparent;
   color: var(--ink);
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   text-align: right;
 }
 .num-unit {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
 }
 
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
@@ -293,7 +293,7 @@ function exportLog(): void {
   background: var(--bg);
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   padding: 5px 12px;
   cursor: pointer;
   border-left: 1px solid var(--line);
@@ -337,7 +337,7 @@ function exportLog(): void {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   padding: 6px 12px;
   cursor: pointer;
 }

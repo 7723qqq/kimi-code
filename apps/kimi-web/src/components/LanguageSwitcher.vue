@@ -40,7 +40,7 @@ function choose(code: LocaleCode): void {
   background: var(--bg);
   color: var(--muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   padding: 5px 12px;
   cursor: pointer;
 }

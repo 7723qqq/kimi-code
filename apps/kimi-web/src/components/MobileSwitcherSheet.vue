@@ -358,7 +358,7 @@ onUnmounted(() => {
   color: var(--blue);
   font-family: var(--mono);
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: calc(var(--ui-font-size) - 0.5px);
   cursor: pointer;
   text-align: left;
 }
@@ -378,9 +378,9 @@ onUnmounted(() => {
   padding: 24px 16px;
   text-align: center;
   color: var(--faint);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
-.mempty.small { padding: 10px 16px 12px var(--m-indent); text-align: left; font-size: 12px; }
+.mempty.small { padding: 10px 16px 12px var(--m-indent); text-align: left; font-size: var(--ui-font-size-xs); }
 
 /* ---- Workspace group header ---- */
 .mgroup { padding-top: 2px; }
@@ -403,7 +403,7 @@ onUnmounted(() => {
   gap: 1px;
 }
 .mgh-name {
-  font-size: 15px;
+  font-size: var(--ui-font-size-lg);
   font-weight: 600;
   color: var(--ink);
   overflow: hidden;
@@ -411,7 +411,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .mgh-path {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -424,6 +424,7 @@ onUnmounted(() => {
   color: var(--faint);
   cursor: pointer;
   font-family: var(--mono);
+  /* Fixed icon glyph size (+) — not part of the UI font scale. */
   font-size: 20px;
   line-height: 1;
   /* 44px square tap target */
@@ -466,7 +467,7 @@ onUnmounted(() => {
 .srow.cur { background: var(--bluebg); }
 .srow .m { flex: 1; min-width: 0; }
 .srow .m .t {
-  font-size: 13.5px;
+  font-size: calc(var(--ui-font-size) - 0.5px);
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -494,7 +495,7 @@ onUnmounted(() => {
   50% { opacity: 0.35; }
 }
 .srow .m .s {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--faint);
   margin-top: 1px;
   overflow: hidden;
@@ -504,7 +505,7 @@ onUnmounted(() => {
 .att {
   flex: none;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   color: var(--bg);
   background: var(--warn);
   border-radius: 10px;
@@ -544,7 +545,7 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   color: var(--ink);
   padding: 10px 14px;
 }
@@ -575,7 +576,7 @@ onUnmounted(() => {
   border: none;
   border-bottom: 1px solid var(--line2);
   color: var(--dim);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-family: var(--mono);
   cursor: pointer;
   text-align: left;

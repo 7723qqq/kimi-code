@@ -64,7 +64,7 @@ const running = computed(() =>
 }
 .group-title {
   font-weight: 700;
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
 }
 .group-count {
   border-radius: 999px;
@@ -72,12 +72,12 @@ const running = computed(() =>
   background: var(--soft);
   color: var(--blue2);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .group-live {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .group-chevron {
   margin-left: auto;

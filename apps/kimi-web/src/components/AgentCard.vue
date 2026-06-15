@@ -134,14 +134,14 @@ function toggle(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   font-weight: 650;
 }
 .agent-type {
   flex: none;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .agent-live {
   max-width: 100%;
@@ -150,7 +150,7 @@ function toggle(): void {
   white-space: nowrap;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
 }
 .agent-phase {
   flex: none;
@@ -160,7 +160,7 @@ function toggle(): void {
   color: var(--dim);
   background: var(--bg);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
 }
 .agent-chevron {
   flex: none;
@@ -176,7 +176,7 @@ function toggle(): void {
   border-top: 1px solid var(--line);
   padding: 8px 10px 10px 26px;
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   line-height: 1.5;
 }
 .agent-reason {
@@ -190,7 +190,7 @@ function toggle(): void {
   display: block;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-bottom: 2px;

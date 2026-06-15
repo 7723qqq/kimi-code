@@ -316,11 +316,11 @@ function startArchive(): void {
   min-width: 0;
 }
 .ch-id { display: flex; align-items: center; gap: 6px; min-width: 0; flex: none; max-width: 46%; }
-.ch-ws { color: var(--muted); font-size: 12.5px; flex: none; }
+.ch-ws { color: var(--muted); font-size: calc(var(--ui-font-size) - 1.5px); flex: none; }
 .ch-sep { color: var(--faint); flex: none; }
 .ch-ses {
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -330,7 +330,7 @@ function startArchive(): void {
   flex: 1;
   min-width: 0;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 600;
   color: var(--ink);
   background: var(--bg);
@@ -345,7 +345,7 @@ function startArchive(): void {
   gap: 5px;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   min-width: 0;
 }
 .ch-git svg { flex: none; }
@@ -377,7 +377,7 @@ function startArchive(): void {
   background: transparent;
   color: var(--dim);
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   padding: 0;
   cursor: pointer;
 }
@@ -394,7 +394,7 @@ function startArchive(): void {
   border-radius: 999px;
   background: var(--bg);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   padding: 2px 9px;
   cursor: pointer;
   color: var(--dim);
@@ -427,7 +427,7 @@ function startArchive(): void {
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--ink);
   padding: 6px 12px;
 }

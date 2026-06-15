@@ -270,7 +270,7 @@ async function copyPath(): Promise<void> {
   overflow: hidden;
   background: var(--bg);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .open-label {
   display: inline-flex;
@@ -297,7 +297,7 @@ async function copyPath(): Promise<void> {
   background: var(--bg);
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   padding: 4px 8px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
@@ -335,7 +335,7 @@ async function copyPath(): Promise<void> {
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--ink);
   padding: 6px 12px;
 }
@@ -343,7 +343,7 @@ async function copyPath(): Promise<void> {
 .om-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .om-last {
   flex: none;
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   color: var(--muted);
 }
 .om-divider {
@@ -362,7 +362,7 @@ async function copyPath(): Promise<void> {
   background: transparent;
   color: var(--dim);
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   padding: 0;
   cursor: pointer;
 }

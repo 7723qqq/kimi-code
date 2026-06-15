@@ -161,12 +161,12 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
 .tp-title {
   color: var(--blue2);
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   text-transform: capitalize;
 }
 .tp-count {
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 
 /* List: no cards, just clean rows. Shows ALL tasks and scrolls internally once
@@ -195,7 +195,7 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
 }
 .tp-row.expandable > .tp-main {
   cursor: pointer;
@@ -216,7 +216,7 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
 /* Status glyph */
 .tp-glyph {
   flex: none;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   width: 16px;
   text-align: center;
   user-select: none;
@@ -237,7 +237,7 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
 
 .tp-kind {
   flex: none;
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   color: var(--dim);
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -246,7 +246,7 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
 
 .tp-time {
   flex: none;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--muted);
 }
 
@@ -256,7 +256,7 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
   border: 1px solid color-mix(in srgb, var(--err) 22%, var(--bg));
   border-radius: 3px;
   color: var(--err);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   padding: 1px 8px;
   cursor: pointer;
   font-family: var(--mono);
@@ -290,7 +290,7 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
   border: 1px solid var(--line);
   border-radius: 3px;
   color: var(--dim);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   padding: 1px 7px;
   cursor: pointer;
   font-family: var(--sans);
@@ -318,7 +318,7 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
 .tp-pre code {
   display: block;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   line-height: 1.55;
   color: var(--dim);
   white-space: pre-wrap;
@@ -336,23 +336,23 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
   padding: 24px 0;
   text-align: center;
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
 }
 
 /* Mobile */
 @media (max-width: 640px) {
   .taskspane { padding: 14px 14px 16px; }
   .tp-main { flex-wrap: wrap; row-gap: 4px; }
-  .tp-name { font-size: 13px; }
+  .tp-name { font-size: var(--ui-font-size-sm); }
   .tp-stop {
     min-height: 32px;
     display: inline-flex;
     align-items: center;
     padding: 4px 12px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: var(--ui-font-size-xs);
   }
   .tp-detail { margin-left: 0; }
-  .tp-pre { font-size: 12px; }
+  .tp-pre { font-size: var(--ui-font-size-xs); }
 }
 </style>

@@ -318,9 +318,9 @@ function onLogout(): void {
   flex-direction: column;
   gap: 1px;
 }
-.srow-label { font-size: 13.5px; color: var(--ink); }
+.srow-label { font-size: calc(var(--ui-font-size) - 0.5px); color: var(--ink); }
 .srow-sub {
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--faint);
   font-family: var(--mono);
   overflow: hidden;
@@ -330,12 +330,12 @@ function onLogout(): void {
 .srow-val {
   flex: none;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   font-weight: 600;
   color: var(--blue2);
 }
 
-/* Chevron (prototype ›) */
+/* Chevron (prototype ›) — fixed icon glyph size, not part of UI font scale. */
 .chev {
   flex: none;
   color: var(--faint);
@@ -384,7 +384,7 @@ function onLogout(): void {
   border: none;
   background: none;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   color: var(--muted);
   cursor: pointer;
   padding: 7px 14px;
@@ -415,13 +415,13 @@ function onLogout(): void {
   background: transparent;
   color: var(--ink);
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   text-align: right;
 }
 .num-unit {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
 }
 
 /* Account rows */

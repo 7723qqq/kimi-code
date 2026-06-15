@@ -46,12 +46,12 @@ onUnmounted(() => {
   gap: 8px;
   align-self: flex-start;
   margin: 0;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1.6;
   color: var(--ink);
 }
 .an-moon {
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1;
   user-select: none;
 }
@@ -60,7 +60,7 @@ onUnmounted(() => {
 @media (max-width: 640px) {
   .activity-notice,
   .an-moon {
-    font-size: 16px;
+    font-size: var(--ui-font-size-xl);
   }
 }
 </style>

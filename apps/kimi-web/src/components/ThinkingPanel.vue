@@ -75,7 +75,7 @@ watch(
 .tp-title {
   flex: none;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--ink);
@@ -87,7 +87,7 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   color: var(--muted);
 }
 .tp-close {
@@ -115,7 +115,7 @@ watch(
   margin: 0;
   padding: 12px 14px;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1.7;
   color: var(--dim);
   white-space: pre-wrap;

@@ -318,13 +318,13 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   background: var(--soft);
   border-bottom: 1px solid var(--bd);
   border-radius: 3px 3px 0 0;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 .qtitle { color: var(--blue2); font-weight: 700; }
-.qstep { color: var(--muted); font-size: 11px; margin-left: 4px; }
+.qstep { color: var(--muted); font-size: calc(var(--ui-font-size) - 3px); margin-left: 4px; }
 .qnav {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   padding: 2px 8px;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -359,7 +359,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   font-weight: 400;
 }
 .qcard.minimized { margin: 8px 0; }
@@ -370,7 +370,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 
 .qheader-chip {
   display: inline-block;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   padding: 2px 8px;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -381,7 +381,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 }
 
 .qtext {
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   color: var(--ink);
   font-weight: 600;
   margin-bottom: 6px;
@@ -401,7 +401,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   border: 1px solid var(--line);
   border-radius: 3px;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   transition: background 0.1s;
   user-select: none;
 }
@@ -410,13 +410,13 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 
 .qopt-key {
   color: var(--faint);
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   width: 12px;
   flex: none;
   text-align: center;
   padding-top: 2px;
 }
-.qopt-glyph { color: var(--blue2); font-size: 13px; flex: none; padding-top: 1px; }
+.qopt-glyph { color: var(--blue2); font-size: var(--ui-font-size-sm); flex: none; padding-top: 1px; }
 /* Label + description stack vertically (top-to-bottom) so a long description
    never squeezes the label sideways into a thin, many-line column. */
 .qopt-text {
@@ -427,7 +427,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   gap: 2px;
 }
 .qopt-label { color: var(--text); }
-.qopt-desc { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.qopt-desc { color: var(--muted); font-size: calc(var(--ui-font-size) - 3px); line-height: 1.45; }
 
 .chk { font-family: var(--mono); }
 .rad { font-family: var(--mono); }
@@ -435,7 +435,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .other-input {
   flex: 1;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   border: none;
   border-bottom: 1px solid var(--line);
   outline: none;
@@ -459,7 +459,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 }
 .qbtn {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   padding: 6px 16px;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -483,20 +483,20 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
    ========================================================================= */
 @media (max-width: 640px) {
   .qh { padding: 9px 12px; flex-wrap: wrap; row-gap: 6px; }
-  .qnav { min-height: 34px; padding: 5px 12px; font-size: 12px; border-radius: 6px; }
+  .qnav { min-height: 34px; padding: 5px 12px; font-size: var(--ui-font-size-xs); border-radius: 6px; }
 
   .qbody { padding: 14px; }
-  .qtext { font-size: 14px; }
+  .qtext { font-size: var(--ui-font-size); }
 
   /* Options → taller, finger-friendly rows. Label + description already stack
      via .qopt-text, so no flex-wrap hack is needed. */
   .qopt {
     min-height: 44px;
     padding: 10px 12px;
-    font-size: 13.5px;
+    font-size: calc(var(--ui-font-size) - 0.5px);
     border-radius: 8px;
   }
-  .qopt-desc { font-size: 12px; }
+  .qopt-desc { font-size: var(--ui-font-size-xs); }
   .other-input { flex-basis: 100%; min-height: 28px; }
 
   /* Footer → full-width stacked buttons, Submit on top. */
@@ -504,7 +504,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   .qbtn {
     width: 100%;
     min-height: 46px;
-    font-size: 14px;
+    font-size: var(--ui-font-size);
     border-radius: 8px;
   }
 }

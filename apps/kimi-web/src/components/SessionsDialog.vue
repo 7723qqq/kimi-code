@@ -204,13 +204,13 @@ onUnmounted(() => {
   gap: 8px;
 }
 .dtitle {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 700;
   color: var(--ink);
   letter-spacing: 0.02em;
 }
 .count {
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--muted);
   background: var(--panel2);
   border: 1px solid var(--line);
@@ -242,7 +242,7 @@ onUnmounted(() => {
   width: 100%;
   box-sizing: border-box;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -299,7 +299,7 @@ onUnmounted(() => {
   flex: 1;
 }
 .title {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 500;
   color: var(--ink);
   overflow: hidden;
@@ -310,7 +310,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--muted);
   min-width: 0;
 }
@@ -325,7 +325,7 @@ onUnmounted(() => {
 
 .attn-badge {
   flex: none;
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   font-weight: 700;
   color: var(--bg);
   background: var(--warn);
@@ -342,13 +342,13 @@ onUnmounted(() => {
   padding: 24px 14px;
   text-align: center;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 
 /* Footer */
 .footer-hint {
   padding: 6px 14px;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--faint);
   border-top: 1px solid var(--line2);
   background: var(--panel);

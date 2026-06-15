@@ -214,7 +214,7 @@ onUnmounted(() => {
   gap: 7px;
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .terminal-dot {
   width: 7px;
@@ -248,7 +248,7 @@ onUnmounted(() => {
   background: var(--bg);
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   padding: 3px 7px;
   cursor: pointer;
 }
@@ -282,7 +282,7 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--bg) 80%, transparent);
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   text-align: center;
 }
 .terminal-overlay.error {

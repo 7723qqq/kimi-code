@@ -213,7 +213,7 @@ function flatIdx(m: AppModel): number {
   gap: 8px;
 }
 .dtitle {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 700;
   color: var(--ink);
   flex: 1;
@@ -224,7 +224,7 @@ function flatIdx(m: AppModel): number {
   border: none;
   color: var(--faint);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   padding: 2px 4px;
   line-height: 1;
 }
@@ -239,7 +239,7 @@ function flatIdx(m: AppModel): number {
   width: 100%;
   box-sizing: border-box;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -258,7 +258,7 @@ function flatIdx(m: AppModel): number {
 }
 
 .group-label {
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   color: var(--muted);
   padding: 8px 14px 3px;
   letter-spacing: 0.06em;
@@ -274,7 +274,7 @@ function flatIdx(m: AppModel): number {
   gap: 8px;
   padding: 6px 14px;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   color: var(--text);
 }
 .model-row:hover, .model-row.is-selected {
@@ -287,7 +287,7 @@ function flatIdx(m: AppModel): number {
 .check {
   width: 14px;
   height: 14px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--blue);
   flex: none;
   font-weight: 700;
@@ -305,12 +305,12 @@ function flatIdx(m: AppModel): number {
 }
 .model-ctx {
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   flex: none;
 }
 .caps {
   color: var(--blue);
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   border: 1px solid var(--bd);
   border-radius: 3px;
   padding: 1px 5px;
@@ -324,20 +324,20 @@ function flatIdx(m: AppModel): number {
   gap: 8px;
   padding: 20px 14px;
   color: var(--dim);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 .unavail-state { color: var(--warn); }
 
 .empty {
   padding: 20px 14px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 
 /* Footer */
 .footer-hint {
   padding: 6px 14px;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--faint);
   border-top: 1px solid var(--line2);
   background: var(--panel);

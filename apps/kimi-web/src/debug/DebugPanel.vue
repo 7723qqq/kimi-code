@@ -252,7 +252,7 @@ function badgeLabel(e: TraceEntry): string {
   background: var(--panel);
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   font-weight: 700;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -273,7 +273,7 @@ function badgeLabel(e: TraceEntry): string {
   border-left: 1px solid var(--line);
   box-shadow: -8px 0 28px rgba(0, 0, 0, 0.18);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--ink);
 }
 
@@ -351,7 +351,7 @@ function badgeLabel(e: TraceEntry): string {
   flex: none;
   padding: 0 5px;
   border-radius: 5px;
-  font-size: 9.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4.5px));
   font-weight: 700;
   line-height: 1.7;
 }
@@ -390,12 +390,12 @@ function badgeLabel(e: TraceEntry): string {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   line-height: 1.45;
 }
 
 .kap-agg { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 10px; }
-.kap-agg h4 { margin: 8px 0 4px; font-size: 11.5px; color: var(--muted); }
+.kap-agg h4 { margin: 8px 0 4px; font-size: calc(var(--ui-font-size) - 2.5px); color: var(--muted); }
 .kap-agg table { width: 100%; border-collapse: collapse; }
 .kap-agg th, .kap-agg td {
   padding: 3px 6px;

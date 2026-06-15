@@ -112,7 +112,7 @@ watch(
 
 .prev {
   color: var(--faint);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   font-family: var(--mono);
   line-height: 1.7;
   white-space: pre-wrap;
@@ -122,7 +122,7 @@ watch(
 
 .tc {
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   font-style: normal;
   color: var(--muted);
   white-space: pre-wrap;

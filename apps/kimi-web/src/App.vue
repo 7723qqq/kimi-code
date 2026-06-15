@@ -1035,7 +1035,7 @@ function openPr(url: string): void {
   gap: 10px;
   padding: 8px 16px;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 .auth-banner-icon { display: flex; align-items: center; flex: none; }
 .auth-banner-msg { flex: 1; color: var(--text); }
@@ -1044,7 +1044,7 @@ function openPr(url: string): void {
   border: none;
   border-radius: 3px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   padding: 4px 14px;
   color: #fff;
   cursor: pointer;
@@ -1063,8 +1063,9 @@ function openPr(url: string): void {
   color: var(--muted);
   font-family: var(--mono);
 }
+/* Fixed icon glyph size — not part of the UI font scale. */
 .cs-icon { font-size: 32px; }
-.cs-text { font-size: 14px; }
+.cs-text { font-size: var(--ui-font-size); }
 </style>
 
 <style>

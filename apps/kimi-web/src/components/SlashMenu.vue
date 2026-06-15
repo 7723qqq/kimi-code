@@ -57,7 +57,7 @@ const emit = defineEmits<{
   padding: 5px 12px;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   border-bottom: 1px solid var(--line2);
 }
 
@@ -79,6 +79,6 @@ const emit = defineEmits<{
 
 .slash-desc {
   color: var(--dim);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
 }
 </style>

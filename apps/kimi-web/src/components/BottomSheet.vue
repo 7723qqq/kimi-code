@@ -131,7 +131,7 @@ onUnmounted(() => {
   padding: 6px 16px 10px;
 }
 .sheet-title {
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   font-weight: 600;
   color: var(--ink);
 }

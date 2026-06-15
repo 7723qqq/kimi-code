@@ -231,15 +231,15 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   border-bottom: 1px solid var(--bd);
   border-radius: 3px 3px 0 0;
   flex-wrap: wrap;
 }
 .akind { color: var(--blue2); font-weight: 700; white-space: nowrap; }
-.apath { color: var(--text); font-family: var(--mono); font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apath { color: var(--text); font-family: var(--mono); font-size: calc(var(--ui-font-size) - 2.5px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .abadge {
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   color: var(--muted);
   border: 1px solid var(--line);
   padding: 1px 6px;
@@ -251,7 +251,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   color: var(--blue2);
   border: 1px solid var(--bd);
   padding: 1px 7px;
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   font-weight: 600;
   border-radius: 3px;
   letter-spacing: 0.04em;
@@ -278,7 +278,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .appr.minimized .ah { border-bottom: none; border-radius: 3px; }
 
 /* Diff */
-.diff { padding: 6px 0; font-size: 14px; line-height: 1.85; }
+.diff { padding: 6px 0; font-size: var(--ui-font-size); line-height: 1.85; }
 .dl { display: flex; padding: 0 10px; }
 .dg { width: 30px; color: var(--faint); text-align: right; padding-right: 12px; user-select: none; }
 .dc { white-space: pre; font-family: var(--mono); }
@@ -291,7 +291,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .body-shell { padding: 10px 12px; }
 .shell-cmd {
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -300,14 +300,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   word-break: break-all;
 }
 .shell-dollar { color: var(--blue2); font-weight: 700; margin-right: 6px; }
-.shell-cwd { font-size: 11px; color: var(--muted); margin-top: 5px; font-family: var(--mono); }
+.shell-cwd { font-size: calc(var(--ui-font-size) - 3px); color: var(--muted); margin-top: 5px; font-family: var(--mono); }
 .shell-danger {
   margin-top: 6px;
   padding: 5px 10px;
   border: 1px solid var(--err);
   border-radius: 3px;
   color: var(--err);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   background: color-mix(in srgb, var(--err) 5%, var(--bg));
 }
 
@@ -317,11 +317,11 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   padding: 3px 10px;
   background: var(--panel2);
   border-bottom: 1px solid var(--line);
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   color: var(--muted);
 }
 .file-lang { letter-spacing: 0.04em; }
-.file-content { padding: 6px 0; font-size: 11.5px; line-height: 1.7; max-height: 240px; overflow-y: auto; }
+.file-content { padding: 6px 0; font-size: calc(var(--ui-font-size) - 2.5px); line-height: 1.7; max-height: 240px; overflow-y: auto; }
 .file-line { display: flex; padding: 0 10px; }
 .file-ln { width: 30px; color: var(--faint); text-align: right; padding-right: 12px; user-select: none; flex: none; }
 .file-text { white-space: pre; font-family: var(--mono); }
@@ -333,14 +333,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 .chip-label {
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   font-weight: 600;
   color: var(--dim);
   white-space: nowrap;
@@ -350,17 +350,17 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   color: var(--text);
   word-break: break-all;
 }
-.chip-detail { font-size: 11px; color: var(--muted); }
+.chip-detail { font-size: calc(var(--ui-font-size) - 3px); color: var(--muted); }
 
 /* Todo */
 .body-todo { padding: 8px 12px; }
-.todo-item { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; font-size: 12.5px; }
-.todo-glyph { color: var(--blue); font-size: 12px; flex: none; width: 14px; }
+.todo-item { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; font-size: calc(var(--ui-font-size) - 1.5px); }
+.todo-glyph { color: var(--blue); font-size: var(--ui-font-size-xs); flex: none; width: 14px; }
 .todo-title { color: var(--text); }
 .todo-done { color: var(--muted); text-decoration: line-through; }
 
 /* Generic */
-.body-generic { padding: 10px 12px; font-size: 12.5px; color: var(--text); word-break: break-word; }
+.body-generic { padding: 10px 12px; font-size: calc(var(--ui-font-size) - 1.5px); color: var(--text); word-break: break-word; }
 
 /* Feedback */
 .feedback-wrap {
@@ -372,7 +372,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   width: 100%;
   box-sizing: border-box;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   padding: 6px 8px;
   border: 1px solid var(--bd);
   border-radius: 3px;
@@ -386,13 +386,13 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 25%, transparent);
 }
 
-.feedback-hint { font-size: 10.5px; color: var(--faint); margin-top: 4px; }
+.feedback-hint { font-size: max(9px, calc(var(--ui-font-size) - 3.5px)); color: var(--faint); margin-top: 4px; }
 
 /* Actions row */
 .abtn { display: flex; border-top: 1px solid var(--line); }
 .kbtn {
   padding: 8px 14px;
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
@@ -405,7 +405,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .kbtn:hover { background: var(--panel2); }
 .kbtn.pri { background: var(--blue); color: var(--bg); }
 .kbtn.pri:hover { background: var(--blue2); }
-.k { color: var(--faint); margin-left: 6px; font-size: 10px; }
+.k { color: var(--faint); margin-left: 6px; font-size: max(9px, calc(var(--ui-font-size) - 4px)); }
 .kbtn.pri .k { color: color-mix(in srgb, var(--bg) 60%, transparent); }
 
 /* =========================================================================
@@ -444,11 +444,11 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
     align-items: center;
     justify-content: center;
     padding: 10px 12px;
-    font-size: 13px;
+    font-size: var(--ui-font-size-sm);
     border-right: none;
     border-bottom: 1px solid var(--line);
   }
   .kbtn:last-child { border-bottom: none; }
-  .k { font-size: 11px; }
+  .k { font-size: calc(var(--ui-font-size) - 3px); }
 }
 </style>

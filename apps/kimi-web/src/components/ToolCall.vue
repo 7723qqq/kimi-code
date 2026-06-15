@@ -168,7 +168,7 @@ function openMediaPreview(): void {
 }
 .media-title {
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   line-height: 1.4;
   margin: 0 0 5px;
   overflow: hidden;
@@ -236,7 +236,7 @@ function openMediaPreview(): void {
   padding: 6px 10px;
   background: var(--panel);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   border-radius: var(--tool-head-radius);
 }
 .box.open .bh {
@@ -264,7 +264,7 @@ function openMediaPreview(): void {
 .rt {
   margin-left: auto;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -276,7 +276,7 @@ function openMediaPreview(): void {
   border-radius: 3px;
   padding: 0 5px;
   color: var(--dim);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
 }
 .ok { color: var(--ok); font-weight: 700; }
 .er { color: var(--err); font-weight: 700; }
@@ -297,7 +297,7 @@ function openMediaPreview(): void {
 .bb {
   padding: 8px 11px;
   color: var(--dim);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   line-height: 1.7;
   font-family: var(--mono);
   white-space: pre-wrap;

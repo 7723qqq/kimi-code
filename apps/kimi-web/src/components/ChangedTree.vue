@@ -166,7 +166,7 @@ const rows = computed<Row[]>(() => {
   font-family: inherit;
   color: inherit;
   padding: 4px 12px 4px 8px;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1.5;
 }
 .ct-row:hover { background: var(--panel2, #f5f6f8); }
@@ -181,9 +181,9 @@ const rows = computed<Row[]>(() => {
   transition: transform 0.12s;
 }
 .ct-chevron.open { transform: rotate(90deg); }
-.ct-dirname { color: var(--dim); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-dirname { color: var(--dim); font-size: var(--ui-font-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ct-spacer { flex: none; width: 12px; }
-.ct-fname { color: var(--ink); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ct-fname { color: var(--ink); font-size: var(--ui-font-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 /* status badge (matches DiffView) */
 .badge {
@@ -193,7 +193,7 @@ const rows = computed<Row[]>(() => {
   width: 16px;
   height: 16px;
   border-radius: 2px;
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   font-weight: 700;
   flex: none;
 }
@@ -202,13 +202,13 @@ const rows = computed<Row[]>(() => {
 .badge.deleted   { background: #fce8e6; color: #c5221f; }
 .badge.renamed   { background: #fef3e2; color: #b06000; }
 .badge.untracked { background: var(--soft, #f0f0f5); color: var(--muted, #9098a0); }
-.badge.conflicted{ background: #fce8e6; color: #c5221f; font-size: 9px; }
+.badge.conflicted{ background: #fce8e6; color: #c5221f; font-size: max(9px, calc(var(--ui-font-size) - 5px)); }
 .badge.ignored   { background: var(--soft, #f0f0f5); color: var(--faint, #c0c5cc); }
 .badge.clean     { background: transparent; color: var(--faint, #c0c5cc); }
 .badge.unknown   { background: var(--soft, #f0f0f5); color: var(--muted, #9098a0); }
 
 @media (max-width: 640px) {
-  .ct-row { min-height: 40px; font-size: 13px; padding-top: 7px; padding-bottom: 7px; }
+  .ct-row { min-height: 40px; font-size: var(--ui-font-size-sm); padding-top: 7px; padding-bottom: 7px; }
   .badge { width: 18px; height: 18px; }
 }
 </style>

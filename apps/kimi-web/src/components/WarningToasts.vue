@@ -246,7 +246,7 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 10px 9px 10px 11px;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.12);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1.45;
 }
 .toast.err {
@@ -293,7 +293,7 @@ onUnmounted(() => {
   color: var(--accent, var(--link, #2563eb));
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
 }
 .link:hover {
   text-decoration: underline;

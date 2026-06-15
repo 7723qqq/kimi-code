@@ -117,7 +117,7 @@ function formatMs(ms: number): string {
   flex: none;
   color: var(--ok);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -128,7 +128,7 @@ function formatMs(ms: number): string {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
 }
 .goal-objective.expanded-hidden {
   visibility: hidden;
@@ -142,7 +142,7 @@ function formatMs(ms: number): string {
   background: var(--bg);
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
 }
 .status-active { color: var(--ok); }
 .status-blocked { color: var(--err); }
@@ -177,7 +177,7 @@ function formatMs(ms: number): string {
 }
 .goal-full {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -186,14 +186,14 @@ function formatMs(ms: number): string {
   margin-top: 10px;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   text-transform: uppercase;
 }
 .goal-criterion p {
   margin: 4px 0 0;
   color: var(--dim);
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   line-height: 1.45;
   text-transform: none;
 }
@@ -204,7 +204,7 @@ function formatMs(ms: number): string {
   margin-top: 10px;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .goal-stats span {
   border: 1px solid var(--line);
@@ -228,7 +228,7 @@ function formatMs(ms: number): string {
   color: var(--ink);
   padding: 6px 10px;
   font-family: var(--sans);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 500;
   cursor: pointer;
 }

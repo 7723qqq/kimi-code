@@ -606,7 +606,7 @@ function blinkOnce(): void {
   flex: 1;
 }
 .ch-name {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 600;
   color: var(--ink);
   overflow: hidden;
@@ -615,7 +615,7 @@ function blinkOnce(): void {
 }
 .ch-beta {
   flex: none;
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   font-weight: 600;
   color: var(--blue2);
   background: var(--soft);
@@ -655,7 +655,7 @@ function blinkOnce(): void {
   width: 100%;
   padding: 9px 12px;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   font-weight: 400;
   color: var(--dim);
   background: transparent;
@@ -691,7 +691,7 @@ function blinkOnce(): void {
   padding: 24px 12px;
   text-align: center;
   color: var(--faint);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   line-height: 1.6;
 }
 
@@ -702,7 +702,7 @@ function blinkOnce(): void {
   flex-direction: column;
   gap: 1px;
   padding: 0 var(--sb-pad-x) 4px;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   user-select: none;
   position: relative;
 }
@@ -724,7 +724,7 @@ function blinkOnce(): void {
 }
 
 .gh-name {
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   font-weight: 400;
   color: var(--ink);
   flex: 1;
@@ -740,7 +740,7 @@ function blinkOnce(): void {
   text-overflow: ellipsis;
   white-space: nowrap;
   padding-left: calc(var(--sb-gutter) + var(--sb-gap));
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
 }
 .gh-add {
   background: transparent;
@@ -801,7 +801,7 @@ function blinkOnce(): void {
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--ink);
   padding: 6px 12px;
 }
@@ -823,7 +823,7 @@ function blinkOnce(): void {
 
 .group-empty {
   padding: 8px 10px 8px calc(var(--sb-pad-x) + var(--sb-gutter) + var(--sb-gap));
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   color: var(--faint);
   font-family: var(--mono);
 }
@@ -834,7 +834,7 @@ function blinkOnce(): void {
   background: none;
   border: none;
   color: var(--dim);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-family: var(--mono);
   cursor: pointer;
   text-align: left;
@@ -849,7 +849,7 @@ function blinkOnce(): void {
   flex: 1;
   min-width: 0;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   font-weight: 400;
   color: var(--ink);
   background: var(--bg);
@@ -882,7 +882,7 @@ function blinkOnce(): void {
   text-align: left;
   padding: 6px 10px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   color: var(--text);
   background: transparent;
   border: none;

@@ -267,7 +267,7 @@ watch(
 <style scoped>
 .file-tree {
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--ink);
   background: var(--panel);
   height: 100%;
@@ -282,7 +282,7 @@ watch(
   gap: 8px;
   padding: 20px 16px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 
 .ft-loading-text {
@@ -292,7 +292,7 @@ watch(
 .ft-empty {
   padding: 24px 16px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   text-align: center;
 }
 
@@ -335,7 +335,7 @@ watch(
   width: 12px;
   flex: none;
   color: var(--muted);
-  font-size: 9px;
+  font-size: max(9px, calc(var(--ui-font-size) - 5px));
 }
 
 /* ---- Icons ---- */
@@ -372,7 +372,7 @@ watch(
   width: 14px;
   height: 14px;
   border-radius: 2px;
-  font-size: 9px;
+  font-size: max(9px, calc(var(--ui-font-size) - 5px));
   font-weight: 700;
   flex: none;
   user-select: none;
@@ -411,7 +411,7 @@ watch(
 /* ---- Mobile (≤640px): bigger, finger-friendly rows (≥44px tall) and a larger
         name/icon so the full-width tree is easy to tap. ---- */
 @media (max-width: 640px) {
-  .file-tree { font-size: 13.5px; }
+  .file-tree { font-size: calc(var(--ui-font-size) - 0.5px); }
   .ft-row {
     min-height: 44px;
     gap: 8px;
@@ -422,8 +422,8 @@ watch(
     border-bottom: 1px solid var(--line2);
   }
   .ft-row:active { background: var(--panel2); }
-  .ft-toggle { width: 18px; font-size: 11px; }
-  .ft-name { font-size: 13.5px; }
-  .ft-badge { width: 18px; height: 18px; font-size: 10px; }
+  .ft-toggle { width: 18px; font-size: calc(var(--ui-font-size) - 3px); }
+  .ft-name { font-size: calc(var(--ui-font-size) - 0.5px); }
+  .ft-badge { width: 18px; height: 18px; font-size: max(9px, calc(var(--ui-font-size) - 4px)); }
 }
 </style>

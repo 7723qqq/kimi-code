@@ -65,7 +65,7 @@ function glyph(status: TodoView['status']): string {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 3px;
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   overflow: hidden;
 }
 
@@ -96,7 +96,7 @@ function glyph(status: TodoView['status']): string {
   cursor: pointer;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   line-height: 1.4;
 }
 .tc-head:hover { color: var(--ink); }
@@ -171,7 +171,7 @@ function glyph(status: TodoView['status']): string {
   padding: 18px 0;
   text-align: center;
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
 }
 .tc-row.s-pending .tc-name { color: var(--muted); }
 .tc-row.s-in_progress .tc-name { font-weight: 600; }
@@ -182,10 +182,10 @@ function glyph(status: TodoView['status']): string {
 @media (max-width: 640px) {
   .todo-card.tab-mode .tc-head {
     min-height: 44px;
-    font-size: 14px;
+    font-size: var(--ui-font-size);
   }
   .todo-card.tab-mode .tc-list {
-    font-size: 15px;
+    font-size: var(--ui-font-size-lg);
   }
   .todo-card.tab-mode .tc-row {
     padding: 5px 0;

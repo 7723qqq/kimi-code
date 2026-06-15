@@ -183,7 +183,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   background: var(--panel);
 }
 .dtitle {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 700;
   color: var(--ink);
   flex: 1;
@@ -215,7 +215,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   gap: 10px;
 }
 .flabel {
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--dim);
   width: 66px;
   flex: none;
@@ -225,7 +225,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .finput {
   flex: 1;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -247,7 +247,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   gap: 5px;
 }
 .recent-label {
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -267,7 +267,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   padding: 3px 7px;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--text);
   text-align: left;
   transition: background 0.1s;
@@ -306,7 +306,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   border: 1px solid var(--line);
   border-radius: 3px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   padding: 5px 14px;
   cursor: pointer;
   color: var(--text);
@@ -323,7 +323,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 /* Footer */
 .footer-hint {
   padding: 6px 14px;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--faint);
   border-top: 1px solid var(--line2);
   background: var(--panel);

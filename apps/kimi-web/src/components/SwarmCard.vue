@@ -103,7 +103,7 @@ function latestProgress(member: SwarmMember): string | undefined {
   background: var(--soft);
   color: var(--blue2);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .swarm-grid {
   display: grid;
@@ -133,7 +133,7 @@ function latestProgress(member: SwarmMember): string | undefined {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 650;
 }
 .member-phase,
@@ -141,7 +141,7 @@ function latestProgress(member: SwarmMember): string | undefined {
   flex: none;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
 }
 .member-mid {
   margin-top: 6px;
@@ -150,7 +150,7 @@ function latestProgress(member: SwarmMember): string | undefined {
 .member-bar {
   color: var(--blue2);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   letter-spacing: 0;
 }
 .phase-completed .member-bar { color: var(--ok); }
@@ -160,7 +160,7 @@ function latestProgress(member: SwarmMember): string | undefined {
 .member-bottom {
   margin-top: 7px;
   color: var(--dim);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   line-height: 1.45;
   white-space: nowrap;
   overflow: hidden;

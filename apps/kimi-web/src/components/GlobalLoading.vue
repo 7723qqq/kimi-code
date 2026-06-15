@@ -77,7 +77,7 @@ const { t } = useI18n();
 }
 .gload-text {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--muted);
   letter-spacing: 0.04em;
 }

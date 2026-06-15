@@ -1755,7 +1755,7 @@ onUnmounted(() => {
   background: var(--ink);
   color: #fff;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   line-height: 1.45;
   white-space: nowrap;
   overflow: hidden;
@@ -1808,7 +1808,7 @@ onUnmounted(() => {
   padding: 0 16px 16px;
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 22px;
+  font-size: calc(var(--ui-font-size) + 8px);
   font-weight: 400;
 }
 .empty-hint-text {
@@ -1836,7 +1836,7 @@ onUnmounted(() => {
   border-radius: 8px;
   color: var(--dim);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   cursor: pointer;
 }
 .ws-pick-btn:hover { border-color: var(--bd); color: var(--ink); }
@@ -1880,9 +1880,9 @@ onUnmounted(() => {
 }
 .ws-pick-item:hover { background: var(--panel2); }
 .ws-pick-item.on { background: var(--soft); }
-.ws-pick-item-name { font-size: 13px; color: var(--ink); }
+.ws-pick-item-name { font-size: var(--ui-font-size-sm); color: var(--ink); }
 .ws-pick-item.on .ws-pick-item-name { color: var(--blue2); font-weight: 600; }
-.ws-pick-item-path { font-size: 11px; color: var(--muted); }
+.ws-pick-item-path { font-size: calc(var(--ui-font-size) - 3px); color: var(--muted); }
 .ws-pick-divider {
   height: 1px;
   margin: 4px 6px;
@@ -1900,7 +1900,7 @@ onUnmounted(() => {
   padding: 7px 10px;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   color: var(--dim);
 }
 .ws-pick-action:hover { background: var(--panel2); color: var(--ink); }
@@ -1918,7 +1918,7 @@ onUnmounted(() => {
     min-height: 44px;
   }
   .empty-hint {
-    font-size: 17px;
+    font-size: calc(var(--ui-font-size) + 3px);
   }
 }
 
@@ -1962,7 +1962,7 @@ onUnmounted(() => {
   color: var(--text);
   padding: 4px 11px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   cursor: pointer;
 }
 .dock-work-chip:hover,
@@ -2032,7 +2032,7 @@ onUnmounted(() => {
   color: var(--muted);
   padding: 0;
   font-family: var(--sans);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 500;
   cursor: pointer;
 }
@@ -2208,7 +2208,7 @@ onUnmounted(() => {
   background: var(--bg);
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   padding: 4px 8px;
   cursor: pointer;
   transition: background 0.14s, color 0.14s;
@@ -2223,7 +2223,7 @@ onUnmounted(() => {
   border-color: var(--bd);
 }
 .seg-n {
-  font-size: 9.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4.5px));
   background: var(--blue);
   color: var(--bg); /* on-accent text */
   border-radius: 8px;
@@ -2265,7 +2265,7 @@ onUnmounted(() => {
   justify-content: center;
   padding: 32px 24px;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   text-align: center;
 }
 
@@ -2291,7 +2291,7 @@ onUnmounted(() => {
   .seg-btn {
     min-width: 0;
     padding: 6px 6px;
-    font-size: 12px;
+    font-size: var(--ui-font-size-xs);
   }
   .seg-n {
     flex: none;
@@ -2327,7 +2327,7 @@ onUnmounted(() => {
     border-bottom: 1px solid var(--line);
     color: var(--dim);
     font-family: var(--mono);
-    font-size: 15px;
+    font-size: var(--ui-font-size-lg);
     cursor: pointer;
     text-align: left;
   }
@@ -2349,7 +2349,7 @@ onUnmounted(() => {
   color: var(--bg); /* on-accent text */
   border: none;
   border-radius: 20px;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   font-family: var(--mono);
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
@@ -2396,7 +2396,7 @@ onUnmounted(() => {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.12);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   font-family: var(--sans);
   color: var(--ink);
   white-space: nowrap;

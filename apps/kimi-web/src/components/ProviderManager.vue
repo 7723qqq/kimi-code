@@ -302,7 +302,7 @@ function statusLabel(status: AppProvider['status']): string {
   background: var(--panel);
 }
 .dtitle {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 700;
   color: var(--ink);
   flex: 1;
@@ -313,7 +313,7 @@ function statusLabel(status: AppProvider['status']): string {
   border: none;
   color: var(--faint);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   padding: 2px 4px;
   line-height: 1;
 }
@@ -332,13 +332,13 @@ function statusLabel(status: AppProvider['status']): string {
   gap: 8px;
   padding: 20px 14px;
   color: var(--dim);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 .state-row.unavail { color: var(--warn); }
 .empty {
   padding: 20px 14px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 .prov-row {
   display: flex;
@@ -365,23 +365,23 @@ function statusLabel(status: AppProvider['status']): string {
   gap: 2px;
 }
 .prov-type {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 600;
   color: var(--ink);
 }
 .prov-url {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .prov-meta {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--dim);
 }
 .prov-key-state {
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   padding: 1px 5px;
   border-radius: 3px;
 }
@@ -395,7 +395,7 @@ function statusLabel(status: AppProvider['status']): string {
   align-items: center;
 }
 .confirm-text {
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--err);
 }
 
@@ -418,7 +418,7 @@ function statusLabel(status: AppProvider['status']): string {
   border-radius: 3px;
   color: var(--blue);
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   padding: 5px 12px;
   cursor: pointer;
 }
@@ -432,7 +432,7 @@ function statusLabel(status: AppProvider['status']): string {
   border-radius: 3px;
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   padding: 5px 12px;
   cursor: pointer;
 }
@@ -447,7 +447,7 @@ function statusLabel(status: AppProvider['status']): string {
   gap: 10px;
 }
 .flabel {
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--dim);
   width: 70px;
   flex: none;
@@ -456,7 +456,7 @@ function statusLabel(status: AppProvider['status']): string {
 .finput {
   flex: 1;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   padding: 4px 8px;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -471,7 +471,7 @@ function statusLabel(status: AppProvider['status']): string {
 
 .fselect { cursor: pointer; }
 .add-error {
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--err);
   padding-left: 80px;
 }
@@ -487,7 +487,7 @@ function statusLabel(status: AppProvider['status']): string {
   border: 1px solid var(--line);
   border-radius: 3px;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   padding: 3px 10px;
   cursor: pointer;
   color: var(--text);
@@ -505,7 +505,7 @@ function statusLabel(status: AppProvider['status']): string {
 /* Footer */
 .footer-hint {
   padding: 6px 14px;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--faint);
   border-top: 1px solid var(--line2);
   background: var(--panel);

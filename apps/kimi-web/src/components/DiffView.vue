@@ -211,7 +211,7 @@ function onBack(): void {
   padding: 8px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--dim);
   flex: none;
   white-space: nowrap;
@@ -220,13 +220,13 @@ function onBack(): void {
 
 .br-label {
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
 }
 
 .br-name {
   color: var(--blue);
   font-weight: 700;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 
 .sync-info {
@@ -237,18 +237,18 @@ function onBack(): void {
 
 .ahead {
   color: var(--blue);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 
 .behind {
   color: var(--warn);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 
 .change-count {
   margin-left: auto;
   color: var(--dim);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 0 6px;
@@ -256,7 +256,7 @@ function onBack(): void {
 
 .empty-head {
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 
 /* ---- File list ---- */
@@ -272,7 +272,7 @@ function onBack(): void {
   gap: 10px;
   padding: 6px 16px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1.6;
   /* reset button defaults so the row looks like the original div */
   width: 100%;
@@ -300,7 +300,7 @@ function onBack(): void {
   width: 16px;
   height: 16px;
   border-radius: 2px;
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   font-weight: 700;
   flex: none;
   user-select: none;
@@ -311,7 +311,7 @@ function onBack(): void {
 .badge.deleted   { background: color-mix(in srgb, var(--err) 10%, var(--bg)); color: var(--err); }
 .badge.renamed   { background: color-mix(in srgb, var(--warn) 12%, var(--bg)); color: var(--warn); }
 .badge.untracked { background: var(--soft, #f0f0f5); color: var(--muted, #9098a0); }
-.badge.conflicted{ background: color-mix(in srgb, var(--err) 10%, var(--bg)); color: var(--err); font-size: 9px; }
+.badge.conflicted{ background: color-mix(in srgb, var(--err) 10%, var(--bg)); color: var(--err); font-size: max(9px, calc(var(--ui-font-size) - 5px)); }
 .badge.ignored   { background: var(--soft, #f0f0f5); color: var(--faint, #c0c5cc); }
 .badge.clean     { background: transparent; color: var(--faint, #c0c5cc); }
 .badge.unknown   { background: var(--soft, #f0f0f5); color: var(--muted, #9098a0); }
@@ -319,7 +319,7 @@ function onBack(): void {
 /* ---- File path ---- */
 .fpath {
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -332,7 +332,7 @@ function onBack(): void {
 .empty-state {
   padding: 32px 20px;
   color: var(--muted, #9098a0);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   text-align: center;
 }
 
@@ -362,7 +362,7 @@ function onBack(): void {
   cursor: pointer;
   color: var(--dim);
   font-family: inherit;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   flex: none;
 }
 
@@ -378,7 +378,7 @@ function onBack(): void {
 
 .diff-path {
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -391,7 +391,7 @@ function onBack(): void {
   flex: 1;
   overflow: auto;
   padding: 4px 0 12px;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1.5;
   -webkit-overflow-scrolling: touch;
 }
@@ -477,27 +477,27 @@ function onBack(): void {
     min-height: 44px;
     padding: 8px 14px;
     gap: 12px;
-    font-size: 13px;
+    font-size: var(--ui-font-size-sm);
   }
   .ch-row:active { background: var(--panel2, #f5f6f8); }
   .badge { width: 18px; height: 18px; }
-  .fpath { font-size: 13px; }
+  .fpath { font-size: var(--ui-font-size-sm); }
 
   /* Diff-head Back → real tap target. */
   .diff-head { padding: 8px 12px; gap: 10px; }
   .back-btn {
     min-height: 36px;
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: var(--ui-font-size-xs);
     border-radius: 7px;
   }
   .back-btn:active { background: var(--panel2, #f5f6f8); }
-  .diff-path { font-size: 12.5px; }
+  .diff-path { font-size: calc(var(--ui-font-size) - 1.5px); }
 
   /* Line panel: horizontal scroll for long lines; keep the mono gutter intact. */
   .diff-lines {
     overflow-x: auto;
-    font-size: 14px;
+    font-size: var(--ui-font-size);
   }
 }
 </style>

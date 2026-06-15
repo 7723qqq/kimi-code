@@ -257,7 +257,7 @@ defineExpose({ closeMenu, cancelDelete });
 
 .t {
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -266,7 +266,7 @@ defineExpose({ closeMenu, cancelDelete });
 }
 .se.on .t { font-weight: 500; }
 
-.ts { color: var(--muted); font-size: 10.5px; flex: none; }
+.ts { color: var(--muted); font-size: max(9px, calc(var(--ui-font-size) - 3.5px)); flex: none; }
 .se:hover .ts { display: none; }
 
 /* Attention pill — small Kimi-blue badge with count */
@@ -279,7 +279,7 @@ defineExpose({ closeMenu, cancelDelete });
   color: var(--blue2);
   border: 1px solid var(--bd);
   border-radius: 9px;
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   line-height: 1;
   padding: 1px 5px 1px 4px;
   font-family: var(--mono);
@@ -327,7 +327,7 @@ defineExpose({ closeMenu, cancelDelete });
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--ink);
   padding: 6px 12px;
 }
@@ -343,7 +343,7 @@ defineExpose({ closeMenu, cancelDelete });
 .rename-input {
   flex: 1;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--ink);
   background: var(--bg);
   border: 1px solid var(--blue);
@@ -359,13 +359,13 @@ defineExpose({ closeMenu, cancelDelete });
   gap: 6px;
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .archive-label {
   color: var(--err);
   /* Match the normal session title (.t) so the confirm text lines up with it
      in size and baseline, not as a smaller note. */
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -380,7 +380,7 @@ defineExpose({ closeMenu, cancelDelete });
   padding: 2px 8px;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
 }
 .btn-cancel {
   background: none;
@@ -389,7 +389,7 @@ defineExpose({ closeMenu, cancelDelete });
   padding: 2px 8px;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--dim);
 }
 .btn-confirm:hover { opacity: 0.85; }

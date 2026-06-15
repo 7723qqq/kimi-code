@@ -61,7 +61,7 @@ const tabs = computed(() =>
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   color: var(--dim);
   border-right: 1px solid var(--line);
   cursor: pointer;
@@ -86,7 +86,7 @@ const tabs = computed(() =>
   color: var(--blue2);
   border-radius: 8px;
   padding: 0 6px;
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   font-weight: 600;
 }
 
@@ -101,7 +101,7 @@ const tabs = computed(() =>
   gap: 5px;
   padding: 0 2px;
   font-family: var(--mono);
-  font-size: 14.5px;
+  font-size: calc(var(--ui-font-size) + 0.5px);
   color: var(--muted);
   border-right: none;
   border-bottom: none;
@@ -127,7 +127,7 @@ const tabs = computed(() =>
   background: var(--blue);
   color: var(--bg); /* on-accent text — readable in dark + mono-dark */
   border-radius: 9px;
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   font-weight: 600;
 }
 /* Diff → small warn dot (prototype .dt). */

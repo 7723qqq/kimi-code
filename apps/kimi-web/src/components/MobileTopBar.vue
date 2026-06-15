@@ -115,7 +115,7 @@ const statusText = computed<string>(() =>
   justify-content: center;
   font-family: var(--mono);
   font-weight: 700;
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
 }
 
 /* Middle tappable zone */
@@ -139,7 +139,7 @@ const statusText = computed<string>(() =>
   align-items: center;
   gap: 5px;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -159,7 +159,7 @@ const statusText = computed<string>(() =>
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--faint);
   overflow: hidden;
   text-overflow: ellipsis;

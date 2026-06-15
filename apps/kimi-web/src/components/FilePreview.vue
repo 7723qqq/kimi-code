@@ -548,7 +548,7 @@ function truncatePath(path: string, maxLen = 55): string {
   justify-content: center;
   gap: 10px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 
 /* ---- Header ----
@@ -574,7 +574,7 @@ function truncatePath(path: string, maxLen = 55): string {
 .fp-title {
   flex: none;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--ink);
@@ -594,7 +594,7 @@ function truncatePath(path: string, maxLen = 55): string {
   white-space: nowrap;
   direction: rtl;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   color: var(--muted);
   font-weight: 400;
 }
@@ -617,7 +617,7 @@ function truncatePath(path: string, maxLen = 55): string {
 
 .fp-lines,
 .fp-size {
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--muted);
   white-space: nowrap;
 }
@@ -628,7 +628,7 @@ function truncatePath(path: string, maxLen = 55): string {
 .fp-seg-btn {
   flex: none;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   font-family: var(--mono);
   background: var(--panel2);
   border: 1px solid var(--line);
@@ -658,6 +658,7 @@ function truncatePath(path: string, maxLen = 55): string {
   width: 24px;
   height: 24px;
   padding: 0;
+  /* Fixed icon glyph size (×) — not part of the UI font scale. */
   font-size: 16px;
   line-height: 1;
 }
@@ -708,7 +709,7 @@ function truncatePath(path: string, maxLen = 55): string {
 }
 .fp-search-count {
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   min-width: 18px;
   text-align: right;
 }
@@ -734,7 +735,7 @@ function truncatePath(path: string, maxLen = 55): string {
   display: table;
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1.6;
 }
 
@@ -763,7 +764,7 @@ function truncatePath(path: string, maxLen = 55): string {
   text-align: right;
   color: var(--faint);
   user-select: none;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   white-space: nowrap;
   border-right: 1px solid var(--line2);
   vertical-align: top;
@@ -866,7 +867,7 @@ function truncatePath(path: string, maxLen = 55): string {
   border-radius: 6px;
   background: var(--panel);
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   margin: 32px auto;
   max-width: 480px;
 }
@@ -905,7 +906,7 @@ function truncatePath(path: string, maxLen = 55): string {
   .fp-seg-btn {
     min-height: 32px;
     padding: 5px 12px;
-    font-size: 12px;
+    font-size: var(--ui-font-size-xs);
     border-radius: 6px;
   }
   /* Hide the line-count chip on the narrowest screens to keep the header tidy;

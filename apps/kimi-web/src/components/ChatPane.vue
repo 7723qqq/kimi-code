@@ -727,7 +727,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   color: var(--faint);
   text-align: center;
 }
-.chat-empty-text { font-size: 13px; }
+.chat-empty-text { font-size: var(--ui-font-size-sm); }
 
 .chat-loading {
   flex: 1;
@@ -738,7 +738,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   padding: 24px 16px;
   color: var(--muted);
 }
-.chat-loading-text { font-size: 13px; }
+.chat-loading-text { font-size: var(--ui-font-size-sm); }
 .dot-pulse {
   display: inline-block;
   width: 8px;
@@ -759,7 +759,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   text-align: right;
   flex: none;
   user-select: none;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   padding-top: 2px;
 }
 .tx { flex: 1; min-width: 0; }
@@ -790,9 +790,9 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   margin-bottom: 2px;
   position: relative;
 }
-.userline .pr { color: var(--blue2); font-weight: 700; font-size: 12.5px; }
-.ai .pr { color: var(--ok); font-weight: 700; font-size: 12.5px; }
-.who { color: var(--muted); font-size: 12.5px; }
+.userline .pr { color: var(--blue2); font-weight: 700; font-size: calc(var(--ui-font-size) - 1.5px); }
+.ai .pr { color: var(--ok); font-weight: 700; font-size: calc(var(--ui-font-size) - 1.5px); }
+.who { color: var(--muted); font-size: calc(var(--ui-font-size) - 1.5px); }
 
 /* Copy button: always visible, text shows on hover */
 .cpbtn {
@@ -803,7 +803,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   border: none;
   cursor: pointer;
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   font-family: var(--mono);
   padding: 0 4px 0 0;
   margin-left: 8px;
@@ -864,7 +864,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   color: var(--ink);
   border-radius: 16px 16px 5px 16px;
   padding: 10px 14px;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1.55;
 }
 @keyframes undo-bubble-exit {
@@ -923,7 +923,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   border-radius: 5px;
   color: var(--muted);
   font: inherit;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   cursor: pointer;
   opacity: 0.7;
   transition: opacity 0.12s, color 0.12s, background-color 0.12s;
@@ -967,7 +967,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   padding: 2px 5px;
   color: var(--muted);
   font: inherit;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   border-radius: 5px;
   background: var(--hover);
 }
@@ -977,7 +977,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   border: none;
   padding: 0;
   font: inherit;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   line-height: 1;
   color: var(--blue);
   cursor: pointer;
@@ -1011,7 +1011,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   align-items: center;
   gap: 8px;
   max-width: 80%;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1021,7 +1021,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   padding: 0;
   cursor: pointer;
   font: inherit;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   color: var(--muted);
 }
 .cd-view { color: var(--blue); }
@@ -1052,7 +1052,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   border: none;
   color: var(--faint);
   cursor: pointer;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   padding: 2px 6px 2px 0;
   border-radius: 4px;
 }
@@ -1086,7 +1086,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
     pointer-events: auto;
   }
   .a-cpbtn {
-    font-size: 13px;
+    font-size: var(--ui-font-size-sm);
     padding: 8px 10px;
     margin: -4px -6px;
   }
@@ -1098,7 +1098,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   }
 }
 .a-msg .msg {
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1.6;
   color: var(--ink);
   font-weight: 500;
@@ -1126,7 +1126,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 }
 .a-msg :deep(code) {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 5px;
@@ -1158,7 +1158,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   position: relative;
   width: var(--moon-frame);
   height: var(--moon-frame);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 1;
   user-select: none;
   vertical-align: -0.1em;
@@ -1207,7 +1207,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   gap: 2px;
 }
 .skill-act-head {
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   font-weight: 600;
   color: var(--blue2);
   display: flex;
@@ -1216,10 +1216,10 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 }
 .skill-act-arrow {
   color: var(--blue);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .skill-act-args {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   color: var(--muted);
   padding-left: 17px;
   white-space: pre-wrap;
@@ -1242,7 +1242,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   }
   .u-bub .u-text,
   .a-msg .msg {
-    font-size: 16px;
+    font-size: var(--ui-font-size-xl);
   }
   .a-msg :deep(.md),
   .a-msg :deep(.markdown-renderer),
@@ -1278,18 +1278,18 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   .userline .pr,
   .ai .pr,
   .who {
-    font-size: 14.5px;
+    font-size: calc(var(--ui-font-size) + 0.5px);
   }
   .ts {
-    font-size: 13px;
+    font-size: var(--ui-font-size-sm);
   }
   .chat-empty-text,
   .chat-loading-text {
-    font-size: 15px;
+    font-size: var(--ui-font-size-lg);
   }
   .cd-label,
   .cd-btn {
-    font-size: 14px;
+    font-size: var(--ui-font-size);
   }
 }
 

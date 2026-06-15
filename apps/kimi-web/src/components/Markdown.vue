@@ -478,12 +478,12 @@ function copyDiff(code: string, idx: number) {
   padding: 3px 8px;
   min-height: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   letter-spacing: 0.04em;
 }
 .md :deep(.code-block-header *) {
   color: var(--muted);
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
 }
 /* Copy button in the header */
 .md :deep(.code-block-header .copy-button),
@@ -603,7 +603,7 @@ function copyDiff(code: string, idx: number) {
   border-bottom: 1px solid var(--line);
 }
 .diff-lang {
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   color: var(--muted);
   margin-right: auto;
   letter-spacing: 0.04em;

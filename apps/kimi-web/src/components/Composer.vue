@@ -1266,7 +1266,7 @@ function selectModel(modelId: string): void {
 
 .queue-label {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -1282,7 +1282,7 @@ function selectModel(modelId: string): void {
   border-radius: 8px;
   padding: 6px 8px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   color: var(--text);
   min-width: 0;
 }
@@ -1295,7 +1295,7 @@ function selectModel(modelId: string): void {
   border-radius: 3px;
   padding: 2px 8px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--blue2);
   cursor: pointer;
   white-space: nowrap;
@@ -1316,7 +1316,7 @@ function selectModel(modelId: string): void {
   padding: 0;
   margin: 0;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   color: var(--text);
   cursor: pointer;
   text-align: left;
@@ -1365,7 +1365,7 @@ function selectModel(modelId: string): void {
   color: var(--blue2);
   padding: 3px 10px 3px 9px;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
@@ -1385,7 +1385,7 @@ function selectModel(modelId: string): void {
   border-radius: 999px;
   background: var(--blue);
   color: var(--bg);
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   line-height: 1;
 }
 
@@ -1406,7 +1406,7 @@ function selectModel(modelId: string): void {
   border-radius: 4px;
   padding: 3px 6px 3px 4px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--text);
   max-width: 220px;
 }
@@ -1488,7 +1488,7 @@ function selectModel(modelId: string): void {
   outline: none;
   resize: none;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   background: transparent;
   min-height: 56px;
   max-height: 200px;
@@ -1508,7 +1508,7 @@ function selectModel(modelId: string): void {
   border-radius: 3px;
   color: var(--warn);
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   padding: 0 4px;
   cursor: pointer;
   height: 19px;
@@ -1593,7 +1593,7 @@ function selectModel(modelId: string): void {
   gap: 4px;
   padding: 2px 7px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--muted);
   cursor: pointer;
   user-select: none;
@@ -1620,7 +1620,7 @@ function selectModel(modelId: string): void {
   gap: 4px;
   padding: 2px 7px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--dim);
   cursor: pointer;
   user-select: none;
@@ -1669,7 +1669,7 @@ function selectModel(modelId: string): void {
 }
 
 .ctx-num {
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--muted);
   font-family: var(--mono);
   line-height: 16px;
@@ -1682,7 +1682,7 @@ function selectModel(modelId: string): void {
   gap: 3px;
   padding: 2px 7px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   line-height: 16px;
   color: var(--dim);
   cursor: pointer;
@@ -1740,7 +1740,7 @@ function selectModel(modelId: string): void {
 
 .md-section {
   padding: 4px 7px 2px;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1756,7 +1756,7 @@ function selectModel(modelId: string): void {
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--text);
   padding: 5px 7px;
   border-radius: 6px;
@@ -1846,13 +1846,13 @@ function selectModel(modelId: string): void {
 
 .pd-name {
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   font-weight: 500;
 }
 
 .pd-desc {
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--muted);
   line-height: 1.4;
 }
@@ -1870,7 +1870,7 @@ function selectModel(modelId: string): void {
   border: none;
   background: none;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   font-family: var(--sans);
   color: var(--dim);
   cursor: pointer;
@@ -1883,7 +1883,7 @@ function selectModel(modelId: string): void {
 .mode-tag {
   flex: none;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--blue2);
   background: var(--bg);
   border: 1px solid var(--bd);
@@ -1919,14 +1919,14 @@ function selectModel(modelId: string): void {
 }
 .mode-row:hover:not(:disabled) { background: var(--panel2); }
 .mode-row:disabled { cursor: not-allowed; opacity: 0.45; }
-.mode-row-name { font-size: 13px; color: var(--ink); }
+.mode-row-name { font-size: var(--ui-font-size-sm); color: var(--ink); }
 .mode-row-not-supported {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   color: var(--muted);
 }
 .mode-row.on .mode-row-name { color: var(--blue2); font-weight: 600; }
-.mode-row-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.mode-row-meta { font-family: var(--mono); font-size: calc(var(--ui-font-size) - 3px); color: var(--muted); }
 .mode-row:disabled .mode-row-meta { color: var(--faint); }
 .mode-switch {
   flex: none;
@@ -1987,7 +1987,7 @@ function selectModel(modelId: string): void {
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--ink);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   cursor: pointer;
 }
 .mode-row-action:hover:not(:disabled) { background: var(--panel2); }
@@ -2000,7 +2000,7 @@ function selectModel(modelId: string): void {
   border: 1px solid var(--line);
   background: var(--bg);
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
 }
 
 /* ---- Mobile composer (prototype): round attach + rounded panel input +
@@ -2052,12 +2052,14 @@ function selectModel(modelId: string): void {
   }
   .send::after {
     content: "↑";
+    /* Fixed icon glyph size — not part of the UI font scale. */
     font-size: 17px;
     line-height: 1;
     color: var(--bg);
   }
   .send.aborting::after {
     content: "■";
+    /* Fixed icon glyph size — not part of the UI font scale. */
     font-size: 14px;
   }
 
@@ -2082,12 +2084,13 @@ function selectModel(modelId: string): void {
   /* Bump mobile font sizes +2px and pin input at 16px to prevent iOS zoom.
      Single-line-friendly height: 56px desktop default → 44px touch target. */
   .ph {
+    /* Pinned at 16px to prevent iOS auto-zoom on focus (not part of UI font scale). */
     font-size: 16px;
     min-height: 44px;
   }
   .model-pill,
   .attach-btn {
-    font-size: 14px;
+    font-size: var(--ui-font-size);
   }
   .toolbar {
     gap: 6px;
@@ -2104,16 +2107,16 @@ function selectModel(modelId: string): void {
     max-width: min(40vw, 170px);
   }
   .md-row {
-    font-size: 14px;
+    font-size: var(--ui-font-size);
   }
   .md-section {
-    font-size: 14px;
+    font-size: var(--ui-font-size);
   }
   .pd-name {
-    font-size: 14px;
+    font-size: var(--ui-font-size);
   }
   .pd-desc {
-    font-size: 14px;
+    font-size: var(--ui-font-size);
   }
 }
 

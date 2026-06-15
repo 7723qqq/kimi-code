@@ -141,7 +141,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
   gap: 8px;
 }
 .dtitle {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 700;
   color: var(--ink);
   flex: 1;
@@ -152,7 +152,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
   border: none;
   color: var(--faint);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   padding: 2px 4px;
   line-height: 1;
 }
@@ -167,7 +167,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
   align-items: center;
   gap: 12px;
   padding: 7px 16px;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
 }
 .row dt {
   width: 96px;
@@ -175,7 +175,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
 }
 .row dd {
   margin: 0;

@@ -104,7 +104,7 @@ function fileIcon(item: FileItem): string {
 .mention-state {
   padding: 8px 12px;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
 }
 
 .dim {
@@ -118,7 +118,7 @@ function fileIcon(item: FileItem): string {
   padding: 5px 12px;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   border-bottom: 1px solid var(--line2);
 }
 
@@ -162,7 +162,7 @@ function fileIcon(item: FileItem): string {
 
 .mention-path {
   color: var(--dim);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

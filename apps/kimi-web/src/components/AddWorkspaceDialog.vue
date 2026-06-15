@@ -384,7 +384,7 @@ onUnmounted(() => {
   background: var(--panel);
 }
 .dtitle {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 700;
   color: var(--ink);
   flex: 1;
@@ -432,7 +432,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 1px;
   min-width: 0;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .crumb-sep { color: var(--faint); }
 .crumb {
@@ -440,7 +440,7 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--dim);
   padding: 1px 3px;
   border-radius: 3px;
@@ -461,7 +461,7 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   padding: 3px 4px;
   border: none;
   background: none;
@@ -486,7 +486,7 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--blue);
   padding: 2px 0;
   text-align: left;
@@ -504,7 +504,7 @@ onUnmounted(() => {
   padding: 24px 14px;
   text-align: center;
   color: var(--faint);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 3px);
 }
 .folder-row {
   display: flex;
@@ -515,7 +515,7 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--text);
   text-align: left;
   padding: 5px 14px;
@@ -539,7 +539,7 @@ onUnmounted(() => {
   color: var(--blue2);
   border: 1px solid var(--bd);
   border-radius: 9px;
-  font-size: 9.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4.5px));
   line-height: 1;
   padding: 2px 6px;
 }
@@ -554,12 +554,12 @@ onUnmounted(() => {
   border-top: 1px solid var(--line2);
 }
 .paste-section.paste-only { border-top: none; }
-.paste-label { font-size: 11px; color: var(--dim); flex: none; }
+.paste-label { font-size: calc(var(--ui-font-size) - 3px); color: var(--dim); flex: none; }
 .paste-input {
   flex: 1;
   min-width: 0;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -599,7 +599,7 @@ onUnmounted(() => {
   border: 1px solid var(--line);
   border-radius: 3px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   padding: 5px 14px;
   cursor: pointer;
   color: var(--text);
@@ -615,7 +615,7 @@ onUnmounted(() => {
 .act-btn.primary:hover:not(:disabled) { background: var(--blue2); }
 .footer-hint {
   padding: 6px 14px;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--faint);
   border-top: 1px solid var(--line2);
   background: var(--panel);

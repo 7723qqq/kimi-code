@@ -168,17 +168,17 @@ function finish(): void {
 .ob-logo {
   width: 52px; height: 36px; flex: none;
 }
-.ob-title { color: var(--ink); font-size: 16px; font-weight: 700; }
-.ob-sub { color: var(--muted); font-size: 14px; margin-top: 1px; }
+.ob-title { color: var(--ink); font-size: var(--ui-font-size-xl); font-weight: 700; }
+.ob-sub { color: var(--muted); font-size: var(--ui-font-size); margin-top: 1px; }
 
 .ob-sec { margin-bottom: 16px; }
-.ob-label { color: var(--dim); font-size: 11.5px; font-weight: 600; margin-bottom: 7px; }
+.ob-label { color: var(--dim); font-size: calc(var(--ui-font-size) - 2.5px); font-weight: 600; margin-bottom: 7px; }
 
 /* segmented (language) */
 .ob-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .ob-seg-btn {
   border: none; background: var(--bg); color: var(--muted);
-  font-family: var(--mono); font-size: 12px; padding: 6px 16px; cursor: pointer;
+  font-family: var(--mono); font-size: var(--ui-font-size-xs); padding: 6px 16px; cursor: pointer;
 }
 .ob-seg-btn + .ob-seg-btn { border-left: 1px solid var(--line); }
 .ob-seg-btn.on { background: var(--soft); color: var(--blue2); font-weight: 600; }
@@ -205,13 +205,13 @@ function finish(): void {
 .ob-theme-prev.kimi .kb { height: 14px; border-radius: 7px; }
 .ob-theme-prev.kimi .kb.u { width: 60%; align-self: flex-end; background: color-mix(in srgb, var(--ink) 8%, var(--bg)); }
 .ob-theme-prev.kimi .kb.a { width: 80%; background: color-mix(in srgb, var(--ink) 4%, var(--bg)); }
-.ob-theme-name { color: var(--ink); font-size: 12.5px; font-weight: 600; }
-.ob-theme-desc { color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+.ob-theme-name { color: var(--ink); font-size: calc(var(--ui-font-size) - 1.5px); font-weight: 600; }
+.ob-theme-desc { color: var(--muted); font-size: max(9px, calc(var(--ui-font-size) - 3.5px)); line-height: 1.4; }
 
 .ob-start {
   width: 100%; margin-top: 6px;
   background: var(--blue); color: var(--bg); border: none; border-radius: 10px;
-  font-size: 13.5px; font-weight: 600; padding: 11px; cursor: pointer;
+  font-size: calc(var(--ui-font-size) - 0.5px); font-weight: 600; padding: 11px; cursor: pointer;
 }
 .ob-start:hover { background: var(--blue2); }
 

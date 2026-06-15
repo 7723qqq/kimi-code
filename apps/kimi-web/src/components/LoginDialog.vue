@@ -370,7 +370,7 @@ function formatSeconds(s: number): string {
   background: var(--panel);
 }
 .dtitle {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) - 1.5px);
   font-weight: 700;
   color: var(--ink);
   flex: 1;
@@ -399,15 +399,15 @@ function formatSeconds(s: number): string {
 }
 .spin-icon { display: block; }
 .center-text {
-  font-size: 13px;
+  font-size: var(--ui-font-size-sm);
   font-weight: 600;
   color: var(--ink);
 }
 .success-text { color: var(--ok); }
 .err-text { color: var(--err); }
-.warn-text { color: var(--warn); font-size: 12.5px; }
+.warn-text { color: var(--warn); font-size: calc(var(--ui-font-size) - 1.5px); }
 .center-hint {
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--dim);
 }
 
@@ -419,7 +419,7 @@ function formatSeconds(s: number): string {
   gap: 14px;
 }
 .dc-instruction {
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--text);
   line-height: 1.6;
 }
@@ -429,7 +429,7 @@ function formatSeconds(s: number): string {
   align-items: center;
   gap: 6px;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   color: var(--blue);
   background: var(--soft);
   border: 1px solid var(--bd);
@@ -452,7 +452,7 @@ function formatSeconds(s: number): string {
   padding: 10px 12px;
 }
 .dc-code-label {
-  font-size: 10px;
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -464,7 +464,7 @@ function formatSeconds(s: number): string {
   gap: 12px;
 }
 .dc-code-value {
-  font-size: 22px;
+  font-size: calc(var(--ui-font-size) + 8px);
   font-weight: 700;
   color: var(--ink);
   letter-spacing: 0.12em;
@@ -476,7 +476,7 @@ function formatSeconds(s: number): string {
   align-items: center;
   gap: 5px;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   padding: 4px 10px;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -497,9 +497,9 @@ function formatSeconds(s: number): string {
   border-top: 1px solid var(--line2);
 }
 .dc-spinner { display: flex; align-items: center; }
-.dc-status-text { font-size: 14px; color: var(--dim); flex: 1; }
+.dc-status-text { font-size: var(--ui-font-size); color: var(--dim); flex: 1; }
 .dc-countdown {
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -515,7 +515,7 @@ function formatSeconds(s: number): string {
   border: 1px solid var(--line);
   border-radius: 3px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--ui-font-size-xs);
   padding: 5px 14px;
   cursor: pointer;
   color: var(--text);
@@ -531,7 +531,7 @@ function formatSeconds(s: number): string {
 /* Footer */
 .footer-hint {
   padding: 6px 14px;
-  font-size: 10.5px;
+  font-size: max(9px, calc(var(--ui-font-size) - 3.5px));
   color: var(--faint);
   border-top: 1px solid var(--line2);
   background: var(--panel);
