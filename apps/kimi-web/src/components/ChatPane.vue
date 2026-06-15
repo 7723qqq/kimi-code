@@ -907,7 +907,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
   color: var(--ink);
   border-radius: 16px 16px 5px 16px;
   padding: 10px 14px;
-  font-size: var(--ui-font-size);
+  font-size: 15px;
   line-height: 1.55;
 }
 .u-meta {
