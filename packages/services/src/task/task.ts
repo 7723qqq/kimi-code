@@ -90,7 +90,21 @@ export function isTerminalStatus(status: BackgroundTaskStatus): boolean {
   return TERMINAL_WIRE_STATUSES.has(status);
 }
 
-export function toProtocolTask(sessionId: string, info: BackgroundTaskInfo): BackgroundTask {
+export interface TaskOutputSnapshot {
+  readonly preview: string;
+  readonly bytes: number;
+}
+
+export interface GetTaskOptions {
+  readonly withOutput?: boolean;
+  readonly outputBytes?: number;
+}
+
+export function toProtocolTask(
+  sessionId: string,
+  info: BackgroundTaskInfo,
+  output?: TaskOutputSnapshot,
+): BackgroundTask {
   const status = mapStatus(info.status);
   const createdIso = new Date(info.startedAt).toISOString();
   const base: BackgroundTask = {
@@ -105,7 +119,14 @@ export function toProtocolTask(sessionId: string, info: BackgroundTaskInfo): Bac
     started_at: createdIso,
   };
   if (info.endedAt !== null && info.endedAt !== undefined) {
-    return { ...base, completed_at: new Date(info.endedAt).toISOString() };
+    base.completed_at = new Date(info.endedAt).toISOString();
+  }
+  if (info.kind === 'process' && 'command' in info && typeof info.command === 'string') {
+    base.command = info.command;
+  }
+  if (output !== undefined) {
+    base.output_preview = output.preview;
+    base.output_bytes = output.bytes;
   }
   return base;
 }
@@ -127,8 +148,13 @@ export interface ITaskService {
   /**
    * Return a single background task. Throws `TaskNotFoundError` (→ 40406)
    * when the task id is not found.
+   *
+   * Pass `withOutput: true` to include the task's captured output in the
+   * response (`output_preview` / `output_bytes`). `outputBytes` caps the
+   * returned preview to the last N bytes; when omitted, a server-default
+   * cap is used.
    */
-  get(sessionId: string, taskId: string): Promise<BackgroundTask>;
+  get(sessionId: string, taskId: string, options?: GetTaskOptions): Promise<BackgroundTask>;
 
   /**
    * Cancel a running task. Throws:

@@ -356,6 +356,7 @@ export function toAppTask(wire: WireBackgroundTask): AppTask {
     kind: wire.kind,
     description: wire.description,
     status: wire.status as AppTaskStatus,
+    command: wire.command,
     createdAt: wire.created_at,
     startedAt: wire.started_at,
     completedAt: wire.completed_at,

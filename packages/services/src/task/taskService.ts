@@ -13,10 +13,12 @@ import {
   TaskAlreadyFinishedError,
   toProtocolTask,
   isTerminalStatus,
+  type GetTaskOptions,
   type TaskListQuery,
 } from './task';
 
 const MAIN_AGENT_ID = 'main';
+const DEFAULT_TASK_OUTPUT_PREVIEW_BYTES = 32 * 1024;
 
 export class TaskService extends Disposable implements ITaskService {
   readonly _serviceBrand: undefined;
@@ -35,14 +37,37 @@ export class TaskService extends Disposable implements ITaskService {
     return all;
   }
 
-  async get(sessionId: string, taskId: string): Promise<BackgroundTask> {
+  async get(
+    sessionId: string,
+    taskId: string,
+    options?: GetTaskOptions,
+  ): Promise<BackgroundTask> {
     await this._requireSession(sessionId);
     const raw = await this._getAllRaw(sessionId);
     const found = raw.find((t) => t.taskId === taskId);
     if (found === undefined) {
       throw new TaskNotFoundError(sessionId, taskId);
     }
-    return toProtocolTask(sessionId, found);
+
+    let output: { preview: string; bytes: number } | undefined;
+    if (options?.withOutput) {
+      const tailBytes = options.outputBytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES;
+      try {
+        const preview = await this.core.rpc.getBackgroundOutput({
+          sessionId,
+          agentId: MAIN_AGENT_ID,
+          taskId,
+          tail: tailBytes,
+        });
+        if (preview.length > 0) {
+          output = { preview, bytes: Buffer.byteLength(preview, 'utf-8') };
+        }
+      } catch {
+        // Output may not be available yet; fall back to task metadata only.
+      }
+    }
+
+    return toProtocolTask(sessionId, found, output);
   }
 
   async cancel(sessionId: string, taskId: string): Promise<{ cancelled: true }> {

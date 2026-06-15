@@ -288,6 +288,7 @@ export interface AppTask {
   kind: 'subagent' | 'bash' | 'tool';
   description: string;
   status: AppTaskStatus;
+  command?: string;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;

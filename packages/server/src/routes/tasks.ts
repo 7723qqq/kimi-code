@@ -127,8 +127,12 @@ export function registerTasksRoutes(
     async (req, reply) => {
       try {
         const { session_id, task_id } = req.params;
+        const query = req.query as { with_output?: boolean; output_bytes?: number };
         const task = await ix.invokeFunction((a) =>
-          a.get(ITaskService).get(session_id, task_id),
+          a.get(ITaskService).get(session_id, task_id, {
+            withOutput: query.with_output,
+            outputBytes: query.output_bytes,
+          }),
         );
         reply.send(okEnvelope(task, req.id));
       } catch (err) {

@@ -33,6 +33,7 @@ import {
 interface FakeState {
   sessions: SessionSummary[];
   tasksBySession: Map<string, BackgroundTaskInfo[]>;
+  outputByTaskId: Map<string, string>;
   stopCalls: Array<StopBackgroundPayload & { sessionId: string; agentId: string }>;
 }
 
@@ -41,6 +42,14 @@ function makeBridge(state: FakeState): ICoreProcessService {
     listSessions: async () => state.sessions,
     getBackground: async (p: { sessionId: string; agentId: string; activeOnly?: boolean }) =>
       state.tasksBySession.get(p.sessionId) ?? [],
+    getBackgroundOutput: async (p: { sessionId: string; agentId: string; taskId: string; tail?: number }) => {
+      const output = state.outputByTaskId.get(p.taskId);
+      if (output === undefined) return '';
+      if (p.tail !== undefined && output.length > p.tail) {
+        return output.slice(-p.tail);
+      }
+      return output;
+    },
     stopBackground: async (
       p: StopBackgroundPayload & { sessionId: string; agentId: string },
     ) => {
@@ -84,7 +93,7 @@ function bashTask(
 }
 
 function fresh(): FakeState {
-  return { sessions: [], tasksBySession: new Map(), stopCalls: [] };
+  return { sessions: [], tasksBySession: new Map(), outputByTaskId: new Map(), stopCalls: [] };
 }
 
 // --- Adapter --------------------------------------------------------------
@@ -196,6 +205,48 @@ describe('TaskService.get', () => {
     state.tasksBySession.set('s1', [bashTask('t1', 'running')]);
     const svc = new TaskService(makeBridge(state));
     const task = await svc.get('s1', 't1');
+    expect(task.id).toBe('t1');
+  });
+
+  it('includes output preview when withOutput is true', async () => {
+    const state = fresh();
+    state.sessions.push(session('s1'));
+    state.tasksBySession.set('s1', [bashTask('t1', 'running')]);
+    state.outputByTaskId.set('t1', 'hello\nworld');
+    const svc = new TaskService(makeBridge(state));
+    const task = await svc.get('s1', 't1', { withOutput: true });
+    expect(task.output_preview).toBe('hello\nworld');
+    expect(task.output_bytes).toBeGreaterThan(0);
+  });
+
+  it('omits output preview when withOutput is false or omitted', async () => {
+    const state = fresh();
+    state.sessions.push(session('s1'));
+    state.tasksBySession.set('s1', [bashTask('t1', 'running')]);
+    state.outputByTaskId.set('t1', 'hello\nworld');
+    const svc = new TaskService(makeBridge(state));
+    const task = await svc.get('s1', 't1');
+    expect(task.output_preview).toBeUndefined();
+    expect(task.output_bytes).toBeUndefined();
+  });
+
+  it('respects outputBytes for tail', async () => {
+    const state = fresh();
+    state.sessions.push(session('s1'));
+    state.tasksBySession.set('s1', [bashTask('t1', 'running')]);
+    state.outputByTaskId.set('t1', '0123456789');
+    const svc = new TaskService(makeBridge(state));
+    const task = await svc.get('s1', 't1', { withOutput: true, outputBytes: 4 });
+    expect(task.output_preview).toBe('6789');
+  });
+
+  it('survives missing output when withOutput is true', async () => {
+    const state = fresh();
+    state.sessions.push(session('s1'));
+    state.tasksBySession.set('s1', [bashTask('t1', 'running')]);
+    const svc = new TaskService(makeBridge(state));
+    const task = await svc.get('s1', 't1', { withOutput: true });
+    expect(task.output_preview).toBeUndefined();
     expect(task.id).toBe('t1');
   });
 });

@@ -281,6 +281,7 @@ export interface WireBackgroundTask {
   kind: 'subagent' | 'bash' | 'tool';
   description: string;
   status: WireTaskStatus;
+  command?: string;
   created_at: string;
   started_at?: string;
   completed_at?: string;

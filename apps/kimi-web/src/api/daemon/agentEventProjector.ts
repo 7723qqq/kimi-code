@@ -948,6 +948,7 @@ export function createAgentProjector(): AgentProjector {
             : typeof info.command === 'string'
               ? info.command
               : i18n.global.t('tasks.defaultDescription');
+        const command = typeof info.command === 'string' ? info.command : undefined;
         out.push({
           type: 'taskCreated',
           sessionId,
@@ -956,10 +957,11 @@ export function createAgentProjector(): AgentProjector {
             sessionId,
             kind: 'bash',
             description,
+            command,
             status: 'running',
             createdAt: startedAt ?? new Date().toISOString(),
             startedAt,
-            outputPreview: typeof info.command === 'string' ? `$ ${info.command}` : undefined,
+            outputPreview: command !== undefined ? `$ ${command}` : undefined,
           },
         });
         break;
@@ -979,7 +981,10 @@ export function createAgentProjector(): AgentProjector {
                 ? String(info.taskId)
                 : '',
           status: failed ? 'failed' : 'completed',
-          outputPreview: typeof info.command === 'string' ? `$ ${info.command}` : undefined,
+          // Do NOT set outputPreview here. The command is already kept on the
+          // task as `command`; setting outputPreview to `$ <command>` would
+          // clobber any real output captured by polling and prevents the UI
+          // from fetching the final terminal output after the task finishes.
         });
         break;
       }

@@ -15,6 +15,8 @@ const { t } = useI18n();
 // Which task rows are expanded (showing their output/detail). Click a row to
 // toggle. Persisted only for the component's lifetime.
 const expandedIds = reactive(new Set<string>());
+const copiedCommandIds = reactive(new Set<string>());
+const copiedOutputIds = reactive(new Set<string>());
 
 function hasDetail(task: TaskItem): boolean {
   return Boolean((task.output && task.output.length > 0) || task.meta);
@@ -42,6 +44,27 @@ function statusClass(state: string): string {
     case 'fail': return 's-fail';
     default: return 's-pending';
   }
+}
+
+async function copyToClipboard(text: string, taskId: string, set: Set<string>): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    set.add(taskId);
+    setTimeout(() => set.delete(taskId), 1500);
+  } catch {
+    // Ignore clipboard failures (e.g. denied permission).
+  }
+}
+
+async function copyTaskCommand(task: TaskItem): Promise<void> {
+  if (!task.meta) return;
+  await copyToClipboard(task.meta, task.id, copiedCommandIds);
+}
+
+async function copyTaskOutput(task: TaskItem): Promise<void> {
+  const text = task.output?.join('\n') ?? '';
+  if (!text) return;
+  await copyToClipboard(text, task.id, copiedOutputIds);
 }
 </script>
 
@@ -84,12 +107,33 @@ function statusClass(state: string): string {
               <path d="M6 4l4 4-4 4" />
             </svg>
           </div>
-          <template v-if="expandedIds.has(task.id)">
-            <div v-if="task.meta" class="tp-meta">{{ task.meta }}</div>
-            <div v-if="task.output" class="tp-out">
-              <div v-for="(line, i) in task.output" :key="i">{{ line }}</div>
+          <div
+            v-if="expandedIds.has(task.id) && hasDetail(task)"
+            class="tp-detail"
+          >
+            <div v-if="task.meta" class="tp-codebox">
+              <button
+                class="tp-copy"
+                :class="{ copied: copiedCommandIds.has(task.id) }"
+                @click.stop="copyTaskCommand(task)"
+              >
+                {{ copiedCommandIds.has(task.id) ? '已复制' : '复制' }}
+              </button>
+              <pre class="tp-pre"><code><span class="tp-cmd">{{ task.meta }}</span></code></pre>
             </div>
-          </template>
+            <div v-if="task.output && task.output.length > 0" class="tp-codebox">
+              <button
+                class="tp-copy"
+                :class="{ copied: copiedOutputIds.has(task.id) }"
+                @click.stop="copyTaskOutput(task)"
+              >
+                {{ copiedOutputIds.has(task.id) ? '已复制' : '复制' }}
+              </button>
+              <pre class="tp-pre"><code>
+                <span v-for="(line, i) in task.output" :key="i" class="tp-line">{{ line }}</span>
+              </code></pre>
+            </div>
+          </div>
         </div>
       </template>
     </div>
@@ -219,25 +263,74 @@ function statusClass(state: string): string {
 }
 .tp-stop:hover { background: var(--panel); }
 
-.tp-meta {
-  margin-top: 3px;
-  padding-left: 22px;
-  font-size: 11px;
-  color: var(--muted);
+/* Expanded detail: separate code boxes for command and terminal output */
+.tp-detail {
+  margin: 4px 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.tp-out {
-  margin: 4px 0 0 22px;
-  padding: 5px 8px;
+.tp-codebox {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 3px;
+}
+
+.tp-copy {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 1;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0.12s ease;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
   color: var(--dim);
+  font-size: 10.5px;
+  padding: 1px 7px;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+.tp-codebox:hover .tp-copy,
+.tp-copy:focus-visible {
+  opacity: 1;
+  visibility: visible;
+}
+.tp-copy:hover {
+  background: var(--panel);
+}
+.tp-copy.copied {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 30%, var(--line));
+}
+
+.tp-pre {
+  margin: 0;
+  padding: 6px 10px;
+  max-height: 320px;
+  overflow: auto;
+  contain: layout paint;
+}
+.tp-pre code {
+  display: block;
+  font-family: var(--mono);
   font-size: 11px;
   line-height: 1.55;
-  overflow-x: auto;
+  color: var(--dim);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.tp-out > div { white-space: pre; }
+.tp-cmd {
+  display: block;
+  color: var(--muted);
+}
+.tp-line {
+  display: block;
+}
 
 .tp-empty {
   padding: 24px 0;
@@ -259,7 +352,7 @@ function statusClass(state: string): string {
     border-radius: 6px;
     font-size: 12px;
   }
-  .tp-meta { padding-left: 0; font-size: 12px; }
-  .tp-out { margin-left: 0; font-size: 12px; }
+  .tp-detail { margin-left: 0; }
+  .tp-pre { font-size: 12px; }
 }
 </style>

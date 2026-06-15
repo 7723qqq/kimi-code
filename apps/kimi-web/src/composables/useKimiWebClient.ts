@@ -395,6 +395,14 @@ let moonSpeedSamples: MoonSpeedSample[] = [];
 let moonFastResetTimer: ReturnType<typeof setTimeout> | null = null;
 let lastMoonFastCheckAt = -MOON_FAST_CHECK_INTERVAL_MS;
 
+// Background task output polling — mirrors TUI's 1-second refresh.
+const TASK_OUTPUT_POLL_INTERVAL_MS = 1000;
+const TASK_OUTPUT_POLL_BYTES = 4096;
+const TASK_OUTPUT_FINAL_BYTES = 32 * 1024;
+let taskOutputPollTimer: ReturnType<typeof setInterval> | null = null;
+let lastPolledSessionId: string | undefined;
+let fetchedTerminalTaskOutputIds = new Set<string>();
+
 function resetFastMoon(): void {
   moonSpeedSamples = [];
   lastMoonFastCheckAt = -MOON_FAST_CHECK_INTERVAL_MS;
@@ -1001,9 +1009,168 @@ async function loadTasksForSession(sessionId: string): Promise<void> {
       ...rawState.tasksBySession,
       [sessionId]: taskList,
     };
+    // Completed tasks may have real terminal output that never streamed over
+    // WS. Fetch it once now so the rows are expandable when the session opens.
+    await fetchTerminalTaskOutputs(sessionId, taskList);
   } catch {
     // Tasks are side data; old/stale sessions may fail without blocking messages.
   }
+}
+
+/**
+ * Fetch the final output snapshot for terminal tasks that lack real streamed
+ * outputLines. Called once after loading the task list so already-completed
+ * tasks are clickable immediately.
+ */
+async function fetchTerminalTaskOutputs(sessionId: string, taskList?: AppTask[]): Promise<void> {
+  if (rawState.activeSessionId !== sessionId) return;
+
+  const tasks = taskList ?? rawState.tasksBySession[sessionId] ?? [];
+  const api = getKimiWebApi();
+  const outputByTaskId = new Map<string, { preview: string; bytes?: number }>();
+
+  await Promise.all(
+    tasks.map(async (task) => {
+      const isTerminal =
+        task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
+      if (!isTerminal) return;
+      if (fetchedTerminalTaskOutputIds.has(task.id)) return;
+      if ((task.outputLines?.length ?? 0) > 0) return;
+
+      try {
+        const withOutput = await api.getTask(sessionId, task.id, {
+          withOutput: true,
+          outputBytes: TASK_OUTPUT_FINAL_BYTES,
+        });
+        if (withOutput.outputPreview !== undefined) {
+          outputByTaskId.set(task.id, {
+            preview: withOutput.outputPreview,
+            bytes: withOutput.outputBytes,
+          });
+        }
+      } catch {
+        // Task may have finished between listTasks and getTask; ignore.
+      } finally {
+        fetchedTerminalTaskOutputIds.add(task.id);
+      }
+    }),
+  );
+
+  if (outputByTaskId.size === 0) return;
+
+  const existing = rawState.tasksBySession[sessionId] ?? [];
+  rawState.tasksBySession = {
+    ...rawState.tasksBySession,
+    [sessionId]: existing.map((t) => {
+      const polled = outputByTaskId.get(t.id);
+      if (!polled) return t;
+      return { ...t, outputPreview: polled.preview, outputBytes: polled.bytes };
+    }),
+  };
+}
+
+/**
+ * Poll background task output for a session. Mirrors the TUI's 1-second refresh:
+ * refresh the task list, then fetch tail output for running tasks and a final
+ * snapshot for terminal tasks that haven't received output yet.
+ */
+async function pollTaskOutputForSession(sessionId: string): Promise<void> {
+  if (rawState.activeSessionId !== sessionId) return;
+
+  const api = getKimiWebApi();
+  let taskList: AppTask[];
+  try {
+    taskList = await api.listTasks(sessionId);
+  } catch {
+    return;
+  }
+
+  const outputByTaskId = new Map<string, { preview: string; bytes?: number }>();
+
+  await Promise.all(
+    taskList.map(async (task) => {
+      const isRunning = task.status === 'running';
+      const isTerminal = task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
+      if (!isRunning && !isTerminal) return;
+
+      // Running tasks: poll tail continuously. Terminal tasks: fetch a final
+      // snapshot once if we have not already received real streamed output.
+      // outputPreview may be a placeholder (`$ <command>`) or a partial tail,
+      // so we intentionally do not skip terminal tasks just because outputPreview
+      // is present.
+      if (isTerminal) {
+        if (fetchedTerminalTaskOutputIds.has(task.id)) return;
+        if ((task.outputLines?.length ?? 0) > 0) return;
+      }
+
+      try {
+        const withOutput = await api.getTask(sessionId, task.id, {
+          withOutput: true,
+          outputBytes: isRunning ? TASK_OUTPUT_POLL_BYTES : TASK_OUTPUT_FINAL_BYTES,
+        });
+        if (withOutput.outputPreview !== undefined) {
+          outputByTaskId.set(task.id, {
+            preview: withOutput.outputPreview,
+            bytes: withOutput.outputBytes,
+          });
+        }
+      } catch {
+        // Task may have finished between listTasks and getTask; ignore.
+      } finally {
+        if (isTerminal) {
+          fetchedTerminalTaskOutputIds.add(task.id);
+        }
+      }
+    }),
+  );
+
+  const existing = rawState.tasksBySession[sessionId] ?? [];
+  const existingById = new Map(existing.map((t) => [t.id, t] as const));
+
+  const merged: AppTask[] = taskList.map((fresh) => {
+    const old = existingById.get(fresh.id);
+    const polled = outputByTaskId.get(fresh.id);
+    return {
+      ...fresh,
+      // Preserve any WS-driven outputLines (future taskProgress events).
+      outputLines: old?.outputLines,
+      outputPreview: polled?.preview ?? old?.outputPreview,
+      outputBytes: polled?.bytes ?? old?.outputBytes,
+    };
+  });
+
+  rawState.tasksBySession = {
+    ...rawState.tasksBySession,
+    [sessionId]: merged,
+  };
+}
+
+function startTaskOutputPolling(sessionId: string): void {
+  if (taskOutputPollTimer !== null && lastPolledSessionId === sessionId) {
+    return;
+  }
+  stopTaskOutputPolling();
+  lastPolledSessionId = sessionId;
+  void pollTaskOutputForSession(sessionId);
+  taskOutputPollTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      return;
+    }
+    if (rawState.activeSessionId === sessionId) {
+      void pollTaskOutputForSession(sessionId);
+    } else {
+      stopTaskOutputPolling();
+    }
+  }, TASK_OUTPUT_POLL_INTERVAL_MS);
+}
+
+function stopTaskOutputPolling(): void {
+  if (taskOutputPollTimer !== null) {
+    clearInterval(taskOutputPollTimer);
+    taskOutputPollTimer = null;
+  }
+  lastPolledSessionId = undefined;
+  fetchedTerminalTaskOutputIds.clear();
 }
 
 async function loadSkillsForSession(sessionId: string): Promise<void> {
@@ -1191,18 +1358,52 @@ function toUiQuestion(q: AppQuestionRequest): UIQuestion {
 // messagesToTurns is imported from ./messagesToTurns (extracted module that
 // groups consecutive assistant messages by promptId into a single turn).
 
+/**
+ * Try to recover the original bash command for a background task when the
+ * task object itself does not carry it. The command lives in the matching
+ * `Bash` tool_use message whose tool_result mentions this task's id.
+ */
+function findBashCommandForTask(task: AppTask): string | undefined {
+  const messages = rawState.messagesBySession[task.sessionId];
+  if (!messages || messages.length === 0) return undefined;
+
+  const bashCommandsByToolCallId = new Map<string, string>();
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    for (const part of msg.content) {
+      if (part.type !== 'toolUse') continue;
+      if (part.toolName !== 'Bash' && part.toolName !== 'bash') continue;
+      const input = part.input as { command?: unknown } | undefined;
+      const command = input && typeof input.command === 'string' ? input.command : undefined;
+      if (command) {
+        bashCommandsByToolCallId.set(part.toolCallId, command);
+      }
+    }
+  }
+  if (bashCommandsByToolCallId.size === 0) return undefined;
+
+  const taskIdMarker = `task_id: ${task.id}`;
+  for (const msg of messages) {
+    if (msg.role !== 'tool') continue;
+    for (const part of msg.content) {
+      if (part.type !== 'toolResult') continue;
+      const outputText =
+        typeof part.output === 'string'
+          ? part.output
+          : part.output !== undefined
+            ? JSON.stringify(part.output)
+            : '';
+      if (outputText.includes(taskIdMarker)) {
+        const command = bashCommandsByToolCallId.get(part.toolCallId);
+        if (command) return command;
+      }
+    }
+  }
+  return undefined;
+}
+
 /** Map AppTask to UI TaskItem */
-function toUiTask(task: {
-  id: string;
-  description: string;
-  kind: string;
-  status: string;
-  createdAt: string;
-  startedAt?: string;
-  completedAt?: string;
-  outputLines?: string[];
-  outputPreview?: string;
-}): TaskItem {
+function toUiTask(task: AppTask): TaskItem {
   let state: TaskState;
   if (task.status === 'running') {
     state = 'run';
@@ -1230,8 +1431,14 @@ function toUiTask(task: {
     task.outputLines && task.outputLines.length > 0
       ? task.outputLines
       : task.outputPreview
-        ? [task.outputPreview]
+        ? task.outputPreview.split(/\r?\n/)
         : undefined;
+
+  // Show the real terminal command for bash tasks so users can see what is
+  // running without expanding the row. Fall back to the matching Bash tool_use
+  // message when the task itself does not carry the command field.
+  const command = task.command ?? findBashCommandForTask(task);
+  const meta = task.kind === 'bash' && command ? `$ ${command}` : undefined;
 
   return {
     id: task.id,
@@ -1239,6 +1446,7 @@ function toUiTask(task: {
     kind: task.kind,
     state,
     timing,
+    meta,
     output,
   };
 }
@@ -1319,6 +1527,37 @@ watch(
     }
   },
   { immediate: true },
+);
+
+// Start/stop task output polling based on whether the active session has
+// running background tasks. This mirrors the TUI's 1-second refresh.
+watch(
+  () => {
+    const sid = rawState.activeSessionId;
+    if (!sid) return { sid: undefined as string | undefined, hasRunning: false };
+    const tasks = rawState.tasksBySession[sid] ?? [];
+    return { sid, hasRunning: tasks.some((t) => t.status === 'running') };
+  },
+  ({ sid, hasRunning }, _prev, onCleanup) => {
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+    if (hasRunning && sid !== undefined) {
+      startTaskOutputPolling(sid);
+    } else if (sid !== undefined) {
+      // All tasks finished — wait a beat to catch final output, then stop.
+      cleanupTimer = setTimeout(() => {
+        const tasks = rawState.tasksBySession[sid] ?? [];
+        if (!tasks.some((t) => t.status === 'running')) {
+          stopTaskOutputPolling();
+        }
+      }, 1500);
+    } else {
+      stopTaskOutputPolling();
+    }
+    onCleanup(() => {
+      if (cleanupTimer !== undefined) clearTimeout(cleanupTimer);
+    });
+  },
+  { deep: true, immediate: true },
 );
 
 const tasks = computed<TaskItem[]>(() => {
