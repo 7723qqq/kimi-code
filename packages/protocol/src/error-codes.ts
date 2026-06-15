@@ -83,6 +83,19 @@ export const ErrorCode = {
   /** skill 存在但类型不支持用户激活（如 reference 类型） */
   SKILL_NOT_ACTIVATABLE: 40912,
 
+  /** 当前会话已存在活跃 goal */
+  GOAL_ALREADY_EXISTS: 40913,
+  /** 目标不存在 */
+  GOAL_NOT_FOUND: 40914,
+  /** goal 状态不允许该操作 */
+  GOAL_STATUS_INVALID: 40915,
+  /** goal 当前状态不可恢复 */
+  GOAL_NOT_RESUMABLE: 40916,
+  /** goal objective 为空 */
+  GOAL_OBJECTIVE_EMPTY: 40917,
+  /** goal objective 超过长度限制 */
+  GOAL_OBJECTIVE_TOO_LONG: 40918,
+
   /** approval 60s 超时 */
   APPROVAL_EXPIRED: 41001,
   /** question 60s 超时 */
@@ -168,6 +181,13 @@ export const ErrorCodeReason: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.COMPACTION_UNABLE]: 'compaction.unable',
   [ErrorCode.SESSION_UNDO_UNAVAILABLE]: 'session.undo_unavailable',
   [ErrorCode.SKILL_NOT_ACTIVATABLE]: 'skill.not_activatable',
+
+  [ErrorCode.GOAL_ALREADY_EXISTS]: 'goal.already_exists',
+  [ErrorCode.GOAL_NOT_FOUND]: 'goal.not_found',
+  [ErrorCode.GOAL_STATUS_INVALID]: 'goal.status_invalid',
+  [ErrorCode.GOAL_NOT_RESUMABLE]: 'goal.not_resumable',
+  [ErrorCode.GOAL_OBJECTIVE_EMPTY]: 'goal.objective_empty',
+  [ErrorCode.GOAL_OBJECTIVE_TOO_LONG]: 'goal.objective_too_long',
 
   [ErrorCode.APPROVAL_EXPIRED]: 'approval.expired',
   [ErrorCode.QUESTION_EXPIRED]: 'question.expired',

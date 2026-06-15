@@ -103,6 +103,13 @@ interface RpcRecord {
   setPermissionCalls: unknown[];
   enterPlanCalls: unknown[];
   cancelPlanCalls: unknown[];
+  getSwarmModeCalls: number;
+  enterSwarmCalls: unknown[];
+  exitSwarmCalls: unknown[];
+  createGoalCalls: unknown[];
+  pauseGoalCalls: unknown[];
+  resumeGoalCalls: unknown[];
+  cancelGoalCalls: unknown[];
   getConfigCalls: number;
   getPermissionCalls: number;
   getPlanCalls: number;
@@ -129,6 +136,13 @@ function makeBridge(
     setPermissionCalls: [],
     enterPlanCalls: [],
     cancelPlanCalls: [],
+    getSwarmModeCalls: 0,
+    enterSwarmCalls: [],
+    exitSwarmCalls: [],
+    createGoalCalls: [],
+    pauseGoalCalls: [],
+    resumeGoalCalls: [],
+    cancelGoalCalls: [],
     getConfigCalls: 0,
     getPermissionCalls: 0,
     getPlanCalls: 0,
@@ -184,6 +198,36 @@ function makeBridge(
     }),
     cancelPlan: vi.fn().mockImplementation(async (payload) => {
       record.cancelPlanCalls.push(payload);
+    }),
+    getSwarmMode: vi.fn().mockImplementation(async () => {
+      record.getSwarmModeCalls += 1;
+      return false;
+    }),
+    enterSwarm: vi.fn().mockImplementation(async (payload) => {
+      record.enterSwarmCalls.push(payload);
+    }),
+    exitSwarm: vi.fn().mockImplementation(async (payload) => {
+      record.exitSwarmCalls.push(payload);
+    }),
+    createGoal: vi.fn().mockImplementation(async (payload) => {
+      record.createGoalCalls.push(payload);
+      return {
+        goalId: 'goal_1',
+        objective: (payload as { objective: string }).objective,
+        status: 'active',
+      };
+    }),
+    pauseGoal: vi.fn().mockImplementation(async (payload) => {
+      record.pauseGoalCalls.push(payload);
+      return { goalId: 'goal_1', status: 'paused' };
+    }),
+    resumeGoal: vi.fn().mockImplementation(async (payload) => {
+      record.resumeGoalCalls.push(payload);
+      return { goalId: 'goal_1', status: 'active' };
+    }),
+    cancelGoal: vi.fn().mockImplementation(async (payload) => {
+      record.cancelGoalCalls.push(payload);
+      return { goalId: 'goal_1', status: 'cancelled' };
     }),
   };
   const bridge: ICoreProcessService = {
@@ -836,11 +880,13 @@ describe('PromptService stateless controls — bootstrap + shadow', () => {
       thinking: 'medium',
       permissionMode: 'yolo',
       planMode: true,
+      swarmMode: false,
     });
     // Getters fired exactly once each.
     expect(record.getConfigCalls).toBe(1);
     expect(record.getPermissionCalls).toBe(1);
     expect(record.getPlanCalls).toBe(1);
+    expect(record.getSwarmModeCalls).toBe(1);
     // No setters fired because body matched the bootstrap snapshot.
     expect(record.setModelCalls).toEqual([]);
     expect(record.setThinkingCalls).toEqual([]);
@@ -1209,6 +1255,129 @@ describe('PromptService stateless controls — dispatch log', () => {
     triggerClose(SID);
     expect(impl._dispatchLogForTest(SID)).toBeUndefined();
   });
+
+  it('bootstraps swarmMode from getSwarmMode', async () => {
+    const { bridge, record } = makeBridge({
+      config: { modelAlias: 'kimi-code/k2', thinkingLevel: 'off' },
+      permission: { mode: 'manual' },
+      plan: null,
+    });
+    const { bus } = makeBus();
+    const impl = newSvc(bridge, bus);
+    await impl.submit(SID, mkBody({ model: 'kimi-code/k1' }));
+    expect(record.getSwarmModeCalls).toBe(1);
+  });
+
+  it('dispatches enterSwarm/exitSwarm and records them in the log', async () => {
+    const { bridge, record } = makeBridge({
+      config: { modelAlias: 'kimi-code/k2', thinkingLevel: 'off' },
+      permission: { mode: 'manual' },
+      plan: null,
+    });
+    const { bus, triggerSubscribers } = makeBus();
+    const impl = newSvc(bridge, bus);
+
+    await impl.submit(SID, mkBody({ swarm_mode: true }));
+    expect(record.enterSwarmCalls.length).toBe(1);
+    expect(record.enterSwarmCalls[0]).toEqual({
+      sessionId: SID,
+      agentId: 'main',
+      trigger: 'manual',
+    });
+    let log = impl._dispatchLogForTest(SID);
+    expect(log?.some((e) => e.kind === 'enterSwarm')).toBe(true);
+
+    triggerSubscribers({
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+    triggerSubscribers({
+      type: 'turn.ended',
+      turnId: 1,
+      reason: 'completed',
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+
+    await impl.submit(SID, mkBody({ swarm_mode: false }));
+    expect(record.exitSwarmCalls.length).toBe(1);
+    expect(record.exitSwarmCalls[0]).toEqual({ sessionId: SID, agentId: 'main' });
+    log = impl._dispatchLogForTest(SID);
+    expect(log?.some((e) => e.kind === 'exitSwarm')).toBe(true);
+  });
+
+  it('does not re-dispatch swarm_mode when it matches the shadow', async () => {
+    const { bridge, record } = makeBridge({
+      config: { modelAlias: 'kimi-code/k2', thinkingLevel: 'off' },
+      permission: { mode: 'manual' },
+      plan: null,
+    });
+    const { bus, triggerSubscribers } = makeBus();
+    const impl = newSvc(bridge, bus);
+    await impl.submit(SID, mkBody({ swarm_mode: true }));
+    expect(record.enterSwarmCalls.length).toBe(1);
+
+    triggerSubscribers({
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+    triggerSubscribers({
+      type: 'turn.ended',
+      turnId: 1,
+      reason: 'completed',
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+
+    await impl.submit(SID, mkBody({ swarm_mode: true }));
+    expect(record.enterSwarmCalls.length).toBe(1);
+  });
+
+  it('dispatches createGoal and records it in the log', async () => {
+    const { bridge, record } = makeBridge({
+      config: { modelAlias: 'kimi-code/k2', thinkingLevel: 'off' },
+      permission: { mode: 'manual' },
+      plan: null,
+    });
+    const { bus } = makeBus();
+    const impl = newSvc(bridge, bus);
+    await impl.submit(SID, mkBody({ goal_objective: 'Refactor the auth module' }));
+    expect(record.createGoalCalls.length).toBe(1);
+    expect(record.createGoalCalls[0]).toEqual({
+      sessionId: SID,
+      agentId: 'main',
+      objective: 'Refactor the auth module',
+      replace: false,
+    });
+    const log = impl._dispatchLogForTest(SID);
+    expect(log?.some((e) => e.kind === 'createGoal')).toBe(true);
+  });
+
+  it('dispatches goal control actions and records them in the log', async () => {
+    const { bridge, record } = makeBridge({
+      config: { modelAlias: 'kimi-code/k2', thinkingLevel: 'off' },
+      permission: { mode: 'manual' },
+      plan: null,
+    });
+    const { bus } = makeBus();
+    const impl = newSvc(bridge, bus);
+    await impl.applyAgentState(SID, { goal_control: 'pause' }, 'meta');
+    expect(record.pauseGoalCalls.length).toBe(1);
+    await impl.applyAgentState(SID, { goal_control: 'resume' }, 'meta');
+    expect(record.resumeGoalCalls.length).toBe(1);
+    await impl.applyAgentState(SID, { goal_control: 'cancel' }, 'meta');
+    expect(record.cancelGoalCalls.length).toBe(1);
+    const log = impl._dispatchLogForTest(SID);
+    expect(log?.filter((e) => e.kind === 'pauseGoal').length).toBe(1);
+    expect(log?.filter((e) => e.kind === 'resumeGoal').length).toBe(1);
+    expect(log?.filter((e) => e.kind === 'cancelGoal').length).toBe(1);
+  });
 });
 
 describe('PromptService stateful session — content-only path', () => {
@@ -1221,6 +1390,7 @@ describe('PromptService stateful session — content-only path', () => {
     expect(record.getConfigCalls).toBe(0);
     expect(record.getPermissionCalls).toBe(0);
     expect(record.getPlanCalls).toBe(0);
+    expect(record.getSwarmModeCalls).toBe(0);
     // No setters fired either.
     expect(record.setModelCalls).toEqual([]);
     expect(record.setThinkingCalls).toEqual([]);

@@ -515,6 +515,7 @@ describe('POST /api/v1/sessions/{session_id}:undo — undo history', () => {
           thinking_level: 'auto',
           permission: 'manual',
           plan_mode: false,
+          swarm_mode: false,
           context_tokens: 0,
           max_context_tokens: 0,
           context_usage: 0,

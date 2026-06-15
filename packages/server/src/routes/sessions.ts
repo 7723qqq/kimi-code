@@ -576,9 +576,26 @@ function sendMappedError(
     reply.send(errEnvelope(ErrorCode.SESSION_UNDO_UNAVAILABLE, err.message, requestId));
     return;
   }
+  if (err instanceof KimiError) {
+    const goalErrorCode = GOAL_ERROR_CODE_MAP[err.code];
+    if (goalErrorCode !== undefined) {
+      reply.send(errEnvelope(goalErrorCode, err.message, requestId));
+      return;
+    }
+  }
 
   throw err;
 }
+
+/** agent-core `ErrorCodes` string → protocol `ErrorCode` number for goal errors. */
+const GOAL_ERROR_CODE_MAP: Record<string, ErrorCode> = {
+  [ErrorCodes.GOAL_ALREADY_EXISTS]: ErrorCode.GOAL_ALREADY_EXISTS,
+  [ErrorCodes.GOAL_NOT_FOUND]: ErrorCode.GOAL_NOT_FOUND,
+  [ErrorCodes.GOAL_STATUS_INVALID]: ErrorCode.GOAL_STATUS_INVALID,
+  [ErrorCodes.GOAL_NOT_RESUMABLE]: ErrorCode.GOAL_NOT_RESUMABLE,
+  [ErrorCodes.GOAL_OBJECTIVE_EMPTY]: ErrorCode.GOAL_OBJECTIVE_EMPTY,
+  [ErrorCodes.GOAL_OBJECTIVE_TOO_LONG]: ErrorCode.GOAL_OBJECTIVE_TOO_LONG,
+};
 
 function isForkActiveTurnError(err: unknown): boolean {
   if (err instanceof KimiError && err.code === ErrorCodes.SESSION_FORK_ACTIVE_TURN) {

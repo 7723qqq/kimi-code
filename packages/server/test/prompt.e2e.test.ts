@@ -119,6 +119,7 @@ function createPromptServiceOverride(
     }),
     abort: async () => ({ aborted: true }),
     applyAgentState: async () => undefined,
+    getAgentStateSnapshot: () => undefined,
     onDidComplete: noopComplete,
     onDidAbort: noopAbort,
   };

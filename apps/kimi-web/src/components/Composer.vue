@@ -782,17 +782,20 @@ function toggleThinking(): void {
 
 // Plan toggle
 const planOn = computed(() => props.planMode === true);
+const swarmOn = computed(() => props.swarmMode === true);
+const goalActive = computed(() => props.activationBadges?.goal !== null);
+const goalInput = ref('');
 
 // Modes selector (plan / goal / swarm) — the popover that replaces the bare
-// "plan" pill. Plan is a real client toggle; goal/swarm reflect agent-driven
-// state and focus their card when active.
+// "plan" pill. Plan/Swarm are real client toggles; goal reflects agent-driven
+// state and focuses its card when active.
 const modesOpen = ref(false);
 const modesRef = ref<HTMLElement | null>(null);
 const modesMenuRef = ref<HTMLElement | null>(null);
 // The menu is position:fixed (so no composer stacking context can paint over
 // it); these coords anchor it just above the pill, computed on open.
 const modesMenuStyle = ref<Record<string, string>>({});
-const anyModeActive = computed(() => planOn.value);
+const anyModeActive = computed(() => planOn.value || swarmOn.value || goalActive.value);
 function closeModes(): void {
   modesOpen.value = false;
   document.removeEventListener('mousedown', onModesDocClick);
@@ -1065,6 +1068,8 @@ function selectModel(modelId: string): void {
             >
               <span class="mode-label">{{ t('status.modesLabel') }}</span>
               <span v-if="planOn" class="mode-tag">{{ t('status.planLabel') }}</span>
+              <span v-if="swarmOn" class="mode-tag">{{ t('status.swarmLabel') }}</span>
+              <span v-if="goalActive" class="mode-tag">{{ t('status.goalLabel') }}</span>
             </button>
 
             <div v-if="modesOpen" ref="modesMenuRef" class="modes-menu" :style="modesMenuStyle">
@@ -1073,15 +1078,54 @@ function selectModel(modelId: string): void {
                 <span class="mode-row-name">{{ t('status.planLabel') }}</span>
                 <span class="mode-switch" :class="{ on: planOn }"><span class="mode-knob" /></span>
               </button>
-              <!-- Swarm — temporarily disabled -->
-              <button type="button" class="mode-row" disabled>
+              <!-- Swarm — functional client toggle -->
+              <button type="button" class="mode-row" :class="{ on: swarmOn }" @click="emit('toggleSwarm')">
                 <span class="mode-row-name">{{ t('status.swarmLabel') }}</span>
-                <span class="mode-row-not-supported">{{ t('status.modeNotSupported') }}</span>
+                <span class="mode-switch" :class="{ on: swarmOn }"><span class="mode-knob" /></span>
               </button>
-              <!-- Goal — temporarily disabled -->
-              <div class="mode-row" disabled>
+              <!-- Goal — input + lifecycle controls -->
+              <div class="mode-row mode-row-goal">
                 <span class="mode-row-name">{{ t('status.goalLabel') }}</span>
-                <span class="mode-row-not-supported">{{ t('status.modeNotSupported') }}</span>
+                <template v-if="goalActive">
+                  <div class="mode-row-actions">
+                    <button
+                      type="button"
+                      class="mode-row-action"
+                      @click="emit('controlGoal', 'pause')"
+                    >{{ t('status.goalPause') }}</button>
+                    <button
+                      type="button"
+                      class="mode-row-action"
+                      @click="emit('controlGoal', 'resume')"
+                    >{{ t('status.goalResume') }}</button>
+                    <button
+                      type="button"
+                      class="mode-row-action"
+                      @click="emit('controlGoal', 'cancel')"
+                    >{{ t('status.goalCancel') }}</button>
+                  </div>
+                </template>
+                <template v-else>
+                  <input
+                    v-model="goalInput"
+                    type="text"
+                    class="mode-row-input"
+                    :placeholder="t('status.goalPlaceholder')"
+                    @keydown.enter.prevent="() => {
+                      const o = goalInput.trim();
+                      if (o) { emit('createGoal', o); goalInput = ''; }
+                    }"
+                  />
+                  <button
+                    type="button"
+                    class="mode-row-action"
+                    :disabled="!goalInput.trim()"
+                    @click="() => {
+                      const o = goalInput.trim();
+                      if (o) { emit('createGoal', o); goalInput = ''; }
+                    }"
+                  >{{ t('status.goalStart') }}</button>
+                </template>
               </div>
             </div>
           </div>

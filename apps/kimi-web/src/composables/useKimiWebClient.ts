@@ -2616,21 +2616,43 @@ function setSwarmMode(on: boolean): void {
   persistSessionProfile({ swarmMode: on });
 }
 
-/** Flip swarm mode on/off. */
+/** Flip swarm mode on/off. In manual permission mode, ask before enabling. */
 function toggleSwarmMode(): void {
-  setSwarmMode(!rawState.swarmMode);
+  const on = !rawState.swarmMode;
+  if (on && rawState.permission === 'manual') {
+    const ok = confirm('Enable swarm mode? The agent will run multiple subagents in parallel.');
+    if (!ok) return;
+  }
+  setSwarmMode(on);
 }
 
-/** Create a goal by sending its objective to the session profile. */
-function createGoal(objective: string): void {
+/** Create a goal by sending its objective to the session profile, then submit it as a prompt. */
+async function createGoal(objective: string): Promise<void> {
   const trimmed = objective.trim();
   if (!trimmed) return;
-  persistSessionProfile({ goalObjective: trimmed });
+  if (rawState.permission === 'manual') {
+    const ok = confirm(`Start goal: "${trimmed}"? The agent will run autonomously toward this objective.`);
+    if (!ok) return;
+  }
+  const sid = rawState.activeSessionId;
+  if (!sid) return;
+  try {
+    await getKimiWebApi().updateSession(sid, { goalObjective: trimmed });
+  } catch (err) {
+    pushOperationFailure('createGoal', err, { sessionId: sid });
+    return;
+  }
+  await sendPrompt(trimmed);
 }
 
 /** Send a one-shot goal control action (pause/resume/cancel). */
 function controlGoal(action: 'pause' | 'resume' | 'cancel'): void {
-  persistSessionProfile({ goalControl: action });
+  const sid = rawState.activeSessionId;
+  if (!sid) return;
+  void Promise.resolve(getKimiWebApi().updateSession(sid, { goalControl: action }))
+    .catch((err) => {
+      pushOperationFailure('controlGoal', err, { sessionId: sid });
+    });
 }
 
 /** Persist and apply a new permission mode; auto-approve pending approvals if switching to auto/yolo */

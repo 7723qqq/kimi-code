@@ -532,10 +532,11 @@ export class PromptService
    */
   private async _ensureAgentStateBootstrapped(sid: string): Promise<void> {
     if (this._agentState.has(sid)) return;
-    const [config, permission, plan] = await Promise.all([
+    const [config, permission, plan, swarmMode] = await Promise.all([
       this.core.rpc.getConfig({ sessionId: sid, agentId: MAIN_AGENT_ID }),
       this.core.rpc.getPermission({ sessionId: sid, agentId: MAIN_AGENT_ID }),
       this.core.rpc.getPlan({ sessionId: sid, agentId: MAIN_AGENT_ID }),
+      this.core.rpc.getSwarmMode({ sessionId: sid, agentId: MAIN_AGENT_ID }),
     ]);
     const snapshot: AgentStateSnapshot = {};
     if (config.modelAlias !== undefined) snapshot.model = config.modelAlias;
@@ -546,6 +547,7 @@ export class PromptService
     snapshot.thinking = config.thinkingLevel as PromptThinking;
     snapshot.permissionMode = permission.mode;
     snapshot.planMode = plan !== null;
+    snapshot.swarmMode = swarmMode;
     this._agentState.set(sid, snapshot);
   }
 
@@ -616,28 +618,57 @@ export class PromptService
       shadow.planMode = patch.plan_mode;
     }
 
-    // Stub dispatch for swarm/goal controls — web sends these today, back-end
-    // RPCs will be wired in a follow-up. We update the shadow and record a
-    // dispatch log entry so tests and the debug surface can see them flow.
+    // Swarm mode toggle. enterSwarm/exitSwarm are idempotent no-throw on
+    // the agent side; we still guard with the shadow to avoid redundant
+    // dispatch-log entries.
     if (patch.swarm_mode !== undefined && patch.swarm_mode !== shadow.swarmMode) {
-      const payload = { sessionId: sid, agentId, enabled: patch.swarm_mode };
-      // TODO: replace with `core.rpc.setSwarmMode(payload)` once available.
-      this._recordDispatch(sid, 'setSwarmMode', payload, promptId, source);
+      const payload = { sessionId: sid, agentId };
+      if (patch.swarm_mode) {
+        const enterPayload = { ...payload, trigger: 'manual' as const };
+        await this.core.rpc.enterSwarm(enterPayload);
+        this._recordDispatch(sid, 'enterSwarm', enterPayload, promptId, source);
+      } else {
+        await this.core.rpc.exitSwarm(payload);
+        this._recordDispatch(sid, 'exitSwarm', payload, promptId, source);
+      }
       shadow.swarmMode = patch.swarm_mode;
     }
 
+    // Goal creation. createGoal throws KimiError on invalid input
+    // (GOAL_OBJECTIVE_EMPTY, GOAL_OBJECTIVE_TOO_LONG) or when a goal is
+    // already active without replace=true (GOAL_ALREADY_EXISTS). Let these
+    // propagate so the REST route layer can map them to the right code.
     if (patch.goal_objective !== undefined) {
-      const payload = { sessionId: sid, agentId, objective: patch.goal_objective };
-      // TODO: replace with `core.rpc.createGoal(payload)` once available.
+      const payload = {
+        sessionId: sid,
+        agentId,
+        objective: patch.goal_objective,
+        replace: false,
+      };
+      await this.core.rpc.createGoal(payload);
       this._recordDispatch(sid, 'createGoal', payload, promptId, source);
       // `goal_objective` is a one-shot creation trigger; do not keep it on
       // the shadow.
     }
 
+    // Goal lifecycle control. Each action maps to its own RPC; errors
+    // (GOAL_NOT_FOUND, GOAL_STATUS_INVALID, GOAL_NOT_RESUMABLE) propagate.
     if (patch.goal_control !== undefined) {
-      const payload = { sessionId: sid, agentId, action: patch.goal_control };
-      // TODO: replace with the matching goal control RPC once available.
-      this._recordDispatch(sid, 'controlGoal', payload, promptId, source);
+      const payload = { sessionId: sid, agentId };
+      switch (patch.goal_control) {
+        case 'pause':
+          await this.core.rpc.pauseGoal(payload);
+          this._recordDispatch(sid, 'pauseGoal', payload, promptId, source);
+          break;
+        case 'resume':
+          await this.core.rpc.resumeGoal(payload);
+          this._recordDispatch(sid, 'resumeGoal', payload, promptId, source);
+          break;
+        case 'cancel':
+          await this.core.rpc.cancelGoal(payload);
+          this._recordDispatch(sid, 'cancelGoal', payload, promptId, source);
+          break;
+      }
       // `goal_control` is a one-shot action trigger; do not keep it on the
       // shadow.
     }

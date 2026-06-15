@@ -322,7 +322,18 @@ export interface PromptDispatchLogEntry {
   /** ISO-8601 timestamp captured immediately after the setter resolves. */
   readonly ts: string;
   /** Which setter ran. */
-  readonly kind: 'setModel' | 'setThinking' | 'setPermission' | 'enterPlan' | 'cancelPlan';
+  readonly kind:
+    | 'setModel'
+    | 'setThinking'
+    | 'setPermission'
+    | 'enterPlan'
+    | 'cancelPlan'
+    | 'enterSwarm'
+    | 'exitSwarm'
+    | 'createGoal'
+    | 'pauseGoal'
+    | 'resumeGoal'
+    | 'cancelGoal';
   /** Verbatim payload passed to the setter (sessionId redacted by caller if needed). */
   readonly payload: Record<string, unknown>;
   /**
