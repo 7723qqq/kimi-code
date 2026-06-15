@@ -63,15 +63,45 @@ const contentKind = computed<ContentKind>(() => {
 });
 
 // ---------------------------------------------------------------------------
+// Content decoding
+//
+// The daemon returns `encoding: 'base64'` for some files (e.g. when content has
+// bytes the JSON transport can't carry verbatim). Image/PDF previews build a
+// `data:` URL from that base64 directly, but every *text* view (markdown, code,
+// json, html, csv, copy) needs the decoded text — otherwise it renders the raw
+// base64 string. atob() yields Latin-1 bytes, so decode them as UTF-8 to keep
+// non-ASCII content (e.g. Chinese) intact.
+// ---------------------------------------------------------------------------
+
+function decodeBase64Utf8(b64: string): string {
+  const binary = atob(b64);
+  const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+const decodedContent = computed<string>(() => {
+  const f = props.file;
+  if (!f) return '';
+  if (f.encoding === 'base64') {
+    try {
+      return decodeBase64Utf8(f.content);
+    } catch {
+      return f.content;
+    }
+  }
+  return f.content;
+});
+
+// ---------------------------------------------------------------------------
 // JSON pretty-print
 // ---------------------------------------------------------------------------
 
 const prettyJson = computed<string>(() => {
   if (contentKind.value !== 'json' || !props.file) return '';
   try {
-    return JSON.stringify(JSON.parse(props.file.content), null, 2);
+    return JSON.stringify(JSON.parse(decodedContent.value), null, 2);
   } catch {
-    return props.file.content;
+    return decodedContent.value;
   }
 });
 
@@ -80,15 +110,14 @@ const prettyJson = computed<string>(() => {
 // ---------------------------------------------------------------------------
 
 const lines = computed<string[]>(() => {
-  const f = props.file;
-  if (!f) return [];
-  const src = contentKind.value === 'json' ? prettyJson.value : f.content;
+  if (!props.file) return [];
+  const src = contentKind.value === 'json' ? prettyJson.value : decodedContent.value;
   return src.split('\n');
 });
 
 const sourceText = computed<string>(() => {
   if (!props.file) return '';
-  return contentKind.value === 'json' ? prettyJson.value : props.file.content;
+  return contentKind.value === 'json' ? prettyJson.value : decodedContent.value;
 });
 
 // ---------------------------------------------------------------------------
@@ -218,13 +247,12 @@ const pdfSrc = computed<string | null>(() => {
 });
 
 const htmlSrcdoc = computed<string>(() => {
-  const f = props.file;
-  if (!f) return '';
+  if (!props.file) return '';
   return [
     '<!doctype html>',
     '<meta charset="utf-8">',
     '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data: blob:; style-src \'unsafe-inline\'; font-src data:;">',
-    f.content,
+    decodedContent.value,
   ].join('');
 });
 
@@ -418,7 +446,7 @@ function truncatePath(path: string, maxLen = 55): string {
 
       <!-- Body: Markdown -->
       <div v-if="contentKind === 'markdown'" class="fp-body fp-markdown">
-        <Markdown :text="file.content" />
+        <Markdown :text="decodedContent" />
       </div>
 
       <!-- Body: JSON -->
