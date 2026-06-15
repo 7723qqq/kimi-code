@@ -4,6 +4,7 @@ import type {
   AutocompleteSuggestions,
   TUI,
 } from '@earendil-works/pi-tui';
+import { visibleWidth } from '@earendil-works/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
 import { CustomEditor } from '#/tui/components/editor/custom-editor';
@@ -278,5 +279,19 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     editor.handleInput('\u001F');
 
     expect(onUndo).toHaveBeenCalledOnce();
+  });
+});
+
+describe('CustomEditor narrow width safety', () => {
+  it('does not crash when rendered at extremely narrow widths with wide characters', () => {
+    const editor = makeEditor();
+    editor.setText('你好世界');
+
+    for (const width of [0, 1, 2, 3]) {
+      const lines = editor.render(width);
+      for (const line of lines) {
+        expect(visibleWidth(line)).toBeLessThanOrEqual(Math.max(0, width));
+      }
+    }
   });
 });
