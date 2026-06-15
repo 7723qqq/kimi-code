@@ -344,6 +344,8 @@ interface ExtendedState extends KimiClientState {
   recentRoots: string[];
   // Root paths the user removed from the sidebar (see HIDDEN_WORKSPACES_KEY).
   hiddenWorkspaceRoots: string[];
+  /** Installed external apps that can be used with "Open in app". */
+  availableOpenInApps: string[];
 }
 
 const rawState: ExtendedState = reactive({
@@ -371,6 +373,7 @@ const rawState: ExtendedState = reactive({
   fsHome: null,
   recentRoots: [],
   hiddenWorkspaceRoots: loadHiddenWorkspacesFromStorage(),
+  availableOpenInApps: [],
 });
 
 // Models + Providers reactive state (lazy-loaded, cached)
@@ -1946,6 +1949,9 @@ const recentCwds = computed<string[]>(() => {
   return result;
 });
 
+/** Installed external apps the "Open in app" menu may offer for this host. */
+const availableOpenInApps = computed<string[]>(() => rawState.availableOpenInApps);
+
 // ---------------------------------------------------------------------------
 // Per-session turn-end cleanup + queue auto-flush.
 // Driven by the daemon's sessionStatusChanged → idle event (wired in
@@ -2075,7 +2081,10 @@ async function load(): Promise<void> {
     // Parallel: health + meta + sessions + models
     const [, , sessionsPage] = await Promise.all([
       api.getHealth().catch(() => null),
-      api.getMeta().then((m) => { rawState.serverVersion = m.serverVersion; }).catch(() => null),
+      api.getMeta().then((m) => {
+        rawState.serverVersion = m.serverVersion;
+        rawState.availableOpenInApps = m.openInApps;
+      }).catch(() => null),
       api.listSessions({ pageSize: 20 }).catch(() => ({ items: [], hasMore: false })),
       loadModels(),
     ]);
@@ -3374,10 +3383,7 @@ async function openWorkspaceFile(path: string, line?: number): Promise<boolean> 
   }
 }
 
-/**
- * Open the current workspace in an external application (Finder, Cursor, etc.).
- * TODO: once the daemon supports a per-app open endpoint, route by appId there.
- */
+/** Open the current workspace in an external application (Finder, Cursor, etc.). */
 async function openInApp(appId: string): Promise<void> {
   const sid = rawState.activeSessionId;
   if (!sid) return;
@@ -3493,6 +3499,7 @@ export function useKimiWebClient() {
     changesByPath,
     pendingApprovals,
     recentCwds,
+    availableOpenInApps,
 
     // New Phase 1 computed
     connection,

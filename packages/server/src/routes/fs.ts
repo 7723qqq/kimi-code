@@ -9,6 +9,7 @@ import {
   fsGrepRequestSchema,
   fsListManyRequestSchema,
   fsListRequestSchema,
+  fsOpenInRequestSchema,
   fsOpenRequestSchema,
   fsReadRequestSchema,
   fsRevealRequestSchema,
@@ -20,6 +21,7 @@ import {
   type FsGrepRequest,
   type FsListManyRequest,
   type FsListRequest,
+  type FsOpenInRequest,
   type FsOpenRequest,
   type FsReadRequest,
   type FsRevealRequest,
@@ -54,6 +56,7 @@ import { FsPathEscapesError } from '@moonshot-ai/services';
 import {
   launchDetached,
   openFileCommandFor,
+  openInAppCommandFor,
   revealFileCommandFor,
 } from '../lib/fileLaunch';
 
@@ -105,6 +108,7 @@ const FS_ACTIONS = [
   'git_status',
   'diff',
   'open',
+  'open-in',
   'reveal',
 ] as const;
 type FsAction = (typeof FS_ACTIONS)[number];
@@ -196,6 +200,9 @@ export function registerFsRoutes(
             return;
           case 'open':
             await handleOpen(ix, session_id, req, reply);
+            return;
+          case 'open-in':
+            await handleOpenIn(ix, session_id, req, reply);
             return;
           case 'reveal':
             await handleReveal(ix, session_id, req, reply);
@@ -523,6 +530,41 @@ async function handleReveal(
   );
   await launchDetached(revealFileCommandFor(resolved.absolute));
   reply.send(okEnvelope({ revealed: true as const }, req.id));
+}
+
+async function handleOpenIn(
+  ix: IInstantiationService,
+  sessionId: string,
+  req: { id: string; body: unknown },
+  reply: { send(payload: unknown): unknown },
+): Promise<void> {
+  const parsed = fsOpenInRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    return;
+  }
+  const body: FsOpenInRequest = parsed.data;
+  const resolved = await ix.invokeFunction((a) =>
+    a.get(IFsService).resolvePath(sessionId, body.path),
+  );
+  try {
+    await launchDetached(
+      openInAppCommandFor(body.app_id, resolved.absolute, {
+        line: body.line,
+        isDirectory: resolved.isDirectory,
+      }),
+    );
+  } catch (err) {
+    reply.send(
+      errEnvelope(
+        ErrorCode.INTERNAL_ERROR,
+        `failed to open in ${body.app_id}: ${err instanceof Error ? err.message : String(err)}`,
+        req.id,
+      ),
+    );
+    return;
+  }
+  reply.send(okEnvelope({ opened: true as const }, req.id));
 }
 
 function sendMappedError(

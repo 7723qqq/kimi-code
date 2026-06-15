@@ -657,6 +657,7 @@ function openPr(url: string): void {
       :compaction="client.compaction.value"
       :workspace-name="client.visibleWorkspace.value?.name"
       :workspace-root="client.visibleWorkspace.value?.root ?? client.status.value.cwd"
+      :available-open-in-apps="client.availableOpenInApps.value"
       :git-diff-stats="null"
       :workspaces="client.workspacesView.value"
       :active-workspace-id="client.activeWorkspaceId.value"

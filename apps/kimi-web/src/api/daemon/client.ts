@@ -89,6 +89,7 @@ interface WireMeta {
   server_id: string;
   started_at: string;
   capabilities: Record<string, boolean>;
+  open_in_apps?: string[];
 }
 
 interface WireAbortResult {
@@ -252,6 +253,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
     serverId: string;
     startedAt: string;
     capabilities: Record<string, boolean>;
+    openInApps: string[];
   }> {
     const data = await this.http.get<WireMeta>('/meta');
     return {
@@ -259,6 +261,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       serverId: data.server_id,
       startedAt: data.started_at,
       capabilities: data.capabilities,
+      openInApps: Array.isArray(data.open_in_apps) ? data.open_in_apps : [],
     };
   }
 
@@ -861,11 +864,14 @@ export class DaemonKimiWebApi implements KimiWebApi {
     sessionId: string,
     appId: string,
     path: string,
+    line?: number,
   ): Promise<void> {
-    // TODO: wire to a per-app daemon endpoint once the backend supports it.
-    // For now, fall back to the generic file opener so the UI stays useful.
-    await this.openFile(sessionId, { path });
-    void appId;
+    const body: Record<string, unknown> = { app_id: appId, path };
+    if (line !== undefined) body['line'] = line;
+    await this.http.post<{ opened: true }>(
+      `/sessions/${encodeURIComponent(sessionId)}/fs:open-in`,
+      body,
+    );
   }
 
   // -------------------------------------------------------------------------

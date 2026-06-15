@@ -527,7 +527,7 @@ export interface AppSkill {
 
 export interface KimiWebApi {
   getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
-  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean> }>;
+  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean>; openInApps: string[] }>;
   listSessions(input?: PageRequest & { status?: AppSessionStatus; workspaceId?: string }): Promise<Page<AppSession>>;
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */
@@ -566,12 +566,8 @@ export interface KimiWebApi {
   getFileDownloadUrl(sessionId: string, path: string): string;
   openFile(sessionId: string, input: { path: string; line?: number }): Promise<{ opened: true }>;
   revealFile(sessionId: string, input: { path: string }): Promise<{ revealed: true }>;
-  /**
-   * Open the session working directory in an external application.
-   * TODO: this currently falls back to the generic `openFile` endpoint until
-   * the daemon ships a per-app `/open-in` route.
-   */
-  openInApp(sessionId: string, appId: string, path: string): Promise<void>;
+  /** Open the session working directory (or a session-relative path) in an external application. */
+  openInApp(sessionId: string, appId: string, path: string, line?: number): Promise<void>;
   connectEvents(handlers: KimiEventHandlers): KimiEventConnection;
 
   // Workspaces + daemon folder browser

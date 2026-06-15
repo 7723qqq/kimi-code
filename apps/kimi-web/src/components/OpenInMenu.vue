@@ -10,6 +10,8 @@ const { t } = useI18n();
 
 const props = defineProps<{
   workDir?: string;
+  /** Installed app IDs from the daemon; when empty/unset the menu falls back to platform defaults. */
+  availableApps?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -47,14 +49,20 @@ const TARGETS: Array<{ id: TargetId; label: string; macOnly?: boolean }> = [
   { id: 'finder', label: 'Finder', macOnly: true },
   { id: 'cursor', label: 'Cursor' },
   { id: 'vscode', label: 'VS Code' },
-  { id: 'antigravity', label: 'Antigravity' },
   { id: 'iterm', label: 'iTerm', macOnly: true },
   { id: 'terminal', label: 'Terminal', macOnly: true },
 ];
 
-type TargetId = 'finder' | 'cursor' | 'vscode' | 'antigravity' | 'iterm' | 'terminal';
+type TargetId = 'finder' | 'cursor' | 'vscode' | 'iterm' | 'terminal';
 
-const menuTargets = computed(() => TARGETS.filter((t) => !t.macOnly || isMac));
+const visibleTargets = computed(() => {
+  const platformTargets = TARGETS.filter((t) => !t.macOnly || isMac);
+  if (!props.availableApps || props.availableApps.length === 0) {
+    return platformTargets;
+  }
+  const available = new Set(props.availableApps);
+  return platformTargets.filter((t) => available.has(t.id));
+});
 
 const LAST_TARGET_KEY = 'kimi-web.open-in.last-target';
 const lastTargetId = ref<TargetId | null>(null);
@@ -62,7 +70,7 @@ const lastTargetId = ref<TargetId | null>(null);
 function loadLastTarget(): void {
   try {
     const raw = localStorage.getItem(LAST_TARGET_KEY);
-    if (raw && menuTargets.value.some((t) => t.id === raw)) {
+    if (raw && visibleTargets.value.some((t) => t.id === raw)) {
       lastTargetId.value = raw as TargetId;
     } else {
       lastTargetId.value = null;
@@ -80,7 +88,7 @@ function saveLastTarget(id: TargetId): void {
   lastTargetId.value = id;
 }
 
-const lastTarget = computed(() => menuTargets.value.find((t) => t.id === lastTargetId.value) ?? null);
+const lastTarget = computed(() => visibleTargets.value.find((t) => t.id === lastTargetId.value) ?? null);
 
 // Menu state
 const menuOpen = ref(false);
@@ -148,7 +156,7 @@ function handleOpenTarget(id: TargetId): void {
 }
 
 function handleQuickOpen(): void {
-  const target = lastTarget.value ?? menuTargets.value[0];
+  const target = lastTarget.value ?? visibleTargets.value[0];
   if (target) handleOpenTarget(target.id);
 }
 
@@ -220,7 +228,7 @@ async function copyPath(): Promise<void> {
       @click.stop
     >
       <button
-        v-for="target in menuTargets"
+        v-for="target in visibleTargets"
         :key="target.id"
         type="button"
         class="om-item"

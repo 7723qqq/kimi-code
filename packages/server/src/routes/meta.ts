@@ -21,6 +21,7 @@
 
 import { metaResponseSchema } from '@moonshot-ai/protocol';
 
+import { getAvailableOpenInApps } from '../lib/fileLaunch';
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
 import type { MetaResponse } from '@moonshot-ai/protocol';
@@ -67,6 +68,7 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
     }),
     server_id: opts.serverId,
     started_at: opts.startedAt,
+    open_in_apps: [...getAvailableOpenInApps()],
   });
 
   const route = defineRoute(

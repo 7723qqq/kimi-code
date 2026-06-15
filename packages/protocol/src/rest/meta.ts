@@ -9,6 +9,7 @@
  */
 import { z } from 'zod';
 
+import { fsOpenInAppIdSchema } from '../rest/fs';
 import { isoDateTimeSchema } from '../time';
 
 export const metaCapabilitiesSchema = z.object({
@@ -27,6 +28,7 @@ export const metaResponseSchema = z.object({
   capabilities: metaCapabilitiesSchema,
   server_id: z.string().min(1),
   started_at: isoDateTimeSchema,
+  open_in_apps: z.array(fsOpenInAppIdSchema),
 });
 
 export type MetaResponse = z.infer<typeof metaResponseSchema>;

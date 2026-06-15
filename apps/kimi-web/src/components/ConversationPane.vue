@@ -79,6 +79,8 @@ const props = defineProps<{
   workspaceName?: string;
   /** Absolute workspace root path shown by the Open menu. */
   workspaceRoot?: string;
+  /** Installed app IDs from the daemon; passed through to the Open menu. */
+  availableOpenInApps?: string[];
   /** Git diff line stats for the header diff counter (mirrors kimi-cli/web). */
   gitDiffStats?: { totalAdditions: number; totalDeletions: number } | null;
   /** Workspaces for the empty-composer picker (start a conversation elsewhere). */
@@ -762,6 +764,7 @@ onUnmounted(() => {
       :session-id="sessionId"
       :workspace-name="workspaceName"
       :workspace-root="workspaceRoot"
+      :available-open-in-apps="availableOpenInApps"
       :session-title="sessionTitle"
       :branch="gitInfo?.branch"
       :ahead="gitInfo?.ahead"

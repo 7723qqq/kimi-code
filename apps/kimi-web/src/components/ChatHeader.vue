@@ -14,6 +14,8 @@ const props = defineProps<{
   workspaceName?: string;
   /** Absolute path to the active workspace root (shown in the Open menu). */
   workspaceRoot?: string;
+  /** Installed app IDs from the daemon; passed through to the Open menu. */
+  availableOpenInApps?: string[];
   sessionTitle?: string;
   branch?: string;
   ahead?: number;
@@ -294,7 +296,7 @@ function startArchive(): void {
 
     <!-- Open workspace in an external app (style + behaviour mirrors kimi-cli/web).
          Temporarily hidden while the feature is being refined. -->
-    <OpenInMenu v-if="sessionId && false" :work-dir="workspaceRoot" @open-in-app="(app) => emit('openInApp', app)" />
+    <OpenInMenu v-if="sessionId && false" :work-dir="workspaceRoot" :available-apps="availableOpenInApps" @open-in-app="(app) => emit('openInApp', app)" />
   </header>
 </template>
 

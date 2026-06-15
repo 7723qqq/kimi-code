@@ -140,6 +140,27 @@ export const fsRevealResponseSchema = z.object({
 });
 export type FsRevealResponse = z.infer<typeof fsRevealResponseSchema>;
 
+export const fsOpenInAppIdSchema = z.enum([
+  'finder',
+  'cursor',
+  'vscode',
+  'iterm',
+  'terminal',
+]);
+export type FsOpenInAppId = z.infer<typeof fsOpenInAppIdSchema>;
+
+export const fsOpenInRequestSchema = z.object({
+  app_id: fsOpenInAppIdSchema,
+  path: z.string().min(1),
+  line: z.number().int().positive().optional(),
+});
+export type FsOpenInRequest = z.infer<typeof fsOpenInRequestSchema>;
+
+export const fsOpenInResponseSchema = z.object({
+  opened: z.literal(true),
+});
+export type FsOpenInResponse = z.infer<typeof fsOpenInResponseSchema>;
+
 export const fsListManyRequestSchema = z.object({
   paths: z.array(z.string().min(1)).min(1).max(100),
   depth: z.number().int().min(1).max(10).default(1),
