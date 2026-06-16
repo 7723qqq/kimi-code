@@ -6,7 +6,7 @@ Kimi Code CLI runs as an interactive TUI (terminal user interface) built around 
 
 The input box accepts free-form text. Press `Enter` to send, or `Shift-Enter` / `Ctrl-J` to insert a newline. When the input box is empty, press `↑` / `↓` to browse the input history for the current working directory.
 
-**Exiting the CLI**: press `Ctrl-D` with the input box empty, press `Ctrl-C` twice while idle, or type `/exit`. Pressing `Ctrl-C` or `Esc` during streaming output interrupts the current turn — it does not exit the program. If an interrupted turn has already printed visible assistant text, Kimi Code keeps that text in the session history so it remains available after resume; in-progress Thinking output is not saved.
+**Exiting the CLI**: press `Ctrl-D` with the input box empty, press `Ctrl-C` twice while idle, or type `/exit`. Pressing `Ctrl-C` or `Esc` during streaming output interrupts the current turn — it does not exit the program.
 
 ## Pasting images and video
 
