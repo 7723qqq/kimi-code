@@ -122,6 +122,7 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
       currentStep,
       stepUuid,
       maxAttempts: maxRetryAttempts,
+      onRetrying: streamingCallbacks.clearBuffer,
       log,
     });
   } catch (error) {
@@ -310,6 +311,7 @@ function createChatStreamingCallbacks(deps: {
         });
       },
     } satisfies ChatStreamingCallbacks,
+    clearBuffer,
     flushOnAbort,
   };
 }
