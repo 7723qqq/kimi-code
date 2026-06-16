@@ -126,11 +126,10 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     });
   } catch (error) {
     if (signal.aborted || isAbortError(error)) {
-      await streamingCallbacks.flushBufferedTextPart();
+      await streamingCallbacks.flushOnAbort();
     }
     throw error;
   }
-  streamingCallbacks.clearBufferedTextPart();
   const usage = response.usage;
   const usageResult = await recordUsage(usage);
   const stopTurnAfterUsage = usageResult?.stopTurn === true;
@@ -238,11 +237,26 @@ function createChatStreamingCallbacks(deps: {
   const { dispatchEvent, turnId, currentStep, stepUuid } = deps;
 
   let bufferedText = '';
+  let bufferedThink = '';
 
-  const flushBufferedTextPart = async (): Promise<void> => {
+  const clearBuffer = (): void => {
+    bufferedText = '';
+    bufferedThink = '';
+  };
+
+  const flushOnAbort = async (): Promise<void> => {
     const text = bufferedText;
     if (text.length === 0) return;
-    bufferedText = '';
+    if (bufferedThink.length > 0) {
+      await dispatchEvent({
+        type: 'content.part',
+        uuid: randomUUID(),
+        turnId,
+        step: currentStep,
+        stepUuid,
+        part: { type: 'think', think: bufferedThink },
+      });
+    }
     await dispatchEvent({
       type: 'content.part',
       uuid: randomUUID(),
@@ -251,16 +265,9 @@ function createChatStreamingCallbacks(deps: {
       stepUuid,
       part: { type: 'text', text },
     });
+    clearBuffer();
   };
 
-  const markTextPartRecorded = (text: string): void => {
-    if (text.length === 0 || bufferedText.length === 0) return;
-    if (bufferedText.startsWith(text)) {
-      bufferedText = bufferedText.slice(text.length);
-      return;
-    }
-    bufferedText = '';
-  };
 
   return {
     callbacks: {
@@ -269,6 +276,7 @@ function createChatStreamingCallbacks(deps: {
         dispatchEvent({ type: 'text.delta', delta });
       },
       onThinkDelta: (delta) => {
+        bufferedThink += delta;
         dispatchEvent({ type: 'thinking.delta', delta });
       },
       onToolCallDelta: (delta) => {
@@ -280,7 +288,7 @@ function createChatStreamingCallbacks(deps: {
         });
       },
       onTextPart: async (part) => {
-        markTextPartRecorded(part.text);
+        clearBuffer();
         await dispatchEvent({
           type: 'content.part',
           uuid: randomUUID(),
@@ -291,6 +299,7 @@ function createChatStreamingCallbacks(deps: {
         });
       },
       onThinkPart: async (part) => {
+        clearBuffer();
         await dispatchEvent({
           type: 'content.part',
           uuid: randomUUID(),
@@ -301,9 +310,6 @@ function createChatStreamingCallbacks(deps: {
         });
       },
     } satisfies ChatStreamingCallbacks,
-    flushBufferedTextPart,
-    clearBufferedTextPart: () => {
-      bufferedText = '';
-    },
+    flushOnAbort,
   };
 }

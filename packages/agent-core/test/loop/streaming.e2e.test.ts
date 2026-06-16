@@ -136,6 +136,41 @@ describe('runTurn — streaming callbacks', () => {
     expect(context.stepEnds()).toEqual([]);
   });
 
+  it('persists buffered thinking before text when a step is aborted after visible text starts', async () => {
+    const controller = new AbortController();
+    const llm = new StreamingLLM(async (params) => {
+      params.onThinkDelta?.('complete reasoning');
+      params.onTextDelta?.('partial answer');
+      controller.abort();
+      throw abortError();
+    });
+    const sink = new CollectingSink();
+    const context = new RecordingContext();
+    const result = await runTurn({
+      turnId: 'turn-1',
+      signal: controller.signal,
+      llm,
+      buildMessages: context.buildMessages,
+      dispatchEvent: createLoopEventDispatcher({
+        appendTranscriptRecord: context.appendTranscriptRecord,
+        emitLiveEvent: sink.emit,
+      }),
+    });
+
+    expect(result.stopReason).toBe('aborted');
+    expect(sink.byType('thinking.delta').map((e) => e.delta)).toEqual([
+      'complete reasoning',
+    ]);
+    expect(sink.byType('text.delta').map((e) => e.delta)).toEqual([
+      'partial answer',
+    ]);
+    expect(context.contentParts().map((e) => e.part)).toEqual([
+      { type: 'think', think: 'complete reasoning' },
+      { type: 'text', text: 'partial answer' },
+    ]);
+    expect(context.stepEnds()).toEqual([]);
+  });
+
   it('does not persist buffered text deltas when a step fails without aborting', async () => {
     const llm = new StreamingLLM(async (params) => {
       params.onTextDelta?.('partial answer');
