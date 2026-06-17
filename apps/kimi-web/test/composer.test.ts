@@ -280,6 +280,19 @@ describe('Composer slash command input', () => {
     expect((textarea.element as HTMLTextAreaElement).value).toBe('/goal ');
     expect(wrapper.emitted('command')).toBeUndefined();
   });
+
+  it('keeps selected session skills in the composer so arguments can be added', async () => {
+    const wrapper = mountComposer({
+      skills: [{ name: 'my-skill', description: 'Do a thing', source: 'project' }],
+    });
+    const textarea = wrapper.get('textarea');
+
+    await textarea.setValue('/my');
+    await textarea.trigger('keydown', { key: 'Enter' });
+
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('/my-skill ');
+    expect(wrapper.emitted('command')).toBeUndefined();
+  });
 });
 
 describe('Composer model dropdown', () => {
