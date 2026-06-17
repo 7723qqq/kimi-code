@@ -17,7 +17,6 @@ superpowers
 .worktrees/
 
 Dockerfile
-!packages/daemon-e2e/Dockerfile
 docker-compose.yml
 .dockerignore
 

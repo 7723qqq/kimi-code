@@ -350,9 +350,9 @@ export interface AgentStateSnapshot {
  * One dispatch record appended to the per-session ring buffer whenever
  * `PromptService._applyAgentState` actually issues a setter RPC against
  * `core.rpc.*`. Absence of an entry between two prompts proves the
- * shadow suppressed a redundant call — which is the property
- * `daemon-e2e` scenarios need to assert directly, since WS frames
- * alone can't distinguish "state held" from "setter re-dispatched".
+ * shadow suppressed a redundant call — letting tests assert "state held"
+ * versus "setter re-dispatched", since WS frames alone can't distinguish
+ * the two.
  */
 export interface PromptDispatchLogEntry {
   /** ISO-8601 timestamp captured immediately after the setter resolves. */

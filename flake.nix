@@ -64,7 +64,6 @@
       workspacePaths = [
         ./packages/acp-adapter
         ./packages/agent-core
-        ./packages/daemon
         ./packages/server
         ./packages/server-e2e
         ./packages/kaos
@@ -100,7 +99,6 @@
         "@moonshot-ai/vis"
         "@moonshot-ai/vis-server"
         "@moonshot-ai/vis-web"
-        "daemon"
         "kimi-code-docs"
         "kimi-migration-legacy"
       ];

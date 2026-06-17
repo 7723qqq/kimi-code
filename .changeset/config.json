@@ -21,7 +21,6 @@
     "@moonshot-ai/vis",
     "@moonshot-ai/vis-server",
     "@moonshot-ai/vis-web",
-    "daemon",
     "kimi-migration-legacy"
   ],
   "snapshot": {
