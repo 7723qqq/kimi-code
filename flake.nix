@@ -75,6 +75,7 @@
         ./packages/protocol
         ./packages/telemetry
         ./apps/kimi-code
+        ./apps/kimi-desktop
         ./apps/kimi-web
         ./apps/vis
         ./apps/vis/server
@@ -95,6 +96,7 @@
         "@moonshot-ai/protocol"
         "@moonshot-ai/kimi-telemetry"
         "@moonshot-ai/kimi-code"
+        "@moonshot-ai/kimi-desktop"
         "@moonshot-ai/kimi-web"
         "@moonshot-ai/vis"
         "@moonshot-ai/vis-server"
