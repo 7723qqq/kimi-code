@@ -79,6 +79,10 @@ export function buildSlashItems(
     name: `/${s.name}`,
     desc: s.description,
     isSkill: true,
+    // Keep the selected skill in the composer so the user can append
+    // arguments (or just press Enter to activate with none), instead of
+    // activating the skill immediately on selection.
+    acceptsInput: true,
   }));
   return [...SLASH_COMMANDS, ...skillItems];
 }
@@ -92,7 +96,11 @@ export function filterCommands(
   query: string,
   items: SlashCommand[] = SLASH_COMMANDS,
 ): SlashCommand[] {
-  const q = query.toLowerCase().trim();
-  if (q === '' || q === '/') return items;
-  return items.filter((c) => c.name.toLowerCase().includes(q));
+  // Drop the leading `/` so the query matches anywhere in the command name,
+  // not only as a prefix (e.g. `/context` matches `/xxx-context`).
+  const q = query.toLowerCase().trim().replace(/^\//, '');
+  if (q === '') return items;
+  return items.filter((c) =>
+    c.name.toLowerCase().replace(/^\//, '').includes(q),
+  );
 }
