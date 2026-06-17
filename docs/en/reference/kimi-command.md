@@ -119,7 +119,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
+`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `server` (run and manage the local REST/WebSocket/web service), `web` (alias for `kimi server run --open`), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
 
 ### `kimi login`
 
@@ -138,6 +138,70 @@ Switch Kimi Code CLI to ACP (Agent Client Protocol) mode, communicating with an 
 ```sh
 kimi acp
 ```
+
+### `kimi server`
+
+Run, install, and manage the local Kimi server — a single process that exposes the REST + WebSocket API and serves the web UI from the same origin. The parent command is split into an on-demand entrypoint (`run`) and an OS-managed service lifecycle (`install`, `uninstall`, `start`, `stop`, `restart`, `status`). `kimi server run` ensures a single background daemon is running and returns once it is healthy; pass `--foreground` to keep the server attached to the current terminal instead.
+
+When the server is running, `GET /openapi.json` returns the REST OpenAPI document and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document.
+
+```sh
+kimi server run                # start or reuse a background daemon
+kimi server run --foreground   # run attached to the current terminal
+kimi server install            # register with launchd / systemd / schtasks
+kimi server start              # start the OS-managed service
+kimi server status             # snapshot of installed/running state
+```
+
+#### `kimi server run`
+
+| Option | Description |
+| --- | --- |
+| `--port <port>` | Bind port; defaults to `58627` |
+| `--log-level <level>` | Enable server logs at the selected level; omitted by default |
+| `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default) |
+| `--foreground` | Run in the foreground instead of spawning a background daemon |
+| `--open` | Open the web UI in the default browser once the server is healthy |
+
+`kimi server run` binds to local loopback only. By default it spawns a single background daemon (reused across runs) and exits once the daemon is healthy; the daemon shuts itself down after the last web client disconnects. Pass `--foreground` to run the server in the current process instead — it then stays attached to the terminal and shuts down cleanly on `SIGINT` / `SIGTERM`.
+
+#### `kimi server install`
+
+Register the server as an OS-managed service so it starts at login and restarts after a crash. The backend picks itself based on the running platform:
+
+- **macOS**: writes a LaunchAgent plist to `~/Library/LaunchAgents/ai.moonshot.kimi-server.plist` and bootstraps it via `launchctl bootstrap gui/<uid>`.
+- **Linux**: writes a `--user` systemd unit to `~/.config/systemd/user/kimi-server.service` and runs `systemctl --user enable --now`.
+- **Windows**: registers a scheduled task named `KimiServer` via `schtasks /Create /XML`.
+
+| Option | Description |
+| --- | --- |
+| `--port <port>` | Bind port the supervised server uses; defaults to `58627` |
+| `--log-level <level>` | Log level recorded in the generated unit |
+| `--force` | Replace an existing install instead of failing |
+| `--json` | Output JSON instead of a human-readable line |
+
+The loopback host, chosen port, and log level are recorded to `~/.kimi-code/server/install.json` so `kimi server status` can report them even when the service is stopped.
+
+#### Lifecycle subcommands
+
+| Command | Description |
+| --- | --- |
+| `kimi server uninstall` | Stop and remove the OS service definition. Idempotent. |
+| `kimi server start` | Start the OS-managed service. Errors if not installed. |
+| `kimi server stop` | Stop the OS-managed service. |
+| `kimi server restart` | Restart the OS-managed service. |
+| `kimi server status` | Print installed / running / pid / port / log-path. `--json` for automation. |
+
+#### `kimi web`
+
+Alias for `kimi server run` with `--open` defaulted to `true` — runs the server in the foreground and opens the web UI in the default browser once it is healthy. Use `--no-open` to skip the browser launch (effectively turning it back into `kimi server run`).
+
+```sh
+kimi web                        # foreground + open browser
+kimi web --no-open              # equivalent to `kimi server run`
+```
+
+The same `--port`, `--log-level`, and `--debug-endpoints` flags work as on `kimi server run`.
 
 ### `kimi doctor`
 
