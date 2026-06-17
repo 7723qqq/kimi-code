@@ -51,8 +51,9 @@ const emit = defineEmits<{
 }
 
 .slash-item {
-  display: flex;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: minmax(90px, 32%) minmax(0, 1fr);
+  align-items: start;
   gap: 10px;
   padding: 5px 12px;
   cursor: pointer;
@@ -73,12 +74,23 @@ const emit = defineEmits<{
 .slash-name {
   color: var(--blue);
   font-weight: 600;
-  min-width: 90px;
-  flex-shrink: 0;
+  min-width: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .slash-desc {
   color: var(--dim);
   font-size: calc(var(--ui-font-size) - 2.5px);
+  min-width: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .slash-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
 }
 </style>
