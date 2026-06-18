@@ -20,7 +20,7 @@ const notarize = process.env.KIMI_DESKTOP_NOTARIZE === 'true';
 
 module.exports = {
   appId: 'ai.moonshot.kimi.desktop',
-  productName: 'Kimi Desktop',
+  productName: 'Kimi Code Desktop',
   copyright: 'Copyright © Moonshot AI',
 
   directories: {

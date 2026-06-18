@@ -1,6 +1,7 @@
-# Kimi Desktop
+# Kimi Code Desktop
 
-An Electron desktop client for Kimi Code. It is a thin **shell + process manager**
+An Electron desktop client for Kimi Code (product name **Kimi Code Desktop**;
+workspace package `@moonshot-ai/kimi-desktop`). It is a thin **shell + process manager**
 around the existing web UI (`apps/kimi-web`): it does not reimplement any UI or
 backend, it just opens a native window onto the local Kimi server.
 

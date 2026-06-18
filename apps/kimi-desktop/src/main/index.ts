@@ -92,7 +92,7 @@ function errorHtml(message: string): string {
     <h1>无法启动本地服务</h1>
     <p>${safe}</p>
     <p>查看日志：<code>${serverLogPath()}</code></p>
-    <p>菜单 → Kimi → 重试连接，或先检查日志。</p>`;
+    <p>菜单 → Kimi Code Desktop → 重试连接，或先检查日志。</p>`;
 }
 
 // --- connect flow -------------------------------------------------------------
@@ -120,7 +120,7 @@ function createWindow(): void {
     minWidth: 720,
     minHeight: 480,
     backgroundColor: '#0b0b0c',
-    title: 'Kimi',
+    title: 'Kimi Code Desktop',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -143,7 +143,7 @@ function createWindow(): void {
 function buildMenu(): void {
   const isMac = process.platform === 'darwin';
   const appMenu: MenuItemConstructorOptions = {
-    label: 'Kimi',
+    label: 'Kimi Code Desktop',
     submenu: [
       ...(isMac ? [{ role: 'about' as const }, { type: 'separator' as const }] : []),
       {
