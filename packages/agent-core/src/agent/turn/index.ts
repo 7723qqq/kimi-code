@@ -316,12 +316,14 @@ export class TurnFlow {
         return await this.driveGoal(firstTurnId, input, origin, signal);
       }
       const end = await this.runOneTurn(firstTurnId, input, origin, signal, true);
-      const resumedFromPausedOrBlocked =
-        initialGoalStatus === 'paused' || initialGoalStatus === 'blocked';
-      const currentGoalStatus = this.agent.goal.getGoal().goal?.status;
+      // A goal can become active during an ordinary turn: the model creates one
+      // with CreateGoal, or resumes a paused/blocked goal via UpdateGoal. Either
+      // way, hand the now-active goal to the driver so it is actually pursued,
+      // instead of stopping after the turn that merely started it. (The
+      // already-active case took the early return above.)
+      const goalBecameActive = this.agent.goal.getGoal().goal?.status === 'active';
       if (
-        resumedFromPausedOrBlocked &&
-        currentGoalStatus === 'active' &&
+        goalBecameActive &&
         end.event.reason !== 'cancelled' &&
         end.event.reason !== 'failed'
       ) {
@@ -524,7 +526,18 @@ export class TurnFlow {
       });
     }
     this.agent.emitEvent(ended);
-    if (standalone && this.currentId === turnId) {
+    // Release the active turn in the same frame as turn.ended for a standalone
+    // turn, so the session is observably idle the instant turn.ended fires.
+    // Exception: if the model turned the goal active during this turn (e.g.
+    // CreateGoal), the session is NOT idle — turnWorker is about to drive the
+    // goal. Keep the active turn alive (as the already-active goal path does) so
+    // those autonomous continuations stay cancelable and exclude concurrent
+    // turns; turnWorker releases it after the drive.
+    if (
+      standalone &&
+      this.currentId === turnId &&
+      this.agent.goal.getGoal().goal?.status !== 'active'
+    ) {
       this.activeTurn = null;
     }
     if (this.agent.swarmMode.shouldAutoExit) {
