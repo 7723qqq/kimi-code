@@ -194,14 +194,17 @@ kimi server status             # 查看安装与运行状态
 
 #### `kimi web`
 
-`kimi server run --open` 的别名：前台跑服务，健康后立即用默认浏览器打开 web UI。加 `--no-open` 等价于纯 `kimi server run`。
+在浏览器中打开 Kimi 的图形会话界面，作为终端 TUI 的替代入口。
+
+等价于 `kimi server run --open`：在后台启动本地 Kimi 服务（若已运行则复用），用默认浏览器打开 web UI，随后命令返回，服务驻留后台。与 `kimi server run` 的唯一区别是默认启用 `--open`（自动打开浏览器），其余行为一致。
 
 ```sh
-kimi web                        # 前台 + 自动打开浏览器
-kimi web --no-open              # 等价于 `kimi server run`
+kimi web                 # 后台启动服务并打开浏览器（已运行则复用）
+kimi web --no-open       # 不打开浏览器，等同 `kimi server run`
+kimi web --foreground    # 在当前终端前台运行，同时打开浏览器
 ```
 
-`--port`、`--log-level`、`--debug-endpoints` 与 `kimi server run` 完全一致。
+停止服务使用 `kimi server kill`，查看活动连接使用 `kimi server ps`；`--port`、`--log-level` 等选项与 `kimi server run` 一致。
 
 ### `kimi doctor`
 
