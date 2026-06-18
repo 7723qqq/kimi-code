@@ -57,4 +57,11 @@ describe('slash menu with session skills', () => {
       '/deep-research',
     ]);
   });
+
+  it('ranks exact and prefix matches ahead of substring matches', () => {
+    const items = buildSlashItems([{ name: 'log', description: 'Write a log' }]);
+    const names = filterCommands('/log', items).map((i) => i.name);
+    expect(names[0]).toBe('/log');
+    expect(names).toContain('/login');
+  });
 });
