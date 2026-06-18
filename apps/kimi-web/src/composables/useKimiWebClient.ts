@@ -2668,18 +2668,37 @@ async function updateConfig(patch: Partial<AppConfig>): Promise<boolean> {
 // global connecting-splash so a page refresh doesn't flash a half-empty app.
 const initialized = ref(false);
 
+// Backend max page size for GET /sessions. Bigger pages mean fewer round-trips
+// when draining the full session list.
+const SESSION_PAGE_SIZE = 100;
+
+/** Drain every page of sessions, newest first. A single global walk (instead of
+ *  per-workspace) so sessions whose cwd is not a registered workspace root are
+ *  still reachable after a refresh. */
+async function listAllSessionsGlobal(): Promise<AppSession[]> {
+  const api = getKimiWebApi();
+  const items: AppSession[] = [];
+  let beforeId: string | undefined;
+  for (;;) {
+    const page = await api.listSessions({ pageSize: SESSION_PAGE_SIZE, beforeId });
+    items.push(...page.items);
+    if (!page.hasMore || page.items.length === 0) break;
+    beforeId = page.items[page.items.length - 1]!.id;
+  }
+  return items;
+}
+
 async function load(): Promise<void> {
   rawState.loading = true;
   try {
     const api = getKimiWebApi();
-    // Parallel: health + meta + sessions + models
-    const [, , sessionsPage] = await Promise.all([
+    // Parallel: health + meta + models
+    await Promise.all([
       api.getHealth().catch(() => null),
       api.getMeta().then((m) => {
         rawState.serverVersion = m.serverVersion;
         rawState.availableOpenInApps = m.openInApps;
       }).catch(() => null),
-      api.listSessions({ pageSize: 20 }).catch(() => ({ items: [], hasMore: false })),
       loadModels(),
     ]);
 
@@ -2687,14 +2706,17 @@ async function load(): Promise<void> {
     await checkAuth();
     await loadConfig();
 
-    rawState.sessions = sessionsPage.items;
+    // Drain every session via a single global walk so sessions whose cwd is not
+    // a registered workspace root are still reachable after a refresh.
+    const sessions = await listAllSessionsGlobal().catch(() => [] as AppSession[]);
+    rawState.sessions = sessions;
 
     // Load workspaces (real if available, else derived from session cwds).
     await loadWorkspaces();
 
     // First load: pick the workspace of the most-recent session, unless the
     // user already has a persisted active workspace that still exists.
-    const mostRecent = sessionsPage.items[0];
+    const mostRecent = sessions[0];
     const persisted = rawState.activeWorkspaceId;
     const persistedStillExists =
       persisted !== null && mergedWorkspaces.value.some((w) => w.id === persisted);
@@ -2703,7 +2725,7 @@ async function load(): Promise<void> {
     }
 
     // URL deep link (/sessions/<id>) takes priority over auto-select. The
-    // session may live beyond the first listSessions page — fetch it then.
+    // session may live outside the loaded pages (e.g. archived) — fetch it then.
     // selectSession syncs the active workspace off the (now present) entry.
     bindSessionRoute();
     const urlSessionId =
@@ -2719,8 +2741,8 @@ async function load(): Promise<void> {
 
     // Auto-select first session if none selected (also the fallback for a dead
     // deep link — 'replace' rewrites the URL to the session actually shown).
-    if (!rawState.activeSessionId && sessionsPage.items.length > 0) {
-      await selectSession(sessionsPage.items[0]!.id, { urlMode: 'replace' });
+    if (!rawState.activeSessionId && sessions.length > 0) {
+      await selectSession(sessions[0]!.id, { urlMode: 'replace' });
     }
   } catch (err) {
     pushOperationFailure('load', err);
