@@ -4,6 +4,7 @@ import { SLASH_COMMANDS, buildSlashItems, filterCommands } from '../src/lib/slas
 const skills = [
   { name: 'brainstorm', description: 'Turn an idea into a design' },
   { name: 'deep-research', description: 'Fan-out web research' },
+  { name: 'xxx-context', description: 'Manage context' },
 ];
 
 describe('slash menu with session skills', () => {
@@ -39,5 +40,28 @@ describe('slash menu with session skills', () => {
   it('empty/slash query returns everything', () => {
     const items = buildSlashItems(skills);
     expect(filterCommands('/', items).length).toBe(items.length);
+  });
+
+  it('flags session skills as accepting input so they stay in the composer', () => {
+    const items = buildSlashItems(skills);
+    const brainstorm = items.find((i) => i.name === '/brainstorm');
+    expect(brainstorm?.acceptsInput).toBe(true);
+  });
+
+  it('matches substrings anywhere in the command name, not only as a prefix', () => {
+    const items = buildSlashItems(skills);
+    expect(filterCommands('/context', items).map((i) => i.name)).toEqual([
+      '/xxx-context',
+    ]);
+    expect(filterCommands('/research', items).map((i) => i.name)).toEqual([
+      '/deep-research',
+    ]);
+  });
+
+  it('ranks exact and prefix matches ahead of substring matches', () => {
+    const items = buildSlashItems([{ name: 'log', description: 'Write a log' }]);
+    const names = filterCommands('/log', items).map((i) => i.name);
+    expect(names[0]).toBe('/log');
+    expect(names).toContain('/login');
   });
 });
