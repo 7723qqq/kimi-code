@@ -119,6 +119,8 @@ export class CustomEditor extends Editor {
   public onToggleToolExpand?: () => void;
   public onOpenExternalEditor?: () => void;
   public onCtrlS?: () => void;
+  /** Return `true` to consume Ctrl+B; return `false`/`undefined` to fall through to the editor default (cursor-left). */
+  public onCtrlB?: () => boolean;
   public onUndo?: () => void;
   public onInsertNewline?: () => void;
   public onTextPaste?: () => void;
@@ -347,6 +349,13 @@ export class CustomEditor extends Editor {
     if (matchesKey(normalized, Key.ctrl('s'))) {
       this.onCtrlS?.();
       return;
+    }
+
+    if (matchesKey(normalized, Key.ctrl('b'))) {
+      // Only consume the key when the handler actually detached something;
+      // otherwise fall through so readline's backward-char still works at the
+      // idle prompt.
+      if (this.onCtrlB?.() === true) return;
     }
 
     if (matchesKey(normalized, 'shift+tab')) {
