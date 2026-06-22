@@ -442,6 +442,40 @@ function removeSessionMessages(sessionId: string): void {
   rawState.messagesBySession = rest;
 }
 
+// ---------------------------------------------------------------------------
+// Session teardown — single place that wipes a session and all its per-session
+// sidecar state. Both removal entry points (not-found + archive) go through
+// this, so adding a new per-session map only ever needs one new line here.
+// ---------------------------------------------------------------------------
+function forgetSession(sessionId: string): void {
+  // Stop receiving events for this session BEFORE clearing its state: a late or
+  // buffered event for this id would otherwise be reduced and recreate the very
+  // per-session maps we are about to delete.
+  eventConn?.unsubscribe(sessionId);
+  removeSession(sessionId);
+  removeSessionMessages(sessionId);
+  delete rawState.approvalsBySession[sessionId];
+  delete rawState.questionsBySession[sessionId];
+  delete rawState.tasksBySession[sessionId];
+  delete rawState.goalBySession[sessionId];
+  delete rawState.gitStatusBySession[sessionId];
+  delete rawState.lastSeqBySession[sessionId];
+  delete rawState.compactionBySession[sessionId];
+  delete rawState.messagesLoadingMoreBySession[sessionId];
+  delete rawState.messagesHasMoreBySession[sessionId];
+  delete rawState.messagesLoadMoreErrorBySession[sessionId];
+  delete epochBySession[sessionId];
+  sessionsKnownEmpty.delete(sessionId);
+  // In-flight / queued prompt state: drop these too so a queued follow-up
+  // can't be submitted to a session that was just archived when its turn later
+  // goes idle (onSessionIdle drains queuedBySession[sid] without re-checking
+  // that the session still exists).
+  inFlightPromptSessions.delete(sessionId);
+  delete rawState.queuedBySession[sessionId];
+  delete rawState.promptIdBySession[sessionId];
+  delete rawState.sendingBySession[sessionId];
+}
+
 // Models + Providers reactive state and helpers live in
 // ./client/useModelProviderState. It is instantiated below (after the
 // `activity` computed it depends on) as `modelProvider`.
@@ -894,20 +928,7 @@ function goalErrorMessage(err: unknown): string | undefined {
 }
 
 async function handleSessionNotFound(sessionId: string): Promise<void> {
-  removeSession(sessionId);
-  removeSessionMessages(sessionId);
-  delete rawState.approvalsBySession[sessionId];
-  delete rawState.questionsBySession[sessionId];
-  delete rawState.tasksBySession[sessionId];
-  delete rawState.goalBySession[sessionId];
-  delete rawState.gitStatusBySession[sessionId];
-  delete rawState.lastSeqBySession[sessionId];
-  delete rawState.compactionBySession[sessionId];
-  delete rawState.messagesLoadingMoreBySession[sessionId];
-  delete rawState.messagesHasMoreBySession[sessionId];
-  delete rawState.messagesLoadMoreErrorBySession[sessionId];
-  delete epochBySession[sessionId];
-  sessionsKnownEmpty.delete(sessionId);
+  forgetSession(sessionId);
 
   if (rawState.activeSessionId !== sessionId) return;
 
@@ -1835,7 +1856,7 @@ const workspaceState = useWorkspaceState(rawState, {
   updateSession,
   upsertSessionFront,
   appendSession,
-  removeSession,
+  forgetSession,
   setActiveSessionId,
   updateSessionMessages,
   nextOptimisticMsgId,
