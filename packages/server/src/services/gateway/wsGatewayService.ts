@@ -4,6 +4,8 @@ import type { Socket } from 'node:net';
 import { Disposable, ILogService } from '@moonshot-ai/agent-core';
 import { WebSocketServer, type WebSocket } from 'ws';
 
+import { isAllowedHost } from '#/middleware/hostnames';
+import { isOriginAllowed } from '#/middleware/origin';
 import {
   WsConnection,
   type AbortHandler,
@@ -77,6 +79,28 @@ export class WSGateway extends Disposable implements IWSGateway {
     const url = req.url ?? '';
     const path = url.split('?', 1)[0];
     if (path !== WS_PATH) {
+      socket.destroy();
+      return;
+    }
+
+    // Host / Origin checks (ROADMAP M4.3) — enforced BEFORE token validation
+    // and only when the corresponding option is provided. When unset (tests /
+    // pre-M5.1 boots) the checks are skipped so existing clients (incl. Node
+    // `ws`, which sends no `Origin`) keep working. Origin is present-only: a
+    // missing `Origin` is treated as a non-browser client and allowed.
+    const hostCheck = this.options.hostCheck;
+    if (hostCheck !== undefined && !isAllowedHost(req.headers.host, hostCheck)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    const allowedOrigins = this.options.allowedOrigins;
+    if (
+      allowedOrigins !== undefined &&
+      !isOriginAllowed(req.headers.origin, req.headers.host, allowedOrigins)
+    ) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
     }
