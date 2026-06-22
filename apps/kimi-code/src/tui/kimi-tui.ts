@@ -146,6 +146,7 @@ export type {
 
 export interface KimiTUIStartupInput {
   readonly cliOptions: CLIOptions;
+  readonly additionalDirs?: readonly string[];
   readonly tuiConfig: TuiConfig;
   readonly version: string;
   readonly workDir: string;
@@ -157,6 +158,14 @@ export interface KimiTUIStartupInput {
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
 
+function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+type MutableCreateSessionOptions = {
+  -readonly [P in keyof CreateSessionOptions]: CreateSessionOptions[P];
+};
+
 function createInitialAppState(input: KimiTUIStartupInput): AppState {
   const startupPermission: PermissionMode = input.cliOptions.auto
     ? 'auto'
@@ -166,6 +175,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
   return {
     model: '',
     workDir: input.workDir,
+    additionalDirs: [...(input.additionalDirs ?? [])],
     sessionId: '',
     permissionMode: startupPermission,
     planMode: input.cliOptions.plan,
@@ -334,8 +344,19 @@ export class KimiTUI {
       slashCommands,
       this.state.appState.workDir,
       this.fdPath,
+      this.state.appState.additionalDirs,
     );
     this.state.editor.setAutocompleteProvider(provider);
+
+    const argumentHints = new Map<string, string>();
+    for (const cmd of slashCommands) {
+      if (cmd.argumentHint === undefined) continue;
+      argumentHints.set(cmd.name, cmd.argumentHint);
+      for (const alias of cmd.aliases ?? []) {
+        argumentHints.set(alias, cmd.argumentHint);
+      }
+    }
+    this.state.editor.setArgumentHints(argumentHints);
   }
 
   refreshSlashCommandAutocomplete(): void {
@@ -555,12 +576,15 @@ export class KimiTUI {
     let session: Session | undefined;
     let shouldReplayHistory = false;
     const isResumeStartup = startup.sessionFlag !== undefined || startup.continueLast;
-    const createSessionOptions: CreateSessionOptions = {
+    const createSessionOptions: MutableCreateSessionOptions = {
       workDir,
       model: startup.model,
       permission: startup.auto ? 'auto' : startup.yolo ? 'yolo' : undefined,
       planMode: startup.plan ? true : undefined,
     };
+    if (this.state.appState.additionalDirs.length > 0) {
+      createSessionOptions.additionalDirs = [...this.state.appState.additionalDirs];
+    }
 
     try {
       if (isResumeStartup) {
@@ -591,13 +615,19 @@ export class KimiTUI {
               `Session "${startup.sessionFlag}" was created under a different directory.`,
             );
           }
-          session = await this.harness.resumeSession({ id: startup.sessionFlag });
+          session = await this.harness.resumeSession({
+            id: startup.sessionFlag,
+            additionalDirs: createSessionOptions.additionalDirs,
+          });
           shouldReplayHistory = true;
         } else {
           const sessions = await this.harness.listSessions({ workDir });
           const target = sessions[0];
           if (target !== undefined) {
-            session = await this.harness.resumeSession({ id: target.id });
+            session = await this.harness.resumeSession({
+              id: target.id,
+              additionalDirs: createSessionOptions.additionalDirs,
+            });
             shouldReplayHistory = true;
           } else {
             session = await this.harness.createSession(createSessionOptions);
@@ -1041,6 +1071,9 @@ export class KimiTUI {
 
   setAppState(patch: Partial<AppState>): void {
     if (!hasPatchChanges(this.state.appState, patch)) return;
+    const additionalDirsChanged =
+      'additionalDirs' in patch &&
+      !sameStringArrays(this.state.appState.additionalDirs, patch.additionalDirs ?? []);
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
     Object.assign(this.state.appState, patch);
     if ('planMode' in patch) this.updateEditorBorderHighlight();
@@ -1050,6 +1083,7 @@ export class KimiTUI {
       this.updateQueueDisplay();
       this.sessionEventHandler.retryQueuedGoalPromotion();
     }
+    if (additionalDirsChanged) this.setupAutocomplete();
     this.state.ui.requestRender();
   }
 
@@ -1064,6 +1098,12 @@ export class KimiTUI {
     this.state.livePane = { ...INITIAL_LIVE_PANE };
     this.updateActivityPane();
     this.state.ui.requestRender();
+  }
+
+  private syncAdditionalDirs(session: Session): void {
+    const additionalDirs = session.summary?.additionalDirs ?? [];
+    if (sameStringArrays(this.state.appState.additionalDirs, additionalDirs)) return;
+    this.setAppState({ additionalDirs: [...additionalDirs] });
   }
 
   // =========================================================================
@@ -1082,14 +1122,18 @@ export class KimiTUI {
     if (model.length === 0) {
       throw new Error(LLM_NOT_SET_MESSAGE);
     }
-    return this.harness.createSession({
+    const options: MutableCreateSessionOptions = {
       workDir: this.state.appState.workDir,
       model,
       thinking:
         this.session === undefined ? undefined : this.state.appState.thinking ? 'on' : 'off',
       permission: this.state.appState.permissionMode,
       planMode: this.state.appState.planMode ? true : undefined,
-    });
+    };
+    if (this.state.appState.additionalDirs.length > 0) {
+      options.additionalDirs = [...this.state.appState.additionalDirs];
+    }
+    return this.harness.createSession(options);
   }
 
   async setSession(session: Session): Promise<void> {
@@ -1098,6 +1142,7 @@ export class KimiTUI {
     this.session = session;
     this.harness.setTelemetryContext({ sessionId: session.id });
     this.registerSessionHandlers(session);
+    this.syncAdditionalDirs(session);
   }
 
   async syncRuntimeState(session: Session = this.requireSession()): Promise<void> {
@@ -1115,6 +1160,7 @@ export class KimiTUI {
       sessionTitle: session.summary?.title ?? null,
       goal: goalResult.goal,
     });
+    this.syncAdditionalDirs(session);
   }
 
   // Apply --auto/--yolo/--plan startup flags to a resumed session. The resumed
