@@ -8,9 +8,9 @@ import {
 import { FlagResolver, type ExperimentalFlagResolver } from '../../../flags';
 import {
   estimateTokensForContentParts,
-  estimateTokensForMessages,
 } from '../../../utils/tokens';
 import { IContextMemory } from '../contextMemory/contextMemory';
+import { IContextUsageService } from '../contextUsage/contextUsage';
 import { IEventBus } from '../eventBus/eventBus';
 import type { ContextMessage } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
@@ -43,6 +43,7 @@ export class MicroCompactionService
   constructor(
     private readonly options: MicroCompactionServiceOptions = {},
     @IContextMemory private readonly context: IContextMemory,
+    @IContextUsageService private readonly contextUsage: IContextUsageService,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
   ) {
@@ -97,7 +98,7 @@ export class MicroCompactionService
     if (cacheAgeMs < this.config.cacheMissedThresholdMs) return;
 
     const history = this.context.getHistory();
-    if (this.contextUsageRatio(history) < this.config.minContextUsageRatio) return;
+    if (this.contextUsageRatio() < this.config.minContextUsageRatio) return;
 
     const previousCutoff = this.cutoff;
     const nextCutoff = Math.max(0, history.length - this.config.keepRecentMessages);
@@ -106,7 +107,7 @@ export class MicroCompactionService
 
     const effect = this.measureEffect(history, nextCutoff);
     const previousEffect = this.measureEffect(history, previousCutoff);
-    const rawContextTokens = estimateTokensForMessages(history);
+    const rawContextTokens = this.contextUsage.getStatus().contextTokensWithPending;
     const properties: MicroCompactionTelemetryProperties = {
       ...this.config,
       ...effect,
@@ -177,10 +178,10 @@ export class MicroCompactionService
     );
   }
 
-  private contextUsageRatio(messages: readonly ContextMessage[]): number {
+  private contextUsageRatio(): number {
     const maxContextTokens = this.options.maxContextTokens?.();
     if (maxContextTokens === undefined || maxContextTokens <= 0) return 1;
-    return estimateTokensForMessages(messages) / maxContextTokens;
+    return this.contextUsage.getStatus().contextTokensWithPending / maxContextTokens;
   }
 
   private measureEffect(
