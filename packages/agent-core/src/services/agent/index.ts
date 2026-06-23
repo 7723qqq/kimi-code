@@ -15,7 +15,11 @@ export type {
   Tool,
   ToolCall,
   ToolDefinition,
+  ToolExecutionContext,
+  ToolInfo,
+  ToolOutput,
   ToolResult,
+  ToolSource,
   Turn,
   TurnResult,
   TurnStepContext,
@@ -38,10 +42,18 @@ export { ContextProjectorService } from './contextProjector/contextProjectorServ
 export { ILoopService } from './loop/loop';
 export { LoopService } from './loop/loopService';
 
-export { IToolRegistry } from './toolRegistry/toolRegistry';
-export { ToolRegistryService } from './toolRegistry/toolRegistryService';
+export {
+  IToolRegistry,
+  type ToolRegistrationOptions,
+} from './toolRegistry/toolRegistry';
+export {
+  ToolRegistryService,
+} from './toolRegistry/toolRegistryService';
 
-export { IToolExecutor } from './toolExecutor/toolExecutor';
+export { IToolStoreService } from './toolStore/toolStore';
+export { ToolStoreService } from './toolStore/toolStoreService';
+
+export { IToolExecutor, type ToolExecutorOptions } from './toolExecutor/toolExecutor';
 export { ToolExecutorService } from './toolExecutor/toolExecutorService';
 
 export { ILLMRequester } from './llmRequester/llmRequester';

@@ -1,4 +1,5 @@
 import type {
+  ContentPart,
   FinishReason,
   Message,
   StreamedMessagePart,
@@ -8,7 +9,12 @@ import type {
 } from '@moonshot-ai/kosong';
 
 import type { ContextMessage } from '../../agent/context';
+import type {
+  ExecutableToolContext,
+  ToolExecution as LoopToolExecution,
+} from '../../loop';
 import type { LLMRequestLogFields } from '../../loop';
+import type { ToolInputDisplay } from '../../tools/display';
 
 export type { ContextMessage };
 
@@ -62,14 +68,19 @@ export interface TurnStepContext {
   continueTurn: boolean;
 }
 
+export type ToolSource = 'builtin' | 'user' | 'mcp';
+
 export interface ToolDefinition {
   readonly name: string;
   readonly description: string;
   readonly parameters?: Record<string, unknown>;
+  readonly source?: ToolSource;
+  readonly info?: Record<string, unknown>;
 }
 
 export interface Tool extends ToolDefinition {
-  execute(call: ToolCall): Promise<ToolResult> | ToolResult;
+  execute?(call: ToolCall, context: ToolExecutionContext): Promise<ToolResult> | ToolResult;
+  resolveExecution?(args: unknown): Promise<LoopToolExecution> | LoopToolExecution;
 }
 
 export interface ToolCall {
@@ -79,7 +90,25 @@ export interface ToolCall {
   readonly raw?: KosongToolCall;
 }
 
+export type ToolOutput = string | ContentPart[];
+
 export interface ToolResult {
-  readonly output: string;
+  readonly output: ToolOutput;
   readonly isError?: boolean;
+  readonly message?: string;
+  readonly description?: string;
+  readonly display?: ToolInputDisplay;
+  readonly approvalRule?: string;
+  readonly stopTurn?: boolean;
+  readonly stopBatchAfterThis?: boolean;
+}
+
+export interface ToolExecutionContext extends ExecutableToolContext {
+  readonly call: ToolCall;
+  readonly args: unknown;
+}
+
+export interface ToolInfo extends ToolDefinition {
+  readonly active: boolean;
+  readonly source: ToolSource;
 }

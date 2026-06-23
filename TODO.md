@@ -67,16 +67,16 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## ToolRegistry / ToolExecutor
 
-- [ ] Initialize builtin tools.
-- [ ] Implement user tool registration, unregistration, records, and RPC execution.
-- [ ] Implement MCP tool registration, status watching, auth tools, collisions, and qualified names.
-- [ ] Track active tools and profile gating consistently.
-- [ ] Emit tool list updates.
-- [ ] Preserve tool source and tool info metadata.
-- [ ] Implement tool store behavior.
-- [ ] Support `resolveExecution`, approval rules, displays, and synthetic results.
-- [ ] Validate schemas and canonicalize tool args.
-- [ ] Preserve existing tool error semantics.
+- [ ] Initialize builtin tools outside `IToolRegistry`.
+- [ ] Implement user tool registration, records, and RPC execution outside `IToolRegistry`.
+- [ ] Implement MCP tool registration, status watching, auth tools, collisions, and qualified names outside `IToolRegistry`.
+- [ ] Track active tools and profile gating outside `IToolRegistry`.
+- [x] Emit tool list updates.
+- [x] Preserve tool source and tool info metadata.
+- [x] Implement tool store behavior in `ToolStoreService`.
+- [x] Support `resolveExecution`, approval rules, displays, and synthetic results.
+- [x] Validate schemas and canonicalize tool args.
+- [x] Preserve existing tool error semantics.
 
 ## PlanMode
 

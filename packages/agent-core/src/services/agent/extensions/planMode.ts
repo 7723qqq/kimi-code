@@ -37,22 +37,26 @@ export class PlanMode extends Disposable {
       }),
     );
 
-    toolRegistry.register({
-      name: 'EnterPlanMode',
-      description: 'Enter plan mode.',
-      execute: async () => {
-        this.active = true;
-        return { output: 'Plan mode entered.' };
-      },
-    });
-    toolRegistry.register({
-      name: 'ExitPlanMode',
-      description: 'Exit plan mode.',
-      execute: async () => {
-        this.active = false;
-        return { output: 'Plan mode exited.' };
-      },
-    });
+    this._register(
+      toolRegistry.register({
+        name: 'EnterPlanMode',
+        description: 'Enter plan mode.',
+        execute: async () => {
+          this.active = true;
+          return { output: 'Plan mode entered.' };
+        },
+      }),
+    );
+    this._register(
+      toolRegistry.register({
+        name: 'ExitPlanMode',
+        description: 'Exit plan mode.',
+        execute: async () => {
+          this.active = false;
+          return { output: 'Plan mode exited.' };
+        },
+      }),
+    );
 
     let wasActive = false;
     this._register(

@@ -1,12 +1,15 @@
-import { createDecorator } from '../../../di';
+import { createDecorator, type IDisposable } from '../../../di';
 
 import type { Hooks } from '../hooks';
-import type { Tool, ToolDefinition } from '../types';
+import type { Tool, ToolInfo, ToolSource } from '../types';
+
+export interface ToolRegistrationOptions {
+  readonly source?: ToolSource;
+}
 
 export interface IToolRegistry {
-  register(tool: Tool): void;
-  unregister(name: string): boolean;
-  list(): readonly ToolDefinition[];
+  register(tool: Tool, options?: ToolRegistrationOptions): IDisposable;
+  list(): readonly ToolInfo[];
   resolve(name: string): Tool | undefined;
 
   readonly hooks: Hooks<{
