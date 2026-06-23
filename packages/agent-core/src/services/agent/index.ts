@@ -117,8 +117,10 @@ export {
 export {
   Cron,
   type CronFireOptions,
+  type CronOptions,
+  type CronPersistence,
   type CronTaskInit,
-} from './extensions/cron';
+} from './cron/cron';
 export { Skill, type SkillActivationInput } from './extensions/skill';
 export {
   IFullCompaction,

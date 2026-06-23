@@ -144,11 +144,11 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## Cron
 
-- [ ] Add disk loading and scheduling timers.
-- [ ] Add cron record/replay behavior.
-- [ ] Keep cron disabled for subagents.
+- [x] Add disk loading and scheduling timers.
+- [x] Add cron record/replay behavior.
+- [x] Keep cron disabled for subagents.
 - [ ] Integrate with background/session lifecycle.
-- [ ] Restore full coalescing and next-run handling.
+- [x] Restore full coalescing and next-run handling.
 - [ ] Revisit cron `steer()` behavior after PromptService/TurnRunner settle.
 
 ## Skill
