@@ -60,7 +60,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [ ] Retry loop steps after full compaction handles context overflow.
 - [ ] Wait for MCP initial load before model steps.
 - [ ] Wire prepare/authorize/finalize tool hooks for permission, synthetic results, dedup, and PostToolUse.
-- [ ] Add tool lifecycle telemetry.
+- [x] Add tool lifecycle telemetry.
 - [x] Make streamed tool-call collection handle indexed/interleaved tool-call parts.
 
 ## LLMRequester
