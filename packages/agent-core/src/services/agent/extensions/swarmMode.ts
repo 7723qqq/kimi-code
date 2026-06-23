@@ -3,6 +3,7 @@ import SWARM_MODE_EXIT_REMINDER from '../../../agent/swarm/exit-reminder.md?raw'
 
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IEventBus } from '../eventBus/eventBus';
+import { ITurnRunner } from '../turnRunner/turnRunner';
 import type { ContextMessage } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
 
@@ -30,12 +31,19 @@ export class SwarmMode {
     @IContextMemory private readonly context: IContextMemory,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
+    @ITurnRunner turnRunner?: ITurnRunner,
   ) {
     wireRecord.register('swarm_mode.enter', (record) => {
-      this.applyEnter(record.trigger, false);
+      this.restoreEnter(record.trigger);
     });
     wireRecord.register('swarm_mode.exit', () => {
       this.applyExit(false);
+    });
+    turnRunner?.hooks.onEnded.register('swarm-mode-auto-exit', async (_ctx, next) => {
+      await next();
+      if (this.shouldAutoExit) {
+        this.exit();
+      }
     });
   }
 
@@ -49,6 +57,14 @@ export class SwarmMode {
     if (this._active === null) return;
     this.wireRecord.append({ type: 'swarm_mode.exit' });
     this.applyExit(true);
+  }
+
+  restoreEnter(trigger: SwarmModeTrigger): void {
+    this.applyEnter(trigger, false);
+  }
+
+  data(): boolean {
+    return this.isActive;
   }
 
   get active(): SwarmModeTrigger | null {
@@ -69,7 +85,7 @@ export class SwarmMode {
     if (injectReminder && trigger !== 'tool') {
       this.appendSystemReminder(SWARM_MODE_ENTER_REMINDER, 'swarm_mode');
     }
-    this.events.emit({ type: 'swarm_mode.changed', active: this._active });
+    this.emitChanged();
   }
 
   private applyExit(injectExitReminder: boolean): void {
@@ -79,7 +95,12 @@ export class SwarmMode {
     if (injectExitReminder && trigger !== 'tool' && !this.removeLastSwarmReminder()) {
       this.appendSystemReminder(SWARM_MODE_EXIT_REMINDER, 'swarm_mode_exit');
     }
+    this.emitChanged();
+  }
+
+  private emitChanged(): void {
     this.events.emit({ type: 'swarm_mode.changed', active: this._active });
+    this.events.emit({ type: 'agent.status.updated', swarmMode: this.isActive });
   }
 
   private appendSystemReminder(content: string, variant: string): void {

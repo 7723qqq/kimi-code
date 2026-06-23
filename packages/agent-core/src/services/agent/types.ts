@@ -18,7 +18,14 @@ import type { ToolInputDisplay } from '../../tools/display';
 
 export type { ContextMessage };
 
-export interface AgentEventMap {}
+export interface AgentStatusUpdatedPatch {
+  readonly planMode?: boolean;
+  readonly swarmMode?: boolean;
+}
+
+export interface AgentEventMap {
+  'agent.status.updated': AgentStatusUpdatedPatch;
+}
 
 export type AgentEvent<K extends keyof AgentEventMap = keyof AgentEventMap> = {
   [T in K]: { readonly type: T } & Readonly<AgentEventMap[T]>;
@@ -66,6 +73,11 @@ export interface Turn {
 export interface TurnStepContext {
   readonly turn: Turn;
   continueTurn: boolean;
+}
+
+export interface TurnEndedContext {
+  readonly turn: Turn;
+  readonly result: TurnResult;
 }
 
 export type ToolSource = 'builtin' | 'user' | 'mcp';

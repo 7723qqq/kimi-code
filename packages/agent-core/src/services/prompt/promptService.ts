@@ -213,7 +213,7 @@ function isTurnEnded(e: Event): e is Event & {
 /**
  * Type guard for `agent.status.updated` agent-core events. Carries the
  * subset of fields we mirror into the per-session shadow on every live
- * change (model / permission / planMode). `thinkingLevel` is NOT on this
+ * change (model / permission / planMode / swarmMode). `thinkingLevel` is NOT on this
  * event — bootstrap seeds it from `getConfig` and per-request diff dispatch
  * keeps it in sync from there.
  */
@@ -222,6 +222,7 @@ function isAgentStatusUpdated(e: Event): e is Event & {
   model?: string;
   permission?: PermissionMode;
   planMode?: boolean;
+  swarmMode?: boolean;
 } {
   return (e as { type?: string }).type === 'agent.status.updated';
 }
@@ -783,7 +784,7 @@ export class PromptService
 
     // Mirror live `agent.status.updated` into the per-session shadow. This
     // keeps the shadow honest when out-of-band callers (TUI / SDK / agent
-    // itself) mutate `model` / `permission` / `planMode` between prompts.
+    // itself) mutate `model` / `permission` / `planMode` / `swarmMode` between prompts.
     // Only fields present on the event update the shadow — `thinking` is
     // not carried here and stays whatever the last `setThinking` (or
     // bootstrap getConfig) put there.
@@ -793,6 +794,7 @@ export class PromptService
         if (event.model !== undefined) shadow.model = event.model;
         if (event.permission !== undefined) shadow.permissionMode = event.permission;
         if (event.planMode !== undefined) shadow.planMode = event.planMode;
+        if (event.swarmMode !== undefined) shadow.swarmMode = event.swarmMode;
       }
       // status events are also published normally; fall through to allow
       // other event-type handlers below — but there's no overlap today.

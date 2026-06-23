@@ -50,9 +50,6 @@ declare module '../types' {
       planId: string | null;
       planFilePath: PlanFilePath;
     };
-    'agent.status.updated': {
-      planMode?: boolean;
-    };
   }
 }
 

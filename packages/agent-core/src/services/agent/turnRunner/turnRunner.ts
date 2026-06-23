@@ -1,7 +1,7 @@
 import { createDecorator } from '../../../di';
 
 import type { Hooks } from '../hooks';
-import type { Turn, TurnStepContext } from '../types';
+import type { Turn, TurnEndedContext, TurnStepContext } from '../types';
 
 export interface ITurnRunner {
   launch(): Turn;
@@ -9,6 +9,7 @@ export interface ITurnRunner {
 
   readonly hooks: Hooks<{
     onLaunched: { turn: Turn };
+    onEnded: TurnEndedContext;
     beforeStep: TurnStepContext;
     afterStep: TurnStepContext;
   }>;

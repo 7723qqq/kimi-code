@@ -126,12 +126,12 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## SwarmMode
 
-- [ ] Align records and events with current status/RPC behavior.
-- [ ] Emit status updates.
-- [ ] Add data/RPC-facing state output.
-- [ ] Auto-exit at turn end for task/tool triggers.
-- [ ] Restore tool/task/permission integration.
-- [ ] Verify replay restore behavior.
+- [x] Align records and events with current status/RPC behavior.
+- [x] Emit status updates.
+- [x] Add data/RPC-facing state output.
+- [x] Auto-exit at turn end for task/tool triggers.
+- [ ] Restore tool/task/permission integration. (permission deferred)
+- [x] Verify replay restore behavior.
 
 ## Background
 

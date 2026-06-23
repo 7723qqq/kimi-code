@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { registerSingleton, SyncDescriptor } from '../../../di';
 import { OrderedHookSlot } from '../hooks';
 import { ILoopService } from '../loop/loop';
-import type { Turn, TurnResult, TurnStepContext } from '../types';
+import type { Turn, TurnEndedContext, TurnResult, TurnStepContext } from '../types';
 import { IUsageService } from '../usage/usage';
 import { ITurnRunner } from './turnRunner';
 
@@ -12,6 +12,7 @@ export class TurnRunnerService implements ITurnRunner {
 
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
+    onEnded: new OrderedHookSlot<TurnEndedContext>(),
     beforeStep: new OrderedHookSlot<TurnStepContext>(),
     afterStep: new OrderedHookSlot<TurnStepContext>(),
   };
@@ -53,29 +54,36 @@ export class TurnRunnerService implements ITurnRunner {
     ready: ControlledPromise<void>,
   ): Promise<TurnResult> {
     let readySettled = false;
+    let result: TurnResult | undefined;
     try {
       this.usage.beginTurn();
       if (!readySettled) {
         ready.resolve();
         readySettled = true;
       }
-      return await this.loop.runTurn(turn, {
+      result = await this.loop.runTurn(turn, {
         beforeStep: this.hooks.beforeStep,
         afterStep: this.hooks.afterStep,
       });
+      return result;
     } catch (error) {
       if (turn.abortController.signal.aborted) {
         if (!readySettled) {
           ready.resolve();
         }
-        return { reason: 'cancelled', error: turn.abortController.signal.reason };
+        result = { reason: 'cancelled', error: turn.abortController.signal.reason };
+        return result;
       }
       if (!readySettled) {
         ready.reject(error);
       }
-      return { reason: 'failed', error };
+      result = { reason: 'failed', error };
+      return result;
     } finally {
       this.usage.endTurn();
+      if (result !== undefined) {
+        await this.hooks.onEnded.run({ turn, result });
+      }
     }
   }
 }
