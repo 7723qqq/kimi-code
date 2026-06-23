@@ -18,6 +18,7 @@ export type {
   ToolResult,
   Turn,
   TurnResult,
+  TurnStepContext,
   WireRecord,
   WireRecordMap,
 } from './types';
