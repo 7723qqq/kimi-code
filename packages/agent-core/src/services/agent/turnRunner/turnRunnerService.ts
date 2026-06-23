@@ -1,11 +1,21 @@
 import { randomUUID } from 'node:crypto';
 
 import { registerSingleton, SyncDescriptor } from '../../../di';
+import { IEventBus } from '../eventBus/eventBus';
 import { OrderedHookSlot } from '../hooks';
 import { ILoopService } from '../loop/loop';
+import { IMicroCompactionService } from '../microCompaction/microCompaction';
 import type { Turn, TurnEndedContext, TurnResult, TurnStepContext } from '../types';
 import { IUsageService } from '../usage/usage';
 import { ITurnRunner } from './turnRunner';
+
+declare module '../types' {
+  interface AgentEventMap {
+    'turn.before_step': {
+      turnId: string;
+    };
+  }
+}
 
 export class TurnRunnerService implements ITurnRunner {
   private activeTurn: Turn | undefined;
@@ -20,7 +30,14 @@ export class TurnRunnerService implements ITurnRunner {
   constructor(
     @ILoopService private readonly loop: ILoopService,
     @IUsageService private readonly usage: IUsageService,
-  ) {}
+    @IEventBus private readonly events: IEventBus,
+    @IMicroCompactionService _microCompaction: IMicroCompactionService,
+  ) {
+    this.hooks.beforeStep.register('turn-before-step-event', async (ctx, next) => {
+      this.events.emit({ type: 'turn.before_step', turnId: ctx.turn.id });
+      await next();
+    });
+  }
 
   launch(): Turn {
     if (this.activeTurn !== undefined) {

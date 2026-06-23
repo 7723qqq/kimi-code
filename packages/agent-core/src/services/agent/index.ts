@@ -56,6 +56,15 @@ export { ContextMemoryService } from './contextMemory/contextMemoryService';
 export { IContextProjector } from './contextProjector/contextProjector';
 export { ContextProjectorService } from './contextProjector/contextProjectorService';
 
+export {
+  IMicroCompactionService,
+  type MicroCompactionConfig,
+  type MicroCompactionEffect,
+  type MicroCompactionServiceOptions,
+  type MicroCompactionTelemetryProperties,
+} from './microCompaction/microCompaction';
+export { MicroCompactionService } from './microCompaction/microCompactionService';
+
 export { ILoopService } from './loop/loop';
 export { LoopService } from './loop/loopService';
 

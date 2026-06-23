@@ -120,9 +120,9 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## MicroCompaction
 
-- [ ] Restore detect/reset state.
-- [ ] Bind reset to clear, undo, and full compaction lifecycle.
-- [ ] Match the current micro-compaction strategy instead of simple old tool-result truncation only.
+- [x] Restore detect/reset state.
+- [x] Bind reset to clear, undo, and full compaction lifecycle.
+- [x] Match the current micro-compaction strategy instead of simple old tool-result truncation only.
 
 ## SwarmMode
 
