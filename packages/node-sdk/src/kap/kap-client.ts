@@ -23,6 +23,7 @@ import { contextHandlers } from './handlers/context';
 import { metaHandlers } from './handlers/meta';
 import { promptHandlers } from './handlers/prompts';
 import { resumeHandlers } from './handlers/resume';
+import { serviceHandlers } from './handlers/services';
 import { sessionHandlers } from './handlers/sessions';
 import { KapHttpClient } from './http-client';
 import { handleReverseRequest } from './reverse-channel';
@@ -237,6 +238,7 @@ export class SDKKapClient extends SDKRpcClientBase {
       ...resumeHandlers,
       ...promptHandlers,
       ...contextHandlers,
+      ...serviceHandlers,
     };
   }
 }
