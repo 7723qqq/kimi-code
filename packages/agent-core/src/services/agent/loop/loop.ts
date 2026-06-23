@@ -1,9 +1,18 @@
 import { createDecorator } from '../../../di';
 
-import type { LoopRecordedEvent } from '../../../loop';
+import type { Turn, TurnResult, TurnStepContext } from '../types';
+
+export interface LoopRunHook<TContext> {
+  run(context: TContext): Promise<void>;
+}
+
+export interface LoopRunHooks {
+  readonly beforeStep: LoopRunHook<TurnStepContext>;
+  readonly afterStep: LoopRunHook<TurnStepContext>;
+}
 
 export interface ILoopService {
-  handleEvent(event: LoopRecordedEvent): void;
+  runTurn(turn: Turn, hooks?: LoopRunHooks): Promise<TurnResult>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
