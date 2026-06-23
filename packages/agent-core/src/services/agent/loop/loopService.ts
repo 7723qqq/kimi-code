@@ -80,6 +80,25 @@ declare module '../types' {
       name?: string;
       argumentsPart?: string;
     };
+    'tool.call.started': {
+      turnId: number;
+      toolCallId: string;
+      name: string;
+      args: unknown;
+      description?: string;
+      display?: Extract<LoopEvent, { type: 'tool.call' }>['display'];
+    };
+    'tool.progress': {
+      turnId: number;
+      toolCallId: string;
+      update: Extract<LoopEvent, { type: 'tool.progress' }>['update'];
+    };
+    'tool.result': {
+      turnId: number;
+      toolCallId: string;
+      output: Extract<LoopEvent, { type: 'tool.result' }>['result']['output'];
+      isError?: boolean;
+    };
   }
 }
 
@@ -240,6 +259,36 @@ export class LoopService extends Disposable implements ILoopService {
           toolCallId: event.toolCallId,
           name: event.name,
           argumentsPart: event.argumentsPart,
+        });
+        return;
+      case 'tool.call':
+        this.events.emit({
+          type: 'tool.call.started',
+          turnId: Number(event.turnId),
+          toolCallId: event.toolCallId,
+          name: event.name,
+          args: event.args,
+          description: event.description,
+          display: event.display,
+        });
+        return;
+      case 'tool.progress':
+        if (this.protocolTurnId === undefined) return;
+        this.events.emit({
+          type: 'tool.progress',
+          turnId: this.protocolTurnId,
+          toolCallId: event.toolCallId,
+          update: event.update,
+        });
+        return;
+      case 'tool.result':
+        if (this.protocolTurnId === undefined) return;
+        this.events.emit({
+          type: 'tool.result',
+          turnId: this.protocolTurnId,
+          toolCallId: event.toolCallId,
+          output: event.result.output,
+          isError: event.result.isError,
         });
         return;
       default:
