@@ -67,6 +67,11 @@ export interface Turn {
   readonly result: Promise<TurnResult>;
 }
 
+export interface TurnStepContext {
+  readonly turn: Turn;
+  continueTurn: boolean;
+}
+
 export interface ToolDefinition {
   readonly name: string;
   readonly description: string;

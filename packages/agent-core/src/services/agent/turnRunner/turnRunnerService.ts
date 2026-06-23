@@ -18,7 +18,14 @@ import { OrderedHookSlot } from '../hooks';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { ILLMRequester } from '../llmRequester/llmRequester';
 import { IToolExecutor } from '../toolExecutor/toolExecutor';
-import type { ContextMessage, LLMEvent, ToolCall, Turn, TurnResult } from '../types';
+import type {
+  ContextMessage,
+  LLMEvent,
+  ToolCall,
+  Turn,
+  TurnResult,
+  TurnStepContext,
+} from '../types';
 import { ITurnRunner } from './turnRunner';
 
 export class TurnRunnerService implements ITurnRunner {
@@ -26,8 +33,8 @@ export class TurnRunnerService implements ITurnRunner {
 
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
-    beforeStep: new OrderedHookSlot<{ turn: Turn }>(),
-    afterStep: new OrderedHookSlot<{ turn: Turn }>(),
+    beforeStep: new OrderedHookSlot<TurnStepContext>(),
+    afterStep: new OrderedHookSlot<TurnStepContext>(),
   };
 
   constructor(
@@ -69,47 +76,59 @@ export class TurnRunnerService implements ITurnRunner {
     turn: Turn,
     ready: ControlledPromise<void>,
   ): Promise<TurnResult> {
+    let readySettled = false;
     try {
       this.usage.beginTurn();
-      await this.hooks.beforeStep.run({ turn });
-      const collector = new LLMEventCollector();
-      const stream = this.llmRequester.request(undefined, turn.abortController.signal);
-      ready.resolve();
-
-      for await (const event of stream) {
-        turn.abortController.signal.throwIfAborted();
-        if (event.type === 'usage') {
-          this.usage.record(
-            event.model ?? this.profile.data().modelAlias ?? 'unknown',
-            event.usage,
-            'turn',
-          );
+      while (true) {
+        const stepContext: TurnStepContext = { turn, continueTurn: false };
+        await this.hooks.beforeStep.run(stepContext);
+        const collector = new LLMEventCollector();
+        const stream = this.llmRequester.request(undefined, turn.abortController.signal);
+        if (!readySettled) {
+          ready.resolve();
+          readySettled = true;
         }
-        collector.accept(event);
-      }
 
-      const assistant = collector.toAssistantMessage();
-      if (assistant.content.length > 0 || assistant.toolCalls.length > 0) {
-        this.appendMessage(assistant);
-      }
-      for (const toolCall of assistant.toolCalls) {
-        const result = await this.toolExecutor.execute(toToolCall(toolCall));
-        const toolMessage = createToolMessage(toolCall.id, result.output);
-        this.appendMessage({
-          ...toolMessage,
-          role: 'tool',
-          isError: result.isError,
-        });
-      }
+        for await (const event of stream) {
+          turn.abortController.signal.throwIfAborted();
+          if (event.type === 'usage') {
+            this.usage.record(
+              event.model ?? this.profile.data().modelAlias ?? 'unknown',
+              event.usage,
+              'turn',
+            );
+          }
+          collector.accept(event);
+        }
 
-      await this.hooks.afterStep.run({ turn });
+        const assistant = collector.toAssistantMessage();
+        if (assistant.content.length > 0 || assistant.toolCalls.length > 0) {
+          this.appendMessage(assistant);
+        }
+        for (const toolCall of assistant.toolCalls) {
+          const result = await this.toolExecutor.execute(toToolCall(toolCall));
+          const toolMessage = createToolMessage(toolCall.id, result.output);
+          this.appendMessage({
+            ...toolMessage,
+            role: 'tool',
+            isError: result.isError,
+          });
+        }
+
+        await this.hooks.afterStep.run(stepContext);
+        if (!stepContext.continueTurn) break;
+      }
       return { reason: 'completed' };
     } catch (error) {
       if (turn.abortController.signal.aborted) {
-        ready.resolve();
+        if (!readySettled) {
+          ready.resolve();
+        }
         return { reason: 'cancelled', error: turn.abortController.signal.reason };
       }
-      ready.reject(error);
+      if (!readySettled) {
+        ready.reject(error);
+      }
       return { reason: 'failed', error };
     } finally {
       this.usage.endTurn();
