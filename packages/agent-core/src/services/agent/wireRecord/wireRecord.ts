@@ -4,14 +4,58 @@ import type { IDisposable } from '../../../di';
 import type { Hooks } from '../hooks';
 import type { WireRecord, WireRecordMap } from '../types';
 
+export interface WireRecordMetadata {
+  readonly type: 'metadata';
+  readonly protocol_version: string;
+  readonly created_at: number;
+  readonly time?: number;
+}
+
+export type PersistedWireRecord = WireRecord | WireRecordMetadata;
+
+export interface WireRecordPersistence {
+  read(): AsyncIterable<PersistedWireRecord>;
+  append(input: PersistedWireRecord): void;
+  rewrite(records: readonly PersistedWireRecord[]): void;
+  flush(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export interface WireRecordRestoringContext {
+  readonly time?: number;
+}
+
+export interface WireRecordRestoreOptions {
+  readonly rewriteMigratedRecords?: boolean;
+}
+
+export interface WireRecordRestoreResult {
+  readonly warning?: string;
+}
+
+export interface WireRecordServiceOptions {
+  readonly homedir?: string;
+  readonly persistence?: WireRecordPersistence;
+  readonly onPersistenceError?: (
+    error: unknown,
+    record?: PersistedWireRecord,
+  ) => void;
+}
+
 export interface IWireRecord {
-  readonly restoring: boolean;
+  readonly restoring: WireRecordRestoringContext | null;
 
   append(record: WireRecord): void;
   register<T extends keyof WireRecordMap>(
     type: T,
     resumer: (data: WireRecord<T>) => void | Promise<void>,
   ): IDisposable;
+  restore(
+    records?: readonly PersistedWireRecord[],
+    options?: WireRecordRestoreOptions,
+  ): Promise<WireRecordRestoreResult>;
+  flush(): Promise<void>;
+  close(): Promise<void>;
 
   readonly hooks: Hooks<{
     onResumeEnded: {};

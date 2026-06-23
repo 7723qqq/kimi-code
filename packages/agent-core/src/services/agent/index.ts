@@ -31,7 +31,24 @@ export { IEventBus } from './eventBus/eventBus';
 export { EventBusService } from './eventBus/eventBusService';
 
 export { IWireRecord } from './wireRecord/wireRecord';
+export type {
+  PersistedWireRecord,
+  WireRecordMetadata,
+  WireRecordPersistence,
+  WireRecordRestoreOptions,
+  WireRecordRestoreResult,
+  WireRecordRestoringContext,
+  WireRecordServiceOptions,
+} from './wireRecord/wireRecord';
 export { WireRecordService } from './wireRecord/wireRecordService';
+export {
+  FileSystemWireRecordPersistence,
+  InMemoryWireRecordPersistence,
+} from './wireRecord/persistence';
+export type {
+  FileSystemWireRecordPersistenceOptions,
+  InMemoryWireRecordPersistenceOptions,
+} from './wireRecord/persistence';
 
 export { IContextMemory } from './contextMemory/contextMemory';
 export { ContextMemoryService } from './contextMemory/contextMemoryService';

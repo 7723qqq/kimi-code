@@ -32,7 +32,7 @@ export class ProfileService implements IProfileService {
     @IEventBus private readonly events: IEventBus,
   ) {
     wireRecord.register('config.update', (record) => {
-      const { type: _type, ...changed } = record;
+      const { type: _type, time: _time, ...changed } = record;
       this.apply(changed);
     });
   }

@@ -27,7 +27,7 @@ export type AgentEvent<K extends keyof AgentEventMap = keyof AgentEventMap> = {
 export interface WireRecordMap {}
 
 export type WireRecord<K extends keyof WireRecordMap = keyof WireRecordMap> = {
-  [T in K]: { readonly type: T } & Readonly<WireRecordMap[T]>;
+  [T in K]: { readonly type: T; readonly time?: number } & Readonly<WireRecordMap[T]>;
 }[K];
 
 export interface LLMRequestOverrides {
