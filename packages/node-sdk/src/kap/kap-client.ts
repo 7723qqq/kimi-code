@@ -1,8 +1,12 @@
+
 import {
+  ErrorCodes,
+  KimiError,
   noopTelemetryClient,
   resolveConfigPath,
   resolveKimiHome,
   type CoreAPI,
+  type GoalSnapshot,
   type RPCMethods,
   type TelemetryClient,
 } from '@moonshot-ai/agent-core';
@@ -34,6 +38,7 @@ export class SDKKapClient extends SDKRpcClientBase {
   private readonly http: KapHttpClient;
   private readonly ws: KapWsClient;
   private readonly proxy: RPCMethods<CoreAPI>;
+  private readonly goalSnapshots = new Map<string, GoalSnapshot | null>();
 
   constructor(options: KimiHarnessOptions & { kap: NonNullable<KimiHarnessOptions['kap']> }) {
     super();
@@ -43,7 +48,13 @@ export class SDKKapClient extends SDKRpcClientBase {
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.http = new KapHttpClient(options.kap);
     this.ws = new KapWsClient(options.kap, {
-      onEvent: (event) => this.receiveEvent(event),
+      onEvent: (event) => {
+        if (event.type === 'goal.updated') {
+          const snapshot = (event as { snapshot?: GoalSnapshot | null }).snapshot ?? null;
+          this.goalSnapshots.set(event.sessionId, snapshot);
+        }
+        this.receiveEvent(event);
+      },
       onReverseRequest: (frame) =>
         void handleReverseRequest({ client: this, http: this.http }, frame),
     });
@@ -153,6 +164,63 @@ export class SDKKapClient extends SDKRpcClientBase {
       contextTokens: status.context_tokens,
       maxContextTokens: status.max_context_tokens,
       contextUsage: status.context_usage,
+    };
+  }
+
+  override async createGoal(input: { sessionId: string; objective: string; replace?: boolean }): Promise<GoalSnapshot> {
+    await this.http.post(`/sessions/${input.sessionId}/profile`, {
+      agent_config: { goal_objective: input.objective },
+    });
+    return this.goalSnapshots.get(input.sessionId) ?? this.emptyGoalSnapshot(input.objective);
+  }
+
+  override async getGoal(input: { sessionId: string }): Promise<{ goal: GoalSnapshot | null }> {
+    return { goal: this.goalSnapshots.get(input.sessionId) ?? null };
+  }
+
+  override async pauseGoal(input: { sessionId: string }): Promise<GoalSnapshot> {
+    await this.http.post(`/sessions/${input.sessionId}/profile`, { agent_config: { goal_control: 'pause' } });
+    return this.requireGoalSnapshot(input.sessionId);
+  }
+
+  override async resumeGoal(input: { sessionId: string }): Promise<GoalSnapshot> {
+    await this.http.post(`/sessions/${input.sessionId}/profile`, { agent_config: { goal_control: 'resume' } });
+    return this.requireGoalSnapshot(input.sessionId);
+  }
+
+  override async cancelGoal(input: { sessionId: string }): Promise<GoalSnapshot> {
+    await this.http.post(`/sessions/${input.sessionId}/profile`, { agent_config: { goal_control: 'cancel' } });
+    return this.requireGoalSnapshot(input.sessionId);
+  }
+
+  private requireGoalSnapshot(sessionId: string): GoalSnapshot {
+    const snapshot = this.goalSnapshots.get(sessionId);
+    if (snapshot === undefined || snapshot === null) {
+      throw new KimiError(ErrorCodes.GOAL_NOT_FOUND, `No goal snapshot cached for session ${sessionId}`);
+    }
+    return snapshot;
+  }
+
+  private emptyGoalSnapshot(objective: string): GoalSnapshot {
+    return {
+      goalId: '',
+      objective,
+      status: 'active',
+      turnsUsed: 0,
+      tokensUsed: 0,
+      wallClockMs: 0,
+      budget: {
+        tokenBudget: null,
+        turnBudget: null,
+        wallClockBudgetMs: null,
+        remainingTokens: null,
+        remainingTurns: null,
+        remainingWallClockMs: null,
+        tokenBudgetReached: false,
+        turnBudgetReached: false,
+        wallClockBudgetReached: false,
+        overBudget: false,
+      },
     };
   }
 
