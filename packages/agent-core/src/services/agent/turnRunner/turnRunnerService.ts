@@ -20,6 +20,8 @@ declare module '../types' {
 
 export class TurnRunnerService implements ITurnRunner {
   private activeTurn: Turn | undefined;
+  private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
+  private readonly readySettled = new WeakSet<Turn>();
 
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
@@ -37,6 +39,7 @@ export class TurnRunnerService implements ITurnRunner {
     this.hooks.beforeStep.register('turn-before-step-event', async (ctx, next) => {
       this.events.emit({ type: 'turn.before_step', turnId: ctx.turn.id });
       await next();
+      this.resolveReady(ctx.turn);
     });
   }
 
@@ -53,7 +56,9 @@ export class TurnRunnerService implements ITurnRunner {
       ready: ready.promise,
       result: Promise.resolve({ reason: 'failed' }),
     };
-    turn.result = this.runTurn(turn, ready).finally(() => {
+    this.readyControllers.set(turn, ready);
+    void ready.promise.catch(() => undefined);
+    turn.result = this.runTurn(turn).finally(() => {
       if (this.activeTurn === turn) {
         this.activeTurn = undefined;
       }
@@ -74,18 +79,10 @@ export class TurnRunnerService implements ITurnRunner {
     turn.abortController.abort(reason ?? userCancellationReason());
   }
 
-  private async runTurn(
-    turn: Turn,
-    ready: ControlledPromise<void>,
-  ): Promise<TurnResult> {
-    let readySettled = false;
+  private async runTurn(turn: Turn): Promise<TurnResult> {
     let result: TurnResult | undefined;
     try {
       this.usage.beginTurn();
-      if (!readySettled) {
-        ready.resolve();
-        readySettled = true;
-      }
       result = await this.loop.runTurn(turn, {
         beforeStep: this.hooks.beforeStep,
         afterStep: this.hooks.afterStep,
@@ -93,23 +90,34 @@ export class TurnRunnerService implements ITurnRunner {
       return result;
     } catch (error) {
       if (turn.abortController.signal.aborted) {
-        if (!readySettled) {
-          ready.resolve();
-        }
         result = { reason: 'cancelled', error: turn.abortController.signal.reason };
+        this.rejectReady(turn, turn.abortController.signal.reason);
         return result;
       }
-      if (!readySettled) {
-        ready.reject(error);
-      }
+      this.rejectReady(turn, error);
       result = { reason: 'failed', error };
       return result;
     } finally {
+      if (result !== undefined) {
+        this.rejectReady(turn, result);
+      }
       this.usage.endTurn();
       if (result !== undefined) {
         await this.hooks.onEnded.run({ turn, result });
       }
     }
+  }
+
+  private resolveReady(turn: Turn): void {
+    if (this.readySettled.has(turn)) return;
+    this.readySettled.add(turn);
+    this.readyControllers.get(turn)?.resolve();
+  }
+
+  private rejectReady(turn: Turn, reason: unknown): void {
+    if (this.readySettled.has(turn)) return;
+    this.readySettled.add(turn);
+    this.readyControllers.get(turn)?.reject(reason);
   }
 }
 
