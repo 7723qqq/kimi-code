@@ -7,7 +7,6 @@ import {
 } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import {
-  createKimiHarness,
   log,
   type Event,
   type GoalSnapshot,
@@ -20,6 +19,7 @@ import {
 import { resolve } from 'pathe';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS } from '#/constant/app';
+import { createTuiHarness } from '#/utils/create-tui-harness';
 
 import type { CLIOptions, PromptOutputFormat } from './options';
 import {
@@ -70,7 +70,7 @@ export async function runPrompt(
     withContext: withTelemetryContext,
     setContext: setTelemetryContext,
   };
-  const harness = createKimiHarness({
+  const harness = createTuiHarness({
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),
     uiMode: PROMPT_UI_MODE,

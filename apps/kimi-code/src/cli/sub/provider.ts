@@ -24,7 +24,6 @@ import {
   catalogBaseUrl,
   catalogProviderModels,
   CatalogFetchError,
-  createKimiHarness,
   DEFAULT_CATALOG_URL,
   fetchCatalog,
   inferWireType,
@@ -36,6 +35,7 @@ import {
 import type { Command } from 'commander';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
+import { createTuiHarness } from '#/utils/create-tui-harness';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -506,7 +506,7 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ProviderDeps {
     getHarness:
       overrides.getHarness ??
       (() => {
-        harness ??= createKimiHarness({ identity });
+        harness ??= createTuiHarness({ identity });
         return harness;
       }),
     stdout: overrides.stdout ?? process.stdout,

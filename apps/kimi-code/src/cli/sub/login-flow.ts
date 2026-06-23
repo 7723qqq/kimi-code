@@ -5,14 +5,14 @@
  * MUST treat the returned promise as `Promise<never>`.
  */
 
-import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import { createTuiHarness } from '#/utils/create-tui-harness';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { openUrl } from '#/utils/open-url';
 
 export async function runLoginFlow(): Promise<never> {
   const identity = createKimiCodeHostIdentity();
-  const harness = createKimiHarness({
+  const harness = createTuiHarness({
     identity,
     uiMode: 'cli',
   });
