@@ -14,9 +14,15 @@ type Resumer<T extends keyof WireRecordMap> = (data: WireRecord<T>) => void | Pr
 export class WireRecordService extends Disposable implements IWireRecord {
   private readonly records: WireRecord[] = [];
   private readonly resumers = new Map<keyof WireRecordMap, Set<Resumer<keyof WireRecordMap>>>();
+  private _restoring = false;
   readonly hooks = { onResumeEnded: new OrderedHookSlot<{}>() };
 
+  get restoring(): boolean {
+    return this._restoring;
+  }
+
   append(record: WireRecord): void {
+    if (this._restoring) return;
     this.records.push(record);
   }
 
@@ -37,13 +43,18 @@ export class WireRecordService extends Disposable implements IWireRecord {
   }
 
   async restore(records: readonly WireRecord[]): Promise<void> {
-    for (const record of records) {
-      const resumers = this.resumers.get(record.type);
-      if (resumers === undefined) continue;
-      const currentResumers = Array.from(resumers);
-      for (const resumer of currentResumers) {
-        await resumer(record);
+    this._restoring = true;
+    try {
+      for (const record of records) {
+        const resumers = this.resumers.get(record.type);
+        if (resumers === undefined) continue;
+        const currentResumers = Array.from(resumers);
+        for (const resumer of currentResumers) {
+          await resumer(record);
+        }
       }
+    } finally {
+      this._restoring = false;
     }
     await this.hooks.onResumeEnded.run({});
   }

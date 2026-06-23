@@ -11,25 +11,13 @@ import type { ContextMessage } from '../../agent/context';
 
 export type { ContextMessage };
 
-export interface AgentEventMap {
-  'context.spliced': {
-    start: number;
-    deleteCount: number;
-    messages: ContextMessage[];
-  };
-}
+export interface AgentEventMap {}
 
 export type AgentEvent<K extends keyof AgentEventMap = keyof AgentEventMap> = {
   [T in K]: { readonly type: T } & Readonly<AgentEventMap[T]>;
 }[K];
 
-export interface WireRecordMap {
-  'context.splice': {
-    start: number;
-    deleteCount: number;
-    messages: ContextMessage[];
-  };
-}
+export interface WireRecordMap {}
 
 export type WireRecord<K extends keyof WireRecordMap = keyof WireRecordMap> = {
   [T in K]: { readonly type: T } & Readonly<WireRecordMap[T]>;

@@ -5,6 +5,8 @@ import type { Hooks } from '../hooks';
 import type { WireRecord, WireRecordMap } from '../types';
 
 export interface IWireRecord {
+  readonly restoring: boolean;
+
   append(record: WireRecord): void;
   register<T extends keyof WireRecordMap>(
     type: T,
