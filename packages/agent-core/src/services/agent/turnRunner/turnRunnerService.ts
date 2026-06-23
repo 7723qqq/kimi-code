@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import { registerSingleton, SyncDescriptor } from '../../../di';
 import { userCancellationReason } from '../../../utils/abort';
 import { IEventBus } from '../eventBus/eventBus';
@@ -13,12 +11,13 @@ import { ITurnRunner } from './turnRunner';
 declare module '../types' {
   interface AgentEventMap {
     'turn.before_step': {
-      turnId: string;
+      turnId: number;
     };
   }
 }
 
 export class TurnRunnerService implements ITurnRunner {
+  private nextTurnId = 0;
   private activeTurn: Turn | undefined;
   private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
   private readonly readySettled = new WeakSet<Turn>();
@@ -51,7 +50,7 @@ export class TurnRunnerService implements ITurnRunner {
     const abortController = new AbortController();
     const ready = createControlledPromise<void>();
     const turn: MutableTurn = {
-      id: randomUUID(),
+      id: this.nextTurnId++,
       abortController,
       ready: ready.promise,
       result: Promise.resolve({ reason: 'failed' }),
@@ -72,7 +71,7 @@ export class TurnRunnerService implements ITurnRunner {
     return this.activeTurn;
   }
 
-  cancel(turnId?: string, reason?: unknown): void {
+  cancel(turnId?: number, reason?: unknown): void {
     const turn = this.activeTurn;
     if (turn === undefined) return;
     if (turnId !== undefined && turn.id !== turnId) return;

@@ -174,14 +174,14 @@ export class FullCompactionService extends Disposable implements IFullCompaction
   async handleOverflowError(
     signal: AbortSignal,
     error: unknown,
-    turnId?: string,
+    turnId?: number,
   ): Promise<void> {
     const didStartCompaction = this.beginAutoCompaction();
     if (!didStartCompaction && !this.compacting) throw error;
     await this.block(signal, turnId);
   }
 
-  async beforeStep(signal: AbortSignal, turnId?: string): Promise<void> {
+  async beforeStep(signal: AbortSignal, turnId?: number): Promise<void> {
     this.checkAutoCompaction();
     if (this.strategy.shouldBlock(this.tokenCountWithPending())) {
       await this.block(signal, turnId);
@@ -214,7 +214,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     return this.begin({ source: 'auto' });
   }
 
-  private async block(signal?: AbortSignal, turnId?: string): Promise<void> {
+  private async block(signal?: AbortSignal, turnId?: number): Promise<void> {
     const active = this.compacting;
     if (active === null) return;
     active.blockedByTurn = true;

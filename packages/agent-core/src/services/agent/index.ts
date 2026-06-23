@@ -30,11 +30,22 @@ export type {
 export { IEventBus } from './eventBus/eventBus';
 export { EventBusService } from './eventBus/eventBusService';
 
+export {
+  BLOBREF_PROTOCOL,
+  IBlobStoreService,
+  MISSING_MEDIA_PLACEHOLDER,
+} from './blobStore/blobStore';
+export type { BlobStoreServiceOptions } from './blobStore/blobStore';
+export { BlobStoreService } from './blobStore/blobStoreService';
+
 export { IWireRecord } from './wireRecord/wireRecord';
 export type {
   PersistedWireRecord,
+  WireRecordBlobSelector,
+  WireRecordBlobTarget,
   WireRecordMetadata,
   WireRecordPersistence,
+  WireRecordRegisterOptions,
   WireRecordRestoreOptions,
   WireRecordRestoreResult,
   WireRecordRestoringContext,

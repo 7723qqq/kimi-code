@@ -6,7 +6,7 @@ import type { Turn, TurnEndedContext, TurnStepContext } from '../types';
 export interface ITurnRunner {
   launch(): Turn;
   getActiveTurn(): Turn | undefined;
-  cancel(turnId?: string, reason?: unknown): void;
+  cancel(turnId?: number, reason?: unknown): void;
 
   readonly hooks: Hooks<{
     onLaunched: { turn: Turn };

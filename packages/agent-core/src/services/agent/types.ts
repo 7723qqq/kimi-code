@@ -72,7 +72,7 @@ export interface TurnResult {
 }
 
 export interface Turn {
-  readonly id: string;
+  readonly id: number;
   readonly abortController: AbortController;
   readonly ready: Promise<void>;
   readonly result: Promise<TurnResult>;

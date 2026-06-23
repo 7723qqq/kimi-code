@@ -79,7 +79,7 @@ export class LoopService extends Disposable implements ILoopService {
   async runTurn(turn: Turn, hooks: LoopRunHooks | undefined): Promise<TurnResult> {
     let usageModel = this.profile.data().modelAlias ?? 'unknown';
     const result = await runLoopTurn({
-      turnId: turn.id,
+      turnId: String(turn.id),
       signal: turn.abortController.signal,
       llm: this.createLLM((model) => {
         usageModel = model ?? this.profile.data().modelAlias ?? 'unknown';

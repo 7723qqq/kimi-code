@@ -39,8 +39,8 @@ export interface IFullCompaction {
   cancel(): void;
   markCompleted(): void;
   resetForTurn(): void;
-  handleOverflowError(signal: AbortSignal, error: unknown, turnId?: string): Promise<void>;
-  beforeStep(signal: AbortSignal, turnId?: string): Promise<void>;
+  handleOverflowError(signal: AbortSignal, error: unknown, turnId?: number): Promise<void>;
+  beforeStep(signal: AbortSignal, turnId?: number): Promise<void>;
   afterStep(): Promise<void>;
 }
 
@@ -54,7 +54,7 @@ declare module '../types' {
       instruction?: string;
     };
     'compaction.blocked': {
-      turnId: string;
+      turnId: number;
     };
     'compaction.cancelled': {};
     'compaction.completed': {
