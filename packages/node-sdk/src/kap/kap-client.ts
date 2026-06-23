@@ -19,6 +19,7 @@ import { metaHandlers } from './handlers/meta';
 import { promptHandlers } from './handlers/prompts';
 import { sessionHandlers } from './handlers/sessions';
 import { KapHttpClient } from './http-client';
+import { handleReverseRequest } from './reverse-channel';
 import type { CoreApiHandlerMap } from './types';
 import { KapWsClient } from './ws-client';
 
@@ -42,7 +43,8 @@ export class SDKKapClient extends SDKRpcClientBase {
     this.http = new KapHttpClient(options.kap);
     this.ws = new KapWsClient(options.kap, {
       onEvent: (event) => this.receiveEvent(event),
-      // onReverseRequest wired in Phase 5
+      onReverseRequest: (frame) =>
+        void handleReverseRequest({ client: this, http: this.http }, frame),
     });
     this.auth = new KimiAuthFacade({
       homeDir: this.homeDir,
