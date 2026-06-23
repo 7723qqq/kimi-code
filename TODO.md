@@ -41,20 +41,27 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 - [x] Allow `afterStep` hooks to request continuation of the current turn.
 - [x] Continue automatically after tool results so the model can observe tool output.
-- [ ] Emit turn and step lifecycle events.
-- [ ] Replace random UUID turn ids with the monotonic turn id semantics expected by the current RPC/events.
-- [ ] Add first-request readiness semantics based on first model/step activity.
-- [ ] Add cancel API with turn id validation and abort reason propagation.
+- [x] Use monotonic numeric turn ids.
+- [ ] Restore the turn id counter from replayed loop events.
+- [x] Emit protocol turn lifecycle events and clear the active turn with current RPC timing.
+- [x] Bridge loop step lifecycle events to protocol events.
+- [x] Bridge loop retry/interruption events to protocol events.
+- [x] Bridge loop streaming and tool-call delta events to protocol events.
+- [x] Bridge loop tool lifecycle/progress events to protocol events.
+- [ ] Add turn interruption telemetry and API error classification.
+- [x] Add first-request readiness semantics based on first model/step activity.
+- [x] Add cancel API with turn id validation and abort reason propagation.
 - [ ] Add user prompt hook block/append behavior.
 - [ ] Add stop-hook continuation.
 - [ ] Add goal continuation driver and budget handling.
-- [ ] Integrate full compaction before/after step and overflow retry.
+
+## LoopService / Tool Execution
+
+- [ ] Retry loop steps after full compaction handles context overflow.
 - [ ] Wait for MCP initial load before model steps.
-- [ ] Route tool execution through permission policies and synthetic results.
-- [ ] Add tool call deduplication and tool lifecycle telemetry.
-- [ ] Add turn interruption telemetry and API error classification.
-- [ ] Make streamed tool-call collection handle indexed/interleaved tool-call parts.
-- [ ] Preserve partial assistant output on interrupted or failed streams where appropriate.
+- [ ] Wire prepare/authorize/finalize tool hooks for permission, synthetic results, dedup, and PostToolUse.
+- [ ] Add tool lifecycle telemetry.
+- [x] Make streamed tool-call collection handle indexed/interleaved tool-call parts.
 
 ## LLMRequester
 

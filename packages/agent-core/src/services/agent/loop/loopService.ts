@@ -68,6 +68,24 @@ declare module '../types' {
       providerFinishReason?: LoopStepEndEvent['providerFinishReason'];
       rawFinishReason?: string;
     };
+    'turn.step.retrying': {
+      turnId: number;
+      step: number;
+      stepId: string;
+      failedAttempt: number;
+      nextAttempt: number;
+      maxAttempts: number;
+      delayMs: number;
+      errorName: string;
+      errorMessage: string;
+      statusCode?: number;
+    };
+    'turn.step.interrupted': {
+      turnId: number;
+      step: number;
+      reason: Extract<LoopEvent, { type: 'turn.interrupted' }>['reason'];
+      message?: string;
+    };
     'assistant.delta': {
       turnId: number;
       delta: string;
@@ -235,6 +253,31 @@ export class LoopService extends Disposable implements ILoopService {
           llmStreamDurationMs: event.llmStreamDurationMs,
           providerFinishReason: event.providerFinishReason,
           rawFinishReason: event.rawFinishReason,
+        });
+        return;
+      case 'step.retrying':
+        this.events.emit({
+          type: 'turn.step.retrying',
+          turnId: Number(event.turnId),
+          step: event.step,
+          stepId: event.stepUuid,
+          failedAttempt: event.failedAttempt,
+          nextAttempt: event.nextAttempt,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          errorName: event.errorName,
+          errorMessage: event.errorMessage,
+          statusCode: event.statusCode,
+        });
+        return;
+      case 'turn.interrupted':
+        if (this.protocolTurnId === undefined || event.activeStep === undefined) return;
+        this.events.emit({
+          type: 'turn.step.interrupted',
+          turnId: this.protocolTurnId,
+          step: event.activeStep,
+          reason: event.reason,
+          message: event.message,
         });
         return;
       case 'text.delta':
