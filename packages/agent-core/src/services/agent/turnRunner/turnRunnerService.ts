@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { registerSingleton, SyncDescriptor } from '../../../di';
+import { userCancellationReason } from '../../../utils/abort';
 import { IEventBus } from '../eventBus/eventBus';
 import { OrderedHookSlot } from '../hooks';
 import { ILoopService } from '../loop/loop';
@@ -64,6 +65,13 @@ export class TurnRunnerService implements ITurnRunner {
 
   getActiveTurn(): Turn | undefined {
     return this.activeTurn;
+  }
+
+  cancel(turnId?: string, reason?: unknown): void {
+    const turn = this.activeTurn;
+    if (turn === undefined) return;
+    if (turnId !== undefined && turn.id !== turnId) return;
+    turn.abortController.abort(reason ?? userCancellationReason());
   }
 
   private async runTurn(
