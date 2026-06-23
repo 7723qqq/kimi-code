@@ -40,9 +40,23 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
   ) {
     super();
     this._register(
-      wireRecord.register('context.splice', (record) => {
-        this.applySplice(record);
-      }),
+      wireRecord.register(
+        'context.splice',
+        (record) => {
+          this.applySplice(record);
+        },
+        {
+          blobs: (record) => record.messages.map((message, index) => ({
+            parts: message.content,
+            replace: (current, content) => ({
+              ...current,
+              messages: current.messages.map((item, itemIndex) =>
+                itemIndex === index ? { ...item, content: [...content] } : item,
+              ),
+            }),
+          })),
+        },
+      ),
     );
   }
 

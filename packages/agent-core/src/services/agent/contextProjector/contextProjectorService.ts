@@ -1,10 +1,10 @@
-import { InstantiationType, registerSingleton } from '../../../di';
 import type { Message } from '@moonshot-ai/kosong';
 
 import { project } from '../../../agent/context/projector';
+import { registerSingleton, SyncDescriptor } from '../../../di';
+import { IMicroCompactionService } from '../microCompaction/microCompaction';
 import type { ContextMessage } from '../types';
 import { IContextProjector } from './contextProjector';
-import { IMicroCompactionService } from '../microCompaction/microCompaction';
 
 export class ContextProjectorService implements IContextProjector {
   constructor(
@@ -16,4 +16,4 @@ export class ContextProjectorService implements IContextProjector {
   }
 }
 
-registerSingleton(IContextProjector, ContextProjectorService, InstantiationType.Delayed);
+registerSingleton(IContextProjector, new SyncDescriptor(ContextProjectorService, [], true));
