@@ -18,6 +18,7 @@ import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/k
 
 import { KimiAuthFacade } from '#/auth';
 import { KimiHarness } from '#/kimi-harness';
+import { createKimiKapHarness } from './kap/kap-harness';
 import { ClientAPI, SDKRpcClientBase } from '#/rpc';
 import type {
   CreateSessionOptions,
@@ -129,6 +130,9 @@ export class SDKRpcClient extends SDKRpcClientBase {
 }
 
 export function createKimiHarness(options: KimiHarnessOptions): KimiHarness {
+  if (options.kap !== undefined) {
+    return createKimiKapHarness(options as KimiHarnessOptions & { kap: NonNullable<KimiHarnessOptions['kap']> });
+  }
   const rpc = new SDKRpcClient(options);
   return new KimiHarness(rpc, {
     identity: rpc.identity,
