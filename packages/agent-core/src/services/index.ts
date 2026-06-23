@@ -147,7 +147,11 @@ export {
   readWireTranscript,
   reduceWireRecords,
 } from './message/transcript';
-export type { TranscriptEntry, WireTranscript } from './message/transcript';
+export type {
+  TranscriptEntry,
+  WireRecordLike,
+  WireTranscript,
+} from './message/transcript';
 
 export {
   IPromptService,

@@ -44,7 +44,7 @@
  */
 
 import { createDecorator } from '../../di';
-import type { ContextMessage } from '../../agent/context';
+import type { Message as CoreMessage } from '@moonshot-ai/kosong';
 import type {
   CursorQuery,
   Message,
@@ -53,6 +53,11 @@ import type {
   PageResponse,
   ToolUseContent,
 } from '@moonshot-ai/protocol';
+
+export type ContextMessage = CoreMessage & {
+  readonly origin?: Record<string, unknown>;
+  readonly isError?: boolean;
+};
 
 /**
  * Listing query — `before_id`/`after_id` + `page_size` mutex is enforced

@@ -1,7 +1,6 @@
 import { Disposable, IInstantiationService, InstantiationType, registerSingleton } from '../../di';
 import { Emitter } from '../../base/common/event';
 import { ErrorCodes, KimiError } from '../../errors';
-import type { AgentContextData, ContextMessage } from '../../agent/context';
 import type { JsonObject, ListSessionsPayload, SessionSummary } from '../../rpc';
 import type { SessionMeta } from '../../session';
 import {
@@ -24,7 +23,7 @@ import {
 import { IApprovalService } from '../approval/approval';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import { IEventService } from '../event/event';
-import { toProtocolMessage } from '../message/message';
+import { toProtocolMessage, type ContextMessage } from '../message/message';
 import { IPromptService, type AgentStatePatch } from '../prompt/prompt';
 import { IQuestionService } from '../question/question';
 import {
@@ -41,6 +40,11 @@ const MAX_PAGE_SIZE = 100;
 const DEFAULT_UNDO_MESSAGE_PAGE_SIZE = 50;
 const MAX_UNDO_MESSAGE_PAGE_SIZE = 100;
 const CHILD_SESSION_KIND = 'child';
+
+interface AgentContextData {
+  readonly history: readonly ContextMessage[];
+  readonly tokenCount: number;
+}
 
 function asJsonObject(value: Record<string, unknown>): JsonObject {
   return value as unknown as JsonObject;

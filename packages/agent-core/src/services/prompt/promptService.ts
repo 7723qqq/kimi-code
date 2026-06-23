@@ -8,12 +8,12 @@ import type {
   Event,
   PromptItem,
   PromptListResponse,
+  PromptPermissionMode,
   PromptSubmission,
   PromptSteerResult,
   PromptSubmitResult,
   PromptThinking,
 } from '@moonshot-ai/protocol';
-import type { PermissionMode } from '../../agent/permission';
 import { ulid } from 'ulid';
 
 import { ICoreProcessService } from '../coreProcess/coreProcess';
@@ -37,6 +37,7 @@ import {
 } from './prompt';
 
 const MAIN_AGENT_ID = 'main';
+type PermissionMode = PromptPermissionMode;
 
 function promptKey(sessionId: string, agentId: string): string {
   return `${sessionId}\u0000${agentId}`;
