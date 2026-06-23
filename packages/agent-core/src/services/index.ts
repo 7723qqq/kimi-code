@@ -1,3 +1,5 @@
+import './agent';
+
 export { BridgeClientAPI } from './coreProcess/coreProcessClient';
 export type { CoreProcessClientDeps } from './coreProcess/coreProcessClient';
 export {
