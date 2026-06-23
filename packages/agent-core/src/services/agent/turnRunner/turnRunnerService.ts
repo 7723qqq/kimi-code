@@ -1,4 +1,5 @@
 import { registerSingleton, SyncDescriptor } from '../../../di';
+import type { PromptOrigin } from '../../../agent/context';
 import { toKimiErrorPayload, type KimiErrorPayload } from '../../../errors';
 import { userCancellationReason } from '../../../utils/abort';
 import { IEventBus } from '../eventBus/eventBus';
@@ -16,7 +17,7 @@ declare module '../types' {
     };
     'turn.started': {
       turnId: number;
-      origin: Turn['origin'];
+      origin: PromptOrigin;
     };
     'turn.ended': {
       turnId: number;
@@ -53,7 +54,7 @@ export class TurnRunnerService implements ITurnRunner {
     });
   }
 
-  launch(origin: Turn['origin']): Turn {
+  launch(origin: PromptOrigin): Turn {
     if (this.activeTurn !== undefined) {
       throw new Error(`Cannot launch a new turn while turn ${this.activeTurn.id} is active`);
     }
@@ -62,7 +63,6 @@ export class TurnRunnerService implements ITurnRunner {
     const ready = createControlledPromise<void>();
     const turn: MutableTurn = {
       id: this.nextTurnId++,
-      origin,
       abortController,
       ready: ready.promise,
       result: Promise.resolve({ reason: 'failed' }),
@@ -70,7 +70,7 @@ export class TurnRunnerService implements ITurnRunner {
     this.readyControllers.set(turn, ready);
     void ready.promise.catch(() => undefined);
     this.activeTurn = turn;
-    turn.result = this.runTurn(turn);
+    turn.result = this.runTurn(turn, origin);
     void this.hooks.onLaunched.run({ turn });
     return turn;
   }
@@ -86,12 +86,12 @@ export class TurnRunnerService implements ITurnRunner {
     turn.abortController.abort(reason ?? userCancellationReason());
   }
 
-  private async runTurn(turn: Turn): Promise<TurnResult> {
+  private async runTurn(turn: Turn, origin: PromptOrigin): Promise<TurnResult> {
     const startedAt = Date.now();
     let result: TurnResult | undefined;
     try {
       this.usage.beginTurn();
-      this.events.emit({ type: 'turn.started', turnId: turn.id, origin: turn.origin });
+      this.events.emit({ type: 'turn.started', turnId: turn.id, origin });
       result = await this.loop.runTurn(turn, {
         beforeStep: this.hooks.beforeStep,
         afterStep: this.hooks.afterStep,
