@@ -8,7 +8,7 @@ import type {
   ToolCall as KosongToolCall,
 } from '@moonshot-ai/kosong';
 
-import type { ContextMessage } from '../../agent/context';
+import type { ContextMessage, PromptOrigin } from '../../agent/context';
 import type { PermissionMode } from '../../agent/permission';
 import type {
   ExecutableToolContext,
@@ -81,6 +81,13 @@ export interface Turn {
 export interface TurnStepContext {
   readonly turn: Turn;
   continueTurn: boolean;
+}
+
+export interface TurnRunContext {
+  readonly turn: Turn;
+  readonly origin: PromptOrigin;
+  readonly promptMessage?: ContextMessage;
+  result?: TurnResult;
 }
 
 export interface TurnEndedContext {

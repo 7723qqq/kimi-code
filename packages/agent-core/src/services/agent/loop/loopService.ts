@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import {
+  APIContextOverflowError,
   createToolMessage,
   emptyUsage,
   isContentPart,
@@ -12,7 +13,10 @@ import {
   type ToolCall as KosongToolCall,
 } from '@moonshot-ai/kosong';
 
-import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
+import { canonicalTelemetryArgs } from '../../../agent/turn/canonical-args';
+import { ToolCallDeduplicator } from '../../../agent/turn/tool-dedup';
+import { Disposable, IInstantiationService, registerSingleton, SyncDescriptor } from '../../../di';
+import { ErrorCodes, isKimiError } from '../../../errors';
 import {
   runTurn as runLoopTurn,
   type ExecutableTool,
@@ -28,10 +32,14 @@ import {
   type RunnableToolExecution,
   type ToolExecution,
 } from '../../../loop';
+import type { TelemetryProperties } from '../../../telemetry';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
+import { IContextUsageService } from '../contextUsage/contextUsage';
 import { IEventBus } from '../eventBus/eventBus';
+import { IFullCompaction } from '../fullCompaction/fullCompaction';
 import { ILLMRequester } from '../llmRequester/llmRequester';
+import { IPermissionService } from '../permission/permission';
 import { IProfileService } from '../profile/profile';
 import { IToolExecutor } from '../toolExecutor/toolExecutor';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
@@ -39,7 +47,6 @@ import type { ContextMessage, ToolDefinition, ToolResult, Turn, TurnResult } fro
 import { IUsageService } from '../usage/usage';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import { ILoopService, type LoopRunHooks } from './loop';
-import { canonicalTelemetryArgs } from '../../../agent/turn/canonical-args';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
@@ -52,7 +59,7 @@ const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {},
 };
-type ToolTelemetryProperties = Record<string, string | number | boolean | undefined>;
+type ToolTelemetryEvent = 'tool_call' | 'tool_call_dedup_detected' | 'tool_call_repeat';
 
 declare module '../types' {
   interface AgentEventMap {
@@ -124,8 +131,8 @@ declare module '../types' {
       isError?: boolean;
     };
     'tool.telemetry': {
-      event: 'tool_call' | 'tool_call_dedup_detected';
-      properties: ToolTelemetryProperties;
+      event: ToolTelemetryEvent;
+      properties: TelemetryProperties;
     };
   }
 }
@@ -141,13 +148,16 @@ export class LoopService extends Disposable implements ILoopService {
   constructor(
     @IContextMemory private readonly context: IContextMemory,
     @IContextProjector private readonly projector: IContextProjector,
+    @IContextUsageService private readonly contextUsage: IContextUsageService,
     @ILLMRequester private readonly llmRequester: ILLMRequester,
     @IEventBus private readonly events: IEventBus,
     @IToolRegistry private readonly toolRegistry: IToolRegistry,
     @IToolExecutor private readonly toolExecutor: IToolExecutor,
+    @IPermissionService private readonly permission: IPermissionService,
     @IUsageService private readonly usage: IUsageService,
     @IProfileService private readonly profile: IProfileService,
     @IWireRecord private readonly wireRecord: IWireRecord,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {
     super();
     this.context.hooks.onSpliced.register('loop-service-reconcile', async (_event, next) => {
@@ -168,31 +178,51 @@ export class LoopService extends Disposable implements ILoopService {
   async runTurn(turn: Turn, hooks: LoopRunHooks | undefined): Promise<TurnResult> {
     let usageModel = this.profile.data().modelAlias ?? 'unknown';
     this.protocolTurnId = turn.id;
-    const result = await runLoopTurn({
-      turnId: String(turn.id),
-      signal: turn.abortController.signal,
-      llm: this.createLLM((model) => {
-        usageModel = model ?? this.profile.data().modelAlias ?? 'unknown';
-      }),
-      buildMessages: () => [...this.projector.project(this.context.getHistory())],
-      dispatchEvent: this.dispatchEvent,
-      tools: this.executableTools(),
-      hooks: this.loopHooks(turn, hooks),
-      recordStepUsage: (usage) => {
-        this.usage.record(usageModel, usage, 'turn');
-      },
-    }).finally(() => {
+    const llm = this.createLLM((model) => {
+      usageModel = model ?? this.profile.data().modelAlias ?? 'unknown';
+    });
+    const loopHooks = this.loopHooks(turn, hooks);
+    try {
+      while (true) {
+        try {
+          const result = await runLoopTurn({
+            turnId: String(turn.id),
+            signal: turn.abortController.signal,
+            llm,
+            buildMessages: () => [...this.projector.project(this.context.getHistory())],
+            dispatchEvent: this.dispatchEvent,
+            tools: this.executableTools(),
+            hooks: loopHooks,
+            recordStepUsage: (usage) => {
+              this.usage.record(usageModel, usage, 'turn');
+            },
+          });
+          if (result.stopReason === 'aborted') {
+            return { reason: 'cancelled', error: turn.abortController.signal.reason };
+          }
+          return { reason: 'completed' };
+        } catch (error) {
+          if (isContextOverflowError(error)) {
+            await this.instantiation.invokeFunction((accessor) =>
+              accessor.get(IFullCompaction).handleOverflowError(
+                turn.abortController.signal,
+                error,
+                turn.id,
+              ),
+            );
+            continue;
+          }
+          throw error;
+        }
+      }
+    } finally {
       if (this.protocolTurnId === turn.id) {
         this.protocolTurnId = undefined;
       }
       this.toolCallStartedAt.clear();
       this.toolCallDupType.clear();
       this.stepToolCallKeys.clear();
-    });
-    if (result.stopReason === 'aborted') {
-      return { reason: 'cancelled', error: turn.abortController.signal.reason };
     }
-    return { reason: 'completed' };
   }
 
   private handleEvent(event: LoopRecordedEvent): void {
@@ -206,9 +236,14 @@ export class LoopService extends Disposable implements ILoopService {
         this.openSteps.set(event.uuid, { message, inserted: false });
         return;
       }
-      case 'step.end':
+      case 'step.end': {
+        const openStep = this.openSteps.get(event.uuid);
+        const history = this.context.getHistory();
+        const index = openStep === undefined ? -1 : history.indexOf(openStep.message);
+        this.contextUsage.coverThrough(index === -1 ? history.length : index + 1, event.usage);
         this.openSteps.delete(event.uuid);
         return;
+      }
       case 'content.part':
         this.replaceOpenStep(event.stepUuid, (message) => ({
           ...message,
@@ -389,7 +424,7 @@ export class LoopService extends Disposable implements ILoopService {
     this.toolCallDupType.delete(event.toolCallId);
 
     const outcome = telemetryToolOutcome(event.result);
-    const properties: ToolTelemetryProperties = {
+    const properties: Record<string, string | number | boolean | undefined> = {
       tool_name: started.name,
       outcome,
       duration_ms: Date.now() - started.startedAt,
@@ -399,7 +434,7 @@ export class LoopService extends Disposable implements ILoopService {
     if (errorType !== undefined) {
       properties['error_type'] = errorType;
     }
-    this.events.emit({ type: 'tool.telemetry', event: 'tool_call', properties });
+    this.emitToolTelemetry('tool_call', properties);
   }
 
   private trackDuplicateToolCall(
@@ -423,18 +458,21 @@ export class LoopService extends Disposable implements ILoopService {
     stepKeys.add(key);
     if (dupType === undefined) return 'normal';
 
-    this.events.emit({
-      type: 'tool.telemetry',
-      event: 'tool_call_dedup_detected',
-      properties: {
+    this.emitToolTelemetry(
+      'tool_call_dedup_detected',
+      {
         turn_id: turnId,
         step_no: step,
         tool_name: toolName,
         dup_type: dupType,
         args_hash: createHash('sha256').update(argsText).digest('hex').slice(0, 8),
       },
-    });
+    );
     return dupType;
+  }
+
+  private emitToolTelemetry(event: ToolTelemetryEvent, properties: TelemetryProperties = {}): void {
+    this.events.emit({ type: 'tool.telemetry', event, properties });
   }
 
   private hasPriorStepToolCallKey(step: number, key: string): boolean {
@@ -605,22 +643,48 @@ export class LoopService extends Disposable implements ILoopService {
     };
   }
 
-  private loopHooks(turn: Turn, hooks: LoopRunHooks | undefined): LoopHooks | undefined {
-    if (hooks === undefined) return undefined;
+  private loopHooks(turn: Turn, hooks: LoopRunHooks | undefined): LoopHooks {
+    const deduper = new ToolCallDeduplicator({
+      telemetry: {
+        track: (event, properties) => {
+          if (event === 'tool_call_repeat') {
+            this.emitToolTelemetry(event, properties);
+          }
+        },
+      },
+    });
     let continueAfterStop = false;
     return {
       beforeStep: async () => {
-        await hooks.beforeStep.run({ turn, continueTurn: false });
+        deduper.beginStep();
+        await hooks?.beforeStep.run({ turn, continueTurn: false });
         return undefined;
       },
       afterStep: async (context) => {
         const turnContext = { turn, continueTurn: false };
-        await hooks.afterStep.run(turnContext);
+        await hooks?.afterStep.run(turnContext);
+        deduper.endStep();
         if (context.stopReason !== 'tool_use' && turnContext.continueTurn) {
           continueAfterStop = true;
         }
         return undefined;
       },
+      prepareToolExecution: async (context) => {
+        const cached = deduper.checkSameStep(
+          context.toolCall.id,
+          context.toolCall.name,
+          context.args,
+        );
+        return cached === null ? undefined : { syntheticResult: cached };
+      },
+      authorizeToolExecution: (context) => this.permission.authorize(context),
+      finalizeToolResult: (context) =>
+        deduper.finalizeResult(
+          context.toolCall.id,
+          context.toolCall.name,
+          context.args,
+          context.result,
+        ),
       shouldContinueAfterStop: async () => {
         const shouldContinue = continueAfterStop;
         continueAfterStop = false;
@@ -737,6 +801,13 @@ function unresolvedToolCallIdsFromHistory(history: readonly ContextMessage[]): s
 function stringifyToolArguments(args: unknown): string | null {
   if (args === undefined) return null;
   return JSON.stringify(args) ?? null;
+}
+
+function isContextOverflowError(error: unknown): boolean {
+  return (
+    error instanceof APIContextOverflowError ||
+    (isKimiError(error) && error.code === ErrorCodes.CONTEXT_OVERFLOW)
+  );
 }
 
 function toolResultOutputForModel(result: ExecutableToolResult): string | ContentPart[] {

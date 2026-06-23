@@ -29,13 +29,13 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## ContextProjector
 
-- [ ] Preserve well-formed projected tool exchanges when context history is out of order.
-- [ ] Order or defer projected non-tool messages around open tool exchanges.
+- [x] Preserve well-formed projected tool exchanges when context history is out of order.
+- [x] Order or defer projected non-tool messages around open tool exchanges.
 
 ## Context Usage Accounting
 
-- [ ] Track context token count and token count with pending messages.
-- [ ] Feed context token status into compaction/status reporting.
+- [x] Track context token count and token count with pending messages.
+- [x] Feed context token status into compaction/status reporting.
 
 ## TurnRunner
 
@@ -48,7 +48,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Bridge loop retry/interruption events to protocol events.
 - [x] Bridge loop streaming and tool-call delta events to protocol events.
 - [x] Bridge loop tool lifecycle/progress events to protocol events.
-- [ ] Add turn interruption telemetry and API error classification.
+- [x] Add turn interruption telemetry and API error classification.
 - [x] Add first-request readiness semantics based on first model/step activity.
 - [x] Add cancel API with turn id validation and abort reason propagation.
 - [ ] Add user prompt hook block/append behavior.
@@ -57,9 +57,12 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## LoopService / Tool Execution
 
-- [ ] Retry loop steps after full compaction handles context overflow.
+- [x] Retry loop steps after full compaction handles context overflow.
 - [ ] Wait for MCP initial load before model steps.
-- [ ] Wire prepare/authorize/finalize tool hooks for permission, synthetic results, dedup, and PostToolUse.
+- [x] Align service permission/loop hook types before permission wiring.
+- [x] Wire prepare/authorize/finalize tool hooks for permission, synthetic results, and dedup.
+- [x] Split service permission policy ordering into `PermissionPolicyService` with per-policy services.
+- [ ] Restore PostToolUse/PostToolUseFailure hook dispatch from service tool finalization.
 - [x] Add tool lifecycle telemetry.
 - [x] Make streamed tool-call collection handle indexed/interleaved tool-call parts.
 
@@ -67,7 +70,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 - [x] Implement the real LLM transport.
 - [x] Apply auth resolution from the selected model alias.
-- [ ] Log LLM requests.
+- [x] Log LLM requests.
 - [x] Apply provider config, thinking config, model capability, and completion budget logic.
 - [x] Convert stream callbacks into `LLMEvent` values including usage, finish reason, and timing.
 - [x] Support different request shapes for normal turns and compaction.
@@ -96,9 +99,9 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Emit status updates.
 - [x] Replace the minimal `EnterPlanMode` and `ExitPlanMode` tools with behavior matching current tools.
 - [x] Implement plan file validation, empty-plan rejection, plan review display, and options validation.
-- [ ] Restore plan approval outcomes.
+- [x] Restore plan approval outcomes.
 - [x] Restore full/sparse/reentry/exit plan-mode reminders.
-- [ ] Restore permission policies for plan-mode writes and plan approval.
+- [x] Restore permission policies for plan-mode writes and plan approval.
 
 ## DynamicInjector
 
