@@ -8,6 +8,7 @@ import type {
 } from '@moonshot-ai/kosong';
 
 import type { ContextMessage } from '../../agent/context';
+import type { LLMRequestLogFields } from '../../loop';
 
 export type { ContextMessage };
 
@@ -27,6 +28,7 @@ export interface LLMRequestOverrides {
   messages?: readonly Message[];
   tools?: readonly KosongTool[];
   systemPrompt?: string;
+  requestLogFields?: LLMRequestLogFields;
 }
 
 export type LLMEvent =

@@ -42,7 +42,10 @@ export { IToolExecutor } from './toolExecutor/toolExecutor';
 export { ToolExecutorService } from './toolExecutor/toolExecutorService';
 
 export { ILLMRequester } from './llmRequester/llmRequester';
-export { LLMRequesterService } from './llmRequester/llmRequesterService';
+export {
+  LLMRequesterService,
+  type LLMRequesterServiceOptions,
+} from './llmRequester/llmRequesterService';
 
 export { ITurnRunner } from './turnRunner/turnRunner';
 export { TurnRunnerService } from './turnRunner/turnRunnerService';

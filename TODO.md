@@ -54,12 +54,12 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## LLMRequester
 
-- [ ] Implement the real LLM transport.
-- [ ] Apply auth resolution from the selected model alias.
+- [x] Implement the real LLM transport.
+- [x] Apply auth resolution from the selected model alias.
 - [ ] Log LLM requests.
-- [ ] Apply provider config, thinking config, model capability, and completion budget logic.
-- [ ] Convert stream callbacks into `LLMEvent` values including usage, finish reason, and timing.
-- [ ] Support different request shapes for normal turns and compaction.
+- [x] Apply provider config, thinking config, model capability, and completion budget logic.
+- [x] Convert stream callbacks into `LLMEvent` values including usage, finish reason, and timing.
+- [x] Support different request shapes for normal turns and compaction.
 
 ## ToolRegistry / ToolExecutor
 
