@@ -1,5 +1,5 @@
 import { createDecorator } from '../../../di';
-import type { ToolUpdate } from '../../../loop';
+import type { ToolExecution, ToolUpdate } from '../../../loop';
 
 import type { ToolCall, ToolResult } from '../types';
 
@@ -11,7 +11,11 @@ export interface ToolExecutorOptions {
 }
 
 export interface IToolExecutor {
-  execute(call: ToolCall, options?: ToolExecutorOptions): Promise<ToolResult>;
+  execute(
+    call: ToolCall,
+    execution: ToolExecution,
+    options?: ToolExecutorOptions,
+  ): Promise<ToolResult>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

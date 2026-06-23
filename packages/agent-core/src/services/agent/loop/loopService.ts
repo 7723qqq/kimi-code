@@ -63,12 +63,27 @@ declare module '../types' {
       providerFinishReason?: LoopStepEndEvent['providerFinishReason'];
       rawFinishReason?: string;
     };
+    'assistant.delta': {
+      turnId: number;
+      delta: string;
+    };
+    'thinking.delta': {
+      turnId: number;
+      delta: string;
+    };
+    'tool.call.delta': {
+      turnId: number;
+      toolCallId: string;
+      name?: string;
+      argumentsPart?: string;
+    };
   }
 }
 
 export class LoopService extends Disposable implements ILoopService {
   private readonly openSteps = new Map<string, OpenStep>();
   private ownSpliceDepth = 0;
+  private protocolTurnId: number | undefined;
 
   constructor(
     @IContextMemory private readonly context: IContextMemory,
@@ -99,6 +114,7 @@ export class LoopService extends Disposable implements ILoopService {
 
   async runTurn(turn: Turn, hooks: LoopRunHooks | undefined): Promise<TurnResult> {
     let usageModel = this.profile.data().modelAlias ?? 'unknown';
+    this.protocolTurnId = turn.id;
     const result = await runLoopTurn({
       turnId: String(turn.id),
       signal: turn.abortController.signal,
@@ -112,6 +128,10 @@ export class LoopService extends Disposable implements ILoopService {
       recordStepUsage: (usage) => {
         this.usage.record(usageModel, usage, 'turn');
       },
+    }).finally(() => {
+      if (this.protocolTurnId === turn.id) {
+        this.protocolTurnId = undefined;
+      }
     });
     if (result.stopReason === 'aborted') {
       return { reason: 'cancelled', error: turn.abortController.signal.reason };
@@ -191,6 +211,32 @@ export class LoopService extends Disposable implements ILoopService {
           llmStreamDurationMs: event.llmStreamDurationMs,
           providerFinishReason: event.providerFinishReason,
           rawFinishReason: event.rawFinishReason,
+        });
+        return;
+      case 'text.delta':
+        if (this.protocolTurnId === undefined) return;
+        this.events.emit({
+          type: 'assistant.delta',
+          turnId: this.protocolTurnId,
+          delta: event.delta,
+        });
+        return;
+      case 'thinking.delta':
+        if (this.protocolTurnId === undefined) return;
+        this.events.emit({
+          type: 'thinking.delta',
+          turnId: this.protocolTurnId,
+          delta: event.delta,
+        });
+        return;
+      case 'tool.call.delta':
+        if (this.protocolTurnId === undefined) return;
+        this.events.emit({
+          type: 'tool.call.delta',
+          turnId: this.protocolTurnId,
+          toolCallId: event.toolCallId,
+          name: event.name,
+          argumentsPart: event.argumentsPart,
         });
         return;
       default:
