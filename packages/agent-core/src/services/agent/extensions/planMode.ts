@@ -18,6 +18,7 @@ import { IContextMemory } from '../contextMemory/contextMemory';
 import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
 import { IEventBus } from '../eventBus/eventBus';
 import { IProfileService } from '../profile/profile';
+import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import { ITelemetryService } from '../telemetry/telemetry';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import type { ContextMessage } from '../types';
@@ -68,6 +69,7 @@ export class PlanMode extends Disposable {
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
     @IProfileService private readonly profile: IProfileService,
+    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @IToolRegistry toolRegistry: IToolRegistry,
     @IDynamicInjector dynamicInjector: IDynamicInjector,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -80,11 +82,13 @@ export class PlanMode extends Disposable {
     );
     this._register(
       wireRecord.register('plan_mode.cancel', () => {
+        this.replayBuilder.push({ type: 'plan_updated', enabled: false });
         this.applyInactive();
       }),
     );
     this._register(
       wireRecord.register('plan_mode.exit', () => {
+        this.replayBuilder.push({ type: 'plan_updated', enabled: false });
         this.applyInactive();
       }),
     );
@@ -199,6 +203,7 @@ export class PlanMode extends Disposable {
   }
 
   restoreEnter({ id }: { readonly id: string }): void {
+    this.replayBuilder.push({ type: 'plan_updated', enabled: true });
     this._active = true;
     this.planId = id;
     this._planFilePath = this.planFilePathFor(id);
@@ -206,6 +211,7 @@ export class PlanMode extends Disposable {
 
   cancel(id?: string): void {
     this.wireRecord.append({ type: 'plan_mode.cancel', id });
+    this.replayBuilder.push({ type: 'plan_updated', enabled: false });
     this.applyInactive();
     this.emitChanged();
   }
@@ -217,6 +223,7 @@ export class PlanMode extends Disposable {
 
   exit(id?: string): void {
     this.wireRecord.append({ type: 'plan_mode.exit', id });
+    this.replayBuilder.push({ type: 'plan_updated', enabled: false });
     this.applyInactive();
     this.emitChanged();
   }
