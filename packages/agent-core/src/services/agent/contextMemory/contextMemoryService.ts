@@ -1,10 +1,27 @@
 import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
-
 import { OrderedHookSlot } from '../hooks';
 import type { ContextMessage, WireRecord } from '../types';
 import { IEventBus } from '../eventBus/eventBus';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import { IContextMemory } from './contextMemory';
+
+declare module '../types' {
+  interface AgentEventMap {
+    'context.spliced': {
+      start: number;
+      deleteCount: number;
+      messages: ContextMessage[];
+    };
+  }
+
+  interface WireRecordMap {
+    'context.splice': {
+      start: number;
+      deleteCount: number;
+      messages: ContextMessage[];
+    };
+  }
+}
 
 export class ContextMemoryService extends Disposable implements IContextMemory {
   private readonly history: ContextMessage[] = [];
@@ -30,7 +47,7 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
   }
 
   getHistory(): readonly ContextMessage[] {
-    return this.history;
+    return [...this.history];
   }
 
   spliceHistory(start: number, deleteCount: number, ...messages: ContextMessage[]): void {

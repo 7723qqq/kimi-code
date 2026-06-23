@@ -15,15 +15,23 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## ContextMemory
 
+- [x] Own the `context.splice` wire record declaration and replay application.
+- [x] Keep `context.splice` as the single context mutation primitive; do not add separate append-message records.
+- [x] Prevent external mutation of the returned history.
+- [x] Apply restored `context.splice` records without appending duplicate records.
+
+## Loop Transcript Assembly
+
 - [ ] Handle loop events: `step.begin`, streamed content, tool calls, tool results, and `step.end`.
 - [ ] Preserve well-formed tool exchanges by tracking unresolved tool result ids.
 - [ ] Defer messages that arrive while a tool exchange is open.
 - [ ] Add resume handling for interrupted tool calls.
-- [ ] Track token count and token count with pending messages.
-- [ ] Add compaction application support or expose the lower-level operations needed by compaction.
 - [ ] Add matched-tail message removal for stop-hook and goal-outcome cleanup.
-- [ ] Prevent external mutation of the returned history.
-- [ ] Decide where record writing/restoring guards live when `spliceHistory()` is called during replay.
+
+## Context Usage Accounting
+
+- [ ] Track context token count and token count with pending messages.
+- [ ] Feed context token status into compaction/status reporting.
 
 ## TurnRunner
 
@@ -163,7 +171,8 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## WireRecord / EventBus
 
-- [ ] Add persistence, blob store support, migrations, replay builder integration, restore warnings, and restoring guards.
+- [x] Ignore record appends and event emits while wire records are restoring.
+- [ ] Add persistence, blob store support, migrations, replay builder integration, and restore warnings.
 - [ ] Report persistence write errors.
 - [ ] Map local events to RPC/session/server protocol events.
 - [ ] Preserve status-updated aggregation behavior.
