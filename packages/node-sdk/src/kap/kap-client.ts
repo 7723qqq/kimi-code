@@ -6,6 +6,7 @@ import {
   type RPCMethods,
   type TelemetryClient,
 } from '@moonshot-ai/agent-core';
+import type { Kaos } from '@moonshot-ai/kaos';
 import { assertKimiHostIdentity, type KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 
 import { KimiAuthFacade } from '#/auth';
@@ -37,7 +38,10 @@ export class SDKKapClient extends SDKRpcClientBase {
     this.configPath = resolveConfigPath({ homeDir: this.homeDir, configPath: options.configPath });
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.http = new KapHttpClient(options.kap);
-    this.ws = new KapWsClient(options.kap);
+    this.ws = new KapWsClient(options.kap, {
+      onEvent: (event) => this.receiveEvent(event),
+      // onReverseRequest wired in Phase 5
+    });
     this.auth = new KimiAuthFacade({
       homeDir: this.homeDir,
       configPath: this.configPath,
@@ -55,8 +59,55 @@ export class SDKKapClient extends SDKRpcClientBase {
     return Promise.resolve(this.proxy);
   }
 
+  async subscribeSession(sessionId: string): Promise<void> {
+    await this.ws.connect();
+    await this.ws.subscribe(sessionId);
+  }
+
+  async unsubscribeSession(sessionId: string): Promise<void> {
+    await this.ws.unsubscribe(sessionId);
+  }
+
+  override async createSession(input: Parameters<SDKRpcClientBase['createSession']>[0]) {
+    const summary = await super.createSession(input);
+    await this.subscribeSession(summary.id);
+    return summary;
+  }
+
+  override async resumeSession(input: Parameters<SDKRpcClientBase['resumeSession']>[0]) {
+    const summary = await super.resumeSession(input);
+    await this.subscribeSession(summary.id);
+    return summary;
+  }
+
+  override async forkSession(input: Parameters<SDKRpcClientBase['forkSession']>[0]) {
+    const summary = await super.forkSession(input);
+    await this.subscribeSession(summary.id);
+    return summary;
+  }
+
+  override async createSessionWithKaos(
+    input: Parameters<SDKRpcClientBase['createSessionWithKaos']>[0],
+    kaos: Kaos,
+    persistenceKaos?: Kaos,
+  ): Promise<import('#/types').SessionSummary> {
+    const summary = await super.createSessionWithKaos(input, kaos, persistenceKaos);
+    await this.subscribeSession(summary.id);
+    return summary;
+  }
+
+  override async resumeSessionWithKaos(
+    input: Parameters<SDKRpcClientBase['resumeSessionWithKaos']>[0],
+    kaos: Kaos,
+    persistenceKaos?: Kaos,
+  ): Promise<import('#/types').ResumedSessionSummary> {
+    const summary = await super.resumeSessionWithKaos(input, kaos, persistenceKaos);
+    await this.subscribeSession(summary.id);
+    return summary;
+  }
+
   async close(): Promise<void> {
-    // Phase 3 will close the WebSocket; Phase 0 is a no-op.
+    this.ws.close();
   }
 
   /** Handler registry — extended by each subsequent phase. */
