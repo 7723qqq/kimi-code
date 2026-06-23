@@ -1,4 +1,3 @@
-
 import {
   ErrorCodes,
   KimiError,
@@ -12,11 +11,10 @@ import {
 } from '@moonshot-ai/agent-core';
 import type { Kaos } from '@moonshot-ai/kaos';
 import { assertKimiHostIdentity, type KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
+import type { SessionStatusResponse } from '@moonshot-ai/protocol';
 
-import { KimiAuthFacade } from '#/auth';
 import { SDKRpcClientBase } from '#/rpc';
 import type { KimiHarnessOptions, SessionStatus } from '#/types';
-import type { SessionStatusResponse } from '@moonshot-ai/protocol';
 
 import { buildCoreApiProxy } from './core-proxy';
 import { contextHandlers } from './handlers/context';
@@ -25,6 +23,7 @@ import { promptHandlers } from './handlers/prompts';
 import { resumeHandlers } from './handlers/resume';
 import { serviceHandlers } from './handlers/services';
 import { sessionHandlers } from './handlers/sessions';
+import { KapAuthFacade } from './kap-auth';
 import { KapHttpClient } from './http-client';
 import { handleReverseRequest } from './reverse-channel';
 import type { CoreApiHandlerMap } from './types';
@@ -35,7 +34,7 @@ export class SDKKapClient extends SDKRpcClientBase {
   readonly configPath: string;
   readonly identity: KimiHostIdentity | undefined;
   readonly telemetry: TelemetryClient;
-  readonly auth: KimiAuthFacade;
+  readonly auth: KapAuthFacade;
 
   private readonly http: KapHttpClient;
   private readonly ws: KapWsClient;
@@ -60,11 +59,12 @@ export class SDKKapClient extends SDKRpcClientBase {
       onReverseRequest: (frame) =>
         void handleReverseRequest({ client: this, http: this.http }, frame),
     });
-    this.auth = new KimiAuthFacade({
+    this.auth = new KapAuthFacade({
       homeDir: this.homeDir,
       configPath: this.configPath,
       identity: this.identity,
       onRefresh: options.onOAuthRefresh,
+      http: this.http,
     });
     this.proxy = buildCoreApiProxy(this.handlers(), {
       http: this.http,
