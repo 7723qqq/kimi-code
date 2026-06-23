@@ -2,8 +2,8 @@ import { join } from 'pathe';
 
 import {
   Disposable,
-  InstantiationType,
   registerSingleton,
+  SyncDescriptor,
   toDisposable,
 } from '../../../di';
 import {
@@ -14,14 +14,20 @@ import {
   type WireMigration,
   type WireMigrationRecord,
 } from '../../../agent/records/migration';
-
+import {
+  IBlobStoreService,
+  type BlobStoreServiceOptions,
+} from '../blobStore/blobStore';
+import { BlobStoreService } from '../blobStore/blobStoreService';
 import { OrderedHookSlot } from '../hooks';
 import type { WireRecord, WireRecordMap } from '../types';
 import {
   IWireRecord,
   type PersistedWireRecord,
+  type WireRecordBlobSelector,
   type WireRecordMetadata,
   type WireRecordPersistence,
+  type WireRecordRegisterOptions,
   type WireRecordRestoreOptions,
   type WireRecordRestoreResult,
   type WireRecordServiceOptions,
@@ -29,24 +35,35 @@ import {
 import { FileSystemWireRecordPersistence } from './persistence';
 
 type Resumer<T extends keyof WireRecordMap> = (data: WireRecord<T>) => void | Promise<void>;
+type BlobSelector<T extends keyof WireRecordMap> = WireRecordBlobSelector<WireRecord<T>>;
 
 export class WireRecordService extends Disposable implements IWireRecord {
   private readonly records: WireRecord[] = [];
   private readonly resumers = new Map<keyof WireRecordMap, Set<Resumer<keyof WireRecordMap>>>();
+  private readonly blobSelectors = new Map<
+    keyof WireRecordMap,
+    BlobSelector<keyof WireRecordMap>[]
+  >();
   private readonly persistence: WireRecordPersistence | undefined;
+  private readonly blobStore: IBlobStoreService | undefined;
   private _restoring: { time?: number } | null = null;
   private metadataInitialized = false;
   readonly hooks = {
     onResumeEnded: new OrderedHookSlot<{}>(),
   };
 
-  constructor(private readonly options: WireRecordServiceOptions = {}) {
+  constructor(
+    private readonly options: WireRecordServiceOptions = {},
+    @IBlobStoreService injectedBlobStore?: IBlobStoreService,
+  ) {
     super();
+    this.blobStore = this.resolveBlobStore(options, injectedBlobStore);
     this.persistence =
       options.persistence ??
       (options.homedir === undefined
         ? undefined
         : new FileSystemWireRecordPersistence(join(options.homedir, 'wire.jsonl'), {
+            beforeWrite: (record) => this.preparePersistentRecord(record),
             onError: (error) => {
               this.reportPersistenceError(error);
             },
@@ -68,6 +85,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
   register<T extends keyof WireRecordMap>(
     type: T,
     resumer: (data: WireRecord<T>) => void | Promise<void>,
+    options?: WireRecordRegisterOptions<T>,
   ) {
     const typed = resumer as unknown as Resumer<keyof WireRecordMap>;
     let set = this.resumers.get(type);
@@ -76,8 +94,14 @@ export class WireRecordService extends Disposable implements IWireRecord {
       this.resumers.set(type, set);
     }
     set.add(typed);
+    const blobSelector = options?.blobs as BlobSelector<keyof WireRecordMap> | undefined;
+    const blobSet = this.registerBlobSelector(type, blobSelector);
     return toDisposable(() => {
       set?.delete(typed);
+      if (blobSelector !== undefined) {
+        const index = blobSet?.indexOf(blobSelector) ?? -1;
+        if (index !== -1) blobSet?.splice(index, 1);
+      }
     });
   }
 
@@ -134,7 +158,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
       restoredRecords?.push(migratedRecord);
       if (migratedRecord.type === 'metadata') continue;
 
-      await this.restoreRecord(migratedRecord);
+      await this.restoreRecord(await this.rehydrateRecord(migratedRecord));
     }
 
     if (shouldRewrite && restoredRecords !== undefined) {
@@ -208,6 +232,76 @@ export class WireRecordService extends Disposable implements IWireRecord {
   ): void {
     this.options.onPersistenceError?.(error, record);
   }
+
+  private registerBlobSelector<T extends keyof WireRecordMap>(
+    type: T,
+    selector: BlobSelector<keyof WireRecordMap> | undefined,
+  ): BlobSelector<keyof WireRecordMap>[] | undefined {
+    if (selector === undefined) return undefined;
+
+    let selectors = this.blobSelectors.get(type);
+    if (selectors === undefined) {
+      selectors = [];
+      this.blobSelectors.set(type, selectors);
+    }
+    selectors.push(selector);
+    return selectors;
+  }
+
+  private async preparePersistentRecord(record: PersistedWireRecord): Promise<PersistedWireRecord> {
+    if (record.type === 'metadata') return record;
+    return this.offloadRecord(record);
+  }
+
+  private async offloadRecord<T extends keyof WireRecordMap>(
+    record: WireRecord<T>,
+  ): Promise<WireRecord<T>> {
+    return this.applyBlobSelectors(record, 'offload');
+  }
+
+  private async rehydrateRecord<T extends keyof WireRecordMap>(
+    record: WireRecord<T>,
+  ): Promise<WireRecord<T>> {
+    return this.applyBlobSelectors(record, 'rehydrate');
+  }
+
+  private async applyBlobSelectors<T extends keyof WireRecordMap>(
+    record: WireRecord<T>,
+    direction: 'offload' | 'rehydrate',
+  ): Promise<WireRecord<T>> {
+    const blobStore = this.blobStore;
+    if (blobStore === undefined) return record;
+
+    const selectors = this.blobSelectors.get(record.type);
+    if (selectors === undefined) return record;
+
+    let current = record;
+    for (const selector of [...selectors] as BlobSelector<T>[]) {
+      for (const target of selector(current)) {
+        const parts =
+          direction === 'offload'
+            ? await blobStore.offloadParts(target.parts)
+            : await blobStore.rehydrateParts(target.parts);
+        if (parts !== target.parts) {
+          current = target.replace(current, parts);
+        }
+      }
+    }
+    return current;
+  }
+
+  private resolveBlobStore(
+    options: WireRecordServiceOptions,
+    injectedBlobStore: IBlobStoreService | undefined,
+  ): IBlobStoreService | undefined {
+    if (options.blobStore !== undefined) return options.blobStore;
+    if (options.homedir === undefined) return injectedBlobStore;
+
+    const blobOptions: BlobStoreServiceOptions = {
+      blobsDir: join(options.homedir, 'blobs'),
+    };
+    return new BlobStoreService(blobOptions);
+  }
 }
 
 async function* toAsyncIterable<T>(
@@ -218,4 +312,4 @@ async function* toAsyncIterable<T>(
   }
 }
 
-registerSingleton(IWireRecord, WireRecordService, InstantiationType.Delayed);
+registerSingleton(IWireRecord, new SyncDescriptor(WireRecordService, [{}], true));

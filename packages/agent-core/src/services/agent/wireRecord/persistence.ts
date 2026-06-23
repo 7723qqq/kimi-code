@@ -7,6 +7,9 @@ import type { PersistedWireRecord, WireRecordPersistence } from './wireRecord';
 
 export interface FileSystemWireRecordPersistenceOptions {
   readonly onError?: (error: unknown) => void;
+  readonly beforeWrite?: (
+    record: PersistedWireRecord,
+  ) => PersistedWireRecord | Promise<PersistedWireRecord>;
 }
 
 export interface InMemoryWireRecordPersistenceOptions {
@@ -170,7 +173,10 @@ export class FileSystemWireRecordPersistence implements WireRecordPersistence {
     const batch = this.pendingRecords.splice(0);
     this.shouldClear = false;
 
-    const content = batch.map((e) => JSON.stringify(e) + '\n').join('');
+    const writable = this.options.beforeWrite === undefined
+      ? batch
+      : await Promise.all(batch.map((record) => this.options.beforeWrite!(record)));
+    const content = writable.map((e) => JSON.stringify(e) + '\n').join('');
     const directory = dirname(this.filePath);
     await mkdir(directory, { recursive: true });
 
