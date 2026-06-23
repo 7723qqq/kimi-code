@@ -104,18 +104,18 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## FullCompaction
 
-- [ ] Implement begin/cancel/isCompacting/markCompleted state.
-- [ ] Emit compaction lifecycle events.
-- [ ] Enforce max compactions per turn.
-- [ ] Distinguish async compaction from blocking compaction.
-- [ ] Handle context overflow and retry with reduced compact counts.
-- [ ] Reject truncated, empty, or unusable compaction responses.
-- [ ] Record compaction usage and telemetry.
-- [ ] Post-process summaries.
-- [ ] Run pre/post compact hooks.
-- [ ] Support multi-round compaction.
-- [ ] Preserve current history-change cancellation semantics.
-- [ ] Use model capability and reserved context configuration instead of a fixed max context.
+- [x] Implement begin/cancel/isCompacting/markCompleted state.
+- [x] Emit compaction lifecycle events.
+- [x] Enforce max compactions per turn.
+- [x] Distinguish async compaction from blocking compaction.
+- [x] Handle context overflow and retry with reduced compact counts.
+- [x] Reject truncated, empty, or unusable compaction responses.
+- [x] Record compaction usage and telemetry.
+- [x] Post-process summaries.
+- [x] Run pre/post compact hooks.
+- [x] Support multi-round compaction.
+- [x] Preserve current history-change cancellation semantics.
+- [x] Use model capability and reserved context configuration instead of a fixed max context.
 
 ## MicroCompaction
 
