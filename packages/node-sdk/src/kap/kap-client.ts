@@ -13,6 +13,7 @@ import { SDKRpcClientBase } from '#/rpc';
 import type { KimiHarnessOptions } from '#/types';
 
 import { buildCoreApiProxy } from './core-proxy';
+import { metaHandlers } from './handlers/meta';
 import { KapHttpClient } from './http-client';
 import type { CoreApiHandlerMap } from './types';
 import { KapWsClient } from './ws-client';
@@ -59,6 +60,8 @@ export class SDKKapClient extends SDKRpcClientBase {
 
   /** Handler registry — extended by each subsequent phase. */
   protected handlers(): CoreApiHandlerMap {
-    return {};
+    return {
+      ...metaHandlers,
+    };
   }
 }
