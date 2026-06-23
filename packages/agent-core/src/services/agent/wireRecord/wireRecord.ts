@@ -1,6 +1,9 @@
+import type { ContentPart } from '@moonshot-ai/kosong';
+
 import { createDecorator } from '../../../di';
 import type { IDisposable } from '../../../di';
 
+import type { IBlobStoreService } from '../blobStore/blobStore';
 import type { Hooks } from '../hooks';
 import type { WireRecord, WireRecordMap } from '../types';
 
@@ -36,10 +39,24 @@ export interface WireRecordRestoreResult {
 export interface WireRecordServiceOptions {
   readonly homedir?: string;
   readonly persistence?: WireRecordPersistence;
+  readonly blobStore?: IBlobStoreService;
   readonly onPersistenceError?: (
     error: unknown,
     record?: PersistedWireRecord,
   ) => void;
+}
+
+export interface WireRecordBlobTarget<TRecord = WireRecord> {
+  readonly parts: readonly ContentPart[];
+  replace(record: TRecord, parts: readonly ContentPart[]): TRecord;
+}
+
+export type WireRecordBlobSelector<TRecord = WireRecord> = (
+  record: TRecord,
+) => Iterable<WireRecordBlobTarget<TRecord>>;
+
+export interface WireRecordRegisterOptions<T extends keyof WireRecordMap> {
+  readonly blobs?: WireRecordBlobSelector<WireRecord<T>>;
 }
 
 export interface IWireRecord {
@@ -49,6 +66,7 @@ export interface IWireRecord {
   register<T extends keyof WireRecordMap>(
     type: T,
     resumer: (data: WireRecord<T>) => void | Promise<void>,
+    options?: WireRecordRegisterOptions<T>,
   ): IDisposable;
   restore(
     records?: readonly PersistedWireRecord[],
