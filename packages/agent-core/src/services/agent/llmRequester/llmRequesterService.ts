@@ -6,6 +6,7 @@ import {
   type GenerateCallbacks,
   type Message,
   type ModelCapability,
+  type ProviderConfig,
   type ProviderRequestAuth,
   type Tool as KosongTool,
 } from '@moonshot-ai/kosong';
@@ -29,7 +30,7 @@ import { IContextProjector } from '../contextProjector/contextProjector';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import type { LLMEvent, LLMRequestOverrides } from '../types';
 import { AsyncEventQueue } from './asyncEventQueue';
-import { ILLMRequester } from './llmRequester';
+import { ILLMRequester, type LLMModelContext } from './llmRequester';
 
 export interface LLMRequesterServiceOptions {
   readonly modelProvider?: ModelProvider;
@@ -57,6 +58,16 @@ export class LLMRequesterService implements ILLMRequester {
     signal?: AbortSignal,
   ): AsyncIterable<LLMEvent> {
     return this.requestStream(overrides, signal);
+  }
+
+  getModelContext(): LLMModelContext {
+    const resolved = this.resolveModelContext();
+    return {
+      modelAlias: resolved.modelAlias,
+      modelCapabilities: resolved.modelCapabilities,
+      reservedContextSize: resolved.reservedContextSize,
+      compactionTriggerRatio: resolved.compactionTriggerRatio,
+    };
   }
 
   private async *requestStream(
@@ -136,6 +147,33 @@ export class LLMRequesterService implements ILLMRequester {
   }
 
   private resolveRequest(overrides: LLMRequestOverrides): ResolvedLLMRequest {
+    const resolved = this.resolveModelContext();
+    const thinkingLevel = this.resolveThinkingLevel(resolved.thinkingLevel, resolved);
+    const baseProvider = createProvider(resolved.provider).withThinking(thinkingLevel);
+    const providerWithEnv = applyKimiEnvThinkingKeep(
+      applyKimiEnvSamplingParams(baseProvider),
+      thinkingLevel,
+    );
+    const provider = applyCompletionBudget({
+      provider: providerWithEnv,
+      budget: resolveCompletionBudget({
+        maxOutputSize: resolved.maxOutputSize,
+        reservedContextSize: resolved.reservedContextSize,
+      }),
+      capability: resolved.modelCapabilities,
+    });
+
+    return {
+      provider,
+      modelAlias: resolved.modelAlias,
+      systemPrompt: overrides.systemPrompt ?? this.profile.getSystemPrompt(),
+      tools: [...(overrides.tools ?? this.defaultTools())],
+      messages: [...(overrides.messages ?? this.projector.project(this.context.getHistory()))],
+      generate: this.options.generate ?? generate,
+    };
+  }
+
+  private resolveModelContext(): ResolvedLLMModelContext {
     const modelProvider = this.options.modelProvider;
     if (modelProvider === undefined) {
       throw new KimiError(ErrorCodes.MODEL_NOT_CONFIGURED, 'Model provider not set');
@@ -149,28 +187,15 @@ export class LLMRequesterService implements ILLMRequester {
 
     const config = this.config();
     const resolved = modelProvider.resolveProviderConfig(modelAlias);
-    const thinkingLevel = this.resolveThinkingLevel(data.thinkingLevel, resolved);
-    const baseProvider = createProvider(resolved.provider).withThinking(thinkingLevel);
-    const providerWithEnv = applyKimiEnvThinkingKeep(
-      applyKimiEnvSamplingParams(baseProvider),
-      thinkingLevel,
-    );
-    const provider = applyCompletionBudget({
-      provider: providerWithEnv,
-      budget: resolveCompletionBudget({
-        maxOutputSize: resolved.maxOutputSize,
-        reservedContextSize: config.loopControl?.reservedContextSize,
-      }),
-      capability: resolved.modelCapabilities,
-    });
-
     return {
-      provider,
+      provider: resolved.provider,
       modelAlias,
-      systemPrompt: overrides.systemPrompt ?? this.profile.getSystemPrompt(),
-      tools: [...(overrides.tools ?? this.defaultTools())],
-      messages: [...(overrides.messages ?? this.projector.project(this.context.getHistory()))],
-      generate: this.options.generate ?? generate,
+      modelCapabilities: resolved.modelCapabilities,
+      maxOutputSize: resolved.maxOutputSize,
+      alwaysThinking: resolved.alwaysThinking,
+      thinkingLevel: data.thinkingLevel,
+      reservedContextSize: config.loopControl?.reservedContextSize,
+      compactionTriggerRatio: config.loopControl?.compactionTriggerRatio,
     };
   }
 
@@ -215,6 +240,13 @@ interface ResolvedLLMRequest {
   readonly tools: readonly KosongTool[];
   readonly messages: Message[];
   readonly generate: typeof generate;
+}
+
+interface ResolvedLLMModelContext extends LLMModelContext {
+  readonly provider: ProviderConfig;
+  readonly maxOutputSize: number | undefined;
+  readonly alwaysThinking: boolean | undefined;
+  readonly thinkingLevel: string | undefined;
 }
 
 registerSingleton(ILLMRequester, new SyncDescriptor(LLMRequesterService, [{}], true));

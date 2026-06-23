@@ -9,7 +9,7 @@ export interface HookSlot<TContext> {
     id: string,
     handler: HookHandler<TContext>,
     options?: HookRegisterOptions,
-  ): void;
+  ): IDisposable;
 
   delete(id: string): boolean;
 }
@@ -36,7 +36,7 @@ export class OrderedHookSlot<TContext> implements HookSlot<TContext> {
     id: string,
     handler: HookHandler<TContext>,
     options: HookRegisterOptions = {},
-  ): void {
+  ): IDisposable {
     if (options.before !== undefined && options.after !== undefined) {
       throw new Error('Hook registration cannot specify both before and after');
     }
@@ -46,7 +46,7 @@ export class OrderedHookSlot<TContext> implements HookSlot<TContext> {
     const target = options.before ?? options.after;
     if (target === undefined) {
       this.entries.push(entry);
-      return;
+      return this.toEntryDisposable(entry);
     }
 
     const targetIndex = this.entries.findIndex((item) => item.id === target);
@@ -56,6 +56,7 @@ export class OrderedHookSlot<TContext> implements HookSlot<TContext> {
 
     const insertAt = options.before !== undefined ? targetIndex : targetIndex + 1;
     this.entries.splice(insertAt, 0, entry);
+    return this.toEntryDisposable(entry);
   }
 
   delete(id: string): boolean {
@@ -68,6 +69,14 @@ export class OrderedHookSlot<TContext> implements HookSlot<TContext> {
   asDisposable(id: string): IDisposable {
     return toDisposable(() => {
       this.delete(id);
+    });
+  }
+
+  private toEntryDisposable(entry: HookEntry<TContext>): IDisposable {
+    return toDisposable(() => {
+      const index = this.entries.indexOf(entry);
+      if (index < 0) return;
+      this.entries.splice(index, 1);
     });
   }
 

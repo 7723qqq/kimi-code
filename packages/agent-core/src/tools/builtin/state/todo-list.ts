@@ -20,13 +20,12 @@ import type { ToolExecution } from '../../../loop/types';
 import { toInputJsonSchema } from '../../support/input-schema';
 import type { ToolStore } from '../../store';
 import DESCRIPTION from './todo-list.md?raw';
+import TODO_LIST_WRITE_REMINDER from './todo-list-write-reminder.md?raw';
 
 // ── TODO state shape ─────────────────────────────────────────────────
 
 export const TODO_LIST_TOOL_NAME = 'TodoList' as const;
 export const TODO_STORE_KEY = 'todo';
-const TODO_LIST_WRITE_REMINDER =
-  'Ensure that you continue to use the todo list to track progress. Mark tasks done immediately after finishing them, and keep exactly one task in_progress when work is underway.';
 
 export type TodoStatus = 'pending' | 'in_progress' | 'done';
 
@@ -119,7 +118,7 @@ export class TodoListTool implements BuiltinTool<TodoListInput> {
         const output =
           stored.length === 0
             ? 'Todo list cleared.'
-            : `Todo list updated.\n${renderTodoList(stored)}\n\n${TODO_LIST_WRITE_REMINDER}`;
+            : `Todo list updated.\n${renderTodoList(stored)}\n\n${TODO_LIST_WRITE_REMINDER.trim()}`;
         return { isError: false, output };
       },
     };
