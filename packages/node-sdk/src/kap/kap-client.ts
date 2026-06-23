@@ -11,7 +11,8 @@ import { assertKimiHostIdentity, type KimiHostIdentity } from '@moonshot-ai/kimi
 
 import { KimiAuthFacade } from '#/auth';
 import { SDKRpcClientBase } from '#/rpc';
-import type { KimiHarnessOptions } from '#/types';
+import type { KimiHarnessOptions, SessionStatus } from '#/types';
+import type { SessionStatusResponse } from '@moonshot-ai/protocol';
 
 import { buildCoreApiProxy } from './core-proxy';
 import { metaHandlers } from './handlers/meta';
@@ -105,6 +106,51 @@ export class SDKKapClient extends SDKRpcClientBase {
     const summary = await super.resumeSessionWithKaos(input, kaos, persistenceKaos);
     await this.subscribeSession(summary.id);
     return summary;
+  }
+
+  override async setModel(input: { sessionId: string; model: string }) {
+    await this.http.post(`/sessions/${input.sessionId}/profile`, {
+      agent_config: { model: input.model },
+    });
+    return { model: input.model };
+  }
+
+  override async setThinking(input: { sessionId: string; level: string }): Promise<void> {
+    await this.http.post(`/sessions/${input.sessionId}/profile`, {
+      agent_config: { thinking: input.level },
+    });
+  }
+
+  override async setPermission(input: { sessionId: string; mode: 'yolo' | 'manual' | 'auto' }): Promise<void> {
+    await this.http.post(`/sessions/${input.sessionId}/profile`, {
+      agent_config: { permission_mode: input.mode },
+    });
+  }
+
+  override async setPlanMode(input: { sessionId: string; enabled: boolean }): Promise<void> {
+    await this.http.post(`/sessions/${input.sessionId}/profile`, {
+      agent_config: { plan_mode: input.enabled },
+    });
+  }
+
+  override async setSwarmMode(input: { sessionId: string; enabled: boolean }): Promise<void> {
+    await this.http.post(`/sessions/${input.sessionId}/profile`, {
+      agent_config: { swarm_mode: input.enabled },
+    });
+  }
+
+  override async getStatus(input: { sessionId: string }): Promise<SessionStatus> {
+    const status = await this.http.get<SessionStatusResponse>(`/sessions/${input.sessionId}/status`);
+    return {
+      model: status.model,
+      thinkingLevel: status.thinking_level,
+      permission: status.permission as SessionStatus['permission'],
+      planMode: status.plan_mode,
+      swarmMode: status.swarm_mode,
+      contextTokens: status.context_tokens,
+      maxContextTokens: status.max_context_tokens,
+      contextUsage: status.context_usage,
+    };
   }
 
   async close(): Promise<void> {
