@@ -94,11 +94,13 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## DynamicInjector
 
-- [ ] Fix `injectedAt` bookkeeping for self-inserted injection messages.
-- [ ] Add clear, compaction, and message-removal lifecycle handling.
-- [ ] Track per-injector variants instead of marking every dynamic injection as `dynamic`.
+- [x] Fix `injectedAt` bookkeeping for self-inserted injection messages.
+- [x] Add clear, compaction, and message-removal lifecycle handling.
+- [x] Track per-injector variants instead of marking every dynamic injection as `dynamic`.
 - [ ] Restore goal injector boundary cadence.
-- [ ] Restore todo-list, permission-mode, plugin-session-start, plan-mode, and goal injector behavior.
+- [ ] Restore todo-list stale reminder from the TodoList implementation instead of the DynamicInjector framework.
+- [x] Restore permission-mode, plugin-session-start, plan-mode, and goal injector behavior.
+- [ ] Trigger boundary dynamic injections after full compaction completes.
 
 ## FullCompaction
 

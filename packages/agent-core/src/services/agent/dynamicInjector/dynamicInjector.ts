@@ -1,16 +1,19 @@
 import { createDecorator } from '../../../di';
 import type { IDisposable } from '../../../di';
 
-export interface DynamicInjectionState {
+export interface DynamicInjectionContext {
   readonly injectedAt: number | null;
 }
 
 export type DynamicInjectionProvider = (
-  state: DynamicInjectionState,
+  context: DynamicInjectionContext,
 ) => string | undefined | Promise<string | undefined>;
 
 export interface IDynamicInjector {
-  register(injector: DynamicInjectionProvider): IDisposable;
+  register(
+    variant: string,
+    provider: DynamicInjectionProvider,
+  ): IDisposable;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

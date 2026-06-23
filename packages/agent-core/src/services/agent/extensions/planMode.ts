@@ -4,7 +4,11 @@ import { IContextMemory } from '../contextMemory/contextMemory';
 import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
 import { IEventBus } from '../eventBus/eventBus';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
+import type { ContextMessage } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
+import PLAN_MODE_EXIT_REMINDER from './plan-mode-exit-reminder.md?raw';
+import PLAN_MODE_FULL_REMINDER from './plan-mode-full-reminder.md?raw';
+import PLAN_MODE_SPARSE_REMINDER from './plan-mode-sparse-reminder.md?raw';
 
 declare module '../types' {
   interface WireRecordMap {
@@ -19,6 +23,10 @@ declare module '../types' {
     };
   }
 }
+
+const PLAN_MODE_DEDUP_MIN_TURNS = 2;
+const PLAN_MODE_FULL_REFRESH_TURNS = 5;
+const PLAN_MODE_INJECTION_VARIANT = 'plan_mode';
 
 export class PlanMode extends Disposable {
   private _active = false;
@@ -60,7 +68,7 @@ export class PlanMode extends Disposable {
 
     let wasActive = false;
     this._register(
-      dynamicInjector.register(({ injectedAt }) => {
+      dynamicInjector.register(PLAN_MODE_INJECTION_VARIANT, ({ injectedAt }) => {
         if (!this.active) {
           if (!wasActive) return undefined;
           wasActive = false;
@@ -68,11 +76,11 @@ export class PlanMode extends Disposable {
         }
         if (!wasActive) {
           wasActive = true;
-          return PLAN_MODE_ENTER_REMINDER;
+          return PLAN_MODE_FULL_REMINDER;
         }
-        if (injectedAt === null && this.context.getHistory().length > 0) {
-          return PLAN_MODE_ENTER_REMINDER;
-        }
+        const variant = planModeReminderVariant(injectedAt, this.context.getHistory());
+        if (variant === 'full') return PLAN_MODE_FULL_REMINDER;
+        if (variant === 'sparse') return PLAN_MODE_SPARSE_REMINDER;
         return undefined;
       }),
     );
@@ -98,8 +106,26 @@ export class PlanMode extends Disposable {
   }
 }
 
-const PLAN_MODE_ENTER_REMINDER =
-  'Plan mode is active. Prefer read-only investigation and write the plan before exiting plan mode.';
+type PlanModeReminderVariant = 'full' | 'sparse';
 
-const PLAN_MODE_EXIT_REMINDER =
-  'Plan mode is no longer active. Continue with the approved plan using normal tool and permission rules.';
+function planModeReminderVariant(
+  injectedAt: number | null,
+  history: readonly ContextMessage[],
+): PlanModeReminderVariant | null {
+  if (injectedAt === null) return 'full';
+  let assistantTurnsSince = 0;
+  for (let i = injectedAt + 1; i < history.length; i++) {
+    const message = history[i];
+    if (message === undefined) continue;
+    if (message.role === 'assistant') {
+      assistantTurnsSince += 1;
+      continue;
+    }
+    if (message.role === 'user') {
+      return 'full';
+    }
+  }
+  if (assistantTurnsSince >= PLAN_MODE_FULL_REFRESH_TURNS) return 'full';
+  if (assistantTurnsSince >= PLAN_MODE_DEDUP_MIN_TURNS) return 'sparse';
+  return null;
+}

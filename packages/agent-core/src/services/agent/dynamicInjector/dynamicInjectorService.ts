@@ -15,11 +15,13 @@ import {
 
 interface DynamicInjectionEntry {
   readonly provider: DynamicInjectionProvider;
+  readonly variant: string;
   injectedAt: number | null;
 }
 
 export class DynamicInjectorService extends Disposable implements IDynamicInjector {
   private readonly entries = new Set<DynamicInjectionEntry>();
+  private readonly selfInsertedMessages = new WeakMap<ContextMessage, DynamicInjectionEntry>();
 
   constructor(
     @IContextMemory private readonly context: IContextMemory,
@@ -27,20 +29,22 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
   ) {
     super();
     turnRunner.hooks.beforeStep.register('dynamic-injector', async (_ctx, next) => {
-      await this.inject();
       await next();
+      await this.inject();
     });
     context.hooks.onSpliced.register('dynamic-injector', (ctx, next) => {
-      for (const entry of this.entries) {
-        entry.injectedAt = updateInjectedAt(entry.injectedAt, ctx);
-      }
+      this.handleSplice(ctx);
       return next();
     });
   }
 
-  register(provider: DynamicInjectionProvider) {
+  register(
+    variant: string,
+    provider: DynamicInjectionProvider,
+  ) {
     const entry: DynamicInjectionEntry = {
       provider,
+      variant,
       injectedAt: null,
     };
     this.entries.add(entry);
@@ -50,32 +54,104 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
   }
 
   private async inject(): Promise<void> {
-    for (const entry of this.entries) {
-      const content = await entry.provider({ injectedAt: entry.injectedAt });
-      if (content === undefined || content.length === 0) continue;
+    for (const entry of [...this.entries]) {
+      const history = this.context.getHistory();
+      entry.injectedAt ??= findLastInjection(history, entry.variant);
+      const content = await entry.provider({
+        injectedAt: entry.injectedAt,
+      });
+      if (!this.entries.has(entry)) continue;
+      if (content === undefined || content.trim().length === 0) continue;
       const injectedAt = this.context.getHistory().length;
-      this.context.spliceHistory(
-        injectedAt,
-        0,
-        createInjectionMessage(content),
-      );
+      const message = createInjectionMessage(content, entry.variant);
+      this.selfInsertedMessages.set(message, entry);
+      this.context.spliceHistory(injectedAt, 0, message);
       entry.injectedAt = injectedAt;
+      this.selfInsertedMessages.delete(message);
+    }
+  }
+
+  private handleSplice(splice: ContextSplice): void {
+    const selfInserted = new Map<DynamicInjectionEntry, number>();
+    splice.messages.forEach((message, offset) => {
+      const entry = this.selfInsertedMessages.get(message);
+      if (entry !== undefined) {
+        selfInserted.set(entry, splice.start + offset);
+      }
+    });
+    const previousLength =
+      this.context.getHistory().length - splice.messages.length + splice.deleteCount;
+
+    for (const entry of this.entries) {
+      const ownInsertedAt = selfInserted.get(entry);
+      if (ownInsertedAt !== undefined) {
+        entry.injectedAt = ownInsertedAt;
+        continue;
+      }
+      entry.injectedAt = updateInjectedAt(entry.injectedAt, splice, previousLength);
     }
   }
 }
 
+type ContextSplice = {
+  readonly start: number;
+  readonly deleteCount: number;
+  readonly messages: readonly ContextMessage[];
+};
+
 function updateInjectedAt(
   injectedAt: number | null,
-  splice: { start: number; deleteCount: number; messages: readonly ContextMessage[] },
+  splice: ContextSplice,
+  previousLength: number,
 ): number | null {
   if (injectedAt === null) return null;
+  if (isClearSplice(splice, previousLength)) return null;
+  if (isCompactionSplice(splice)) {
+    const next = injectedAt - splice.deleteCount + 1;
+    return next >= 0 ? next : null;
+  }
+  if (isSingleMessageRemoval(splice)) {
+    if (injectedAt > splice.start) return injectedAt - 1;
+    if (injectedAt === splice.start) return null;
+    return injectedAt;
+  }
   const deletedEnd = splice.start + splice.deleteCount;
   if (injectedAt < splice.start) return injectedAt;
   if (injectedAt < deletedEnd) return null;
   return injectedAt + splice.messages.length - splice.deleteCount;
 }
 
-function createInjectionMessage(content: string): ContextMessage {
+function isClearSplice(splice: ContextSplice, previousLength: number): boolean {
+  return splice.start === 0 && splice.deleteCount >= previousLength && splice.messages.length === 0;
+}
+
+function isCompactionSplice(splice: ContextSplice): boolean {
+  return (
+    splice.start === 0 &&
+    splice.deleteCount > 0 &&
+    splice.messages.length === 1 &&
+    splice.messages[0]?.origin?.kind === 'compaction_summary'
+  );
+}
+
+function isSingleMessageRemoval(splice: ContextSplice): boolean {
+  return splice.deleteCount === 1 && splice.messages.length === 0;
+}
+
+function findLastInjection(
+  history: readonly ContextMessage[],
+  variant: string,
+): number | null {
+  for (let index = history.length - 1; index >= 0; index--) {
+    const message = history[index];
+    if (message?.origin?.kind === 'injection' && message.origin.variant === variant) {
+      return index;
+    }
+  }
+  return null;
+}
+
+function createInjectionMessage(content: string, variant: string): ContextMessage {
   return {
     role: 'user',
     content: [
@@ -85,7 +161,7 @@ function createInjectionMessage(content: string): ContextMessage {
       },
     ],
     toolCalls: [],
-    origin: { kind: 'injection', variant: 'dynamic' },
+    origin: { kind: 'injection', variant },
   };
 }
 

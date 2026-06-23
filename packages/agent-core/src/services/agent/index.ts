@@ -67,8 +67,8 @@ export { TurnRunnerService } from './turnRunner/turnRunnerService';
 
 export {
   IDynamicInjector,
+  type DynamicInjectionContext,
   type DynamicInjectionProvider,
-  type DynamicInjectionState,
 } from './dynamicInjector/dynamicInjector';
 export { DynamicInjectorService } from './dynamicInjector/dynamicInjectorService';
 
@@ -90,6 +90,8 @@ export {
 export { UsageService } from './usage/usageService';
 
 export { PlanMode } from './extensions/planMode';
+export { PermissionModeInjection } from './extensions/permissionModeInjection';
+export { GoalInjection, type GoalInjectionOptions } from './extensions/goalInjection';
 export { SwarmMode, type SwarmModeTrigger } from './extensions/swarmMode';
 export {
   Background,
