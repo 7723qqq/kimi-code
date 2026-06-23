@@ -30,6 +30,7 @@ import {
 } from '../../../tools/builtin/state/todo-list';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
+import { IContextUsageService } from '../contextUsage/contextUsage';
 import { IEventBus } from '../eventBus/eventBus';
 import { OrderedHookSlot } from '../hooks';
 import { ILLMRequester } from '../llmRequester/llmRequester';
@@ -82,6 +83,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
   constructor(
     @IContextMemory private readonly context: IContextMemory,
     @IContextProjector private readonly projector: IContextProjector,
+    @IContextUsageService private readonly contextUsage: IContextUsageService,
     @ILLMRequester private readonly llmRequester: ILLMRequester,
     @IToolStoreService private readonly toolStore: IToolStoreService,
     @IUsageService private readonly usage: IUsageService,
@@ -296,7 +298,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
   ): Promise<CompactionResult | undefined> {
     const startedAt = Date.now();
     const originalHistory = [...this.context.getHistory()];
-    const tokensBefore = estimateTokensForMessages(originalHistory);
+    const tokensBefore = this.contextUsage.getStatus().contextTokensWithPending;
     let retryCount = 0;
 
     try {
@@ -377,6 +379,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       });
 
       this.context.spliceHistory(0, compactedCount, createCompactionSummaryMessage(summary));
+      this.contextUsage.applyCompactionResult(result);
       return result;
     } catch (error) {
       if (isAbortError(error)) return undefined;
@@ -430,7 +433,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
   }
 
   private tokenCountWithPending(): number {
-    return estimateTokensForMessages(this.context.getHistory());
+    return this.contextUsage.getStatus().contextTokensWithPending;
   }
 
   private beginData(input: CompactInput): CompactionBeginData {
