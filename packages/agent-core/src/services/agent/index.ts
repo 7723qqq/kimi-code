@@ -112,8 +112,9 @@ export { GoalInjection, type GoalInjectionOptions } from './extensions/goalInjec
 export { SwarmMode, type SwarmModeTrigger } from './extensions/swarmMode';
 export {
   Background,
+  type BackgroundManager,
   type BackgroundTaskOutputSnapshot,
-} from './extensions/background';
+} from './background/background';
 export {
   Cron,
   type CronFireOptions,

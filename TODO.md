@@ -135,13 +135,13 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## Background
 
-- [ ] Add persistence, load-from-disk, and reconcile behavior.
-- [ ] Integrate agent task and question task types.
-- [ ] Record task lifecycle events.
-- [ ] Support full output persistence and retrieval.
-- [ ] Align list/stop/readOutput events and RPC behavior.
-- [ ] Integrate cancellation with turn/subagent lifecycle.
-- [ ] Improve retained-output trimming efficiency.
+- [x] Add persistence, load-from-disk, and reconcile behavior.
+- [x] Integrate agent task and question task types.
+- [x] Record task lifecycle events.
+- [x] Support full output persistence and retrieval.
+- [x] Align list/stop/readOutput events and RPC behavior.
+- [x] Integrate cancellation with turn/subagent lifecycle.
+- [x] Improve retained-output trimming efficiency.
 
 ## Cron
 

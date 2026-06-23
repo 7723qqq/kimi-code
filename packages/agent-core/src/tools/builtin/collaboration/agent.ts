@@ -35,7 +35,8 @@ import {
   isUserCancellation,
   type DeadlineAbortSignal,
 } from '../../../utils/abort';
-import { AgentBackgroundTask, type BackgroundManager } from '../../../agent/background';
+import { AgentBackgroundTask } from '../../../agent/background';
+import type { BackgroundTaskRegistrar } from '../../background/manager';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { matchesGlobRuleSubject } from '../../support/rule-match';
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
@@ -113,7 +114,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentToolInputSchema);
   constructor(
     private readonly subagentHost: SessionSubagentHost,
-    private readonly backgroundManager?: BackgroundManager | undefined,
+    private readonly backgroundManager?: BackgroundTaskRegistrar | undefined,
     subagents?: ResolvedAgentProfile['subagents'] | undefined,
     options?: {
       log?: Logger;
