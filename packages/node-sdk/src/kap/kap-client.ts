@@ -19,6 +19,7 @@ import type { KimiHarnessOptions, SessionStatus } from '#/types';
 import type { SessionStatusResponse } from '@moonshot-ai/protocol';
 
 import { buildCoreApiProxy } from './core-proxy';
+import { contextHandlers } from './handlers/context';
 import { metaHandlers } from './handlers/meta';
 import { promptHandlers } from './handlers/prompts';
 import { resumeHandlers } from './handlers/resume';
@@ -235,6 +236,7 @@ export class SDKKapClient extends SDKRpcClientBase {
       ...sessionHandlers,
       ...resumeHandlers,
       ...promptHandlers,
+      ...contextHandlers,
     };
   }
 }
