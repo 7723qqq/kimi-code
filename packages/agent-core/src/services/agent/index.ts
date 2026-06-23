@@ -93,6 +93,27 @@ export { ToolStoreService } from './toolStore/toolStoreService';
 export { IToolExecutor, type ToolExecutorOptions } from './toolExecutor/toolExecutor';
 export { ToolExecutorService } from './toolExecutor/toolExecutorService';
 
+export {
+  IPermissionModeService,
+  type PermissionModeChangedContext,
+} from './permissionMode/permissionMode';
+export { PermissionModeService } from './permissionMode/permissionModeService';
+export {
+  IPermissionRulesService,
+  type PermissionApprovalRecordedContext,
+  type PermissionRulesChangedContext,
+  type PermissionRulesServiceOptions,
+} from './permissionRules/permissionRules';
+export { PermissionRulesService } from './permissionRules/permissionRulesService';
+export {
+  IPermissionService,
+  type PermissionGitWorkTreeMarker,
+  type PermissionPlanModeState,
+  type PermissionServiceOptions,
+  type PermissionSwarmModeState,
+} from './permission/permission';
+export { PermissionService } from './permission/permissionService';
+
 export { ILLMRequester } from './llmRequester/llmRequester';
 export {
   LLMRequesterService,

@@ -2,6 +2,7 @@ import type { ContentPart } from '@moonshot-ai/kosong';
 
 import { registerSingleton, SyncDescriptor } from '../../../di';
 import type {
+  ExecutableToolResult,
   ToolExecution,
 } from '../../../loop/types';
 import type { ToolCall, ToolResult } from '../types';
