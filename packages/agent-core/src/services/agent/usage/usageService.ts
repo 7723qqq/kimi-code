@@ -12,7 +12,7 @@ declare module '../types' {
     'usage.record': {
       model: string;
       usage: TokenUsage;
-      usageScope: UsageRecordScope;
+      usageScope?: UsageRecordScope;
     };
   }
 
@@ -32,7 +32,11 @@ export class UsageService implements IUsageService {
     @IEventBus private readonly events: IEventBus,
   ) {
     wireRecord.register('usage.record', (record) => {
-      this.apply(record.model, record.usage, record.usageScope);
+      this.apply(record.model, record.usage, 'session');
+    });
+    wireRecord.hooks.onResumeEnded.register('usage-publish-restored', async (_ctx, next) => {
+      await next();
+      this.publishChanged();
     });
   }
 
@@ -52,6 +56,7 @@ export class UsageService implements IUsageService {
       usageScope: scope,
     });
     this.apply(model, usage, scope);
+    this.publishChanged();
   }
 
   data(): UsageStatus {
@@ -85,8 +90,13 @@ export class UsageService implements IUsageService {
       this.currentTurn =
         this.currentTurn === undefined ? copyUsage(usage) : addUsage(this.currentTurn, usage);
     }
+  }
 
-    this.events.emit({ type: 'usage.changed', status: this.data() });
+  private publishChanged(): void {
+    const status = this.status();
+    if (status === undefined) return;
+    this.events.emit({ type: 'usage.changed', status });
+    this.events.emit({ type: 'agent.status.updated', usage: status });
   }
 
   private byModelSnapshot(): Record<string, TokenUsage> {

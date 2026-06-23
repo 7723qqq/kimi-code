@@ -171,10 +171,10 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## Usage
 
-- [ ] Emit status updates or define the replacement status event.
+- [x] Emit status updates or define the replacement status event.
 - [ ] Integrate goal token accounting.
-- [ ] Account for compaction usage.
-- [ ] Restore usage after record replay and publish a coherent status.
+- [x] Account for compaction usage.
+- [x] Restore usage after record replay and publish a coherent status.
 
 ## WireRecord / EventBus
 
