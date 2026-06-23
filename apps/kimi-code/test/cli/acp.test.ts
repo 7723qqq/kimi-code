@@ -7,17 +7,16 @@
  * actually take over stdio).
  */
 
+import { runAcpServer } from '@moonshot-ai/acp-adapter';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { registerAcpCommand } from '#/cli/sub/acp';
 
 vi.mock('@moonshot-ai/acp-adapter', () => ({
   ACP_BUILTIN_SLASH_COMMANDS: [],
   runAcpServer: vi.fn(async () => undefined),
 }));
-
-import { runAcpServer } from '@moonshot-ai/acp-adapter';
-
-import { registerAcpCommand } from '#/cli/sub/acp';
 
 class ExitCalled extends Error {
   constructor(public code: number | string | null | undefined) {

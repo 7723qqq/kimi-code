@@ -6,8 +6,12 @@
  * stderr, and exits with the right code on success / failure.
  */
 
+import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { registerLoginCommand } from '#/cli/sub/login';
+import { openUrl } from '#/utils/open-url';
 
 const mockLogin = vi.fn();
 
@@ -26,11 +30,6 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
 });
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
-
-import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
-
-import { registerLoginCommand } from '#/cli/sub/login';
-import { openUrl } from '#/utils/open-url';
 
 class ExitCalled extends Error {
   constructor(public code: number | string | null | undefined) {
