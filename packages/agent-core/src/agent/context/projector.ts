@@ -12,7 +12,57 @@ export function project(history: readonly ContextMessage[]): Message[] {
       !(message.role === 'assistant' && message.content.length === 0 && message.toolCalls.length === 0)
     );
   });
-  return mergeAdjacentUserMessages(usable);
+  return mergeAdjacentUserMessages(deferMessagesAroundOpenToolExchanges(usable));
+}
+
+export function deferMessagesAroundOpenToolExchanges(
+  history: readonly ContextMessage[],
+): ContextMessage[] {
+  const out: ContextMessage[] = [];
+  const pendingToolResultIds = new Set<string>();
+  let deferredMessages: ContextMessage[] = [];
+
+  const push = (message: ContextMessage): void => {
+    out.push(message);
+    if (message.role !== 'assistant') return;
+    for (const toolCall of message.toolCalls) {
+      pendingToolResultIds.add(toolCall.id);
+    }
+  };
+
+  const flushDeferredMessagesIfToolExchangeClosed = (): void => {
+    if (pendingToolResultIds.size > 0 || deferredMessages.length === 0) return;
+    const messages = deferredMessages;
+    deferredMessages = [];
+    for (const message of messages) {
+      visit(message);
+    }
+  };
+
+  const visit = (message: ContextMessage): void => {
+    if (pendingToolResultIds.size === 0) {
+      push(message);
+      return;
+    }
+
+    if (
+      message.role === 'tool' &&
+      message.toolCallId !== undefined &&
+      pendingToolResultIds.has(message.toolCallId)
+    ) {
+      out.push(message);
+      pendingToolResultIds.delete(message.toolCallId);
+      flushDeferredMessagesIfToolExchangeClosed();
+      return;
+    }
+
+    deferredMessages.push(message);
+  };
+
+  for (const message of history) {
+    visit(message);
+  }
+  return out;
 }
 
 function mergeAdjacentUserMessages(history: readonly ContextMessage[]): Message[] {
