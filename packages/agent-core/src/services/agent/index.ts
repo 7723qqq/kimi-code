@@ -70,6 +70,13 @@ export {
 } from './contextUsage/contextUsage';
 export { ContextUsageService } from './contextUsage/contextUsageService';
 
+export {
+  IReplayBuilderService,
+  type ReplayBuilderServiceOptions,
+  type ReplayRangeOptions,
+} from './replayBuilder/replayBuilder';
+export { ReplayBuilderService } from './replayBuilder/replayBuilderService';
+
 export { IContextProjector } from './contextProjector/contextProjector';
 export { ContextProjectorService } from './contextProjector/contextProjectorService';
 
