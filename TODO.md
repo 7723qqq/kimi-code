@@ -178,7 +178,8 @@ against the current implementation under `packages/agent-core/src/agent`.
 ## WireRecord / EventBus
 
 - [x] Ignore record appends and event emits while wire records are restoring.
-- [ ] Add persistence, blob store support, migrations, replay builder integration, and restore warnings.
-- [ ] Report persistence write errors.
+- [x] Add persistence, migrations, and restore warnings.
+- [ ] Add blob store support and replay builder integration.
+- [x] Report persistence write errors.
 - [ ] Map local events to RPC/session/server protocol events.
 - [ ] Preserve status-updated aggregation behavior.
