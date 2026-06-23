@@ -7,6 +7,7 @@ import { i18n } from '../i18n';
 import { getKimiWebApi } from '../api';
 import { isDaemonApiError, isDaemonNetworkError } from '../api/errors';
 import { loadUnread, safeGetString, safeRemove, safeSetString, saveUnread, STORAGE_KEYS } from '../lib/storage';
+import { mergeSnapshotMessages } from '../lib/mergeSnapshotMessages';
 import { useAppearance } from './client/useAppearance';
 import { useNotification } from './client/useNotification';
 import { useTaskPoller } from './client/useTaskPoller';
@@ -954,7 +955,12 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
           ? snap.session.model
           : s.model,
     }));
-    setSessionMessages(sessionId, snap.messages);
+    // Merge (don't replace) with whatever live events appended while the
+    // snapshot was in flight, so a resync can't briefly drop them.
+    setSessionMessages(
+      sessionId,
+      mergeSnapshotMessages(snap.messages, rawState.messagesBySession[sessionId] ?? []),
+    );
     rawState.messagesHasMoreBySession = {
       ...rawState.messagesHasMoreBySession,
       [sessionId]: snap.hasMoreMessages,
