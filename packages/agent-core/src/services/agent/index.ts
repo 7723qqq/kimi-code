@@ -119,6 +119,14 @@ export {
   type PermissionSwarmModeState,
 } from './permission/permission';
 export { PermissionService } from './permission/permissionService';
+export {
+  IPermissionPolicyService,
+  type PermissionPolicy,
+  type PermissionPolicyEvaluation,
+  type PermissionPolicyResolution,
+  type PermissionPolicyResult,
+} from './permissionPolicy/permissionPolicy';
+export { PermissionPolicyService } from './permissionPolicy/permissionPolicyService';
 
 export { ILLMRequester } from './llmRequester/llmRequester';
 export {
