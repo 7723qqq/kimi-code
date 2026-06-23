@@ -116,22 +116,6 @@ function onGlobalKeydown(e: KeyboardEvent): void {
 }
 
 // ---------------------------------------------------------------------------
-// Layout: resizable session column. ResizeHandle owns the column width (with
-// localStorage persistence); we mirror it here to drive the App grid.
-// ---------------------------------------------------------------------------
-const {
-  SIDEBAR_WIDTH_KEY,
-  SIDEBAR_DEFAULT,
-  SIDEBAR_MIN,
-  SIDEBAR_MAX,
-  sessionColWidth,
-  sidebarCollapsed,
-  sideWidth,
-  loadSidebarCollapsed,
-  toggleSidebarCollapse,
-} = useSidebarLayout();
-
-// ---------------------------------------------------------------------------
 // Unified right-side detail layer. Only one detail is open at a time. The
 // shared `detailTarget` ref lives here so the file-preview and detail-panel
 // composables can both claim the single right-side slot.
@@ -152,6 +136,28 @@ const {
   revealPreviewFile,
 } = useFilePreview({ client, detailTarget });
 
+// True while the right-side slot is actually occupied, so the sidebar reserves
+// room for it and the conversation can never be squeezed. Keyed off detailTarget
+// (the real occupant) rather than previewTarget, which can stay set after the
+// panel is hidden.
+const previewOpen = computed(() => detailTarget.value !== null);
+
+// ---------------------------------------------------------------------------
+// Layout: resizable session column. ResizeHandle owns the column width (with
+// localStorage persistence); we mirror it here to drive the App grid.
+// ---------------------------------------------------------------------------
+const {
+  SIDEBAR_WIDTH_KEY,
+  SIDEBAR_DEFAULT,
+  SIDEBAR_MIN,
+  sidebarMax,
+  sessionColWidth,
+  sidebarCollapsed,
+  sideWidth,
+  loadSidebarCollapsed,
+  toggleSidebarCollapse,
+} = useSidebarLayout({ previewOpen });
+
 // ---------------------------------------------------------------------------
 // Unified right-side detail layer (thinking / compaction / agent / diff / side
 // chat) plus the preview-panel width. Only one detail is open at a time.
@@ -160,8 +166,9 @@ const {
   PREVIEW_WIDTH_KEY,
   PREVIEW_MIN,
   previewDefaultWidth,
-  previewMaxWidth,
+  previewMax,
   previewWidth,
+  previewPanelWidth,
   thinkingPanelText,
   thinkingVisible,
   openThinkingPanel,
@@ -359,7 +366,9 @@ function handleCommand(cmd: string): void {
   if (cmd === '/btw' || cmd.startsWith('/btw ')) {
     const arg = cmd.slice('/btw'.length).trim();
     if (!arg && client.sideChatVisible.value) {
-      client.closeSideChat();
+      // Use the detail-layer close so detailTarget is cleared too; the bare
+      // client.closeSideChat() only hides the panel and leaves detailTarget set.
+      closeSideChat();
     } else {
       void openSideChatTab(arg || undefined);
     }
@@ -527,13 +536,13 @@ function openPr(url: string): void {
       v-else
       class="app"
       :class="{ mobile: isMobile, 'sidebar-collapsed': sidebarCollapsed && !isMobile }"
-      :style="{ '--side-w': sideWidth + 'px', '--preview-w': previewWidth + 'px' }"
+      :style="{ '--side-w': sideWidth + 'px', '--preview-w': previewPanelWidth + 'px' }"
     >
     <!-- Desktop navigation: workspace rail + resizable session column. -->
     <template v-if="!isMobile">
       <Sidebar
         v-show="!sidebarCollapsed"
-        :col-width="sessionColWidth"
+        :col-width="sideWidth"
         :active-workspace="client.visibleWorkspace.value"
         :active-workspace-id="client.activeWorkspaceId.value"
         :sessions="client.sessionsForView.value"
@@ -561,7 +570,7 @@ function openPr(url: string): void {
         :storage-key="SIDEBAR_WIDTH_KEY"
         :default-width="SIDEBAR_DEFAULT"
         :min="SIDEBAR_MIN"
-        :max="SIDEBAR_MAX"
+        :max="sidebarMax"
         @update:width="sessionColWidth = $event"
       />
       <div v-if="sidebarCollapsed" class="sidebar-rail">
@@ -686,7 +695,7 @@ function openPr(url: string): void {
       :storage-key="PREVIEW_WIDTH_KEY"
       :default-width="previewDefaultWidth"
       :min="PREVIEW_MIN"
-      :max="previewMaxWidth"
+      :max="previewMax"
       reverse
       :aria-label="t('layout.resizePreviewAria')"
       @update:width="previewWidth = $event"
