@@ -6,6 +6,48 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## 0.19.1 (2026-06-23)
+
+### Bug Fixes
+
+- Fix ACP editors such as Zed failing to start a new thread.
+- Fix the web sidebar's unread dots getting out of sync across browser tabs.
+- Clear all per-session state when a session is archived or removed, so archived sessions no longer leave orphaned data behind.
+
+### Refactors
+
+- Consolidate web client localStorage access and split the root state store and app shell into focused composables.
+
+## 0.19.0 (2026-06-22)
+
+### Features
+
+- Added the ability to add extra workspace directories:
+  - Use the `/add-dir <path>` command to add extra working directories to the current session, or remember them for the project.
+  - Use `kimi --add-dir <path>` to add them on startup.
+  - Project-level local config is now managed in `.kimi-code/local.toml`; we recommend adding it to your `.gitignore`.
+- Allow long-running foreground commands and subagents to be moved into background tasks with `Ctrl+B`, and inspect them via the `/tasks` panel.
+
+### Bug Fixes
+
+- Surface provider safety-policy blocks instead of silently treating them as completed turns, and prevent the context token count from dropping to zero after a filtered response.
+- Fix provider requests failing when restored conversation history contains empty text content blocks.
+- Detect the real image format from file contents when reading media, so a mismatched filename extension no longer produces a data URL the model API rejects.
+- Fix commands flashing an empty console window on Windows.
+- Stop showing unread dots on cancelled or failed sessions in the web sidebar.
+
+### Polish
+
+- Speed up session snapshot loading with a direct disk reader and a request timeout safeguard, keeping the previous path as a legacy fallback.
+- Show longer branch names in the web chat header and expose the full name on hover.
+- Keep the web page title fixed instead of changing with the session or workspace name.
+- Polish file mention UX.
+
+### Refactors
+
+- Unify image format detection when sniffing fails.
+- Consolidate web client localStorage access and decouple appearance/notification state into dedicated modules.
+
 ## 0.18.0 (2026-06-18)
 
 ### Features

@@ -65,6 +65,16 @@ export class ContextMemory {
     });
   }
 
+  appendLocalCommandStdout(content: string): void {
+    const text = `<local-command-stdout>\n${content.trim()}\n</local-command-stdout>`;
+    this.appendMessage({
+      role: 'user',
+      content: [{ type: 'text', text }],
+      toolCalls: [],
+      origin: { kind: 'injection', variant: 'local-command-stdout' },
+    });
+  }
+
   popMatchedMessage(matcher: (origin: PromptOrigin | undefined) => boolean): boolean {
     const lastDeferred = this.deferredMessages.at(-1);
     const last = lastDeferred ?? this._history.at(-1);
@@ -217,10 +227,20 @@ export class ContextMemory {
   }
 
   finishResume(): void {
-    const interruptedToolCallIds = [...this.pendingToolResultIds];
     this.openSteps.clear();
-    if (interruptedToolCallIds.length === 0) return;
+    this.closePendingToolResults();
+  }
 
+  // Synthesize interrupted tool results for any still-open tool calls, closing
+  // the exchange in place. Called at every replayed step boundary (see the
+  // `step.begin` case) so a tool call left unresolved mid-history is closed
+  // exactly where it occurred — otherwise it would keep `hasOpenToolExchange`
+  // true and strand every later message in `deferredMessages`, so only the
+  // trailing exchange ends up aligned. `finishResume` runs the same routine once
+  // more to close a genuine trailing interruption at end of resume.
+  private closePendingToolResults(): void {
+    if (this.pendingToolResultIds.size === 0) return;
+    const interruptedToolCallIds = [...this.pendingToolResultIds];
     for (const toolCallId of interruptedToolCallIds) {
       this.appendLoopEvent({
         type: 'tool.result',
@@ -241,6 +261,11 @@ export class ContextMemory {
     });
     switch (event.type) {
       case 'step.begin': {
+        // A new assistant step means any tool calls still pending from an
+        // earlier step were interrupted (the invariant guarantees this never
+        // happens live, so this is a no-op outside replay). Close them in place
+        // before opening the new step so mid-history gaps stay aligned.
+        this.closePendingToolResults();
         const message: ContextMessage = {
           role: 'assistant',
           content: [],
@@ -255,13 +280,26 @@ export class ContextMemory {
         this.openSteps.delete(event.uuid);
         if (event.usage !== undefined) {
           const openStepIndex = openStep === undefined ? -1 : this._history.indexOf(openStep);
-          this._tokenCount =
+          const coveredCount =
+            openStepIndex === -1 ? this._history.length : openStepIndex + 1;
+          const totalUsage =
             event.usage.inputCacheRead +
             event.usage.inputCacheCreation +
             event.usage.inputOther +
             event.usage.output;
-          this.tokenCountCoveredMessageCount =
-            openStepIndex === -1 ? this._history.length : openStepIndex + 1;
+          if (totalUsage > 0) {
+            this._tokenCount = totalUsage;
+          } else {
+            // The provider reported zero usage (e.g. content filter). Do not
+            // overwrite the accumulated context token count with 0; add an
+            // estimate for the newly covered messages so the invariant between
+            // _tokenCount and tokenCountCoveredMessageCount stays intact.
+            const previousCoveredCount = this.tokenCountCoveredMessageCount;
+            this._tokenCount += estimateTokensForMessages(
+              this._history.slice(previousCoveredCount, coveredCount),
+            );
+          }
+          this.tokenCountCoveredMessageCount = coveredCount;
         }
         this.flushDeferredMessagesIfToolExchangeClosed();
         return;
@@ -293,6 +331,10 @@ export class ContextMemory {
         return;
       }
       case 'tool.result': {
+        // Drop a result for an id that is not awaiting one: it was already
+        // closed in place at a step boundary (a stale duplicate from an older
+        // tail-only finishResume), or its call is gone.
+        if (!this.pendingToolResultIds.has(event.toolCallId)) return;
         const message = createToolMessage(event.toolCallId, toolResultOutputForModel(event.result));
         this.pushHistory({
           ...message,

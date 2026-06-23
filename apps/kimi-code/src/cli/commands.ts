@@ -44,7 +44,8 @@ export function createProgram(
         .hideHelp()
         .argParser((val: string | boolean) => (val === true ? '' : (val as string))),
     )
-    .option('-C, --continue', 'Continue the previous session for the working directory.', false)
+    .option('-c, --continue', 'Continue the previous session for the working directory.', false)
+    .addOption(new Option('-C').hideHelp().default(false))
     .option('-y, --yolo', 'Automatically approve all actions.', false)
     .option('--auto', 'Start in auto permission mode.', false)
     .addOption(
@@ -69,6 +70,14 @@ export function createProgram(
       new Option(
         '--skills-dir <dir>',
         'Load skills from this directory instead of auto-discovered user and project directories. Can be repeated.',
+      )
+        .argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
+        .default([]),
+    )
+    .addOption(
+      new Option(
+        '--add-dir <dir>',
+        'Add an additional workspace directory for this session. Can be repeated.',
       )
         .argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
         .default([]),
@@ -115,7 +124,7 @@ export function createProgram(
 
     const opts: CLIOptions = {
       session: sessionValue,
-      continue: raw['continue'] as boolean,
+      continue: raw['continue'] === true || raw['C'] === true,
       yolo: yoloValue,
       auto: autoValue,
       plan: raw['plan'] as boolean,
@@ -123,6 +132,7 @@ export function createProgram(
       outputFormat: raw['outputFormat'] as CLIOptions['outputFormat'],
       prompt: raw['prompt'] as string | undefined,
       skillsDirs: raw['skillsDir'] as string[],
+      addDirs: raw['addDir'] as string[],
     };
 
     onMain(opts);

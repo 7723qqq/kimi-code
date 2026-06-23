@@ -20,6 +20,19 @@ describe('Agent context', () => {
     });
     ctx.dispatch({
       type: 'context.append_loop_event',
+      event: {
+        type: 'tool.call',
+        uuid: 'origin-tool',
+        turnId: '',
+        step: 1,
+        stepUuid: 'origin-step',
+        toolCallId: 'call_origin',
+        name: 'Run',
+        args: {},
+      },
+    });
+    ctx.dispatch({
+      type: 'context.append_loop_event',
       event: { type: 'step.end', uuid: 'origin-step', turnId: '', step: 1 },
     });
     ctx.dispatch({
@@ -47,6 +60,25 @@ describe('Agent context', () => {
 
     ctx.dispatch({
       type: 'context.append_loop_event',
+      event: { type: 'step.begin', uuid: 's1', turnId: 't', step: 1 },
+    });
+    for (const toolCallId of ['call_error', 'call_empty']) {
+      ctx.dispatch({
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.call',
+          uuid: toolCallId,
+          turnId: 't',
+          step: 1,
+          stepUuid: 's1',
+          toolCallId,
+          name: 'Run',
+          args: {},
+        },
+      });
+    }
+    ctx.dispatch({
+      type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
         parentUuid: 'call_error',
@@ -65,6 +97,7 @@ describe('Agent context', () => {
     });
 
     expect(ctx.agent.context.messages).toMatchObject([
+      { role: 'assistant', toolCalls: [{ id: 'call_error' }, { id: 'call_empty' }] },
       {
         role: 'tool',
         content: [
@@ -78,6 +111,87 @@ describe('Agent context', () => {
         toolCallId: 'call_empty',
       },
     ]);
+  });
+
+  it('drops empty text parts only in LLM projection', () => {
+    const history: ContextMessage[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '' },
+          { type: 'text', text: 'Run the tool' },
+        ],
+        toolCalls: [],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: '' }],
+        toolCalls: [],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: '' }],
+        toolCalls: [{ type: 'function', id: 'call_empty', name: 'empty', arguments: '{}' }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'think', think: '', encrypted: 'enc_empty_thinking' }],
+        toolCalls: [],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: '   ' }],
+        toolCalls: [],
+      },
+    ];
+
+    expect(project(history)).toEqual([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Run the tool' }],
+        toolCalls: [],
+      },
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ type: 'function', id: 'call_empty', name: 'empty', arguments: '{}' }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'think', think: '', encrypted: 'enc_empty_thinking' }],
+        toolCalls: [],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: '   ' }],
+        toolCalls: [],
+      },
+    ]);
+    expect(history[0]?.content).toEqual([
+      { type: 'text', text: '' },
+      { type: 'text', text: 'Run the tool' },
+    ]);
+    expect(history[1]?.content).toEqual([{ type: 'text', text: '' }]);
+  });
+
+  it('rejects tool result messages left empty by LLM projection cleanup', () => {
+    const history: ContextMessage[] = [
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ type: 'function', id: 'call_empty', name: 'empty', arguments: '{}' }],
+      },
+      {
+        role: 'tool',
+        content: [{ type: 'text', text: '' }],
+        toolCallId: 'call_empty',
+        toolCalls: [],
+      },
+    ];
+
+    expect(() => project(history)).toThrow(
+      'Tool result message content cannot be empty after removing empty text blocks.',
+    );
   });
 
   it('projects hook result messages into LLM projection', async () => {
@@ -504,6 +618,41 @@ describe('Agent context', () => {
     expect(ctx.agent.context.tokenCount).toBe(1_280);
     expect(ctx.agent.context.tokenCountWithPending).toBe(
       1_280 + estimateTokensForMessages(pendingMessages),
+    );
+  });
+
+  it('does not zero tokenCount when a filtered step reports zero usage', () => {
+    const ctx = testAgent();
+    ctx.configure();
+    ctx.appendAssistantTextWithUsage(1, 'previous answer', 1_000);
+    expect(ctx.agent.context.tokenCount).toBe(1_000);
+
+    const stepUuid = 'context-filtered-step';
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'next prompt' }]);
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: { type: 'step.begin', uuid: stepUuid, turnId: '0', step: 2 },
+    });
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'step.end',
+        uuid: stepUuid,
+        turnId: '0',
+        step: 2,
+        usage: {
+          inputOther: 0,
+          output: 0,
+          inputCacheRead: 0,
+          inputCacheCreation: 0,
+        },
+        finishReason: 'filtered',
+      },
+    });
+
+    expect(ctx.agent.context.tokenCount).toBeGreaterThan(1_000);
+    expect(ctx.agent.context.tokenCountWithPending).toBeGreaterThanOrEqual(
+      ctx.agent.context.tokenCount,
     );
   });
 

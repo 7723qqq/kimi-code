@@ -15,6 +15,7 @@ import {
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
 
+import { extractAtPrefix } from './file-mention-provider';
 import { WrappingSelectList } from './wrapping-select-list';
 
 // oxlint-disable-next-line no-control-regex -- ESC (\x1b) is required to match ANSI SGR escape sequences
@@ -118,6 +119,10 @@ export class CustomEditor extends Editor {
   public onToggleToolExpand?: () => void;
   public onOpenExternalEditor?: () => void;
   public onCtrlS?: () => void;
+  /** Return `true` to consume Ctrl+B; return `false`/`undefined` to fall through to the editor default (cursor-left). */
+  public onCtrlB?: () => boolean;
+  /** Return `true` to consume Ctrl+T (the todo list had overflow to toggle); return `false`/`undefined` to fall through to the editor default. */
+  public onToggleTodoExpand?: () => boolean;
   public onUndo?: () => void;
   public onInsertNewline?: () => void;
   public onTextPaste?: () => void;
@@ -143,6 +148,11 @@ export class CustomEditor extends Editor {
 
   private consumingPaste = false;
   private consumeBuffer = '';
+  private argumentHints: ReadonlyMap<string, string> = new Map();
+
+  setArgumentHints(hints: ReadonlyMap<string, string>): void {
+    this.argumentHints = hints;
+  }
 
   constructor(tui: TUI) {
     // paddingX: 4 reserves column 0 for the left vertical border (│),
@@ -228,6 +238,13 @@ export class CustomEditor extends Editor {
         }
       }
     }
+    const hint = this.computeArgumentHint();
+    if (hint !== undefined) {
+      const line = lines[firstContentIdx];
+      if (line !== undefined) {
+        lines[firstContentIdx] = injectArgumentHint(line, hint, this.getText().length, width);
+      }
+    }
     const firstContent = lines[firstContentIdx];
     if (firstContent !== undefined) {
       const withPrompt = injectPromptSymbol(firstContent);
@@ -242,6 +259,22 @@ export class CustomEditor extends Editor {
     return wrapWithSideBorders(lines, (s) => this.borderColor(s), {
       connectedAbove: this.connectedAbove && !this.borderHighlighted,
     });
+  }
+
+  private computeArgumentHint(): string | undefined {
+    const text = this.getText();
+    const match = /^\/(\S+)( ?)$/.exec(text);
+    if (match === null) return undefined;
+    const cmd = match[1];
+    const trailingSpace = match[2] ?? '';
+    if (cmd === undefined) return undefined;
+    const hint = this.argumentHints.get(cmd);
+    if (hint === undefined) return undefined;
+    const { line, col } = this.getCursor();
+    if (line !== 0) return undefined;
+    const currentLine = this.getLines()[0] ?? '';
+    if (col !== currentLine.length) return undefined;
+    return trailingSpace.length > 0 ? hint : ` ${hint}`;
   }
 
   override handleInput(data: string): void {
@@ -320,6 +353,19 @@ export class CustomEditor extends Editor {
       return;
     }
 
+    if (matchesKey(normalized, Key.ctrl('b'))) {
+      // Only consume the key when the handler actually detached something;
+      // otherwise fall through so readline's backward-char still works at the
+      // idle prompt.
+      if (this.onCtrlB?.() === true) return;
+    }
+
+    if (matchesKey(normalized, Key.ctrl('t'))) {
+      // Only consume the key when the todo list actually has overflow to
+      // expand/collapse; otherwise fall through to the editor default.
+      if (this.onToggleTodoExpand?.() === true) return;
+    }
+
     if (matchesKey(normalized, 'shift+tab')) {
       this.onShiftTab?.();
       return;
@@ -358,7 +404,54 @@ export class CustomEditor extends Editor {
       return;
     }
 
+    // Swallow Tab while the autocomplete dropdown is closed so it does not
+    // trigger pi-tui's built-in file completion. When the dropdown is open,
+    // fall through so pi-tui can still accept the selected item with Tab.
+    if (matchesKey(normalized, Key.tab) && !this.isShowingAutocomplete()) {
+      return;
+    }
+
     super.handleInput(normalized);
+    this.reopenAutocompleteAfterInput();
+  }
+
+  private reopenAutocompleteAfterInput(): void {
+    if (this.isShowingAutocomplete()) return;
+    const { line, col } = this.getCursor();
+    const textBeforeCursor = this.getLines()[line]?.slice(0, col) ?? '';
+    const editor = this as unknown as {
+      requestAutocomplete?: (options: { force: boolean; explicitTab: boolean }) => void;
+    };
+    if (editor.requestAutocomplete === undefined) return;
+    const trigger = (): void => {
+      // Use force:false so slash-aware logic runs: commands with argument
+      // completions return their subcommands, commands without them return
+      // null. force:true would bypass the slash branch and fall through to
+      // path completion, wrongly popping up the file list.
+      editor.requestAutocomplete?.({ force: false, explicitTab: false });
+    };
+
+    // Reopen path / argument completion right after a `/` is typed
+    // (e.g. `/add-dir /` or an `@dir/` mention).
+    if (textBeforeCursor.endsWith('/')) {
+      const isSlashArgument = textBeforeCursor.startsWith('/') && textBeforeCursor.includes(' ');
+      const isAtMention = extractAtPrefix(textBeforeCursor) !== null;
+      if (isSlashArgument || isAtMention) {
+        trigger();
+      }
+      return;
+    }
+
+    // After accepting a slash command name via Tab, pi-tui inserts a trailing
+    // space and closes the menu without triggering argument completion. Reopen
+    // it so subcommands (e.g. `/goal ` → status/pause/…) show immediately.
+    if (
+      textBeforeCursor.endsWith(' ') &&
+      textBeforeCursor.startsWith('/') &&
+      textBeforeCursor.includes(' ')
+    ) {
+      trigger();
+    }
   }
 }
 
@@ -441,6 +534,53 @@ function highlightVisibleRanges(
     rawCursor = rawEnd;
   }
   return out + line.slice(rawCursor);
+}
+
+// Mirrors the editor's paddingX (see constructor). The hint is spliced into
+// the first content line, which starts with this many spaces of left padding.
+const EDITOR_LEFT_PADDING = 4;
+// pi-tui renders the end-of-input cursor as an inverse-video space.
+const CURSOR_BLOCK = '\u001B[7m \u001B[0m';
+
+/**
+ * Splice a dimmed argument-hint ghost string into the first content line.
+ *
+ * The hint is purely visual: it is appended after the typed command (and
+ * after the cursor block when one is rendered) so the cursor stays at the
+ * end of the real input. It consumes trailing padding space, so the line
+ * width is preserved; if it would overflow the box it is truncated with an
+ * ellipsis. Returns the line unchanged when there is no room for a hint.
+ */
+function injectArgumentHint(
+  line: string,
+  hint: string,
+  realTextLength: number,
+  width: number,
+): string {
+  const cursorIdx = line.indexOf(CURSOR_BLOCK);
+  const cursorPresent = cursorIdx !== -1;
+  const contentWidth = Math.max(1, width - EDITOR_LEFT_PADDING * 2);
+  // Room left in the content area after the typed text (and cursor). The hint
+  // must fit within this so the rendered line keeps its width.
+  const available = contentWidth - realTextLength - (cursorPresent ? 1 : 0);
+  const trimmed = truncateHint(hint, available);
+  if (trimmed.length === 0) return line;
+  const colored = currentTheme.fg('textDim', trimmed);
+  const insertAt = cursorPresent
+    ? cursorIdx + CURSOR_BLOCK.length
+    : mapVisibleIdxToRaw(line, EDITOR_LEFT_PADDING + realTextLength);
+  // Everything after the insertion point is trailing padding + right padding
+  // (plain spaces). Replace it with the hint followed by the remaining spaces
+  // so the visible line width is preserved.
+  const trailing = line.length - insertAt;
+  return line.slice(0, insertAt) + colored + ' '.repeat(Math.max(0, trailing - trimmed.length));
+}
+
+function truncateHint(hint: string, maxLen: number): string {
+  if (maxLen <= 0) return '';
+  if (hint.length <= maxLen) return hint;
+  if (maxLen === 1) return '…';
+  return `${hint.slice(0, maxLen - 1)}…`;
 }
 
 /**

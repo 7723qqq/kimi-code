@@ -48,6 +48,7 @@ import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
 import { MoonLoader, type SpinnerStyle } from './components/chrome/moon-loader';
 import { WelcomeComponent } from './components/chrome/welcome';
+import { pickRandomWorkingTip } from './components/chrome/working-tips';
 import {
   ApprovalPanelComponent,
   type ApprovalPanelResponse,
@@ -93,6 +94,7 @@ import { CHROME_GUTTER } from './constant/rendering';
 import { MAX_TERMINAL_TITLE_LENGTH } from './constant/terminal';
 import { AuthFlowController } from './controllers/auth-flow';
 import { BtwPanelController } from './controllers/btw-panel';
+import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { EditorKeyboardController } from './controllers/editor-keyboard';
 import { SessionEventHandler } from './controllers/session-event-handler';
 import { SessionReplayRenderer } from './controllers/session-replay';
@@ -123,6 +125,7 @@ import {
 import { isExpandable } from './utils/component-capabilities';
 import { isDeadTerminalError } from './utils/dead-terminal';
 import { formatErrorMessage } from './utils/event-payload';
+import { pickForegroundTasks } from './utils/foreground-task';
 import { ImageAttachmentStore, type ImageAttachment } from './utils/image-attachment-store';
 import { extractMediaAttachments } from './utils/image-placeholder';
 import { hasPatchChanges } from './utils/object-patch';
@@ -146,6 +149,7 @@ export type {
 
 export interface KimiTUIStartupInput {
   readonly cliOptions: CLIOptions;
+  readonly additionalDirs?: readonly string[];
   readonly tuiConfig: TuiConfig;
   readonly version: string;
   readonly workDir: string;
@@ -156,6 +160,21 @@ export interface KimiTUIStartupInput {
 }
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
+type LoadingTipKind = 'moon' | 'composing';
+
+function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
+  if (mode === 'waiting' || mode === 'tool') return 'moon';
+  if (mode === 'composing') return 'composing';
+  return undefined;
+}
+
+function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+type MutableCreateSessionOptions = {
+  -readonly [P in keyof CreateSessionOptions]: CreateSessionOptions[P];
+};
 
 function createInitialAppState(input: KimiTUIStartupInput): AppState {
   const startupPermission: PermissionMode = input.cliOptions.auto
@@ -166,6 +185,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
   return {
     model: '',
     workDir: input.workDir,
+    additionalDirs: [...(input.additionalDirs ?? [])],
     sessionId: '',
     permissionMode: startupPermission,
     planMode: input.cliOptions.plan,
@@ -198,6 +218,9 @@ interface SendMessageOptions {
   readonly hasMedia?: boolean;
 }
 
+/** How long the one-shot "moved to background" footer hint stays visible. */
+const DETACH_HINT_DISPLAY_MS = 4_000;
+
 export class KimiTUI {
   readonly harness: KimiHarness;
   readonly options: KimiTUIOptions;
@@ -217,6 +240,7 @@ export class KimiTUI {
   aborted = false;
   private terminalFocusTrackingDispose: (() => void) | undefined;
   private terminalThemeTrackingDispose: (() => void) | undefined;
+  private clipboardImageHintController: ClipboardImageHintController | undefined;
   private uninstallRainbowDance: () => void;
   private signalCleanupHandlers: Array<() => void> = [];
   private isShuttingDown = false;
@@ -224,6 +248,8 @@ export class KimiTUI {
   private readonly migrateOnly: boolean;
   private startupNotice: string | undefined;
   private lastActivityMode: string | undefined;
+  private currentLoadingTip: { kind: LoadingTipKind; tip: string | undefined } | undefined =
+    undefined;
   private lastHistoryContent: string | undefined;
   readonly streamingUI: StreamingUIController;
   readonly authFlow: AuthFlowController;
@@ -232,6 +258,9 @@ export class KimiTUI {
   readonly sessionReplay: SessionReplayRenderer;
   readonly tasksBrowserController: TasksBrowserController;
   readonly editorKeyboard: EditorKeyboardController;
+
+  /** Timer that auto-clears the one-shot "moved to background" footer hint. */
+  private detachHintClearTimer: ReturnType<typeof setTimeout> | undefined;
 
   // The currently-mounted approval panel, if any. Kept so the full-screen
   // preview viewer can restore focus to the exact same instance (and its
@@ -334,8 +363,19 @@ export class KimiTUI {
       slashCommands,
       this.state.appState.workDir,
       this.fdPath,
+      this.state.appState.additionalDirs,
     );
     this.state.editor.setAutocompleteProvider(provider);
+
+    const argumentHints = new Map<string, string>();
+    for (const cmd of slashCommands) {
+      if (cmd.argumentHint === undefined) continue;
+      argumentHints.set(cmd.name, cmd.argumentHint);
+      for (const alias of cmd.aliases ?? []) {
+        argumentHints.set(alias, cmd.argumentHint);
+      }
+    }
+    this.state.editor.setArgumentHints(argumentHints);
   }
 
   refreshSlashCommandAutocomplete(): void {
@@ -477,8 +517,21 @@ export class KimiTUI {
 
   private startEventLoop(): void {
     this.state.ui.start();
+    this.startClipboardImageHintController();
     this.terminalFocusTrackingDispose = installTerminalFocusTracking(this.state);
     this.refreshTerminalThemeTracking();
+  }
+
+  private startClipboardImageHintController(): void {
+    this.clipboardImageHintController = new ClipboardImageHintController({
+      ui: this.state.ui,
+      footer: this.state.footer,
+      getModelSupportsImage: () => this.supportsCurrentModelCapability('image_in'),
+      requestRender: () => {
+        this.state.ui.requestRender();
+      },
+    });
+    this.clipboardImageHintController.start();
   }
 
   private startBackgroundFdAutocomplete(): void {
@@ -555,12 +608,15 @@ export class KimiTUI {
     let session: Session | undefined;
     let shouldReplayHistory = false;
     const isResumeStartup = startup.sessionFlag !== undefined || startup.continueLast;
-    const createSessionOptions: CreateSessionOptions = {
+    const createSessionOptions: MutableCreateSessionOptions = {
       workDir,
       model: startup.model,
       permission: startup.auto ? 'auto' : startup.yolo ? 'yolo' : undefined,
       planMode: startup.plan ? true : undefined,
     };
+    if (this.state.appState.additionalDirs.length > 0) {
+      createSessionOptions.additionalDirs = [...this.state.appState.additionalDirs];
+    }
 
     try {
       if (isResumeStartup) {
@@ -591,13 +647,19 @@ export class KimiTUI {
               `Session "${startup.sessionFlag}" was created under a different directory.`,
             );
           }
-          session = await this.harness.resumeSession({ id: startup.sessionFlag });
+          session = await this.harness.resumeSession({
+            id: startup.sessionFlag,
+            additionalDirs: createSessionOptions.additionalDirs,
+          });
           shouldReplayHistory = true;
         } else {
           const sessions = await this.harness.listSessions({ workDir });
           const target = sessions[0];
           if (target !== undefined) {
-            session = await this.harness.resumeSession({ id: target.id });
+            session = await this.harness.resumeSession({
+              id: target.id,
+              additionalDirs: createSessionOptions.additionalDirs,
+            });
             shouldReplayHistory = true;
           } else {
             session = await this.harness.createSession(createSessionOptions);
@@ -718,6 +780,8 @@ export class KimiTUI {
 
   private disposeTerminalTracking(): void {
     this.stopTerminalThemeTracking();
+    this.clipboardImageHintController?.stop();
+    this.clipboardImageHintController = undefined;
     this.terminalFocusTrackingDispose?.();
     this.terminalFocusTrackingDispose = undefined;
   }
@@ -1041,6 +1105,9 @@ export class KimiTUI {
 
   setAppState(patch: Partial<AppState>): void {
     if (!hasPatchChanges(this.state.appState, patch)) return;
+    const additionalDirsChanged =
+      'additionalDirs' in patch &&
+      !sameStringArrays(this.state.appState.additionalDirs, patch.additionalDirs ?? []);
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
     Object.assign(this.state.appState, patch);
     if ('planMode' in patch) this.updateEditorBorderHighlight();
@@ -1050,6 +1117,7 @@ export class KimiTUI {
       this.updateQueueDisplay();
       this.sessionEventHandler.retryQueuedGoalPromotion();
     }
+    if (additionalDirsChanged) this.setupAutocomplete();
     this.state.ui.requestRender();
   }
 
@@ -1064,6 +1132,12 @@ export class KimiTUI {
     this.state.livePane = { ...INITIAL_LIVE_PANE };
     this.updateActivityPane();
     this.state.ui.requestRender();
+  }
+
+  private syncAdditionalDirs(session: Session): void {
+    const additionalDirs = session.summary?.additionalDirs ?? [];
+    if (sameStringArrays(this.state.appState.additionalDirs, additionalDirs)) return;
+    this.setAppState({ additionalDirs: [...additionalDirs] });
   }
 
   // =========================================================================
@@ -1082,14 +1156,18 @@ export class KimiTUI {
     if (model.length === 0) {
       throw new Error(LLM_NOT_SET_MESSAGE);
     }
-    return this.harness.createSession({
+    const options: MutableCreateSessionOptions = {
       workDir: this.state.appState.workDir,
       model,
       thinking:
         this.session === undefined ? undefined : this.state.appState.thinking ? 'on' : 'off',
       permission: this.state.appState.permissionMode,
       planMode: this.state.appState.planMode ? true : undefined,
-    });
+    };
+    if (this.state.appState.additionalDirs.length > 0) {
+      options.additionalDirs = [...this.state.appState.additionalDirs];
+    }
+    return this.harness.createSession(options);
   }
 
   async setSession(session: Session): Promise<void> {
@@ -1098,6 +1176,7 @@ export class KimiTUI {
     this.session = session;
     this.harness.setTelemetryContext({ sessionId: session.id });
     this.registerSessionHandlers(session);
+    this.syncAdditionalDirs(session);
   }
 
   async syncRuntimeState(session: Session = this.requireSession()): Promise<void> {
@@ -1115,6 +1194,7 @@ export class KimiTUI {
       sessionTitle: session.summary?.title ?? null,
       goal: goalResult.goal,
     });
+    this.syncAdditionalDirs(session);
   }
 
   // Apply --auto/--yolo/--plan startup flags to a resumed session. The resumed
@@ -1596,6 +1676,23 @@ export class KimiTUI {
 
   updateActivityPane(): void {
     const effectiveMode = this.resolveActivityPaneMode();
+    const tipKind = loadingTipKind(effectiveMode);
+    // Pick a fresh loading tip when the loading kind changes. The same kind
+    // covers waiting/tool (both moon spinners) and any intermediate thinking
+    // phase, so a continuous burst of tool calls does not flip tips. Clear the
+    // cache only when there is no loading UI at all.
+    if (effectiveMode === 'idle' || effectiveMode === 'session' || effectiveMode === 'hidden') {
+      this.currentLoadingTip = undefined;
+    } else if (
+      tipKind !== undefined &&
+      (this.currentLoadingTip === undefined || this.currentLoadingTip.kind !== tipKind)
+    ) {
+      const previousTip = this.currentLoadingTip?.tip;
+      this.currentLoadingTip = {
+        kind: tipKind,
+        tip: pickRandomWorkingTip(previousTip)?.text,
+      };
+    }
     this.syncTerminalProgress(this.shouldShowTerminalProgress(effectiveMode));
     const placeSpinnerInAgentSwarm = this.shouldPlaceActivitySpinnerInAgentSwarm(effectiveMode);
     const activityModeKey = `${effectiveMode}:${placeSpinnerInAgentSwarm ? 'swarm' : 'pane'}`;
@@ -1627,6 +1724,7 @@ export class KimiTUI {
           new ActivityPaneComponent({
             mode: 'waiting',
             spinner,
+            tip: this.currentLoadingTip?.tip,
           }),
         );
         break;
@@ -1645,6 +1743,7 @@ export class KimiTUI {
           new ActivityPaneComponent({
             mode: 'composing',
             spinner,
+            tip: this.currentLoadingTip?.tip,
           }),
         );
         break;
@@ -1657,6 +1756,7 @@ export class KimiTUI {
           new ActivityPaneComponent({
             mode: 'tool',
             spinner,
+            tip: this.currentLoadingTip?.tip,
           }),
         );
         break;
@@ -1709,6 +1809,76 @@ export class KimiTUI {
         child.setExpanded(this.state.toolOutputExpanded);
       }
     }
+    this.state.ui.requestRender();
+  }
+
+  toggleTodoPanelExpansion(): void {
+    this.state.todoPanel.toggleExpanded();
+    this.state.ui.requestRender();
+  }
+
+  async detachCurrentForegroundTask(): Promise<void> {
+    const session = this.session;
+    if (session === undefined) {
+      this.showError(NO_ACTIVE_SESSION_MESSAGE);
+      return;
+    }
+
+    let tasks: readonly BackgroundTaskInfo[];
+    try {
+      // activeOnly defaults to true; foreground running tasks are non-terminal
+      // and therefore included. We filter to `detached === false` ourselves.
+      tasks = await session.listBackgroundTasks();
+    } catch (error) {
+      this.showError(`Failed to list tasks: ${formatErrorMessage(error)}`);
+      return;
+    }
+
+    const targets = pickForegroundTasks(tasks);
+    if (targets.length === 0) {
+      this.showDetachHint('No foreground task running.');
+      return;
+    }
+
+    let detached = 0;
+    let alreadyFinished = 0;
+    for (const target of targets) {
+      try {
+        const info = await session.detachBackgroundTask(target.taskId);
+        if (info === undefined) alreadyFinished++;
+        else detached++;
+      } catch (error) {
+        this.showError(`Failed to detach ${target.taskId}: ${formatErrorMessage(error)}`);
+      }
+    }
+
+    let hint: string;
+    if (detached === 0 && alreadyFinished > 0) {
+      hint = alreadyFinished === 1 ? 'Task already finished.' : 'Tasks already finished.';
+    } else if (detached === targets.length) {
+      hint = detached === 1 ? 'Moved 1 task to background.' : `Moved ${detached} tasks to background.`;
+    } else {
+      hint = `Moved ${detached} of ${targets.length} tasks to background.`;
+    }
+    if (detached > 0) hint = `${hint} /tasks to view.`;
+    this.showDetachHint(hint);
+  }
+
+  /** Show a one-shot footer hint that auto-clears after DETACH_HINT_DISPLAY_MS. */
+  private showDetachHint(hint: string): void {
+    if (this.detachHintClearTimer !== undefined) {
+      clearTimeout(this.detachHintClearTimer);
+      this.detachHintClearTimer = undefined;
+    }
+    this.state.footer.setTransientHint(hint);
+    this.detachHintClearTimer = setTimeout(() => {
+      this.detachHintClearTimer = undefined;
+      // Don't clobber a newer transient hint (e.g. the exit-confirmation
+      // prompt) that took over while this timer was pending.
+      if (this.state.footer.getTransientHint() !== hint) return;
+      this.state.footer.setTransientHint(null);
+      this.state.ui.requestRender();
+    }, DETACH_HINT_DISPLAY_MS);
     this.state.ui.requestRender();
   }
 
