@@ -1,10 +1,11 @@
 import { createDecorator } from '../../../di';
+import type { PromptOrigin } from '../../../agent/context';
 
 import type { Hooks } from '../hooks';
 import type { Turn, TurnEndedContext, TurnStepContext } from '../types';
 
 export interface ITurnRunner {
-  launch(): Turn;
+  launch(origin: PromptOrigin): Turn;
   getActiveTurn(): Turn | undefined;
   cancel(turnId?: number, reason?: unknown): void;
 

@@ -1,4 +1,5 @@
 import { registerSingleton, SyncDescriptor } from '../../../di';
+import { toKimiErrorPayload, type KimiErrorPayload } from '../../../errors';
 import { userCancellationReason } from '../../../utils/abort';
 import { IEventBus } from '../eventBus/eventBus';
 import { OrderedHookSlot } from '../hooks';
@@ -12,6 +13,16 @@ declare module '../types' {
   interface AgentEventMap {
     'turn.before_step': {
       turnId: number;
+    };
+    'turn.started': {
+      turnId: number;
+      origin: Turn['origin'];
+    };
+    'turn.ended': {
+      turnId: number;
+      reason: TurnResult['reason'];
+      error?: KimiErrorPayload;
+      durationMs: number;
     };
   }
 }
@@ -42,7 +53,7 @@ export class TurnRunnerService implements ITurnRunner {
     });
   }
 
-  launch(): Turn {
+  launch(origin: Turn['origin']): Turn {
     if (this.activeTurn !== undefined) {
       throw new Error(`Cannot launch a new turn while turn ${this.activeTurn.id} is active`);
     }
@@ -51,18 +62,15 @@ export class TurnRunnerService implements ITurnRunner {
     const ready = createControlledPromise<void>();
     const turn: MutableTurn = {
       id: this.nextTurnId++,
+      origin,
       abortController,
       ready: ready.promise,
       result: Promise.resolve({ reason: 'failed' }),
     };
     this.readyControllers.set(turn, ready);
     void ready.promise.catch(() => undefined);
-    turn.result = this.runTurn(turn).finally(() => {
-      if (this.activeTurn === turn) {
-        this.activeTurn = undefined;
-      }
-    });
     this.activeTurn = turn;
+    turn.result = this.runTurn(turn);
     void this.hooks.onLaunched.run({ turn });
     return turn;
   }
@@ -79,9 +87,11 @@ export class TurnRunnerService implements ITurnRunner {
   }
 
   private async runTurn(turn: Turn): Promise<TurnResult> {
+    const startedAt = Date.now();
     let result: TurnResult | undefined;
     try {
       this.usage.beginTurn();
+      this.events.emit({ type: 'turn.started', turnId: turn.id, origin: turn.origin });
       result = await this.loop.runTurn(turn, {
         beforeStep: this.hooks.beforeStep,
         afterStep: this.hooks.afterStep,
@@ -101,6 +111,12 @@ export class TurnRunnerService implements ITurnRunner {
         this.rejectReady(turn, result);
       }
       this.usage.endTurn();
+      if (this.activeTurn === turn) {
+        this.activeTurn = undefined;
+      }
+      if (result !== undefined) {
+        this.events.emit(toTurnEndedEvent(turn, result, Date.now() - startedAt));
+      }
       if (result !== undefined) {
         await this.hooks.onEnded.run({ turn, result });
       }
@@ -118,6 +134,29 @@ export class TurnRunnerService implements ITurnRunner {
     this.readySettled.add(turn);
     this.readyControllers.get(turn)?.reject(reason);
   }
+}
+
+function toTurnEndedEvent(
+  turn: Turn,
+  result: TurnResult,
+  durationMs: number,
+): {
+  type: 'turn.ended';
+  turnId: number;
+  reason: TurnResult['reason'];
+  error?: KimiErrorPayload;
+  durationMs: number;
+} {
+  if (result.reason !== 'failed' || result.error === undefined) {
+    return { type: 'turn.ended', turnId: turn.id, reason: result.reason, durationMs };
+  }
+  return {
+    type: 'turn.ended',
+    turnId: turn.id,
+    reason: result.reason,
+    error: toKimiErrorPayload(result.error),
+    durationMs,
+  };
 }
 
 interface ControlledPromise<T> {
