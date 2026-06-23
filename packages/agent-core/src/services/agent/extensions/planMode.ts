@@ -18,6 +18,7 @@ import { IContextMemory } from '../contextMemory/contextMemory';
 import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
 import { IEventBus } from '../eventBus/eventBus';
 import { IProfileService } from '../profile/profile';
+import { ITelemetryService } from '../telemetry/telemetry';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import type { ContextMessage } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
@@ -69,6 +70,7 @@ export class PlanMode extends Disposable {
     @IProfileService private readonly profile: IProfileService,
     @IToolRegistry toolRegistry: IToolRegistry,
     @IDynamicInjector dynamicInjector: IDynamicInjector,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
     this._register(
@@ -112,7 +114,7 @@ export class PlanMode extends Disposable {
             description: 'Presenting plan and exiting plan mode',
             display: await this.resolvePlanReviewDisplay(input),
             approvalRule: 'ExitPlanMode',
-            execute: async () => this.exitPlanModeToolResult(),
+            execute: async () => this.exitPlanModeToolResult(input),
           };
         },
       }),
@@ -278,7 +280,7 @@ export class PlanMode extends Disposable {
     return display;
   }
 
-  private async exitPlanModeToolResult(): Promise<ExecutableToolResult> {
+  private async exitPlanModeToolResult(input: ExitPlanModeInput): Promise<ExecutableToolResult> {
     if (!this._active) {
       return {
         isError: true,
@@ -290,12 +292,18 @@ export class PlanMode extends Disposable {
     const resolvedPlan = await this.resolvePlan();
     if (!resolvedPlan.ok) return resolvedPlan.error;
 
+    this.trackTelemetry('plan_submitted', {
+      has_options: input.options !== undefined && input.options.length >= 2,
+    });
+
     try {
       this.exit();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to exit plan mode.';
       return { isError: true, output: `Failed to exit plan mode: ${message}` };
     }
+
+    this.trackTelemetry('plan_resolved', { outcome: 'auto_approved' });
 
     return {
       isError: false,
@@ -349,6 +357,13 @@ export class PlanMode extends Disposable {
       planFilePath: this._planFilePath,
     });
     this.events.emit({ type: 'agent.status.updated', planMode: this._active });
+  }
+
+  private trackTelemetry(
+    event: 'plan_submitted' | 'plan_resolved',
+    properties: Record<string, string | number | boolean | undefined>,
+  ): void {
+    this.telemetry.track(event, properties);
   }
 
   private async hasCurrentPlanContent(): Promise<boolean> {

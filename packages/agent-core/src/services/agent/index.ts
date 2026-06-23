@@ -64,6 +64,12 @@ export type {
 export { IContextMemory } from './contextMemory/contextMemory';
 export { ContextMemoryService } from './contextMemory/contextMemoryService';
 
+export {
+  IContextUsageService,
+  type ContextTokenStatus,
+} from './contextUsage/contextUsage';
+export { ContextUsageService } from './contextUsage/contextUsageService';
+
 export { IContextProjector } from './contextProjector/contextProjector';
 export { ContextProjectorService } from './contextProjector/contextProjectorService';
 
@@ -151,6 +157,12 @@ export {
   type UsageRecordScope,
 } from './usage/usage';
 export { UsageService } from './usage/usageService';
+
+export {
+  ITelemetryService,
+  type TelemetryServiceOptions,
+} from './telemetry/telemetry';
+export { TelemetryService } from './telemetry/telemetryService';
 
 export { PlanMode } from './extensions/planMode';
 export { PermissionModeInjection } from './extensions/permissionModeInjection';

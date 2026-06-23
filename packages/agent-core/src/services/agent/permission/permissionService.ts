@@ -36,6 +36,7 @@ import { IEventBus } from '../eventBus/eventBus';
 import { IPermissionModeService } from '../permissionMode/permissionMode';
 import { IPermissionRulesService } from '../permissionRules/permissionRules';
 import { IProfileService } from '../profile/profile';
+import { ITelemetryService } from '../telemetry/telemetry';
 import {
   IPermissionService,
   type PermissionGitWorkTreeMarker,
@@ -120,6 +121,7 @@ export class PermissionService extends Disposable implements IPermissionService 
     @IPermissionRulesService private readonly rulesService: IPermissionRulesService,
     @IEventBus private readonly events: IEventBus,
     @IProfileService private readonly profile: IProfileService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {
     super();
@@ -314,6 +316,9 @@ export class PermissionService extends Disposable implements IPermissionService 
     const display = context.execution.display;
     if (display?.kind !== 'plan_review') return undefined;
     if (display.plan.trim().length === 0) return undefined;
+    this.trackPlanTelemetry('plan_submitted', {
+      has_options: display.options !== undefined && display.options.length >= 2,
+    });
     return {
       kind: 'ask',
       resolveApproval: (result) =>
@@ -539,6 +544,15 @@ export class PermissionService extends Disposable implements IPermissionService 
       return { kind: 'result', syntheticResult: failed };
     }
 
+    if (result.selectedLabel !== undefined && result.selectedLabel.length > 0) {
+      this.trackPlanTelemetry('plan_resolved', {
+        outcome: 'approved',
+        chosen_option: result.selectedLabel,
+      });
+    } else {
+      this.trackPlanTelemetry('plan_resolved', { outcome: 'approved' });
+    }
+
     const optionPrefix =
       selected === undefined
         ? ''
@@ -557,6 +571,8 @@ export class PermissionService extends Disposable implements IPermissionService 
   private rejectedExitPlanModeApprovalResult(
     result: ApprovalResponse,
   ): PermissionPolicyResolution {
+    this.trackRejectedPlanResolution(result);
+
     if (result.decision === 'cancelled') {
       return {
         kind: 'result',
@@ -617,6 +633,36 @@ export class PermissionService extends Disposable implements IPermissionService 
         output: `Failed to exit plan mode: ${message}`,
       };
     }
+  }
+
+  private trackRejectedPlanResolution(result: ApprovalResponse): void {
+    if (result.decision === 'cancelled') {
+      this.trackPlanTelemetry('plan_resolved', { outcome: 'dismissed' });
+      return;
+    }
+
+    if (result.selectedLabel === 'Reject and Exit') {
+      this.trackPlanTelemetry('plan_resolved', { outcome: 'rejected_and_exited' });
+      return;
+    }
+
+    const feedback = result.feedback ?? '';
+    if (result.selectedLabel === 'Revise' || feedback.length > 0) {
+      this.trackPlanTelemetry('plan_resolved', {
+        outcome: 'revise',
+        has_feedback: feedback.length > 0,
+      });
+      return;
+    }
+
+    this.trackPlanTelemetry('plan_resolved', { outcome: 'rejected' });
+  }
+
+  private trackPlanTelemetry(
+    event: 'plan_submitted' | 'plan_resolved',
+    properties: Record<string, string | number | boolean | undefined>,
+  ): void {
+    this.telemetry.track(event, properties);
   }
 
   private firstMatchingRule(
