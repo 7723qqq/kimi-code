@@ -23,6 +23,8 @@ import {
   type LoopEvent,
   type LoopEventDispatcher,
   type LoopRecordedEvent,
+  type RunnableToolExecution,
+  type ToolExecution,
 } from '../../../loop';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
@@ -366,30 +368,94 @@ export class LoopService extends Disposable implements ILoopService {
     return this.toolRegistry.list().map((tool) => this.executableTool(tool));
   }
 
-  private executableTool(tool: ToolDefinition): ExecutableTool {
+  private executableTool(toolInfo: ToolDefinition): ExecutableTool {
     return {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
-      resolveExecution: (args) => ({
-        approvalRule: tool.name,
-        execute: async (context) =>
-          toExecutableToolResult(
-            await this.toolExecutor.execute(
-              {
+      name: toolInfo.name,
+      description: toolInfo.description,
+      parameters: toolInfo.parameters ?? EMPTY_TOOL_PARAMETERS,
+      resolveExecution: async (args) => {
+        const execution = await this.resolveToolExecution(toolInfo, args);
+        if (execution.isError === true) return execution;
+        return this.wrapToolExecution(toolInfo.name, args, execution);
+      },
+    };
+  }
+
+  private async resolveToolExecution(
+    toolInfo: ToolDefinition,
+    args: unknown,
+  ): Promise<ToolExecution> {
+    const tool = this.toolRegistry.resolve(toolInfo.name);
+    if (tool === undefined) {
+      return {
+        output: `Tool "${toolInfo.name}" not found`,
+        isError: true,
+      };
+    }
+
+    if (tool.resolveExecution !== undefined) {
+      return tool.resolveExecution(args);
+    }
+
+    if (tool.execute === undefined) {
+      return {
+        output: `Tool "${toolInfo.name}" is not executable`,
+        isError: true,
+      };
+    }
+
+    return {
+      approvalRule: toolInfo.name,
+      execute: async (context) =>
+        toExecutableToolResult(
+          await tool.execute!(
+            {
+              id: context.toolCallId,
+              name: toolInfo.name,
+              arguments: args,
+            },
+            {
+              call: {
                 id: context.toolCallId,
-                name: tool.name,
+                name: toolInfo.name,
                 arguments: args,
               },
-              {
-                signal: context.signal,
-                turnId: context.turnId,
-                metadata: context.metadata,
-                onUpdate: context.onUpdate,
-              },
-            ),
+              args,
+              turnId: context.turnId,
+              toolCallId: context.toolCallId,
+              metadata: context.metadata,
+              signal: context.signal,
+              onUpdate: context.onUpdate,
+            },
           ),
-      }),
+        ),
+    };
+  }
+
+  private wrapToolExecution(
+    toolName: string,
+    args: unknown,
+    execution: RunnableToolExecution,
+  ): RunnableToolExecution {
+    return {
+      ...execution,
+      execute: async (context) =>
+        toExecutableToolResult(
+          await this.toolExecutor.execute(
+            {
+              id: context.toolCallId,
+              name: toolName,
+              arguments: args,
+            },
+            execution,
+            {
+              signal: context.signal,
+              turnId: context.turnId,
+              metadata: context.metadata,
+              onUpdate: context.onUpdate,
+            },
+          ),
+        ),
     };
   }
 
@@ -414,6 +480,7 @@ export class LoopService extends Disposable implements ILoopService {
         continueAfterStop = false;
         return { continue: shouldContinue };
       },
+      authorizeToolExecution: hooks.authorizeToolExecution,
     };
   }
 
@@ -590,9 +657,18 @@ async function emitCompletedContentPart(
 
 function toExecutableToolResult(result: ToolResult): ExecutableToolResult {
   if (result.isError === true) {
-    return { output: result.output, isError: true };
+    return {
+      output: result.output,
+      isError: true,
+      message: result.message,
+      stopTurn: result.stopTurn,
+    };
   }
-  return { output: result.output };
+  return {
+    output: result.output,
+    message: result.message,
+    stopTurn: result.stopTurn,
+  };
 }
 
 class LLMEventCollector {
