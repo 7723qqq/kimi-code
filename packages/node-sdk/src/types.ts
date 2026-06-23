@@ -9,6 +9,7 @@ import type {
 import type { Kaos } from '@moonshot-ai/kaos';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
 import type { ContentPart } from '@moonshot-ai/kosong';
+import type { KapTransportOptions } from './kap/types';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -89,6 +90,8 @@ export interface KimiHarnessOptions {
   readonly telemetry?: TelemetryClient | undefined;
   readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
   readonly sessionStartedProperties?: TelemetryProperties;
+  /** When set, route SDK calls through the KAP server instead of in-process RPC. */
+  readonly kap?: KapTransportOptions;
 }
 
 export interface CreateSessionOptions {
