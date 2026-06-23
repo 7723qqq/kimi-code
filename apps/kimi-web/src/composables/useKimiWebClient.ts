@@ -946,6 +946,13 @@ async function handleSessionNotFound(sessionId: string): Promise<void> {
 async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionResult> {
   try {
     const api = getKimiWebApi();
+    // Snapshot the in-memory message ids BEFORE the fetch so the merge below can
+    // tell apart messages that arrived during the fetch (preserve) from ones that
+    // were already local-only for other reasons (drop — e.g. optimistic bubbles
+    // or undone turns).
+    const beforeIds = new Set(
+      (rawState.messagesBySession[sessionId] ?? []).map((m) => m.id),
+    );
     const snap = await api.getSessionSnapshot(sessionId);
 
     updateSession(sessionId, (s) => ({
@@ -959,7 +966,11 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
     // snapshot was in flight, so a resync can't briefly drop them.
     setSessionMessages(
       sessionId,
-      mergeSnapshotMessages(snap.messages, rawState.messagesBySession[sessionId] ?? []),
+      mergeSnapshotMessages(
+        snap.messages,
+        rawState.messagesBySession[sessionId] ?? [],
+        beforeIds,
+      ),
     );
     rawState.messagesHasMoreBySession = {
       ...rawState.messagesHasMoreBySession,

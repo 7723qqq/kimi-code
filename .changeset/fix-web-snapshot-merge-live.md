@@ -2,4 +2,4 @@
 "@moonshot-ai/kimi-code": patch
 ---
 
-Merge the session snapshot with live-appended messages when resyncing, so messages that arrive while the snapshot is in flight are not briefly dropped.
+When resyncing a session, preserve only live messages that arrived while the snapshot was in flight, so a resync does not briefly drop them — without re-adding optimistic bubbles or undone turns.
