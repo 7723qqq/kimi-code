@@ -354,7 +354,7 @@ describe('plan exit tool options', () => {
   });
 });
 
-describe.skip('plan allows safe tool flow', () => {
+describe('plan allows safe tool flow', () => {
   it.each(['Write', 'Edit'] as const)(
     'runs %s on the active plan file without approval in manual mode',
     async (toolName) => {
@@ -367,42 +367,48 @@ describe.skip('plan allows safe tool flow', () => {
       const ctx = testAgent({
         kaos: createPlanKaos({ readText, writeText }),
       });
-      ctx.configure({ tools: [toolName] });
-      await ctx.get(IPlanModeService).enter('test-plan', false);
+      const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-write-tool-'));
+      try {
+        ctx.configure({ tools: [toolName] });
+        ctx.profile.update({ cwd });
+        await ctx.get(IPlanModeService).enter('test-plan', false);
 
-      const planPath = ctx.get(IPlanModeService).planFilePath;
-      if (planPath === null) throw new Error('expected active plan path');
-      files.set(planPath, '# Plan\n\n- Draft');
+        const planPath = ctx.get(IPlanModeService).planFilePath;
+        if (planPath === null) throw new Error('expected active plan path');
+        files.set(planPath, '# Plan\n\n- Draft');
 
-      const expectedContent =
-        toolName === 'Write' ? '# Plan\n\n- Inspect\n- Verify' : '# Plan\n\n- Draft\n- Verify';
-      const args =
-        toolName === 'Write'
-          ? { path: planPath, content: expectedContent }
-          : { path: planPath, old_string: '- Draft', new_string: '- Draft\n- Verify' };
-      const writePlanCall: ToolCall = {
-        type: 'function',
-        id: `call_${toolName.toLowerCase()}_plan`,
-        name: toolName,
-        arguments: JSON.stringify(args),
-      };
+        const expectedContent =
+          toolName === 'Write' ? '# Plan\n\n- Inspect\n- Verify' : '# Plan\n\n- Draft\n- Verify';
+        const args =
+          toolName === 'Write'
+            ? { path: planPath, content: expectedContent }
+            : { path: planPath, old_string: '- Draft', new_string: '- Draft\n- Verify' };
+        const writePlanCall: ToolCall = {
+          type: 'function',
+          id: `call_${toolName.toLowerCase()}_plan`,
+          name: toolName,
+          arguments: JSON.stringify(args),
+        };
 
-      ctx.mockNextResponse({ type: 'text', text: 'I will update the plan file.' }, writePlanCall);
-      ctx.mockNextResponse({ type: 'text', text: 'Plan file updated.' });
-      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Update the plan file' }] });
+        ctx.mockNextResponse({ type: 'text', text: 'I will update the plan file.' }, writePlanCall);
+        ctx.mockNextResponse({ type: 'text', text: 'Plan file updated.' });
+        await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Update the plan file' }] });
 
-      await ctx.untilTurnEnd();
+        await ctx.untilTurnEnd();
 
-      expect(files.get(planPath)).toBe(expectedContent);
-      expect(writeText).toHaveBeenCalledWith(planPath, expectedContent);
-      expect(
-        ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
-      ).toBe(false);
-      await ctx.expectResumeMatches();
+        expect(files.get(planPath)).toBe(expectedContent);
+        expect(writeText).toHaveBeenCalledWith(planPath, expectedContent);
+        expect(
+          ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
+        ).toBe(false);
+        await ctx.expectResumeMatches();
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+      }
     },
   );
 
-  it('keeps explicit deny rules above active plan file writes', async () => {
+  it.skip('keeps explicit deny rules above active plan file writes', async () => {
     const files = new Map<string, string>();
     const writeText = vi.fn(async (path: string, content: string) => {
       files.set(path, content);
@@ -448,7 +454,7 @@ describe.skip('plan allows safe tool flow', () => {
     ).toBe(false);
   });
 
-  it('allows read-only Bash to continue through permission and execution', async () => {
+  it.skip('allows read-only Bash to continue through permission and execution', async () => {
     const bashCall: ToolCall = {
       type: 'function',
       id: 'call_bash',
