@@ -6,7 +6,7 @@ import {
 import type { ContextMessage, PromptOrigin } from '../../../agent/context';
 import { USER_PROMPT_ORIGIN } from '../../../agent/context';
 import { toKimiErrorPayload, type KimiErrorPayload } from '../../../errors';
-import { userCancellationReason } from '../../../utils/abort';
+import { isUserCancellation, userCancellationReason } from '../../../utils/abort';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IEventBus } from '../eventBus/eventBus';
 import { IExternalHooksService } from '../externalHooks/externalHooks';
@@ -151,6 +151,12 @@ export class TurnRunnerService implements ITurnRunner {
       }
       if (result !== undefined) {
         const ended = toTurnEndedEvent(turn, result, Date.now() - startedAt);
+        if (
+          ended.reason === 'cancelled' &&
+          isUserCancellation(turn.abortController.signal.reason)
+        ) {
+          this.externalHooks.triggerInterrupt({ turnId: turn.id, reason: 'cancelled' });
+        }
         this.events.emit(ended);
         if (ended.error !== undefined) {
           this.events.emit({ type: 'error', ...ended.error });

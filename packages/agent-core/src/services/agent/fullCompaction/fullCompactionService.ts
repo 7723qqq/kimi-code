@@ -34,6 +34,7 @@ import { IContextUsageService } from '../contextUsage/contextUsage';
 import { IEventBus } from '../eventBus/eventBus';
 import { ILLMRequester } from '../llmRequester/llmRequester';
 import { IProfileService } from '../profile/profile';
+import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import { ITelemetryService } from '../telemetry/telemetry';
 import { IToolStoreService } from '../toolStore/toolStore';
 import { ITurnRunner } from '../turnRunner/turnRunner';
@@ -85,6 +86,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     @IUsageService private readonly usage: IUsageService,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
+    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @ITurnRunner turnRunner: ITurnRunner,
   ) {
     super();
@@ -105,6 +107,19 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       turnRunner.hooks.afterStep.register('full-compaction', async (_ctx, next) => {
         await this.afterStep();
         await next();
+      }),
+    );
+    this._register(
+      wireRecord.register('full_compaction.begin', (record) => {
+        this.replayBuilder.push({
+          type: 'compaction',
+          instruction: record.instruction,
+        });
+      }),
+    );
+    this._register(
+      wireRecord.register('full_compaction.cancel', () => {
+        this.replayBuilder.patchLast('compaction', { result: 'cancelled' });
       }),
     );
   }

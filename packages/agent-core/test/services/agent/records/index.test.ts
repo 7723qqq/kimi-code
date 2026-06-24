@@ -6,6 +6,7 @@ import {
   createAgentRuntime,
   IContextMemory,
   IContextUsageService,
+  IFullCompaction,
   InMemoryWireRecordPersistence,
   IReplayBuilderService,
   IWireRecord,
@@ -446,16 +447,15 @@ describe('agent replay range build', () => {
     );
   });
 
-  it('continues reading after count so later wire records can patch captured replay records', async () => {
+  it('continues reading after count so canonical compaction splices can patch captured replay cards', async () => {
     const records: PersistedWireRecord[] = [
       { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'full_compaction.begin', source: 'manual', instruction: 'keep facts' },
       {
-        type: 'context.apply_compaction',
-        summary: 'Compacted summary.',
-        compactedCount: 0,
-        tokensBefore: 10,
-        tokensAfter: 3,
+        type: 'context.splice',
+        start: 0,
+        deleteCount: 0,
+        messages: [compactionSummaryMessage('Compacted summary.')],
       },
       { type: 'permission.set_mode', mode: 'auto' },
     ];
@@ -467,9 +467,52 @@ describe('agent replay range build', () => {
         result: {
           summary: 'Compacted summary.',
           compactedCount: 0,
-          tokensBefore: 10,
-          tokensAfter: 3,
+          tokensBefore: expect.any(Number),
+          tokensAfter: expect.any(Number),
         },
+      }),
+    ]);
+  });
+
+  it('projects canonical compaction summary splices as replay cards', async () => {
+    const before = userMessage('before compaction');
+    const replay = await buildReplay([
+      { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'context.splice', start: 0, deleteCount: 0, messages: [before] },
+      { type: 'full_compaction.begin', source: 'manual', instruction: 'keep facts' },
+      {
+        type: 'context.splice',
+        start: 0,
+        deleteCount: 1,
+        messages: [compactionSummaryMessage('Compacted summary.')],
+      },
+    ]);
+
+    expect(replay).toEqual([
+      expect.objectContaining({ type: 'message', message: before }),
+      expect.objectContaining({
+        type: 'compaction',
+        instruction: 'keep facts',
+        result: {
+          summary: 'Compacted summary.',
+          compactedCount: 1,
+          tokensBefore: expect.any(Number),
+          tokensAfter: expect.any(Number),
+        },
+      }),
+    ]);
+  });
+
+  it('projects restored cancelled compactions as replay cards', async () => {
+    await expect(buildReplay([
+      { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'full_compaction.begin', source: 'manual', instruction: 'keep facts' },
+      { type: 'full_compaction.cancel' },
+    ])).resolves.toEqual([
+      expect.objectContaining({
+        type: 'compaction',
+        instruction: 'keep facts',
+        result: 'cancelled',
       }),
     ]);
   });
@@ -568,6 +611,8 @@ async function buildReplayFromPersistence(
     persistence,
     replay: range === undefined ? undefined : { range },
   });
+  const isCompacting = ctx.get(IFullCompaction).isCompacting;
+  if (isCompacting) throw new Error('Unexpected active compaction before restore');
   await ctx.runtime.restore(undefined, { rewriteMigratedRecords: false });
   return ctx.get(IReplayBuilderService).buildResult();
 }
@@ -577,5 +622,14 @@ function userMessage(text: string): ContextMessage {
     role: 'user',
     content: [{ type: 'text', text }],
     toolCalls: [],
+  };
+}
+
+function compactionSummaryMessage(text: string): ContextMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    origin: { kind: 'compaction_summary' },
   };
 }

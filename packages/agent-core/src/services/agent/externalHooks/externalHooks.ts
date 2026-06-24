@@ -53,6 +53,7 @@ export interface IExternalHooksService {
     signal: AbortSignal,
   ): Promise<void>;
   triggerStopFailure(error: unknown, signal: AbortSignal): void;
+  triggerInterrupt(payload: { readonly turnId: number; readonly reason: 'cancelled' }): void;
   triggerNotification(payload: NotificationHookPayload): void;
 }
 

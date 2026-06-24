@@ -30,7 +30,7 @@ const MINUTE = 60 * 1000;
 const DEFAULT_MARKER = '[Old tool result content cleared]';
 const MICRO_COMPACTION_FLAG_ENV = getMicroCompactionFlagEnv();
 
-describe.skip('MicroCompaction', () => {
+describe('MicroCompaction', () => {
   beforeEach(() => {
     vi.stubEnv(MASTER_ENV, '0');
     vi.stubEnv(MICRO_COMPACTION_FLAG_ENV, '1');
@@ -40,7 +40,7 @@ describe.skip('MicroCompaction', () => {
     expect(new FlagResolver({}, FLAG_DEFINITIONS).enabled('micro_compaction')).toBe(true);
   });
 
-  it('truncates old tool results after cache miss', () => {
+  it.skip('truncates old tool results after cache miss', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -103,7 +103,7 @@ describe.skip('MicroCompaction', () => {
     expect(hasMarker(messages)).toBe(false);
   });
 
-  it('persists cutoff across calls until cache miss resets it', () => {
+  it.skip('persists cutoff across calls until cache miss resets it', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -213,7 +213,7 @@ describe.skip('MicroCompaction', () => {
     expect(hasMarker(messages)).toBe(false);
   });
 
-  it('clears cutoff on context clear', () => {
+  it.skip('clears cutoff on context clear', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -238,7 +238,7 @@ describe.skip('MicroCompaction', () => {
     expect((ctx.get(IMicroCompactionService) as any).lastAssistantAt).toBeNull();
   });
 
-  it('sends truncated old tool results to the next model request without mutating history', async () => {
+  it.skip('sends truncated old tool results to the next model request without mutating history', async () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -278,7 +278,7 @@ describe.skip('MicroCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('restores lastAssistantAt from record time before applying cache-miss rules', async () => {
+  it.skip('restores lastAssistantAt from record time before applying cache-miss rules', async () => {
     vi.useFakeTimers();
     const assistantRecordTime = 2_000;
     const ctx = testAgent({
@@ -309,7 +309,7 @@ describe.skip('MicroCompaction', () => {
     expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER]);
   });
 
-  it('preserves the restored cutoff when resuming before the next cache miss', async () => {
+  it.skip('preserves the restored cutoff when resuming before the next cache miss', async () => {
     vi.useFakeTimers();
     const persistence = new InMemoryWireRecordPersistence();
     const config = {
@@ -351,7 +351,7 @@ describe.skip('MicroCompaction', () => {
     ]);
   });
 
-  it('recomputes the restored cutoff when resuming after the cache-miss threshold', async () => {
+  it.skip('recomputes the restored cutoff when resuming after the cache-miss threshold', async () => {
     vi.useFakeTimers();
     const persistence = new InMemoryWireRecordPersistence();
     const config = {
@@ -398,7 +398,7 @@ describe.skip('MicroCompaction', () => {
     expect(lastMicroCompactionCutoff(resumedPersistence.records)).toBe(7);
   });
 
-  it('keeps an old cutoff while cache is warm and advances it on the next miss', () => {
+  it.skip('keeps an old cutoff while cache is warm and advances it on the next miss', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -440,7 +440,7 @@ describe.skip('MicroCompaction', () => {
     ]);
   });
 
-  it('clamps cutoff when undo shortens the context', () => {
+  it.skip('clamps cutoff when undo shortens the context', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -476,7 +476,7 @@ describe.skip('MicroCompaction', () => {
     ]);
   });
 
-  it('tracks telemetry when a cache miss advances the micro_compaction cutoff', () => {
+  it.skip('tracks telemetry when a cache miss advances the micro_compaction cutoff', () => {
     vi.useFakeTimers();
     const records: TelemetryRecord[] = [];
     const microCompaction = {
@@ -529,7 +529,7 @@ describe.skip('MicroCompaction', () => {
     expect(records.filter((record) => record.event === 'micro_compaction_finished')).toHaveLength(1);
   });
 
-  it('reports context token deltas from the previously compacted projection', () => {
+  it.skip('reports context token deltas from the previously compacted projection', () => {
     vi.useFakeTimers();
     const records: TelemetryRecord[] = [];
     const microCompaction = {
@@ -600,7 +600,7 @@ describe.skip('MicroCompaction', () => {
     expect(lastMicroCompactionCutoff(persistence.records)).toBeUndefined();
   });
 
-  it('uses the custom marker at the minContentTokens boundary', () => {
+  it.skip('uses the custom marker at the minContentTokens boundary', () => {
     vi.useFakeTimers();
     const marker = '[tool output removed for test]';
     const ctx = testAgent({
@@ -626,7 +626,7 @@ describe.skip('MicroCompaction', () => {
     expect(textOf(ctx.context.getHistory()[2])).toBe('abcd');
   });
 
-  it('keeps raw pending token accounting even when projection truncates tool output', () => {
+  it.skip('keeps raw pending token accounting even when projection truncates tool output', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -661,7 +661,7 @@ describe.skip('MicroCompaction', () => {
     );
   });
 
-  it('replaces rich error tool content while preserving context metadata before projection', () => {
+  it.skip('replaces rich error tool content while preserving context metadata before projection', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -721,7 +721,7 @@ describe.skip('MicroCompaction', () => {
     expect(toolTexts(ctx.project())).toEqual(['orphan tool-like output']);
   });
 
-  it('clears cutoff on full compaction', async () => {
+  it.skip('clears cutoff on full compaction', async () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -783,7 +783,7 @@ describe.skip('MicroCompaction', () => {
     expect(hasMarker(messages)).toBe(false);
   });
 
-  it('applies when context usage is above minContextUsageRatio', () => {
+  it.skip('applies when context usage is above minContextUsageRatio', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -903,66 +903,58 @@ function resumeToolExchangeRecords(assistantRecordTime: number): PersistedWireRe
       created_at: 1,
     },
     {
-      type: 'context.append_message',
+      type: 'context.splice',
       time: 1_000,
-      message: {
-        role: 'user',
-        content: [{ type: 'text', text: 'lookup from restored session' }],
-        toolCalls: [],
-        origin: { kind: 'user' },
-      },
+      start: 0,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'lookup from restored session' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      ],
     },
     {
-      type: 'context.append_loop_event',
+      type: 'turn.launch',
       time: assistantRecordTime,
-      event: { type: 'step.begin', uuid: 'resume-micro-step', turnId: '0', step: 1 },
+      turnId: 0,
+      origin: { kind: 'user' },
     },
     {
-      type: 'context.append_loop_event',
+      type: 'context.splice',
       time: assistantRecordTime + 1,
-      event: {
-        type: 'content.part',
-        uuid: 'resume-micro-part',
-        turnId: '0',
-        step: 1,
-        stepUuid: 'resume-micro-step',
-        part: { type: 'text', text: 'calling restored Lookup' },
-      },
+      start: 1,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'calling restored Lookup' }],
+          toolCalls: [
+            {
+              type: 'function',
+              id: 'resume_micro_call',
+              name: 'Lookup',
+              arguments: JSON.stringify({ query: 'restored' }),
+            },
+          ],
+        },
+      ],
     },
     {
-      type: 'context.append_loop_event',
+      type: 'context.splice',
       time: assistantRecordTime + 2,
-      event: {
-        type: 'tool.call',
-        uuid: 'resume-micro-call',
-        turnId: '0',
-        step: 1,
-        stepUuid: 'resume-micro-step',
-        toolCallId: 'resume_micro_call',
-        name: 'Lookup',
-        args: { query: 'restored' },
-      },
-    },
-    {
-      type: 'context.append_loop_event',
-      time: assistantRecordTime + 3,
-      event: {
-        type: 'step.end',
-        uuid: 'resume-micro-step',
-        turnId: '0',
-        step: 1,
-        finishReason: 'tool_use',
-      },
-    },
-    {
-      type: 'context.append_loop_event',
-      time: assistantRecordTime + 4,
-      event: {
-        type: 'tool.result',
-        parentUuid: 'resume-micro-call',
-        toolCallId: 'resume_micro_call',
-        result: { output: 'restored lookup result' },
-      },
+      start: 2,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'restored lookup result' }],
+          toolCalls: [],
+          toolCallId: 'resume_micro_call',
+        },
+      ],
     },
   ] as PersistedWireRecord[];
 }

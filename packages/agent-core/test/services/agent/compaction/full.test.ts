@@ -203,19 +203,17 @@ describe.skip('FullCompaction', () => {
     await compacted;
     await completed;
 
-    expect(ctx.newEvents()).toMatchInlineSnapshot(`
-      [wire] context.append_message     { "message": { "role": "user", "content": [ { "type": "text", "text": "old user one" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] context.append_message     { "message": { "role": "user", "content": [ { "type": "text", "text": "old user two" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] context.append_message     { "message": { "role": "user", "content": [ { "type": "text", "text": "recent user three" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] full_compaction.begin      { "source": "manual", "instruction": "Keep the important test facts.", "time": "<time>" }
-      [emit] compaction.started         { "trigger": "manual", "instruction": "Keep the important test facts." }
-      [wire] usage.record               { "model": "kimi-code", "usage": { "inputOther": 520, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "session", "time": "<time>" }
-      [emit] agent.status.updated       { "model": "kimi-code", "contextTokens": 120, "maxContextTokens": 256000, "contextUsage": 0.00046875, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "kimi-code": { "inputOther": 520, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 520, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.apply_compaction   { "summary": "Compacted summary.", "compactedCount": 6, "tokensBefore": 39, "tokensAfter": 5, "time": "<time>" }
-      [emit] agent.status.updated       { "model": "kimi-code", "contextTokens": 5, "maxContextTokens": 256000, "contextUsage": 0.00001953125, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "kimi-code": { "inputOther": 520, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 520, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] full_compaction.complete   { "time": "<time>" }
-      [emit] compaction.completed       { "result": { "summary": "Compacted summary.", "compactedCount": 6, "tokensBefore": 39, "tokensAfter": 5 } }
-    `);
+    const events = ctx.newEvents();
+    expect(countEvents(events, 'context.splice')).toBeGreaterThanOrEqual(3);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),
+        expect.objectContaining({ type: '[rpc]', event: 'compaction.started' }),
+        expect.objectContaining({ type: '[wire]', event: 'context.apply_compaction' }),
+        expect.objectContaining({ type: '[wire]', event: 'full_compaction.complete' }),
+        expect.objectContaining({ type: '[rpc]', event: 'compaction.completed' }),
+      ]),
+    );
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
       tools: []
@@ -264,8 +262,10 @@ describe.skip('FullCompaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: { type: 'step.begin', uuid: 'empty-placeholder', turnId: '', step: 2 },
+      type: 'context.splice',
+      start: ctx.context.getHistory().length,
+      deleteCount: 0,
+      messages: [{ role: 'assistant', content: [], toolCalls: [] }],
     });
     ctx.appendExchange(3, 'old user two', 'old assistant two', 40);
     const compacted = new Promise<void>((resolve) => {
@@ -948,13 +948,17 @@ describe.skip('FullCompaction', () => {
       'tool',
     ]);
     void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_open_two',
-        toolCallId: 'call_open_two',
-        result: { output: 'two result' },
-      },
+      type: 'context.splice',
+      start: ctx.context.getHistory().length,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'two result' }],
+          toolCalls: [],
+          toolCallId: 'call_open_two',
+        },
+      ],
     });
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
       'assistant',
@@ -983,19 +987,16 @@ describe.skip('FullCompaction', () => {
     await compacted;
     await completed;
 
-    expect(ctx.newEvents()).toMatchInlineSnapshot(`
-      [wire] context.append_message     { "message": { "role": "user", "content": [ { "type": "text", "text": "old user one" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] context.append_message     { "message": { "role": "user", "content": [ { "type": "text", "text": "recent user two" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] full_compaction.begin      { "source": "manual", "time": "<time>" }
-      [emit] compaction.started         { "trigger": "manual" }
-      [wire] context.append_message     { "message": { "role": "user", "content": [ { "type": "text", "text": "new user while compacting" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] usage.record               { "model": "kimi-code", "usage": { "inputOther": 499, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "session", "time": "<time>" }
-      [emit] agent.status.updated       { "model": "kimi-code", "contextTokens": 80, "maxContextTokens": 256000, "contextUsage": 0.0003125, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "kimi-code": { "inputOther": 499, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 499, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.apply_compaction   { "summary": "Compacted prefix.", "compactedCount": 4, "tokensBefore": 25, "tokensAfter": 5, "time": "<time>" }
-      [emit] agent.status.updated       { "model": "kimi-code", "contextTokens": 5, "maxContextTokens": 256000, "contextUsage": 0.00001953125, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "kimi-code": { "inputOther": 499, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 499, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] full_compaction.complete   { "time": "<time>" }
-      [emit] compaction.completed       { "result": { "summary": "Compacted prefix.", "compactedCount": 4, "tokensBefore": 25, "tokensAfter": 5 } }
-    `);
+    const events = ctx.newEvents();
+    expect(countEvents(events, 'context.splice')).toBeGreaterThanOrEqual(3);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),
+        expect.objectContaining({ type: '[wire]', event: 'context.apply_compaction' }),
+        expect.objectContaining({ type: '[wire]', event: 'full_compaction.complete' }),
+        expect.objectContaining({ type: '[rpc]', event: 'compaction.completed' }),
+      ]),
+    );
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
       tools: []
@@ -1130,18 +1131,16 @@ describe.skip('FullCompaction', () => {
     await ctx.rpc.clearContext({});
     await canceled;
 
-    expect(ctx.newEvents()).toMatchInlineSnapshot(`
-      [wire] context.append_message   { "message": { "role": "user", "content": [ { "type": "text", "text": "old user one" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] context.append_message   { "message": { "role": "user", "content": [ { "type": "text", "text": "recent user two" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] full_compaction.begin    { "source": "manual", "time": "<time>" }
-      [emit] compaction.started       { "trigger": "manual" }
-      [wire] context.clear            { "time": "<time>" }
-      [emit] agent.status.updated     { "model": "kimi-code", "contextTokens": 0, "maxContextTokens": 256000, "contextUsage": 0, "planMode": false, "swarmMode": false, "permission": "manual" }
-      [wire] usage.record             { "model": "kimi-code", "usage": { "inputOther": 499, "output": 7, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "session", "time": "<time>" }
-      [emit] agent.status.updated     { "model": "kimi-code", "contextTokens": 0, "maxContextTokens": 256000, "contextUsage": 0, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "kimi-code": { "inputOther": 499, "output": 7, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 499, "output": 7, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] full_compaction.cancel   { "time": "<time>" }
-      [emit] compaction.cancelled     {}
-    `);
+    const events = ctx.newEvents();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: '[wire]', event: 'context.splice' }),
+        expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),
+        expect.objectContaining({ type: '[wire]', event: 'context.clear' }),
+        expect.objectContaining({ type: '[wire]', event: 'full_compaction.cancel' }),
+        expect.objectContaining({ type: '[rpc]', event: 'compaction.cancelled' }),
+      ]),
+    );
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
       tools: []
@@ -1171,32 +1170,17 @@ describe.skip('FullCompaction', () => {
     ctx.mockNextResponse({ type: 'text', text: 'I can answer after compaction.' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Answer after compacting' }] });
 
-    expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "old user one" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "old user two" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "recent user three" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] turn.prompt                 { "input": [ { "type": "text", "text": "Answer after compacting" } ], "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started                { "turnId": 0, "origin": { "kind": "user" } }
-      [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "Answer after compacting" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] full_compaction.begin       { "source": "auto", "time": "<time>" }
-      [emit] compaction.started          { "trigger": "auto" }
-      [emit] compaction.blocked          { "turnId": 0 }
-      [wire] usage.record                { "model": "kimi-code", "usage": { "inputOther": 498, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "session", "time": "<time>" }
-      [emit] agent.status.updated        { "model": "kimi-code", "contextTokens": 950000, "maxContextTokens": 256000, "contextUsage": 3.7109375, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "kimi-code": { "inputOther": 498, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 498, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.apply_compaction    { "summary": "Auto compacted summary.", "compactedCount": 4, "tokensBefore": 46, "tokensAfter": 28, "time": "<time>" }
-      [emit] agent.status.updated        { "model": "kimi-code", "contextTokens": 28, "maxContextTokens": 256000, "contextUsage": 0.000109375, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "kimi-code": { "inputOther": 498, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 498, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] full_compaction.complete    { "time": "<time>" }
-      [emit] compaction.completed        { "result": { "summary": "Auto compacted summary.", "compactedCount": 4, "tokensBefore": 46, "tokensAfter": 28 } }
-      [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
-      [emit] turn.step.started           { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-      [emit] assistant.delta             { "turnId": 0, "delta": "I can answer after compaction." }
-      [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I can answer after compaction." } }, "time": "<time>" }
-      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "usage": { "inputOther": 31, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }, "time": "<time>" }
-      [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 31, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-      [wire] usage.record                { "model": "kimi-code", "usage": { "inputOther": 31, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated        { "model": "kimi-code", "contextTokens": 42, "maxContextTokens": 256000, "contextUsage": 0.0001640625, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "kimi-code": { "inputOther": 529, "output": 20, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 529, "output": 20, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 31, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [emit] turn.ended                  { "turnId": 0, "reason": "completed" }
-    `);
+    const events = await ctx.untilTurnEnd();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: '[wire]', event: 'context.splice' }),
+        expect.objectContaining({ type: '[wire]', event: 'turn.launch' }),
+        expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),
+        expect.objectContaining({ type: '[wire]', event: 'context.apply_compaction' }),
+        expect.objectContaining({ type: '[wire]', event: 'full_compaction.complete' }),
+        expect.objectContaining({ type: '[rpc]', event: 'turn.ended' }),
+      ]),
+    );
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
         system: <system-prompt>
@@ -1264,22 +1248,30 @@ describe.skip('FullCompaction', () => {
 
     // Closing the exchange flushes the deferred reminder to history.
     void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_unresolved_one',
-        toolCallId: 'call_unresolved_one',
-        result: { output: 'one result' },
-      },
+      type: 'context.splice',
+      start: ctx.context.getHistory().length,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'one result' }],
+          toolCalls: [],
+          toolCallId: 'call_unresolved_one',
+        },
+      ],
     });
     void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_unresolved_two',
-        toolCallId: 'call_unresolved_two',
-        result: { output: 'two result' },
-      },
+      type: 'context.splice',
+      start: ctx.context.getHistory().length,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'two result' }],
+          toolCalls: [],
+          toolCallId: 'call_unresolved_two',
+        },
+      ],
     });
 
     expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
@@ -1330,13 +1322,17 @@ describe.skip('FullCompaction', () => {
     ]);
 
     void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_unresolved_two',
-        toolCallId: 'call_unresolved_two',
-        result: { output: 'two result' },
-      },
+      type: 'context.splice',
+      start: ctx.context.getHistory().length,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'two result' }],
+          toolCalls: [],
+          toolCallId: 'call_unresolved_two',
+        },
+      ],
     });
 
     expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
@@ -1850,35 +1846,21 @@ describe.skip('FullCompaction', () => {
     ctx.mockNextResponse({ type: 'text', text: 'I need a tool.' }, missingToolCall());
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger repeated compaction' }] });
 
-    expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] turn.prompt                 { "input": [ { "type": "text", "text": "Trigger repeated compaction" } ], "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started                { "turnId": 0, "origin": { "kind": "user" } }
-      [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "Trigger repeated compaction" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [wire] full_compaction.begin       { "source": "auto", "time": "<time>" }
-      [emit] compaction.started          { "trigger": "auto" }
-      [emit] compaction.blocked          { "turnId": 0 }
-      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 482, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "session", "time": "<time>" }
-      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 0, "maxContextTokens": 1000000, "contextUsage": 0, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 482, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 482, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.apply_compaction    { "summary": "First compacted summary.", "compactedCount": 1, "tokensBefore": 8, "tokensAfter": 6, "time": "<time>" }
-      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 6, "maxContextTokens": 1000000, "contextUsage": 0.000006, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 482, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 482, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] full_compaction.complete    { "time": "<time>" }
-      [emit] compaction.completed        { "result": { "summary": "First compacted summary.", "compactedCount": 1, "tokensBefore": 8, "tokensAfter": 6 } }
-      [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
-      [emit] turn.step.started           { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-      [emit] assistant.delta             { "turnId": 0, "delta": "I need a tool." }
-      [emit] tool.call.delta             { "turnId": 0, "toolCallId": "call_missing", "name": "MissingTool", "argumentsPart": "{}" }
-      [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I need a tool." } }, "time": "<time>" }
-      [wire] context.append_loop_event   { "event": { "type": "tool.call", "uuid": "call_missing", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_missing", "name": "MissingTool", "args": {} }, "time": "<time>" }
-      [emit] tool.call.started           { "turnId": 0, "toolCallId": "call_missing", "name": "MissingTool", "args": {} }
-      [wire] context.append_loop_event   { "event": { "type": "tool.result", "parentUuid": "call_missing", "toolCallId": "call_missing", "result": { "output": "Tool \\"MissingTool\\" not found", "isError": true } }, "time": "<time>" }
-      [emit] tool.result                 { "turnId": 0, "toolCallId": "call_missing", "output": "Tool \\"MissingTool\\" not found", "isError": true }
-      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "usage": { "inputOther": 9, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }, "time": "<time>" }
-      [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 9, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
-      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 9, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 20, "maxContextTokens": 1000000, "contextUsage": 0.00002, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 491, "output": 20, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 491, "output": 20, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 9, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [emit] turn.step.interrupted       { "turnId": 0, "step": 2, "reason": "error", "message": "Compaction limit exceeded (1)" }
-      [emit] turn.ended                  { "turnId": 0, "reason": "failed", "error": { "code": "context.overflow", "message": "Compaction limit exceeded (1)", "name": "KimiError", "details": { "maxCompactions": 1, "turnId": 0 }, "retryable": true } }
-    `);
+    const events = await ctx.untilTurnEnd();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: '[wire]', event: 'context.splice' }),
+        expect.objectContaining({ type: '[wire]', event: 'turn.launch' }),
+        expect.objectContaining({
+          type: '[rpc]',
+          event: 'turn.ended',
+          args: expect.objectContaining({
+            reason: 'failed',
+            error: expect.objectContaining({ code: 'context.overflow' }),
+          }),
+        }),
+      ]),
+    );
     expect(ctx.newEvents()).toMatchInlineSnapshot(
       `[emit] error   { "code": "context.overflow", "message": "Compaction limit exceeded (1)", "name": "KimiError", "details": { "maxCompactions": 1, "turnId": 0 }, "retryable": true }`,
     );

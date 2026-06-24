@@ -24,6 +24,7 @@ import type { HookEngine } from '../../session/hooks';
 import type { ModelProvider } from '../../session/provider-manager';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
 import type { SkillCatalog, SkillDefinition } from '../../skill';
+import { DEFAULT_AGENT_PROFILES } from '../../profile';
 import type { SubagentResult } from '../../session/subagent-batch';
 import type {
   QueuedSubagentTask,
@@ -36,6 +37,7 @@ import {
 } from '../../telemetry';
 import {
   AskUserQuestionTool,
+  AgentTool,
   BashTool,
   EditTool,
   FetchURLTool,
@@ -296,6 +298,8 @@ export class AgentRuntime extends Disposable {
       accessor.get(IPermissionRulesService).rules;
       // Force-construct GoalService so goal.* and forked restore handlers are registered.
       accessor.get(IGoalService).getGoal();
+      // oxlint-disable-next-line no-unused-expressions
+      accessor.get(IFullCompaction).isCompacting;
     });
     const replayBuilder = this.get(IReplayBuilderService);
     replayBuilder.postRestoring = true;
@@ -422,7 +426,7 @@ function initializeRuntimeBuiltinTools(
   options: AgentRuntimeOptions,
 ): void {
   // Plan/todo/cron/swarm/MCP/user tools are registered by their owning services.
-  // Agent/media/goal tools still depend on unmigrated old-Agent paths.
+  // Media/goal tools still depend on unmigrated old-Agent paths.
   const registry = getService(instantiation, IToolRegistry);
   const background = getService(instantiation, IBackgroundService);
   const profile = getService(instantiation, IProfileService);
@@ -451,6 +455,21 @@ function initializeRuntimeBuiltinTools(
   registry.register(new TaskOutputTool(background));
   registry.register(new TaskStopTool(background));
   registry.register(new AskUserQuestionTool(questionToolHost));
+  if (options.subagentHost !== undefined) {
+    registry.register(
+      new AgentTool(
+        options.subagentHost,
+        background,
+        DEFAULT_AGENT_PROFILES['agent']?.subagents,
+        {
+          allowBackground:
+            profile.isToolActive('TaskList') &&
+            profile.isToolActive('TaskOutput') &&
+            profile.isToolActive('TaskStop'),
+        },
+      ),
+    );
+  }
 
   const kaos = options.kaos;
   if (kaos !== undefined) {

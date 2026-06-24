@@ -1,4 +1,5 @@
 import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
+import { estimateTokensForMessages } from '../../../utils/tokens';
 import { OrderedHookSlot } from '../hooks';
 import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import type { ContextMessage, WireRecord } from '../types';
@@ -69,6 +70,8 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
 
   private applySplice(record: WireRecord<'context.splice'>): void {
     const messages = [...record.messages];
+    const wasCompactionSummary = isCompactionSummarySplice(record);
+    const tokensBefore = wasCompactionSummary ? estimateTokensForMessages(this.history) : 0;
     // A splice that deletes the whole history mirrors `context.clear`: prior
     // messages stay in the replay (as a boundary) and must not be removed.
     // Only a partial delete (old `context.undo`) drops the deleted messages
@@ -81,8 +84,19 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
     if (removedMessages.length > 0) {
       this.replayBuilder.removeLastMessages(new Set(removedMessages));
     }
-    for (const message of messages) {
-      this.replayBuilder.push({ type: 'message', message });
+    if (wasCompactionSummary) {
+      this.replayBuilder.patchLast('compaction', {
+        result: {
+          summary: textContent(messages[0]),
+          compactedCount: record.deleteCount,
+          tokensBefore,
+          tokensAfter: estimateTokensForMessages(this.history),
+        },
+      });
+    } else {
+      for (const message of messages) {
+        this.replayBuilder.push({ type: 'message', message });
+      }
     }
     const context = {
       start: record.start,
@@ -91,6 +105,18 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
     };
     void this.hooks.onSpliced.run(context);
   }
+}
+
+function isCompactionSummarySplice(record: WireRecord<'context.splice'>): boolean {
+  return record.messages.length === 1 && record.messages[0]?.origin?.kind === 'compaction_summary';
+}
+
+function textContent(message: ContextMessage | undefined): string {
+  return (
+    message?.content
+      .map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
+      .join('') ?? ''
+  );
 }
 
 registerSingleton(IContextMemory, new SyncDescriptor(ContextMemoryService, [], true));

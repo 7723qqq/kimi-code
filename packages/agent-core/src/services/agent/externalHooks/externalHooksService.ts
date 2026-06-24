@@ -107,6 +107,12 @@ export class ExternalHooksService implements IExternalHooksService {
     );
   }
 
+  triggerInterrupt(payload: Parameters<IExternalHooksService['triggerInterrupt']>[0]): void {
+    void this.options.hookEngine?.fireAndForgetTrigger('Interrupt', {
+      inputData: payload,
+    });
+  }
+
   triggerNotification(payload: NotificationHookPayload): void {
     const signal = new AbortController().signal;
     fireAndForget(
