@@ -10,6 +10,7 @@ export type {
   ContextMessage,
   LLMEvent,
   LLMRequestOverrides,
+  PromptOrigin,
   ToolCall,
   ToolDefinition,
   ToolExecutionContext,
@@ -38,7 +39,7 @@ export {
 export type { BlobStoreServiceOptions } from './blobStore/blobStore';
 export { BlobStoreService } from './blobStore/blobStoreService';
 
-export { IWireRecord } from './wireRecord/wireRecord';
+export { AGENT_WIRE_PROTOCOL_VERSION, IWireRecord } from './wireRecord/wireRecord';
 export type {
   PersistedWireRecord,
   WireRecordBlobSelector,
@@ -78,7 +79,11 @@ export {
 } from './replayBuilder/replayBuilder';
 export { ReplayBuilderService } from './replayBuilder/replayBuilderService';
 
-export { IContextProjector } from './contextProjector/contextProjector';
+export {
+  IContextProjector,
+  project,
+  renderNotificationXml,
+} from './contextProjector/contextProjector';
 export { ContextProjectorService } from './contextProjector/contextProjectorService';
 
 export {

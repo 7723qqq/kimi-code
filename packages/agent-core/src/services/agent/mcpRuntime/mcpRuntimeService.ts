@@ -51,6 +51,10 @@ export class McpRuntimeService extends Disposable implements IMcpRuntimeService 
     return this.options.manager?.waitForInitialLoad(signal) ?? Promise.resolve();
   }
 
+  initialLoadDurationMs(): number {
+    return this.options.manager?.initialLoadDurationMs() ?? 0;
+  }
+
   list() {
     return this.options.manager?.list() ?? [];
   }

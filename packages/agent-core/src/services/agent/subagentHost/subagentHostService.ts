@@ -7,6 +7,7 @@ import type {
   QueuedSubagentTask,
   SessionSubagentHost,
 } from '../../../session/subagent-host';
+import { DEFAULT_INIT_PROMPT } from '../../../profile';
 import {
   ISubagentHost,
 } from './subagentHost';
@@ -22,6 +23,18 @@ export class SubagentHostService implements ISubagentHost {
 
   startBtw(): Promise<string> {
     return this.subagentHost.startBtw();
+  }
+
+  async generateAgentsMd(): Promise<void> {
+    const handle = await this.subagentHost.spawn({
+      profileName: 'coder',
+      parentToolCallId: 'generate-agents-md',
+      prompt: DEFAULT_INIT_PROMPT,
+      description: 'Initialize AGENTS.md',
+      runInBackground: false,
+      signal: new AbortController().signal,
+    });
+    await handle.completion;
   }
 
   runQueued<T>(

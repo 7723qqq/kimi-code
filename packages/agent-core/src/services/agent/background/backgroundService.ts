@@ -125,7 +125,7 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     if (task.timeoutMs !== undefined && task.timeoutMs > 0) {
       entry.timeoutHandle = setTimeout(() => {
         entry.abortController.abort('timed out');
-        void this.settleTask(entry, { status: 'timed_out', stopReason: 'timed out' });
+        void this.settleTask(entry, { status: 'timed_out' });
       }, task.timeoutMs);
       entry.timeoutHandle.unref?.();
     }

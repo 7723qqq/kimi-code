@@ -1,5 +1,4 @@
 import { registerSingleton, SyncDescriptor } from '../../../di';
-import { ErrorCodes, KimiError } from '../../../errors';
 import type {
   ActivateSkillPayload,
   BeginCompactionPayload,
@@ -245,13 +244,6 @@ export class AgentRPCService implements IAgentRPCService {
 
   getBackground(payload: GetBackgroundPayload) {
     return this.background.list(payload.activeOnly ?? false, payload.limit);
-  }
-
-  private todo(method: string): never {
-    throw new KimiError(
-      ErrorCodes.NOT_IMPLEMENTED,
-      `TODO: AgentRPCService.${method} is not migrated to services/agent.`,
-    );
   }
 }
 

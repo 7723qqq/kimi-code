@@ -6,6 +6,7 @@ export interface ISubagentHost {
   readonly _serviceBrand: undefined;
   getSwarmItem(agentId: string): string | undefined;
   startBtw(): Promise<string>;
+  generateAgentsMd(): Promise<void>;
   runQueued<T>(tasks: readonly QueuedSubagentTask<T>[]): Promise<Array<SubagentResult<T>>>;
 }
 

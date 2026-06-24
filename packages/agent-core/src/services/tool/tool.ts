@@ -5,8 +5,8 @@
  * literal) into SCHEMAS §8 `ToolDescriptor` (snake_case, `'skill'` literal).
  * Adapter helpers (`toProtocolTool`, `AgentCoreToolInfoLike`) are co-located here.
  *
- * **REST.md §3.8 ?session_id behavior**: tool listing is session-scoped.
- * Missing session runtime is a migration TODO rather than an RPC fallback.
+ * **REST.md §3.8 ?session_id behavior**: tool listing is session-scoped and
+ * requires an active session runtime.
  *
  * **Anti-corruption**: imports `@moonshot-ai/agent-core` only for the
  * `createDecorator` value.

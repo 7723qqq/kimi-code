@@ -18,6 +18,7 @@ export interface IMcpRuntimeService {
   readonly oauthService: McpOAuthService | undefined;
 
   waitForInitialLoad(signal?: AbortSignal): Promise<void>;
+  initialLoadDurationMs(): number;
   list(): readonly McpServerEntry[];
   resolved(name: string): McpResolvedServer | undefined;
   getRemoteServerUrl(name: string): string | undefined;

@@ -9,6 +9,8 @@ import {
 } from '../../../agent/compaction';
 import type { ProfileModelContext } from '../profile/profile';
 
+export { DefaultCompactionStrategy, type CompactionStrategy };
+
 export class RuntimeCompactionStrategy implements CompactionStrategy {
   constructor(private readonly context: () => ProfileModelContext) {}
 

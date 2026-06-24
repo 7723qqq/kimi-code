@@ -7,6 +7,8 @@ import type { IBlobStoreService } from '../blobStore/blobStore';
 import type { Hooks } from '../hooks';
 import type { WireRecord, WireRecordMap } from '../types';
 
+export { AGENT_WIRE_PROTOCOL_VERSION } from '../../../agent/records';
+
 export interface WireRecordMetadata {
   readonly type: 'metadata';
   readonly protocol_version: string;

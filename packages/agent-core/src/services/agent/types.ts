@@ -13,7 +13,7 @@ import type { ExecutableToolContext } from '../../loop';
 import type { LLMRequestLogFields } from '../../loop';
 import type { ToolInputDisplay } from '../../tools/display';
 
-export type { ContextMessage };
+export type { ContextMessage, PromptOrigin };
 
 export interface WireRecordMap {}
 
