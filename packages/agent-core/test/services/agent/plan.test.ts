@@ -215,54 +215,58 @@ describe('plan exit tool', () => {
     }
   });
 
-  it.skip('does not execute later tool calls in the same batch after plan rejection', async () => {
-    const files = new Map<string, string>();
-    const readText = vi.fn(async (path: string) => files.get(path) ?? '');
+  it('does not execute later tool calls in the same batch after plan rejection', async () => {
     const execWithEnv = vi.fn(() => {
       throw new Error('Bash should not execute after plan rejection');
     });
-    const ctx = testAgent({
-      kaos: createPlanKaos({ readText, execWithEnv }),
-    });
-    ctx.configure({ tools: ['ExitPlanMode', 'Bash'] });
-    await ctx.rpc.setPermission({ mode: 'yolo' });
-    await ctx.get(IPlanModeService).enter('reject-and-exit-plan', false);
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-reject-skip-tool-'));
+    try {
+      const ctx = testAgent({
+        kaos: createPlanKaos({ execWithEnv }),
+      });
+      ctx.configure({ tools: ['ExitPlanMode', 'Bash'] });
+      ctx.profile.update({ cwd });
+      await ctx.rpc.setPermission({ mode: 'yolo' });
+      await ctx.get(IPlanModeService).enter('reject-and-exit-plan', false);
 
-    const planPath = ctx.get(IPlanModeService).planFilePath;
-    if (planPath === null) throw new Error('expected active plan path');
-    files.set(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify');
+      const planPath = ctx.get(IPlanModeService).planFilePath;
+      if (planPath === null) throw new Error('expected active plan path');
+      await writeFile(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify', 'utf8');
 
-    const exitPlanModeCall: ToolCall = {
-      type: 'function',
-      id: 'call_exit_reject_and_exit',
-      name: 'ExitPlanMode',
-      arguments: '{}',
-    };
-    const bashCall: ToolCall = {
-      type: 'function',
-      id: 'call_bash_after_reject',
-      name: 'Bash',
-      arguments: '{"command":"touch should-not-run","timeout":60}',
-    };
-    ctx.mockNextResponse(
-      { type: 'text', text: 'I will present the plan and then run a command.' },
-      exitPlanModeCall,
-      bashCall,
-    );
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Show the plan' }] });
+      const exitPlanModeCall: ToolCall = {
+        type: 'function',
+        id: 'call_exit_reject_and_exit',
+        name: 'ExitPlanMode',
+        arguments: '{}',
+      };
+      const bashCall: ToolCall = {
+        type: 'function',
+        id: 'call_bash_after_reject',
+        name: 'Bash',
+        arguments: '{"command":"touch should-not-run","timeout":60}',
+      };
+      ctx.mockNextResponse(
+        { type: 'text', text: 'I will present the plan and then run a command.' },
+        exitPlanModeCall,
+        bashCall,
+      );
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Show the plan' }] });
 
-    const approval = await ctx.takeApprovalRequest();
-    approval.respond({ decision: 'rejected', selectedLabel: 'Reject' });
+      const approval = await ctx.takeApprovalRequest();
+      approval.respond({ decision: 'rejected', selectedLabel: 'Reject' });
 
-    await ctx.untilTurnEnd();
-    expect(ctx.get(IPlanModeService).isActive).toBe(true);
-    expect(execWithEnv).not.toHaveBeenCalled();
-    expect(ctx.llmCalls).toHaveLength(1);
-    expect(toolResultText(ctx.context.getHistory())).toContain('Plan rejected by user');
-    expect(toolResultText(ctx.context.getHistory())).toContain(
-      'Tool skipped because a previous tool call stopped the turn.',
-    );
-    await ctx.expectResumeMatches();
+      await ctx.untilTurnEnd();
+      expect(ctx.get(IPlanModeService).isActive).toBe(true);
+      expect(execWithEnv).not.toHaveBeenCalled();
+      expect(ctx.llmCalls).toHaveLength(1);
+      expect(toolResultText(ctx.context.getHistory())).toContain('Plan rejected by user');
+      expect(toolResultText(ctx.context.getHistory())).toContain(
+        'Tool skipped because a previous tool call stopped the turn.',
+      );
+      await ctx.expectResumeMatches();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it('refuses to exit when the current plan file is empty', async () => {
