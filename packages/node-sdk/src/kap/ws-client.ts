@@ -1,15 +1,13 @@
 import type { Event } from '@moonshot-ai/agent-core';
 import {
-  clientHelloAckPayloadSchema,
   serverHelloPayloadSchema,
   type SessionCursor,
 } from '@moonshot-ai/protocol';
 import type { z } from 'zod';
 
-type ServerHelloPayload = z.infer<typeof serverHelloPayloadSchema>;
-type ClientHelloAckPayload = z.infer<typeof clientHelloAckPayloadSchema>;
-
 import type { KapTransportOptions } from './types';
+
+type ServerHelloPayload = z.infer<typeof serverHelloPayloadSchema>;
 
 export interface KapWsEventHandlers {
   /** Regular durable/volatile event → SDKRpcClientBase.receiveEvent. */
@@ -52,11 +50,19 @@ export class KapWsClient {
     const socket = this.factory(this.url);
     this.socket = socket;
     await new Promise<void>((resolve, reject) => {
-      socket.addEventListener('open', () => resolve(), { once: true });
-      socket.addEventListener('error', (err) => reject(err), { once: true });
+      socket.addEventListener('open', () => {
+        resolve();
+      }, { once: true });
+      socket.addEventListener('error', (err) => {
+        reject(err);
+      }, { once: true });
     });
-    socket.addEventListener('message', (event) => this.onMessage(String(event.data)));
-    socket.addEventListener('close', () => this.onClose());
+    socket.addEventListener('message', (event) => {
+      this.onMessage(String(event.data));
+    });
+    socket.addEventListener('close', () => {
+      this.onClose();
+    });
   }
 
   async subscribe(sessionId: string): Promise<void> {
@@ -161,7 +167,9 @@ export class KapWsClient {
   private sendControl(type: string, payload: unknown): Promise<unknown> {
     const id = `a${++this.ackSeq}`;
     this.send({ type, id, payload });
-    return new Promise((resolve) => this.pendingAcks.set(id, resolve));
+    return new Promise((resolve) => {
+      this.pendingAcks.set(id, resolve);
+    });
   }
 
   private send(frame: WsFrame): void {

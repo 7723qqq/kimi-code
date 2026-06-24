@@ -14,6 +14,8 @@ vi.mock('#/tui/goal-queue-store', () => ({
   })),
 }));
 
+const HARNESS_HOME_DIR = '/tmp/kimi-test-home';
+
 function fakeGoalSnapshot(objective: string, status: 'active' | 'blocked' | 'paused' | 'complete') {
   return {
     goalId: 'g1',
@@ -37,8 +39,13 @@ function fakeGoalSnapshot(objective: string, status: 'active' | 'blocked' | 'pau
   };
 }
 
+function goalQueueSession(session: { id: string }) {
+  return { id: session.id, harnessHomeDir: HARNESS_HOME_DIR };
+}
+
 function makeHost(options: { createGoalRejects?: boolean } = {}) {
   const session = {
+    id: 's1',
     createGoal: vi.fn(async () => {
       if (options.createGoalRejects === true) throw new Error('create failed');
       return fakeGoalSnapshot('Ship queued goal', 'active');
@@ -63,6 +70,7 @@ function makeHost(options: { createGoalRejects?: boolean } = {}) {
     session,
     aborted: false,
     sessionEventUnsubscribe: undefined,
+    harness: { homeDir: HARNESS_HOME_DIR },
     streamingUI: {
       setTurnId: vi.fn(),
       flushNow: vi.fn(),
@@ -89,8 +97,9 @@ function makeHost(options: { createGoalRejects?: boolean } = {}) {
     sendQueuedMessage: vi.fn(),
     shiftQueuedMessage: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
-    tasksBrowserController: {},
+    tasksBrowserController: { refreshOutputViewer: vi.fn(), repaint: vi.fn() },
   };
+
   host.setAppState.mockImplementation((patch: Record<string, unknown>) => {
     Object.assign(host.state.appState, patch);
   });
@@ -180,7 +189,7 @@ describe('SessionEventHandler goal queue promotion', () => {
         replace: false,
       });
     });
-    expect(removeGoalQueueItem).toHaveBeenCalledWith(session, { goalId: 'q1' });
+    expect(removeGoalQueueItem).toHaveBeenCalledWith(goalQueueSession(session), { goalId: 'q1' });
     expect(host.sendQueuedMessage).toHaveBeenCalledWith(session, {
       text: 'Ship queued goal',
     });
@@ -272,7 +281,7 @@ describe('SessionEventHandler goal queue promotion', () => {
     await vi.waitFor(() => {
       expect(session.createGoal).toHaveBeenCalledTimes(2);
     });
-    expect(removeGoalQueueItem).toHaveBeenCalledWith(session, { goalId: 'q1' });
+    expect(removeGoalQueueItem).toHaveBeenCalledWith(goalQueueSession(session), { goalId: 'q1' });
     expect(host.sendQueuedMessage).toHaveBeenCalledWith(session, { text: 'Ship queued goal' });
   });
 
@@ -311,7 +320,7 @@ describe('SessionEventHandler goal queue promotion', () => {
     handler.handleEvent(turnEndedEvent(), sendQueuedViaHost(host, session));
 
     await vi.waitFor(() => {
-      expect(restoreGoalQueueItem).toHaveBeenCalledWith(session, {
+      expect(restoreGoalQueueItem).toHaveBeenCalledWith(goalQueueSession(session), {
         id: 'q1',
         objective: 'Ship queued goal',
         createdAt: '',
@@ -335,7 +344,7 @@ describe('SessionEventHandler goal queue promotion', () => {
     handler.handleEvent(turnEndedEvent(), sendQueuedViaHost(host, session));
 
     await vi.waitFor(() => {
-      expect(restoreGoalQueueItem).toHaveBeenCalledWith(session, {
+      expect(restoreGoalQueueItem).toHaveBeenCalledWith(goalQueueSession(session), {
         id: 'q1',
         objective: 'Ship queued goal',
         createdAt: '',

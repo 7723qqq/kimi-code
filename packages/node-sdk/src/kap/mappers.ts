@@ -1,5 +1,20 @@
-import type { SessionSummary } from '@moonshot-ai/agent-core';
-import type { Session as ProtocolSession } from '@moonshot-ai/protocol';
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+  ContextMessage,
+  QuestionRequest,
+  QuestionResult,
+  SessionSummary,
+} from '@moonshot-ai/agent-core';
+import type {
+  ApprovalRequest as KapApprovalRequest,
+  ApprovalResponse as KapApprovalResponse,
+  Message as ProtocolMessage,
+  MessageContent,
+  QuestionRequest as KapQuestionRequest,
+  QuestionResponse as KapQuestionResponse,
+  Session as ProtocolSession,
+} from '@moonshot-ai/protocol';
 
 import type { JsonObject } from '../types';
 
@@ -42,23 +57,15 @@ export function toCreateSessionBody(payload: CreateSessionPayloadLike): Record<s
   if (payload.thinking !== undefined) agentConfig['thinking'] = payload.thinking;
   if (payload.permission !== undefined) agentConfig['permission_mode'] = payload.permission;
   return {
-    metadata: { ...(payload.metadata ?? {}), cwd: payload.workDir },
+    metadata: { ...payload.metadata, cwd: payload.workDir },
     ...(Object.keys(agentConfig).length > 0 ? { agent_config: agentConfig } : {}),
   };
 }
 
-import type { ApprovalRequest, ApprovalResponse, QuestionRequest, QuestionResult } from '@moonshot-ai/agent-core';
-import type {
-  ApprovalRequest as KapApprovalRequest,
-  ApprovalResponse as KapApprovalResponse,
-  QuestionRequest as KapQuestionRequest,
-  QuestionResponse as KapQuestionResponse,
-} from '@moonshot-ai/protocol';
-
 /** KAP approval request (snake_case, with approval_id) → SDK ApprovalRequest (camelCase). */
 export function toApprovalRequest(request: KapApprovalRequest): ApprovalRequest {
   return {
-    turnId: request.turn_id !== undefined ? request.turn_id : undefined,
+    turnId: request.turn_id ?? undefined,
     toolCallId: request.tool_call_id,
     toolName: request.tool_name,
     action: request.action,
@@ -79,7 +86,7 @@ export function toKapApprovalResponse(response: ApprovalResponse): KapApprovalRe
 /** KAP question request → SDK QuestionRequest. Item/option ids are synthesized by the daemon. */
 export function toQuestionRequest(request: KapQuestionRequest): QuestionRequest {
   return {
-    turnId: request.turn_id !== undefined ? request.turn_id : undefined,
+    turnId: request.turn_id ?? undefined,
     toolCallId: request.tool_call_id,
     questions: request.questions.map((item) => ({
       question: item.question,
@@ -110,9 +117,6 @@ export function toKapQuestionResponse(result: QuestionResult): KapQuestionRespon
   }
   return { answers };
 }
-
-import type { ContextMessage } from '@moonshot-ai/agent-core';
-import type { Message as ProtocolMessage, MessageContent } from '@moonshot-ai/protocol';
 
 /** Map a KAP wire `Message` to the agent-core `ContextMessage` used in replay. */
 export function toContextMessage(message: ProtocolMessage): ContextMessage {

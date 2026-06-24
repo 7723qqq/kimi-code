@@ -13,7 +13,7 @@ import {
   updateGoalQueueItem,
 } from '#/tui/goal-queue-store';
 
-const QUEUE_FILE = 'upcoming-goals.json';
+const QUEUE_FILE = join('goal-queues', 'session_test.json');
 
 let dir: string;
 
@@ -25,12 +25,10 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-function session(sessionDir = dir) {
+function session(homeDir = dir) {
   return {
     id: 'session_test',
-    summary: {
-      sessionDir,
-    },
+    harnessHomeDir: homeDir,
   };
 }
 
@@ -138,7 +136,7 @@ describe('goal queue store', () => {
   });
 
   it('normalizes malformed queue files to an empty queue', async () => {
-    await mkdir(dir, { recursive: true });
+    await mkdir(join(dir, 'goal-queues'), { recursive: true });
     await writeFile(join(dir, QUEUE_FILE), JSON.stringify({ version: 1, goals: [{ bad: true }] }), 'utf-8');
 
     await expect(readGoalQueue(session())).resolves.toEqual({ goals: [] });
@@ -147,16 +145,16 @@ describe('goal queue store', () => {
 
   it('does not clear the queue file when JSON cannot be parsed', async () => {
     const partial = '{"version":1,"goals":[';
-    await mkdir(dir, { recursive: true });
+    await mkdir(join(dir, 'goal-queues'), { recursive: true });
     await writeFile(join(dir, QUEUE_FILE), partial, 'utf-8');
 
     await expect(readGoalQueue(session())).rejects.toThrow('Invalid JSON in goal queue');
     await expect(readFile(join(dir, QUEUE_FILE), 'utf-8')).resolves.toBe(partial);
   });
 
-  it('throws when the session summary does not expose a session directory', async () => {
-    await expect(readGoalQueue({ id: 'missing', summary: undefined })).rejects.toThrow(
-      'Session missing does not expose a session directory',
+  it('throws when the session does not expose a client home directory', async () => {
+    await expect(readGoalQueue({ id: 'missing' })).rejects.toThrow(
+      'Session missing does not expose a client home directory',
     );
   });
 

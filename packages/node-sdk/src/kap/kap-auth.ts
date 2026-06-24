@@ -27,9 +27,7 @@ export class KapAuthFacade extends KimiAuthFacade {
   }
 
   override async login(providerName?: string, options: { signal?: AbortSignal; onDeviceCode?: (code: { userCode: string; verificationUri: string }) => void } = {}): Promise<KimiAuthLoginResult> {
-    const start = await this.http.post<OAuthFlowStart>('/oauth/login', {
-      ...(providerName !== undefined ? { provider: providerName } : {}),
-    });
+    const start = await this.http.post<OAuthFlowStart>('/oauth/login', { provider: providerName });
     options.onDeviceCode?.({
       userCode: start.user_code,
       verificationUri: start.verification_uri,
@@ -37,11 +35,11 @@ export class KapAuthFacade extends KimiAuthFacade {
     // Poll until the device-code flow completes or the signal aborts.
     while (true) {
       if (options.signal?.aborted) {
-        await this.http.delete('/oauth/login', { ...(providerName !== undefined ? { provider: providerName } : {}) });
+        await this.http.delete('/oauth/login', { provider: providerName });
         throw new Error('login aborted');
       }
       const snapshot = await this.http.get<OAuthFlowSnapshot | null>('/oauth/login', {
-        ...(providerName !== undefined ? { provider: providerName } : {}),
+        provider: providerName,
       });
       if (snapshot !== null && snapshot.status === 'authenticated') {
         return { providerName: snapshot.provider, ok: true, defaultModel: '', defaultThinking: false };
@@ -54,13 +52,13 @@ export class KapAuthFacade extends KimiAuthFacade {
   }
 
   override async logout(providerName?: string): Promise<KimiAuthLogoutResult> {
-    const result = await this.http.post<OAuthLogoutResponse>('/oauth/logout', {
-      ...(providerName !== undefined ? { provider: providerName } : {}),
-    });
+    const result = await this.http.post<OAuthLogoutResponse>('/oauth/logout', { provider: providerName });
     return { providerName: result.provider, ok: true };
   }
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

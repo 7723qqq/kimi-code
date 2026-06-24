@@ -6,7 +6,6 @@ import {
   KimiError,
 } from '@moonshot-ai/kimi-code-sdk';
 
-const GOAL_QUEUE_FILE = 'upcoming-goals.json';
 const GOAL_QUEUE_VERSION = 1;
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
 

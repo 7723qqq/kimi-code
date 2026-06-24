@@ -57,8 +57,6 @@ export const promptHandlers: CoreApiHandlerMap = {
 
   activateSkill: async (payload, ctx) => {
     const { sessionId, name, args } = payload as { sessionId: string; name: string; args?: string };
-    await ctx.http.post(`/sessions/${sessionId}/skills/${encodeURIComponent(name)}:activate`, {
-      ...(args !== undefined ? { args } : {}),
-    });
+    await ctx.http.post(`/sessions/${sessionId}/skills/${encodeURIComponent(name)}:activate`, { args });
   },
 };

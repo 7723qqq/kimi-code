@@ -12,9 +12,7 @@ export const contextHandlers: CoreApiHandlerMap = {
   beginCompaction: async (payload, ctx) => {
     const { sessionId } = payload as SessionScopedPayload & { instruction?: string };
     const instruction = (payload as { instruction?: string }).instruction;
-    await ctx.http.post(`/sessions/${sessionId}:compact`, {
-      ...(instruction !== undefined ? { instruction } : {}),
-    });
+    await ctx.http.post(`/sessions/${sessionId}:compact`, { instruction });
   },
 
   undoHistory: async (payload, ctx) => {

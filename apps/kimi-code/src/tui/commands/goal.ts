@@ -252,7 +252,6 @@ async function handleGoalQueueManagerAction(
   host: SlashCommandHost,
   action: GoalQueueManagerAction,
 ): Promise<GoalQueueSnapshot | void> {
-  const session = host.requireSession();
   switch (action.kind) {
     case 'move': {
       const snapshot = await moveGoalQueueItem(goalQueueSession(host), {

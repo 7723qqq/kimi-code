@@ -1,5 +1,5 @@
 import type { ResumedAgentState } from '@moonshot-ai/agent-core';
-import type { Message as ProtocolMessage, Session as ProtocolSession, SessionSnapshotResponse } from '@moonshot-ai/protocol';
+import type { SessionSnapshotResponse } from '@moonshot-ai/protocol';
 
 import { toContextMessage, toSessionSummary } from '../mappers';
 import type { CoreApiHandlerMap } from '../types';

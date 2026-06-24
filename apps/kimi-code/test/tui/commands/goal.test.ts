@@ -50,6 +50,12 @@ const ESCAPE = '\u001B';
 const UP = '\u001B[A';
 const DOWN = '\u001B[B';
 
+const HARNESS_HOME_DIR = '/tmp/kimi-test-home';
+
+function goalQueueSession(host: ReturnType<typeof makeHost>['host']) {
+  return { id: host.requireSession().id, harnessHomeDir: HARNESS_HOME_DIR };
+}
+
 function fakeSnapshot() {
   return {
     goalId: 'g1',
@@ -86,6 +92,7 @@ function makeHost(
   } = {},
 ) {
   const session = {
+    id: 's1',
     setPermission: vi.fn(async () => {}),
     createGoal: vi.fn(async () => fakeSnapshot()),
     getGoal: vi.fn(async (): Promise<{ goal: ReturnType<typeof fakeSnapshot> | null }> => ({
@@ -111,6 +118,7 @@ function makeHost(
       theme: { palette: getBuiltInPalette('dark') },
     },
     session: hasSession ? session : undefined,
+    harness: { homeDir: HARNESS_HOME_DIR },
     skillCommandMap: new Map<string, string>(),
     requireSession: () => session,
     setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
@@ -443,7 +451,7 @@ describe('handleGoalCommand', () => {
     await handleGoalCommand(host, 'next Ship release notes');
 
     expect(session.getGoal).toHaveBeenCalledOnce();
-    expect(appendGoalQueueItem).toHaveBeenCalledWith(session, {
+    expect(appendGoalQueueItem).toHaveBeenCalledWith(goalQueueSession(host), {
       objective: 'Ship release notes',
     });
     expect(host.track).toHaveBeenCalledWith('goal_queue_append');
@@ -480,7 +488,7 @@ describe('handleGoalCommand', () => {
     await handleGoalCommand(streamingHost, 'next Ship release notes');
 
     expect(s.getGoal).toHaveBeenCalledOnce();
-    expect(appendGoalQueueItem).toHaveBeenCalledWith(s, {
+    expect(appendGoalQueueItem).toHaveBeenCalledWith(goalQueueSession(streamingHost), {
       objective: 'Ship release notes',
     });
     expect(streamingHost.requestQueuedGoalPromotion).toHaveBeenCalledOnce();
@@ -508,7 +516,7 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(noModelHost, 'next Ship release notes');
 
-    expect(appendGoalQueueItem).toHaveBeenCalledWith(s, {
+    expect(appendGoalQueueItem).toHaveBeenCalledWith(goalQueueSession(noModelHost), {
       objective: 'Ship release notes',
     });
     expect(noModelHost.showError).not.toHaveBeenCalled();
@@ -528,7 +536,7 @@ describe('handleGoalCommand', () => {
   it('/goal next manage opens the upcoming goal manager without sending input', async () => {
     await handleGoalCommand(host, 'next manage');
 
-    expect(readGoalQueue).toHaveBeenCalledWith(session);
+    expect(readGoalQueue).toHaveBeenCalledWith(goalQueueSession(host));
     expect(host.track).toHaveBeenCalledWith('goal_queue_manage');
     expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
     const text = stripAnsi(mountedPicker(host).render(100).join('\n'));
@@ -548,7 +556,7 @@ describe('handleGoalCommand', () => {
     manager.handleInput(UP);
 
     await vi.waitFor(() => {
-      expect(moveGoalQueueItem).toHaveBeenCalledWith(session, {
+      expect(moveGoalQueueItem).toHaveBeenCalledWith(goalQueueSession(host), {
         goalId: 'q2',
         direction: 'up',
       });
@@ -561,7 +569,7 @@ describe('handleGoalCommand', () => {
     mountedPicker(host).handleInput('d');
 
     await vi.waitFor(() => {
-      expect(removeGoalQueueItem).toHaveBeenCalledWith(session, { goalId: 'q1' });
+      expect(removeGoalQueueItem).toHaveBeenCalledWith(goalQueueSession(host), { goalId: 'q1' });
     });
   });
 
@@ -577,7 +585,7 @@ describe('handleGoalCommand', () => {
     editDialog.handleInput(ENTER);
 
     await vi.waitFor(() => {
-      expect(updateGoalQueueItem).toHaveBeenCalledWith(session, {
+      expect(updateGoalQueueItem).toHaveBeenCalledWith(goalQueueSession(host), {
         goalId: 'q1',
         objective: 'First queued goal updated',
       });
