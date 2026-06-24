@@ -52,6 +52,9 @@ interface ManagedTask {
   lifecyclePromise: Promise<void>;
   persistWriteQueue: Promise<void>;
   outputWriteQueue: Promise<void>;
+  pendingOutput: string[];
+  pendingOutputBytes: number;
+  outputPersistStarted: boolean;
   timeoutHandle?: ReturnType<typeof setTimeout>;
   readonly waiters: Array<() => void>;
 }
@@ -136,6 +139,9 @@ export class BackgroundService extends Disposable implements IBackgroundService 
       lifecyclePromise: Promise.resolve(),
       persistWriteQueue: Promise.resolve(),
       outputWriteQueue: Promise.resolve(),
+      pendingOutput: [],
+      pendingOutputBytes: 0,
+      outputPersistStarted: detached,
       waiters: [],
       terminalFired: false,
     };
@@ -295,6 +301,7 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     } catch {
       /* detach has already succeeded; hooks must not make RPC fail */
     }
+    this.startOutputPersist(entry);
     void this.persistLive(entry);
     this.recordTaskStarted(this.toInfo(entry));
     foregroundRelease.resolve('detached');
@@ -491,9 +498,33 @@ export class BackgroundService extends Disposable implements IBackgroundService 
 
     const persistence = this.persistence;
     if (persistence === undefined) return;
+    if (!entry.outputPersistStarted) {
+      entry.pendingOutput.push(chunk);
+      entry.pendingOutputBytes += chunkBytes;
+      if (entry.pendingOutputBytes > MAX_OUTPUT_BYTES) {
+        this.startOutputPersist(entry);
+      }
+      return;
+    }
+    this.appendTaskOutput(entry, chunk);
+  }
+
+  private appendTaskOutput(entry: ManagedTask, chunk: string): void {
+    const persistence = this.persistence;
+    if (persistence === undefined) return;
     entry.outputWriteQueue = entry.outputWriteQueue
       .then(() => persistence.appendTaskOutput(entry.taskId, chunk))
       .catch(() => {});
+  }
+
+  private startOutputPersist(entry: ManagedTask): void {
+    if (entry.outputPersistStarted) return;
+    entry.outputPersistStarted = true;
+    if (entry.pendingOutput.length > 0) {
+      this.appendTaskOutput(entry, entry.pendingOutput.join(''));
+    }
+    entry.pendingOutput = [];
+    entry.pendingOutputBytes = 0;
   }
 
   private appendRetainedOutput(entry: ManagedTask, chunk: string, chunkBytes: number): void {
@@ -532,8 +563,11 @@ export class BackgroundService extends Disposable implements IBackgroundService 
       entry.timeoutHandle = undefined;
     }
     const foregroundRelease = entry.foregroundRelease;
-    if (this.isDetached(entry)) {
+    if (entry.outputPersistStarted) {
       await this.persistLive(entry);
+    } else {
+      entry.pendingOutput = [];
+      entry.pendingOutputBytes = 0;
     }
     this.fireTerminalEffects(entry);
     foregroundRelease?.resolve('terminal');
