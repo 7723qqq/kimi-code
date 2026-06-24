@@ -14,6 +14,7 @@ export { QuestionBackgroundTask } from '../../../agent/background/question-task'
 export type { QuestionBackgroundTaskInfo } from '../../../agent/background/question-task';
 export { BackgroundTaskPersistence } from '../../../agent/background/persist';
 export type {
+  BackgroundTask,
   BackgroundTaskInfo,
   BackgroundTaskStatus,
 } from '../../../agent/background/task';
@@ -49,8 +50,7 @@ declare module '../types' {
   }
 }
 
-export interface IBackgroundService {
-  readonly _serviceBrand: undefined;
+export interface BackgroundManager {
   registerTask(task: BackgroundTask): string;
   getTask(taskId: string): BackgroundTaskInfo | undefined;
   list(activeOnly?: boolean, limit?: number): readonly BackgroundTaskInfo[];
@@ -67,7 +67,9 @@ export interface IBackgroundService {
   wait(taskId: string, timeoutMs?: number): Promise<BackgroundTaskInfo | undefined>;
 }
 
-export type BackgroundManager = IBackgroundService;
+export interface IBackgroundService extends BackgroundManager {
+  readonly _serviceBrand: undefined;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IBackgroundService =

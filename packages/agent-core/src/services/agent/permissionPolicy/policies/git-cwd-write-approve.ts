@@ -1,5 +1,5 @@
 import type { ResolvedToolExecutionHookContext } from '../../../../loop';
-import { isWithinDirectory } from '../../../../tools/policies/path-access';
+import { isWithinWorkspace } from '../../../../tools/policies/path-access';
 import { IProfileService } from '../../profile/profile';
 import type {
   PermissionPolicy,
@@ -28,7 +28,12 @@ export class GitCwdWriteApprovePermissionPolicyService implements PermissionPoli
 
     const writeAccesses = writeFileAccesses(context);
     if (writeAccesses.length === 0) return undefined;
-    if (!writeAccesses.every((access) => isWithinDirectory(access.path, cwd, 'posix'))) {
+    const additionalDirs = this.runtime.options.additionalDirs ?? [];
+    if (
+      !writeAccesses.every((access) =>
+        isWithinWorkspace(access.path, { workspaceDir: cwd, additionalDirs }, 'posix'),
+      )
+    ) {
       return undefined;
     }
 

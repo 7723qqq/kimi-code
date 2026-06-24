@@ -134,7 +134,6 @@ export { ToolExecutorService } from './toolExecutor/toolExecutorService';
 export {
   IPermissionModeService,
   type PermissionModeChangedContext,
-  type PermissionModeSetOptions,
 } from './permissionMode/permissionMode';
 export { PermissionModeService } from './permissionMode/permissionModeService';
 export {
@@ -231,11 +230,19 @@ export {
   SwarmModeService as SwarmMode,
 } from './swarmMode/swarmModeService';
 export {
-  Background,
+  BackgroundTaskPersistence,
+  IBackgroundService,
+  type BackgroundOptions,
   type BackgroundLoadOptions,
   type BackgroundManager,
+  type BackgroundServiceOptions,
+  type BackgroundTask,
   type BackgroundTaskOutputSnapshot,
 } from './background/background';
+export {
+  BackgroundService,
+  BackgroundService as Background,
+} from './background/backgroundService';
 export {
   ICronService,
   type CronFireOptions,

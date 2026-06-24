@@ -1,60 +1,30 @@
 import { randomBytes } from 'node:crypto';
 
-import { BackgroundTaskPersistence } from '../../../agent/background/persist';
 import {
   TERMINAL_STATUSES,
-  type BackgroundTask,
-  type BackgroundTaskInfo,
   type BackgroundTaskInfoBase,
   type BackgroundTaskSettlement,
-  type BackgroundTaskStatus,
 } from '../../../agent/background/task';
+import {
+  Disposable,
+  registerSingleton,
+  SyncDescriptor,
+} from '../../../di';
 
 import { IEventBus } from '../eventBus/eventBus';
 import { ITelemetryService } from '../telemetry/telemetry';
 import type { WireRecord } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
-
-export { AgentBackgroundTask } from '../../../agent/background/agent-task';
-export type { AgentBackgroundTaskInfo } from '../../../agent/background/agent-task';
-export { ProcessBackgroundTask } from '../../../agent/background/process-task';
-export type { ProcessBackgroundTaskInfo } from '../../../agent/background/process-task';
-export { QuestionBackgroundTask } from '../../../agent/background/question-task';
-export type { QuestionBackgroundTaskInfo } from '../../../agent/background/question-task';
-export { BackgroundTaskPersistence } from '../../../agent/background/persist';
-export type {
-  BackgroundTaskInfo,
-  BackgroundTaskStatus,
-} from '../../../agent/background/task';
-
-export interface BackgroundOptions {
-  readonly persistence?: BackgroundTaskPersistence;
-  readonly maxRunningTasks?: number;
-}
-
-export interface BackgroundLoadOptions {
-  readonly replace?: boolean;
-}
-
-export interface BackgroundTaskOutputSnapshot {
-  readonly outputPath?: string;
-  readonly outputSizeBytes: number;
-  readonly previewBytes: number;
-  readonly truncated: boolean;
-  readonly fullOutputAvailable: boolean;
-  readonly preview: string;
-}
-
-declare module '../types' {
-  interface WireRecordMap {
-    'background.task.started': {
-      info: BackgroundTaskInfo;
-    };
-    'background.task.terminated': {
-      info: BackgroundTaskInfo;
-    };
-  }
-}
+import {
+  IBackgroundService,
+  type BackgroundLoadOptions,
+  type BackgroundServiceOptions,
+  type BackgroundTask,
+  type BackgroundTaskInfo,
+  type BackgroundTaskOutputSnapshot,
+  type BackgroundTaskPersistence,
+  type BackgroundTaskStatus,
+} from './background';
 
 interface ManagedTask {
   readonly taskId: string;
@@ -84,44 +54,42 @@ export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean 
   return TERMINAL_STATUSES.has(status);
 }
 
-export interface BackgroundManager {
-  registerTask(task: BackgroundTask): string;
-  getTask(taskId: string): BackgroundTaskInfo | undefined;
-  list(activeOnly?: boolean, limit?: number): readonly BackgroundTaskInfo[];
-  getOutputSnapshot(taskId: string, maxPreviewBytes: number): Promise<BackgroundTaskOutputSnapshot>;
-  readOutput(taskId: string, tail?: number): Promise<string>;
-  suppressTerminalNotification(taskId: string): Promise<void>;
-  stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined>;
-  wait(taskId: string, timeoutMs?: number): Promise<BackgroundTaskInfo | undefined>;
-}
+export class BackgroundService extends Disposable implements IBackgroundService {
+  declare readonly _serviceBrand: undefined;
 
-export class Background implements BackgroundManager {
   private readonly tasks = new Map<string, ManagedTask>();
   private readonly ghosts = new Map<string, BackgroundTaskInfo>();
   private persistence: BackgroundTaskPersistence | undefined;
   private maxRunningTasks: number | undefined;
 
   constructor(
-    options: BackgroundOptions = {},
+    options: BackgroundServiceOptions = {},
     @IEventBus private readonly events: IEventBus,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
+    super();
     this.persistence = options.persistence;
     this.maxRunningTasks = options.maxRunningTasks;
-    wireRecord.register('background.task.started', (record) => {
-      this.applyRestoredTask(record);
-    });
-    wireRecord.register('background.task.terminated', (record) => {
-      this.applyRestoredTask(record);
-    });
-    wireRecord.hooks.onResumeEnded.register(
-      'background-lifecycle-resume',
-      async (_ctx, next) => {
-        await this.loadFromDisk({ replace: false });
-        await this.reconcile();
-        await next();
-      },
+    this._register(
+      wireRecord.register('background.task.started', (record) => {
+        this.applyRestoredTask(record);
+      }),
+    );
+    this._register(
+      wireRecord.register('background.task.terminated', (record) => {
+        this.applyRestoredTask(record);
+      }),
+    );
+    this._register(
+      wireRecord.hooks.onResumeEnded.register(
+        'background-lifecycle-resume',
+        async (_ctx, next) => {
+          await this.loadFromDisk({ replace: false });
+          await this.reconcile();
+          await next();
+        },
+      ),
     );
   }
 
@@ -268,10 +236,7 @@ export class Background implements BackgroundManager {
   }
 
   async readOutput(taskId: string, tail?: number): Promise<string> {
-    const output = (await this.getOutputSnapshot(
-      taskId,
-      tail === undefined ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.trunc(tail)) * 4,
-    )).preview;
+    const output = (await this.getOutputSnapshot(taskId, Number.MAX_SAFE_INTEGER)).preview;
     if (tail === undefined) return output;
     return output.slice(-Math.max(0, Math.trunc(tail)));
   }
@@ -555,3 +520,10 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
 }
+
+export { BackgroundService as Background };
+
+registerSingleton(
+  IBackgroundService,
+  new SyncDescriptor(BackgroundService, [{}], true),
+);

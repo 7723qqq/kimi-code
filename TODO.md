@@ -25,7 +25,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Handle loop events: `step.begin`, streamed content, tool calls, tool results, and `step.end`.
 - [x] Insert loop-generated assistant and tool messages into context without requiring context history to be ordered.
 - [x] Add resume handling for interrupted tool calls.
-- [ ] Add matched-tail message removal for stop-hook and goal-outcome cleanup in the service that owns that cleanup.
+- [ ] Add matched-tail message removal for stop-hook cleanup in the service that owns that cleanup.
 
 ## ContextProjector
 
@@ -53,7 +53,13 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Add cancel API with turn id validation and abort reason propagation.
 - [x] Add user prompt hook block/append behavior.
 - [x] Add stop-hook continuation.
+
+## Goal
+
+- [ ] Add matched-tail message removal for goal-outcome cleanup in the service that owns that cleanup.
 - [ ] Add goal continuation driver and budget handling.
+- [ ] Restore goal injector boundary cadence.
+- [ ] Integrate goal token accounting.
 
 ## LoopService / Tool Execution
 
@@ -108,10 +114,9 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Fix `injectedAt` bookkeeping for self-inserted injection messages.
 - [x] Add clear, compaction, and message-removal lifecycle handling.
 - [x] Track per-injector variants instead of marking every dynamic injection as `dynamic`.
-- [ ] Restore goal injector boundary cadence.
-- [ ] Restore todo-list stale reminder from the TodoList implementation instead of the DynamicInjector framework.
+- [x] Restore todo-list stale reminder from the TodoList implementation instead of the DynamicInjector framework.
 - [x] Restore permission-mode, plugin-session-start, plan-mode, and goal injector behavior.
-- [ ] Trigger boundary dynamic injections after full compaction completes.
+- [ ] Trigger boundary dynamic injections after full compaction completes. (TEST)
 
 ## FullCompaction
 
@@ -172,17 +177,16 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## Profile / Config
 
-- [ ] Separate profile state from config state or fully model current `ConfigState`.
-- [ ] Resolve providers, model capabilities, model aliases, thinking config, cwd, and system prompt updates.
-- [ ] Preserve `setModel` validation and telemetry.
-- [ ] Preserve thinking toggle telemetry.
-- [ ] Apply provider-level thinking, sampling, and completion budget behavior.
-- [ ] Match current active-tool and MCP access pattern semantics.
+- [x] Separate profile state from config state or fully model current `ConfigState`.
+- [x] Resolve providers, model capabilities, model aliases, thinking config, cwd, and system prompt updates.
+- [x] Preserve `setModel` validation and telemetry.
+- [x] Preserve thinking toggle telemetry.
+- [x] Apply provider-level thinking, sampling, and completion budget behavior.
+- [x] Match current active-tool and MCP access pattern semantics.
 
 ## Usage
 
 - [x] Emit status updates or define the replacement status event.
-- [ ] Integrate goal token accounting.
 - [x] Account for compaction usage.
 - [x] Restore usage after record replay and publish a coherent status.
 
@@ -190,7 +194,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 - [x] Ignore record appends and event emits while wire records are restoring.
 - [x] Add persistence, migrations, and restore warnings.
-- [ ] Add blob store support and replay builder integration.
+- [x] Add blob store support and replay builder integration.
 - [x] Report persistence write errors.
-- [ ] Map local events to RPC/session/server protocol events.
-- [ ] Keep status-updated events as partial patches; consumers merge present fields and treat omitted fields as unchanged.
+- [x] Map local events to RPC/session/server protocol events.
+- [x] Keep status-updated events as partial patches; consumers merge present fields and treat omitted fields as unchanged.
