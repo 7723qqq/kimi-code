@@ -54,7 +54,7 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
   }
 
   private async inject(): Promise<void> {
-    for (const entry of [...this.entries]) {
+    for (const entry of this.entries) {
       const history = this.context.getHistory();
       entry.injectedAt ??= findLastInjection(history, entry.variant);
       const content = await entry.provider({

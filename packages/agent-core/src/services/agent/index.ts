@@ -237,13 +237,17 @@ export {
   type BackgroundTaskOutputSnapshot,
 } from './background/background';
 export {
-  Cron,
+  ICronService,
   type CronFireOptions,
   type CronLoadOptions,
   type CronOptions,
   type CronPersistence,
   type CronTaskInit,
 } from './cron/cron';
+export {
+  CronService,
+  CronService as Cron,
+} from './cron/cronService';
 export {
   IAgentSkillService,
   type AgentSkillServiceOptions,

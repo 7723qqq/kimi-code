@@ -39,7 +39,7 @@ export class PermissionService extends Disposable implements IPermissionService 
     super();
     this.policyService.configure(options);
     if (options.initialMode !== undefined) {
-      this.modeService.setMode(options.initialMode, { track: false });
+      this.modeService.setMode(options.initialMode);
     }
   }
 

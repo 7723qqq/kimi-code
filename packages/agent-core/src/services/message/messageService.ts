@@ -15,8 +15,7 @@
  * history length WOULD be from the file's records; anything beyond it in the
  * real `getContext().history` is the unflushed tail and gets appended.
  *
- * Fallback: any transcript read/parse failure degrades to the previous
- * behavior (live context history) instead of failing the endpoint.
+ * When live context is needed, it must come from `IAgentRuntimeService`.
  */
 
 import { stat } from 'node:fs/promises';
@@ -29,13 +28,18 @@ import type {
   PageResponse,
 } from '@moonshot-ai/protocol';
 
-import { ICoreProcessService } from '../coreProcess/coreProcess';
+import { IContextMemory } from '../agent';
+import {
+  AgentRuntimeTodoError,
+  IAgentRuntimeService,
+} from '../agentRuntime/agentRuntime';
 import { SessionNotFoundError } from '../session/session';
 import {
   IMessageService,
   MessageNotFoundError,
   parseMessageId,
   toProtocolMessage,
+  type ContextMessage,
   type MessageListQuery,
 } from './message';
 import {
@@ -62,7 +66,9 @@ export class MessageService extends Disposable implements IMessageService {
 
   private readonly transcriptCache = new Map<string, TranscriptCacheEntry>();
 
-  constructor(@ICoreProcessService private readonly core: ICoreProcessService) {
+  constructor(
+    @IAgentRuntimeService private readonly agentRuntimes: IAgentRuntimeService,
+  ) {
     super();
   }
 
@@ -121,8 +127,7 @@ export class MessageService extends Disposable implements IMessageService {
    * base). Throws `SessionNotFoundError` (→ 40401) on miss.
    */
   private async _requireSession(sid: string): Promise<SessionSummary> {
-    const all = await this.core.rpc.listSessions({});
-    const summary = all.find((s) => s.id === sid);
+    const summary = await this.agentRuntimes.getSessionSummary(sid);
     if (summary === undefined) {
       throw new SessionNotFoundError(sid);
     }
@@ -156,30 +161,29 @@ export class MessageService extends Disposable implements IMessageService {
     sid: string,
     summary: SessionSummary,
   ): Promise<readonly TranscriptEntry[]> {
-    await this._resumeSession(sid);
     const transcript = await this._readTranscriptCached(sid, summary.sessionDir);
-    const context = await this.core.rpc.getContext({
-      sessionId: sid,
-      agentId: MAIN_AGENT_ID,
-    });
+    const history = await this._getLiveHistory(sid);
     if (transcript === undefined) {
-      return context.history.map((message) => ({ message }));
+      return history.map((message) => ({ message }));
     }
-    if (context.history.length <= transcript.foldedLength) {
+    if (history.length <= transcript.foldedLength) {
       return transcript.entries;
     }
-    const liveTail: TranscriptEntry[] = context.history
+    const liveTail: TranscriptEntry[] = history
       .slice(transcript.foldedLength)
       .map((message) => ({ message }));
     return [...transcript.entries, ...liveTail];
   }
 
-  private async _resumeSession(sid: string): Promise<void> {
-    try {
-      await this.core.rpc.resumeSession({ sessionId: sid });
-    } catch {
-      throw new SessionNotFoundError(sid);
+  private async _getLiveHistory(sid: string): Promise<readonly ContextMessage[]> {
+    const runtime = await this.agentRuntimes.get(sid, MAIN_AGENT_ID);
+    if (runtime !== undefined) {
+      return runtime.get(IContextMemory).getHistory();
     }
+    throw new AgentRuntimeTodoError(
+      'packages/agent-core/src/services/message/messageService.ts:_getLiveHistory',
+      `Load session "${sid}" through IAgentRuntimeService before reading message history.`,
+    );
   }
 
   /**
