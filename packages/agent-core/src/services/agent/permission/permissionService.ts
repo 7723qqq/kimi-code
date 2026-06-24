@@ -90,7 +90,7 @@ export class PermissionService extends Disposable implements IPermissionService 
     policyName: string | undefined,
   ): Promise<AuthorizeToolExecutionResult | undefined> {
     const name = context.toolCall.name;
-    const action = context.execution.description ?? `Call ${name}`;
+    const action = context.execution.description ?? `Approve ${name}`;
     const display =
       context.execution.display ??
       ({

@@ -1,10 +1,12 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
 
 import { registerSingleton, SyncDescriptor } from '../../../di';
+import { isAbortError } from '../../../loop/errors';
 import type {
   ExecutableToolResult,
   ToolExecution,
 } from '../../../loop/types';
+import { isUserCancellation } from '../../../utils/abort';
 import type { ToolCall, ToolResult } from '../types';
 import { IToolExecutor, type ToolExecutorOptions } from './toolExecutor';
 
@@ -19,7 +21,7 @@ export class ToolExecutorService implements IToolExecutor {
     options: ToolExecutorOptions = {},
   ): Promise<ToolResult> {
     if (isAborted(options.signal)) {
-      return abortedToolResult(call.name);
+      return abortedToolResult(call.name, options.signal);
     }
 
     try {
@@ -43,8 +45,8 @@ export class ToolExecutorService implements IToolExecutor {
         stopBatchAfterThis: execution.stopBatchAfterThis ?? normalized.stopBatchAfterThis,
       };
     } catch (error) {
-      if (isAborted(options.signal)) {
-        return abortedToolResult(call.name);
+      if (isAbortError(error) || isAborted(options.signal)) {
+        return abortedToolResult(call.name, options.signal);
       }
       return {
         output: `Tool "${call.name}" failed: ${errorMessage(error)}`,
@@ -109,7 +111,13 @@ function isMediaContentPart(part: ContentPart): boolean {
   return part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url';
 }
 
-function abortedToolResult(toolName: string): ToolResult {
+function abortedToolResult(toolName: string, signal: AbortSignal | undefined): ToolResult {
+  if (signal !== undefined && isUserCancellation(signal.reason)) {
+    return {
+      output: `The user manually interrupted "${toolName}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction.`,
+      isError: true,
+    };
+  }
   return {
     output: `Tool "${toolName}" was aborted`,
     isError: true,

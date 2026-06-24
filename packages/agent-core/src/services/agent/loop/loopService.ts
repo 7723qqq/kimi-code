@@ -5,6 +5,7 @@ import {
   createToolMessage,
   emptyUsage,
   isContentPart,
+  isRetryableGenerateError,
   isToolCall,
   isToolCallPart,
   mergeInPlace,
@@ -486,6 +487,7 @@ export class LoopService extends Disposable implements ILoopService {
     return {
       systemPrompt: this.profile.getSystemPrompt(),
       modelName: this.profile.data().modelAlias ?? 'unknown',
+      isRetryableError: (error: unknown) => isRetryableGenerateError(error),
       chat: async (params) => this.chat(params, onUsageModel),
     };
   }

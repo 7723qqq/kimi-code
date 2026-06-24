@@ -45,9 +45,9 @@ export class PromptService implements IPromptService {
     return turn;
   }
 
-  retry(): Turn {
+  retry(trigger?: string): Turn {
     this.assertNoActiveTurn('retry');
-    const turn = this.turnRunner.launch({ kind: 'retry' });
+    const turn = this.turnRunner.launch({ kind: 'retry', trigger });
     this.observe(turn);
     return turn;
   }

@@ -5,7 +5,7 @@ import type { ContextMessage, Turn } from '../types';
 export interface IPromptService {
   prompt(message: ContextMessage): Turn;
   steer(message: ContextMessage): Turn | undefined;
-  retry(): Turn;
+  retry(trigger?: string): Turn;
   undo(count: number): number;
   clear(): void;
 }
