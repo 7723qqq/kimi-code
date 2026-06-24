@@ -229,11 +229,13 @@ describe('Agent tools', () => {
     ctx.configure({ tools: ['Bash'] });
 
     const bashOnly = ctx.toolsData().find((tool) => tool.name === 'Bash');
+    const bashTool = ctx.tools.resolve('Bash');
     expect(bashOnly).toBeDefined();
+    expect(bashTool).toBeDefined();
     expect(bashOnly!.description).toContain('Background execution is disabled for this agent.');
     expect(bashOnly!.description).not.toContain('the command will be started as a background task');
     await expect(
-      executeTool(bashOnly!, {
+      executeTool(bashTool!, {
         turnId: '0',
         toolCallId: 'call_bash',
         args: { command: 'sleep 10', run_in_background: true, description: 'watch' },

@@ -72,7 +72,7 @@ describe('ToolManager SkillTool registration', () => {
     const ctx = testAgent({ skills });
     ctx.configure({ tools: ['Skill'] });
 
-    expect(ctx.runtime.skills?.getSkillRoots()).toEqual(['/skills/review']);
+    expect(skills.getSkillRoots()).toEqual(['/skills/review']);
     expect(ctx.tools.resolve('Skill')).toBeInstanceOf(SkillTool);
   });
 
@@ -146,11 +146,13 @@ describe('ToolManager SkillTool registration', () => {
       );
 
       const skills = new SessionSkillRegistry();
-      const skill = makeSkill('review');
-      skill.description = 'Review code';
-      skill.path = join(skillDir, 'SKILL.md');
-      skill.dir = skillDir;
-      skill.content = 'Review body.';
+      const skill = {
+        ...makeSkill('review'),
+        description: 'Review code',
+        path: join(skillDir, 'SKILL.md'),
+        dir: skillDir,
+        content: 'Review body.',
+      };
       skills.register(skill);
 
       const ctx = testAgent({

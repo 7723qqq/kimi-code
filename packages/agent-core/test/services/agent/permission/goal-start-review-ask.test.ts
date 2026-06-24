@@ -11,10 +11,13 @@ const signal = new AbortController().signal;
 type PermissionMode = IPermissionModeService['mode'];
 
 function fakeModeService(initialMode: PermissionMode) {
+  let currentMode = initialMode;
   return {
-    mode: initialMode,
+    get mode() {
+      return currentMode;
+    },
     setMode(mode: PermissionMode) {
-      this.mode = mode;
+      currentMode = mode;
     },
   } as IPermissionModeService;
 }

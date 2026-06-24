@@ -26,6 +26,10 @@ import { estimateTokensForMessages } from '../../../../src/utils/tokens';
 import { recordingTelemetry, type TelemetryRecord } from '../../../fixtures/telemetry';
 import type { TestAgentContext, TestAgentOptions } from '../harness';
 import { testAgent } from '../harness';
+import {
+  IFullCompaction,
+  IMicroCompactionService,
+} from '../../../../src/services/agent';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 
@@ -253,7 +257,7 @@ describe.skip('FullCompaction', () => {
   });
 
   it('projects the compacted prefix before sending the summary request', async () => {
-    const ctx = testAgent({ compactionStrategy: alwaysCompactOnce });
+    const ctx = testAgent();
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
@@ -296,12 +300,14 @@ describe.skip('FullCompaction', () => {
     vi.useFakeTimers();
     enableMicroCompactionFlag();
     const ctx = testAgent({
-      compactionStrategy: alwaysCompactOnce,
       microCompaction: {
-        keepRecentMessages: 2,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * 60 * 1000,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 2,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * 60 * 1000,
+          minContextUsageRatio: 0,
+
+        }
       },
     });
     ctx.configure({
@@ -315,7 +321,7 @@ describe.skip('FullCompaction', () => {
 
     vi.setSystemTime(61 * 60 * 1000);
 
-    ctx.runtime.microCompaction.detect();
+    (ctx.get(IMicroCompactionService) as any).detect();
     const compacted = ctx.once('context.apply_compaction');
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
     await ctx.rpc.beginCompaction({ instruction: 'Summarize tool exchanges.' });
@@ -417,7 +423,7 @@ describe.skip('FullCompaction', () => {
     const compacted = ctx.once('context.apply_compaction');
 
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
-    ctx.rpc.beginCompaction({ source: 'auto', instruction: undefined });
+    ctx.get(IFullCompaction).begin({ source: 'auto', instruction: undefined });
     await compacted;
     await vi.waitFor(() => {
       expect(readHookPayloads(hookLog).map((payload) => payload['hook_event_name'])).toEqual([
@@ -467,7 +473,7 @@ describe.skip('FullCompaction', () => {
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
 
-    ctx.rpc.beginCompaction({ source: 'manual', instruction: undefined });
+    ctx.rpc.beginCompaction({ instruction: undefined });
     await vi.waitFor(() => {
       expect(preCompactSignal).toBeInstanceOf(AbortSignal);
     });
@@ -784,7 +790,7 @@ describe.skip('FullCompaction', () => {
       attempts += 1;
       throw new APIStatusError(400, 'Bad request');
     };
-    const ctx = testAgent({ generate, compactionStrategy: alwaysCompactOnce });
+    const ctx = testAgent({ generate });
     ctx.configure();
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger failed auto compaction' }] });
@@ -828,7 +834,7 @@ describe.skip('FullCompaction', () => {
         rawFinishReason: 'length',
       };
     };
-    const ctx = testAgent({ generate, compactionStrategy: alwaysCompactOnce });
+    const ctx = testAgent({ generate });
     ctx.configure();
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger truncated auto compaction' }] });
@@ -1093,7 +1099,7 @@ describe.skip('FullCompaction', () => {
       ctx.mockNextResponse({ type: 'text', text: `Auto summary ${String(i)}.` });
     }
 
-    ctx.rpc.beginCompaction({ source: 'auto', instruction: undefined });
+    ctx.get(IFullCompaction).begin({ source: 'auto', instruction: undefined });
     await completed;
 
     const events = ctx.newEvents();
@@ -1665,10 +1671,10 @@ describe.skip('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    const providerManager = ctx.runtime.modelProvider;
+    const providerManager = (ctx.runtime as any).modelProvider;
     if (providerManager === undefined) throw new Error('Expected provider manager');
     const resolveProviderConfig = providerManager.resolveProviderConfig.bind(providerManager);
-    providerManager.resolveProviderConfig = (model) => ({
+    providerManager.resolveProviderConfig = (model: string) => ({
       ...resolveProviderConfig(model),
       modelCapabilities: UNKNOWN_CAPABILITY,
     });
@@ -1797,7 +1803,6 @@ describe.skip('FullCompaction', () => {
     };
     const ctx = testAgent({
       generate,
-      compactionStrategy: overflowOnlyCompactionStrategy(),
     });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -1838,7 +1843,7 @@ describe.skip('FullCompaction', () => {
   });
 
   it('emits context.overflow and terminates the turn after too many auto compactions', async () => {
-    const ctx = testAgent({ compactionStrategy: alwaysCompactOnce });
+    const ctx = testAgent();
     ctx.configure();
 
     ctx.mockNextResponse({ type: 'text', text: 'First compacted summary.' });
@@ -1901,7 +1906,7 @@ describe.skip('FullCompaction', () => {
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
 
-    ctx.toolStore.updateStore('todo', [
+    ctx.toolStore.set('todo', [
       { title: 'Fix the auth bug', status: 'in_progress' },
       { title: 'Add tests', status: 'pending' },
     ]);

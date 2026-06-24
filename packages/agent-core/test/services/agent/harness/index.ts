@@ -1,4 +1,9 @@
-export { createCommandKaos, testAgent, type TestAgentContext } from './agent';
+export {
+  createCommandKaos,
+  testAgent,
+  type TestAgentContext,
+  type TestAgentOptions,
+} from './agent';
 export { createScriptedGenerate } from './scripted-generate';
 export {
   DEFAULT_TEST_SYSTEM_PROMPT,

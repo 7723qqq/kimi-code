@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ExecutableToolResult } from '#/services/agent/loop/types';
-import type {
-  TelemetryClient,
-  TelemetryProperties,
-} from '#/services/agent/telemetry/telemetry';
+import type { ExecutableToolResult } from '../../../../src/loop';
+import type { TelemetryClient, TelemetryProperties } from '../../../../src/telemetry';
 import { ToolCallDeduplicator, toolDedupTesting } from '../../../../src/services/agent';
 
 const { REMINDER_TEXT_1, REMINDER_TEXT_3, makeReminderText2 } = toolDedupTesting;

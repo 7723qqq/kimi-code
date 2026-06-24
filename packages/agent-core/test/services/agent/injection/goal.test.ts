@@ -28,7 +28,7 @@ function createGoalInjectionReader(
   };
   const injection = new GoalInjection({ getGoal, enabled }, dynamicInjector);
   return {
-    read: () => provider?.({ injectedAt: null }) ?? Promise.resolve(undefined),
+    read: async () => provider?.({ injectedAt: null }),
     dispose: () => injection.dispose(),
   };
 }

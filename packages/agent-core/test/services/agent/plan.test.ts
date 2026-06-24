@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
 import { createCommandKaos, testAgent } from './harness';
-import { IPlanModeService } from '../../../src/services/agent';
+import { IDynamicInjector, IPlanModeService } from '../../../src/services/agent';
 
 function createPlanKaos(overrides: Parameters<typeof createFakeKaos>[0] = {}) {
   return createFakeKaos({
@@ -534,17 +534,17 @@ describe.skip('plan mode injection cadence', () => {
     ctx.configure();
     await ctx.get(IPlanModeService).enter('test-plan', false);
 
-    await ctx.runtime.injection.inject();
+    await injectDynamic(ctx);
     const afterFull = ctx.context.getHistory().length;
     expect(lastUserText(ctx.context.getHistory())).toContain('Plan mode is active');
     expect(lastUserText(ctx.context.getHistory())).toContain('Plan file:');
 
-    await ctx.runtime.injection.inject();
+    await injectDynamic(ctx);
     expect(ctx.context.getHistory()).toHaveLength(afterFull);
 
     ctx.appendAssistantTurn(1, 'assistant one');
     ctx.appendAssistantTurn(2, 'assistant two');
-    await ctx.runtime.injection.inject();
+    await injectDynamic(ctx);
 
     expect(lastUserText(ctx.context.getHistory())).toContain('Plan mode still active');
     expect(lastUserText(ctx.context.getHistory())).toContain('Plan file:');
@@ -563,7 +563,7 @@ describe.skip('plan mode injection cadence', () => {
       id: 'restored-plan',
     });
 
-    await ctx.runtime.injection.inject();
+    await injectDynamic(ctx);
 
     expect(lastUserText(ctx.context.getHistory())).toContain('Re-entering Plan Mode');
     expect(lastUserText(ctx.context.getHistory())).toContain('Read the existing plan file');
@@ -574,14 +574,14 @@ describe.skip('plan mode injection cadence', () => {
     const ctx = testAgent();
     ctx.configure();
     await ctx.get(IPlanModeService).enter('test-plan', false);
-    await ctx.runtime.injection.inject();
+    await injectDynamic(ctx);
 
     ctx.get(IPlanModeService).exit();
-    await ctx.runtime.injection.inject();
+    await injectDynamic(ctx);
     const afterExit = ctx.context.getHistory().length;
     expect(lastUserText(ctx.context.getHistory())).toContain('Plan mode is no longer active');
 
-    await ctx.runtime.injection.inject();
+    await injectDynamic(ctx);
     expect(ctx.context.getHistory()).toHaveLength(afterExit);
     await ctx.expectResumeMatches();
   });
@@ -592,12 +592,12 @@ describe.skip('plan mode injection cadence', () => {
     await ctx.get(IPlanModeService).enter('test-plan', false);
 
     ctx.appendUserMessage([{ type: 'text', text: 'draft the plan' }]);
-    await ctx.runtime.injection.inject();
+    await injectDynamic(ctx);
     ctx.appendAssistantTurn(1, 'Plan drafted.');
 
     ctx.undoHistory(1);
     ctx.appendUserMessage([{ type: 'text', text: 'new plan request' }]);
-    await ctx.runtime.injection.inject();
+    await injectDynamic(ctx);
 
     expect(lastUserText(ctx.context.getHistory())).toContain('Plan mode is active');
   });
@@ -605,6 +605,10 @@ describe.skip('plan mode injection cadence', () => {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function injectDynamic(ctx: ReturnType<typeof testAgent>): Promise<void> {
+  await (ctx.get(IDynamicInjector) as unknown as { inject(): Promise<void> }).inject();
 }
 
 function lastUserText(history: readonly { role: string; content: readonly unknown[] }[]): string {

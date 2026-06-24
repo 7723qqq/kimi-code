@@ -11,7 +11,7 @@ import { join } from 'pathe';
 import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { BackgroundManager } from '../../../../src/services/agent/background/background';
+import type { BackgroundManager } from '../../../../src/agent/background';
 import {
   createBackgroundManager,
   registerProcess,

@@ -31,7 +31,7 @@ import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
 import { createCommandKaos, testAgent, type TestAgentOptions } from './harness';
 import { executeTool } from '../../tools/fixtures/execute-tool';
 
-type GenerateFn = NonNullable<AgentOptions['generate']>;
+type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 
 interface CapturedLogEntry {
   readonly level: 'error' | 'warn' | 'info' | 'debug';
@@ -1614,10 +1614,9 @@ describe('Agent turn flow', () => {
       configurable: true,
       get: () => provider,
     });
-    ctx.tools.initializeBuiltinTools();
-    ctx.tools.setActiveTools(['ReadMediaFile']);
+    ctx.configure({ tools: ['ReadMediaFile'] });
 
-    const tool = ctx.tools.loopTools.find((candidate) => candidate.name === 'ReadMediaFile');
+    const tool = ctx.tools.resolve('ReadMediaFile');
     if (tool === undefined) throw new Error('ReadMediaFile tool was not initialized');
     const result = await executeTool(tool, {
       turnId: 't1',

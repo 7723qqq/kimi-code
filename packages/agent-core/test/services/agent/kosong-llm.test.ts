@@ -130,11 +130,10 @@ describe('LLMRequester service migration coverage', () => {
   });
 });
 
-type ProtocolEvent = {
-  readonly type: string;
-  readonly event: string;
-  readonly args: unknown;
-};
+type ProtocolEvent = Extract<
+  ReturnType<typeof testAgent>['allEvents'][number],
+  { readonly type: '[rpc]' }
+>;
 
 function protocolEvents(
   ctx: ReturnType<typeof testAgent>,

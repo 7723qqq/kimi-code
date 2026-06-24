@@ -44,10 +44,13 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 4,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * 60 * 1000,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 4,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * 60 * 1000,
+          minContextUsageRatio: 0,
+
+        }
       },
     });
 
@@ -80,9 +83,12 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 4,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * 60 * 1000,
+        config: {
+          keepRecentMessages: 4,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * 60 * 1000,
+
+        }
       },
     });
 
@@ -101,10 +107,13 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 2,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * 60 * 1000,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 2,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * 60 * 1000,
+          minContextUsageRatio: 0,
+
+        }
       },
     });
 
@@ -135,9 +144,12 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 4,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * 60 * 1000,
+        config: {
+          keepRecentMessages: 4,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * 60 * 1000,
+
+        }
       },
     });
 
@@ -157,9 +169,12 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 2,
-        minContentTokens: 100,
-        cacheMissedThresholdMs: 60 * 60 * 1000,
+        config: {
+          keepRecentMessages: 2,
+          minContentTokens: 100,
+          cacheMissedThresholdMs: 60 * 60 * 1000,
+
+        }
       },
     });
 
@@ -177,9 +192,12 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 2,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * 60 * 1000,
+        config: {
+          keepRecentMessages: 2,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * 60 * 1000,
+
+        }
       },
     });
 
@@ -199,9 +217,12 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 2,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * 60 * 1000,
+        config: {
+          keepRecentMessages: 2,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * 60 * 1000,
+
+        }
       },
     });
 
@@ -221,10 +242,13 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 4,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 4,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+          minContextUsageRatio: 0,
+
+        }
       },
     });
     ctx.configure({
@@ -259,10 +283,13 @@ describe.skip('MicroCompaction', () => {
     const assistantRecordTime = 2_000;
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 0,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 0,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+          minContextUsageRatio: 0,
+
+        }
       },
       persistence: new InMemoryWireRecordPersistence(
         resumeToolExchangeRecords(assistantRecordTime),
@@ -292,7 +319,7 @@ describe.skip('MicroCompaction', () => {
       minContextUsageRatio: 0,
     };
     const ctx = testAgent({
-      microCompaction: config,
+      microCompaction: { config },
       persistence,
     });
 
@@ -309,7 +336,7 @@ describe.skip('MicroCompaction', () => {
     appendMicroToolExchange(ctx, 3, { output: 'result three' });
 
     const resumed = testAgent({
-      microCompaction: config,
+      microCompaction: { config },
       persistence: new InMemoryWireRecordPersistence(cloneRecords(persistence.records)),
     });
 
@@ -334,7 +361,7 @@ describe.skip('MicroCompaction', () => {
       minContextUsageRatio: 0,
     };
     const ctx = testAgent({
-      microCompaction: config,
+      microCompaction: { config },
       persistence,
     });
 
@@ -354,7 +381,7 @@ describe.skip('MicroCompaction', () => {
       cloneRecords(persistence.records),
     );
     const resumed = testAgent({
-      microCompaction: config,
+      microCompaction: { config },
       persistence: resumedPersistence,
     });
 
@@ -375,10 +402,13 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 2,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 2,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+          minContextUsageRatio: 0,
+
+        }
       },
     });
 
@@ -414,10 +444,13 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 2,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 2,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+          minContextUsageRatio: 0,
+
+        }
       },
     });
 
@@ -454,7 +487,7 @@ describe.skip('MicroCompaction', () => {
     };
     const ctx = testAgent({
       telemetry: recordingTelemetry(records),
-      microCompaction,
+      microCompaction: { config: microCompaction },
     });
 
     vi.setSystemTime(0);
@@ -507,7 +540,7 @@ describe.skip('MicroCompaction', () => {
     };
     const ctx = testAgent({
       telemetry: recordingTelemetry(records),
-      microCompaction,
+      microCompaction: { config: microCompaction },
     });
 
     vi.setSystemTime(0);
@@ -546,10 +579,13 @@ describe.skip('MicroCompaction', () => {
     const persistence = new InMemoryWireRecordPersistence();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 0,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 0,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+          minContextUsageRatio: 0,
+
+        }
       },
       persistence,
     });
@@ -569,11 +605,14 @@ describe.skip('MicroCompaction', () => {
     const marker = '[tool output removed for test]';
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 0,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
-        truncatedMarker: marker,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 0,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+          truncatedMarker: marker,
+          minContextUsageRatio: 0,
+
+        }
       },
     });
 
@@ -591,10 +630,13 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 0,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 0,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+          minContextUsageRatio: 0,
+
+        }
       },
     });
     ctx.configure();
@@ -623,10 +665,13 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 0,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
-        minContextUsageRatio: 0,
+        config: {
+          keepRecentMessages: 0,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+          minContextUsageRatio: 0,
+
+        }
       },
     });
 
@@ -657,9 +702,12 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 0,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
+        config: {
+          keepRecentMessages: 0,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+
+        }
       },
     });
 
@@ -677,9 +725,12 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 2,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * 60 * 1000,
+        config: {
+          keepRecentMessages: 2,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * 60 * 1000,
+
+        }
       },
     });
     ctx.configure({
@@ -709,10 +760,13 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 0,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
-        minContextUsageRatio: 0.9,
+        config: {
+          keepRecentMessages: 0,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+          minContextUsageRatio: 0.9,
+
+        }
       },
     });
     ctx.configure({
@@ -733,10 +787,13 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 0,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * MINUTE,
-        minContextUsageRatio: 0.5,
+        config: {
+          keepRecentMessages: 0,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * MINUTE,
+          minContextUsageRatio: 0.5,
+
+        }
       },
     });
     ctx.configure({
@@ -765,9 +822,12 @@ describe.skip('MicroCompaction', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
-        keepRecentMessages: 20,
-        minContentTokens: 1,
-        cacheMissedThresholdMs: 60 * 60 * 1000,
+        config: {
+          keepRecentMessages: 20,
+          minContentTokens: 1,
+          cacheMissedThresholdMs: 60 * 60 * 1000,
+
+        }
       },
     });
 
@@ -804,11 +864,11 @@ function appendMicroToolExchange(
     options.usageTokens === undefined
       ? undefined
       : {
-          inputOther: options.usageTokens - 1,
-          output: 1,
-          inputCacheRead: 0,
-          inputCacheCreation: 0,
-        };
+        inputOther: options.usageTokens - 1,
+        output: 1,
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+      };
 
   ctx.appendUserMessage([{ type: 'text', text: `lookup ${String(index)}` }]);
 
@@ -816,7 +876,6 @@ function appendMicroToolExchange(
     role: 'assistant',
     content: [
       { type: 'text', text: `calling Lookup ${String(index)}` },
-      { type: 'tool_call', id: toolCallId, name: 'Lookup', arguments: JSON.stringify({ query: `item-${String(index)}` }) },
     ],
     toolCalls: [
       { type: 'function', id: toolCallId, name: 'Lookup', arguments: JSON.stringify({ query: `item-${String(index)}` }) },

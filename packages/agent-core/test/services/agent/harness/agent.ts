@@ -147,7 +147,6 @@ export interface TestAgentOptions {
   readonly cron?: AgentRuntimeOptions['cron'];
   readonly mcp?: AgentRuntimeOptions['mcp'];
   readonly skills?: AgentRuntimeOptions['skills'];
-  readonly pluginSessionStarts?: AgentRuntimeOptions['pluginSessionStarts'];
   readonly additionalDirs?: AgentRuntimeOptions['additionalDirs'];
   readonly userTool?: AgentRuntimeOptions['userTool'];
   readonly initializeTools?: AgentRuntimeOptions['initializeTools'];
@@ -222,7 +221,7 @@ export class AgentTestContext {
   readonly tools: IToolRegistry;
   readonly toolStore: IToolStoreService;
   readonly background: IBackgroundService;
-  readonly cron: ICronService | null;
+  readonly cron: ICronService;
   readonly usage: IUsageService;
 
   constructor(options: TestAgentOptions = {}) {
@@ -272,7 +271,6 @@ export class AgentTestContext {
       permissionRules: options.permissionRules,
       permissionMode: options.permissionMode,
       skills: options.skills,
-      pluginSessionStarts: options.pluginSessionStarts,
       additionalDirs: options.additionalDirs,
       wireRecord: { persistence },
       background: options.background,
@@ -304,7 +302,7 @@ export class AgentTestContext {
     this.tools = this.get(IToolRegistry);
     this.toolStore = this.get(IToolStoreService);
     this.background = this.get(IBackgroundService);
-    this.cron = options.type === 'sub' ? null : this.get(ICronService);
+    this.cron = this.get(ICronService);
     this.usage = this.get(IUsageService);
 
     this.disposables.push(
@@ -471,7 +469,7 @@ export class AgentTestContext {
     return events;
   }
 
-  async dispatch(event: WireRecord): Promise<void> {
+  async dispatch(event: PersistedWireRecord): Promise<void> {
     this.suppressWireSnapshot = true;
     try {
       await this.runtime.restore([event]);
