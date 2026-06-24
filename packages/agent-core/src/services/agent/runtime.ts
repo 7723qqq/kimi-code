@@ -19,6 +19,7 @@ import {
 import type { ExperimentalFlagResolver } from '../../flags';
 import type { McpConnectionManager } from '../../mcp';
 import type { EnabledPluginSessionStart } from '../../plugin/types';
+import type { QuestionRequest } from '../../rpc';
 import type { HookEngine } from '../../session/hooks';
 import type { ModelProvider } from '../../session/provider-manager';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
@@ -34,6 +35,7 @@ import {
   type TelemetryClient,
 } from '../../telemetry';
 import {
+  AskUserQuestionTool,
   BashTool,
   EditTool,
   FetchURLTool,
@@ -120,6 +122,7 @@ import {
 } from './profile/profile';
 import { ProfileService } from './profile/profileService';
 import { IPromptService } from './prompt/prompt';
+import { IQuestionService } from '../question/question';
 import {
   IReplayBuilderService,
   type ReplayBuilderServiceOptions,
@@ -419,13 +422,35 @@ function initializeRuntimeBuiltinTools(
   options: AgentRuntimeOptions,
 ): void {
   // Plan/todo/cron/swarm/MCP/user tools are registered by their owning services.
-  // Agent/media/goal/question tools still depend on unmigrated old-Agent paths.
+  // Agent/media/goal tools still depend on unmigrated old-Agent paths.
   const registry = getService(instantiation, IToolRegistry);
   const background = getService(instantiation, IBackgroundService);
   const profile = getService(instantiation, IProfileService);
+  const telemetry = getService(instantiation, ITelemetryService);
+  const questionService = tryGetQuestionService(instantiation);
+  const questionToolHost =
+    questionService === undefined
+      ? { background, telemetry }
+      : {
+          requestQuestion: (
+            request: QuestionRequest,
+            requestOptions: { readonly signal?: AbortSignal },
+          ) =>
+            questionService.request(
+              {
+                ...request,
+                sessionId: options.sessionId ?? 'service-session',
+                agentId: options.agentId ?? 'main',
+              },
+              requestOptions,
+            ),
+          background,
+          telemetry,
+        };
   registry.register(new TaskListTool(background));
   registry.register(new TaskOutputTool(background));
   registry.register(new TaskStopTool(background));
+  registry.register(new AskUserQuestionTool(questionToolHost));
 
   const kaos = options.kaos;
   if (kaos !== undefined) {
@@ -463,6 +488,14 @@ function initializeRuntimeBuiltinTools(
   }
   if ((options.skills?.listInvocableSkills().length ?? 0) > 0) {
     registry.register(new ModelSkillTool(getService(instantiation, IAgentSkillService)));
+  }
+}
+
+function tryGetQuestionService(instantiation: IInstantiationService): IQuestionService | undefined {
+  try {
+    return instantiation.invokeFunction((accessor) => accessor.get(IQuestionService));
+  } catch {
+    return undefined;
   }
 }
 

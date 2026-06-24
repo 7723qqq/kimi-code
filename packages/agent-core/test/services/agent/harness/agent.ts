@@ -143,6 +143,7 @@ export interface TestAgentOptions {
   readonly homedir?: AgentRuntimeOptions['homedir'];
   readonly telemetry?: TelemetryClient | undefined;
   readonly log?: Logger;
+  readonly questionService?: IQuestionService;
   readonly experimentalFlags?: AgentRuntimeOptions['experimentalFlags'];
   readonly background?: AgentRuntimeOptions['background'];
   readonly cron?: AgentRuntimeOptions['cron'];
@@ -244,7 +245,7 @@ export class AgentTestContext {
 
     const rootServices = new ServiceCollection();
     rootServices.set(IApprovalService, this.createApprovalService());
-    rootServices.set(IQuestionService, this.createQuestionService());
+    rootServices.set(IQuestionService, options.questionService ?? this.createQuestionService());
     rootServices.set(ILogService, createLogService(options.log));
     this.root = new InstantiationService(rootServices);
 
