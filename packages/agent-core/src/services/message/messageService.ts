@@ -178,7 +178,10 @@ export class MessageService extends Disposable implements IMessageService {
   }
 
   private async _getLiveHistory(sid: string): Promise<readonly ContextMessage[]> {
-    const rpc = await this.agentRuntimes.requireRPC(sid, MAIN_AGENT_ID);
+    const rpc = await this.agentRuntimes.getRPC(sid, MAIN_AGENT_ID);
+    if (rpc === undefined) {
+      throw new SessionNotFoundError(sid);
+    }
     return (await rpc.getContext({})).history;
   }
 

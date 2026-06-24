@@ -26,11 +26,20 @@ export class ToolService extends Disposable implements IToolService {
   }
 
   async list(sessionId?: string): Promise<readonly import('@moonshot-ai/protocol').ToolDescriptor[]> {
-    if (sessionId === undefined) {
+    const resolvedSessionId = sessionId ?? await this.anyKnownSessionId();
+    if (resolvedSessionId === undefined) return [];
+    const rpc = await this.agentRuntimes.getRPC(resolvedSessionId, MAIN_AGENT_ID);
+    if (rpc === undefined) {
       return [];
     }
-    const rpc = await this.agentRuntimes.requireRPC(sessionId, MAIN_AGENT_ID);
     return (await rpc.getTools({})).map((tool) => toProtocolTool(tool));
+  }
+
+  private async anyKnownSessionId(): Promise<string | undefined> {
+    const all = await this.agentRuntimes.listSessionSummaries();
+    if (all.length === 0) return undefined;
+    const sorted = [...all].sort((a, b) => b.createdAt - a.createdAt);
+    return sorted[0]?.id;
   }
 }
 

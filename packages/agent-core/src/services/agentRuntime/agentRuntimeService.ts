@@ -643,7 +643,13 @@ export class AgentRuntimeService
     }
     const model = options.model ?? config.defaultModel;
     if (model !== undefined && model.trim().length > 0) {
-      runtime.get(IProfileService).setModel(model);
+      try {
+        runtime.get(IProfileService).setModel(model);
+      } catch (error) {
+        if (options.model !== undefined || !isConfigInvalidError(error)) {
+          throw error;
+        }
+      }
     }
     const thinking = resolveThinkingLevel(options.thinking, config);
     runtime.get(IProfileService).setThinking(thinking);
@@ -894,6 +900,10 @@ function addNonEmpty(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isConfigInvalidError(error: unknown): boolean {
+  return error instanceof KimiError && error.code === ErrorCodes.CONFIG_INVALID;
 }
 
 function isNotFoundError(error: unknown): boolean {

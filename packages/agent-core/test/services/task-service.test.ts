@@ -40,6 +40,11 @@ interface FakeState {
 function makeBridge(state: FakeState): ICoreProcessService {
   const rpc: Partial<CoreRPC> = {
     listSessions: async () => state.sessions,
+    resumeSession: async (p: { sessionId: string }) => {
+      const found = state.sessions.find((session) => session.id === p.sessionId);
+      if (found === undefined) throw new Error(`missing session ${p.sessionId}`);
+      return found;
+    },
     getBackground: async (p: { sessionId: string; agentId: string; activeOnly?: boolean }) =>
       state.tasksBySession.get(p.sessionId) ?? [],
     getBackgroundOutput: async (p: { sessionId: string; agentId: string; taskId: string; tail?: number }) => {

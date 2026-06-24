@@ -40,6 +40,11 @@ interface FakeBridgeState {
 function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
   const rpc: Partial<CoreRPC> = {
     listSessions: async () => state.sessions,
+    resumeSession: async (p: { sessionId: string }) => {
+      const found = state.sessions.find((session) => session.id === p.sessionId);
+      if (found === undefined) throw new Error(`missing session ${p.sessionId}`);
+      return found;
+    },
     getTools: async (_p: unknown) => state.tools as unknown as readonly never[],
     listMcpServers: async (_p: EmptyPayload & { sessionId: string }) => state.mcpServers,
     reconnectMcpServer: async (
@@ -85,9 +90,9 @@ describe('toProtocolTool adapter', () => {
     expect(out.source).toBe('skill');
   });
 
-  it("parses mcp_server_id from qualified mcp tool name 'mcp:lark:search'", () => {
+  it("parses mcp_server_id from qualified mcp tool name 'mcp__lark__search'", () => {
     const out = toProtocolTool({
-      name: 'mcp:lark:search',
+      name: 'mcp__lark__search',
       description: 'd',
       source: 'mcp',
     });
@@ -162,7 +167,7 @@ describe('ToolService.list', () => {
     state.sessions.push(fakeSession('s_new', 2));
     state.tools.push(
       { name: 'Bash', description: 'b', source: 'builtin' },
-      { name: 'mcp:lark:search', description: 'l', source: 'mcp' },
+      { name: 'mcp__lark__search', description: 'l', source: 'mcp' },
     );
     const svc = new ToolService(makeFakeBridge(state));
     const out = await svc.list();
@@ -172,7 +177,7 @@ describe('ToolService.list', () => {
     expect(out[1]!.mcp_server_id).toBe('lark');
   });
 
-  it('returns [] when getTools throws (session not loaded)', async () => {
+  it('propagates getTools errors instead of hiding runtime failures', async () => {
     const state = freshState();
     state.sessions.push(fakeSession('s', 1));
     const bridge = makeFakeBridge(state);
@@ -180,7 +185,7 @@ describe('ToolService.list', () => {
       throw new Error('session not loaded');
     };
     const svc = new ToolService(bridge);
-    expect(await svc.list()).toEqual([]);
+    await expect(svc.list()).rejects.toThrow('session not loaded');
   });
 });
 
