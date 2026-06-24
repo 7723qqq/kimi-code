@@ -17,7 +17,7 @@ export class GoalInjection extends Disposable {
     @IDynamicInjector dynamicInjector: IDynamicInjector,
   ) {
     super();
-    this._register(dynamicInjector.register('goal', () => this.reminder()));
+    this._register(dynamicInjector.register('goal', () => this.reminder(), { cadence: 'turn' }));
   }
 
   private reminder(): string | undefined {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { ToolCall } from '@moonshot-ai/kosong';
 
 import {
   GoalInjection,
@@ -52,6 +53,31 @@ async function readGoalReminder(
 
 async function injectDynamic(ctx: ReturnType<typeof testAgent>): Promise<void> {
   await (ctx.get(IDynamicInjector) as unknown as { inject(): Promise<void> }).inject();
+}
+
+async function registerLookupTool(ctx: ReturnType<typeof testAgent>): Promise<void> {
+  ctx.configure({ tools: ['Lookup'] });
+  await ctx.rpc.registerTool({
+    name: 'Lookup',
+    description: 'Look up a short test value.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+      },
+      required: ['query'],
+      additionalProperties: false,
+    },
+  });
+}
+
+function lookupCall(): ToolCall {
+  return {
+    type: 'function',
+    id: 'call_lookup',
+    name: 'Lookup',
+    arguments: JSON.stringify({ query: 'moon' }),
+  };
 }
 
 describe('GoalInjection content', () => {
@@ -226,7 +252,7 @@ describe('GoalInjection integration', () => {
     expect(text).toContain('<untrusted_objective>');
   });
 
-  it('dynamic injection is append-only while the goal remains active', async () => {
+  it('dynamic injection writes at most once for one turn boundary', async () => {
     const persistence = new InMemoryWireRecordPersistence();
     const ctx = testAgent({
       type: 'main',
@@ -237,6 +263,35 @@ describe('GoalInjection integration', () => {
 
     await injectDynamic(ctx);
     await injectDynamic(ctx);
+
+    expect(goalReminderRecords(persistence)).toHaveLength(1);
+  });
+
+  it('injects one goal reminder per turn boundary, not per step', async () => {
+    const persistence = new InMemoryWireRecordPersistence();
+    const ctx = testAgent({
+      type: 'main',
+      persistence,
+    });
+    await registerLookupTool(ctx);
+    await ctx.get(IGoalService).createGoal({ objective: 'Ship feature X' });
+
+    ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall());
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Look up moon' }] });
+    await ctx.untilApproval(true);
+    const toolCallEvents = ctx.untilToolCall({
+      content: 'lookup-result',
+      output: 'lookup-result',
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'The lookup result is lookup-result.' });
+    await toolCallEvents;
+    await ctx.untilTurnEnd();
+
+    expect(goalReminderRecords(persistence)).toHaveLength(1);
+
+    ctx.mockNextResponse({ type: 'text', text: 'Next turn.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue' }] });
+    await ctx.untilTurnEnd();
 
     expect(goalReminderRecords(persistence)).toHaveLength(2);
   });

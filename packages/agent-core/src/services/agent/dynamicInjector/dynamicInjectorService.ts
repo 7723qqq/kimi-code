@@ -10,13 +10,17 @@ import { ITurnRunner } from '../turnRunner/turnRunner';
 import type { ContextMessage } from '../types';
 import {
   IDynamicInjector,
+  type DynamicInjectionOptions,
   type DynamicInjectionProvider,
 } from './dynamicInjector';
 
 interface DynamicInjectionEntry {
+  readonly cadence: DynamicInjectionOptions['cadence'];
   readonly provider: DynamicInjectionProvider;
   readonly variant: string;
   injectedAt: number | null;
+  resolveHistory: boolean;
+  turnConsumed: boolean;
 }
 
 export class DynamicInjectorService extends Disposable implements IDynamicInjector {
@@ -34,6 +38,17 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
         await this.inject();
       }),
     );
+    this._register(
+      turnRunner.hooks.onLaunched.register('dynamic-injector', (_ctx, next) => {
+        for (const entry of this.entries) {
+          if (entry.cadence !== 'turn') continue;
+          entry.injectedAt = null;
+          entry.resolveHistory = false;
+          entry.turnConsumed = false;
+        }
+        return next();
+      }),
+    );
     context.hooks.onSpliced.register('dynamic-injector', (ctx, next) => {
       this.handleSplice(ctx);
       return next();
@@ -43,11 +58,15 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
   register(
     variant: string,
     provider: DynamicInjectionProvider,
+    options: DynamicInjectionOptions = {},
   ) {
     const entry: DynamicInjectionEntry = {
+      cadence: options.cadence ?? 'step',
       provider,
       variant,
       injectedAt: null,
+      resolveHistory: true,
+      turnConsumed: false,
     };
     this.entries.add(entry);
     return toDisposable(() => {
@@ -58,7 +77,13 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
   private async inject(): Promise<void> {
     for (const entry of this.entries) {
       const history = this.context.getHistory();
-      entry.injectedAt ??= findLastInjection(history, entry.variant);
+      if (entry.resolveHistory) {
+        entry.injectedAt ??= findLastInjection(history, entry.variant);
+      }
+      if (entry.cadence === 'turn') {
+        if (entry.turnConsumed || entry.injectedAt !== null) continue;
+        entry.turnConsumed = true;
+      }
       const content = await entry.provider({
         injectedAt: entry.injectedAt,
       });
@@ -69,6 +94,7 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
       this.selfInsertedMessages.set(message, entry);
       this.context.spliceHistory(injectedAt, 0, message);
       entry.injectedAt = injectedAt;
+      entry.resolveHistory = false;
       this.selfInsertedMessages.delete(message);
     }
   }
@@ -88,6 +114,7 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
       const ownInsertedAt = selfInserted.get(entry);
       if (ownInsertedAt !== undefined) {
         entry.injectedAt = ownInsertedAt;
+        entry.resolveHistory = false;
         continue;
       }
       entry.injectedAt = updateInjectedAt(entry.injectedAt, splice, previousLength);

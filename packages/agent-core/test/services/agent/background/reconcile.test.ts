@@ -104,6 +104,41 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
     });
   });
 
+  it('runtime restore reconciles persisted tasks through the background resume hook', async () => {
+    await persistence.writeTask(
+      persistedProcess({
+        taskId: 'bash-restore0',
+        command: 'sleep 9999',
+        description: 'restore hook check',
+        pid: 4242,
+      }),
+    );
+    const { ctx, background } = testAgentWithBackground(persistence);
+
+    const emittedEvents: any[] = [];
+    ctx.events.on((event) => {
+      emittedEvents.push(event);
+    });
+
+    await ctx.runtime.restore([]);
+
+    expect(background.getTask('bash-restore0')).toMatchObject({
+      taskId: 'bash-restore0',
+      status: 'lost',
+    });
+    expect(await persistence.readTask('bash-restore0')).toMatchObject({
+      taskId: 'bash-restore0',
+      status: 'lost',
+    });
+    expect(emittedEvents).toContainEqual({
+      type: 'background.task.terminated',
+      info: expect.objectContaining({
+        taskId: 'bash-restore0',
+        status: 'lost',
+      }),
+    });
+  });
+
   it('does not reclassify already-terminal tasks', async () => {
     await persistence.writeTask(
       persistedProcess({

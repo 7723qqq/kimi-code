@@ -992,7 +992,9 @@ function activateAgentServices(instantiation: IInstantiationService): void {
     accessor.get(IContextUsageService);
     accessor.get(ITelemetryService);
     accessor.get(IProfileService).data();
-    accessor.get(IBackgroundService);
+    // Force real BackgroundService construction before restore/replay registers its hooks.
+    // oxlint-disable-next-line no-unused-expressions
+    accessor.get(IBackgroundService).list;
     accessor.get(ILLMRequestLogService);
     accessor.get(IToolRegistry);
     accessor.get(IToolStoreService);
