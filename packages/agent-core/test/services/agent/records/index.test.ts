@@ -508,7 +508,10 @@ async function buildReplayFromPersistence(
   persistence: InMemoryWireRecordPersistence,
   range?: ReplayRangeOptions,
 ) {
-  const ctx = testAgent({ persistence });
+  const ctx = testAgent({
+    persistence,
+    replay: range === undefined ? undefined : { range },
+  });
   await ctx.runtime.restore(undefined, { rewriteMigratedRecords: false });
   return ctx.get(IReplayBuilderService).buildResult();
 }

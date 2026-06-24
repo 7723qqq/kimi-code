@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'pathe';
 
 import {
@@ -21,6 +20,7 @@ import { generateHeroSlug } from '../../../utils/hero-slug';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
 import { IEventBus } from '../eventBus/eventBus';
+import { IKaosService } from '../kaos/kaos';
 import { IProfileService } from '../profile/profile';
 import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import { ITelemetryService } from '../telemetry/telemetry';
@@ -49,6 +49,7 @@ export class PlanModeService extends Disposable implements IPlanModeService {
     @IContextMemory private readonly context: IContextMemory,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
+    @IKaosService private readonly kaosService: IKaosService,
     @IProfileService private readonly profile: IProfileService,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @IToolRegistry toolRegistry: IToolRegistry,
@@ -203,9 +204,11 @@ export class PlanModeService extends Disposable implements IPlanModeService {
 
   async data(): Promise<PlanData> {
     if (this.planId === null || this._planFilePath === null) return null;
+    const kaos = this.kaosService.kaos;
+    if (kaos === undefined) return null;
     let content = '';
     try {
-      content = await readFile(this._planFilePath, 'utf8');
+      content = await kaos.readText(this._planFilePath);
     } catch (error) {
       if (!isMissingFileError(error)) throw error;
     }
@@ -363,11 +366,14 @@ export class PlanModeService extends Disposable implements IPlanModeService {
 
   private async writeEmptyPlanFile(path: string): Promise<void> {
     await this.ensurePlanDirectory(path);
-    await writeFile(path, '', 'utf8');
+    await this.kaosService.kaos?.writeText(path, '');
   }
 
   private async ensurePlanDirectory(path: string): Promise<void> {
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await this.kaosService.kaos?.mkdir(dirname(path), {
+      parents: true,
+      existOk: true,
+    });
   }
 
   private currentCwd(): string {

@@ -240,6 +240,12 @@ export {
 } from './llmRequestLog/llmRequestLog';
 export { LLMRequestLogService } from './llmRequestLog/llmRequestLogService';
 
+export { IKaosService } from './kaos/kaos';
+export {
+  KaosService,
+  type KaosServiceOptions,
+} from './kaos/kaosService';
+
 export { ITurnRunner } from './turnRunner/turnRunner';
 export { TurnRunnerService } from './turnRunner/turnRunnerService';
 

@@ -150,6 +150,7 @@ export interface TestAgentOptions {
   readonly additionalDirs?: AgentRuntimeOptions['additionalDirs'];
   readonly userTool?: AgentRuntimeOptions['userTool'];
   readonly initializeTools?: AgentRuntimeOptions['initializeTools'];
+  readonly replay?: AgentRuntimeOptions['replay'];
 }
 
 interface ConfigureOptions {
@@ -273,6 +274,7 @@ export class AgentTestContext {
       skills: options.skills,
       additionalDirs: options.additionalDirs,
       wireRecord: { persistence },
+      replay: options.replay,
       background: options.background,
       cron:
         options.cron === undefined

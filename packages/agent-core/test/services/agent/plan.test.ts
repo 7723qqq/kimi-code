@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import type { ToolCall } from '@moonshot-ai/kosong';
@@ -16,6 +16,27 @@ function createPlanKaos(overrides: Parameters<typeof createFakeKaos>[0] = {}) {
   });
 }
 
+function createPlanFileKaos(
+  files = new Map<string, string>(),
+  overrides: Parameters<typeof createFakeKaos>[0] = {},
+) {
+  const readText = vi.fn(async (path: string) => files.get(path) ?? '');
+  const writeText = vi.fn(async (path: string, content: string) => {
+    files.set(path, content);
+    return content.length;
+  });
+  return {
+    files,
+    readText,
+    writeText,
+    kaos: createPlanKaos({
+      readText,
+      writeText,
+      ...overrides,
+    }),
+  };
+}
+
 describe('manual plan entry', () => {
   it('keeps permission gating out of the PlanMode state object', () => {
     const ctx = testAgent();
@@ -24,11 +45,12 @@ describe('manual plan entry', () => {
   });
 
   it('enters plan mode without starting a model turn and prepares the plan directory', async () => {
+    const mkdir = vi.fn().mockResolvedValue(undefined);
     const writeText = vi.fn().mockResolvedValue(0);
     const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-entry-'));
     try {
       const ctx = testAgent({
-        kaos: createFakeKaos({ writeText }),
+        kaos: createPlanKaos({ mkdir, writeText }),
       });
       ctx.profile.update({ cwd });
 
@@ -38,6 +60,7 @@ describe('manual plan entry', () => {
       expect(ctx.get(IPlanModeService).isActive).toBe(true);
       expect(ctx.get(IPlanModeService).planFilePath?.startsWith(`${join(cwd, 'plan')}/`)).toBe(true);
       expect(ctx.get(IPlanModeService).planFilePath?.endsWith('.md')).toBe(true);
+      expect(mkdir).toHaveBeenCalledWith(join(cwd, 'plan'), { parents: true, existOk: true });
       expect(writeText).not.toHaveBeenCalled();
       expect(ctx.allEvents.some((event) => event.event === 'turn.started')).toBe(false);
       expect(ctx.llmCalls).toHaveLength(0);
@@ -85,13 +108,14 @@ describe('manual plan entry', () => {
   it('enters plan mode through the EnterPlanMode tool and reminds the next step', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-tool-entry-'));
     try {
+      const { kaos } = createPlanFileKaos();
       const enterPlanModeCall: ToolCall = {
         type: 'function',
         id: 'call_enter_plan',
         name: 'EnterPlanMode',
         arguments: '{}',
       };
-      const ctx = testAgent();
+      const ctx = testAgent({ kaos });
       ctx.configure({ tools: ['EnterPlanMode'] });
       ctx.profile.update({ cwd });
       await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -116,17 +140,19 @@ describe('plan clear', () => {
   it('empties the current plan file without leaving plan mode', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-clear-'));
     try {
-      const ctx = testAgent();
+      const { files, writeText, kaos } = createPlanFileKaos();
+      const ctx = testAgent({ kaos });
       ctx.profile.update({ cwd });
       await ctx.get(IPlanModeService).enter('test-plan', false);
 
       const planPath = ctx.get(IPlanModeService).planFilePath;
       if (planPath === null) throw new Error('expected active plan path');
-      await writeFile(planPath, '# Plan\n\n- Step 1', 'utf8');
+      files.set(planPath, '# Plan\n\n- Step 1');
 
       await ctx.rpc.clearPlan({});
 
-      expect(await readFile(planPath, 'utf8')).toBe('');
+      expect(writeText).toHaveBeenCalledWith(planPath, '');
+      expect(files.get(planPath)).toBe('');
       expect(ctx.get(IPlanModeService).isActive).toBe(true);
       expect(ctx.get(IPlanModeService).planFilePath).toBe(planPath);
       await expect(ctx.rpc.getPlan({})).resolves.toMatchObject({
@@ -145,7 +171,8 @@ describe('plan exit tool', () => {
   it('reads the current plan file and exits plan mode directly in auto mode', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-exit-'));
     try {
-      const ctx = testAgent();
+      const { files, kaos } = createPlanFileKaos();
+      const ctx = testAgent({ kaos });
       ctx.configure({ tools: ['ExitPlanMode'] });
       ctx.profile.update({ cwd });
       await ctx.rpc.setPermission({ mode: 'auto' });
@@ -153,7 +180,7 @@ describe('plan exit tool', () => {
 
       const planPath = ctx.get(IPlanModeService).planFilePath;
       if (planPath === null) throw new Error('expected active plan path');
-      await writeFile(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify', 'utf8');
+      files.set(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify');
 
       const exitPlanModeCall: ToolCall = {
         type: 'function',
@@ -182,7 +209,8 @@ describe('plan exit tool', () => {
   it('stops the turn and stays in plan mode when the user rejects the plan', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-reject-exit-'));
     try {
-      const ctx = testAgent();
+      const { files, kaos } = createPlanFileKaos();
+      const ctx = testAgent({ kaos });
       ctx.configure({ tools: ['ExitPlanMode'] });
       ctx.profile.update({ cwd });
       await ctx.rpc.setPermission({ mode: 'manual' });
@@ -190,7 +218,7 @@ describe('plan exit tool', () => {
 
       const planPath = ctx.get(IPlanModeService).planFilePath;
       if (planPath === null) throw new Error('expected active plan path');
-      await writeFile(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify', 'utf8');
+      files.set(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify');
 
       const exitPlanModeCall: ToolCall = {
         type: 'function',
@@ -221,9 +249,8 @@ describe('plan exit tool', () => {
     });
     const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-reject-skip-tool-'));
     try {
-      const ctx = testAgent({
-        kaos: createPlanKaos({ execWithEnv }),
-      });
+      const { files, kaos } = createPlanFileKaos(undefined, { execWithEnv });
+      const ctx = testAgent({ kaos });
       ctx.configure({ tools: ['ExitPlanMode', 'Bash'] });
       ctx.profile.update({ cwd });
       await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -231,7 +258,7 @@ describe('plan exit tool', () => {
 
       const planPath = ctx.get(IPlanModeService).planFilePath;
       if (planPath === null) throw new Error('expected active plan path');
-      await writeFile(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify', 'utf8');
+      files.set(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify');
 
       const exitPlanModeCall: ToolCall = {
         type: 'function',
@@ -272,7 +299,8 @@ describe('plan exit tool', () => {
   it('refuses to exit when the current plan file is empty', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-empty-exit-'));
     try {
-      const ctx = testAgent();
+      const { files, kaos } = createPlanFileKaos();
+      const ctx = testAgent({ kaos });
       ctx.configure({ tools: ['ExitPlanMode'] });
       ctx.profile.update({ cwd });
       await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -280,7 +308,7 @@ describe('plan exit tool', () => {
 
       const planPath = ctx.get(IPlanModeService).planFilePath;
       if (planPath === null) throw new Error('expected active plan path');
-      await writeFile(planPath, '', 'utf8');
+      files.set(planPath, '');
 
       const exitPlanModeCall: ToolCall = {
         type: 'function',
@@ -309,7 +337,8 @@ describe('plan exit tool options', () => {
   it('keeps options for approval when an option omits the optional description', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-options-exit-'));
     try {
-      const ctx = testAgent();
+      const { files, kaos } = createPlanFileKaos();
+      const ctx = testAgent({ kaos });
       ctx.configure({ tools: ['ExitPlanMode'] });
       ctx.profile.update({ cwd });
       await ctx.rpc.setPermission({ mode: 'manual' });
@@ -317,7 +346,7 @@ describe('plan exit tool options', () => {
 
       const planPath = ctx.get(IPlanModeService).planFilePath;
       if (planPath === null) throw new Error('expected active plan path');
-      await writeFile(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify', 'utf8');
+      files.set(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify');
 
       const exitPlanModeCall: ToolCall = {
         type: 'function',
@@ -408,7 +437,7 @@ describe('plan allows safe tool flow', () => {
     },
   );
 
-  it.skip('keeps explicit deny rules above active plan file writes', async () => {
+  it('keeps explicit deny rules above active plan file writes', async () => {
     const files = new Map<string, string>();
     const writeText = vi.fn(async (path: string, content: string) => {
       files.set(path, content);
@@ -417,41 +446,47 @@ describe('plan allows safe tool flow', () => {
     const ctx = testAgent({
       kaos: createPlanKaos({ writeText }),
     });
-    ctx.configure({ tools: ['Write'] });
-    ctx.permissionRules.addRules([
-      {
-        decision: 'deny',
-        scope: 'user',
-        pattern: 'Write',
-        reason: 'blocked by test',
-      },
-    ]);
-    await ctx.get(IPlanModeService).enter('test-plan', false);
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-deny-write-'));
+    try {
+      ctx.configure({ tools: ['Write'] });
+      ctx.profile.update({ cwd });
+      ctx.permissionRules.addRules([
+        {
+          decision: 'deny',
+          scope: 'user',
+          pattern: 'Write',
+          reason: 'blocked by test',
+        },
+      ]);
+      await ctx.get(IPlanModeService).enter('test-plan', false);
 
-    const planPath = ctx.get(IPlanModeService).planFilePath;
-    if (planPath === null) throw new Error('expected active plan path');
-    const content = '# Plan\n\n- Inspect\n- Verify';
-    const writePlanCall: ToolCall = {
-      type: 'function',
-      id: 'call_write_plan_with_deny',
-      name: 'Write',
-      arguments: JSON.stringify({ path: planPath, content }),
-    };
+      const planPath = ctx.get(IPlanModeService).planFilePath;
+      if (planPath === null) throw new Error('expected active plan path');
+      const content = '# Plan\n\n- Inspect\n- Verify';
+      const writePlanCall: ToolCall = {
+        type: 'function',
+        id: 'call_write_plan_with_deny',
+        name: 'Write',
+        arguments: JSON.stringify({ path: planPath, content }),
+      };
 
-    ctx.mockNextResponse({ type: 'text', text: 'I will update the plan file.' }, writePlanCall);
-    ctx.mockNextResponse({ type: 'text', text: 'Plan file updated.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Update the plan file' }] });
+      ctx.mockNextResponse({ type: 'text', text: 'I will update the plan file.' }, writePlanCall);
+      ctx.mockNextResponse({ type: 'text', text: 'Plan file updated.' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Update the plan file' }] });
 
-    await ctx.untilTurnEnd();
+      await ctx.untilTurnEnd();
 
-    expect(files.get(planPath)).toBeUndefined();
-    expect(writeText).not.toHaveBeenCalled();
-    expect(toolResultText(ctx.context.getHistory())).toContain(
-      'Tool "Write" was denied by permission rule. Reason: blocked by test',
-    );
-    expect(
-      ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
-    ).toBe(false);
+      expect(files.get(planPath)).toBeUndefined();
+      expect(writeText).not.toHaveBeenCalled();
+      expect(toolResultText(ctx.context.getHistory())).toContain(
+        'Tool "Write" was denied by permission rule. Reason: blocked by test',
+      );
+      expect(
+        ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
+      ).toBe(false);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it.skip('allows read-only Bash to continue through permission and execution', async () => {

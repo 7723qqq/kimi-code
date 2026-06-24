@@ -86,6 +86,11 @@ import { ILLMRequestLogService } from './llmRequestLog/llmRequestLog';
 import { ILLMRequester } from './llmRequester/llmRequester';
 import { LLMRequesterService } from './llmRequester/llmRequesterService';
 import { ILoopService } from './loop/loop';
+import { IKaosService } from './kaos/kaos';
+import {
+  KaosService,
+  type KaosServiceOptions,
+} from './kaos/kaosService';
 import { IMcpRuntimeService } from './mcpRuntime/mcpRuntime';
 import { McpRuntimeService } from './mcpRuntime/mcpRuntimeService';
 import {
@@ -112,7 +117,12 @@ import {
 } from './profile/profile';
 import { ProfileService } from './profile/profileService';
 import { IPromptService } from './prompt/prompt';
-import { IReplayBuilderService } from './replayBuilder/replayBuilder';
+import {
+  IReplayBuilderService,
+  type ReplayBuilderServiceOptions,
+  type ReplayRangeOptions,
+} from './replayBuilder/replayBuilder';
+import { ReplayBuilderService } from './replayBuilder/replayBuilderService';
 import { IAgentRPCService } from './rpc/rpc';
 import {
   IAgentSkillService,
@@ -160,6 +170,10 @@ export interface AgentRuntimeDynamicInjection {
   readonly provider: DynamicInjectionProvider;
 }
 
+export interface AgentRuntimeReplayOptions {
+  readonly range?: ReplayRangeOptions;
+}
+
 export interface AgentRuntimeOptions {
   readonly sessionId?: string;
   readonly agentId?: string;
@@ -190,6 +204,7 @@ export interface AgentRuntimeOptions {
   readonly dynamicInjections?: readonly AgentRuntimeDynamicInjection[];
   readonly userTool?: UserToolServiceOptions;
   readonly wireRecord?: Omit<WireRecordServiceOptions, 'homedir' | 'blobStore'>;
+  readonly replay?: AgentRuntimeReplayOptions;
   readonly blobStore?: BlobStoreServiceOptions | IBlobStoreService;
   readonly background?: BackgroundOptions | false;
   readonly cron?: CronOptions | false;
@@ -438,11 +453,13 @@ function configureAgentRuntimeServices(
 ): void {
   configureBlobStoreService(services, options);
   configureWireRecordService(services, options);
+  configureReplayBuilderService(services, options);
   configureBackgroundService(services, options);
   configureEventBusService(services);
   configureProfileService(services, options, context);
   configureLLMRequesterService(services, options);
   configureMcpRuntimeService(services, options);
+  configureKaosService(services, options);
   configurePermissionRulesService(services, options);
   configurePermissionService(services, options, context);
   configureUserToolService(services, options);
@@ -496,6 +513,20 @@ function configureWireRecordService(
           onPersistenceError: options.wireRecord?.onPersistenceError,
         } satisfies WireRecordServiceOptions,
       ],
+      true,
+    ),
+  );
+}
+
+function configureReplayBuilderService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IReplayBuilderService,
+    new SyncDescriptor(
+      ReplayBuilderService,
+      [{ range: options.replay?.range } satisfies ReplayBuilderServiceOptions],
       true,
     ),
   );
@@ -588,6 +619,24 @@ function configurePermissionRulesService(
           initialRules: options.permissionRules,
           parent: options.parentPermissionRules,
         } satisfies PermissionRulesServiceOptions,
+      ],
+      true,
+    ),
+  );
+}
+
+function configureKaosService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IKaosService,
+    new SyncDescriptor(
+      KaosService,
+      [
+        {
+          kaos: options.kaos,
+        } satisfies KaosServiceOptions,
       ],
       true,
     ),
