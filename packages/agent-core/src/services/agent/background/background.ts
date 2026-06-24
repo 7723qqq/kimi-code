@@ -89,7 +89,6 @@ export interface BackgroundManager {
 export interface IBackgroundService extends BackgroundManager {
   readonly _serviceBrand: undefined;
   setPersistence(persistence: BackgroundTaskPersistence | undefined): void;
-  setMaxRunningTasks(maxRunningTasks: number | undefined): void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
