@@ -1,3 +1,6 @@
+import { Readable, type Writable } from 'node:stream';
+
+import type { KaosProcess } from '@moonshot-ai/kaos';
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -103,6 +106,46 @@ describe('Agent tools', () => {
         ['PreToolUse', 'Bash', 'allow'],
         ['PostToolUse', 'Bash', 'allow'],
       ]);
+    });
+  });
+
+  it('emits PostToolUseFailure with payload when a builtin tool execution fails', async () => {
+    const resolved: Array<[string, string, string]> = [];
+    const hookEngine = new HookEngine(
+      [
+        {
+          event: 'PostToolUseFailure',
+          matcher: 'Bash',
+          command: hookPayloadAssertCommand({
+            event: 'PostToolUseFailure',
+            toolName: 'Bash',
+            toolCallId: 'call_bash',
+            toolInputCommand: 'printf hook-output',
+            errorMessageIncludes: 'hook-output\nCommand failed with exit code: 2.',
+          }),
+        },
+      ],
+      {
+        onResolved: (event, target, action) => {
+          resolved.push([event, target, action]);
+        },
+      },
+    );
+    const ctx = testAgent({
+      kaos: createFailingCommandKaos('hook-output'),
+      hookEngine,
+    });
+    ctx.configure({ tools: ['Bash'] });
+    await ctx.rpc.setPermission({ mode: 'auto' });
+
+    ctx.mockNextResponse({ type: 'text', text: 'I will run Bash.' }, bashCall());
+    ctx.mockNextResponse({ type: 'text', text: 'Bash failed.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run Bash' }] });
+
+    await ctx.untilTurnEnd();
+
+    await vi.waitFor(() => {
+      expect(resolved).toEqual([['PostToolUseFailure', 'Bash', 'allow']]);
     });
   });
 
@@ -336,7 +379,7 @@ describe('Agent tools', () => {
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Lookup, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
+      tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Lookup, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
       messages:
         user: text "Look up moon"
         user: text <auto-mode-enter-reminder>
@@ -387,7 +430,7 @@ describe('Agent tools', () => {
       [emit] turn.ended                   { "turnId": 1, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      tools: Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
+      tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
       messages:
         <last>
         assistant: text "The lookup result is moon-result."
@@ -403,6 +446,27 @@ function bashCall(): ToolCall {
     name: 'Bash',
     arguments: '{"command":"printf hook-output","timeout":60}',
   };
+}
+
+function createFailingCommandKaos(stdout: string): ReturnType<typeof createFakeKaos> {
+  function createProcess(): KaosProcess {
+    return {
+      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdout: Readable.from([stdout]),
+      stderr: Readable.from(['']),
+      pid: 42,
+      exitCode: 2,
+      wait: vi.fn().mockResolvedValue(2),
+      kill: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  return createFakeKaos({
+    execWithEnv: vi.fn().mockImplementation(async () => createProcess()),
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    writeText: vi.fn(async (_path: string, content: string) => content.length),
+  });
 }
 
 function agentCall(): ToolCall {
@@ -433,11 +497,12 @@ function hookErrorMessageAssertCommand(expected: string): string {
 }
 
 function hookPayloadAssertCommand(expected: {
-  readonly event: 'PreToolUse' | 'PostToolUse';
+  readonly event: 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure';
   readonly toolName: string;
   readonly toolCallId: string;
   readonly toolInputCommand: string;
   readonly toolOutput?: string;
+  readonly errorMessageIncludes?: string;
 }): string {
   const script = [
     "let input = '';",
@@ -454,6 +519,12 @@ function hookPayloadAssertCommand(expected: {
     expected.toolOutput === undefined
       ? ''
       : "  if (payload.error !== undefined) throw new Error('unexpected error payload');",
+    expected.errorMessageIncludes === undefined
+      ? ''
+      : `  if (typeof payload.error?.message !== 'string' || !payload.error.message.includes(${JSON.stringify(expected.errorMessageIncludes)})) throw new Error('bad error: ' + payload.error?.message);`,
+    expected.errorMessageIncludes === undefined
+      ? ''
+      : "  if (payload.tool_output !== undefined) throw new Error('unexpected tool_output: ' + payload.tool_output);",
     '  process.exit(0);',
     '});',
     "process.on('uncaughtException', (error) => { console.error(error.message); process.exit(2); });",

@@ -988,7 +988,9 @@ function activateAgentServices(instantiation: IInstantiationService): void {
     accessor.get(ICronService);
     accessor.get(IFullCompaction);
     accessor.get(ISwarmMode).isActive;
-    accessor.get(IAgentSkillService);
+    // Force-construct AgentSkillService so skill.activate records can replay.
+    // oxlint-disable-next-line no-unused-expressions
+    accessor.get(IAgentSkillService).activate;
   });
 }
 
