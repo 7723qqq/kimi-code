@@ -9,7 +9,7 @@ import type { KaosProcess } from '@moonshot-ai/kaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BackgroundTaskPersistence } from '../../../../src/services/agent';
-import { agentTask, createBackgroundManager, registerProcess } from './helpers';
+import { agentTask, createBackgroundManager, registerProcess } from '../../../agent/background/helpers';
 
 function pendingProcess(): KaosProcess {
   return {

@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { testAgent } from '../../harness';
+import { testAgent } from '../harness';
 
 const WALL_ANCHOR = 1_700_000_000_000;
 

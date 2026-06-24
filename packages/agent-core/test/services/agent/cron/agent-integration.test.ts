@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CronCreateTool,
   type CronCreateInput,
-} from '../../../src/tools/cron/cron-create';
+} from '../../../../src/tools/cron/cron-create';
 import { testAgent, type TestAgentContext } from '../harness';
 
 describe('Agent + Cron integration (P1.7)', () => {

@@ -1,9 +1,9 @@
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
-import { createFakeKaos } from '../../../tools/fixtures/fake-kaos';
+import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
 import { createCommandKaos, testAgent } from './harness';
-import { IPlanModeService } from '../../../../src/services/agent';
+import { IPlanModeService } from '../../../src/services/agent';
 
 function createPlanKaos(overrides: Parameters<typeof createFakeKaos>[0] = {}) {
   return createFakeKaos({

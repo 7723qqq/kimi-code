@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildGoalBlockedReasonPrompt,
   buildGoalCompletionSummaryPrompt,
-} from '../../src/tools/builtin/goal/outcome-prompts';
-import type { GoalSnapshot } from '../../src/agent/goal';
+} from '../../../src/tools/builtin/goal/outcome-prompts';
+
+type GoalSnapshot = Parameters<typeof buildGoalCompletionSummaryPrompt>[0];
 
 function snapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
   return {

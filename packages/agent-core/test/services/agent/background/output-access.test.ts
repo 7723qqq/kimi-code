@@ -16,7 +16,7 @@ import {
   createBackgroundManager,
   registerProcess,
   waitForOutput,
-} from './helpers';
+} from '../../../agent/background/helpers';
 
 function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
   return {

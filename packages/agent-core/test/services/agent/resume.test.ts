@@ -4,15 +4,15 @@ import { join } from 'pathe';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { BackgroundTaskPersistence } from '../../../../src/agent/background';
-import { AGENT_WIRE_PROTOCOL_VERSION } from '../../../../src/agent/records';
+import { AGENT_WIRE_PROTOCOL_VERSION } from '../../../src';
 import {
+  BackgroundTaskPersistence,
   InMemoryWireRecordPersistence,
   IPlanModeService,
   IReplayBuilderService,
   ITurnRunner,
   type PersistedWireRecord,
-} from '../../../../src/services/agent';
+} from '../../../src/services/agent';
 import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
 import { testAgent } from './harness';
 import { DEFAULT_TEST_SYSTEM_PROMPT } from './harness';

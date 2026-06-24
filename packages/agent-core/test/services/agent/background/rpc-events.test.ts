@@ -18,7 +18,7 @@ import {
   type BackgroundTaskInfo,
   type IBackgroundService,
 } from '../../../../src/services/agent/background/background';
-import { agentTask } from '../../agent/background/helpers';
+import { agentTask } from '../../../agent/background/helpers';
 
 function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
   return {
