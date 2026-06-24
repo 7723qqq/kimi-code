@@ -68,7 +68,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Align service permission/loop hook types before permission wiring.
 - [x] Wire prepare/authorize/finalize tool hooks for permission, synthetic results, and dedup.
 - [x] Split service permission policy ordering into `PermissionPolicyService` with per-policy services.
-- [ ] Restore PostToolUse/PostToolUseFailure hook dispatch from service tool finalization.
+- [x] Restore PostToolUse/PostToolUseFailure hook dispatch from service tool finalization.
 - [x] Add tool lifecycle telemetry.
 - [x] Make streamed tool-call collection handle indexed/interleaved tool-call parts.
 
@@ -83,7 +83,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 
 ## ToolRegistry / ToolExecutor
 
-- [ ] Initialize builtin tools outside `IToolRegistry`.
+- [ ] Finish builtin tool initialization in `AgentRuntime`; task/file/web tools are initialized there now, remaining old-Agent-bound tools are tracked in `TODO2.md`.
 - [ ] Implement user tool registration, records, and RPC execution outside `IToolRegistry`.
 - [ ] Implement MCP tool registration, status watching, auth tools, collisions, and qualified names outside `IToolRegistry`.
 - [ ] Track active tools and profile gating outside `IToolRegistry`.
@@ -116,7 +116,6 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Track per-injector variants instead of marking every dynamic injection as `dynamic`.
 - [x] Restore todo-list stale reminder from the TodoList implementation instead of the DynamicInjector framework.
 - [x] Restore permission-mode, plugin-session-start, plan-mode, and goal injector behavior.
-- [ ] Trigger boundary dynamic injections after full compaction completes. (TEST)
 
 ## FullCompaction
 
@@ -165,7 +164,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Keep cron disabled for subagents.
 - [x] Integrate with background/session lifecycle.
 - [x] Restore full coalescing and next-run handling.
-- [ ] Revisit cron `steer()` behavior after PromptService/TurnRunner settle.
+- [ ] Revisit cron `steer()` behavior after PromptService/TurnRunner settle. [TEST]
 
 ## Skill
 
