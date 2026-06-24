@@ -43,6 +43,7 @@
 ## 行为待对齐
 
 - [ ] 恢复 skipped 的 resume projection 覆盖：从历史记录重建 turn counter、tool-store 状态、compaction/goal replay cards、延迟 reminders、pending tool results，以及中断 tool call 的合成结果。这里应按 v1.5 canonical records 断言；旧 records 只用于 migration 输入。覆盖测试：`resume.test.ts`、`context.test.ts`、`records/index.test.ts`。
+- [ ] 对齐 background notification 在 compaction replay 后的 delivered-index 状态。当前 `resume.test.ts` 的 `keeps delivered background notifications indexed after compaction replay` 仍失败，说明恢复后的 notification index 与压缩后的 history 状态不同步；这属于 background restore / compaction replay 交叉行为，不和 turn-flow 本次修复混在一起。
 - [ ] 恢复 session 级 approval replay 到 `PermissionRulesService.sessionApprovalRulePatterns`，不能只恢复一次性的 approval notification。覆盖测试：`permission.test.ts`。
 - [ ] 恢复 registered user-tool 的 full resume parity：restore 后应恢复 active registered tools、permission mode、累计 usage，以及 completed-turn context。覆盖测试：`tool.test.ts`，以及 `basic.test.ts` / `config.test.ts` 中暂时关闭的 `expectResumeMatches()`。
 - [ ] 完成 `PlanModeService` 行为对齐：path derivation、filesystem calls、clear/read/exit flow、approval rejection handling、plan reminders、injection cadence，以及 resume parity。Bash-in-plan-mode 依赖 Bash builtin 迁移，单独跟 Bash 项收口。覆盖测试：`plan.test.ts`、`injection/plan-mode.test.ts`。
