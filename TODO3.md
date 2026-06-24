@@ -24,7 +24,7 @@
 - [ ] 将剩余直接引用旧 `src/agent` 的测试迁移到服务层：
   - [x] `goal.test.ts`：已迁到 `IGoalService`、wire record、event bus / replay builder 覆盖旧 `GoalMode` 行为，不再直接引用旧 `src/agent`。
   - [x] `injection/plan-mode.test.ts`：已迁到 `IPlanModeService` + `IDynamicInjector`，覆盖 plan reminder 内容和 cadence，不再直接引用旧 `src/agent`。
-  - `injection/plugin-session-start.test.ts`：等待服务层 plugin session-start injection 入口后再迁移；当前仍只能测旧 injector。
+  - [x] `injection/plugin-session-start.test.ts`：已迁到服务层 `AgentRuntimeOptions.pluginSessionStarts` + `IDynamicInjector`，覆盖 skill lookup、instruction rendering、warning、replay de-duplication，不再直接引用旧 `src/agent`。
 - [x] 重写 `records/index.test.ts` 里的 skipped replay range 覆盖。fixture 已从旧 `context.append_message` / `context.clear` / `context.undo` 迁到 v1.5 `context.splice`，`describe.skip` 已解除，断言改为基于 splice 输出（其中 `does not rewrite migrated wire records while projecting` 本就是带旧 `protocol_version` 的 migration compat 用例，保持不变）。剩余 6 个测试仍红，根因已下沉为服务层 replay 缺口（见下方“行为待对齐”里的 replay range / splice 条目），不再是 fixture 迁移债。
 - [ ] 清理 skipped 测试中的旧 wire snapshot。`context.test.ts`、`resume.test.ts`、`plan.test.ts`、`turn.test.ts`、`permission.test.ts`、`compaction/full.test.ts`、`compaction/micro.test.ts` 里仍有大量旧 record 形状；解除 skip 前先判断是“迁移 fixture”还是“当前协议快照”。
 - [ ] 给 service runtime 的 `Skill` model-tool 语义补等价测试后，恢复 `skill-tool-manager.test.ts` 中 skipped 的 model-invocable skill 覆盖。用户 slash skill activation 已有 `IAgentSkillService`，不要混为同一件事。
@@ -36,7 +36,7 @@
 - [x] 将旧 manager 的 background notification delivery 行为迁移到服务层：`turn.steer`、context replay、`Notification` hook delivery、idle auto-turn launch、busy-turn buffering，以及 restore 后的 terminal notification injection。覆盖测试：`background/rpc-events.test.ts`、`bg-idle-notification-repro.test.ts`。
 - [ ] 将 Bash builtin 迁移到服务 runtime，包括 Bash 专属 permission turns、plan-mode Bash 行为、approval/cancel/steer 交互，以及 Bash 执行前后的 hook cadence。覆盖测试：`permission.test.ts`、`plan.test.ts`、`tool.test.ts`、`turn.test.ts`。
 - [ ] 将仍缺服务层 model-tool 入口的旧 Agent-bound tools 迁完：`Agent`、media upload/read、goal tools、question tools、model-invoked `Skill`。注意：`AgentSwarm` 已由 `SwarmModeService` 注册，`TodoList` / `Cron*` / `EnterPlanMode` / `ExitPlanMode` 也已经是 service-owned tools，不应再列入“未注册 builtin”。覆盖测试：`tool.test.ts`、`turn.test.ts`、`skill-tool-manager.test.ts`。
-- [ ] 将 plugin session-start injection 完整迁移到服务层 dynamic-injection runtime，包括 skill lookup、instruction rendering、warning behavior，以及 replay de-duplication。覆盖测试：`injection/plugin-session-start.test.ts`。
+- [x] 将 plugin session-start injection 完整迁移到服务层 dynamic-injection runtime，包括 skill lookup、instruction rendering、warning behavior，以及 replay de-duplication。覆盖测试：`injection/plugin-session-start.test.ts`。
 - [ ] 做一次 full-compaction 服务行为对齐：manual/auto lifecycle、micro-compaction access、OAuth retry、hooks、provider-overflow retry accounting、todo-store integration、history-change cancellation，以及 resume parity。覆盖测试：`compaction/full.test.ts`。
 - [ ] 做一次 micro-compaction 服务行为对齐：cutoff/projection/telemetry 语义、cache-miss detection、restore、undo，以及与 full-compaction 的交互。覆盖测试：`compaction/micro.test.ts`。
 

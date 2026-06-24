@@ -131,6 +131,7 @@ export interface TestAgentOptions {
   readonly permissionMode?: PermissionMode;
   readonly permissionRules?: readonly PermissionRule[];
   readonly goal?: AgentRuntimeOptions['goal'];
+  readonly pluginSessionStarts?: AgentRuntimeOptions['pluginSessionStarts'];
   readonly providerManager?: ProviderManager;
   readonly initialConfig?: KimiConfig;
   readonly providerManagerOverrides?: Omit<ConstructorParameters<typeof ProviderManager>[0], 'config'>;
@@ -272,6 +273,7 @@ export class AgentTestContext {
       permissionRules: options.permissionRules,
       permissionMode: options.permissionMode,
       skills: options.skills,
+      pluginSessionStarts: options.pluginSessionStarts,
       additionalDirs: options.additionalDirs,
       wireRecord: { persistence },
       replay: options.replay,
@@ -631,6 +633,7 @@ export class AgentTestContext {
       microCompaction: this.options.microCompaction,
       subagentHost: this.options.subagentHost,
       experimentalFlags: this.options.experimentalFlags,
+      pluginSessionStarts: this.options.pluginSessionStarts,
       persistence: new InMemoryWireRecordPersistence(
         withMetadata(this.recordHistory.map(cloneRecord)),
       ),
