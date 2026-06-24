@@ -1,5 +1,9 @@
 import { randomBytes } from 'node:crypto';
 
+import type { ContentPart } from '@moonshot-ai/kosong';
+
+import type { BackgroundTaskOrigin } from '../../../agent/context';
+import { renderNotificationXml } from '../../../agent/context/notification-xml';
 import {
   TERMINAL_STATUSES,
   type BackgroundTaskInfoBase,
@@ -11,7 +15,10 @@ import {
   SyncDescriptor,
 } from '../../../di';
 
+import { IContextMemory } from '../contextMemory/contextMemory';
 import { IEventBus } from '../eventBus/eventBus';
+import { IExternalHooksService } from '../externalHooks/externalHooks';
+import { IPromptService } from '../prompt/prompt';
 import { ITelemetryService } from '../telemetry/telemetry';
 import type { WireRecord } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
@@ -31,6 +38,25 @@ import {
 interface ForegroundRelease {
   readonly promise: Promise<ForegroundTaskReleaseReason>;
   resolve(reason: ForegroundTaskReleaseReason): void;
+}
+
+type BackgroundTaskNotification = Record<string, unknown> & {
+  readonly id: string;
+  readonly category: 'task';
+  readonly type: string;
+  readonly source_kind: 'background_task';
+  readonly source_id: string;
+  readonly agent_id?: string | undefined;
+  readonly title: string;
+  readonly severity: 'info' | 'warning';
+  readonly body: string;
+  readonly tail_output: string;
+};
+
+interface BackgroundTaskNotificationContext {
+  readonly content: readonly ContentPart[];
+  readonly origin: BackgroundTaskOrigin;
+  readonly notification: BackgroundTaskNotification;
 }
 
 interface ManagedTask {
@@ -63,6 +89,7 @@ const MAX_OUTPUT_BYTES = 1024 * 1024;
 const SIGTERM_GRACE_MS = 5_000;
 const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 const USER_INTERRUPT_REASON = 'Interrupted by user';
+const NOTIFICATION_TAIL_BYTES = 3_000;
 
 export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean {
   return TERMINAL_STATUSES.has(status);
@@ -73,6 +100,8 @@ export class BackgroundService extends Disposable implements IBackgroundService 
 
   private readonly tasks = new Map<string, ManagedTask>();
   private readonly ghosts = new Map<string, BackgroundTaskInfo>();
+  private readonly scheduledNotificationKeys = new Set<string>();
+  private readonly deliveredNotificationKeys = new Set<string>();
   private persistence: BackgroundTaskPersistence | undefined;
   private maxRunningTasks: number | undefined;
 
@@ -81,6 +110,9 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     @IEventBus private readonly events: IEventBus,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IPromptService private readonly prompt: IPromptService,
+    @IExternalHooksService private readonly externalHooks: IExternalHooksService,
+    @IContextMemory private readonly context: IContextMemory,
   ) {
     super();
     this.persistence = options.persistence;
@@ -105,14 +137,20 @@ export class BackgroundService extends Disposable implements IBackgroundService 
         },
       ),
     );
+    this._register(
+      context.hooks.onSpliced.register('background-notification-delivery', async (ctx, next) => {
+        await next();
+        for (const message of ctx.messages) {
+          if (message.origin?.kind === 'background_task') {
+            this.markDeliveredNotification(message.origin);
+          }
+        }
+      }),
+    );
   }
 
   setPersistence(persistence: BackgroundTaskPersistence | undefined): void {
     this.persistence = persistence;
-  }
-
-  setMaxRunningTasks(maxRunningTasks: number | undefined): void {
-    this.maxRunningTasks = maxRunningTasks;
   }
 
   registerTask(task: BackgroundTask, options: RegisterBackgroundTaskOptions = {}): string {
@@ -223,6 +261,7 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     for (const info of lostTasks) {
       this.recordTaskTerminated(info);
     }
+    await this.restoreBackgroundTaskNotifications();
     return lostTasks;
   }
 
@@ -579,7 +618,9 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     if (entry.terminalFired) return;
     if (!this.isDetached(entry)) return;
     entry.terminalFired = true;
-    this.recordTaskTerminated(this.toInfo(entry));
+    const info = this.toInfo(entry);
+    void this.notifyBackgroundTask(info).catch(() => {});
+    this.recordTaskTerminated(info);
   }
 
   private recordTaskStarted(info: BackgroundTaskInfo): void {
@@ -597,6 +638,106 @@ export class BackgroundService extends Disposable implements IBackgroundService 
       kind: info.kind,
       duration: info.endedAt !== null ? info.endedAt - info.startedAt : null,
       status: info.status,
+    });
+  }
+
+  private async notifyBackgroundTask(info: BackgroundTaskInfo): Promise<void> {
+    const context = await this.buildBackgroundTaskNotificationContext(info);
+    if (context === undefined) return;
+    this.prompt.steer({
+      role: 'user',
+      content: [...context.content],
+      toolCalls: [],
+      origin: context.origin,
+    });
+    this.fireNotificationHook(context.notification);
+  }
+
+  private async restoreBackgroundTaskNotifications(): Promise<void> {
+    for (const info of this.list(false)) {
+      if (!isBackgroundTaskTerminal(info.status)) continue;
+      await this.restoreBackgroundTaskNotification(info);
+    }
+  }
+
+  private async restoreBackgroundTaskNotification(info: BackgroundTaskInfo): Promise<void> {
+    const context = await this.buildBackgroundTaskNotificationContext(info);
+    if (context === undefined) return;
+    this.context.spliceHistory(this.context.getHistory().length, 0, {
+      role: 'user',
+      content: [...context.content],
+      toolCalls: [],
+      origin: context.origin,
+    });
+    this.fireNotificationHook(context.notification);
+  }
+
+  private async buildBackgroundTaskNotificationContext(
+    info: BackgroundTaskInfo,
+  ): Promise<BackgroundTaskNotificationContext | undefined> {
+    if (info.detached === false) return undefined;
+    if (info.terminalNotificationSuppressed === true) return undefined;
+    const origin: BackgroundTaskOrigin = {
+      kind: 'background_task',
+      taskId: info.taskId,
+      status: info.status,
+      notificationId: `task:${info.taskId}:${info.status}`,
+    };
+    const key = notificationKey(origin);
+    if (this.scheduledNotificationKeys.has(key)) return undefined;
+    if (this.deliveredNotificationKeys.has(key)) return undefined;
+    if (this.hasDeliveredNotification(key)) return undefined;
+    this.scheduledNotificationKeys.add(key);
+
+    const tailOutput = (await this.getOutputSnapshot(info.taskId, NOTIFICATION_TAIL_BYTES))
+      .preview;
+    if (this.isTerminalNotificationSuppressed(info.taskId)) return undefined;
+    const notification: BackgroundTaskNotification = {
+      id: origin.notificationId,
+      category: 'task',
+      type: `task.${info.status}`,
+      source_kind: 'background_task',
+      source_id: info.taskId,
+      agent_id: info.kind === 'agent' ? info.agentId : undefined,
+      title: `Background ${info.kind} ${info.status}`,
+      severity: info.status === 'completed' ? 'info' : 'warning',
+      body: buildBackgroundTaskNotificationBody(info),
+      tail_output: tailOutput,
+    };
+    const content = [
+      {
+        type: 'text',
+        text: renderNotificationXml(notification),
+      },
+    ] as const;
+    return { content, origin, notification };
+  }
+
+  private fireNotificationHook(notification: BackgroundTaskNotification): void {
+    this.externalHooks.triggerNotification({
+      notificationType: notification.type,
+      title: notification.title,
+      body: notification.body,
+      severity: notification.severity,
+      sourceKind: notification.source_kind,
+      sourceId: notification.source_id,
+    });
+  }
+
+  private isTerminalNotificationSuppressed(taskId: string): boolean {
+    return (
+      this.tasks.get(taskId)?.terminalNotificationSuppressed === true ||
+      this.ghosts.get(taskId)?.terminalNotificationSuppressed === true
+    );
+  }
+
+  private markDeliveredNotification(origin: BackgroundTaskOrigin): void {
+    this.deliveredNotificationKeys.add(notificationKey(origin));
+  }
+
+  private hasDeliveredNotification(key: string): boolean {
+    return this.context.getHistory().some((message) => {
+      return message.origin?.kind === 'background_task' && notificationKey(message.origin) === key;
     });
   }
 
@@ -653,6 +794,34 @@ function shouldListTask(info: BackgroundTaskInfo, activeOnly: boolean): boolean 
   if (!TERMINAL_STATUSES.has(info.status)) return true;
   if (activeOnly) return false;
   return info.detached !== false;
+}
+
+function notificationKey(origin: BackgroundTaskOrigin): string {
+  return `${origin.taskId}\0${origin.status}\0${origin.notificationId}`;
+}
+
+function buildBackgroundTaskNotificationBody(info: BackgroundTaskInfo): string {
+  const baseLine =
+    info.status === 'timed_out'
+      ? `${info.description} timed out.`
+      : info.stopReason
+        ? `${info.description} ${info.status === 'killed' ? 'was killed' : info.status}: ${info.stopReason}.`
+        : `${info.description} ${info.status}.`;
+
+  if (info.kind !== 'agent') return baseLine;
+  if (info.status === 'completed') return baseLine;
+  const agentId = info.agentId;
+  if (agentId === undefined || agentId === info.taskId) return baseLine;
+
+  const recovery = [
+    '',
+    `To recover or continue this subagent, call Agent(resume="${agentId}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").`,
+    `Use agent_id ("${agentId}"), NOT source_id / task_id ("${info.taskId}") because the two look alike but only agent_id is accepted by the resume parameter.`,
+    'Add run_in_background=true to keep it backgrounded, or omit it to take the result inline in the current turn.',
+    'The subagent retains its full prior context across the restart, but any in-flight tool call lost its result and may need to be redone.',
+  ].join('\n');
+
+  return `${baseLine}${recovery}`;
 }
 
 function generateTaskId(kind: string): string {
