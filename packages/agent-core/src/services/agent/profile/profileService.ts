@@ -65,6 +65,7 @@ export class ProfileService implements IProfileService {
     });
     wireRecord.register('tools.set_active_tools', (record) => {
       this.applyActiveToolNames(record.names);
+      this.initializeBuiltinTools();
     });
   }
 
@@ -240,10 +241,16 @@ export class ProfileService implements IProfileService {
   private setActiveTools(names: readonly string[]): void {
     this.wireRecord.append({ type: 'tools.set_active_tools', names: [...names] });
     this.applyActiveToolNames(names);
+    this.initializeBuiltinTools();
   }
 
   private applyActiveToolNames(names: readonly string[]): void {
     this.activeToolNames = [...names];
+  }
+
+  private initializeBuiltinTools(): void {
+    if (!this.hasProvider()) return;
+    this.optionsValue.initializeBuiltinTools?.();
   }
 
   private emitStatusUpdated(): void {

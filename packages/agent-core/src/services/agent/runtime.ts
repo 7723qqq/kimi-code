@@ -33,6 +33,7 @@ import {
   type TelemetryClient,
 } from '../../telemetry';
 import {
+  BashTool,
   EditTool,
   FetchURLTool,
   GlobTool,
@@ -371,16 +372,16 @@ function initializeRuntimeBuiltinTools(
   options: AgentRuntimeOptions,
 ): void {
   // Plan/todo/cron/swarm/MCP/user tools are registered by their owning services.
-  // Bash/Agent/media/goal/question/skill tools still depend on unmigrated old-Agent paths.
+  // Agent/media/goal/question/skill tools still depend on unmigrated old-Agent paths.
   const registry = getService(instantiation, IToolRegistry);
   const background = getService(instantiation, IBackgroundService);
+  const profile = getService(instantiation, IProfileService);
   registry.register(new TaskListTool(background));
   registry.register(new TaskOutputTool(background));
   registry.register(new TaskStopTool(background));
 
   const kaos = options.kaos;
   if (kaos !== undefined) {
-    const profile = getService(instantiation, IProfileService);
     const cwd = profile.data().cwd || currentCwd(options.cwd);
     if (cwd !== undefined && cwd.length > 0) {
       const workspace = extendWorkspaceWithSkillRoots(
@@ -395,6 +396,14 @@ function initializeRuntimeBuiltinTools(
       registry.register(new EditTool(kaos, workspace));
       registry.register(new GrepTool(kaos, workspace));
       registry.register(new GlobTool(kaos, workspace));
+      registry.register(
+        new BashTool(kaos, cwd, background, {
+          allowBackground:
+            profile.isToolActive('TaskList') &&
+            profile.isToolActive('TaskOutput') &&
+            profile.isToolActive('TaskStop'),
+        }),
+      );
     }
   }
 

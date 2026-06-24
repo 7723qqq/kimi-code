@@ -30,6 +30,14 @@ export interface NotificationHookPayload {
 }
 
 export interface IExternalHooksService {
+  triggerPreToolUse(
+    payload: {
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly toolInput: Record<string, unknown>;
+    },
+    signal: AbortSignal,
+  ): Promise<string | undefined>;
   triggerUserPromptSubmit(
     input: readonly ContentPart[],
     signal: AbortSignal,
