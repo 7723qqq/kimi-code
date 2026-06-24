@@ -34,6 +34,37 @@ import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
 import { createCommandKaos, testAgent } from './harness';
 
 describe('Agent permission', () => {
+  it('applies initial permission mode during activation', () => {
+    const ctx = testAgent({ permissionMode: 'auto' });
+
+    expect(ctx.newEvents()).toMatchInlineSnapshot(`
+      [wire] metadata              { "protocol_version": "<protocol-version>", "created_at": "<time>" }
+      [wire] permission.set_mode   { "mode": "auto", "time": "<time>" }
+    `);
+    expect(ctx.permissionMode.mode).toBe('auto');
+  });
+
+  it('restores permission mode through activated handler before runtime restore', async () => {
+    const ctx = testAgent();
+
+    await ctx.wireRecord.restore([{ type: 'permission.set_mode', mode: 'auto' }]);
+    expect(ctx.permissionMode.mode).toBe('auto');
+
+    ctx.configure();
+    ctx.mockNextResponse({ type: 'text', text: 'Restored auto mode is active.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Use restored auto mode' }] });
+    await ctx.untilTurnEnd();
+
+    const input = ctx.lastLlmInput().input;
+    expect(
+      input.history.some((message) =>
+        message.content.some((part) => {
+          return part.type === 'text' && part.text.includes('Auto permission mode is active.');
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it('auto mode bypasses approval for ordinary builtin tools', async () => {
     const ctx = testAgent({ kaos: createCommandKaos('auto-output') });
     ctx.configure({ tools: ['Bash'] });

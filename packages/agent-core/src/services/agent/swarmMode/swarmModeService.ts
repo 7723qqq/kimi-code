@@ -105,7 +105,8 @@ export class SwarmModeService extends Disposable implements ISwarmMode {
     if (this._active === null) return;
     const trigger = this._active;
     this._active = null;
-    if (injectExitReminder && trigger !== 'tool' && !this.removeLastSwarmReminder()) {
+    const removedEnterReminder = trigger !== 'tool' && this.removeLastSwarmReminder();
+    if (injectExitReminder && trigger !== 'tool' && !removedEnterReminder) {
       this.appendSystemReminder(SWARM_MODE_EXIT_REMINDER, 'swarm_mode_exit');
     }
     this.emitChanged();

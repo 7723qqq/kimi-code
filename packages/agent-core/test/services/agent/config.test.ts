@@ -2,7 +2,15 @@ import type { Environment } from '@moonshot-ai/kaos';
 import type { ModelCapability, ProviderConfig, ToolCall } from '@moonshot-ai/kosong';
 import { describe, expect, it } from 'vitest';
 
+import { InstantiationService, ServiceCollection } from '../../../src/di';
 import type { ResolvedAgentProfile } from '../../../src/profile';
+import {
+  AGENT_WIRE_PROTOCOL_VERSION,
+  IProfileService,
+  IWireRecord,
+  createAgentRuntime,
+  type AgentRuntimeOptions,
+} from '../../../src/services/agent';
 import { testAgent } from './harness';
 import { DEFAULT_TEST_SYSTEM_PROMPT } from './harness/snapshots';
 
@@ -122,6 +130,41 @@ describe('Agent config', () => {
     });
 
     expect(ctx.profile.data().systemPrompt).toBe('Prompt with additional dirs: none');
+  });
+
+  it('restores config and active tools through activated handlers', async () => {
+    const { runtime, root } = createBareRuntime({ cwd: '/initial-cwd' });
+    try {
+      await runtime.get(IWireRecord).restore([
+        {
+          type: 'metadata',
+          protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
+          created_at: 1,
+        },
+        {
+          type: 'config.update',
+          cwd: '/restored-cwd',
+          modelAlias: 'restored-model',
+          profileName: 'restored-profile',
+          systemPrompt: 'Restored prompt.',
+        },
+        {
+          type: 'tools.set_active_tools',
+          names: ['Read'],
+        },
+      ]);
+
+      expect(runtime.get(IProfileService).data()).toMatchObject({
+        cwd: '/restored-cwd',
+        modelAlias: 'restored-model',
+        profileName: 'restored-profile',
+        systemPrompt: 'Restored prompt.',
+        activeToolNames: ['Read'],
+      });
+    } finally {
+      await runtime.close();
+      root.dispose();
+    }
   });
 
   it('config.update with cwd initializes builtin tools', async () => {
@@ -247,6 +290,16 @@ describe('Agent config', () => {
     await ctx.expectResumeMatches();
   });
 });
+
+function createBareRuntime(options: AgentRuntimeOptions = {}) {
+  const root = new InstantiationService(new ServiceCollection());
+  const runtime = createAgentRuntime(root, {
+    background: false,
+    cron: false,
+    ...options,
+  });
+  return { runtime, root };
+}
 
 function toolNames(value: unknown): string[] {
   if (!Array.isArray(value)) return [];

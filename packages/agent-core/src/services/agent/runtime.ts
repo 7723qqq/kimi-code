@@ -276,6 +276,9 @@ export class AgentRuntime extends Disposable {
       accessor.get(IPermissionModeService).mode;
       // oxlint-disable-next-line no-unused-expressions
       accessor.get(IPlanModeService).isActive;
+      // Force-construct ToolStoreService so tools.update_store records restore
+      // into the service before resume parity snapshots compare tool state.
+      accessor.get(IToolStoreService).data();
       // Force-construct UserToolService so its wireRecord handlers
       // (tools.register_user_tool / tools.unregister_user_tool) are
       // registered before records are replayed below.
@@ -955,7 +958,7 @@ function activateAgentServices(instantiation: IInstantiationService): void {
     accessor.get(IContextMemory);
     accessor.get(IContextUsageService);
     accessor.get(ITelemetryService);
-    accessor.get(IProfileService);
+    accessor.get(IProfileService).data();
     accessor.get(IBackgroundService);
     accessor.get(ILLMRequestLogService);
     accessor.get(IToolRegistry);
@@ -966,10 +969,11 @@ function activateAgentServices(instantiation: IInstantiationService): void {
     accessor.get(IMcpRuntimeService);
     accessor.get(IExternalHooksService);
     accessor.get(IPermissionRulesService);
-    accessor.get(IPermissionModeService);
+    // oxlint-disable-next-line no-unused-expressions
+    accessor.get(IPermissionModeService).mode;
     accessor.get(IPlanModeService);
     accessor.get(IPermissionPolicyService);
-    accessor.get(IPermissionService);
+    accessor.get(IPermissionService).data();
     accessor.get(IUsageService);
     accessor.get(IGoalService);
     accessor.get(IDynamicInjector);

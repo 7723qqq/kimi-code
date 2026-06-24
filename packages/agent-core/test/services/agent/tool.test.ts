@@ -53,36 +53,57 @@ describe('Agent tools', () => {
     expect(JSON.stringify(ctx.context.getHistory())).toContain('blocked by PreToolUse');
   });
 
-  it('emits PostToolUse after successful tools', async () => {
-    const triggered: Array<[string, string, number]> = [];
+  it('runs PreToolUse before successful tools and emits PostToolUse with output', async () => {
+    const resolved: Array<[string, string, string]> = [];
     const hookEngine = new HookEngine(
       [
         {
+          event: 'PreToolUse',
+          matcher: 'Bash',
+          command: hookPayloadAssertCommand({
+            event: 'PreToolUse',
+            toolName: 'Bash',
+            toolCallId: 'call_bash',
+            toolInputCommand: 'printf hook-output',
+          }),
+        },
+        {
           event: 'PostToolUse',
           matcher: 'Bash',
-          command: 'exit 0',
+          command: hookPayloadAssertCommand({
+            event: 'PostToolUse',
+            toolName: 'Bash',
+            toolCallId: 'call_bash',
+            toolInputCommand: 'printf hook-output',
+            toolOutput: 'hook-output',
+          }),
         },
       ],
       {
-        onTriggered: (event, target, count) => {
-          triggered.push([event, target, count]);
+        onResolved: (event, target, action) => {
+          resolved.push([event, target, action]);
         },
       },
     );
     const ctx = testAgent({
-      kaos: createCommandKaos('ok'),
+      kaos: createCommandKaos('hook-output'),
       hookEngine,
     });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'auto' });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will run Bash.' }, bashCall());
-    ctx.mockNextResponse({ type: 'text', text: 'Bash returned ok.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Bash returned hook-output.' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run Bash' }] });
 
     await ctx.untilTurnEnd();
 
-    expect(triggered).toEqual([['PostToolUse', 'Bash', 1]]);
+    await vi.waitFor(() => {
+      expect(resolved).toEqual([
+        ['PreToolUse', 'Bash', 'allow'],
+        ['PostToolUse', 'Bash', 'allow'],
+      ]);
+    });
   });
 
   it('uses builtin descriptions on tool call start events', async () => {
@@ -408,5 +429,34 @@ function hookErrorMessageAssertCommand(expected: string): string {
     '  process.exit(2);',
     '});',
   ].join('');
+  return `node -e ${JSON.stringify(script)}`;
+}
+
+function hookPayloadAssertCommand(expected: {
+  readonly event: 'PreToolUse' | 'PostToolUse';
+  readonly toolName: string;
+  readonly toolCallId: string;
+  readonly toolInputCommand: string;
+  readonly toolOutput?: string;
+}): string {
+  const script = [
+    "let input = '';",
+    "process.stdin.on('data', (chunk) => { input += chunk; });",
+    "process.stdin.on('end', () => {",
+    '  const payload = JSON.parse(input);',
+    `  if (payload.hook_event_name !== ${JSON.stringify(expected.event)}) throw new Error('bad event: ' + payload.hook_event_name);`,
+    `  if (payload.tool_name !== ${JSON.stringify(expected.toolName)}) throw new Error('bad tool_name: ' + payload.tool_name);`,
+    `  if (payload.tool_call_id !== ${JSON.stringify(expected.toolCallId)}) throw new Error('bad tool_call_id: ' + payload.tool_call_id);`,
+    `  if (payload.tool_input?.command !== ${JSON.stringify(expected.toolInputCommand)}) throw new Error('bad command: ' + payload.tool_input?.command);`,
+    expected.toolOutput === undefined
+      ? ''
+      : `  if (payload.tool_output !== ${JSON.stringify(expected.toolOutput)}) throw new Error('bad tool_output: ' + payload.tool_output);`,
+    expected.toolOutput === undefined
+      ? ''
+      : "  if (payload.error !== undefined) throw new Error('unexpected error payload');",
+    '  process.exit(0);',
+    '});',
+    "process.on('uncaughtException', (error) => { console.error(error.message); process.exit(2); });",
+  ].filter((line) => line.length > 0).join('');
   return `node -e ${JSON.stringify(script)}`;
 }

@@ -18,7 +18,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { HookEngine } from '../../../src/session/hooks';
 import { McpConnectionManager } from '../../../src/mcp';
 import { abortError, abortable } from '../../../src/utils/abort';
-import { ISwarmMode, ITurnRunner } from '../../../src/services/agent';
+import {
+  ISwarmMode,
+  ITurnRunner,
+  type ContextMessage,
+} from '../../../src/services/agent';
 import { ErrorCodes, KimiError } from '../../../src/errors';
 import type { Logger, LogPayload } from '../../../src/logging';
 import type {
@@ -209,7 +213,7 @@ describe('Agent turn flow', () => {
     });
   });
 
-  it.skip('fires PostToolUse for same-step dups with the original real output, not the dedup placeholder', async () => {
+  it('fires PostToolUse for same-step dups with the original real output, not the dedup placeholder', async () => {
     // Hook command asserts the dup's PostToolUse payload carries the real
     // stdout ('dup'), not the placeholder ('').
     const assertScript = [
@@ -306,6 +310,36 @@ describe('Agent turn flow', () => {
       `[emit] error   { "code": "internal", "message": "Unexpected generate call #1", "name": "Error", "retryable": false, "details": { "turnId": 0 } }`,
     );
     await ctx.expectResumeMatches();
+  });
+
+  it('removes a replayed swarm enter reminder when restoring swarm exit', async () => {
+    const ctx = testAgent();
+    const enterReminder: ContextMessage = {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: '<system-reminder>\nlegacy swarm enter reminder\n</system-reminder>',
+        },
+      ],
+      toolCalls: [],
+      origin: { kind: 'injection', variant: 'swarm_mode' },
+    };
+
+    await ctx.runtime.restore([
+      { type: 'swarm_mode.enter', trigger: 'manual' },
+      {
+        type: 'context.splice',
+        start: 0,
+        deleteCount: 0,
+        messages: [enterReminder],
+      },
+      { type: 'swarm_mode.exit' },
+    ]);
+
+    expect(ctx.get(ISwarmMode).isActive).toBe(false);
+    expect(ctx.context.getHistory()).toEqual([]);
+    expect(ctx.newEvents()).toMatchInlineSnapshot(`[]`);
   });
 
   it('keeps manual swarm mode active after a turn completes normally', async () => {

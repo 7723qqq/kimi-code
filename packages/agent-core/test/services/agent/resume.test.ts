@@ -218,8 +218,13 @@ describe('Agent resume', () => {
     await ctx.expectResumeMatches();
   });
 
-  it.skip('restores tool store state from persisted records', async () => {
+  it('restores tool store state from persisted records', async () => {
     const persistence = new RecordingAgentPersistence([
+      {
+        type: 'metadata',
+        protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
+        created_at: 1,
+      },
       {
         type: 'tools.update_store',
         key: 'todo',
@@ -228,7 +233,7 @@ describe('Agent resume', () => {
           { title: 'Hydrate TUI todo panel', status: 'in_progress' },
         ],
       },
-    ] as unknown as PersistedWireRecord[]);
+    ]);
     const ctx = testAgent({ persistence });
 
     await ctx.runtime.restore();
