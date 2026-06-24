@@ -22,7 +22,7 @@
 ## 测试迁移债
 
 - [ ] 将剩余直接引用旧 `src/agent` 的测试迁移到服务层：
-  - `goal.test.ts`：用 `IGoalService`、wire record、event bus / replay builder 覆盖旧 `GoalMode` 行为。
+  - [x] `goal.test.ts`：已迁到 `IGoalService`、wire record、event bus / replay builder 覆盖旧 `GoalMode` 行为，不再直接引用旧 `src/agent`。
   - [x] `injection/plan-mode.test.ts`：已迁到 `IPlanModeService` + `IDynamicInjector`，覆盖 plan reminder 内容和 cadence，不再直接引用旧 `src/agent`。
   - `injection/plugin-session-start.test.ts`：等待服务层 plugin session-start injection 入口后再迁移；当前仍只能测旧 injector。
 - [x] 重写 `records/index.test.ts` 里的 skipped replay range 覆盖。fixture 已从旧 `context.append_message` / `context.clear` / `context.undo` 迁到 v1.5 `context.splice`，`describe.skip` 已解除，断言改为基于 splice 输出（其中 `does not rewrite migrated wire records while projecting` 本就是带旧 `protocol_version` 的 migration compat 用例，保持不变）。剩余 6 个测试仍红，根因已下沉为服务层 replay 缺口（见下方“行为待对齐”里的 replay range / splice 条目），不再是 fixture 迁移债。

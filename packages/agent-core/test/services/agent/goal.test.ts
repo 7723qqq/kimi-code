@@ -1,66 +1,63 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Agent } from '../../../src/agent';
-import {
-  GoalMode,
-  type GoalChange,
-  type GoalSnapshot,
-} from '../../../src/agent/goal';
-import type { AgentRecord } from '../../../src/agent/records';
-import type { AgentReplayRecord } from '../../../src/rpc/resumed';
 import { ErrorCodes } from '../../../src/errors';
-import type { TelemetryProperties } from '../../../src/telemetry';
+import {
+  IEventBus,
+  IGoalService,
+  InMemoryWireRecordPersistence,
+  IReplayBuilderService,
+  type GoalService,
+  type PersistedWireRecord,
+  type WireRecord,
+} from '../../../src/services/agent';
+import { recordingTelemetry, type TelemetryRecord } from '../../fixtures/telemetry';
+import { testAgent } from './harness';
 
-interface TelemetryRecord {
-  readonly event: string;
-  readonly properties: TelemetryProperties;
-}
+type GoalServiceTestManager = IGoalService & GoalService;
+type GoalRecord = Extract<PersistedWireRecord, { type: `goal.${string}` }>;
+type AgentEvent = Parameters<IEventBus['emit']>[0];
+type GoalUpdatedEvent = Extract<AgentEvent, { type: 'goal.updated' }>;
+type GoalSnapshot = NonNullable<ReturnType<IGoalService['getGoal']>['goal']>;
+type GoalChange = GoalUpdatedEvent['change'];
 
-function makeGoalMode() {
-  const records: AgentRecord[] = [];
-  const replay: AgentReplayRecord[] = [];
+function makeGoalService() {
+  const persistence = new InMemoryWireRecordPersistence();
   const events: Array<{ readonly type: string; readonly snapshot?: GoalSnapshot | null; readonly change?: GoalChange }> = [];
   const telemetry: TelemetryRecord[] = [];
-  const reminders: Array<{ readonly content: string; readonly origin: unknown }> = [];
-  const agent = {
-    records: {
-      logRecord: (record: AgentRecord) => {
-        records.push(record);
-      },
-    },
-    emitEvent: (event: { readonly type: string; readonly snapshot?: GoalSnapshot | null; readonly change?: GoalChange }) => {
-      events.push(event);
-    },
-    telemetry: {
-      track: (event: string, properties: TelemetryProperties) => {
-        telemetry.push({ event, properties });
-      },
-    },
-    context: {
-      appendSystemReminder: (content: string, origin: unknown) => {
-        reminders.push({ content, origin });
-      },
-    },
-    replayBuilder: {
-      push: (record: AgentReplayRecord) => {
-        replay.push(record);
-      },
-    },
-  } as unknown as Agent;
+  const ctx = testAgent({
+    persistence,
+    telemetry: recordingTelemetry(telemetry),
+  });
+  ctx.configure();
+  ctx.events.on((event) => {
+    if (event.type === 'goal.updated') events.push(event);
+  });
 
   return {
-    goals: new GoalMode(agent),
-    records,
-    replay,
+    ctx,
+    goals: ctx.get(IGoalService) as GoalServiceTestManager,
+    records: persistence.records,
+    replay: () => ctx.get(IReplayBuilderService).buildResult(),
     events,
     telemetry,
-    reminders,
   };
 }
 
-describe('GoalMode creation', () => {
+function goalRecords(records: readonly PersistedWireRecord[]): readonly GoalRecord[] {
+  return records.filter((record): record is GoalRecord => record.type.startsWith('goal.'));
+}
+
+async function restoreGoalRecords(
+  ctx: ReturnType<typeof testAgent>,
+  records: readonly WireRecord[],
+): Promise<void> {
+  ctx.get(IGoalService).getGoal();
+  await ctx.runtime.restore(records);
+}
+
+describe('GoalService creation', () => {
   it('creates a goal and exposes it through getGoal', async () => {
-    const { goals } = makeGoalMode();
+    const { goals } = makeGoalService();
 
     const snapshot = await goals.createGoal({ objective: 'Ship feature X' });
 
@@ -70,7 +67,7 @@ describe('GoalMode creation', () => {
   });
 
   it('stores a completion criterion when provided', async () => {
-    const { goals } = makeGoalMode();
+    const { goals } = makeGoalService();
 
     const snapshot = await goals.createGoal({
       objective: 'Ship feature X',
@@ -82,7 +79,7 @@ describe('GoalMode creation', () => {
   });
 
   it('sets no default work caps when none is provided', async () => {
-    const { goals } = makeGoalMode();
+    const { goals } = makeGoalService();
 
     const snapshot = await goals.createGoal({ objective: 'Do work' });
 
@@ -93,7 +90,7 @@ describe('GoalMode creation', () => {
   });
 
   it('rejects empty and too-long objectives', async () => {
-    const { goals } = makeGoalMode();
+    const { goals } = makeGoalService();
 
     await expect(goals.createGoal({ objective: '   ' })).rejects.toMatchObject({
       code: ErrorCodes.GOAL_OBJECTIVE_EMPTY,
@@ -104,7 +101,7 @@ describe('GoalMode creation', () => {
   });
 
   it('rejects duplicate active, paused, and blocked goals without replace', async () => {
-    const { goals } = makeGoalMode();
+    const { goals } = makeGoalService();
 
     await goals.createGoal({ objective: 'first' });
     await expect(goals.createGoal({ objective: 'second' })).rejects.toMatchObject({
@@ -122,20 +119,24 @@ describe('GoalMode creation', () => {
   });
 
   it('replaces an existing goal when replace is set', async () => {
-    const { goals, records } = makeGoalMode();
+    const { goals, records } = makeGoalService();
 
     const first = await goals.createGoal({ objective: 'first' });
     const second = await goals.createGoal({ objective: 'second', replace: true });
 
     expect(second.goalId).not.toBe(first.goalId);
     expect(goals.getGoal().goal?.objective).toBe('second');
-    expect(records.map((record) => record.type)).toEqual(['goal.create', 'goal.clear', 'goal.create']);
+    expect(goalRecords(records).map((record) => record.type)).toEqual([
+      'goal.create',
+      'goal.clear',
+      'goal.create',
+    ]);
   });
 });
 
-describe('GoalMode lifecycle', () => {
+describe('GoalService lifecycle', () => {
   it('emits typed lifecycle and completion changes', async () => {
-    const { goals, events } = makeGoalMode();
+    const { goals, events } = makeGoalService();
 
     await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
     expect(events.at(-1)?.change).toBeUndefined();
@@ -154,7 +155,7 @@ describe('GoalMode lifecycle', () => {
   });
 
   it('keeps blocked goals resumable', async () => {
-    const { goals } = makeGoalMode();
+    const { goals } = makeGoalService();
 
     await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
     const blocked = await goals.markBlocked({ reason: 'need creds' });
@@ -167,7 +168,7 @@ describe('GoalMode lifecycle', () => {
   });
 
   it('pauseOnInterrupt parks active goals and no-ops for stopped goals', async () => {
-    const { goals } = makeGoalMode();
+    const { goals } = makeGoalService();
 
     await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
     const paused = await goals.pauseOnInterrupt({ reason: 'Paused after interruption' });
@@ -179,25 +180,22 @@ describe('GoalMode lifecycle', () => {
   });
 
   it('cancelGoal discards the goal and throws when missing', async () => {
-    const { goals, reminders } = makeGoalMode();
+    const { ctx, goals } = makeGoalService();
 
     await goals.createGoal({ objective: 'work' });
     const removed = await goals.cancelGoal();
     expect(removed.status).toBe('active');
     expect(goals.getGoal()).toEqual({ goal: null });
-    expect(reminders).toEqual([
-      expect.objectContaining({
-        content: expect.stringContaining('Ignore earlier active-goal reminders'),
-        origin: { kind: 'system_trigger', name: 'goal_cancelled' },
-      }),
-    ]);
+    const reminder = ctx.context.getHistory().at(-1);
+    expect(reminder?.origin).toEqual({ kind: 'system_trigger', name: 'goal_cancelled' });
+    expect(JSON.stringify(reminder?.content)).toContain('Ignore earlier active-goal reminders');
     await expect(goals.cancelGoal()).rejects.toMatchObject({ code: ErrorCodes.GOAL_NOT_FOUND });
   });
 });
 
-describe('GoalMode accounting and budgets', () => {
+describe('GoalService accounting and budgets', () => {
   it('counts tokens and turns only while active', async () => {
-    const { goals } = makeGoalMode();
+    const { goals } = makeGoalService();
 
     await goals.createGoal({ objective: 'work' });
     await goals.recordTokenUsage(30);
@@ -211,7 +209,7 @@ describe('GoalMode accounting and budgets', () => {
   });
 
   it('sets budget limits through SetGoalBudget-style updates', async () => {
-    const { goals } = makeGoalMode();
+    const { goals } = makeGoalService();
 
     await goals.createGoal({ objective: 'work' });
     const snapshot = await goals.setBudgetLimits({
@@ -224,7 +222,7 @@ describe('GoalMode accounting and budgets', () => {
   });
 
   it('tracks telemetry without goal text', async () => {
-    const { goals, telemetry } = makeGoalMode();
+    const { goals, telemetry } = makeGoalService();
 
     await goals.createGoal({ objective: 'private objective', replace: true });
     await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 100 } }, 'model');
@@ -251,9 +249,9 @@ describe('GoalMode accounting and budgets', () => {
   });
 });
 
-describe('GoalMode records', () => {
+describe('GoalService records', () => {
   it('records only replay-relevant create/update/clear fields', async () => {
-    const { goals, records } = makeGoalMode();
+    const { goals, records } = makeGoalService();
 
     await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
     await goals.recordTokenUsage(5);
@@ -262,7 +260,8 @@ describe('GoalMode records', () => {
     await goals.markBlocked({ reason: 'stuck' });
     await goals.cancelGoal();
 
-    expect(records).toEqual([
+    const recordsWithoutMetadata = goalRecords(records);
+    expect(recordsWithoutMetadata).toEqual([
       expect.objectContaining({
         type: 'goal.create',
         goalId: expect.any(String),
@@ -283,28 +282,30 @@ describe('GoalMode records', () => {
       }),
       expect.objectContaining({ type: 'goal.clear' }),
     ]);
-    expect(records[0]).not.toHaveProperty('actor');
-    expect(records[0]).not.toHaveProperty('budgetLimits');
-    expect(records[1]).not.toHaveProperty('goalId');
-    expect(records[1]).not.toHaveProperty('status');
-    expect(records.at(-1)).not.toHaveProperty('goalId');
-    expect(records.at(-1)).not.toHaveProperty('reason');
+    expect(recordsWithoutMetadata[0]).not.toHaveProperty('actor');
+    expect(recordsWithoutMetadata[0]).not.toHaveProperty('budgetLimits');
+    expect(recordsWithoutMetadata[1]).not.toHaveProperty('goalId');
+    expect(recordsWithoutMetadata[1]).not.toHaveProperty('status');
+    expect(recordsWithoutMetadata.at(-1)).not.toHaveProperty('goalId');
+    expect(recordsWithoutMetadata.at(-1)).not.toHaveProperty('reason');
   });
 
-  it('restores state from patch records', () => {
-    const { goals } = makeGoalMode();
+  it('restores state from patch records', async () => {
+    const { ctx, goals } = makeGoalService();
 
-    goals.restoreCreate({
-      type: 'goal.create',
-      goalId: 'g1',
-      objective: 'work',
-      completionCriterion: 'tests pass',
-      time: Date.parse('2026-01-01T00:00:00.000Z'),
-    });
-    goals.restoreUpdate({ type: 'goal.update', tokensUsed: 5 });
-    goals.restoreUpdate({ type: 'goal.update', turnsUsed: 1 });
-    goals.restoreUpdate({ type: 'goal.update', budgetLimits: { turnBudget: 2 } });
-    goals.restoreUpdate({ type: 'goal.update', status: 'blocked', reason: 'stuck' });
+    await restoreGoalRecords(ctx, [
+      {
+        type: 'goal.create',
+        goalId: 'g1',
+        objective: 'work',
+        completionCriterion: 'tests pass',
+        time: Date.parse('2026-01-01T00:00:00.000Z'),
+      },
+      { type: 'goal.update', tokensUsed: 5 },
+      { type: 'goal.update', turnsUsed: 1 },
+      { type: 'goal.update', budgetLimits: { turnBudget: 2 } },
+      { type: 'goal.update', status: 'blocked', reason: 'stuck' },
+    ]);
 
     expect(goals.getGoal().goal).toMatchObject({
       objective: 'work',
@@ -317,33 +318,35 @@ describe('GoalMode records', () => {
     expect(goals.getGoal().goal?.budget.turnBudget).toBe(2);
   });
 
-  it('projects restored goal status changes into replay records', () => {
-    const { goals, replay } = makeGoalMode();
+  it('projects restored goal status changes into replay records', async () => {
+    const { ctx, replay } = makeGoalService();
 
-    goals.restoreCreate({
-      type: 'goal.create',
-      goalId: 'g1',
-      objective: 'work',
-      completionCriterion: 'tests pass',
-      time: Date.parse('2026-01-01T00:00:00.000Z'),
-    });
-    goals.restoreUpdate({ type: 'goal.update', tokensUsed: 5 });
-    goals.restoreUpdate({ type: 'goal.update', turnsUsed: 1 });
-    goals.restoreUpdate({
-      type: 'goal.update',
-      status: 'paused',
-      reason: 'break',
-      actor: 'runtime',
-    });
-    goals.restoreUpdate({ type: 'goal.update', status: 'active', actor: 'user' });
-    goals.restoreUpdate({
-      type: 'goal.update',
-      status: 'complete',
-      reason: 'done',
-      actor: 'model',
-    });
+    await restoreGoalRecords(ctx, [
+      {
+        type: 'goal.create',
+        goalId: 'g1',
+        objective: 'work',
+        completionCriterion: 'tests pass',
+        time: Date.parse('2026-01-01T00:00:00.000Z'),
+      },
+      { type: 'goal.update', tokensUsed: 5 },
+      { type: 'goal.update', turnsUsed: 1 },
+      {
+        type: 'goal.update',
+        status: 'paused',
+        reason: 'break',
+        actor: 'runtime',
+      },
+      { type: 'goal.update', status: 'active', actor: 'user' },
+      {
+        type: 'goal.update',
+        status: 'complete',
+        reason: 'done',
+        actor: 'model',
+      },
+    ]);
 
-    expect(replay).toEqual([
+    expect(replay()).toEqual([
       expect.objectContaining({
         type: 'goal_updated',
         snapshot: expect.objectContaining({ objective: 'work', status: 'active' }),
@@ -378,22 +381,24 @@ describe('GoalMode records', () => {
     ]);
   });
 
-  it('keeps resume-normalization pauses in core replay records', () => {
-    const { goals, replay } = makeGoalMode();
+  it('keeps resume-normalization pauses in core replay records', async () => {
+    const { ctx, replay } = makeGoalService();
 
-    goals.restoreCreate({
-      type: 'goal.create',
-      goalId: 'g1',
-      objective: 'work',
-      time: Date.parse('2026-01-01T00:00:00.000Z'),
-    });
-    goals.restoreUpdate({
-      type: 'goal.update',
-      status: 'paused',
-      reason: 'Paused after agent resume',
-    });
+    await restoreGoalRecords(ctx, [
+      {
+        type: 'goal.create',
+        goalId: 'g1',
+        objective: 'work',
+        time: Date.parse('2026-01-01T00:00:00.000Z'),
+      },
+      {
+        type: 'goal.update',
+        status: 'paused',
+        reason: 'Paused after agent resume',
+      },
+    ]);
 
-    expect(replay.at(-1)).toMatchObject({
+    expect(replay().at(-1)).toMatchObject({
       type: 'goal_updated',
       snapshot: { status: 'paused', terminalReason: 'Paused after agent resume' },
       change: {
@@ -406,17 +411,22 @@ describe('GoalMode records', () => {
   });
 
   it('normalizes active replayed goals to paused', async () => {
-    const { goals, records } = makeGoalMode();
+    const { ctx, goals, records } = makeGoalService();
 
-    await goals.createGoal({ objective: 'resume me' });
     records.length = 0;
-    goals.normalizeAfterReplay();
+    await restoreGoalRecords(ctx, [
+      {
+        type: 'goal.create',
+        goalId: 'g1',
+        objective: 'resume me',
+      },
+    ]);
 
     expect(goals.getGoal().goal).toMatchObject({
       status: 'paused',
       terminalReason: 'Paused after agent resume',
     });
-    expect(records).toEqual([
+    expect(goalRecords(records)).toEqual([
       expect.objectContaining({
         type: 'goal.update',
         status: 'paused',
