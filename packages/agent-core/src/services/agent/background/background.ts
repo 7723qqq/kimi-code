@@ -31,6 +31,10 @@ export interface BackgroundOptions {
   readonly maxRunningTasks?: number;
 }
 
+export interface BackgroundLoadOptions {
+  readonly replace?: boolean;
+}
+
 export interface BackgroundTaskOutputSnapshot {
   readonly outputPath?: string;
   readonly outputSizeBytes: number;
@@ -118,6 +122,14 @@ export class Background implements BackgroundManager {
     wireRecord.register('background.task.terminated', (record) => {
       this.applyRestoredTask(record);
     });
+    wireRecord.hooks.onResumeEnded.register(
+      'background-lifecycle-resume',
+      async (_ctx, next) => {
+        await this.loadFromDisk({ replace: false });
+        await this.reconcile();
+        await next();
+      },
+    );
   }
 
   setPersistence(persistence: BackgroundTaskPersistence | undefined): void {
@@ -201,10 +213,12 @@ export class Background implements BackgroundManager {
     return result;
   }
 
-  async loadFromDisk(): Promise<void> {
+  async loadFromDisk(options: BackgroundLoadOptions = {}): Promise<void> {
     const persistence = this.persistence;
     if (persistence === undefined) return;
-    this.ghosts.clear();
+    if (options.replace !== false) {
+      this.ghosts.clear();
+    }
     const tasks = await persistence.listTasks();
     for (const task of tasks) {
       if (this.tasks.has(task.taskId)) continue;
@@ -279,13 +293,7 @@ export class Background implements BackgroundManager {
     }
 
     const ghost = this.ghosts.get(taskId);
-    if (ghost === undefined || ghost.terminalNotificationSuppressed === true) return;
-    const updated = {
-      ...ghost,
-      terminalNotificationSuppressed: true,
-    };
-    this.ghosts.set(taskId, updated);
-    await this.persistence?.writeTask(updated);
+    if (ghost !== undefined) return;
   }
 
   async stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined> {

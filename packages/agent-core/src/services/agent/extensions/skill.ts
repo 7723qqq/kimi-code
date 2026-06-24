@@ -4,13 +4,13 @@ import type { ContentPart } from '@moonshot-ai/kosong';
 
 import type { SkillActivationOrigin } from '../../../agent/context';
 import { renderUserSlashSkillPrompt } from '../../../agent/skill/prompt';
-import type { SkillRegistry } from '../../../agent/skill/types';
 import { Disposable } from '../../../di';
 import { ErrorCodes, KimiError } from '../../../errors';
 import type { EnabledPluginSessionStart } from '../../../plugin/types';
 import {
   isUserActivatableSkillType,
   type SkillDefinition,
+  type SkillRegistry,
   type SkillRoot,
   type SkillSource,
 } from '../../../skill';
@@ -40,7 +40,7 @@ declare module '../types' {
 }
 
 export class Skill extends Disposable implements SkillRegistry {
-  private readonly registry = new SessionSkillRegistry();
+  private readonly registry: SkillRegistry;
   private pluginSessionStarts: readonly EnabledPluginSessionStart[] = [];
 
   constructor(
@@ -49,6 +49,7 @@ export class Skill extends Disposable implements SkillRegistry {
     @IDynamicInjector dynamicInjector: IDynamicInjector,
   ) {
     super();
+    this.registry = new SessionSkillRegistry();
     this._register(
       dynamicInjector.register('plugin_session_start', ({ injectedAt }) => {
         if (injectedAt !== null) return undefined;
@@ -65,8 +66,16 @@ export class Skill extends Disposable implements SkillRegistry {
     this.pluginSessionStarts = [...sessionStarts];
   }
 
-  registerSkill(skill: SkillDefinition, options: { readonly replace?: boolean } = {}): void {
+  registerBuiltinSkill(skill: SkillDefinition): void {
+    this.registry.registerBuiltinSkill(skill);
+  }
+
+  register(skill: SkillDefinition, options: { readonly replace?: boolean } = {}): void {
     this.registry.register(skill, options);
+  }
+
+  registerSkill(skill: SkillDefinition, options: { readonly replace?: boolean } = {}): void {
+    this.register(skill, options);
   }
 
   getSkill(name: string): SkillDefinition | undefined {

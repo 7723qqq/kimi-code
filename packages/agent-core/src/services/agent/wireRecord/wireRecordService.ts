@@ -28,6 +28,7 @@ import {
   type WireRecordMetadata,
   type WireRecordPersistence,
   type WireRecordRegisterOptions,
+  type WireRecordRestoredContext,
   type WireRecordRestoreOptions,
   type WireRecordRestoreResult,
   type WireRecordServiceOptions,
@@ -49,6 +50,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
   private _restoring: { time?: number } | null = null;
   private metadataInitialized = false;
   readonly hooks = {
+    onRestoredRecord: new OrderedHookSlot<WireRecordRestoredContext>(),
     onResumeEnded: new OrderedHookSlot<{}>(),
   };
 
@@ -124,6 +126,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
     let migrations: readonly WireMigration[] = [];
     let sawRecord = false;
     let shouldRewrite = false;
+    let completed = true;
     let warning: string | undefined;
 
     for await (const record of toAsyncIterable(source)) {
@@ -158,14 +161,19 @@ export class WireRecordService extends Disposable implements IWireRecord {
       restoredRecords?.push(migratedRecord);
       if (migratedRecord.type === 'metadata') continue;
 
-      await this.restoreRecord(await this.rehydrateRecord(migratedRecord));
+      if (await this.restoreRecord(await this.rehydrateRecord(migratedRecord))) {
+        completed = false;
+        break;
+      }
     }
 
-    if (shouldRewrite && restoredRecords !== undefined) {
+    if (completed && shouldRewrite && restoredRecords !== undefined) {
       this.persistence?.rewrite(restoredRecords);
       await this.persistence?.flush();
     }
-    await this.runResumeEndedHooks();
+    if (completed) {
+      await this.runResumeEndedHooks();
+    }
     return warning === undefined ? {} : { warning };
   }
 
@@ -206,7 +214,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
     }
   }
 
-  private async restoreRecord(record: WireRecord): Promise<void> {
+  private async restoreRecord(record: WireRecord): Promise<boolean> {
     this.records.push(record);
     this._restoring = { time: record.time ?? Date.now() };
     try {
@@ -217,6 +225,9 @@ export class WireRecordService extends Disposable implements IWireRecord {
           await resumer(record);
         }
       }
+      const context: WireRecordRestoredContext = { record, stop: false };
+      await this.hooks.onRestoredRecord.run(context);
+      return context.stop;
     } finally {
       this._restoring = null;
     }

@@ -1,4 +1,4 @@
-import { registerSingleton, SyncDescriptor } from '../../../di';
+import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
 import type { AgentReplayRecord, AgentReplayRecordPayload } from '../../../rpc/resumed';
 
 import type { ContextMessage } from '../types';
@@ -10,7 +10,7 @@ import {
 
 const UNDO_BOUNDARY_RECORD_TYPES = new Set(['context.clear', 'context.apply_compaction']);
 
-export class ReplayBuilderService implements IReplayBuilderService {
+export class ReplayBuilderService extends Disposable implements IReplayBuilderService {
   declare readonly _serviceBrand: undefined;
 
   postRestoring = false;
@@ -23,7 +23,17 @@ export class ReplayBuilderService implements IReplayBuilderService {
   constructor(
     private readonly options: ReplayBuilderServiceOptions = {},
     @IWireRecord private readonly wireRecord: IWireRecord,
-  ) {}
+  ) {
+    super();
+    this._register(
+      wireRecord.hooks.onRestoredRecord.register('replay-builder', async (context, next) => {
+        await next();
+        if (this.finishRestoringRecord(context.record.type)) {
+          context.stop = true;
+        }
+      }),
+    );
+  }
 
   push(record: AgentReplayRecordPayload): void {
     if (!this.captureLiveRecords && this.wireRecord.restoring === null && !this.postRestoring) {

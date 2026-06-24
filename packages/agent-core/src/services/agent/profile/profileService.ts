@@ -4,6 +4,7 @@ import type { ResolvedAgentProfile, SystemPromptContext } from '../../../profile
 import { IEventBus } from '../eventBus/eventBus';
 import type { ProfileData, ProfileUpdateData } from './profile';
 import { IProfileService } from './profile';
+import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import { IWireRecord } from '../wireRecord/wireRecord';
 
 declare module '../types' {
@@ -30,6 +31,7 @@ export class ProfileService implements IProfileService {
   constructor(
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
+    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
   ) {
     wireRecord.register('config.update', (record) => {
       const { type: _type, time: _time, ...changed } = record;
@@ -77,6 +79,7 @@ export class ProfileService implements IProfileService {
   }
 
   private apply(changed: ProfileUpdateData): void {
+    this.replayBuilder.push({ type: 'config_updated', config: changed });
     if (changed.cwd !== undefined) this.cwd = changed.cwd;
     if (changed.modelAlias !== undefined) this.modelAlias = changed.modelAlias;
     if (changed.profileName !== undefined) this.profileName = changed.profileName;

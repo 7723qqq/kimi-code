@@ -28,6 +28,11 @@ export interface WireRecordRestoringContext {
   readonly time?: number;
 }
 
+export interface WireRecordRestoredContext {
+  readonly record: WireRecord;
+  stop: boolean;
+}
+
 export interface WireRecordRestoreOptions {
   readonly rewriteMigratedRecords?: boolean;
 }
@@ -76,6 +81,7 @@ export interface IWireRecord {
   close(): Promise<void>;
 
   readonly hooks: Hooks<{
+    onRestoredRecord: WireRecordRestoredContext;
     onResumeEnded: {};
   }>;
 }

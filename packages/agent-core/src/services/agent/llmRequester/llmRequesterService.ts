@@ -27,7 +27,7 @@ import { resolveThinkingEffort } from '../../../agent/config/thinking';
 import { IProfileService } from '../profile/profile';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
+import { IToolCatalogService } from '../toolCatalog/toolCatalog';
 import type { LLMEvent, LLMRequestOverrides } from '../types';
 import { ILLMRequestLogService } from '../llmRequestLog/llmRequestLog';
 import { AsyncEventQueue } from './asyncEventQueue';
@@ -50,7 +50,7 @@ export class LLMRequesterService implements ILLMRequester {
     private readonly options: LLMRequesterServiceOptions = {},
     @IContextMemory private readonly context: IContextMemory,
     @IContextProjector private readonly projector: IContextProjector,
-    @IToolRegistry private readonly tools: IToolRegistry,
+    @IToolCatalogService private readonly tools: IToolCatalogService,
     @IProfileService private readonly profile: IProfileService,
     @ILLMRequestLogService private readonly requestLog: ILLMRequestLogService,
   ) {}
@@ -235,7 +235,7 @@ export class LLMRequesterService implements ILLMRequester {
   private defaultTools(): readonly KosongTool[] {
     return this.tools
       .list()
-      .filter((tool) => this.profile.isToolActive(tool.name))
+      .filter((tool) => tool.active)
       .map((tool) => ({
         name: tool.name,
         description: tool.description,

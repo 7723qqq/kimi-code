@@ -6,6 +6,7 @@ import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
 
 import { IEventBus } from '../eventBus/eventBus';
 import { OrderedHookSlot } from '../hooks';
+import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import {
   IPermissionRulesService,
@@ -44,6 +45,7 @@ export class PermissionRulesService extends Disposable implements IPermissionRul
     options: PermissionRulesServiceOptions = {},
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
+    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
   ) {
     super();
     this.localRules = [...(options.initialRules ?? [])];
@@ -95,6 +97,7 @@ export class PermissionRulesService extends Disposable implements IPermissionRul
   }
 
   private applyApprovalResult(record: PermissionApprovalResultRecord): void {
+    this.replayBuilder.push({ type: 'approval_result', record });
     if (record.result.decision === 'approved' && record.result.scope === 'session') {
       const pattern = record.sessionApprovalRule;
       if (pattern !== undefined) {

@@ -40,11 +40,12 @@ import { IContextUsageService } from '../contextUsage/contextUsage';
 import { IEventBus } from '../eventBus/eventBus';
 import { IFullCompaction } from '../fullCompaction/fullCompaction';
 import { ILLMRequester } from '../llmRequester/llmRequester';
+import { IMcpRuntimeService } from '../mcpRuntime/mcpRuntime';
 import { IPermissionService } from '../permission/permission';
 import { IProfileService } from '../profile/profile';
+import { IToolCatalogService } from '../toolCatalog/toolCatalog';
 import { IToolExecutor } from '../toolExecutor/toolExecutor';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import type { ContextMessage, ToolDefinition, ToolResult, Turn, TurnResult } from '../types';
+import type { ContextMessage, ToolInfo, ToolResult, Turn, TurnResult } from '../types';
 import { IUsageService } from '../usage/usage';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import { ILoopService, type LoopRunHooks } from './loop';
@@ -152,13 +153,14 @@ export class LoopService extends Disposable implements ILoopService {
     @IContextUsageService private readonly contextUsage: IContextUsageService,
     @ILLMRequester private readonly llmRequester: ILLMRequester,
     @IEventBus private readonly events: IEventBus,
-    @IToolRegistry private readonly toolRegistry: IToolRegistry,
+    @IToolCatalogService private readonly toolCatalog: IToolCatalogService,
     @IToolExecutor private readonly toolExecutor: IToolExecutor,
     @IPermissionService private readonly permission: IPermissionService,
     @IUsageService private readonly usage: IUsageService,
     @IProfileService private readonly profile: IProfileService,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IInstantiationService private readonly instantiation: IInstantiationService,
+    @IMcpRuntimeService private readonly mcpRuntime: IMcpRuntimeService,
   ) {
     super();
     this.context.hooks.onSpliced.register('loop-service-reconcile', async (_event, next) => {
@@ -184,6 +186,7 @@ export class LoopService extends Disposable implements ILoopService {
     });
     const loopHooks = this.loopHooks(turn, hooks);
     try {
+      await this.mcpRuntime.waitForInitialLoad(turn.abortController.signal);
       while (true) {
         try {
           const result = await runLoopTurn({
@@ -551,10 +554,13 @@ export class LoopService extends Disposable implements ILoopService {
   }
 
   private executableTools(): readonly ExecutableTool[] {
-    return this.toolRegistry.list().map((tool) => this.executableTool(tool));
+    return this.toolCatalog
+      .list()
+      .filter((tool) => tool.active)
+      .map((tool) => this.executableTool(tool));
   }
 
-  private executableTool(toolInfo: ToolDefinition): ExecutableTool {
+  private executableTool(toolInfo: ToolInfo): ExecutableTool {
     return {
       name: toolInfo.name,
       description: toolInfo.description,
@@ -568,10 +574,10 @@ export class LoopService extends Disposable implements ILoopService {
   }
 
   private async resolveToolExecution(
-    toolInfo: ToolDefinition,
+    toolInfo: ToolInfo,
     args: unknown,
   ): Promise<ToolExecution> {
-    const tool = this.toolRegistry.resolve(toolInfo.name);
+    const tool = this.toolCatalog.resolve(toolInfo.name);
     if (tool === undefined) {
       return {
         output: `Tool "${toolInfo.name}" not found`,

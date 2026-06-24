@@ -101,10 +101,9 @@ function normalizeToolResult(result: ToolResult): ToolResult {
     }
   }
   if (result.isError === true) {
-    return { ...result, output, isError: true };
+    return { output, isError: true };
   }
-  const { isError: _isError, ...success } = result;
-  return { ...success, output };
+  return { output };
 }
 
 function isMediaContentPart(part: ContentPart): boolean {

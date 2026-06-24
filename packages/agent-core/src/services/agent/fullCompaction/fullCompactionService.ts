@@ -298,7 +298,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
   ): Promise<CompactionResult | undefined> {
     const startedAt = Date.now();
     const originalHistory = [...this.context.getHistory()];
-    const tokensBefore = this.contextUsage.getStatus().contextTokensWithPending;
+    const tokensBefore = estimateTokensForMessages(originalHistory);
     let retryCount = 0;
 
     try {

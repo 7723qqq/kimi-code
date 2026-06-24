@@ -8,6 +8,7 @@ import {
 import { FlagResolver, type ExperimentalFlagResolver } from '../../../flags';
 import {
   estimateTokensForContentParts,
+  estimateTokensForMessages,
 } from '../../../utils/tokens';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextUsageService } from '../contextUsage/contextUsage';
@@ -107,7 +108,7 @@ export class MicroCompactionService
 
     const effect = this.measureEffect(history, nextCutoff);
     const previousEffect = this.measureEffect(history, previousCutoff);
-    const rawContextTokens = this.contextUsage.getStatus().contextTokensWithPending;
+    const rawContextTokens = estimateTokensForMessages(history);
     const properties: MicroCompactionTelemetryProperties = {
       ...this.config,
       ...effect,

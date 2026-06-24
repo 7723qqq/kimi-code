@@ -4,6 +4,7 @@ import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
 import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
 import { IEventBus } from '../eventBus/eventBus';
 import { OrderedHookSlot } from '../hooks';
+import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import type { WireRecord } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import AUTO_MODE_ENTER_REMINDER from '../extensions/permission-mode-auto-enter-reminder.md?raw';
@@ -41,6 +42,7 @@ export class PermissionModeService extends Disposable implements IPermissionMode
   constructor(
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
+    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @IDynamicInjector dynamicInjector: IDynamicInjector,
   ) {
     super();
@@ -64,6 +66,7 @@ export class PermissionModeService extends Disposable implements IPermissionMode
   }
 
   private applyMode(record: WireRecord<'permission.set_mode'>): void {
+    this.replayBuilder.push({ type: 'permission_updated', mode: record.mode });
     const previousMode = this.currentMode;
     this.currentMode = record.mode;
     this.events.emit({

@@ -1,5 +1,6 @@
 import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
 import { OrderedHookSlot } from '../hooks';
+import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import type { ContextMessage, WireRecord } from '../types';
 import { IEventBus } from '../eventBus/eventBus';
 import { IWireRecord } from '../wireRecord/wireRecord';
@@ -37,6 +38,7 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
   constructor(
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly eventBus: IEventBus,
+    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
   ) {
     super();
     this._register(
@@ -78,6 +80,9 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
   private applySplice(record: WireRecord<'context.splice'>): void {
     const messages = [...record.messages];
     this.history.splice(record.start, record.deleteCount, ...messages);
+    for (const message of messages) {
+      this.replayBuilder.push({ type: 'message', message });
+    }
     const context = {
       start: record.start,
       deleteCount: record.deleteCount,

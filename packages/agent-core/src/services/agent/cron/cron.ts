@@ -47,6 +47,10 @@ export interface CronOptions {
   readonly onPersistenceError?: (error: unknown, taskId: string) => void;
 }
 
+export interface CronLoadOptions {
+  readonly replace?: boolean;
+}
+
 export interface CronFireOptions {
   readonly coalescedCount?: number;
   readonly firedAt?: number;
@@ -133,6 +137,16 @@ export class Cron extends Disposable implements CronToolManager {
         if (this.enabled) this.store.markFired(record.id, record.lastFiredAt);
       }),
     );
+    this._register(
+      wireRecord.hooks.onResumeEnded.register(
+        'cron-lifecycle-resume',
+        async (_ctx, next) => {
+          await this.loadFromDisk({ replace: false });
+          this.start();
+          await next();
+        },
+      ),
+    );
 
     if (this.enabled) {
       this.scheduler = createCronScheduler({
@@ -201,10 +215,12 @@ export class Cron extends Disposable implements CronToolManager {
     return this.store.list();
   }
 
-  async loadFromDisk(): Promise<void> {
+  async loadFromDisk(options: CronLoadOptions = {}): Promise<void> {
     if (!this.enabled || this.persistStore === undefined) return;
     const tasks = await this.persistStore.list();
-    this.store.clear();
+    if (options.replace !== false) {
+      this.store.clear();
+    }
     for (const task of tasks) {
       this.store.adopt(task);
     }
