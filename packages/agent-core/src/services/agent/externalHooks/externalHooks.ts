@@ -52,6 +52,7 @@ export interface IExternalHooksService {
     },
     signal: AbortSignal,
   ): Promise<void>;
+  triggerStopFailure(error: unknown, signal: AbortSignal): void;
   triggerNotification(payload: NotificationHookPayload): void;
 }
 

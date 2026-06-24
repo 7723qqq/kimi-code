@@ -93,6 +93,20 @@ export class ExternalHooksService implements IExternalHooksService {
     );
   }
 
+  triggerStopFailure(error: unknown, signal: AbortSignal): void {
+    const payload = toKimiErrorPayload(error);
+    fireAndForget(
+      this.options.hookEngine,
+      'StopFailure',
+      {
+        errorType: payload.name,
+        errorMessage: payload.message,
+      },
+      signal,
+      payload.name,
+    );
+  }
+
   triggerNotification(payload: NotificationHookPayload): void {
     const signal = new AbortController().signal;
     fireAndForget(

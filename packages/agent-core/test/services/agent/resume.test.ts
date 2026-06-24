@@ -176,6 +176,95 @@ describe('Agent resume', () => {
     });
   });
 
+  it('projects restored pending tool results before later user messages', async () => {
+    const persistence = new RecordingAgentPersistence([
+      resumeConfigRecord(),
+      {
+        type: 'context.splice',
+        start: 0,
+        deleteCount: 0,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'Run lookup' }],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+        ],
+      },
+      {
+        type: 'turn.launch',
+        turnId: 0,
+        origin: { kind: 'user' },
+      },
+      {
+        type: 'context.splice',
+        start: 1,
+        deleteCount: 0,
+        messages: [
+          {
+            role: 'assistant',
+            content: [],
+            toolCalls: [
+              {
+                type: 'function',
+                id: 'call_lookup',
+                name: 'Lookup',
+                arguments: JSON.stringify({ query: 'moon' }),
+              },
+            ],
+          },
+        ],
+      },
+      {
+        type: 'context.splice',
+        start: 2,
+        deleteCount: 0,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'Follow-up recorded before result' }],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+        ],
+      },
+      {
+        type: 'context.splice',
+        start: 3,
+        deleteCount: 0,
+        messages: [
+          {
+            role: 'tool',
+            content: [{ type: 'text', text: 'lookup result' }],
+            toolCalls: [],
+            toolCallId: 'call_lookup',
+          },
+        ],
+      },
+    ] as unknown as PersistedWireRecord[]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.runtime.restore();
+
+    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'tool',
+    ]);
+    expect(ctx.project().map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'user',
+    ]);
+    expect(textContent(ctx.project()[2])).toBe('lookup result');
+    expect(textContent(ctx.project()[3])).toBe('Follow-up recorded before result');
+    expect(persistence.appended).toEqual([]);
+    await ctx.expectResumeMatches();
+  });
+
   it.skip('replays inline skill reminders after pending tool results before the next prompt', async () => {
     const persistence = new RecordingAgentPersistence(resumeDeferredSystemReminderHistory() as unknown as PersistedWireRecord[]);
     const ctx = testAgent({ persistence });
