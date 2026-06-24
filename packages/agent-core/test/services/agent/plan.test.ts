@@ -602,7 +602,7 @@ describe('plan mode Bash ordinary permission behavior', () => {
   });
 });
 
-describe.skip('plan mode injection cadence', () => {
+describe('plan mode injection cadence', () => {
   it('dedupes immediate repeats and emits sparse reminders after assistant turns', async () => {
     const ctx = testAgent();
     ctx.configure();
@@ -632,7 +632,7 @@ describe.skip('plan mode injection cadence', () => {
       }),
     });
     ctx.configure();
-    void ctx.dispatch({
+    await ctx.dispatch({
       type: 'plan_mode.enter',
       id: 'restored-plan',
     });
