@@ -265,7 +265,7 @@ describe('Agent resume', () => {
     await ctx.expectResumeMatches();
   });
 
-  it.skip('replays inline skill reminders after pending tool results before the next prompt', async () => {
+  it('replays inline skill reminders after pending tool results before the next prompt', async () => {
     const persistence = new RecordingAgentPersistence(resumeDeferredSystemReminderHistory() as unknown as PersistedWireRecord[]);
     const ctx = testAgent({ persistence });
 
@@ -294,7 +294,7 @@ describe('Agent resume', () => {
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
         system: <system-prompt>
-        tools: []
+        tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
         messages:
           user: text "Historical prompt before skill"
           assistant: []  calls call_resume_write:Write { "path": "result.txt" }, call_resume_skill:Skill { "skill": "review" }
@@ -1534,109 +1534,98 @@ function resumeHistory(): PersistedWireRecord[] {
 
 function resumeDeferredSystemReminderHistory(): PersistedWireRecord[] {
   return [
+    resumeConfigRecord(),
     {
-      type: 'config.update',
-      cwd: process.cwd(),
-      modelAlias: MOCK_PROVIDER.model,
-      systemPrompt: DEFAULT_TEST_SYSTEM_PROMPT,
-      thinkingLevel: 'off',
+      type: 'context.splice',
+      start: 0,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'Historical prompt before skill' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      ],
     },
     {
-      type: 'context.append_message',
-      message: {
-        role: 'user',
-        content: [{ type: 'text', text: 'Historical prompt before skill' }],
-        toolCalls: [],
-        origin: { kind: 'user' },
-      },
+      type: 'turn.launch',
+      turnId: 0,
+      origin: { kind: 'user' },
     },
     {
-      type: 'context.append_loop_event',
-      event: {
-        type: 'step.begin',
-        uuid: 'resume-skill-step',
-        turnId: '0',
-        step: 1,
-      },
+      type: 'context.splice',
+      start: 1,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            {
+              type: 'function',
+              id: 'call_resume_write',
+              name: 'Write',
+              arguments: JSON.stringify({ path: 'result.txt' }),
+            },
+            {
+              type: 'function',
+              id: 'call_resume_skill',
+              name: 'Skill',
+              arguments: JSON.stringify({ skill: 'review' }),
+            },
+          ],
+        },
+      ],
     },
     {
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.call',
-        uuid: 'call_resume_write',
-        turnId: '0',
-        step: 1,
-        stepUuid: 'resume-skill-step',
-        toolCallId: 'call_resume_write',
-        name: 'Write',
-        args: { path: 'result.txt' },
-      },
+      type: 'context.splice',
+      start: 2,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'wrote file' }],
+          toolCalls: [],
+          toolCallId: 'call_resume_write',
+        },
+      ],
     },
     {
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.call',
-        uuid: 'call_resume_skill',
-        turnId: '0',
-        step: 1,
-        stepUuid: 'resume-skill-step',
-        toolCallId: 'call_resume_skill',
-        name: 'Skill',
-        args: { skill: 'review' },
-      },
+      type: 'context.splice',
+      start: 3,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'skill loaded' }],
+          toolCalls: [],
+          toolCallId: 'call_resume_skill',
+        },
+      ],
     },
     {
-      type: 'context.append_message',
-      message: {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: '<system-reminder>\nresume skill body\n</system-reminder>',
+      type: 'context.splice',
+      start: 4,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: '<system-reminder>\nresume skill body\n</system-reminder>',
+            },
+          ],
+          toolCalls: [],
+          origin: {
+            kind: 'skill_activation',
+            activationId: 'act_resume_skill',
+            skillName: 'review',
+            trigger: 'model-tool',
           },
-        ],
-        toolCalls: [],
-        origin: {
-          kind: 'skill_activation',
-          activationId: 'act_resume_skill',
-          skillName: 'review',
-          trigger: 'model-tool',
         },
-      },
-    },
-    {
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_resume_write',
-        toolCallId: 'call_resume_write',
-        result: { output: 'wrote file' },
-      },
-    },
-    {
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_resume_skill',
-        toolCallId: 'call_resume_skill',
-        result: { output: 'skill loaded' },
-      },
-    },
-    {
-      type: 'context.append_loop_event',
-      event: {
-        type: 'step.end',
-        uuid: 'resume-skill-step',
-        turnId: '0',
-        step: 1,
-        usage: {
-          inputOther: 10,
-          output: 2,
-          inputCacheRead: 0,
-          inputCacheCreation: 0,
-        },
-        finishReason: 'tool_use',
-      },
+      ],
     },
   ] as unknown as PersistedWireRecord[];
 }

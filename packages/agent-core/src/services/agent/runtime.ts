@@ -989,7 +989,7 @@ function activateAgentServices(instantiation: IInstantiationService): void {
     accessor.get(IEventBus);
     accessor.get(IReplayBuilderService);
     accessor.get(IContextMemory);
-    accessor.get(IContextUsageService);
+    accessor.get(IContextUsageService).getStatus();
     accessor.get(ITelemetryService);
     accessor.get(IProfileService).data();
     // Force real BackgroundService construction before restore/replay registers its hooks.

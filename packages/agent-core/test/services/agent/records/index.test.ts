@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
+import { InstantiationService, ServiceCollection } from '../../../../src/di';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
+  createAgentRuntime,
+  IContextMemory,
+  IContextUsageService,
   InMemoryWireRecordPersistence,
   IReplayBuilderService,
+  IWireRecord,
+  type AgentRuntimeOptions,
   type ContextMessage,
   type PersistedWireRecord,
   type ReplayRangeOptions,
@@ -291,6 +297,46 @@ describe('AgentRecords persistence metadata', () => {
     await expect(ctx.runtime.restore()).resolves.toEqual({});
     expect(ctx.context.getHistory()).toHaveLength(0);
   });
+
+  it('preconstructs context usage restore handlers during runtime activation', async () => {
+    const { runtime } = createBareRuntime();
+    try {
+      await runtime.get(IWireRecord).restore([
+        { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
+        {
+          type: 'context.splice',
+          start: 0,
+          deleteCount: 0,
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'text', text: 'restored prompt' }],
+              toolCalls: [],
+            },
+          ],
+        },
+        {
+          type: 'usage.record',
+          model: 'restored-model',
+          usageScope: 'turn',
+          usage: {
+            inputOther: 40,
+            output: 2,
+            inputCacheRead: 0,
+            inputCacheCreation: 0,
+          },
+        },
+      ]);
+
+      expect(runtime.get(IContextMemory).getHistory()).toHaveLength(1);
+      expect(runtime.get(IContextUsageService).getStatus()).toEqual({
+        contextTokens: 42,
+        contextTokensWithPending: 42,
+      });
+    } finally {
+      await runtime.close();
+    }
+  });
 });
 
 describe('agent replay range build', () => {
@@ -492,6 +538,16 @@ class RecordingInMemoryWireRecordPersistence extends InMemoryWireRecordPersisten
     this.rewrites.push([...records]);
     super.rewrite(records);
   }
+}
+
+function createBareRuntime(options: AgentRuntimeOptions = {}) {
+  const root = new InstantiationService(new ServiceCollection());
+  const runtime = createAgentRuntime(root, {
+    background: false,
+    cron: false,
+    ...options,
+  });
+  return { runtime, root };
 }
 
 async function buildReplay(
