@@ -184,6 +184,16 @@ export class CronService
     return removed;
   }
 
+  private removeTasksSilent(ids: readonly string[]): readonly string[] {
+    const removed = this.store.remove(ids);
+    if (removed.length === 0) return removed;
+
+    for (const id of removed) {
+      this.persistEnqueue(id, () => this.persistStore!.remove(id));
+    }
+    return removed;
+  }
+
   getTask(id: string): CronTask | undefined {
     return this.store.get(id);
   }
@@ -240,9 +250,11 @@ export class CronService
       coalescedCount: options.coalescedCount ?? 1,
       firedAt,
     });
-    if (task.recurring === false || stale) {
+    if (task.recurring === false) {
+      this.removeTasksSilent([task.id]);
+    } else if (stale) {
       const removed = this.removeTasks([task.id]);
-      if (stale && task.recurring !== false && removed.length > 0) {
+      if (removed.length > 0) {
         this.emitDeleted(task.id);
       }
     } else {

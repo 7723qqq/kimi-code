@@ -231,9 +231,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
         }
       }, { once: true });
     }
-    if (turnId !== undefined) {
-      this.events.emit({ type: 'compaction.blocked', turnId });
-    }
+    this.events.emit({ type: 'compaction.blocked', turnId });
     await active.promise;
   }
 

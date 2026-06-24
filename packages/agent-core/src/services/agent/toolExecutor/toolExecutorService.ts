@@ -34,7 +34,10 @@ export class ToolExecutorService implements IToolExecutor {
         toolCallId: call.id,
         metadata: options.metadata,
         signal: options.signal ?? NEVER_ABORTS,
-        onUpdate: options.onUpdate,
+        onUpdate: (update) => {
+          if (isAborted(options.signal)) return;
+          options.onUpdate?.(update);
+        },
       });
       const normalized = normalizeToolResult(coerceToolResult(result, call.name));
       return {

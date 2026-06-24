@@ -1,0 +1,557 @@
+import { randomBytes } from 'node:crypto';
+
+import { BackgroundTaskPersistence } from '../../../agent/background/persist';
+import {
+  TERMINAL_STATUSES,
+  type BackgroundTask,
+  type BackgroundTaskInfo,
+  type BackgroundTaskInfoBase,
+  type BackgroundTaskSettlement,
+  type BackgroundTaskStatus,
+} from '../../../agent/background/task';
+
+import { IEventBus } from '../eventBus/eventBus';
+import { ITelemetryService } from '../telemetry/telemetry';
+import type { WireRecord } from '../types';
+import { IWireRecord } from '../wireRecord/wireRecord';
+
+export { AgentBackgroundTask } from '../../../agent/background/agent-task';
+export type { AgentBackgroundTaskInfo } from '../../../agent/background/agent-task';
+export { ProcessBackgroundTask } from '../../../agent/background/process-task';
+export type { ProcessBackgroundTaskInfo } from '../../../agent/background/process-task';
+export { QuestionBackgroundTask } from '../../../agent/background/question-task';
+export type { QuestionBackgroundTaskInfo } from '../../../agent/background/question-task';
+export { BackgroundTaskPersistence } from '../../../agent/background/persist';
+export type {
+  BackgroundTaskInfo,
+  BackgroundTaskStatus,
+} from '../../../agent/background/task';
+
+export interface BackgroundOptions {
+  readonly persistence?: BackgroundTaskPersistence;
+  readonly maxRunningTasks?: number;
+}
+
+export interface BackgroundLoadOptions {
+  readonly replace?: boolean;
+}
+
+export interface BackgroundTaskOutputSnapshot {
+  readonly outputPath?: string;
+  readonly outputSizeBytes: number;
+  readonly previewBytes: number;
+  readonly truncated: boolean;
+  readonly fullOutputAvailable: boolean;
+  readonly preview: string;
+}
+
+declare module '../types' {
+  interface WireRecordMap {
+    'background.task.started': {
+      info: BackgroundTaskInfo;
+    };
+    'background.task.terminated': {
+      info: BackgroundTaskInfo;
+    };
+  }
+}
+
+interface ManagedTask {
+  readonly taskId: string;
+  readonly task: BackgroundTask;
+  readonly outputChunks: string[];
+  outputSizeBytes: number;
+  retainedOutputBytes: number;
+  status: BackgroundTaskStatus;
+  readonly startedAt: number;
+  endedAt: number | null;
+  stopReason?: string;
+  terminalNotificationSuppressed?: boolean;
+  terminalFired: boolean;
+  readonly abortController: AbortController;
+  lifecyclePromise: Promise<void>;
+  persistWriteQueue: Promise<void>;
+  outputWriteQueue: Promise<void>;
+  timeoutHandle?: ReturnType<typeof setTimeout>;
+  readonly waiters: Array<() => void>;
+}
+
+const MAX_OUTPUT_BYTES = 1024 * 1024;
+const SIGTERM_GRACE_MS = 5_000;
+const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
+
+export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
+export interface BackgroundManager {
+  registerTask(task: BackgroundTask): string;
+  getTask(taskId: string): BackgroundTaskInfo | undefined;
+  list(activeOnly?: boolean, limit?: number): readonly BackgroundTaskInfo[];
+  getOutputSnapshot(taskId: string, maxPreviewBytes: number): Promise<BackgroundTaskOutputSnapshot>;
+  readOutput(taskId: string, tail?: number): Promise<string>;
+  suppressTerminalNotification(taskId: string): Promise<void>;
+  stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined>;
+  wait(taskId: string, timeoutMs?: number): Promise<BackgroundTaskInfo | undefined>;
+}
+
+export class Background implements BackgroundManager {
+  private readonly tasks = new Map<string, ManagedTask>();
+  private readonly ghosts = new Map<string, BackgroundTaskInfo>();
+  private persistence: BackgroundTaskPersistence | undefined;
+  private maxRunningTasks: number | undefined;
+
+  constructor(
+    options: BackgroundOptions = {},
+    @IEventBus private readonly events: IEventBus,
+    @IWireRecord private readonly wireRecord: IWireRecord,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
+  ) {
+    this.persistence = options.persistence;
+    this.maxRunningTasks = options.maxRunningTasks;
+    wireRecord.register('background.task.started', (record) => {
+      this.applyRestoredTask(record);
+    });
+    wireRecord.register('background.task.terminated', (record) => {
+      this.applyRestoredTask(record);
+    });
+    wireRecord.hooks.onResumeEnded.register(
+      'background-lifecycle-resume',
+      async (_ctx, next) => {
+        await this.loadFromDisk({ replace: false });
+        await this.reconcile();
+        await next();
+      },
+    );
+  }
+
+  setPersistence(persistence: BackgroundTaskPersistence | undefined): void {
+    this.persistence = persistence;
+  }
+
+  setMaxRunningTasks(maxRunningTasks: number | undefined): void {
+    this.maxRunningTasks = maxRunningTasks;
+  }
+
+  registerTask(task: BackgroundTask): string {
+    this.assertCanRegister();
+    const entry: ManagedTask = {
+      taskId: generateTaskId(task.idPrefix),
+      task,
+      outputChunks: [],
+      outputSizeBytes: 0,
+      retainedOutputBytes: 0,
+      status: 'running',
+      startedAt: Date.now(),
+      endedAt: null,
+      abortController: new AbortController(),
+      lifecyclePromise: Promise.resolve(),
+      persistWriteQueue: Promise.resolve(),
+      outputWriteQueue: Promise.resolve(),
+      waiters: [],
+      terminalFired: false,
+    };
+    this.tasks.set(entry.taskId, entry);
+    this.ghosts.delete(entry.taskId);
+
+    if (task.timeoutMs !== undefined && task.timeoutMs > 0) {
+      entry.timeoutHandle = setTimeout(() => {
+        entry.abortController.abort('timed out');
+        void this.settleTask(entry, { status: 'timed_out', stopReason: 'timed out' });
+      }, task.timeoutMs);
+      entry.timeoutHandle.unref?.();
+    }
+
+    entry.lifecyclePromise = Promise.resolve()
+      .then(() =>
+        task.start({
+          signal: entry.abortController.signal,
+          appendOutput: (chunk) => {
+            this.appendOutput(entry, chunk);
+          },
+          settle: (settlement) => this.settleTask(entry, settlement),
+        }),
+      )
+      .catch(async (error: unknown) => {
+        const status = entry.abortController.signal.aborted ? 'killed' : 'failed';
+        await this.settleTask(entry, {
+          status,
+          stopReason: status === 'failed' ? errorMessage(error) : undefined,
+        });
+      });
+
+    void this.persistLive(entry);
+    this.recordTaskStarted(this.toInfo(entry));
+    return entry.taskId;
+  }
+
+  getTask(taskId: string): BackgroundTaskInfo | undefined {
+    const entry = this.tasks.get(taskId);
+    return entry === undefined ? this.ghosts.get(taskId) : this.toInfo(entry);
+  }
+
+  list(activeOnly = true, limit?: number): readonly BackgroundTaskInfo[] {
+    const result: BackgroundTaskInfo[] = [];
+    for (const entry of this.tasks.values()) {
+      if (activeOnly && TERMINAL_STATUSES.has(entry.status)) continue;
+      result.push(this.toInfo(entry));
+      if (limit !== undefined && result.length >= limit) return result;
+    }
+    if (!activeOnly) {
+      for (const ghost of this.ghosts.values()) {
+        result.push(ghost);
+        if (limit !== undefined && result.length >= limit) return result;
+      }
+    }
+    return result;
+  }
+
+  async loadFromDisk(options: BackgroundLoadOptions = {}): Promise<void> {
+    const persistence = this.persistence;
+    if (persistence === undefined) return;
+    if (options.replace !== false) {
+      this.ghosts.clear();
+    }
+    const tasks = await persistence.listTasks();
+    for (const task of tasks) {
+      if (this.tasks.has(task.taskId)) continue;
+      this.ghosts.set(task.taskId, task);
+    }
+  }
+
+  async reconcile(): Promise<readonly BackgroundTaskInfo[]> {
+    const lostTasks = await this.markLoadedTasksLost();
+    for (const info of lostTasks) {
+      this.recordTaskTerminated(info);
+    }
+    return lostTasks;
+  }
+
+  async getOutputSnapshot(
+    taskId: string,
+    maxPreviewBytes: number,
+  ): Promise<BackgroundTaskOutputSnapshot> {
+    if (this.getTask(taskId) === undefined) return emptyOutputSnapshot();
+
+    await this.tasks.get(taskId)?.outputWriteQueue;
+
+    const previewLimit = Math.max(0, Math.trunc(maxPreviewBytes));
+    const persistence = this.persistence;
+    if (persistence !== undefined && (await persistence.taskOutputExists(taskId))) {
+      const outputSizeBytes = await persistence.taskOutputSizeBytes(taskId);
+      const previewOffset = Math.max(0, outputSizeBytes - previewLimit);
+      const previewBytes = outputSizeBytes - previewOffset;
+      const preview = await persistence.readTaskOutputBytes(taskId, previewOffset, previewBytes);
+      return {
+        outputPath: persistence.taskOutputFile(taskId),
+        outputSizeBytes,
+        previewBytes,
+        truncated: previewOffset > 0,
+        fullOutputAvailable: true,
+        preview,
+      };
+    }
+
+    const entry = this.tasks.get(taskId);
+    if (entry === undefined) return emptyOutputSnapshot();
+
+    const available = Buffer.from(entry.outputChunks.join(''), 'utf-8');
+    const previewBytes = Math.min(previewLimit, available.byteLength, entry.outputSizeBytes);
+    const previewOffset = Math.max(0, available.byteLength - previewBytes);
+    return {
+      outputSizeBytes: entry.outputSizeBytes,
+      previewBytes,
+      truncated: entry.outputSizeBytes > previewBytes,
+      fullOutputAvailable: false,
+      preview: available.subarray(previewOffset).toString('utf-8'),
+    };
+  }
+
+  async readOutput(taskId: string, tail?: number): Promise<string> {
+    const output = (await this.getOutputSnapshot(
+      taskId,
+      tail === undefined ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.trunc(tail)) * 4,
+    )).preview;
+    if (tail === undefined) return output;
+    return output.slice(-Math.max(0, Math.trunc(tail)));
+  }
+
+  async suppressTerminalNotification(taskId: string): Promise<void> {
+    const entry = this.tasks.get(taskId);
+    if (entry !== undefined) {
+      if (entry.terminalNotificationSuppressed === true) return;
+      entry.terminalNotificationSuppressed = true;
+      await this.persistLive(entry);
+      return;
+    }
+
+    const ghost = this.ghosts.get(taskId);
+    if (ghost !== undefined) return;
+  }
+
+  async stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined> {
+    const entry = this.tasks.get(taskId);
+    if (entry === undefined) return undefined;
+    if (TERMINAL_STATUSES.has(entry.status)) {
+      await entry.persistWriteQueue;
+      return this.toInfo(entry);
+    }
+
+    const stopReason = normalizeReason(reason);
+    entry.stopReason = stopReason;
+    entry.abortController.abort(stopReason);
+
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    const graceful = await Promise.race([
+      entry.lifecyclePromise.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<false>((resolve) => {
+        graceTimer = setTimeout(() => {
+          resolve(false);
+        }, SIGTERM_GRACE_MS);
+        graceTimer.unref?.();
+      }),
+    ]);
+    if (graceTimer !== undefined) clearTimeout(graceTimer);
+
+    if (TERMINAL_STATUSES.has(entry.status)) {
+      await entry.persistWriteQueue;
+      return this.toInfo(entry);
+    }
+
+    if (!graceful) {
+      try {
+        await entry.task.forceStop?.();
+      } catch {
+        /* best effort */
+      }
+    }
+
+    if (TERMINAL_STATUSES.has(entry.status)) {
+      await entry.persistWriteQueue;
+      return this.toInfo(entry);
+    }
+
+    await this.settleTask(entry, { status: 'killed', stopReason });
+    await entry.persistWriteQueue;
+    return this.toInfo(entry);
+  }
+
+  async stopAll(reason?: string): Promise<readonly BackgroundTaskInfo[]> {
+    const results = await Promise.all(
+      Array.from(this.tasks.keys()).map((taskId) => this.stop(taskId, reason)),
+    );
+    return results.filter((info): info is BackgroundTaskInfo => info !== undefined);
+  }
+
+  async wait(taskId: string, timeoutMs = 30_000): Promise<BackgroundTaskInfo | undefined> {
+    const entry = this.tasks.get(taskId);
+    if (entry === undefined) return this.ghosts.get(taskId);
+    if (TERMINAL_STATUSES.has(entry.status)) {
+      await entry.persistWriteQueue;
+      return this.toInfo(entry);
+    }
+
+    let waiter: (() => void) | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          waiter = resolve;
+          entry.waiters.push(resolve);
+        }),
+        new Promise<void>((resolve) => {
+          timeout = setTimeout(resolve, timeoutMs);
+          timeout.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+      if (waiter !== undefined) {
+        const index = entry.waiters.indexOf(waiter);
+        if (index !== -1) entry.waiters.splice(index, 1);
+      }
+    }
+
+    if (TERMINAL_STATUSES.has(entry.status)) {
+      await entry.persistWriteQueue;
+    }
+    return this.toInfo(entry);
+  }
+
+  private assertCanRegister(): void {
+    if (this.maxRunningTasks === undefined) return;
+    if (this.activeTaskCount() < this.maxRunningTasks) return;
+    throw new Error('Too many background tasks are already running.');
+  }
+
+  private activeTaskCount(): number {
+    let count = 0;
+    for (const entry of this.tasks.values()) {
+      if (!TERMINAL_STATUSES.has(entry.status)) count++;
+    }
+    return count;
+  }
+
+  private applyRestoredTask(
+    record: WireRecord<'background.task.started' | 'background.task.terminated'>,
+  ): void {
+    const info = record.info;
+    if (this.tasks.has(info.taskId)) return;
+    this.ghosts.set(info.taskId, info);
+  }
+
+  private async markLoadedTasksLost(): Promise<readonly BackgroundTaskInfo[]> {
+    const lostTasks: BackgroundTaskInfo[] = [];
+    const persistence = this.persistence;
+    for (const [taskId, info] of this.ghosts) {
+      if (TERMINAL_STATUSES.has(info.status)) continue;
+      const updated: BackgroundTaskInfo = {
+        ...info,
+        status: 'lost',
+        endedAt: info.endedAt ?? Date.now(),
+      };
+      this.ghosts.set(taskId, updated);
+      if (persistence !== undefined) {
+        await persistence.writeTask(updated);
+      }
+      lostTasks.push(updated);
+    }
+    return lostTasks;
+  }
+
+  private persistLive(entry: ManagedTask): Promise<void> {
+    const persistence = this.persistence;
+    if (persistence === undefined) return Promise.resolve();
+    const info = this.toInfo(entry);
+    entry.persistWriteQueue = entry.persistWriteQueue
+      .then(() => persistence.writeTask(info))
+      .catch(() => {});
+    return entry.persistWriteQueue;
+  }
+
+  private appendOutput(entry: ManagedTask, chunk: string): void {
+    const chunkBytes = Buffer.byteLength(chunk, 'utf-8');
+    entry.outputSizeBytes += chunkBytes;
+    this.appendRetainedOutput(entry, chunk, chunkBytes);
+
+    const persistence = this.persistence;
+    if (persistence === undefined) return;
+    entry.outputWriteQueue = entry.outputWriteQueue
+      .then(() => persistence.appendTaskOutput(entry.taskId, chunk))
+      .catch(() => {});
+  }
+
+  private appendRetainedOutput(entry: ManagedTask, chunk: string, chunkBytes: number): void {
+    if (chunkBytes >= MAX_OUTPUT_BYTES) {
+      const retained = Buffer.from(chunk, 'utf-8')
+        .subarray(chunkBytes - MAX_OUTPUT_BYTES)
+        .toString('utf-8');
+      entry.outputChunks.length = 0;
+      entry.outputChunks.push(retained);
+      entry.retainedOutputBytes = Buffer.byteLength(retained, 'utf-8');
+      return;
+    }
+
+    entry.outputChunks.push(chunk);
+    entry.retainedOutputBytes += chunkBytes;
+    while (entry.retainedOutputBytes > MAX_OUTPUT_BYTES) {
+      const removed = entry.outputChunks.shift();
+      if (removed === undefined) break;
+      entry.retainedOutputBytes -= Buffer.byteLength(removed, 'utf-8');
+    }
+  }
+
+  private async settleTask(
+    entry: ManagedTask,
+    settlement: BackgroundTaskSettlement,
+  ): Promise<boolean> {
+    if (TERMINAL_STATUSES.has(entry.status)) return false;
+    entry.status = settlement.status;
+    entry.endedAt = Date.now();
+    entry.stopReason =
+      settlement.stopReason ?? (settlement.status === 'killed' ? entry.stopReason : undefined);
+    if (entry.timeoutHandle !== undefined) {
+      clearTimeout(entry.timeoutHandle);
+      entry.timeoutHandle = undefined;
+    }
+    await this.persistLive(entry);
+    this.fireTerminalEffects(entry);
+    this.resolveWaiters(entry);
+    return true;
+  }
+
+  private fireTerminalEffects(entry: ManagedTask): void {
+    if (entry.terminalFired) return;
+    entry.terminalFired = true;
+    this.recordTaskTerminated(this.toInfo(entry));
+  }
+
+  private recordTaskStarted(info: BackgroundTaskInfo): void {
+    this.wireRecord.append({ type: 'background.task.started', info });
+    this.events.emit({ type: 'background.task.started', info });
+    this.telemetry.track('background_task_created', {
+      kind: info.kind === 'process' ? 'bash' : info.kind,
+    });
+  }
+
+  private recordTaskTerminated(info: BackgroundTaskInfo): void {
+    this.wireRecord.append({ type: 'background.task.terminated', info });
+    this.events.emit({ type: 'background.task.terminated', info });
+    this.telemetry.track('background_task_completed', {
+      kind: info.kind,
+      duration: info.endedAt !== null ? info.endedAt - info.startedAt : null,
+      status: info.status,
+    });
+  }
+
+  private resolveWaiters(entry: ManagedTask): void {
+    const waiters = entry.waiters.splice(0);
+    for (const resolve of waiters) resolve();
+  }
+
+  private toInfo(entry: ManagedTask): BackgroundTaskInfo {
+    const base: BackgroundTaskInfoBase = {
+      taskId: entry.taskId,
+      description: entry.task.description,
+      status: entry.status,
+      startedAt: entry.startedAt,
+      endedAt: entry.endedAt,
+      stopReason: entry.stopReason,
+      terminalNotificationSuppressed: entry.terminalNotificationSuppressed,
+      timeoutMs: entry.task.timeoutMs,
+    };
+    return entry.task.toInfo(base);
+  }
+}
+
+function emptyOutputSnapshot(): BackgroundTaskOutputSnapshot {
+  return {
+    outputSizeBytes: 0,
+    previewBytes: 0,
+    truncated: false,
+    fullOutputAvailable: false,
+    preview: '',
+  };
+}
+
+function generateTaskId(kind: string): string {
+  const bytes = randomBytes(8);
+  let suffix = '';
+  for (let index = 0; index < 8; index++) {
+    suffix += TASK_ID_ALPHABET[bytes[index]! % TASK_ID_ALPHABET.length];
+  }
+  return `${kind}-${suffix}`;
+}
+
+function normalizeReason(reason: string | undefined): string | undefined {
+  const trimmed = reason?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}

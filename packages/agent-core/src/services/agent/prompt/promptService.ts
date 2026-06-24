@@ -5,6 +5,7 @@ import { USER_PROMPT_ORIGIN } from '../../../agent/context';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { ITurnRunner } from '../turnRunner/turnRunner';
 import type { ContextMessage, Turn } from '../types';
+import { IWireRecord } from '../wireRecord/wireRecord';
 import { IPromptService } from './prompt';
 
 export class PromptService implements IPromptService {
@@ -14,6 +15,7 @@ export class PromptService implements IPromptService {
   constructor(
     @IContextMemory private readonly context: IContextMemory,
     @ITurnRunner private readonly turnRunner: ITurnRunner,
+    @IWireRecord private readonly wireRecord: IWireRecord,
   ) {
     turnRunner.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
       await next();
@@ -74,7 +76,7 @@ export class PromptService implements IPromptService {
       }
     }
 
-    if (removedUserCount < count || stoppedAtCompaction) {
+    if (!this.wireRecord.restoring && (removedUserCount < count || stoppedAtCompaction)) {
       throw new KimiError(
         ErrorCodes.REQUEST_INVALID,
         formatUndoUnavailableMessage(count, removedUserCount, stoppedAtCompaction),

@@ -55,7 +55,9 @@ export class ToolStoreService extends Disposable implements IToolStoreService {
 
   private apply<K extends ToolStoreKey>(key: K, value: ToolStoreData[K]): void {
     this.store[key] = value;
-    void this.hooks.onUpdated.run({ key, value });
+    if (!this.wireRecord.restoring) {
+      void this.hooks.onUpdated.run({ key, value });
+    }
   }
 }
 
