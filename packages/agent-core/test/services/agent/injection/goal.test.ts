@@ -6,10 +6,12 @@ import {
   IGoalService,
   InMemoryWireRecordPersistence,
   type DynamicInjectionProvider,
+  type GoalService,
 } from '../../../../src/services/agent';
 import { testAgent } from '../harness';
 
 type GoalSnapshot = NonNullable<ReturnType<IGoalService['getGoal']>['goal']>;
+type GoalServiceTestManager = IGoalService & GoalService;
 
 function createGoalInjectionReader(
   getGoal: () => GoalSnapshot | null,
@@ -34,11 +36,11 @@ function createGoalInjectionReader(
 }
 
 async function readGoalReminder(
-  configure: (goals: IGoalService) => Promise<void>,
+  configure: (goals: GoalServiceTestManager) => Promise<void>,
 ): Promise<string | undefined> {
   const ctx = testAgent();
   ctx.configure();
-  const goals = ctx.get(IGoalService);
+  const goals = ctx.get(IGoalService) as GoalServiceTestManager;
   await configure(goals);
   const reader = createGoalInjectionReader(() => goals.getGoal().goal);
   try {

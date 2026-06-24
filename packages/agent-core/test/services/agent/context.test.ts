@@ -10,7 +10,7 @@ import {
   type ContextMessage,
 } from '../../../src/services/agent';
 
-describe.skip('Agent context', () => {
+describe('Agent context', () => {
   it('stores prompt origins without leaking them to LLM projection', () => {
     const ctx = testAgent();
     ctx.configure();

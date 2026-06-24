@@ -250,7 +250,9 @@ export class AgentRuntime extends Disposable {
     this.instantiation.invokeFunction((accessor) => {
       accessor.get(IContextUsageService).getStatus();
       accessor.get(IUsageService).data();
+      // oxlint-disable-next-line no-unused-expressions
       accessor.get(IPermissionModeService).mode;
+      // oxlint-disable-next-line no-unused-expressions
       accessor.get(IPlanModeService).isActive;
     });
     const replayBuilder = this.get(IReplayBuilderService);

@@ -2419,7 +2419,7 @@ describe('Agent-local approve for session', () => {
     );
   });
 
-  it.skip('replays session approval wire events into agent permission state', async () => {
+  it('replays session approval wire events into agent permission state', async () => {
     const ctx = testAgent();
     const sessionApprovalRule = 'Bash(printf first)';
 
