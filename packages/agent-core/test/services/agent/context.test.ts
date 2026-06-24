@@ -702,8 +702,8 @@ describe('Agent context', () => {
     expect(ctx.newEvents()).toContainEqual(
       expect.objectContaining({
         type: '[wire]',
-        event: 'context.undo',
-        args: expect.objectContaining({ count: 2 }),
+        event: 'context.splice',
+        args: expect.objectContaining({ deleteCount: 1, messages: [] }),
       }),
     );
   });

@@ -300,50 +300,52 @@ describe('plan exit tool', () => {
   });
 });
 
-describe.skip('plan exit tool options', () => {
+describe('plan exit tool options', () => {
   it('keeps options for approval when an option omits the optional description', async () => {
-    const files = new Map<string, string>();
-    const readText = vi.fn(async (path: string) => files.get(path) ?? '');
-    const ctx = testAgent({
-      kaos: createPlanKaos({ readText }),
-    });
-    ctx.configure({ tools: ['ExitPlanMode'] });
-    await ctx.rpc.setPermission({ mode: 'manual' });
-    await ctx.get(IPlanModeService).enter('options-plan', false);
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-options-exit-'));
+    try {
+      const ctx = testAgent();
+      ctx.configure({ tools: ['ExitPlanMode'] });
+      ctx.profile.update({ cwd });
+      await ctx.rpc.setPermission({ mode: 'manual' });
+      await ctx.get(IPlanModeService).enter('options-plan', false);
 
-    const planPath = ctx.get(IPlanModeService).planFilePath;
-    if (planPath === null) throw new Error('expected active plan path');
-    files.set(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify');
+      const planPath = ctx.get(IPlanModeService).planFilePath;
+      if (planPath === null) throw new Error('expected active plan path');
+      await writeFile(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify', 'utf8');
 
-    const exitPlanModeCall: ToolCall = {
-      type: 'function',
-      id: 'call_exit_options',
-      name: 'ExitPlanMode',
-      // The second option omits `description` — valid input after the
-      // schema relaxation. The approval policy must still surface both.
-      arguments: JSON.stringify({
-        options: [
-          { label: 'Approach A', description: 'Smaller refactor.' },
-          { label: 'Approach B' },
-        ],
-      }),
-    };
-    ctx.mockNextResponse({ type: 'text', text: 'I will present the plan.' }, exitPlanModeCall);
-    ctx.mockNextResponse({ type: 'text', text: 'I can execute after approval.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Show the plan' }] });
+      const exitPlanModeCall: ToolCall = {
+        type: 'function',
+        id: 'call_exit_options',
+        name: 'ExitPlanMode',
+        // The second option omits `description` - valid input after the
+        // schema relaxation. The approval policy must still surface both.
+        arguments: JSON.stringify({
+          options: [
+            { label: 'Approach A', description: 'Smaller refactor.' },
+            { label: 'Approach B' },
+          ],
+        }),
+      };
+      ctx.mockNextResponse({ type: 'text', text: 'I will present the plan.' }, exitPlanModeCall);
+      ctx.mockNextResponse({ type: 'text', text: 'I can execute after approval.' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Show the plan' }] });
 
-    const approval = await ctx.takeApprovalRequest();
-    const rpcArgs = (
-      ctx.allEvents.find(
-        (event) => event.type === '[rpc]' && event.event === 'requestApproval',
-      ) as { args: { action?: string; display?: { options?: readonly unknown[] } } } | undefined
-    )?.args;
+      const approval = await ctx.takeApprovalRequest();
+      const rpcArgs = (
+        ctx.allEvents.find(
+          (event) => event.type === '[rpc]' && event.event === 'requestApproval',
+        ) as { args: { action?: string; display?: { options?: readonly unknown[] } } } | undefined
+      )?.args;
 
-    expect(rpcArgs?.action).toBe('Presenting plan and exiting plan mode');
-    expect(rpcArgs?.display?.options).toHaveLength(2);
+      expect(rpcArgs?.action).toBe('Presenting plan and exiting plan mode');
+      expect(rpcArgs?.display?.options).toHaveLength(2);
 
-    approval.respond({ decision: 'approved', selectedLabel: 'Approach A' });
-    await ctx.untilTurnEnd();
+      approval.respond({ decision: 'approved', selectedLabel: 'Approach A' });
+      await ctx.untilTurnEnd();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 });
 
