@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import type { ToolCall } from '@moonshot-ai/kosong';
@@ -110,37 +110,32 @@ describe('manual plan entry', () => {
   });
 });
 
-describe.skip('plan clear', () => {
+describe('plan clear', () => {
   it('empties the current plan file without leaving plan mode', async () => {
-    const files = new Map<string, string>();
-    const mkdir = vi.fn().mockResolvedValue(undefined);
-    const readText = vi.fn(async (path: string) => files.get(path) ?? '');
-    const writeText = vi.fn(async (path: string, content: string) => {
-      files.set(path, content);
-      return content.length;
-    });
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-clear-'));
+    try {
+      const ctx = testAgent();
+      ctx.profile.update({ cwd });
+      await ctx.get(IPlanModeService).enter('test-plan', false);
 
-    const ctx = testAgent({
-      kaos: createPlanKaos({ mkdir, readText, writeText }),
-    });
-    await ctx.get(IPlanModeService).enter('test-plan', false);
+      const planPath = ctx.get(IPlanModeService).planFilePath;
+      if (planPath === null) throw new Error('expected active plan path');
+      await writeFile(planPath, '# Plan\n\n- Step 1', 'utf8');
 
-    const planPath = ctx.get(IPlanModeService).planFilePath;
-    if (planPath === null) throw new Error('expected active plan path');
-    files.set(planPath, '# Plan\n\n- Step 1');
+      await ctx.rpc.clearPlan({});
 
-    await ctx.rpc.clearPlan({});
-
-    expect(writeText).toHaveBeenCalledWith(planPath, '');
-    expect(files.get(planPath)).toBe('');
-    expect(ctx.get(IPlanModeService).isActive).toBe(true);
-    expect(ctx.get(IPlanModeService).planFilePath).toBe(planPath);
-    await expect(ctx.rpc.getPlan({})).resolves.toMatchObject({
-      id: 'test-plan',
-      content: '',
-      path: planPath,
-    });
-    await ctx.expectResumeMatches();
+      expect(await readFile(planPath, 'utf8')).toBe('');
+      expect(ctx.get(IPlanModeService).isActive).toBe(true);
+      expect(ctx.get(IPlanModeService).planFilePath).toBe(planPath);
+      await expect(ctx.rpc.getPlan({})).resolves.toMatchObject({
+        id: 'test-plan',
+        content: '',
+        path: planPath,
+      });
+      await ctx.expectResumeMatches();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 });
 
