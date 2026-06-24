@@ -893,6 +893,10 @@ class MissingSubagentHostService implements SubagentHostServiceShape {
     throw new Error('Subagent host is not configured.');
   }
 
+  generateAgentsMd(): Promise<void> {
+    throw new Error('Subagent host is not configured.');
+  }
+
   runQueued<T>(
     _tasks: readonly QueuedSubagentTask<T>[],
   ): Promise<Array<SubagentResult<T>>> {

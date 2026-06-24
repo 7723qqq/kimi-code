@@ -305,6 +305,8 @@ export {
   SwarmModeService,
   SwarmModeService as SwarmMode,
 } from './swarmMode/swarmModeService';
+export { ISubagentHost } from './subagentHost/subagentHost';
+export { SubagentHostService } from './subagentHost/subagentHostService';
 export {
   BackgroundTaskPersistence,
   IBackgroundService,
