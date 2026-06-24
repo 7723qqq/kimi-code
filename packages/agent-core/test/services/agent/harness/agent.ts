@@ -410,7 +410,7 @@ export class AgentTestContext {
   }
 
   clearContext(): void {
-    this.rpcMethods.clearContext({});
+    void this.rpcMethods.clearContext({});
   }
 
   undoHistory(count: number): number {

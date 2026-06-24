@@ -102,11 +102,10 @@ function applyWireMigration(
   if (migration.migrateRecords !== undefined) {
     return [...migration.migrateRecords(records)];
   }
-  const migrateRecord = migration.migrateRecord;
-  if (migrateRecord === undefined) return [...records];
+  if (migration.migrateRecord === undefined) return [...records];
   const migrated: WireMigrationRecord[] = [];
   for (const record of records) {
-    const result = migrateRecord(record);
+    const result = migration.migrateRecord(record);
     if (isWireMigrationRecordArray(result)) {
       migrated.push(...result);
     } else {

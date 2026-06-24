@@ -175,7 +175,7 @@ export class FileSystemWireRecordPersistence implements WireRecordPersistence {
 
     const writable = this.options.beforeWrite === undefined
       ? batch
-      : await Promise.all(batch.map((record) => this.options.beforeWrite!(record)));
+      : await Promise.all(batch.map((record) => Promise.resolve(this.options.beforeWrite!(record))));
     const content = writable.map((e) => JSON.stringify(e) + '\n').join('');
     const directory = dirname(this.filePath);
     await mkdir(directory, { recursive: true });

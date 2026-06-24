@@ -263,7 +263,7 @@ describe.skip('FullCompaction', () => {
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: { type: 'step.begin', uuid: 'empty-placeholder', turnId: '', step: 2 },
     });
@@ -473,12 +473,12 @@ describe.skip('FullCompaction', () => {
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
 
-    ctx.rpc.beginCompaction({ instruction: undefined });
+    void ctx.rpc.beginCompaction({ instruction: undefined });
     await vi.waitFor(() => {
       expect(preCompactSignal).toBeInstanceOf(AbortSignal);
     });
     const canceled = ctx.once('compaction.cancelled');
-    ctx.rpc.cancelCompaction({});
+    void ctx.rpc.cancelCompaction({});
     await canceled;
 
     expect(trigger).toHaveBeenCalledWith(
@@ -727,7 +727,7 @@ describe.skip('FullCompaction', () => {
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
 
-    ctx.rpc.cancelCompaction({});
+    void ctx.rpc.cancelCompaction({});
     await cancelled;
     await vi.advanceTimersByTimeAsync(10_000);
 
@@ -947,7 +947,7 @@ describe.skip('FullCompaction', () => {
       'assistant',
       'tool',
     ]);
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
@@ -1263,7 +1263,7 @@ describe.skip('FullCompaction', () => {
     ]);
 
     // Closing the exchange flushes the deferred reminder to history.
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
@@ -1272,7 +1272,7 @@ describe.skip('FullCompaction', () => {
         result: { output: 'one result' },
       },
     });
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
@@ -1329,7 +1329,7 @@ describe.skip('FullCompaction', () => {
       'tool',
     ]);
 
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',

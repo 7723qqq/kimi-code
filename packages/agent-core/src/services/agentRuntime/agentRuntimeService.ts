@@ -22,7 +22,6 @@ import type {
   AddAdditionalDirPayload,
   AddAdditionalDirResult,
   ClientTelemetryInfo,
-  JsonObject,
   SessionAPI,
   SessionSummary,
 } from '../../rpc';
@@ -198,7 +197,7 @@ export class AgentRuntimeService
       await runtime.flush();
       this.cacheRuntime(session, 'main', runtime);
       this.trackSessionStarted(created.id, options.client);
-      return this.store.get(created.id);
+      return await this.store.get(created.id);
     } catch (error) {
       await runtime.close().catch(() => undefined);
       throw error;
@@ -563,7 +562,7 @@ export class AgentRuntimeService
     additionalDirs: readonly string[],
   ): Promise<void> {
     session.additionalDirs = normalizeAdditionalDirs(additionalDirs);
-    const cached = await Promise.all([...session.agents.values()]);
+    const cached = await Promise.all(session.agents.values());
     for (const entry of cached) {
       entry?.runtime.setAdditionalDirs(session.additionalDirs);
     }

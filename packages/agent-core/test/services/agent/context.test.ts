@@ -17,11 +17,11 @@ describe.skip('Agent context', () => {
 
     ctx.appendUserMessage([{ type: 'text', text: 'hello' }]);
     ctx.appendSystemReminder('Remember this.', { kind: 'injection', variant: 'host' });
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: { type: 'step.begin', uuid: 'origin-step', turnId: '', step: 1 },
     });
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.call',
@@ -34,11 +34,11 @@ describe.skip('Agent context', () => {
         args: {},
       },
     });
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: { type: 'step.end', uuid: 'origin-step', turnId: '', step: 1 },
     });
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
@@ -61,12 +61,12 @@ describe.skip('Agent context', () => {
     const ctx = testAgent();
     ctx.configure();
 
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: { type: 'step.begin', uuid: 's1', turnId: 't', step: 1 },
     });
     for (const toolCallId of ['call_error', 'call_empty']) {
-      ctx.dispatch({
+      void ctx.dispatch({
         type: 'context.append_loop_event',
         event: {
           type: 'tool.call',
@@ -80,7 +80,7 @@ describe.skip('Agent context', () => {
         },
       });
     }
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
@@ -89,7 +89,7 @@ describe.skip('Agent context', () => {
         result: { output: 'permission denied', isError: true },
       },
     });
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
@@ -362,7 +362,7 @@ describe.skip('Agent context', () => {
     const stepUuid = 'skill-batch-step';
 
     ctx.appendUserMessage([{ type: 'text', text: 'load a skill' }]);
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: { type: 'step.begin', uuid: stepUuid, turnId: '0', step: 1 },
     });
@@ -370,7 +370,7 @@ describe.skip('Agent context', () => {
       ['call_write', 'Write'],
       ['call_skill', 'Skill'],
     ] as const) {
-      ctx.dispatch({
+      void ctx.dispatch({
         type: 'context.append_loop_event',
         event: {
           type: 'tool.call',
@@ -385,7 +385,7 @@ describe.skip('Agent context', () => {
       });
     }
 
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_message',
       message: {
         role: 'user',
@@ -402,7 +402,7 @@ describe.skip('Agent context', () => {
 
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual(['user', 'assistant']);
 
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'step.end',
@@ -414,7 +414,7 @@ describe.skip('Agent context', () => {
     });
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual(['user', 'assistant']);
 
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
@@ -429,7 +429,7 @@ describe.skip('Agent context', () => {
       'tool',
     ]);
 
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
@@ -482,7 +482,7 @@ describe.skip('Agent context', () => {
       'tool',
     ]);
 
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
@@ -576,11 +576,11 @@ describe.skip('Agent context', () => {
     ctx.configure();
     const stepUuid = 'context-pending-tool-step';
     ctx.appendUserMessage([{ type: 'text', text: 'lookup pending tokens' }]);
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: { type: 'step.begin', uuid: stepUuid, turnId: '0', step: 1 },
     });
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.call',
@@ -593,7 +593,7 @@ describe.skip('Agent context', () => {
         args: {},
       },
     });
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'tool.result',
@@ -602,7 +602,7 @@ describe.skip('Agent context', () => {
         result: { output: 'large tool result '.repeat(50) },
       },
     });
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'step.end',
@@ -634,11 +634,11 @@ describe.skip('Agent context', () => {
 
     const stepUuid = 'context-filtered-step';
     ctx.appendUserMessage([{ type: 'text', text: 'next prompt' }]);
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: { type: 'step.begin', uuid: stepUuid, turnId: '0', step: 2 },
     });
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
         type: 'step.end',

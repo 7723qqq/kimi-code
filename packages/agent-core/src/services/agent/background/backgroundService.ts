@@ -350,7 +350,7 @@ export class BackgroundService extends Disposable implements IBackgroundService 
   async stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined> {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return undefined;
-    return await this.stopEntry(entry, normalizeReason(reason), normalizeReason(reason));
+    return this.stopEntry(entry, normalizeReason(reason), normalizeReason(reason));
   }
 
   private async stopEntry(

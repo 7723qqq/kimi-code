@@ -58,7 +58,7 @@ describe.skip('manual plan entry', () => {
     });
 
     const resumed = testAgent({ kaos: createFakeKaos() });
-    resumed.dispatch({
+    void resumed.dispatch({
       type: 'plan_mode.enter',
       id: 'stable-plan',
     });
@@ -558,7 +558,7 @@ describe.skip('plan mode injection cadence', () => {
       }),
     });
     ctx.configure();
-    ctx.dispatch({
+    void ctx.dispatch({
       type: 'plan_mode.enter',
       id: 'restored-plan',
     });

@@ -54,7 +54,7 @@ function priorTodoReminder(): ContextMessage {
 describe('TodoListReminderInjector', () => {
   it('skips reminder injection when TodoList is not active', async () => {
     const history = Array.from({ length: 10 }, () => assistantMessage());
-    const result = await todoListStaleReminder({
+    const result = todoListStaleReminder({
       history,
       todos: [{ title: 'Investigate todo reminder', status: 'in_progress' }],
       active: false,
@@ -69,7 +69,7 @@ describe('TodoListReminderInjector', () => {
       { title: 'Add reminder injector tests', status: 'pending' },
     ];
     const history = [todoListWrite(todos), ...Array.from({ length: 10 }, () => assistantMessage())];
-    const result = await todoListStaleReminder({ history, todos, active: true });
+    const result = todoListStaleReminder({ history, todos, active: true });
 
     expect(result).toContain('The TodoList tool has not been updated recently');
     expect(result).toContain('NEVER mention this reminder to the user');
@@ -81,7 +81,7 @@ describe('TodoListReminderInjector', () => {
   it('does not inject before the assistant-turn threshold', async () => {
     const todos: TodoItem[] = [{ title: 'Read code', status: 'in_progress' }];
     const history = [todoListWrite(todos), ...Array.from({ length: 9 }, () => assistantMessage())];
-    const result = await todoListStaleReminder({ history, todos, active: true });
+    const result = todoListStaleReminder({ history, todos, active: true });
 
     expect(result).toBeUndefined();
   });
@@ -94,7 +94,7 @@ describe('TodoListReminderInjector', () => {
       priorTodoReminder(),
       ...Array.from({ length: 9 }, () => assistantMessage()),
     ];
-    const result = await todoListStaleReminder({ history, todos, active: true });
+    const result = todoListStaleReminder({ history, todos, active: true });
 
     expect(result).toBeUndefined();
   });
@@ -107,7 +107,7 @@ describe('TodoListReminderInjector', () => {
       todoListQuery(),
       ...Array.from({ length: 4 }, () => assistantMessage()),
     ];
-    const result = await todoListStaleReminder({ history, todos, active: true });
+    const result = todoListStaleReminder({ history, todos, active: true });
 
     expect(result).toContain('The TodoList tool has not been updated recently');
   });
