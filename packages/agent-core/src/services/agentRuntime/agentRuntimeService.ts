@@ -1,25 +1,62 @@
-import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'pathe';
+import { KaosShellNotFoundError, LocalKaos, type Kaos } from '@moonshot-ai/kaos';
+import {
+  createKimiDefaultHeaders,
+  KIMI_CODE_PROVIDER_NAME,
+  type KimiHostIdentity,
+} from '@moonshot-ai/kimi-code-oauth';
 
 import {
   Disposable,
   type IDisposable,
   IInstantiationService,
-  InstantiationType,
   registerSingleton,
+  SyncDescriptor,
 } from '../../di';
 import { ErrorCodes, KimiError } from '../../errors';
 import { SessionStore } from '../../session/store';
-import type { SessionSummary } from '../../rpc';
+import type { ClientTelemetryInfo, JsonObject, SessionSummary } from '../../rpc';
+import {
+  loadRuntimeConfigSafe,
+  type KimiConfig,
+  type MoonshotServiceConfig,
+} from '../../config';
+import { resolveThinkingLevel } from '../../agent/config/thinking';
+import {
+  DEFAULT_AGENT_PROFILES,
+  prepareSystemPromptContext,
+} from '../../profile';
+import {
+  ProviderManager,
+  type BearerTokenProvider,
+  type OAuthTokenProviderResolver,
+} from '../../session/provider-manager';
+import { LocalFetchURLProvider } from '../../tools/providers/local-fetch-url';
+import { MoonshotFetchURLProvider } from '../../tools/providers/moonshot-fetch-url';
+import { MoonshotWebSearchProvider } from '../../tools/providers/moonshot-web-search';
+import type { ToolServices } from '../../tools/support/services';
+import { createManagedAuthFacade } from '../auth/managedAuth';
+import {
+  noopTelemetryClient,
+  withTelemetryContext,
+  withTelemetryProperties,
+  type TelemetryClient,
+  type TelemetryProperties,
+} from '../../telemetry';
 import {
   createAgentRuntime,
   IEventBus,
   IAgentRPCService,
   type AgentRuntime,
   type AgentRuntimeType,
+  type AgentRuntimeOptions,
 } from '../agent';
+import { IProfileService } from '../agent/profile/profile';
 import { IEnvironmentService } from '../environment/environment';
 import {
+  type AgentRuntimeCreateSessionOptions,
   AgentRuntimeTodoError,
   IAgentRuntimeService,
 } from './agentRuntime';
@@ -39,6 +76,12 @@ interface CachedRuntime {
   readonly eventSubscription: IDisposable;
 }
 
+export interface AgentRuntimeServiceOptions {
+  readonly telemetry?: TelemetryClient | undefined;
+  readonly kimiRequestHeaders?: Record<string, string> | undefined;
+  readonly identity?: KimiHostIdentity | undefined;
+}
+
 export class AgentRuntimeService
   extends Disposable
   implements IAgentRuntimeService
@@ -46,22 +89,64 @@ export class AgentRuntimeService
   declare readonly _serviceBrand: undefined;
 
   private readonly store: SessionStore;
+  private readonly resolveOAuthTokenProvider: OAuthTokenProviderResolver;
+  private readonly telemetry: TelemetryClient;
+  private readonly kimiRequestHeaders: Record<string, string> | undefined;
   private readonly runtimes = new Map<string, Promise<CachedRuntime | undefined>>();
+  private kaos: Promise<Kaos> | undefined;
+  private configValue: KimiConfig | undefined;
+  private runtimeTools: ToolServices | undefined;
 
   constructor(
-    @IEnvironmentService env: IEnvironmentService,
+    options: AgentRuntimeServiceOptions = {},
+    @IEnvironmentService private readonly env: IEnvironmentService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IEventService private readonly eventService: IEventService,
   ) {
     super();
     this.store = new SessionStore(env.homeDir);
-    this._register(
-      this.eventService.onDidPublish((event) => {
-        const sessionId = (event as { readonly sessionId?: string }).sessionId;
-        if (sessionId === undefined || sessionId === '') return;
-        void this.forget(sessionId).catch(() => undefined);
-      }),
-    );
+    this.resolveOAuthTokenProvider = createManagedAuthFacade(env).resolveOAuthTokenProvider;
+    this.telemetry = options.telemetry ?? noopTelemetryClient;
+    this.kimiRequestHeaders =
+      options.kimiRequestHeaders ?? defaultKimiRequestHeaders(env.homeDir, options.identity);
+  }
+
+  async createSession(
+    options: AgentRuntimeCreateSessionOptions,
+  ): Promise<SessionSummary> {
+    const id = options.id ?? createSessionId();
+    const created = await this.store.create({ id, workDir: options.workDir });
+    const agentHomedir = join(created.sessionDir, 'agents', 'main');
+    const now = new Date().toISOString();
+    await writeSessionState(created.sessionDir, {
+      createdAt: now,
+      updatedAt: now,
+      title: options.title?.trim() || 'New Session',
+      isCustomTitle: options.title !== undefined && options.title.trim().length > 0,
+      agents: {
+        main: {
+          homedir: agentHomedir,
+          type: 'main',
+          parentAgentId: null,
+        },
+      },
+      custom: options.metadata === undefined ? {} : { ...options.metadata },
+    });
+
+    const runtime = await this.createRuntimeForSummary(created, {
+      homedir: agentHomedir,
+      type: 'main',
+    });
+    try {
+      await this.initializeFreshMainRuntime(runtime, created, options);
+      await runtime.flush();
+      this.cacheRuntime(created.id, 'main', runtime);
+      this.trackSessionStarted(created.id, options.client);
+      return this.store.get(created.id);
+    } catch (error) {
+      await runtime.close().catch(() => undefined);
+      throw error;
+    }
   }
 
   async get(sessionId: string, agentId = 'main'): Promise<AgentRuntime | undefined> {
@@ -155,18 +240,8 @@ export class AgentRuntimeService
     const meta = state?.agents[agentId];
     if (meta === undefined) return undefined;
 
-    const runtime = createAgentRuntime(this.instantiation, {
-      sessionId,
-      agentId,
-      type: meta.type,
-      homedir: meta.homedir,
-      cwd: summary.workDir,
-      cron: false,
-      background: false,
-    });
-    const eventSubscription = runtime.get(IEventBus).on((event) => {
-      this.eventService.publish({ ...event, sessionId, agentId });
-    });
+    const runtime = await this.createRuntimeForSummary(summary, meta, agentId);
+    const eventSubscription = this.subscribeRuntimeEvents(runtime, sessionId, agentId);
     try {
       await runtime.restore();
     } catch (error) {
@@ -175,6 +250,138 @@ export class AgentRuntimeService
       throw error;
     }
     return { runtime, eventSubscription };
+  }
+
+  private async createRuntimeForSummary(
+    summary: SessionSummary,
+    meta: AgentMetaState,
+    agentId = 'main',
+  ): Promise<AgentRuntime> {
+    const config = this.loadRuntimeConfig();
+    const modelProvider = new ProviderManager({
+      config: () => this.configValue ?? config,
+      kimiRequestHeaders: this.kimiRequestHeaders,
+      resolveOAuthTokenProvider: this.resolveOAuthTokenProvider,
+      promptCacheKey: summary.id,
+    });
+    const kaos = await this.getKaos();
+    const toolServices = await this.resolveRuntimeTools(config);
+    return createAgentRuntime(this.instantiation, {
+      sessionId: summary.id,
+      agentId,
+      type: meta.type,
+      homedir: meta.homedir,
+      cwd: summary.workDir,
+      kaos: kaos.withCwd(summary.workDir),
+      config: () => this.configValue ?? config,
+      modelProvider,
+      toolServices,
+      telemetry: this.telemetry,
+      cron: false,
+      background: false,
+    } satisfies AgentRuntimeOptions);
+  }
+
+  private async initializeFreshMainRuntime(
+    runtime: AgentRuntime,
+    summary: SessionSummary,
+    options: AgentRuntimeCreateSessionOptions,
+  ): Promise<void> {
+    const config = this.loadRuntimeConfig();
+    const profile = DEFAULT_AGENT_PROFILES['agent'];
+    if (profile !== undefined) {
+      const kaos = (await this.getKaos()).withCwd(summary.workDir);
+      const preparedContext = await prepareSystemPromptContext(
+        kaos,
+        this.env.homeDir,
+      );
+      runtime.get(IProfileService).useProfile(profile, {
+        osEnv: kaos.osEnv,
+        cwd: summary.workDir,
+        ...preparedContext,
+      });
+    }
+    const model = options.model ?? config.defaultModel;
+    if (model !== undefined && model.trim().length > 0) {
+      runtime.get(IProfileService).setModel(model);
+    }
+    const thinking = resolveThinkingLevel(options.thinking, config);
+    runtime.get(IProfileService).setThinking(thinking);
+  }
+
+  private cacheRuntime(sessionId: string, agentId: string, runtime: AgentRuntime): void {
+    const key = runtimeKey(sessionId, agentId);
+    const eventSubscription = this.subscribeRuntimeEvents(runtime, sessionId, agentId);
+    this.runtimes.set(key, Promise.resolve({ runtime, eventSubscription }));
+  }
+
+  private subscribeRuntimeEvents(
+    runtime: AgentRuntime,
+    sessionId: string,
+    agentId: string,
+  ): IDisposable {
+    return runtime.get(IEventBus).on((event) => {
+      this.eventService.publish({ ...event, sessionId, agentId });
+    });
+  }
+
+  private loadRuntimeConfig(): KimiConfig {
+    const loaded = loadRuntimeConfigSafe(this.env.configPath);
+    if (loaded.fileError !== undefined) {
+      throw loaded.fileError;
+    }
+    this.configValue = loaded.config;
+    this.runtimeTools = undefined;
+    return loaded.config;
+  }
+
+  private async resolveRuntimeTools(config: KimiConfig): Promise<ToolServices> {
+    if (this.runtimeTools !== undefined) return this.runtimeTools;
+    const localFetcher = new LocalFetchURLProvider();
+    const searchService = config.services?.moonshotSearch;
+    const fetchService = config.services?.moonshotFetch;
+    this.runtimeTools = {
+      urlFetcher:
+        fetchService?.baseUrl === undefined
+          ? localFetcher
+          : new MoonshotFetchURLProvider({
+              baseUrl: fetchService.baseUrl,
+              localFallback: localFetcher,
+              defaultHeaders: this.kimiRequestHeaders,
+              ...serviceCredentials(fetchService, this.resolveOAuthTokenProvider),
+            }),
+      webSearcher:
+        searchService?.baseUrl === undefined
+          ? undefined
+          : new MoonshotWebSearchProvider({
+              baseUrl: searchService.baseUrl,
+              defaultHeaders: this.kimiRequestHeaders,
+              ...serviceCredentials(searchService, this.resolveOAuthTokenProvider),
+            }),
+    };
+    return this.runtimeTools;
+  }
+
+  private getKaos(): Promise<Kaos> {
+    this.kaos ??= LocalKaos.create().catch((error: unknown) => {
+      if (error instanceof KaosShellNotFoundError) {
+        throw new KimiError(ErrorCodes.SHELL_GIT_BASH_NOT_FOUND, error.message);
+      }
+      throw error;
+    });
+    return this.kaos;
+  }
+
+  private trackSessionStarted(
+    sessionId: string,
+    client: ClientTelemetryInfo | undefined,
+  ): void {
+    const properties = clientTelemetryProperties(client);
+    if (Object.keys(properties).length === 0) return;
+    withTelemetryProperties(
+      withTelemetryContext(this.telemetry, { sessionId }),
+      properties,
+    ).track('session_started', { resumed: false });
   }
 }
 
@@ -201,8 +408,96 @@ async function readSessionState(sessionDir: string): Promise<SessionState | unde
   return { agents: result };
 }
 
+interface FreshSessionState {
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly title: string;
+  readonly isCustomTitle: boolean;
+  readonly agents: {
+    readonly main: {
+      readonly homedir: string;
+      readonly type: 'main';
+      readonly parentAgentId: null;
+    };
+  };
+  readonly custom: Record<string, unknown>;
+}
+
+async function writeSessionState(
+  sessionDir: string,
+  state: FreshSessionState,
+): Promise<void> {
+  await writeFile(
+    join(sessionDir, 'state.json'),
+    `${JSON.stringify(state, null, 2)}\n`,
+    'utf8',
+  );
+}
+
 function runtimeKey(sessionId: string, agentId: string): string {
   return `${sessionId}:${agentId}`;
+}
+
+function createSessionId(): string {
+  return `session_${randomUUID()}`;
+}
+
+function serviceCredentials(
+  service: MoonshotServiceConfig,
+  resolveOAuthTokenProvider: OAuthTokenProviderResolver,
+): {
+  readonly apiKey?: string | undefined;
+  readonly tokenProvider?: BearerTokenProvider | undefined;
+  readonly customHeaders?: Record<string, string> | undefined;
+} {
+  const apiKey = nonEmptyString(service.apiKey);
+  return {
+    apiKey,
+    tokenProvider:
+      service.oauth !== undefined
+        ? resolveOAuthTokenProvider(KIMI_CODE_PROVIDER_NAME, service.oauth)
+        : undefined,
+    customHeaders: service.customHeaders,
+  };
+}
+
+function nonEmptyString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+}
+
+function defaultKimiRequestHeaders(
+  homeDir: string,
+  identity: KimiHostIdentity | undefined,
+): Record<string, string> | undefined {
+  if (identity === undefined) return undefined;
+  return createKimiDefaultHeaders({
+    homeDir,
+    ...identity,
+  });
+}
+
+function clientTelemetryProperties(
+  client: ClientTelemetryInfo | undefined,
+): TelemetryProperties {
+  if (client === undefined) return {};
+  const properties: Record<string, string> = {};
+  addNonEmpty(properties, 'client_id', client.id);
+  addNonEmpty(properties, 'client_name', client.name);
+  addNonEmpty(properties, 'client_version', client.version);
+  addNonEmpty(properties, 'ui_mode', client.uiMode);
+  return properties;
+}
+
+function addNonEmpty(
+  target: Record<string, string>,
+  key: string,
+  value: string | undefined,
+): void {
+  const trimmed = value?.trim();
+  if (trimmed !== undefined && trimmed.length > 0) {
+    target[key] = trimmed;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -213,4 +508,7 @@ function isNotFoundError(error: unknown): boolean {
   return error instanceof KimiError && error.code === ErrorCodes.SESSION_NOT_FOUND;
 }
 
-registerSingleton(IAgentRuntimeService, AgentRuntimeService, InstantiationType.Delayed);
+registerSingleton(
+  IAgentRuntimeService,
+  new SyncDescriptor(AgentRuntimeService, [{}], true),
+);

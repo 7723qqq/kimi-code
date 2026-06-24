@@ -7,6 +7,11 @@ export {
   type CoreProcessServiceOptions,
 } from './coreProcess/coreProcess';
 export { CoreProcessService } from './coreProcess/coreProcessService';
+export { createServicesCoreAdapter } from './coreApi/coreApiService';
+export type {
+  ServicesCoreAdapter,
+  ServicesCoreAdapterOptions,
+} from './coreApi/coreApi';
 
 export { IEventService } from './event/event';
 export { EventService } from './event/eventService';
@@ -137,7 +142,10 @@ export {
   AgentRuntimeTodoError,
   IAgentRuntimeService,
 } from './agentRuntime/agentRuntime';
-export { AgentRuntimeService } from './agentRuntime/agentRuntimeService';
+export {
+  AgentRuntimeService,
+  type AgentRuntimeServiceOptions,
+} from './agentRuntime/agentRuntimeService';
 
 export {
   IMessageService,

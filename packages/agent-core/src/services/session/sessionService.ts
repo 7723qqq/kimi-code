@@ -247,18 +247,13 @@ export class SessionService extends Disposable implements ISessionService {
       throw new Error('SessionService.create: metadata.cwd is required');
     }
     const metadataForCore = asJsonObject(input.metadata as Record<string, unknown>);
-    const summary = await this.core.rpc.createSession({
+    const summary = await this.agentRuntimes.createSession({
       workDir: input.metadata.cwd,
+      title: input.title,
       metadata: metadataForCore,
       model: input.agent_config?.model,
       client: options?.client,
     });
-    if (input.title !== undefined) {
-      try {
-        await this.core.rpc.renameSession({ sessionId: summary.id, title: input.title });
-      } catch {
-      }
-    }
     const meta = await this.tryGetMeta(summary.id);
     const session = this._patchSessionStatus(toProtocolSession(summary, meta));
     this.emitCreated(session);

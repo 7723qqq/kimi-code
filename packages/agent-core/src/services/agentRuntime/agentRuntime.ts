@@ -1,12 +1,23 @@
 import { createDecorator } from '../../di';
-import type { CoreRPC, SessionSummary } from '../../rpc';
+import type { ClientTelemetryInfo, CoreRPC, JsonObject, SessionSummary } from '../../rpc';
 import type { AgentRuntime } from '../agent';
 import type { IAgentRPCService } from '../agent/rpc/rpc';
 import type { ICoreProcessService } from '../coreProcess/coreProcess';
 
+export interface AgentRuntimeCreateSessionOptions {
+  readonly id?: string | undefined;
+  readonly workDir: string;
+  readonly title?: string | undefined;
+  readonly model?: string | undefined;
+  readonly thinking?: string | undefined;
+  readonly metadata?: JsonObject | undefined;
+  readonly client?: ClientTelemetryInfo | undefined;
+}
+
 export interface IAgentRuntimeService {
   readonly _serviceBrand: undefined;
 
+  createSession(options: AgentRuntimeCreateSessionOptions): Promise<SessionSummary>;
   get(sessionId: string, agentId?: string): Promise<AgentRuntime | undefined>;
   require(sessionId: string, agentId?: string): Promise<AgentRuntime>;
   getRPC(sessionId: string, agentId?: string): Promise<IAgentRPCService | undefined>;
@@ -48,8 +59,23 @@ export function toAgentRuntimeService(
 export function agentRuntimeServiceFromCoreProcess(
   core: Pick<ICoreProcessService, 'rpc'>,
 ): IAgentRuntimeService {
+  const resumed = new Set<string>();
   return {
     _serviceBrand: undefined,
+    async createSession(options) {
+      const summary = await core.rpc.createSession({
+        id: options.id,
+        workDir: options.workDir,
+        model: options.model,
+        thinking: options.thinking,
+        metadata: options.metadata,
+        client: options.client,
+      });
+      if (options.title !== undefined) {
+        await core.rpc.renameSession({ sessionId: summary.id, title: options.title });
+      }
+      return summary;
+    },
     async get() {
       return undefined;
     },
@@ -61,7 +87,12 @@ export function agentRuntimeServiceFromCoreProcess(
     },
     async getRPC(sessionId: string, agentId = 'main') {
       const summary = await this.getSessionSummary(sessionId);
-      return summary === undefined ? undefined : scopedAgentRPC(core.rpc, sessionId, agentId);
+      if (summary === undefined) return undefined;
+      if (!resumed.has(sessionId)) {
+        await core.rpc.resumeSession({ sessionId });
+        resumed.add(sessionId);
+      }
+      return scopedAgentRPC(core.rpc, sessionId, agentId);
     },
     async requireRPC(sessionId: string, agentId = 'main') {
       const rpc = await this.getRPC(sessionId, agentId);
@@ -78,7 +109,9 @@ export function agentRuntimeServiceFromCoreProcess(
     listSessionSummaries(options = {}) {
       return core.rpc.listSessions(options);
     },
-    async forget() {},
+    async forget(sessionId: string) {
+      resumed.delete(sessionId);
+    },
   };
 }
 
