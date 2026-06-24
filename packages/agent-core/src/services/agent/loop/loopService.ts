@@ -20,7 +20,7 @@ import {
   type ToolCall as KosongToolCall,
 } from '@moonshot-ai/kosong';
 
-import { canonicalTelemetryArgs } from '../../../agent/turn/canonical-args';
+import { canonicalTelemetryArgs, isPlainRecord } from '../../../agent/turn/canonical-args';
 import { ToolCallDeduplicator } from '../../../agent/turn/tool-dedup';
 import { Disposable, IInstantiationService, registerSingleton, SyncDescriptor } from '../../../di';
 import {
@@ -33,7 +33,6 @@ import {
   runTurn as runLoopTurn,
   type ExecutableTool,
   type ExecutableToolResult,
-  type LoopStepEndEvent,
   type LLM,
   type LLMChatParams,
   type LLMChatResponse,
@@ -662,13 +661,24 @@ export class LoopService extends Disposable implements ILoopService {
         return cached === null ? undefined : { syntheticResult: cached };
       },
       authorizeToolExecution: (context) => this.permission.authorize(context),
-      finalizeToolResult: (context) =>
-        deduper.finalizeResult(
+      finalizeToolResult: async (context) => {
+        const result = await deduper.finalizeResult(
           context.toolCall.id,
           context.toolCall.name,
           context.args,
           context.result,
-        ),
+        );
+        await this.externalHooks.triggerPostToolUse(
+          {
+            toolCallId: context.toolCall.id,
+            toolName: context.toolCall.name,
+            toolInput: toolInputRecord(context.args),
+            result,
+          },
+          context.signal,
+        );
+        return result;
+      },
       shouldContinueAfterStop: async (context) => {
         const shouldContinue = continueAfterStop;
         continueAfterStop = false;
@@ -976,6 +986,10 @@ function telemetryToolErrorType(result: ToolTelemetryResult): string {
 
 function toolResultText(result: ToolTelemetryResult): string {
   return toolOutputText(result.output);
+}
+
+function toolInputRecord(args: unknown): Record<string, unknown> {
+  return isPlainRecord(args) ? args : {};
 }
 
 function toolOutputText(output: ExecutableToolResult['output']): string {
