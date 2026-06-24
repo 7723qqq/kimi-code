@@ -131,6 +131,8 @@ export class LoopService extends Disposable implements ILoopService {
             dispatchEvent: this.dispatchEvent,
             tools: this.executableTools(),
             hooks: loopHooks,
+            maxSteps: this.profile.getLoopControl()?.maxStepsPerTurn,
+            maxRetryAttempts: this.profile.getLoopControl()?.maxRetriesPerStep,
             recordStepUsage: (usage) => {
               this.usage.record(usageModel, usage, 'turn');
             },
@@ -643,6 +645,15 @@ export class LoopService extends Disposable implements ILoopService {
               toolCalls: [],
               origin: { kind: 'system_trigger', name: 'stop_hook' },
             });
+            if (
+              !hasStepBudgetRemaining(
+                this.profile.getLoopControl()?.maxStepsPerTurn,
+                context.stepNumber,
+              )
+            ) {
+              this.removeMatchedTailMessage(isStopHookMessage);
+              return { continue: false };
+            }
             return { continue: true };
           }
         }
@@ -715,6 +726,15 @@ export class LoopService extends Disposable implements ILoopService {
     this.spliceHistory(this.context.getHistory().length, 0, ...messages);
   }
 
+  private removeMatchedTailMessage(matcher: (message: ContextMessage) => boolean): boolean {
+    const history = this.context.getHistory();
+    const index = history.length - 1;
+    const message = history[index];
+    if (message === undefined || !matcher(message)) return false;
+    this.spliceHistory(index, 1);
+    return true;
+  }
+
   private spliceHistory(
     start: number,
     deleteCount: number,
@@ -766,6 +786,14 @@ function unresolvedToolCallIdsFromHistory(history: readonly ContextMessage[]): s
 function stringifyToolArguments(args: unknown): string | null {
   if (args === undefined) return null;
   return JSON.stringify(args) ?? null;
+}
+
+function isStopHookMessage(message: ContextMessage): boolean {
+  return message.origin?.kind === 'system_trigger' && message.origin.name === 'stop_hook';
+}
+
+function hasStepBudgetRemaining(maxSteps: number | undefined, currentStep: number): boolean {
+  return maxSteps === undefined || maxSteps <= 0 || currentStep < maxSteps;
 }
 
 function isContextOverflowError(error: unknown): boolean {
