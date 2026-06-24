@@ -64,7 +64,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 ## LoopService / Tool Execution
 
 - [x] Retry loop steps after full compaction handles context overflow.
-- [ ] Wait for MCP initial load before model steps.
+- [x] Wait for MCP initial load before model steps.
 - [x] Align service permission/loop hook types before permission wiring.
 - [x] Wire prepare/authorize/finalize tool hooks for permission, synthetic results, and dedup.
 - [x] Split service permission policy ordering into `PermissionPolicyService` with per-policy services.
@@ -164,7 +164,6 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Keep cron disabled for subagents.
 - [x] Integrate with background/session lifecycle.
 - [x] Restore full coalescing and next-run handling.
-- [ ] Revisit cron `steer()` behavior after PromptService/TurnRunner settle. [TEST]
 
 ## Skill
 
