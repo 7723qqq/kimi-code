@@ -6,7 +6,7 @@ import type {
   PermissionMode,
   PermissionRule,
 } from '../../agent/permission';
-import type { KimiConfig } from '../../config';
+import { normalizeAdditionalDirs, type KimiConfig } from '../../config';
 import {
   Disposable,
   ServiceCollection,
@@ -201,6 +201,11 @@ interface AgentRuntimeRefs {
   planMode?: IPlanModeService;
 }
 
+type MutableAgentRuntimeOptions = {
+  additionalDirs?: readonly string[];
+  permission?: PermissionServiceOptions;
+};
+
 interface AgentRuntimeServiceContext {
   readonly type: AgentRuntimeType;
   readonly cwd: string | undefined;
@@ -212,7 +217,10 @@ interface AgentRuntimeServiceContext {
 export class AgentRuntime extends Disposable {
   private closed = false;
 
-  constructor(readonly instantiation: IInstantiationService) {
+  constructor(
+    readonly instantiation: IInstantiationService,
+    private readonly updateAdditionalDirs?: (additionalDirs: readonly string[]) => void,
+  ) {
     super();
     this._register(this.instantiation);
   }
@@ -220,8 +228,9 @@ export class AgentRuntime extends Disposable {
   static create(
     instantiation: IInstantiationService,
     disposables: readonly IDisposable[] = [],
+    updateAdditionalDirs?: (additionalDirs: readonly string[]) => void,
   ): AgentRuntime {
-    const runtime = new AgentRuntime(instantiation);
+    const runtime = new AgentRuntime(instantiation, updateAdditionalDirs);
     for (const disposable of disposables) {
       runtime._register(disposable);
     }
@@ -249,6 +258,10 @@ export class AgentRuntime extends Disposable {
     await this.get(IWireRecord).flush();
   }
 
+  setAdditionalDirs(additionalDirs: readonly string[]): void {
+    this.updateAdditionalDirs?.(additionalDirs);
+  }
+
   async close(reason = 'Agent runtime closed'): Promise<void> {
     if (this.closed) return;
     this.closed = true;
@@ -268,11 +281,12 @@ export function createAgentRuntime(
   const refs: AgentRuntimeRefs = {};
   const type = options.type ?? 'main';
   const services = new ServiceCollection(...getAgentServiceDescriptors());
+  const context = createAgentRuntimeServiceContext(options, type, refs);
 
   configureAgentRuntimeServices(
     services,
     options,
-    createAgentRuntimeServiceContext(options, type, refs),
+    context,
   );
 
   refs.child = parent.createChild(services);
@@ -281,6 +295,11 @@ export function createAgentRuntime(
   const runtime = AgentRuntime.create(
     refs.child,
     createAgentRuntimeDisposables(refs.child, options),
+    (additionalDirs) => {
+      const child = refs.child;
+      if (child === undefined) return;
+      updateAgentRuntimeAdditionalDirs(child, options, context, additionalDirs);
+    },
   );
   try {
     activateAgentServices(refs.child);
@@ -559,24 +578,47 @@ function configurePermissionService(
     IPermissionService,
     new SyncDescriptor(
       PermissionService,
-      [
-        {
-          sessionId: options.permission?.sessionId ?? options.sessionId,
-          agentId: options.permission?.agentId ?? options.agentId,
-          agentType:
-            options.permission?.agentType ?? (context.type === 'sub' ? 'sub' : 'main'),
-          cwd: options.permission?.cwd ?? context.cwd,
-          additionalDirs: options.permission?.additionalDirs ?? options.additionalDirs,
-          pathClass: options.permission?.pathClass,
-          planMode: options.permission?.planMode ?? context.planMode,
-          swarmMode: options.permission?.swarmMode ?? context.swarmMode,
-          gitWorkTreeMarker: options.permission?.gitWorkTreeMarker,
-          initialMode: options.permission?.initialMode ?? options.permissionMode,
-        } satisfies PermissionServiceOptions,
-      ],
+      [permissionServiceOptions(options, context)],
       true,
     ),
   );
+}
+
+function updateAgentRuntimeAdditionalDirs(
+  instantiation: IInstantiationService,
+  options: AgentRuntimeOptions,
+  context: AgentRuntimeServiceContext,
+  additionalDirs: readonly string[],
+): void {
+  const normalized = normalizeAdditionalDirs(additionalDirs);
+  const mutable = options as MutableAgentRuntimeOptions;
+  mutable.additionalDirs = normalized;
+  if (options.permission !== undefined) {
+    mutable.permission = { ...options.permission, additionalDirs: normalized };
+  }
+  getService(instantiation, IPermissionPolicyService).configure(
+    permissionServiceOptions(options, context),
+  );
+  context.initializeTools();
+}
+
+function permissionServiceOptions(
+  options: AgentRuntimeOptions,
+  context: AgentRuntimeServiceContext,
+): PermissionServiceOptions {
+  return {
+    sessionId: options.permission?.sessionId ?? options.sessionId,
+    agentId: options.permission?.agentId ?? options.agentId,
+    agentType:
+      options.permission?.agentType ?? (context.type === 'sub' ? 'sub' : 'main'),
+    cwd: options.permission?.cwd ?? context.cwd,
+    additionalDirs: options.permission?.additionalDirs ?? options.additionalDirs,
+    pathClass: options.permission?.pathClass,
+    planMode: options.permission?.planMode ?? context.planMode,
+    swarmMode: options.permission?.swarmMode ?? context.swarmMode,
+    gitWorkTreeMarker: options.permission?.gitWorkTreeMarker,
+    initialMode: options.permission?.initialMode ?? options.permissionMode,
+  };
 }
 
 function configureUserToolService(

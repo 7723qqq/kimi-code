@@ -7,6 +7,7 @@ import type {
 } from '../../../agent/background/task';
 
 export { AgentBackgroundTask } from '../../../agent/background/agent-task';
+export { BackgroundManager as LegacyBackgroundManager } from '../../../agent/background';
 export type { AgentBackgroundTaskInfo } from '../../../agent/background/agent-task';
 export { ProcessBackgroundTask } from '../../../agent/background/process-task';
 export type { ProcessBackgroundTaskInfo } from '../../../agent/background/process-task';
