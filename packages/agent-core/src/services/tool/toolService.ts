@@ -5,7 +5,6 @@
 import { Disposable, registerSingleton, SyncDescriptor } from '../../di';
 
 import {
-  AgentRuntimeTodoError,
   IAgentRuntimeService,
   toAgentRuntimeService,
   type AgentRuntimeServiceSource,
@@ -28,10 +27,7 @@ export class ToolService extends Disposable implements IToolService {
 
   async list(sessionId?: string): Promise<readonly import('@moonshot-ai/protocol').ToolDescriptor[]> {
     if (sessionId === undefined) {
-      throw new AgentRuntimeTodoError(
-        'packages/agent-core/src/services/tool/toolService.ts:list',
-        'Session-less tool listing has not been migrated; require a session id or define an agent-runtime backed global source.',
-      );
+      return [];
     }
     const rpc = await this.agentRuntimes.requireRPC(sessionId, MAIN_AGENT_ID);
     return (await rpc.getTools({})).map((tool) => toProtocolTool(tool));

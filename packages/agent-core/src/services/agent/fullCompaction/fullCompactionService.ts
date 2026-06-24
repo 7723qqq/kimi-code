@@ -131,7 +131,8 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     }
     if (this.compactionCountInTurn > this.strategy.maxCompactionPerTurn) return false;
 
-    const compactedCount = this.strategy.computeCompactCount(this.context.getHistory(), data.source);
+    const history = this.context.getHistory();
+    const compactedCount = this.strategy.computeCompactCount(history, data.source);
     if (compactedCount === 0) {
       throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'No prefix that can be compacted in current history.');
     }

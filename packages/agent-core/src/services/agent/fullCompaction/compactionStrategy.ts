@@ -21,11 +21,11 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
   }
 
   computeCompactCount(messages: readonly Message[], source: CompactionSource): number {
-    return this.delegate().computeCompactCount(messages, source);
+    return this.windowDelegate().computeCompactCount(messages, source);
   }
 
   reduceCompactOnOverflow(messages: readonly Message[]): number {
-    return this.delegate().reduceCompactOnOverflow(messages);
+    return this.windowDelegate().reduceCompactOnOverflow(messages);
   }
 
   get checkAfterStep(): boolean {
@@ -33,7 +33,7 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
   }
 
   get maxCompactionPerTurn(): number {
-    return this.config().maxCompactionPerTurn;
+    return DEFAULT_COMPACTION_CONFIG.maxCompactionPerTurn;
   }
 
   private delegate(): DefaultCompactionStrategy {
@@ -41,6 +41,13 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
     return new DefaultCompactionStrategy(
       () => model.modelCapabilities.max_context_tokens,
       this.config(model),
+    );
+  }
+
+  private windowDelegate(): DefaultCompactionStrategy {
+    return new DefaultCompactionStrategy(
+      () => this.context().modelCapabilities.max_context_tokens,
+      DEFAULT_COMPACTION_CONFIG,
     );
   }
 

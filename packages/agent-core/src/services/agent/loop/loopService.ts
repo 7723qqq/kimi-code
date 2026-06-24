@@ -87,7 +87,6 @@ export class LoopService extends Disposable implements ILoopService {
     @IEventBus private readonly events: IEventBus,
     @IToolRegistry private readonly toolRegistry: IToolRegistry,
     @IToolExecutor private readonly toolExecutor: IToolExecutor,
-    @IPermissionService private readonly permission: IPermissionService,
     @IUsageService private readonly usage: IUsageService,
     @IProfileService private readonly profile: IProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -607,7 +606,7 @@ export class LoopService extends Disposable implements ILoopService {
         );
         return cached === null ? undefined : { syntheticResult: cached };
       },
-      authorizeToolExecution: (context) => this.permission.authorize(context),
+      authorizeToolExecution: (context) => this.permission().authorize(context),
       finalizeToolResult: async (context) => {
         const result = await deduper.finalizeResult(
           context.toolCall.id,
@@ -703,6 +702,12 @@ export class LoopService extends Disposable implements ILoopService {
       role: 'tool',
       isError: result.isError,
     });
+  }
+
+  private permission(): IPermissionService {
+    return this.instantiation.invokeFunction((accessor) =>
+      accessor.get(IPermissionService),
+    );
   }
 
   private appendImmediately(...messages: ContextMessage[]): void {

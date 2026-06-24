@@ -28,10 +28,12 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
     @ITurnRunner turnRunner: ITurnRunner,
   ) {
     super();
-    turnRunner.hooks.beforeStep.register('dynamic-injector', async (_ctx, next) => {
-      await next();
-      await this.inject();
-    });
+    this._register(
+      turnRunner.hooks.beforeStep.register('dynamic-injector', async (_ctx, next) => {
+        await next();
+        await this.inject();
+      }),
+    );
     context.hooks.onSpliced.register('dynamic-injector', (ctx, next) => {
       this.handleSplice(ctx);
       return next();

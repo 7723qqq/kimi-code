@@ -1,4 +1,8 @@
-import { registerSingleton, SyncDescriptor } from '../../../di';
+import {
+  IInstantiationService,
+  registerSingleton,
+  SyncDescriptor,
+} from '../../../di';
 import type { ContextMessage, PromptOrigin } from '../../../agent/context';
 import { USER_PROMPT_ORIGIN } from '../../../agent/context';
 import { toKimiErrorPayload, type KimiErrorPayload } from '../../../errors';
@@ -52,7 +56,7 @@ export class TurnRunnerService implements ITurnRunner {
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IContextMemory private readonly context: IContextMemory,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
-    @IPlanModeService private readonly planMode: IPlanModeService,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     wireRecord.register('turn.launch', (record) => {
@@ -242,7 +246,10 @@ export class TurnRunnerService implements ITurnRunner {
   }
 
   private telemetryMode(): 'agent' | 'plan' {
-    return this.planMode.isActive ? 'plan' : 'agent';
+    const planMode = this.instantiation.invokeFunction((accessor) =>
+      accessor.get(IPlanModeService),
+    );
+    return planMode.isActive ? 'plan' : 'agent';
   }
 }
 
