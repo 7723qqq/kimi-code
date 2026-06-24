@@ -18,10 +18,11 @@ import {
 } from '../../di';
 import type { ExperimentalFlagResolver } from '../../flags';
 import type { McpConnectionManager } from '../../mcp';
+import type { EnabledPluginSessionStart } from '../../plugin/types';
 import type { HookEngine } from '../../session/hooks';
 import type { ModelProvider } from '../../session/provider-manager';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
-import type { SkillCatalog } from '../../skill';
+import type { SkillCatalog, SkillDefinition } from '../../skill';
 import type { SubagentResult } from '../../session/subagent-batch';
 import type {
   QueuedSubagentTask,
@@ -47,6 +48,8 @@ import {
   type UrlFetcher,
   type WebSearchProvider,
 } from '../../tools/builtin';
+import { escapeXmlAttr } from '../../utils/xml-escape';
+import { ILogService } from '../logger/logger';
 import {
   BackgroundTaskPersistence,
   IBackgroundService,
@@ -201,6 +204,7 @@ export interface AgentRuntimeOptions {
   readonly parentPermissionRules?: IPermissionRulesService;
   readonly permissionMode?: PermissionMode;
   readonly skills?: SkillCatalog | null;
+  readonly pluginSessionStarts?: readonly EnabledPluginSessionStart[];
   readonly dynamicInjections?: readonly AgentRuntimeDynamicInjection[];
   readonly userTool?: UserToolServiceOptions;
   readonly wireRecord?: Omit<WireRecordServiceOptions, 'homedir' | 'blobStore'>;
@@ -832,6 +836,13 @@ function createAgentRuntimeDisposables(
   options: AgentRuntimeOptions,
 ): readonly IDisposable[] {
   const disposables: IDisposable[] = [];
+  const pluginSessionStart = registerPluginSessionStartInjection(
+    instantiation,
+    options,
+  );
+  if (pluginSessionStart !== undefined) {
+    disposables.push(pluginSessionStart);
+  }
   for (const injection of options.dynamicInjections ?? []) {
     disposables.push(
       getService(instantiation, IDynamicInjector).register(
@@ -841,6 +852,67 @@ function createAgentRuntimeDisposables(
     );
   }
   return disposables;
+}
+
+function registerPluginSessionStartInjection(
+  instantiation: IInstantiationService,
+  options: AgentRuntimeOptions,
+): IDisposable | undefined {
+  const sessionStarts = options.pluginSessionStarts ?? [];
+  const catalog = options.skills ?? undefined;
+  if (sessionStarts.length === 0 || catalog === undefined) return undefined;
+
+  return getService(instantiation, IDynamicInjector).register(
+    'plugin_session_start',
+    ({ injectedAt }) => {
+      if (injectedAt !== null) return undefined;
+
+      const blocks: string[] = [];
+      for (const sessionStart of sessionStarts) {
+        const skill = catalog.getPluginSkill(sessionStart.pluginId, sessionStart.skillName);
+        if (skill === undefined) {
+          warnPluginSessionStartSkillNotFound(instantiation, sessionStart);
+          continue;
+        }
+        blocks.push(
+          renderPluginSessionStartBlock(
+            sessionStart,
+            skill,
+            catalog.renderSkillPrompt(skill, ''),
+          ),
+        );
+      }
+      return blocks.length === 0 ? undefined : blocks.join('\n');
+    },
+  );
+}
+
+function renderPluginSessionStartBlock(
+  sessionStart: EnabledPluginSessionStart,
+  skill: SkillDefinition,
+  skillContent: string,
+): string {
+  return (
+    `<plugin_session_start plugin="${escapeXmlAttr(sessionStart.pluginId)}" ` +
+    `skill="${escapeXmlAttr(skill.name)}">\n${skillContent}\n</plugin_session_start>`
+  );
+}
+
+function warnPluginSessionStartSkillNotFound(
+  instantiation: IInstantiationService,
+  sessionStart: EnabledPluginSessionStart,
+): void {
+  try {
+    getService(instantiation, ILogService).warn(
+      {
+        pluginId: sessionStart.pluginId,
+        skillName: sessionStart.skillName,
+      },
+      'plugin sessionStart skill not found',
+    );
+  } catch {
+    return;
+  }
 }
 
 function activateAgentServices(instantiation: IInstantiationService): void {
