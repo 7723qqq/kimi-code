@@ -347,9 +347,6 @@ export {
 export {
   IFullCompaction,
   type CompactInput,
-  type FullCompactionHooks,
-  type PostCompactContext,
-  type PreCompactContext,
 } from './fullCompaction/fullCompaction';
 export {
   FullCompaction,

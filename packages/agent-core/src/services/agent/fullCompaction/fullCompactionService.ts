@@ -32,7 +32,6 @@ import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
 import { IContextUsageService } from '../contextUsage/contextUsage';
 import { IEventBus } from '../eventBus/eventBus';
-import { OrderedHookSlot } from '../hooks';
 import { ILLMRequester } from '../llmRequester/llmRequester';
 import { IProfileService } from '../profile/profile';
 import { ITelemetryService } from '../telemetry/telemetry';
@@ -44,8 +43,6 @@ import { IWireRecord } from '../wireRecord/wireRecord';
 import {
   IFullCompaction,
   type CompactInput,
-  type PostCompactContext,
-  type PreCompactContext,
 } from './fullCompaction';
 import { RuntimeCompactionStrategy } from './compactionStrategy';
 
@@ -76,11 +73,6 @@ export class FullCompactionService extends Disposable implements IFullCompaction
   private readonly strategy: CompactionStrategy;
   private compactionCountInTurn = 0;
   private compacting: ActiveCompaction | null = null;
-
-  readonly hooks = {
-    preCompact: new OrderedHookSlot<PreCompactContext>(),
-    postCompact: new OrderedHookSlot<PostCompactContext>(),
-  };
 
   constructor(
     @IContextMemory private readonly context: IContextMemory,
@@ -154,11 +146,6 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     return true;
   }
 
-  async compact(input: CompactInput): Promise<void> {
-    this.begin(input);
-    await this.block(input.signal);
-  }
-
   cancel(): void {
     const active = this.compacting;
     if (active === null) return;
@@ -168,13 +155,13 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     this.events.emit({ type: 'compaction.cancelled' });
   }
 
-  markCompleted(): void {
+  private markCompleted(): void {
     if (this.compacting === null) return;
     this.wireRecord.append({ type: 'full_compaction.complete' });
     this.compacting = null;
   }
 
-  resetForTurn(): void {
+  private resetForTurn(): void {
     this.compactionCountInTurn = 0;
   }
 
@@ -188,14 +175,14 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     await this.block(signal, turnId);
   }
 
-  async beforeStep(signal: AbortSignal, turnId?: number): Promise<void> {
+  private async beforeStep(signal: AbortSignal, turnId?: number): Promise<void> {
     this.checkAutoCompaction();
     if (this.strategy.shouldBlock(this.tokenCountWithPending())) {
       await this.block(signal, turnId);
     }
   }
 
-  async afterStep(): Promise<void> {
+  private async afterStep(): Promise<void> {
     if (this.strategy.checkAfterStep) {
       this.checkAutoCompaction(false);
     }
@@ -270,11 +257,6 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       if (this.compacting !== active) return;
       this.markCompleted();
       this.events.emit({ type: 'compaction.completed', result: finalResult });
-      void this.hooks.postCompact.run({
-        trigger: data.source,
-        estimatedTokenCount: finalResult.tokensAfter,
-        result: finalResult,
-      });
     } catch (error) {
       if (isAbortError(error)) return;
       const blockedByTurn = this.compacting === active && active.blockedByTurn;
@@ -304,7 +286,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
 
     try {
       let compactedCount = initialCompactedCount;
-      await this.triggerPreCompactHook(data, tokensBefore, signal);
+      signal.throwIfAborted();
 
       const delays = retryBackoffDelays(MAX_COMPACTION_RETRY_ATTEMPTS);
       let attempt: CompactionAttemptResult | undefined;
@@ -395,20 +377,6 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       if (isKimiError(error) && error.code === ErrorCodes.AUTH_LOGIN_REQUIRED) throw error;
       throw new KimiError(ErrorCodes.COMPACTION_FAILED, String(error), { cause: error });
     }
-  }
-
-  private async triggerPreCompactHook(
-    data: Readonly<CompactionBeginData>,
-    tokenCount: number,
-    signal: AbortSignal,
-  ): Promise<void> {
-    signal.throwIfAborted();
-    await this.hooks.preCompact.run({
-      trigger: data.source,
-      tokenCount,
-      signal,
-    });
-    signal.throwIfAborted();
   }
 
   private postProcessSummary(summary: string): string {
