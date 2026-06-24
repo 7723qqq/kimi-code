@@ -2,7 +2,7 @@
  * `TaskService` — implementation of `ITaskService`.
  */
 
-import { Disposable, InstantiationType, registerSingleton } from '../../di';
+import { Disposable, registerSingleton, SyncDescriptor } from '../../di';
 import type { BackgroundTask } from '@moonshot-ai/protocol';
 
 import type { BackgroundTaskInfo } from '../../agent/background';
@@ -121,4 +121,7 @@ export class TaskService extends Disposable implements ITaskService {
 // Self-register under the global singleton registry. All ctor deps are
 // `@I…`-injected; `staticArguments = []`. `supportsDelayedInstantiation =
 // false` preserves current reverse-dispose semantics.
-registerSingleton(ITaskService, TaskService, InstantiationType.Delayed);
+registerSingleton(
+  ITaskService,
+  new SyncDescriptor(TaskService, [], true),
+);

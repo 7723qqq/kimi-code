@@ -21,7 +21,7 @@
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
-import { Disposable, InstantiationType, registerSingleton } from '../../di';
+import { Disposable, registerSingleton, SyncDescriptor } from '../../di';
 import type { SessionSummary } from '../../rpc';
 import type {
   Message,
@@ -219,4 +219,7 @@ export class MessageService extends Disposable implements IMessageService {
 // Self-register under the global singleton registry. All ctor deps are
 // `@I…`-injected; `staticArguments = []`. `supportsDelayedInstantiation =
 // false` preserves current reverse-dispose semantics.
-registerSingleton(IMessageService, MessageService, InstantiationType.Delayed);
+registerSingleton(
+  IMessageService,
+  new SyncDescriptor(MessageService, [], true),
+);

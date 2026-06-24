@@ -31,6 +31,7 @@ export type {
   ResolvedToolExecutionHookContext,
   PrepareToolExecutionHook,
   AuthorizeToolExecutionHook,
+  AuthorizeToolExecutionResult,
   PrepareToolExecutionResult,
   ExecutableToolResult,
   FinalizeToolResultContext,

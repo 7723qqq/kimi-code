@@ -1,4 +1,4 @@
-import { Disposable, IInstantiationService, InstantiationType, registerSingleton } from '../../di';
+import { Disposable, IInstantiationService, registerSingleton, SyncDescriptor } from '../../di';
 import { Emitter } from '../../base/common/event';
 import { ErrorCodes, KimiError } from '../../errors';
 import type { JsonObject, ListSessionsPayload, SessionSummary } from '../../rpc';
@@ -559,4 +559,7 @@ export class SessionService extends Disposable implements ISessionService {
   }
 }
 
-registerSingleton(ISessionService, SessionService, InstantiationType.Delayed);
+registerSingleton(
+  ISessionService,
+  new SyncDescriptor(SessionService, [], true),
+);

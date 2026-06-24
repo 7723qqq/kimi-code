@@ -2,7 +2,7 @@
  * `PromptService` — implementation of `IPromptService`.
  */
 
-import { Disposable, InstantiationType, registerSingleton } from '../../di';
+import { Disposable, registerSingleton, SyncDescriptor } from '../../di';
 import { Emitter } from '../../base/common/event';
 import type {
   Event,
@@ -1015,4 +1015,7 @@ export class PromptService
 // `@I…`-injected (@ICoreProcessService / @IAgentRuntimeService / @IEventService / @IAuthSummaryService);
 // `staticArguments = []`. `supportsDelayedInstantiation = false` preserves
 // current reverse-dispose semantics.
-registerSingleton(IPromptService, PromptService, InstantiationType.Delayed);
+registerSingleton(
+  IPromptService,
+  new SyncDescriptor(PromptService, [], true),
+);

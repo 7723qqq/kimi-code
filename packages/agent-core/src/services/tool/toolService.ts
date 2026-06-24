@@ -2,7 +2,7 @@
  * `ToolService` — implementation of `IToolService`.
  */
 
-import { Disposable, InstantiationType, registerSingleton } from '../../di';
+import { Disposable, registerSingleton, SyncDescriptor } from '../../di';
 
 import {
   AgentRuntimeTodoError,
@@ -41,4 +41,7 @@ export class ToolService extends Disposable implements IToolService {
 // Self-register under the global singleton registry. All ctor deps are
 // `@I…`-injected; `staticArguments = []`. `supportsDelayedInstantiation =
 // false` preserves current reverse-dispose semantics.
-registerSingleton(IToolService, ToolService, InstantiationType.Delayed);
+registerSingleton(
+  IToolService,
+  new SyncDescriptor(ToolService, [], true),
+);

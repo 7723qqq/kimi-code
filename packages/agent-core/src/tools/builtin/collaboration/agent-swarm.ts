@@ -3,14 +3,13 @@ import { z } from 'zod';
 import type { BuiltinTool } from '../../../agent/tool';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
+  type QueuedSubagentRunResult,
   type QueuedSubagentTask,
 } from '../../../session/subagent-host';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { toInputJsonSchema } from '../../support/input-schema';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
-import type { ISubagentHost } from '../../../services/agent/subagentHost/subagentHost';
-import type { ISwarmMode } from '../../../services/agent';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
 const PROMPT_TEMPLATE_PLACEHOLDER = '{{item}}';
@@ -83,14 +82,25 @@ interface SwarmRunResult {
   readonly error?: string;
 }
 
+interface AgentSwarmSubagentHost {
+  getSwarmItem(agentId: string): string | undefined;
+  runQueued<T>(
+    tasks: readonly QueuedSubagentTask<T>[],
+  ): Promise<Array<QueuedSubagentRunResult<T>>>;
+}
+
+interface AgentSwarmMode {
+  enter(trigger: 'tool'): void;
+}
+
 export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
   readonly name = 'AgentSwarm' as const;
   readonly description = AGENT_SWARM_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentSwarmToolInputSchema);
 
   constructor(
-    private readonly subagentHost: ISubagentHost,
-    private readonly swarmMode: ISwarmMode,
+    private readonly subagentHost: AgentSwarmSubagentHost,
+    private readonly swarmMode: AgentSwarmMode,
   ) {}
 
   resolveExecution(args: AgentSwarmToolInput): ToolExecution {
