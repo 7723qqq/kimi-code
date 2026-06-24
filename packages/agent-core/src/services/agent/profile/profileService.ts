@@ -277,7 +277,7 @@ export class ProfileService implements IProfileService {
     }
   }
 
-  private config(): KimiConfig | undefined {
+  config(): KimiConfig | undefined {
     const config = this.optionsValue.config;
     return typeof config === 'function' ? config() : config;
   }

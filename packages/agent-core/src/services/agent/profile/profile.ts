@@ -65,6 +65,7 @@ export interface IProfileService {
   hasModel(): boolean;
   hasProvider(): boolean;
   getSystemPrompt(): string;
+  config(): KimiConfig | undefined;
   getActiveToolNames(): readonly string[] | undefined;
   isToolActive(name: string, source?: ToolSource): boolean;
 }

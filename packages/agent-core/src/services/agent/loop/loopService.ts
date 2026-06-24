@@ -131,8 +131,8 @@ export class LoopService extends Disposable implements ILoopService {
             dispatchEvent: this.dispatchEvent,
             tools: this.executableTools(),
             hooks: loopHooks,
-            maxSteps: this.profile.getLoopControl()?.maxStepsPerTurn,
-            maxRetryAttempts: this.profile.getLoopControl()?.maxRetriesPerStep,
+            maxSteps: this.profile.config()?.loopControl?.maxStepsPerTurn,
+            maxRetryAttempts: this.profile.config()?.loopControl?.maxRetriesPerStep,
             recordStepUsage: (usage) => {
               this.usage.record(usageModel, usage, 'turn');
             },
@@ -647,7 +647,7 @@ export class LoopService extends Disposable implements ILoopService {
             });
             if (
               !hasStepBudgetRemaining(
-                this.profile.getLoopControl()?.maxStepsPerTurn,
+                this.profile.config()?.loopControl?.maxStepsPerTurn,
                 context.stepNumber,
               )
             ) {
