@@ -313,7 +313,6 @@ export {
   IBackgroundService,
   type BackgroundOptions,
   type BackgroundLoadOptions,
-  type BackgroundManager,
   type BackgroundServiceOptions,
   type BackgroundTask,
   type BackgroundTaskOutputSnapshot,

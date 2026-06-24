@@ -1,8 +1,9 @@
 import { registerSingleton, SyncDescriptor } from '../../../di';
-import { ErrorCodes, KimiError } from '../../../errors';
+import { ErrorCodes, KimiError, makeErrorPayload } from '../../../errors';
 import { USER_PROMPT_ORIGIN } from '../../../agent/context';
 
 import { IContextMemory } from '../contextMemory/contextMemory';
+import { IEventBus } from '../eventBus/eventBus';
 import { ITurnRunner } from '../turnRunner/turnRunner';
 import type { ContextMessage, Turn } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
@@ -16,6 +17,7 @@ export class PromptService implements IPromptService {
     @IContextMemory private readonly context: IContextMemory,
     @ITurnRunner private readonly turnRunner: ITurnRunner,
     @IWireRecord private readonly wireRecord: IWireRecord,
+    @IEventBus private readonly events: IEventBus,
   ) {
     turnRunner.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
       this.flushSteerQueue();
@@ -29,8 +31,8 @@ export class PromptService implements IPromptService {
     });
   }
 
-  prompt(message: ContextMessage): Turn {
-    this.assertNoActiveTurn('prompt');
+  prompt(message: ContextMessage): Turn | undefined {
+    if (this.emitBusyIfActive()) return undefined;
     this.append(message);
     const turn = this.turnRunner.launch(message.origin ?? USER_PROMPT_ORIGIN);
     this.observe(turn);
@@ -51,8 +53,8 @@ export class PromptService implements IPromptService {
     return turn;
   }
 
-  retry(trigger?: string): Turn {
-    this.assertNoActiveTurn('retry');
+  retry(trigger?: string): Turn | undefined {
+    if (this.emitBusyIfActive()) return undefined;
     const turn = this.turnRunner.launch({ kind: 'retry', trigger });
     this.observe(turn);
     return turn;
@@ -130,14 +132,18 @@ export class PromptService implements IPromptService {
     return true;
   }
 
-  private assertNoActiveTurn(operation: string): void {
+  private emitBusyIfActive(): boolean {
     const activeTurn = this.turnRunner.getActiveTurn();
-    if (activeTurn === undefined) return;
-    throw new KimiError(
-      ErrorCodes.TURN_AGENT_BUSY,
-      `Cannot ${operation} while turn ${activeTurn.id} is active`,
-      { details: { turnId: activeTurn.id, operation } },
-    );
+    if (activeTurn === undefined) return false;
+    this.events.emit({
+      type: 'error',
+      ...makeErrorPayload(
+        ErrorCodes.TURN_AGENT_BUSY,
+        `Cannot launch a new turn while another turn (ID ${activeTurn.id}) is active`,
+        { details: { turnId: activeTurn.id } },
+      ),
+    });
+    return true;
   }
 }
 

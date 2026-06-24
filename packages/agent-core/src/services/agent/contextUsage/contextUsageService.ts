@@ -11,6 +11,7 @@ import { IContextMemory } from '../contextMemory/contextMemory';
 import { IEventBus } from '../eventBus/eventBus';
 import { IProfileService } from '../profile/profile';
 import type { ContextMessage } from '../types';
+import { IWireRecord } from '../wireRecord/wireRecord';
 import {
   IContextUsageService,
   type ContextTokenStatus,
@@ -32,12 +33,19 @@ export class ContextUsageService
     @IContextMemory private readonly context: IContextMemory,
     @IEventBus private readonly events: IEventBus,
     @IProfileService private readonly profile: IProfileService,
+    @IWireRecord wireRecord: IWireRecord,
   ) {
     super();
     this._register(
       this.context.hooks.onSpliced.register('context-usage', async (ctx, next) => {
         this.applySplice(ctx);
         await next();
+      }),
+    );
+    this._register(
+      wireRecord.register('usage.record', (record) => {
+        if (record.usageScope !== 'turn') return;
+        this.coverThrough(this.context.getHistory().length, record.usage);
       }),
     );
   }

@@ -65,12 +65,11 @@ declare module '../types' {
   }
 }
 
-export interface BackgroundManager {
+export interface IBackgroundService {
+  readonly _serviceBrand: undefined;
   registerTask(task: BackgroundTask, options?: RegisterBackgroundTaskOptions): string;
   getTask(taskId: string): BackgroundTaskInfo | undefined;
   list(activeOnly?: boolean, limit?: number): readonly BackgroundTaskInfo[];
-  loadFromDisk(options?: BackgroundLoadOptions): Promise<void>;
-  reconcile(): Promise<readonly BackgroundTaskInfo[]>;
   getOutputSnapshot(
     taskId: string,
     maxPreviewBytes: number,
@@ -84,11 +83,6 @@ export interface BackgroundManager {
   waitForForegroundRelease(
     taskId: string,
   ): Promise<ForegroundTaskReleaseReason | undefined>;
-}
-
-export interface IBackgroundService extends BackgroundManager {
-  readonly _serviceBrand: undefined;
-  setPersistence(persistence: BackgroundTaskPersistence | undefined): void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

@@ -149,10 +149,6 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     );
   }
 
-  setPersistence(persistence: BackgroundTaskPersistence | undefined): void {
-    this.persistence = persistence;
-  }
-
   registerTask(task: BackgroundTask, options: RegisterBackgroundTaskOptions = {}): string {
     const detached = options.detached ?? true;
     const timeoutMs = options.timeoutMs ?? task.timeoutMs;

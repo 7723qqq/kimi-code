@@ -247,6 +247,10 @@ export class AgentRuntime extends Disposable {
     records?: readonly PersistedWireRecord[],
     options?: WireRecordRestoreOptions,
   ): Promise<WireRecordRestoreResult> {
+    this.instantiation.invokeFunction((accessor) => {
+      accessor.get(IContextUsageService).getStatus();
+      accessor.get(IUsageService).data();
+    });
     const replayBuilder = this.get(IReplayBuilderService);
     replayBuilder.postRestoring = true;
     try {
