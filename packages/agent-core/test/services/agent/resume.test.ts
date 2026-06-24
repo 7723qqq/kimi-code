@@ -290,6 +290,11 @@ describe('Agent resume', () => {
     } as const;
     const persistence = new RecordingAgentPersistence([
       {
+        type: 'metadata',
+        protocol_version: '1.4',
+        created_at: 1,
+      },
+      {
         type: 'context.append_message',
         message: {
           role: 'user',
