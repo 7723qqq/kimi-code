@@ -4,10 +4,10 @@ import {
   AGENT_WIRE_PROTOCOL_VERSION,
   InMemoryWireRecordPersistence,
   IReplayBuilderService,
+  type ContextMessage,
   type PersistedWireRecord,
   type ReplayRangeOptions,
 } from '../../../../src/services/agent';
-import type { ContextMessage } from '../../../../src/services/agent';
 import { testAgent } from '../harness';
 
 describe('AgentRecords persistence metadata', () => {
@@ -16,8 +16,8 @@ describe('AgentRecords persistence metadata', () => {
     const records = testAgent({ persistence }).wireRecord;
 
     records.append({
-      type: 'turn.prompt',
-      input: [{ type: 'text', text: 'hello' }],
+      type: 'turn.launch',
+      turnId: 0,
       origin: { kind: 'user' },
     });
     await records.flush();
@@ -29,7 +29,7 @@ describe('AgentRecords persistence metadata', () => {
     });
     expect(persistence.records[0]).not.toHaveProperty('app_version');
     expect(persistence.records[0]).not.toHaveProperty('resumed');
-    expect(persistence.records[1]?.type).toBe('turn.prompt');
+    expect(persistence.records[1]?.type).toBe('turn.launch');
   });
 
   it('does not write metadata when replaying an empty stream', async () => {
@@ -38,23 +38,23 @@ describe('AgentRecords persistence metadata', () => {
 
     await records.restore();
     records.append({
-      type: 'turn.prompt',
-      input: [{ type: 'text', text: 'one' }],
+      type: 'turn.launch',
+      turnId: 0,
       origin: { kind: 'user' },
     });
     await records.flush();
 
     expect(persistence.records.map((record) => record.type)).toEqual([
       'metadata',
-      'turn.prompt',
+      'turn.launch',
     ]);
   });
 
   it('rejects replaying a non-empty stream without metadata', async () => {
     const persistence = new InMemoryWireRecordPersistence([
       {
-        type: 'turn.prompt',
-        input: [{ type: 'text', text: 'one' }],
+        type: 'turn.launch',
+        turnId: 0,
         origin: { kind: 'user' },
       },
     ]);
@@ -73,8 +73,8 @@ describe('AgentRecords persistence metadata', () => {
         created_at: 1,
       },
       {
-        type: 'turn.prompt',
-        input: [{ type: 'text', text: 'one' }],
+        type: 'turn.launch',
+        turnId: 0,
         origin: { kind: 'user' },
       },
     ]);
@@ -82,16 +82,16 @@ describe('AgentRecords persistence metadata', () => {
 
     await records.restore();
     records.append({
-      type: 'turn.prompt',
-      input: [{ type: 'text', text: 'two' }],
+      type: 'turn.launch',
+      turnId: 1,
       origin: { kind: 'user' },
     });
     await records.flush();
 
     expect(persistence.records.map((record) => record.type)).toEqual([
       'metadata',
-      'turn.prompt',
-      'turn.prompt',
+      'turn.launch',
+      'turn.launch',
     ]);
     expect(persistence.records.filter((record) => record.type === 'metadata')).toHaveLength(1);
   });
@@ -104,8 +104,8 @@ describe('AgentRecords persistence metadata', () => {
         created_at: 1,
       },
       {
-        type: 'turn.prompt',
-        input: [{ type: 'text', text: 'one' }],
+        type: 'turn.launch',
+        turnId: 0,
         origin: { kind: 'user' },
       },
     ]);
@@ -151,15 +151,18 @@ describe('AgentRecords persistence metadata', () => {
       protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
     });
     const migrated = persistence.records[1] as unknown as {
-      readonly message: {
-        readonly toolCalls: readonly Record<string, unknown>[];
-      };
+      readonly messages: readonly [
+        {
+          readonly toolCalls: readonly Record<string, unknown>[];
+        },
+      ];
     };
-    expect(migrated.message.toolCalls[0]).toMatchObject({
+    expect(persistence.records[1]?.type).toBe('context.splice');
+    expect(migrated.messages[0].toolCalls[0]).toMatchObject({
       name: 'Bash',
       arguments: '{"command":"pwd"}',
     });
-    expect(migrated.message.toolCalls[0]?.['function']).toBeUndefined();
+    expect(migrated.messages[0].toolCalls[0]?.['function']).toBeUndefined();
   });
 
   it('warns but continues when replaying records from a newer wire version', async () => {

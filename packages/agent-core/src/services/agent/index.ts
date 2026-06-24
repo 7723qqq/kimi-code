@@ -96,13 +96,15 @@ export type {
   InMemoryWireRecordPersistenceOptions,
 } from './wireRecord/persistence';
 export {
+  applyWireMigrations,
   isNewerWireVersion,
   migrateWireRecord,
+  migrateWireRecordBatch,
   migrateWireRecords,
   resolveWireMigrations,
   type WireMigration,
   type WireMigrationRecord,
-} from '../../agent/records/migration';
+} from './wireRecord/migration';
 export {
   BlobStore,
   isBlobRef,
@@ -120,6 +122,7 @@ export { migrateV1_0ToV1_1 } from '../../agent/records/migration/v1.1';
 export { migrateV1_1ToV1_2 } from '../../agent/records/migration/v1.2';
 export { migrateV1_2ToV1_3 } from '../../agent/records/migration/v1.3';
 export { migrateV1_3ToV1_4 } from '../../agent/records/migration/v1.4';
+export { migrateV1_4ToV1_5 } from './wireRecord/migration/v1.5';
 
 export { IContextMemory } from './contextMemory/contextMemory';
 export { ContextMemoryService } from './contextMemory/contextMemoryService';

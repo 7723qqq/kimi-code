@@ -8,12 +8,12 @@ import {
 } from '../../../di';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
+  applyWireMigrations,
   isNewerWireVersion,
-  migrateWireRecord,
   resolveWireMigrations,
   type WireMigration,
   type WireMigrationRecord,
-} from '../../../agent/records/migration';
+} from './migration';
 import {
   IBlobStoreService,
   type BlobStoreServiceOptions,
@@ -129,33 +129,40 @@ export class WireRecordService extends Disposable implements IWireRecord {
       rewriteMigratedRecords ? [] : undefined;
     const requireMetadata = fromPersistence && this.persistence !== undefined;
     let migrations: readonly WireMigration[] = [];
-    let sawRecord = false;
     let shouldRewrite = false;
     let completed = true;
     let warning: string | undefined;
+    const sourceRecords: PersistedWireRecord[] = [];
 
     for await (const record of toAsyncIterable(source)) {
-      if (!sawRecord) {
-        sawRecord = true;
-        if (record.type === 'metadata') {
-          this.metadataInitialized = true;
-          const readVersion = record.protocol_version;
-          if (isNewerWireVersion(readVersion)) {
-            warning = `Session wire protocol version ${readVersion} is newer than the current version ${AGENT_WIRE_PROTOCOL_VERSION}. Records will be restored without migration.`;
-            shouldRewrite = false;
-          } else {
-            migrations = resolveWireMigrations(readVersion);
-            shouldRewrite = readVersion !== AGENT_WIRE_PROTOCOL_VERSION;
-          }
-        } else if (requireMetadata) {
-          throw new Error('WireRecord restore expected metadata as the first record');
-        }
-      }
+      sourceRecords.push(record);
+    }
 
-      let migratedRecord = migrateWireRecord(
-        record as WireMigrationRecord,
-        migrations,
-      ) as PersistedWireRecord;
+    const firstRecord = sourceRecords[0];
+    if (firstRecord !== undefined) {
+      if (firstRecord.type === 'metadata') {
+        if (!isWireRecordMetadata(firstRecord)) {
+          throw new Error('WireRecord restore expected metadata protocol_version');
+        }
+        this.metadataInitialized = true;
+        const readVersion = firstRecord.protocol_version;
+        if (isNewerWireVersion(readVersion)) {
+          warning = `Session wire protocol version ${readVersion} is newer than the current version ${AGENT_WIRE_PROTOCOL_VERSION}. Records will be restored without migration.`;
+          shouldRewrite = false;
+        } else {
+          migrations = resolveWireMigrations(readVersion);
+          shouldRewrite = readVersion !== AGENT_WIRE_PROTOCOL_VERSION;
+        }
+      } else if (requireMetadata) {
+        throw new Error('WireRecord restore expected metadata as the first record');
+      }
+    }
+
+    const migratedRecords = applyWireMigrations(
+      sourceRecords as WireMigrationRecord[],
+      migrations,
+    ) as PersistedWireRecord[];
+    for (let migratedRecord of migratedRecords) {
       if (migratedRecord.type === 'metadata') {
         migratedRecord = {
           ...migratedRecord,
@@ -166,7 +173,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
       restoredRecords?.push(migratedRecord);
       if (migratedRecord.type === 'metadata') continue;
 
-      if (await this.restoreRecord(await this.rehydrateRecord(migratedRecord))) {
+      if (await this.restoreRecord(await this.rehydrateRecord(migratedRecord as WireRecord))) {
         completed = false;
         break;
       }
@@ -271,7 +278,8 @@ export class WireRecordService extends Disposable implements IWireRecord {
 
   private async preparePersistentRecord(record: PersistedWireRecord): Promise<PersistedWireRecord> {
     if (record.type === 'metadata') return record;
-    return this.offloadRecord(record);
+    if (!this.blobSelectors.has(record.type as keyof WireRecordMap)) return record;
+    return this.offloadRecord(record as WireRecord);
   }
 
   private async offloadRecord<T extends keyof WireRecordMap>(
@@ -334,3 +342,7 @@ async function* toAsyncIterable<T>(
 }
 
 registerSingleton(IWireRecord, new SyncDescriptor(WireRecordService, [{}], true));
+
+function isWireRecordMetadata(record: PersistedWireRecord): record is WireRecordMetadata {
+  return record.type === 'metadata' && typeof record['protocol_version'] === 'string';
+}

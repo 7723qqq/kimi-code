@@ -314,7 +314,7 @@ describe('Agent tools', () => {
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Lookup, Read, TaskList, TaskOutput, TaskStop, Write
+      tools: CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Lookup, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
       messages:
         user: text "Look up moon"
         user: text <auto-mode-enter-reminder>
@@ -364,7 +364,7 @@ describe('Agent tools', () => {
       [emit] turn.ended                   { "turnId": 1, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      tools: AgentSwarm, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, Write
+      tools: AgentSwarm, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
       messages:
         <last>
         assistant: text "The lookup result is moon-result."

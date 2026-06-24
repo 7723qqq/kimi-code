@@ -6,8 +6,9 @@ import type { IDisposable } from '../../../di';
 import type { IBlobStoreService } from '../blobStore/blobStore';
 import type { Hooks } from '../hooks';
 import type { WireRecord, WireRecordMap } from '../types';
+import type { WireMigrationRecord } from './migration';
 
-export { AGENT_WIRE_PROTOCOL_VERSION } from '../../../agent/records';
+export { AGENT_WIRE_PROTOCOL_VERSION } from './migration';
 
 export interface WireRecordMetadata {
   readonly type: 'metadata';
@@ -16,7 +17,7 @@ export interface WireRecordMetadata {
   readonly time?: number;
 }
 
-export type PersistedWireRecord = WireRecord | WireRecordMetadata;
+export type PersistedWireRecord = WireRecord | WireRecordMetadata | WireMigrationRecord;
 
 export interface WireRecordPersistence {
   read(): AsyncIterable<PersistedWireRecord>;

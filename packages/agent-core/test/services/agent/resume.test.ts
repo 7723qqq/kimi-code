@@ -14,8 +14,7 @@ import {
   type PersistedWireRecord,
 } from '../../../src/services/agent';
 import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
-import { testAgent } from './harness';
-import { DEFAULT_TEST_SYSTEM_PROMPT } from './harness';
+import { DEFAULT_TEST_SYSTEM_PROMPT, testAgent } from './harness';
 
 const MOCK_PROVIDER = {
   type: 'kimi',
@@ -616,7 +615,7 @@ describe('Agent resume', () => {
     expect(
       persistence.appended.filter(
         (record) =>
-          record.type === 'context.append_loop_event' &&
+          isLegacyAppendLoopEventRecord(record) &&
           record.event.type === 'tool.result' &&
           record.event.toolCallId === 'call_interrupted_two',
       ),
@@ -642,13 +641,13 @@ describe('Agent resume', () => {
 
     const syntheticRecordIndex = persistence.records.findIndex(
       (record) =>
-        record.type === 'context.append_loop_event' &&
+        isLegacyAppendLoopEventRecord(record) &&
         record.event.type === 'tool.result' &&
         record.event.toolCallId === 'call_interrupted_two',
     );
     const freshUserRecordIndex = persistence.records.findIndex(
       (record) =>
-        record.type === 'context.append_message' &&
+        isLegacyAppendMessageRecord(record) &&
         record.message.role === 'user' &&
         textContent(record.message) === 'continue after resume',
     );
@@ -780,7 +779,7 @@ describe('Agent resume', () => {
     expect(
       persistence.appended.filter(
         (record) =>
-          record.type === 'context.append_loop_event' && record.event.type === 'tool.result',
+          isLegacyAppendLoopEventRecord(record) && record.event.type === 'tool.result',
       ),
     ).toEqual([]);
 
@@ -1273,6 +1272,31 @@ function textContent(
       .map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
       .join('') ?? ''
   );
+}
+
+function isLegacyAppendLoopEventRecord(
+  record: PersistedWireRecord,
+): record is PersistedWireRecord & {
+  readonly type: 'context.append_loop_event';
+  readonly event: { readonly type: string; readonly toolCallId?: string };
+} {
+  return record.type === 'context.append_loop_event' && isRecord(record['event']);
+}
+
+function isLegacyAppendMessageRecord(
+  record: PersistedWireRecord,
+): record is PersistedWireRecord & {
+  readonly type: 'context.append_message';
+  readonly message: {
+    readonly role: string;
+    readonly content: readonly { readonly type: string; readonly text?: string }[];
+  };
+} {
+  return record.type === 'context.append_message' && isRecord(record['message']);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function resumeHistory(): PersistedWireRecord[] {
