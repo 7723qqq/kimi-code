@@ -1,12 +1,20 @@
 import { registerSingleton, SyncDescriptor } from '../../../di';
-import type { PromptOrigin } from '../../../agent/context';
+import type { ContextMessage, PromptOrigin } from '../../../agent/context';
+import { USER_PROMPT_ORIGIN } from '../../../agent/context';
 import { toKimiErrorPayload, type KimiErrorPayload } from '../../../errors';
 import { userCancellationReason } from '../../../utils/abort';
+import { IContextMemory } from '../contextMemory/contextMemory';
 import { IEventBus } from '../eventBus/eventBus';
+import { IExternalHooksService } from '../externalHooks/externalHooks';
 import { OrderedHookSlot } from '../hooks';
 import { ILoopService } from '../loop/loop';
 import { IMicroCompactionService } from '../microCompaction/microCompaction';
-import type { Turn, TurnEndedContext, TurnResult, TurnStepContext } from '../types';
+import type {
+  Turn,
+  TurnEndedContext,
+  TurnResult,
+  TurnStepContext,
+} from '../types';
 import { IUsageService } from '../usage/usage';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import { ITurnRunner } from './turnRunner';
@@ -25,6 +33,12 @@ declare module '../types' {
       reason: TurnResult['reason'];
       error?: KimiErrorPayload;
       durationMs: number;
+    };
+    'hook.result': {
+      turnId: number;
+      hookEvent: string;
+      content: string;
+      blocked?: boolean;
     };
   }
 
@@ -54,6 +68,8 @@ export class TurnRunnerService implements ITurnRunner {
     @IUsageService private readonly usage: IUsageService,
     @IEventBus private readonly events: IEventBus,
     @IWireRecord private readonly wireRecord: IWireRecord,
+    @IContextMemory private readonly context: IContextMemory,
+    @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @IMicroCompactionService _microCompaction: IMicroCompactionService,
   ) {
     wireRecord.register('turn.launch', (record) => {
@@ -107,6 +123,11 @@ export class TurnRunnerService implements ITurnRunner {
     try {
       this.usage.beginTurn();
       this.events.emit({ type: 'turn.started', turnId: turn.id, origin });
+      const promptHookResult = await this.applyUserPromptHook(turn, origin);
+      if (promptHookResult !== undefined) {
+        result = promptHookResult;
+        return result;
+      }
       result = await this.loop.runTurn(turn, {
         beforeStep: this.hooks.beforeStep,
         afterStep: this.hooks.afterStep,
@@ -150,11 +171,67 @@ export class TurnRunnerService implements ITurnRunner {
     }
   }
 
+  private async applyUserPromptHook(
+    turn: Turn,
+    origin: PromptOrigin,
+  ): Promise<TurnResult | undefined> {
+    if (origin.kind !== 'user') return undefined;
+    const promptMessage = this.context.getHistory().at(-1);
+    if (!shouldRunUserPromptHook(promptMessage)) return undefined;
+
+    const hookResult = await this.externalHooks.triggerUserPromptSubmit(
+      promptMessage.content,
+      turn.abortController.signal,
+    );
+    if (hookResult?.action === 'block') {
+      this.append({
+        role: 'assistant',
+        content: [{ type: 'text', text: hookResult.text }],
+        toolCalls: [],
+        origin: { kind: 'hook_result', event: hookResult.event, blocked: true },
+      });
+      this.events.emit({
+        type: 'hook.result',
+        turnId: turn.id,
+        hookEvent: hookResult.event,
+        content: hookResult.message,
+        blocked: true,
+      });
+      return { reason: 'completed' };
+    }
+
+    if (hookResult?.action === 'append') {
+      this.append({
+        role: 'user',
+        content: [{ type: 'text', text: hookResult.text }],
+        toolCalls: [],
+        origin: { kind: 'hook_result', event: hookResult.event },
+      });
+      this.events.emit({
+        type: 'hook.result',
+        turnId: turn.id,
+        hookEvent: hookResult.event,
+        content: hookResult.message,
+      });
+    }
+    return undefined;
+  }
+
+  private append(...messages: ContextMessage[]): void {
+    if (messages.length === 0) return;
+    this.context.spliceHistory(this.context.getHistory().length, 0, ...messages);
+  }
+
   private rejectReady(turn: Turn, reason: unknown): void {
     if (this.readySettled.has(turn)) return;
     this.readySettled.add(turn);
     this.readyControllers.get(turn)?.reject(reason);
   }
+}
+
+function shouldRunUserPromptHook(message: ContextMessage | undefined): message is ContextMessage {
+  if (message === undefined || message.role !== 'user') return false;
+  return (message.origin ?? USER_PROMPT_ORIGIN).kind === 'user';
 }
 
 function toTurnEndedEvent(
