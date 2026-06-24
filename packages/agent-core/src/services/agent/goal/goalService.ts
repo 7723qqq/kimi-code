@@ -24,6 +24,11 @@ import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import { ITelemetryService } from '../telemetry/telemetry';
 import type { ContextMessage, WireRecord } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
+import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
+import {
+  GoalInjection,
+  type GoalInjectionOptions,
+} from '../goalMode/injection/goalInjection';
 import {
   IGoalService,
   type GoalReasonInput,
@@ -39,6 +44,7 @@ const GOAL_CANCELLED_REMINDER = [
 
 export interface GoalServiceOptions {
   readonly enabled?: boolean | (() => boolean);
+  readonly injection?: GoalInjectionOptions;
 }
 
 interface GoalState {
@@ -66,8 +72,18 @@ export class GoalService extends Disposable implements IGoalService {
     @IContextMemory private readonly context: IContextMemory,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IDynamicInjector dynamicInjector: IDynamicInjector,
   ) {
     super();
+    this._register(
+      new GoalInjection(
+        options.injection ?? {
+          getGoal: () => this.getGoal().goal,
+          enabled: () => this.enabled,
+        },
+        dynamicInjector,
+      ),
+    );
     this._register(
       wireRecord.register('goal.create', (record) => {
         this.restoreCreate(record);

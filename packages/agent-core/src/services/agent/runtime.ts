@@ -2,7 +2,6 @@ import type { Kaos } from '@moonshot-ai/kaos';
 import type { generate } from '@moonshot-ai/kosong';
 import { join } from 'pathe';
 
-import type { GoalSnapshot } from '../../agent/goal';
 import type {
   PermissionMode,
   PermissionRule,
@@ -19,11 +18,10 @@ import {
 } from '../../di';
 import type { ExperimentalFlagResolver } from '../../flags';
 import type { McpConnectionManager } from '../../mcp';
-import type { EnabledPluginSessionStart } from '../../plugin';
 import type { HookEngine } from '../../session/hooks';
 import type { ModelProvider } from '../../session/provider-manager';
-import type { SessionSkillRegistry } from '../../skill/registry';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
+import type { SkillCatalog } from '../../skill';
 import type { SubagentResult } from '../../session/subagent-batch';
 import type {
   QueuedSubagentTask,
@@ -65,7 +63,10 @@ import { IContextProjector } from './contextProjector/contextProjector';
 import { IContextUsageService } from './contextUsage/contextUsage';
 import { ICronService, type CronOptions } from './cron/cron';
 import { CronService } from './cron/cronService';
-import { IDynamicInjector } from './dynamicInjector/dynamicInjector';
+import {
+  IDynamicInjector,
+  type DynamicInjectionProvider,
+} from './dynamicInjector/dynamicInjector';
 import { IEventBus } from './eventBus/eventBus';
 import { EventBusService } from './eventBus/eventBusService';
 import {
@@ -74,7 +75,12 @@ import {
 } from './externalHooks/externalHooks';
 import { ExternalHooksService } from './externalHooks/externalHooksService';
 import { IFullCompaction } from './fullCompaction/fullCompaction';
-import { GoalInjection } from './goalMode/injection/goalInjection';
+import { IGoalService } from './goal/goal';
+import {
+  GoalService,
+  type GoalServiceOptions,
+} from './goal/goalService';
+import type { GoalInjectionOptions } from './goalMode/injection/goalInjection';
 import { ILLMRequestLogService } from './llmRequestLog/llmRequestLog';
 import { ILLMRequester } from './llmRequester/llmRequester';
 import { LLMRequesterService } from './llmRequester/llmRequesterService';
@@ -109,7 +115,6 @@ import { IReplayBuilderService } from './replayBuilder/replayBuilder';
 import { IAgentRPCService } from './rpc/rpc';
 import {
   IAgentSkillService,
-  type AgentSkillServiceOptions,
 } from './skill/skill';
 import { AgentSkillService } from './skill/skillService';
 import {
@@ -141,15 +146,16 @@ import {
 import { WireRecordService } from './wireRecord/wireRecordService';
 
 export type AgentRuntimeType = 'main' | 'sub' | 'independent';
-
-export interface AgentRuntimeGoalOptions {
-  readonly getGoal: () => GoalSnapshot | null;
-  readonly enabled?: () => boolean;
-}
+export type AgentRuntimeGoalOptions = GoalInjectionOptions;
 
 export interface AgentRuntimeToolServices {
   readonly webSearcher?: WebSearchProvider;
   readonly urlFetcher?: UrlFetcher;
+}
+
+export interface AgentRuntimeDynamicInjection {
+  readonly variant: string;
+  readonly provider: DynamicInjectionProvider;
 }
 
 export interface AgentRuntimeOptions {
@@ -178,14 +184,14 @@ export interface AgentRuntimeOptions {
   readonly permissionRules?: readonly PermissionRule[];
   readonly parentPermissionRules?: IPermissionRulesService;
   readonly permissionMode?: PermissionMode;
-  readonly skills?: SessionSkillRegistry | null;
-  readonly pluginSessionStarts?: readonly EnabledPluginSessionStart[];
+  readonly skills?: SkillCatalog | null;
+  readonly dynamicInjections?: readonly AgentRuntimeDynamicInjection[];
   readonly userTool?: UserToolServiceOptions;
   readonly wireRecord?: Omit<WireRecordServiceOptions, 'homedir' | 'blobStore'>;
   readonly blobStore?: BlobStoreServiceOptions | IBlobStoreService;
   readonly background?: BackgroundOptions | false;
   readonly cron?: CronOptions | false;
-  readonly goal?: AgentRuntimeGoalOptions;
+  readonly goal?: GoalInjectionOptions;
   readonly initializeTools?: (registry: IToolRegistry) => void;
   readonly emitStatusUpdated?: () => void;
 }
@@ -278,9 +284,6 @@ export function createAgentRuntime(
   );
   try {
     activateAgentServices(refs.child);
-    if (options.pluginSessionStarts !== undefined) {
-      runtime.get(IAgentSkillService).setPluginSessionStarts(options.pluginSessionStarts);
-    }
     initializeAgentRuntimeTools(refs.child, options);
   } catch (error) {
     runtime.dispose();
@@ -403,6 +406,7 @@ function configureAgentRuntimeServices(
   configureMicroCompactionService(services, options);
   configureExternalHooksService(services, options);
   configureTelemetryService(services, options);
+  configureGoalService(services, options, context.type);
   configureCronService(services, options, context.type);
   configureSubagentHostService(services, options);
 }
@@ -486,7 +490,9 @@ function configureProfileService(
           chdir: options.chdir,
           modelProvider: options.modelProvider,
           config: options.config,
-          initializeBuiltinTools: context.initializeTools,
+          initializeBuiltinTools: () => {
+            context.initializeTools();
+          },
           emitStatusUpdated: options.emitStatusUpdated,
         } satisfies ProfileServiceOptions,
       ],
@@ -599,7 +605,7 @@ function configureAgentSkillService(
     IAgentSkillService,
     new SyncDescriptor(
       AgentSkillService,
-      [{ registry: options.skills } satisfies AgentSkillServiceOptions],
+      [{ catalog: options.skills }],
       true,
     ),
   );
@@ -655,6 +661,26 @@ function configureTelemetryService(
   );
 }
 
+function configureGoalService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+  type: AgentRuntimeType,
+): void {
+  services.set(
+    IGoalService,
+    new SyncDescriptor(
+      GoalService,
+      [
+        {
+          enabled: type === 'main',
+          injection: options.goal,
+        } satisfies GoalServiceOptions,
+      ],
+      true,
+    ),
+  );
+}
+
 function configureCronService(
   services: ServiceCollection,
   options: AgentRuntimeOptions,
@@ -689,13 +715,16 @@ function createAgentRuntimeDisposables(
   instantiation: IInstantiationService,
   options: AgentRuntimeOptions,
 ): readonly IDisposable[] {
-  if (options.goal === undefined) return [];
-  return [
-    createDescriptorInstance(
-      instantiation,
-      new SyncDescriptor(GoalInjection, [options.goal]),
-    ),
-  ];
+  const disposables: IDisposable[] = [];
+  for (const injection of options.dynamicInjections ?? []) {
+    disposables.push(
+      getService(instantiation, IDynamicInjector).register(
+        injection.variant,
+        injection.provider,
+      ),
+    );
+  }
+  return disposables;
 }
 
 function activateAgentServices(instantiation: IInstantiationService): void {
@@ -722,6 +751,7 @@ function activateAgentServices(instantiation: IInstantiationService): void {
     accessor.get(IPermissionPolicyService);
     accessor.get(IPermissionService);
     accessor.get(IUsageService);
+    accessor.get(IGoalService);
     accessor.get(IDynamicInjector);
     accessor.get(IMicroCompactionService);
     accessor.get(IContextProjector);
@@ -796,17 +826,6 @@ function getService<T>(
   id: ServiceIdentifier<T>,
 ): T {
   return instantiation.invokeFunction((accessor) => accessor.get(id));
-}
-
-function createDescriptorInstance<T>(
-  instantiation: IInstantiationService,
-  descriptor: SyncDescriptor<T>,
-): T {
-  return (
-    instantiation as IInstantiationService & {
-      createInstance<TInstance>(descriptor: SyncDescriptor<TInstance>): TInstance;
-    }
-  ).createInstance(descriptor);
 }
 
 function isBlobStoreInstance(
