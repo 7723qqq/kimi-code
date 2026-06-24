@@ -2,15 +2,14 @@ import {
   Disposable,
   InstantiationService,
   ServiceCollection,
+  SyncDescriptor,
   getSingletonServiceDescriptors,
   type IInstantiationService,
 } from '../../di';
-import { getCoreVersion } from '../../version';
 import type {
   ApprovalRequest,
   ApprovalResponse,
   CoreRPC,
-  Event,
   QuestionRequest,
   QuestionResult,
   SDKAPI,
@@ -18,8 +17,17 @@ import type {
 import type { Logger } from '../../logging/types';
 import { log } from '../../logging/logger';
 import { IApprovalService } from '../approval/approval';
+import { IAgentRuntimeService } from '../agentRuntime/agentRuntime';
+import {
+  AgentRuntimeService,
+  type AgentRuntimeServiceOptions,
+} from '../agentRuntime/agentRuntimeService';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
-import { IEnvironmentService, type IEnvironmentService as EnvironmentServiceShape } from '../environment/environment';
+import { CoreProcessService } from '../coreProcess/coreProcessService';
+import {
+  IEnvironmentService,
+  type IEnvironmentService as EnvironmentServiceShape,
+} from '../environment/environment';
 import { IEventService } from '../event/event';
 import { ILogService, type ILogService as LogServiceShape } from '../logger/logger';
 import { IQuestionService } from '../question/question';
@@ -45,38 +53,41 @@ class ServicesCoreAdapterImpl extends Disposable implements ServicesCoreAdapter 
     services.set(ILogService, new CoreApiLogService(log));
     services.set(IApprovalService, new CoreApiApprovalService(options.sdk));
     services.set(IQuestionService, new CoreApiQuestionService(options.sdk));
-    services.set(ICoreProcessService, new CoreApiProcessService(options.coreRpc));
+    services.set(
+      IAgentRuntimeService,
+      new SyncDescriptor(
+        AgentRuntimeService,
+        [
+          {
+            telemetry: options.coreProcessOptions.telemetry,
+            kimiRequestHeaders: options.coreProcessOptions.kimiRequestHeaders,
+            identity: options.coreProcessOptions.identity,
+          } satisfies AgentRuntimeServiceOptions,
+        ],
+        true,
+      ),
+    );
+    services.set(
+      ICoreProcessService,
+      new SyncDescriptor(CoreProcessService, [options.coreProcessOptions], false),
+    );
 
     this.instantiation = this._register(new InstantiationService(services));
-    this.rpc = this.createRpcProxy();
 
     const events = this.instantiation.invokeFunction((accessor) => accessor.get(IEventService));
     this._register(
       events.onDidPublish((event) => {
-        this.options.sdk.emitEvent(event as Event);
+        this.options.sdk.emitEvent(event);
       }),
     );
+
+    const core = this.instantiation.invokeFunction((accessor) => accessor.get(ICoreProcessService));
+    this.rpc = core.rpc;
   }
 
   ready(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  private createRpcProxy(): CoreRPC {
-    const fallback = this.options.coreRpc;
-    const local: Partial<CoreRPC> = {
-      getCoreInfo: async () => ({ version: getCoreVersion() }),
-    };
-
-    return new Proxy({} as CoreRPC, {
-      get: (_target, prop) => {
-        if (typeof prop !== 'string') return undefined;
-        const method = local[prop as keyof CoreRPC] ?? fallback[prop as keyof CoreRPC];
-        if (typeof method !== 'function') return undefined;
-        return (payload: unknown, ...args: unknown[]) =>
-          (method as (payload: unknown, ...args: unknown[]) => unknown)(payload, ...args);
-      },
-    });
+    const core = this.instantiation.invokeFunction((accessor) => accessor.get(ICoreProcessService));
+    return core.ready();
   }
 }
 
@@ -116,25 +127,17 @@ class CoreApiLogService implements LogServiceShape {
     return new CoreApiLogService(this.logger.createChild(bindings as Record<string, unknown>));
   }
 
-  private write(level: 'info' | 'warn' | 'error' | 'debug', obj: object | string, msg?: string): void {
+  private write(
+    level: 'info' | 'warn' | 'error' | 'debug',
+    obj: object | string,
+    msg?: string,
+  ): void {
     if (typeof obj === 'string') {
       this.logger[level](obj);
       return;
     }
     this.logger[level](msg ?? '', obj);
   }
-}
-
-class CoreApiProcessService implements ICoreProcessService {
-  readonly _serviceBrand: undefined;
-
-  constructor(readonly rpc: CoreRPC) {}
-
-  ready(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  dispose(): void {}
 }
 
 class CoreApiApprovalService implements IApprovalService {

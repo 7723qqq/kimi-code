@@ -1,7 +1,8 @@
 import type { CoreRPC, SDKAPI } from '../../rpc';
+import type { CoreProcessServiceOptions } from '../coreProcess/coreProcess';
 
 export interface ServicesCoreAdapterOptions {
-  readonly coreRpc: CoreRPC;
+  readonly coreProcessOptions: CoreProcessServiceOptions;
   readonly sdk: SDKAPI;
   readonly homeDir: string;
   readonly configPath: string;
