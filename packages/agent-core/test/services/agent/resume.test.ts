@@ -12,6 +12,7 @@ import {
   IReplayBuilderService,
   ITurnRunner,
   type PersistedWireRecord,
+  type PromptOrigin,
 } from '../../../src/services/agent';
 import type {
   BackgroundTaskInfo,
@@ -101,7 +102,7 @@ describe('Agent resume', () => {
     `);
   });
 
-  it.skip('allocates monotonically increasing turnIds across multiple historical turns on resume', async () => {
+  it('allocates monotonically increasing turnIds across multiple historical turns on resume', async () => {
     const persistence = new RecordingAgentPersistence(multiTurnResumeHistory() as unknown as PersistedWireRecord[]);
     const ctx = testAgent({ persistence });
 
@@ -122,11 +123,9 @@ describe('Agent resume', () => {
     });
   });
 
-  it.skip('restores the turn counter past goal-continuation turns that have no turn.prompt record', async () => {
-    // A goal drive allocates a fresh turnId per continuation turn but only the
-    // first turn has a `turn.prompt` record — the continuations are driven
-    // internally. The persisted loop events still carry the real turnId, so the
-    // counter must be restored from them, not from the prompt records alone.
+  it('restores the turn counter past goal-continuation turns that have no turn.prompt record', async () => {
+    // A goal drive allocates a fresh turnId per continuation turn even though
+    // the internally-driven turns do not have user prompt records.
     const persistence = new RecordingAgentPersistence(goalContinuationResumeHistory() as unknown as PersistedWireRecord[]);
     const ctx = testAgent({ persistence });
 
@@ -146,7 +145,7 @@ describe('Agent resume', () => {
     });
   });
 
-  it.skip('keeps turnIds monotonic across repeated resume cycles', async () => {
+  it('keeps turnIds monotonic across repeated resume cycles', async () => {
     // Mirrors a real session that was cold-started several times: each resume
     // must continue the counter, never restart it and collide with history.
     const persistence = new RecordingAgentPersistence(multiTurnResumeHistory() as unknown as PersistedWireRecord[]);
@@ -1563,6 +1562,60 @@ function resumeConfigRecord(): PersistedWireRecord {
   } as unknown as PersistedWireRecord;
 }
 
+function contextSpliceRecord(
+  start: number,
+  messages: readonly {
+    readonly role: 'user' | 'assistant';
+    readonly text: string;
+    readonly origin?: PromptOrigin;
+  }[],
+): PersistedWireRecord {
+  return {
+    type: 'context.splice',
+    start,
+    deleteCount: 0,
+    messages: messages.map((message) => ({
+      role: message.role,
+      content: [{ type: 'text', text: message.text }],
+      toolCalls: [],
+      origin: message.origin,
+    })),
+  } as unknown as PersistedWireRecord;
+}
+
+function turnLaunchRecord(turnId: number, origin: PromptOrigin): PersistedWireRecord {
+  return {
+    type: 'turn.launch',
+    turnId,
+    origin,
+  } as unknown as PersistedWireRecord;
+}
+
+function canonicalPromptedTurn(
+  turnId: number,
+  promptText: string,
+  responseText: string,
+  start: number,
+): PersistedWireRecord[] {
+  const origin: PromptOrigin = { kind: 'user' };
+  return [
+    contextSpliceRecord(start, [{ role: 'user', text: promptText, origin }]),
+    turnLaunchRecord(turnId, origin),
+    contextSpliceRecord(start + 1, [{ role: 'assistant', text: responseText }]),
+  ];
+}
+
+function canonicalContinuationTurn(
+  turnId: number,
+  responseText: string,
+  start: number,
+): PersistedWireRecord[] {
+  return [
+    turnLaunchRecord(turnId, { kind: 'system_trigger', name: 'goal_continuation' }),
+    contextSpliceRecord(start, [{ role: 'assistant', text: responseText }]),
+  ];
+}
+
 // Loop events for one fully-run turn: a single step that emits text and ends.
 // Used to represent both prompted turns and internal (goal-continuation) turns.
 function loopEventsForTurn(turnId: string, responseText: string): PersistedWireRecord[] {
@@ -1601,44 +1654,21 @@ function loopEventsForTurn(turnId: string, responseText: string): PersistedWireR
   ] as unknown as PersistedWireRecord[];
 }
 
-// A prompted turn: the `turn.prompt` record + the appended user message + the
-// loop events the turn produced.
-function minimalPromptedTurn(turnId: string, promptText: string, responseText: string): PersistedWireRecord[] {
-  return [
-    {
-      type: 'turn.prompt',
-      input: [{ type: 'text', text: promptText }],
-      origin: { kind: 'user' },
-    },
-    {
-      type: 'context.append_message',
-      message: {
-        role: 'user',
-        content: [{ type: 'text', text: promptText }],
-        toolCalls: [],
-        origin: { kind: 'user' },
-      },
-    },
-    ...loopEventsForTurn(turnId, responseText),
-  ];
-}
-
 function multiTurnResumeHistory(): PersistedWireRecord[] {
   return [
     resumeConfigRecord(),
-    ...minimalPromptedTurn('0', 'First historical prompt', 'First historical response.'),
-    ...minimalPromptedTurn('1', 'Second historical prompt', 'Second historical response.'),
+    ...canonicalPromptedTurn(0, 'First historical prompt', 'First historical response.', 0),
+    ...canonicalPromptedTurn(1, 'Second historical prompt', 'Second historical response.', 2),
   ];
 }
 
-// One prompted turn (turnId 0) followed by two goal-continuation turns (1, 2)
-// that have NO turn.prompt record — only loop events carry their turnId.
+// One prompted turn (turnId 0) followed by two internally-driven turns (1, 2).
 function goalContinuationResumeHistory(): PersistedWireRecord[] {
   return [
     resumeConfigRecord(),
-    ...minimalPromptedTurn('0', 'Goal prompt', 'Starting the goal.'),
-    ...loopEventsForTurn('1', 'Continuation turn one.'),
-    ...loopEventsForTurn('2', 'Continuation turn two.'),
+    ...canonicalPromptedTurn(0, 'Goal prompt', 'Starting the goal.', 0),
+    ...canonicalContinuationTurn(1, 'Continuation turn one.', 2),
+    ...canonicalContinuationTurn(2, 'Continuation turn two.', 3),
   ];
 }
 

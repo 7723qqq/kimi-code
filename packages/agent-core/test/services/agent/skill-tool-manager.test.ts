@@ -3,10 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
 import type { ToolCall } from '@moonshot-ai/kosong';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { testAgent } from './harness';
-import { InMemoryWireRecordPersistence } from '../../../src/services/agent';
+import {
+  IReplayBuilderService,
+  InMemoryWireRecordPersistence,
+} from '../../../src/services/agent';
 import { SessionSkillRegistry, type SkillCatalog, type SkillDefinition } from '../../../src/skill';
 import { testKaos } from '../../fixtures/test-kaos';
 
@@ -154,6 +157,70 @@ describe('ToolManager SkillTool registration', () => {
         skillName: 'review',
       },
     });
+  });
+
+  it('restores skill activation records before the skill service is otherwise used', async () => {
+    const skills = new SessionSkillRegistry();
+    skills.register(makeSkill('review'));
+    const track = vi.fn();
+    const ctx = testAgent({
+      skills,
+      telemetry: { track },
+    });
+    const emit = vi.spyOn(ctx.events, 'emit');
+    const origin = {
+      kind: 'skill_activation' as const,
+      activationId: 'act_restore_skill',
+      skillName: 'review',
+      skillArgs: 'src/app.ts',
+      trigger: 'user-slash' as const,
+      skillPath: '/skills/review/SKILL.md',
+      skillSource: 'user' as const,
+    };
+    const message = {
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text: 'restored skill body' }],
+      toolCalls: [],
+      origin,
+    };
+
+    await ctx.runtime.restore([
+      { type: 'skill.activate', origin },
+      {
+        type: 'context.splice',
+        start: 0,
+        deleteCount: 0,
+        messages: [message],
+      },
+    ]);
+
+    expect(emit).toHaveBeenCalledWith({
+      type: 'skill.activated',
+      activationId: 'act_restore_skill',
+      skillName: 'review',
+      trigger: 'user-slash',
+      skillArgs: 'src/app.ts',
+      skillPath: '/skills/review/SKILL.md',
+      skillSource: 'user',
+    });
+    expect(ctx.allEvents).not.toContainEqual(
+      expect.objectContaining({ type: '[rpc]', event: 'skill.activated' }),
+    );
+    expect(track).not.toHaveBeenCalledWith('skill_invoked', expect.anything());
+    expect(ctx.context.getHistory()).toMatchObject([message]);
+    expect(ctx.get(IReplayBuilderService).buildResult()).toContainEqual(
+      expect.objectContaining({
+        type: 'message',
+        message: expect.objectContaining({
+          origin: expect.objectContaining({
+            kind: 'skill_activation',
+            activationId: 'act_restore_skill',
+            skillName: 'review',
+            trigger: 'user-slash',
+          }),
+        }),
+      }),
+    );
   });
 
   it('exposes session skills after the main agent is created', async () => {
