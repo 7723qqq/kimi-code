@@ -179,39 +179,40 @@ describe('plan exit tool', () => {
     }
   });
 
-  it.skip('stops the turn and stays in plan mode when the user rejects the plan', async () => {
-    const files = new Map<string, string>();
-    const readText = vi.fn(async (path: string) => files.get(path) ?? '');
-    const ctx = testAgent({
-      kaos: createPlanKaos({ readText }),
-    });
-    ctx.configure({ tools: ['ExitPlanMode'] });
-    await ctx.rpc.setPermission({ mode: 'manual' });
-    await ctx.get(IPlanModeService).enter('reject-plan', false);
+  it('stops the turn and stays in plan mode when the user rejects the plan', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-reject-exit-'));
+    try {
+      const ctx = testAgent();
+      ctx.configure({ tools: ['ExitPlanMode'] });
+      ctx.profile.update({ cwd });
+      await ctx.rpc.setPermission({ mode: 'manual' });
+      await ctx.get(IPlanModeService).enter('reject-plan', false);
 
-    const planPath = ctx.get(IPlanModeService).planFilePath;
-    if (planPath === null) throw new Error('expected active plan path');
-    files.set(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify');
+      const planPath = ctx.get(IPlanModeService).planFilePath;
+      if (planPath === null) throw new Error('expected active plan path');
+      await writeFile(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify', 'utf8');
 
-    const exitPlanModeCall: ToolCall = {
-      type: 'function',
-      id: 'call_exit_reject',
-      name: 'ExitPlanMode',
-      arguments: '{}',
-    };
-    ctx.mockNextResponse({ type: 'text', text: 'I will present the plan.' }, exitPlanModeCall);
-    ctx.mockNextResponse({ type: 'text', text: 'This response must not be requested.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Show the plan' }] });
+      const exitPlanModeCall: ToolCall = {
+        type: 'function',
+        id: 'call_exit_reject',
+        name: 'ExitPlanMode',
+        arguments: '{}',
+      };
+      ctx.mockNextResponse({ type: 'text', text: 'I will present the plan.' }, exitPlanModeCall);
+      ctx.mockNextResponse({ type: 'text', text: 'This response must not be requested.' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Show the plan' }] });
 
-    const approval = await ctx.takeApprovalRequest();
-    approval.respond({ decision: 'rejected', selectedLabel: 'Reject' });
+      const approval = await ctx.takeApprovalRequest();
+      approval.respond({ decision: 'rejected', selectedLabel: 'Reject' });
 
-    await ctx.untilTurnEnd();
-    expect(readText).toHaveBeenCalledWith(planPath);
-    expect(ctx.get(IPlanModeService).isActive).toBe(true);
-    expect(ctx.llmCalls).toHaveLength(1);
-    expect(toolResultText(ctx.context.getHistory())).toContain('Plan rejected by user');
-    await ctx.expectResumeMatches();
+      await ctx.untilTurnEnd();
+      expect(ctx.get(IPlanModeService).isActive).toBe(true);
+      expect(ctx.llmCalls).toHaveLength(1);
+      expect(toolResultText(ctx.context.getHistory())).toContain('Plan rejected by user');
+      await ctx.expectResumeMatches();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it.skip('does not execute later tool calls in the same batch after plan rejection', async () => {

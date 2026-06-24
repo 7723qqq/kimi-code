@@ -545,49 +545,23 @@ describe('Agent context', () => {
   it('keeps tool results pending when step usage covers only through the assistant message', () => {
     const ctx = testAgent();
     ctx.configure();
-    const stepUuid = 'context-pending-tool-step';
     ctx.appendUserMessage([{ type: 'text', text: 'lookup pending tokens' }]);
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: { type: 'step.begin', uuid: stepUuid, turnId: '0', step: 1 },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'assistant',
+      content: [],
+      toolCalls: [{ type: 'function', id: 'call_pending_tokens', name: 'Lookup', arguments: '{}' }],
     });
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.call',
-        uuid: 'call_pending_tokens',
-        turnId: '0',
-        step: 1,
-        stepUuid,
-        toolCallId: 'call_pending_tokens',
-        name: 'Lookup',
-        args: {},
-      },
+    ctx.contextUsage.coverThrough(ctx.context.getHistory().length, {
+      inputOther: 1_200,
+      output: 80,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
     });
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_pending_tokens',
-        toolCallId: 'call_pending_tokens',
-        result: { output: 'large tool result '.repeat(50) },
-      },
-    });
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'step.end',
-        uuid: stepUuid,
-        turnId: '0',
-        step: 1,
-        usage: {
-          inputOther: 1_200,
-          output: 80,
-          inputCacheRead: 0,
-          inputCacheCreation: 0,
-        },
-        finishReason: 'tool_use',
-      },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'tool',
+      content: [{ type: 'text', text: 'large tool result '.repeat(50) }],
+      toolCalls: [],
+      toolCallId: 'call_pending_tokens',
     });
 
     const pendingMessages = ctx.context.getHistory().slice(-1);
@@ -603,27 +577,12 @@ describe('Agent context', () => {
     ctx.appendAssistantTextWithUsage(1, 'previous answer', 1_000);
     expect(ctx.contextUsage.getStatus().contextTokens).toBe(1_000);
 
-    const stepUuid = 'context-filtered-step';
     ctx.appendUserMessage([{ type: 'text', text: 'next prompt' }]);
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: { type: 'step.begin', uuid: stepUuid, turnId: '0', step: 2 },
-    });
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'step.end',
-        uuid: stepUuid,
-        turnId: '0',
-        step: 2,
-        usage: {
-          inputOther: 0,
-          output: 0,
-          inputCacheRead: 0,
-          inputCacheCreation: 0,
-        },
-        finishReason: 'filtered',
-      },
+    ctx.contextUsage.coverThrough(ctx.context.getHistory().length, {
+      inputOther: 0,
+      output: 0,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
     });
 
     expect(ctx.contextUsage.getStatus().contextTokens).toBeGreaterThan(1_000);
@@ -711,23 +670,50 @@ describe('Agent context', () => {
   it('does not throw while restoring an undo that stops at compaction summary', async () => {
     const ctx = testAgent();
     ctx.configure();
-    ctx.appendUserMessage([{ type: 'text', text: 'old user message' }]);
-    ctx.context.spliceHistory(0, 1, {
-      role: 'assistant',
-      content: [{ type: 'text', text: 'summary of compacted context' }],
-      toolCalls: [],
-      origin: { kind: 'compaction_summary' },
-    });
-    ctx.contextUsage.applyCompactionResult({ tokensAfter: 20 });
-    ctx.appendUserMessage([{ type: 'text', text: 'recent user message' }]);
-    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
-      role: 'assistant',
-      content: [{ type: 'text', text: 'recent answer' }],
-      toolCalls: [],
-      origin: undefined,
-    });
 
-    await expect(ctx.wireRecord.restore([{ type: 'context.undo', count: 2 }])).resolves.not.toThrow();
+    await expect(
+      ctx.wireRecord.restore([
+        { type: 'metadata', protocol_version: '1.4', created_at: 1 },
+        {
+          type: 'context.append_message',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'old user message' }],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+          time: 1,
+        },
+        {
+          type: 'context.apply_compaction',
+          summary: 'summary of compacted context',
+          compactedCount: 1,
+          tokensBefore: 100,
+          tokensAfter: 20,
+          time: 2,
+        },
+        {
+          type: 'context.append_message',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'recent user message' }],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+          time: 3,
+        },
+        {
+          type: 'context.append_message',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'recent answer' }],
+            toolCalls: [],
+          },
+          time: 4,
+        },
+        { type: 'context.undo', count: 2, time: 5 },
+      ]),
+    ).resolves.not.toThrow();
     expect(ctx.context.getHistory()).toEqual([
       expect.objectContaining({
         role: 'assistant',

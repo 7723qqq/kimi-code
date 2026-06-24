@@ -28,6 +28,7 @@ export class ContextUsageService
   private coveredMessageCount = 0;
   private coveredEstimatedTokens = 0;
   private contextTokens = 0;
+  private restoredTurnContextTokens: number | undefined;
 
   constructor(
     @IContextMemory private readonly context: IContextMemory,
@@ -45,8 +46,26 @@ export class ContextUsageService
     this._register(
       wireRecord.register('usage.record', (record) => {
         if (record.usageScope !== 'turn') return;
+        const totalUsage = tokenUsageTotal(record.usage);
         this.coverThrough(this.context.getHistory().length, record.usage);
+        if (wireRecord.restoring !== null) {
+          this.restoredTurnContextTokens = totalUsage > 0 ? totalUsage : undefined;
+        }
       }),
+    );
+    this._register(
+      wireRecord.hooks.onResumeEnded.register(
+        'context-usage-restore-turn-usage',
+        async (_, next) => {
+          await next();
+          const restoredTurnContextTokens = this.restoredTurnContextTokens;
+          this.restoredTurnContextTokens = undefined;
+          if (restoredTurnContextTokens === undefined) return;
+          if (this.contextTokens === restoredTurnContextTokens) return;
+          this.contextTokens = restoredTurnContextTokens;
+          this.emitChanged();
+        },
+      ),
     );
   }
 
