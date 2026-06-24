@@ -137,6 +137,10 @@ import {
 } from './subagentHost/subagentHost';
 import { SubagentHostService } from './subagentHost/subagentHostService';
 import { ISwarmMode } from './swarmMode/swarmMode';
+import {
+  SwarmModeService,
+  type SwarmModeServiceOptions,
+} from './swarmMode/swarmModeService';
 import { ITelemetryService } from './telemetry/telemetry';
 import { TelemetryService } from './telemetry/telemetryService';
 import { IToolExecutor } from './toolExecutor/toolExecutor';
@@ -474,6 +478,7 @@ function configureAgentRuntimeServices(
   configureGoalService(services, options, context.type);
   configureCronService(services, options, context.type);
   configureSubagentHostService(services, options);
+  configureSwarmModeService(services, options);
 }
 
 function configureBlobStoreService(
@@ -831,6 +836,24 @@ function configureSubagentHostService(
   );
 }
 
+function configureSwarmModeService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    ISwarmMode,
+    new SyncDescriptor(
+      SwarmModeService,
+      [
+        {
+          registerAgentSwarmTool: options.subagentHost !== undefined,
+        } satisfies SwarmModeServiceOptions,
+      ],
+      true,
+    ),
+  );
+}
+
 function createAgentRuntimeDisposables(
   instantiation: IInstantiationService,
   options: AgentRuntimeOptions,
@@ -951,7 +974,7 @@ function activateAgentServices(instantiation: IInstantiationService): void {
     accessor.get(IAgentRPCService);
     accessor.get(ICronService);
     accessor.get(IFullCompaction);
-    accessor.get(ISwarmMode);
+    accessor.get(ISwarmMode).isActive;
     accessor.get(IAgentSkillService);
   });
 }

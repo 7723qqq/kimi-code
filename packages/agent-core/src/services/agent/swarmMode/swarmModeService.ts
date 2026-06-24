@@ -19,12 +19,17 @@ import {
   type SwarmModeTrigger,
 } from './swarmMode';
 
+export interface SwarmModeServiceOptions {
+  readonly registerAgentSwarmTool?: boolean;
+}
+
 export class SwarmModeService extends Disposable implements ISwarmMode {
   declare readonly _serviceBrand: undefined;
 
   private _active: SwarmModeTrigger | null = null;
 
   constructor(
+    options: SwarmModeServiceOptions = {},
     @IContextMemory private readonly context: IContextMemory,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
@@ -53,11 +58,13 @@ export class SwarmModeService extends Disposable implements ISwarmMode {
         }),
       );
     }
-    this._register(
-      this.requireToolRegistry(toolRegistry).register(
-        new AgentSwarmTool(this.requireSubagentHost(subagentHost), this),
-      ),
-    );
+    if (options.registerAgentSwarmTool === true) {
+      this._register(
+        this.requireToolRegistry(toolRegistry).register(
+          new AgentSwarmTool(this.requireSubagentHost(subagentHost), this),
+        ),
+      );
+    }
   }
 
   enter(trigger: SwarmModeTrigger): void {
@@ -150,5 +157,5 @@ export class SwarmModeService extends Disposable implements ISwarmMode {
 
 registerSingleton(
   ISwarmMode,
-  new SyncDescriptor(SwarmModeService, [], true),
+  new SyncDescriptor(SwarmModeService, [{}], true),
 );

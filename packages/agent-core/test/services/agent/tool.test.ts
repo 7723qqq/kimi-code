@@ -253,7 +253,7 @@ describe('Agent tools', () => {
     expect(managedBash!.description).toContain('run_in_background=true');
   });
 
-  it.skip('exposes AgentSwarm when a subagent host is available', () => {
+  it('exposes AgentSwarm when a subagent host is available', () => {
     const subagentHost = {} as unknown as SessionSubagentHost;
 
     const ctx = testAgent({
@@ -365,7 +365,7 @@ describe('Agent tools', () => {
       [emit] turn.ended                   { "turnId": 1, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      tools: AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
+      tools: Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
       messages:
         <last>
         assistant: text "The lookup result is moon-result."
