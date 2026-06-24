@@ -16,13 +16,6 @@ declare module '../types' {
       mode: PermissionMode;
     };
   }
-
-  interface AgentEventMap {
-    'permission.mode.changed': {
-      mode: PermissionMode;
-      previousMode: PermissionMode;
-    };
-  }
 }
 
 export class PermissionModeService extends Disposable implements IPermissionModeService {
@@ -65,11 +58,6 @@ export class PermissionModeService extends Disposable implements IPermissionMode
     this.replayBuilder.push({ type: 'permission_updated', mode: record.mode });
     const previousMode = this.currentMode;
     this.currentMode = record.mode;
-    this.events.emit({
-      type: 'permission.mode.changed',
-      mode: this.currentMode,
-      previousMode,
-    });
     this.events.emit({
       type: 'agent.status.updated',
       permission: this.currentMode,

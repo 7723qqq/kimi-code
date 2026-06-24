@@ -25,27 +25,11 @@ export interface MicroCompactionEffect {
 }
 
 export interface IMicroCompactionService {
+  detect(): void;
   compact(messages: readonly ContextMessage[]): readonly ContextMessage[];
 }
 
-export type MicroCompactionTelemetryProperties = MicroCompactionConfig
-  & MicroCompactionEffect
-  & {
-    readonly tokensBefore: number;
-    readonly tokensAfter: number;
-    readonly previous_cutoff: number;
-    readonly cutoff: number;
-    readonly message_count: number;
-    readonly cache_age_ms: number;
-  };
-
 declare module '../types' {
-  interface AgentEventMap {
-    'micro_compaction.finished': {
-      properties: MicroCompactionTelemetryProperties;
-    };
-  }
-
   interface WireRecordMap {
     'micro_compaction.apply': {
       cutoff: number;

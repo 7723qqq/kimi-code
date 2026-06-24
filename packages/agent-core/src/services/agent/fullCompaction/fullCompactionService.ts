@@ -12,7 +12,7 @@ import {
   registerSingleton,
   SyncDescriptor,
 } from '../../../di';
-import { ErrorCodes, KimiError, isKimiError } from '../../../errors';
+import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from '../../../errors';
 import { isAbortError } from '../../../loop/errors';
 import { retryBackoffDelays, sleepForRetry } from '../../../loop/retry';
 import { estimateTokens, estimateTokensForMessages } from '../../../utils/tokens';
@@ -35,6 +35,7 @@ import { IEventBus } from '../eventBus/eventBus';
 import { OrderedHookSlot } from '../hooks';
 import { ILLMRequester } from '../llmRequester/llmRequester';
 import { IProfileService } from '../profile/profile';
+import { ITelemetryService } from '../telemetry/telemetry';
 import { IToolStoreService } from '../toolStore/toolStore';
 import { ITurnRunner } from '../turnRunner/turnRunner';
 import type { ContextMessage, LLMEvent } from '../types';
@@ -88,6 +89,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     @ILLMRequester private readonly llmRequester: ILLMRequester,
     @IProfileService private readonly profile: IProfileService,
     @IToolStoreService private readonly toolStore: IToolStoreService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
     @IUsageService private readonly usage: IUsageService,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
@@ -280,15 +282,13 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       if (this.compacting === active) {
         this.cancel();
       }
-      this.events.emit({
-        type: 'compaction.failed',
-        source: data.source,
-        instruction: data.instruction,
-        error: serializeCompactionError(error),
-      });
       if (blockedByTurn) {
         throw error;
       }
+      this.events.emit({
+        type: 'error',
+        ...toKimiErrorPayload(error),
+      });
     }
   }
 
@@ -367,20 +367,16 @@ export class FullCompactionService extends Disposable implements IFullCompaction
         tokensAfter,
       };
 
-      this.events.emit({
-        type: 'compaction.telemetry',
-        event: 'compaction_finished',
-        properties: {
-          source: data.source,
-          hasInstruction: data.instruction !== undefined && data.instruction.length > 0,
-          tokensBefore: result.tokensBefore,
-          tokensAfter: result.tokensAfter,
-          duration: Date.now() - startedAt,
-          compactedCount: result.compactedCount,
-          retryCount,
-          round,
-          ...usageTelemetry(attempt.usage),
-        },
+      this.telemetry.track('compaction_finished', {
+        tokensBefore: result.tokensBefore,
+        tokensAfter: result.tokensAfter,
+        duration: Date.now() - startedAt,
+        compactedCount: result.compactedCount,
+        retryCount,
+        round,
+        thinkingLevel: this.profile.data().thinkingLevel,
+        ...usageTelemetry(attempt.usage),
+        ...data,
       });
 
       this.context.spliceHistory(0, compactedCount, createCompactionSummaryMessage(summary));
@@ -388,18 +384,14 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       return result;
     } catch (error) {
       if (isAbortError(error)) return undefined;
-      this.events.emit({
-        type: 'compaction.telemetry',
-        event: 'compaction_failed',
-        properties: {
-          source: data.source,
-          hasInstruction: data.instruction !== undefined && data.instruction.length > 0,
-          tokensBefore,
-          duration: Date.now() - startedAt,
-          round,
-          retryCount,
-          errorType: error instanceof Error ? error.name : 'Unknown',
-        },
+      this.telemetry.track('compaction_failed', {
+        ...data,
+        tokensBefore,
+        duration: Date.now() - startedAt,
+        round,
+        retryCount,
+        thinkingLevel: this.profile.data().thinkingLevel,
+        errorType: error instanceof Error ? error.name : 'Unknown',
       });
       if (isKimiError(error) && error.code === ErrorCodes.AUTH_LOGIN_REQUIRED) throw error;
       throw new KimiError(ErrorCodes.COMPACTION_FAILED, String(error), { cause: error });
@@ -512,18 +504,6 @@ function usageTelemetry(usage: TokenUsage | null): CompactionTelemetryProperties
     output: usage.output,
     inputCacheRead: usage.inputCacheRead,
     inputCacheCreation: usage.inputCacheCreation,
-  };
-}
-
-function serializeCompactionError(error: unknown): {
-  code: string | undefined;
-  name: string | undefined;
-  message: string;
-} {
-  return {
-    code: isKimiError(error) ? error.code : undefined,
-    name: error instanceof Error ? error.name : undefined,
-    message: error instanceof Error ? error.message : String(error),
   };
 }
 

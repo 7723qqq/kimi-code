@@ -11,6 +11,7 @@ import {
 } from '../../../agent/background/task';
 
 import { IEventBus } from '../eventBus/eventBus';
+import { ITelemetryService } from '../telemetry/telemetry';
 import type { WireRecord } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
 
@@ -46,15 +47,6 @@ export interface BackgroundTaskOutputSnapshot {
 
 declare module '../types' {
   interface WireRecordMap {
-    'background.task.started': {
-      info: BackgroundTaskInfo;
-    };
-    'background.task.terminated': {
-      info: BackgroundTaskInfo;
-    };
-  }
-
-  interface AgentEventMap {
     'background.task.started': {
       info: BackgroundTaskInfo;
     };
@@ -113,6 +105,7 @@ export class Background implements BackgroundManager {
     options: BackgroundOptions = {},
     @IEventBus private readonly events: IEventBus,
     @IWireRecord private readonly wireRecord: IWireRecord,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     this.persistence = options.persistence;
     this.maxRunningTasks = options.maxRunningTasks;
@@ -499,11 +492,19 @@ export class Background implements BackgroundManager {
   private recordTaskStarted(info: BackgroundTaskInfo): void {
     this.wireRecord.append({ type: 'background.task.started', info });
     this.events.emit({ type: 'background.task.started', info });
+    this.telemetry.track('background_task_created', {
+      kind: info.kind === 'process' ? 'bash' : info.kind,
+    });
   }
 
   private recordTaskTerminated(info: BackgroundTaskInfo): void {
     this.wireRecord.append({ type: 'background.task.terminated', info });
     this.events.emit({ type: 'background.task.terminated', info });
+    this.telemetry.track('background_task_completed', {
+      kind: info.kind,
+      duration: info.endedAt !== null ? info.endedAt - info.startedAt : null,
+      status: info.status,
+    });
   }
 
   private resolveWaiters(entry: ManagedTask): void {

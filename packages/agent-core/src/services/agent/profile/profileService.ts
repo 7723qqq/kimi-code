@@ -37,13 +37,6 @@ declare module '../types' {
   interface WireRecordMap {
     'config.update': ProfileUpdateData;
   }
-
-  interface AgentEventMap {
-    'config.updated': {
-      changed: ProfileUpdateData;
-      data: ProfileData;
-    };
-  }
 }
 
 export class ProfileService implements IProfileService {
@@ -218,7 +211,6 @@ export class ProfileService implements IProfileService {
     if (this.hasProvider() && (changed.cwd !== undefined || changed.modelAlias !== undefined)) {
       this.optionsValue.initializeBuiltinTools?.();
     }
-    this.events.emit({ type: 'config.updated', changed, data: this.data() });
     this.emitStatusUpdated();
   }
 

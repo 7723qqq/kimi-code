@@ -10,9 +10,11 @@ import {
   estimateTokensForContentParts,
   estimateTokensForMessages,
 } from '../../../utils/tokens';
+import type { TelemetryProperties } from '../../../telemetry';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextUsageService } from '../contextUsage/contextUsage';
-import { IEventBus } from '../eventBus/eventBus';
+import { IProfileService } from '../profile/profile';
+import { ITelemetryService } from '../telemetry/telemetry';
 import type { ContextMessage } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import {
@@ -20,7 +22,6 @@ import {
   type MicroCompactionConfig,
   type MicroCompactionEffect,
   type MicroCompactionServiceOptions,
-  type MicroCompactionTelemetryProperties,
 } from './microCompaction';
 
 const DEFAULT_CONFIG: MicroCompactionConfig = {
@@ -46,7 +47,8 @@ export class MicroCompactionService
     @IContextMemory private readonly context: IContextMemory,
     @IContextUsageService private readonly contextUsage: IContextUsageService,
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
+    @IProfileService private readonly profile: IProfileService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...options.config };
@@ -68,13 +70,6 @@ export class MicroCompactionService
         await next();
       }),
     );
-    this._register(
-      this.events.on((event) => {
-        if (event.type === 'turn.before_step') {
-          this.detect();
-        }
-      }),
-    );
   }
 
   private reset(maxCutoff = 0): void {
@@ -89,7 +84,7 @@ export class MicroCompactionService
     this.cutoff = cutoff;
   }
 
-  private detect(): void {
+  detect(): void {
     if (!this.flags.enabled('micro_compaction')) return;
 
     const lastAssistantAt = this._lastAssistantAt;
@@ -109,7 +104,7 @@ export class MicroCompactionService
     const effect = this.measureEffect(history, nextCutoff);
     const previousEffect = this.measureEffect(history, previousCutoff);
     const rawContextTokens = estimateTokensForMessages(history);
-    const properties: MicroCompactionTelemetryProperties = {
+    const properties: TelemetryProperties = {
       ...this.config,
       ...effect,
       tokensBefore:
@@ -124,8 +119,9 @@ export class MicroCompactionService
       cutoff: nextCutoff,
       message_count: history.length,
       cache_age_ms: cacheAgeMs,
+      thinkingLevel: this.profile.data().thinkingLevel,
     };
-    this.events.emit({ type: 'micro_compaction.finished', properties });
+    this.telemetry.track('micro_compaction_finished', properties);
   }
 
   compact(messages: readonly ContextMessage[]): readonly ContextMessage[] {

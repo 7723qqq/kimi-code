@@ -4,7 +4,6 @@ import type {
 } from '../../../agent/permission';
 import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
 
-import { IEventBus } from '../eventBus/eventBus';
 import { OrderedHookSlot } from '../hooks';
 import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import { IWireRecord } from '../wireRecord/wireRecord';
@@ -21,14 +20,6 @@ declare module '../types' {
     'permission.record_approval_result': PermissionApprovalResultRecord;
   }
 
-  interface AgentEventMap {
-    'permission.rules.changed': {
-      rules: readonly PermissionRule[];
-    };
-    'permission.approval_recorded': {
-      record: PermissionApprovalResultRecord;
-    };
-  }
 }
 
 export class PermissionRulesService extends Disposable implements IPermissionRulesService {
@@ -44,7 +35,6 @@ export class PermissionRulesService extends Disposable implements IPermissionRul
   constructor(
     options: PermissionRulesServiceOptions = {},
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
   ) {
     super();
@@ -104,13 +94,11 @@ export class PermissionRulesService extends Disposable implements IPermissionRul
         this.localSessionApprovalRulePatterns.add(pattern);
       }
     }
-    this.events.emit({ type: 'permission.approval_recorded', record });
     void this.hooks.onApprovalRecorded.run({ record });
   }
 
   private emitRulesChanged(): void {
     const rules = this.rules;
-    this.events.emit({ type: 'permission.rules.changed', rules });
     void this.hooks.onChanged.run({ rules });
   }
 }

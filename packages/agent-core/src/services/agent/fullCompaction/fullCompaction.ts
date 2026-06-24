@@ -44,37 +44,7 @@ export interface IFullCompaction {
   afterStep(): Promise<void>;
 }
 
-type CompactionTelemetryEvent = 'compaction_finished' | 'compaction_failed';
-type CompactionTelemetryProperties = Record<string, string | number | boolean | undefined>;
-
 declare module '../types' {
-  interface AgentEventMap {
-    'compaction.started': {
-      trigger: CompactionSource;
-      instruction?: string;
-    };
-    'compaction.blocked': {
-      turnId: number;
-    };
-    'compaction.cancelled': {};
-    'compaction.completed': {
-      result: CompactionResult;
-    };
-    'compaction.failed': {
-      source: CompactionSource;
-      instruction?: string;
-      error: {
-        code: string | undefined;
-        name: string | undefined;
-        message: string;
-      };
-    };
-    'compaction.telemetry': {
-      event: CompactionTelemetryEvent;
-      properties: CompactionTelemetryProperties;
-    };
-  }
-
   interface WireRecordMap {
     'full_compaction.begin': CompactionBeginData;
     'full_compaction.cancel': {};

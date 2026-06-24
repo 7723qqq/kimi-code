@@ -37,13 +37,6 @@ declare module '../types' {
     };
   }
 
-  interface AgentEventMap {
-    'plan_mode.changed': {
-      isActive: boolean;
-      planId: string | null;
-      planFilePath: PlanFilePath;
-    };
-  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

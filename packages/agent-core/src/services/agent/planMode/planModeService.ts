@@ -338,12 +338,6 @@ export class PlanModeService extends Disposable implements IPlanModeService {
   }
 
   private emitChanged(): void {
-    this.events.emit({
-      type: 'plan_mode.changed',
-      isActive: this._active,
-      planId: this.planId,
-      planFilePath: this._planFilePath,
-    });
     this.events.emit({ type: 'agent.status.updated', planMode: this._active });
   }
 

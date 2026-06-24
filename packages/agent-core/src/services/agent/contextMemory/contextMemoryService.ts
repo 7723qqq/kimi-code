@@ -2,19 +2,10 @@ import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
 import { OrderedHookSlot } from '../hooks';
 import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import type { ContextMessage, WireRecord } from '../types';
-import { IEventBus } from '../eventBus/eventBus';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import { IContextMemory } from './contextMemory';
 
 declare module '../types' {
-  interface AgentEventMap {
-    'context.spliced': {
-      start: number;
-      deleteCount: number;
-      messages: ContextMessage[];
-    };
-  }
-
   interface WireRecordMap {
     'context.splice': {
       start: number;
@@ -37,7 +28,6 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
 
   constructor(
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly eventBus: IEventBus,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
   ) {
     super();
@@ -89,7 +79,6 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
       messages,
     };
     void this.hooks.onSpliced.run(context);
-    this.eventBus.emit({ type: 'context.spliced', ...context });
   }
 }
 

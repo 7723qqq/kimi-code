@@ -11,6 +11,12 @@ import { CronCreateTool } from '../../../tools/cron/cron-create';
 import { CronDeleteTool } from '../../../tools/cron/cron-delete';
 import { renderCronFireXml } from '../../../tools/cron/cron-fire-xml';
 import { CronListTool } from '../../../tools/cron/cron-list';
+import {
+  CRON_DELETED,
+  CRON_FIRED,
+  CRON_MISSED,
+  CRON_SCHEDULED,
+} from '../../../tools/cron/telemetry-events';
 import { createCronPersistStore } from '../../../tools/cron/persist';
 import {
   SessionCronStore,
@@ -23,6 +29,7 @@ import {
 import type { CronTask, CronToolManager } from '../../../tools/cron/types';
 import { IEventBus } from '../eventBus/eventBus';
 import { IPromptService } from '../prompt/prompt';
+import { ITelemetryService } from '../telemetry/telemetry';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import { ITurnRunner } from '../turnRunner/turnRunner';
 import type { ContextMessage, Turn } from '../types';
@@ -70,21 +77,6 @@ declare module '../types' {
     };
   }
 
-  interface AgentEventMap {
-    'cron.scheduled': {
-      task: CronTask;
-    };
-    'cron.deleted': {
-      ids: readonly string[];
-    };
-    'cron.fired': {
-      origin: CronJobOrigin;
-      prompt: string;
-    };
-    'cron.missed': {
-      origin: CronMissedOrigin;
-    };
-  }
 }
 
 const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
@@ -106,6 +98,7 @@ export class Cron extends Disposable implements CronToolManager {
     @IEventBus private readonly events: IEventBus,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITurnRunner private readonly turnRunner: ITurnRunner,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
     @IToolRegistry toolRegistry: IToolRegistry,
   ) {
     super();
@@ -191,7 +184,6 @@ export class Cron extends Disposable implements CronToolManager {
     const task = this.store.add(init, this.clocks.wallNow());
     this.wireRecord.append({ type: 'cron.add', task });
     this.persistEnqueue(task.id, () => this.persistStore!.write(task.id, task));
-    this.events.emit({ type: 'cron.scheduled', task });
     return task;
   }
 
@@ -203,7 +195,6 @@ export class Cron extends Disposable implements CronToolManager {
     for (const id of removed) {
       this.persistEnqueue(id, () => this.persistStore!.remove(id));
     }
-    this.events.emit({ type: 'cron.deleted', ids: removed });
     return removed;
   }
 
@@ -258,12 +249,16 @@ export class Cron extends Disposable implements CronToolManager {
     if (task === undefined) return undefined;
 
     const firedAt = options.firedAt ?? this.clocks.wallNow();
+    const stale = this.isStaleAt(task, firedAt);
     const turn = this.deliverFire(task, {
       coalescedCount: options.coalescedCount ?? 1,
       firedAt,
     });
-    if (task.recurring === false || this.isStaleAt(task, firedAt)) {
-      this.removeTasks([task.id]);
+    if (task.recurring === false || stale) {
+      const removed = this.removeTasks([task.id]);
+      if (stale && task.recurring !== false && removed.length > 0) {
+        this.emitDeleted(task.id);
+      }
     } else {
       this.advanceCursor(task.id, firedAt);
     }
@@ -291,16 +286,19 @@ export class Cron extends Disposable implements CronToolManager {
       toolCalls: [],
       origin,
     };
-    this.events.emit({ type: 'cron.missed', origin });
-    return this.prompt.steer(message);
+    const turn = this.prompt.steer(message);
+    this.telemetry.track(CRON_MISSED, { count: tasks.length });
+    return turn;
   }
 
   emitScheduled(task: CronTask): void {
-    void task;
+    this.telemetry.track(CRON_SCHEDULED, {
+      recurring: task.recurring !== false,
+    });
   }
 
   emitDeleted(taskId: string): void {
-    void taskId;
+    this.telemetry.track(CRON_DELETED, { task_id: taskId });
   }
 
   async flushPersist(): Promise<void> {
@@ -319,7 +317,8 @@ export class Cron extends Disposable implements CronToolManager {
       firedAt,
     });
     if (stale && task.recurring !== false) {
-      this.removeTasks([task.id]);
+      const removed = this.removeTasks([task.id]);
+      if (removed.length > 0) this.emitDeleted(task.id);
     }
   }
 
@@ -347,7 +346,14 @@ export class Cron extends Disposable implements CronToolManager {
       origin,
     };
     this.events.emit({ type: 'cron.fired', origin, prompt: task.prompt });
-    return this.prompt.steer(message);
+    const turn = this.prompt.steer(message);
+    this.telemetry.track(CRON_FIRED, {
+      recurring: task.recurring !== false,
+      coalesced_count: ctx.coalescedCount,
+      stale: origin.stale,
+      buffered: turn === undefined,
+    });
+    return turn;
   }
 
   private advanceCursor(id: string, lastFiredAt: number): void {

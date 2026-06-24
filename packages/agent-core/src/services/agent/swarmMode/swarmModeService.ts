@@ -112,7 +112,6 @@ export class SwarmModeService extends Disposable implements ISwarmMode {
   }
 
   private emitChanged(): void {
-    this.events.emit({ type: 'swarm_mode.changed', active: this._active });
     this.events.emit({ type: 'agent.status.updated', swarmMode: this.isActive });
   }
 

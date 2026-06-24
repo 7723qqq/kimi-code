@@ -6,7 +6,6 @@ import {
 } from '../../../di';
 import type { ResolvedToolExecutionHookContext } from '../../../loop';
 import type { PathClass } from '../../../tools/policies/path-access';
-import { IEventBus } from '../eventBus/eventBus';
 import {
   type PermissionGitWorkTreeMarker,
   type PermissionServiceOptions,
@@ -64,7 +63,6 @@ export class PermissionPolicyService
   private readonly policies: readonly PermissionPolicy[];
 
   constructor(
-    @IEventBus private readonly events: IEventBus,
     @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {
     super();
@@ -95,19 +93,6 @@ export class PermissionPolicyService
         new FallbackAskPermissionPolicyService(),
       ];
     });
-
-    this._register(
-      this.events.on((event) => {
-        if (event.type === 'plan_mode.changed') {
-          this.planModeState.isActive = event.isActive;
-          this.planModeState.planFilePath = event.planFilePath;
-          return;
-        }
-        if (event.type === 'swarm_mode.changed') {
-          this.swarmModeActive = event.active !== null;
-        }
-      }),
-    );
   }
 
   get options(): PermissionServiceOptions {

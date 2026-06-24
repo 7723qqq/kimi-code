@@ -1,6 +1,5 @@
 import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
 import type { ToolStoreData, ToolStoreKey } from '../../../tools/store';
-import { IEventBus } from '../eventBus/eventBus';
 import { OrderedHookSlot } from '../hooks';
 import type { WireRecord } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
@@ -11,14 +10,6 @@ declare module '../types' {
     'tools.update_store': {
       key: ToolStoreKey;
       value: ToolStoreData[ToolStoreKey];
-    };
-  }
-
-  interface AgentEventMap {
-    'tool.store.updated': {
-      key: ToolStoreKey;
-      value: ToolStoreData[ToolStoreKey];
-      store: Readonly<Partial<ToolStoreData>>;
     };
   }
 }
@@ -35,7 +26,6 @@ export class ToolStoreService extends Disposable implements IToolStoreService {
 
   constructor(
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
   ) {
     super();
     this._register(
@@ -66,12 +56,6 @@ export class ToolStoreService extends Disposable implements IToolStoreService {
   private apply<K extends ToolStoreKey>(key: K, value: ToolStoreData[K]): void {
     this.store[key] = value;
     void this.hooks.onUpdated.run({ key, value });
-    this.events.emit({
-      type: 'tool.store.updated',
-      key,
-      value,
-      store: this.data(),
-    });
   }
 }
 

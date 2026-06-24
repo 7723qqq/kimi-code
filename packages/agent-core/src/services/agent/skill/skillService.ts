@@ -28,17 +28,6 @@ import {
 } from './skill';
 
 declare module '../types' {
-  interface AgentEventMap {
-    'skill.activated': {
-      activationId: string;
-      skillName: string;
-      trigger: SkillActivationOrigin['trigger'];
-      skillArgs?: string;
-      skillPath?: string;
-      skillSource?: SkillSource;
-    };
-  }
-
   interface WireRecordMap {
     'skill.activate': {
       origin: SkillActivationOrigin;

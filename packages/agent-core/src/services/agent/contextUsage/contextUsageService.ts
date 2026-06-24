@@ -16,14 +16,6 @@ import {
   type ContextTokenStatus,
 } from './contextUsage';
 
-declare module '../types' {
-  interface AgentEventMap {
-    'context.token_status.changed': {
-      status: ContextTokenStatus;
-    };
-  }
-}
-
 export class ContextUsageService
   extends Disposable
   implements IContextUsageService
@@ -46,13 +38,6 @@ export class ContextUsageService
       this.context.hooks.onSpliced.register('context-usage', async (ctx, next) => {
         this.applySplice(ctx);
         await next();
-      }),
-    );
-    this._register(
-      this.events.on((event) => {
-        if (event.type === 'config.updated' && event.changed.modelAlias !== undefined) {
-          this.emitChanged();
-        }
       }),
     );
   }
@@ -107,7 +92,6 @@ export class ContextUsageService
 
   private emitChanged(): void {
     const status = this.getStatus();
-    this.events.emit({ type: 'context.token_status.changed', status });
     const maxContextTokens = this.maxContextTokens();
     this.events.emit({
       type: 'agent.status.updated',

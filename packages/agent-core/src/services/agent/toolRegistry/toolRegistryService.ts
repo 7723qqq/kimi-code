@@ -6,18 +6,8 @@ import {
   type IDisposable,
 } from '../../../di';
 import { OrderedHookSlot } from '../hooks';
-import { IEventBus } from '../eventBus/eventBus';
 import type { Tool, ToolInfo, ToolSource } from '../types';
 import { IToolRegistry, type ToolRegistrationOptions } from './toolRegistry';
-
-declare module '../types' {
-  interface AgentEventMap {
-    'tool.list.updated': {
-      reason: string;
-      tools: readonly ToolInfo[];
-    };
-  }
-}
 
 interface ToolEntry {
   readonly tool: Tool;
@@ -32,26 +22,22 @@ export class ToolRegistryService extends Disposable implements IToolRegistry {
     onUnregistered: new OrderedHookSlot<{ tool: Tool }>(),
   };
 
-  constructor(@IEventBus private readonly events: IEventBus) {
+  constructor() {
     super();
   }
 
   register(tool: Tool, options: ToolRegistrationOptions = {}): IDisposable {
     const source = options.source ?? tool.source ?? 'builtin';
     const entry: ToolEntry = { tool: withSource(tool, source), source };
-    const previous = this.unregisterTool(tool.name);
+    this.unregisterTool(tool.name);
     this.tools.set(tool.name, entry);
 
     void this.hooks.onRegistered.run({ tool: entry.tool });
-    this.emitToolListUpdated(
-      previous === undefined ? `${source}.registered` : `${source}.replaced`,
-    );
 
     return toDisposable(() => {
       const current = this.tools.get(tool.name);
       if (current !== entry) return;
       this.unregisterTool(tool.name);
-      this.emitToolListUpdated(`${source}.unregistered`);
     });
   }
 
@@ -77,14 +63,6 @@ export class ToolRegistryService extends Disposable implements IToolRegistry {
     this.tools.delete(name);
     void this.hooks.onUnregistered.run({ tool: entry.tool });
     return entry;
-  }
-
-  private emitToolListUpdated(reason: string): void {
-    this.events.emit({
-      type: 'tool.list.updated',
-      reason,
-      tools: this.list(),
-    });
   }
 }
 
