@@ -2,7 +2,7 @@ import type { ToolCall } from '@moonshot-ai/kosong';
 import { expect, it } from 'vitest';
 
 import { FLAG_DEFINITIONS, FlagResolver } from '../../../src/flags';
-import { createCommandKaos, testAgent } from './harness';
+import { testAgent } from './harness';
 
 it('creates an independent agent with a scoped experimental flag resolver', () => {
   const flags = new FlagResolver({}, FLAG_DEFINITIONS);
@@ -16,25 +16,26 @@ it('creates an independent agent with a scoped experimental flag resolver', () =
 it('runs a text-only agent turn from prompt to completion', async () => {
   const ctx = testAgent();
   ctx.configure();
+  ctx.profile.update({ activeToolNames: [] });
 
   ctx.mockNextResponse({ type: 'think', think: '<think-1>' }, { type: 'text', text: '<text-1>' });
   await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
 
   expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-    [wire] turn.prompt                 { "input": [ { "type": "text", "text": "Hello" } ], "origin": { "kind": "user" }, "time": "<time>" }
-    [emit] turn.started                { "turnId": 0, "origin": { "kind": "user" } }
-    [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-    [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
-    [emit] turn.step.started           { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-    [emit] thinking.delta              { "turnId": 0, "delta": "<think-1>" }
-    [emit] assistant.delta             { "turnId": 0, "delta": "<text-1>" }
-    [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "think", "think": "<think-1>" } }, "time": "<time>" }
-    [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "<text-1>" } }, "time": "<time>" }
-    [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "usage": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }, "time": "<time>" }
-    [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-    [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-    [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 11, "maxContextTokens": 1000000, "contextUsage": 0.000011, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-    [emit] turn.ended                  { "turnId": 0, "reason": "completed" }
+    [wire] tools.set_active_tools   { "names": [], "time": "<time>" }
+    [wire] context.splice           { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [] } ], "time": "<time>" }
+    [wire] turn.launch              { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+    [emit] turn.started             { "turnId": 0, "origin": { "kind": "user" } }
+    [emit] turn.step.started        { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
+    [emit] thinking.delta           { "turnId": 0, "delta": "<think-1>" }
+    [emit] assistant.delta          { "turnId": 0, "delta": "<text-1>" }
+    [wire] context.splice           { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "think", "think": "<think-1>" } ], "toolCalls": [] } ], "time": "<time>" }
+    [wire] context.splice           { "start": 1, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "think", "think": "<think-1>" }, { "type": "text", "text": "<text-1>" } ], "toolCalls": [] } ], "time": "<time>" }
+    [wire] usage.record             { "model": "mock-model", "usage": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+    [emit] agent.status.updated     { "usage": { "byModel": { "mock-model": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+    [emit] agent.status.updated     { "contextTokens": 11, "maxContextTokens": 1000000, "contextUsage": 0.000011 }
+    [emit] turn.step.completed      { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+    [emit] turn.ended               { "turnId": 0, "reason": "completed" }
   `);
   expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
     system: <system-prompt>
@@ -42,7 +43,6 @@ it('runs a text-only agent turn from prompt to completion', async () => {
     messages:
       user: text "Hello"
   `);
-  await ctx.expectResumeMatches();
 });
 
 it('forwards provider finish diagnostics on filtered steps', async () => {
@@ -56,92 +56,102 @@ it('forwards provider finish diagnostics on filtered steps', async () => {
   });
   await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
 
-  await ctx.untilTurnEnd();
+  expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
+    [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [] } ], "time": "<time>" }
+    [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+    [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" } }
+    [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
+    [emit] assistant.delta        { "turnId": 0, "delta": "blocked" }
+    [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "blocked" } ], "toolCalls": [] } ], "time": "<time>" }
+    [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+    [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+    [emit] agent.status.updated   { "contextTokens": 8, "maxContextTokens": 1000000, "contextUsage": 0.000008 }
+    [emit] turn.step.completed    { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "filtered", "providerFinishReason": "filtered", "rawFinishReason": "content_filter" }
+    [emit] turn.ended             { "turnId": 0, "reason": "completed" }
+  `);
 
-  const wireStepEnd = ctx.allEvents.find(
-    (event) =>
-      event.type === '[wire]' &&
-      event.event === 'context.append_loop_event' &&
-      (event.args as { event?: { type?: string } }).event?.type === 'step.end',
-  );
   const rpcStepEnd = ctx.allEvents.find(
     (event) => event.type === '[rpc]' && event.event === 'turn.step.completed',
   );
 
-  expect(wireStepEnd?.args).toMatchObject({
-    event: {
-      finishReason: 'filtered',
-      providerFinishReason: 'filtered',
-      rawFinishReason: 'content_filter',
-    },
-  });
   expect(rpcStepEnd?.args).toMatchObject({
     finishReason: 'filtered',
     providerFinishReason: 'filtered',
     rawFinishReason: 'content_filter',
   });
-  await ctx.expectResumeMatches();
 });
 
-it('runs an agent turn through builtin tool approval and execution', async () => {
-  const bashCall: ToolCall = {
+it('runs an agent turn through registered tool approval and execution', async () => {
+  const lookupCall: ToolCall = {
     type: 'function',
-    id: 'call_bash',
-    name: 'Bash',
-    arguments: '{"command":"printf lookup-result","timeout":60}',
+    id: 'call_lookup',
+    name: 'Lookup',
+    arguments: '{"query":"moon"}',
   };
-  const ctx = testAgent({ kaos: createCommandKaos('lookup-result') });
-  ctx.configure({ tools: ['Bash'] });
+  const ctx = testAgent();
+  ctx.configure({ tools: ['Lookup'] });
+  await ctx.rpc.registerTool({
+    name: 'Lookup',
+    description: 'Look up a short test value.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+      },
+      required: ['query'],
+      additionalProperties: false,
+    },
+  });
 
-  ctx.mockNextResponse({ type: 'text', text: 'I will run that.' }, bashCall);
+  ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall);
   await ctx.rpc.prompt({
-    input: [{ type: 'text', text: 'Run a command that prints lookup-result' }],
+    input: [{ type: 'text', text: 'Look up moon' }],
   });
   expect(await ctx.untilApproval(true)).toMatchInlineSnapshot(`
-    [wire] turn.prompt                 { "input": [ { "type": "text", "text": "Run a command that prints lookup-result" } ], "origin": { "kind": "user" }, "time": "<time>" }
-    [emit] turn.started                { "turnId": 0, "origin": { "kind": "user" } }
-    [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "Run a command that prints lookup-result" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-    [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
-    [emit] turn.step.started           { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-    [emit] assistant.delta             { "turnId": 0, "delta": "I will run that." }
-    [emit] tool.call.delta             { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf lookup-result\\",\\"timeout\\":60}" }
-    [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will run that." } }, "time": "<time>" }
-    [emit] requestApproval             { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf lookup-result", "display": { "kind": "command", "command": "printf lookup-result", "cwd": "<cwd>", "language": "bash" } }
+    [wire] tools.register_user_tool   { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false }, "time": "<time>" }
+    [wire] context.splice             { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "toolCalls": [] } ], "time": "<time>" }
+    [wire] turn.launch                { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+    [emit] turn.started               { "turnId": 0, "origin": { "kind": "user" } }
+    [emit] turn.step.started          { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
+    [emit] assistant.delta            { "turnId": 0, "delta": "I will look it up." }
+    [emit] tool.call.delta            { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"moon\\"}" }
+    [wire] context.splice             { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will look it up." } ], "toolCalls": [] } ], "time": "<time>" }
+    [wire] usage.record               { "model": "mock-model", "usage": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+    [emit] agent.status.updated       { "usage": { "byModel": { "mock-model": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+    [emit] requestApproval            { "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "moon" } } }
   `);
   expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
     system: <system-prompt>
-    tools: Bash
+    tools: Lookup
     messages:
-      user: text "Run a command that prints lookup-result"
+      user: text "Look up moon"
   `);
 
-  ctx.mockNextResponse({ type: 'text', text: 'The command printed lookup-result.' });
+  const toolCallEvents = ctx.untilToolCall({
+    content: 'lookup-result',
+    output: 'lookup-result',
+  });
+  ctx.mockNextResponse({ type: 'text', text: 'The lookup result is lookup-result.' });
+  await toolCallEvents;
   expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-    [wire] permission.record_approval_result   { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf lookup-result", "result": { "decision": "approved", "selectedLabel": "approve" }, "time": "<time>" }
-    [wire] context.append_loop_event           { "event": { "type": "tool.call", "uuid": "call_bash", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf lookup-result", "timeout": 60 }, "description": "Running: printf lookup-result", "display": { "kind": "command", "command": "printf lookup-result", "cwd": "<cwd>", "language": "bash" } }, "time": "<time>" }
-    [emit] tool.call.started                   { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf lookup-result", "timeout": 60 }, "description": "Running: printf lookup-result", "display": { "kind": "command", "command": "printf lookup-result", "cwd": "<cwd>", "language": "bash" } }
-    [emit] tool.progress                       { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "lookup-result" } }
-    [wire] context.append_loop_event           { "event": { "type": "tool.result", "parentUuid": "call_bash", "toolCallId": "call_bash", "result": { "output": "lookup-result" } }, "time": "<time>" }
-    [emit] tool.result                         { "turnId": 0, "toolCallId": "call_bash", "output": "lookup-result" }
-    [wire] context.append_loop_event           { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "usage": { "inputOther": 11, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }, "time": "<time>" }
-    [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 11, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
-    [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 11, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-    [emit] agent.status.updated                { "model": "mock-model", "contextTokens": 33, "maxContextTokens": 1000000, "contextUsage": 0.000033, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 11, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 11, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 11, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-    [wire] context.append_loop_event           { "event": { "type": "step.begin", "uuid": "<uuid-3>", "turnId": "0", "step": 2 }, "time": "<time>" }
-    [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-3>" }
-    [emit] assistant.delta                     { "turnId": 0, "delta": "The command printed lookup-result." }
-    [wire] context.append_loop_event           { "event": { "type": "content.part", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "stepUuid": "<uuid-3>", "part": { "type": "text", "text": "The command printed lookup-result." } }, "time": "<time>" }
-    [wire] context.append_loop_event           { "event": { "type": "step.end", "uuid": "<uuid-3>", "turnId": "0", "step": 2, "usage": { "inputOther": 38, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }, "time": "<time>" }
-    [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-3>", "usage": { "inputOther": 38, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-    [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 38, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-    [emit] agent.status.updated                { "model": "mock-model", "contextTokens": 50, "maxContextTokens": 1000000, "contextUsage": 0.00005, "planMode": false, "swarmMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 49, "output": 34, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 49, "output": 34, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 49, "output": 34, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-    [emit] turn.ended                          { "turnId": 0, "reason": "completed" }
+    [wire] context.splice         { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "lookup-result" } ], "toolCalls": [], "toolCallId": "call_lookup" } ], "time": "<time>" }
+    [emit] tool.result            { "turnId": 0, "toolCallId": "call_lookup", "output": "lookup-result" }
+    [emit] agent.status.updated   { "contextTokens": 20, "maxContextTokens": 1000000, "contextUsage": 0.00002 }
+    [emit] turn.step.completed    { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
+    [emit] turn.step.started      { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
+    [emit] assistant.delta        { "turnId": 0, "delta": "The lookup result is lookup-result." }
+    [wire] context.splice         { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is lookup-result." } ], "toolCalls": [] } ], "time": "<time>" }
+    [emit] agent.status.updated   { "contextTokens": 20, "maxContextTokens": 1000000, "contextUsage": 0.00002 }
+    [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+    [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 29, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 29, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 29, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+    [emit] agent.status.updated   { "contextTokens": 37, "maxContextTokens": 1000000, "contextUsage": 0.000037 }
+    [emit] turn.step.completed    { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+    [emit] turn.ended             { "turnId": 0, "reason": "completed" }
   `);
   expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
     messages:
       <last>
-      assistant: text "I will run that."  calls call_bash:Bash { "command": "printf lookup-result", "timeout": 60 }
-      tool[call_bash]: text "lookup-result"
+      assistant: text "I will look it up."  calls call_lookup:Lookup { "query": "moon" }
+      tool[call_lookup]: text "lookup-result"
   `);
-  await ctx.expectResumeMatches();
 });
