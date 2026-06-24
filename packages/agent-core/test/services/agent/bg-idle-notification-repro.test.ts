@@ -38,7 +38,7 @@ function agentTask(
   );
 }
 
-describe.skip('background notification → main agent (real Agent instance)', () => {
+describe('background notification → main agent (real Agent instance)', () => {
   it('IDLE: completed bg agent auto-starts a new turn with <notification> XML', async () => {
     const ctx = testAgent();
     ctx.configure({ tools: [] });
@@ -74,7 +74,7 @@ describe.skip('background notification → main agent (real Agent instance)', ()
     expect(flatHistoryText).toContain('background agent finished its job');
   });
 
-  it('BUSY: completed bg agent during an active turn is flushed before the next LLM call', async () => {
+  it.skip('BUSY: completed bg agent during an active turn is flushed before the next LLM call', async () => {
     const ctx = testAgent();
     ctx.configure({ tools: [] });
 
@@ -136,7 +136,7 @@ describe.skip('background notification → main agent (real Agent instance)', ()
     expect(flatContext).toContain('busy-state bg result');
   });
 
-  it('IDLE × N: a GROUP of bg agents completes — all notifications should reach the LLM', async () => {
+  it.skip('IDLE × N: a GROUP of bg agents completes — all notifications should reach the LLM', async () => {
     const ctx = testAgent();
     ctx.configure({ tools: [] });
 
@@ -183,7 +183,7 @@ describe.skip('background notification → main agent (real Agent instance)', ()
     expect(flatHistoryText).toContain('bg #3 result');
   });
 
-  it('RACE: bg completion fires AFTER LLM returns but BEFORE activeTurn is cleared', async () => {
+  it.skip('RACE: bg completion fires AFTER LLM returns but BEFORE activeTurn is cleared', async () => {
     // We're hunting a window: shouldContinueAfterStop reads an empty
     // steerBuffer → returns { continue: false } → runTurn unwinds →
     // finally block hasn't yet set activeTurn = null. If a steer()
