@@ -18,7 +18,12 @@ import {
 } from '../../di';
 import { ErrorCodes, KimiError } from '../../errors';
 import { SessionStore } from '../../session/store';
-import type { ClientTelemetryInfo, JsonObject, SessionSummary } from '../../rpc';
+import type {
+  ClientTelemetryInfo,
+  JsonObject,
+  SessionAPI,
+  SessionSummary,
+} from '../../rpc';
 import {
   loadRuntimeConfigSafe,
   type KimiConfig,
@@ -33,6 +38,7 @@ import {
   registerBuiltinSkills,
   resolveSkillRoots,
   SessionSkillRegistry,
+  summarizeSkill,
 } from '../../skill';
 import {
   ProviderManager,
@@ -55,11 +61,11 @@ import {
   createAgentRuntime,
   IEventBus,
   IAgentRPCService,
-  ISessionRPCService,
   ITurnRunner,
   type AgentRuntime,
   type AgentRuntimeType,
   type AgentRuntimeOptions,
+  type ISessionRPCService,
 } from '../agent';
 import { IProfileService } from '../agent/profile/profile';
 import { IEnvironmentService } from '../environment/environment';
@@ -85,6 +91,16 @@ interface CachedRuntime {
   readonly eventSubscription: IDisposable;
 }
 
+interface CachedSessionRuntime {
+  readonly summary: SessionSummary;
+  state: SessionState;
+  readonly skills: SessionSkillRegistry;
+  readonly rpc: ISessionRPCService;
+  readonly agents: Map<string, Promise<CachedRuntime | undefined>>;
+}
+
+type AgentScopedPayload<T extends keyof SessionAPI> = Parameters<SessionAPI[T]>[0];
+
 export interface AgentRuntimeServiceOptions {
   readonly telemetry?: TelemetryClient | undefined;
   readonly kimiRequestHeaders?: Record<string, string> | undefined;
@@ -103,7 +119,7 @@ export class AgentRuntimeService
   private readonly telemetry: TelemetryClient;
   private readonly kimiRequestHeaders: Record<string, string> | undefined;
   private readonly skillDirs: readonly string[];
-  private readonly runtimes = new Map<string, Promise<CachedRuntime | undefined>>();
+  private readonly sessions = new Map<string, Promise<CachedSessionRuntime | undefined>>();
   private kaos: Promise<Kaos> | undefined;
   private configValue: KimiConfig | undefined;
   private runtimeTools: ToolServices | undefined;
@@ -145,14 +161,25 @@ export class AgentRuntimeService
       custom: options.metadata === undefined ? {} : { ...options.metadata },
     });
 
-    const runtime = await this.createRuntimeForSummary(created, {
-      homedir: agentHomedir,
-      type: 'main',
-    });
+    const session = await this.getCachedSession(created.id);
+    if (session === undefined) {
+      throw new KimiError(
+        ErrorCodes.SESSION_STATE_INVALID,
+        `Session "${created.id}" state is not available`,
+      );
+    }
+    const runtime = await this.createRuntimeForSession(
+      session,
+      {
+        homedir: agentHomedir,
+        type: 'main',
+      },
+      'main',
+    );
     try {
       await this.initializeFreshMainRuntime(runtime, created, options);
       await runtime.flush();
-      this.cacheRuntime(created.id, 'main', runtime);
+      this.cacheRuntime(session, 'main', runtime);
       this.trackSessionStarted(created.id, options.client);
       return this.store.get(created.id);
     } catch (error) {
@@ -177,7 +204,9 @@ export class AgentRuntimeService
   }
 
   async get(sessionId: string, agentId = 'main'): Promise<AgentRuntime | undefined> {
-    const cached = await this.getCached(sessionId, agentId);
+    const session = await this.getCachedSession(sessionId);
+    if (session === undefined) return undefined;
+    const cached = await this.getCachedAgent(session, agentId);
     return cached?.runtime;
   }
 
@@ -204,13 +233,17 @@ export class AgentRuntimeService
   }
 
   async getSessionRPC(sessionId: string): Promise<ISessionRPCService | undefined> {
-    const runtime = await this.get(sessionId, 'main');
-    return runtime?.get(ISessionRPCService);
+    const session = await this.getCachedSession(sessionId);
+    return session?.rpc;
   }
 
   async requireSessionRPC(sessionId: string): Promise<ISessionRPCService> {
-    const runtime = await this.require(sessionId, 'main');
-    return runtime.get(ISessionRPCService);
+    const rpc = await this.getSessionRPC(sessionId);
+    if (rpc !== undefined) return rpc;
+    throw new AgentRuntimeTodoError(
+      'packages/agent-core/src/services/agentRuntime/agentRuntimeService.ts:requireSessionRPC',
+      `Session RPC for session "${sessionId}" is not available through services/agent.`,
+    );
   }
 
   async getSessionSummary(sessionId: string): Promise<SessionSummary | undefined> {
@@ -229,43 +262,75 @@ export class AgentRuntimeService
   }
 
   async forget(sessionId: string, agentId = 'main'): Promise<void> {
-    const key = runtimeKey(sessionId, agentId);
-    const cached = await this.runtimes.get(key);
-    this.runtimes.delete(key);
+    const session = await this.sessions.get(sessionId);
+    const cached = await session?.agents.get(agentId);
+    session?.agents.delete(agentId);
     cached?.eventSubscription.dispose();
     await cached?.runtime.close();
   }
 
   override dispose(): void {
     if (this._store.isDisposed) return;
-    const cached = [...this.runtimes.values()];
-    this.runtimes.clear();
+    const cached = [...this.sessions.values()];
+    this.sessions.clear();
     for (const entry of cached) {
-      void entry
-        .then(async (resolved) => {
-          resolved?.eventSubscription.dispose();
-          await resolved?.runtime.close();
-        })
-        .catch(() => undefined);
+      void entry.then((session) => this.closeSessionRuntime(session)).catch(() => undefined);
     }
     super.dispose();
   }
 
-  private getCached(
+  private getCachedSession(
     sessionId: string,
-    agentId: string,
-  ): Promise<CachedRuntime | undefined> {
-    const key = runtimeKey(sessionId, agentId);
-    let cached = this.runtimes.get(key);
+  ): Promise<CachedSessionRuntime | undefined> {
+    let cached = this.sessions.get(sessionId);
     if (cached === undefined) {
-      cached = this.createRuntime(sessionId, agentId).catch((error: unknown) => {
-        this.runtimes.delete(key);
+      cached = this.createSessionRuntime(sessionId).catch((error: unknown) => {
+        this.sessions.delete(sessionId);
         if (isNotFoundError(error)) return undefined;
         throw error;
       });
-      this.runtimes.set(key, cached);
+      this.sessions.set(sessionId, cached);
     }
     return cached;
+  }
+
+  private getCachedAgent(
+    session: CachedSessionRuntime,
+    agentId: string,
+  ): Promise<CachedRuntime | undefined> {
+    let cached = session.agents.get(agentId);
+    if (cached === undefined) {
+      cached = this.createRuntimeForCachedAgent(session, agentId);
+      session.agents.set(agentId, cached);
+    }
+    return cached;
+  }
+
+  private async createRuntimeForCachedAgent(
+    session: CachedSessionRuntime,
+    agentId: string,
+  ): Promise<CachedRuntime | undefined> {
+    try {
+      if (session.state.agents[agentId] === undefined) {
+        await this.refreshSessionState(session);
+      }
+      const runtime = await this.createRuntime(session, agentId);
+      if (runtime === undefined) {
+        session.agents.delete(agentId);
+      }
+      return runtime;
+    } catch (error) {
+      session.agents.delete(agentId);
+      if (isNotFoundError(error)) return undefined;
+      throw error;
+    }
+  }
+
+  private async refreshSessionState(session: CachedSessionRuntime): Promise<void> {
+    const state = await readSessionState(session.summary.sessionDir);
+    if (state !== undefined) {
+      session.state = state;
+    }
   }
 
   private async assertForkableAndFlush(sessionId: string): Promise<void> {
@@ -282,25 +347,159 @@ export class AgentRuntimeService
   }
 
   private async cachedForSession(sessionId: string): Promise<readonly CachedRuntime[]> {
-    const prefix = `${sessionId}:`;
-    const pending = [...this.runtimes.entries()]
-      .filter(([key]) => key.startsWith(prefix))
-      .map(([, cached]) => cached);
+    const session = await this.sessions.get(sessionId);
+    if (session === undefined) return [];
+    const pending = [...session.agents.values()];
     const resolved = await Promise.all(pending);
     return resolved.filter((entry): entry is CachedRuntime => entry !== undefined);
   }
 
-  private async createRuntime(
+  private async createSessionRuntime(
     sessionId: string,
-    agentId: string,
-  ): Promise<CachedRuntime | undefined> {
+  ): Promise<CachedSessionRuntime | undefined> {
     const summary = await this.store.get(sessionId);
     const state = await readSessionState(summary.sessionDir);
-    const meta = state?.agents[agentId];
+    if (state === undefined) return undefined;
+    const config = this.loadRuntimeConfig();
+    const skills = await this.createSkillRegistry(summary, config);
+    return {
+      summary,
+      state,
+      skills,
+      rpc: this.createSessionRPC(summary.id, skills),
+      agents: new Map(),
+    };
+  }
+
+  private createSessionRPC(
+    sessionId: string,
+    skills: SessionSkillRegistry,
+  ): ISessionRPCService {
+    return {
+      renameSession: (_payload: AgentScopedPayload<'renameSession'>) =>
+        this.sessionTodo('renameSession'),
+      updateSessionMetadata: (_payload: AgentScopedPayload<'updateSessionMetadata'>) =>
+        this.sessionTodo('updateSessionMetadata'),
+      getSessionMetadata: (_payload: AgentScopedPayload<'getSessionMetadata'>) =>
+        this.sessionTodo('getSessionMetadata'),
+      listSkills: (_payload: AgentScopedPayload<'listSkills'>) =>
+        skills.listSkills().map(summarizeSkill),
+      listMcpServers: (_payload: AgentScopedPayload<'listMcpServers'>) =>
+        this.sessionTodo('listMcpServers'),
+      getMcpStartupMetrics: (_payload: AgentScopedPayload<'getMcpStartupMetrics'>) =>
+        this.sessionTodo('getMcpStartupMetrics'),
+      reconnectMcpServer: (_payload: AgentScopedPayload<'reconnectMcpServer'>) =>
+        this.sessionTodo('reconnectMcpServer'),
+      generateAgentsMd: (_payload: AgentScopedPayload<'generateAgentsMd'>) =>
+        this.sessionTodo('generateAgentsMd'),
+      addAdditionalDir: (_payload: AgentScopedPayload<'addAdditionalDir'>) =>
+        this.sessionTodo('addAdditionalDir'),
+      prompt: ({ agentId, ...payload }: AgentScopedPayload<'prompt'>) =>
+        this.callAgentRPC(sessionId, agentId, 'prompt', payload),
+      steer: ({ agentId, ...payload }: AgentScopedPayload<'steer'>) =>
+        this.callAgentRPC(sessionId, agentId, 'steer', payload),
+      cancel: ({ agentId, ...payload }: AgentScopedPayload<'cancel'>) =>
+        this.callAgentRPC(sessionId, agentId, 'cancel', payload),
+      undoHistory: ({ agentId, ...payload }: AgentScopedPayload<'undoHistory'>) =>
+        this.callAgentRPC(sessionId, agentId, 'undoHistory', payload),
+      setThinking: ({ agentId, ...payload }: AgentScopedPayload<'setThinking'>) =>
+        this.callAgentRPC(sessionId, agentId, 'setThinking', payload),
+      setPermission: ({ agentId, ...payload }: AgentScopedPayload<'setPermission'>) =>
+        this.callAgentRPC(sessionId, agentId, 'setPermission', payload),
+      setModel: ({ agentId, ...payload }: AgentScopedPayload<'setModel'>) =>
+        this.callAgentRPC(sessionId, agentId, 'setModel', payload),
+      getModel: ({ agentId, ...payload }: AgentScopedPayload<'getModel'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getModel', payload),
+      enterPlan: ({ agentId, ...payload }: AgentScopedPayload<'enterPlan'>) =>
+        this.callAgentRPC(sessionId, agentId, 'enterPlan', payload),
+      cancelPlan: ({ agentId, ...payload }: AgentScopedPayload<'cancelPlan'>) =>
+        this.callAgentRPC(sessionId, agentId, 'cancelPlan', payload),
+      clearPlan: ({ agentId, ...payload }: AgentScopedPayload<'clearPlan'>) =>
+        this.callAgentRPC(sessionId, agentId, 'clearPlan', payload),
+      enterSwarm: ({ agentId, ...payload }: AgentScopedPayload<'enterSwarm'>) =>
+        this.callAgentRPC(sessionId, agentId, 'enterSwarm', payload),
+      exitSwarm: ({ agentId, ...payload }: AgentScopedPayload<'exitSwarm'>) =>
+        this.callAgentRPC(sessionId, agentId, 'exitSwarm', payload),
+      getSwarmMode: ({ agentId, ...payload }: AgentScopedPayload<'getSwarmMode'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getSwarmMode', payload),
+      beginCompaction: ({ agentId, ...payload }: AgentScopedPayload<'beginCompaction'>) =>
+        this.callAgentRPC(sessionId, agentId, 'beginCompaction', payload),
+      cancelCompaction: ({ agentId, ...payload }: AgentScopedPayload<'cancelCompaction'>) =>
+        this.callAgentRPC(sessionId, agentId, 'cancelCompaction', payload),
+      registerTool: ({ agentId, ...payload }: AgentScopedPayload<'registerTool'>) =>
+        this.callAgentRPC(sessionId, agentId, 'registerTool', payload),
+      unregisterTool: ({ agentId, ...payload }: AgentScopedPayload<'unregisterTool'>) =>
+        this.callAgentRPC(sessionId, agentId, 'unregisterTool', payload),
+      setActiveTools: ({ agentId, ...payload }: AgentScopedPayload<'setActiveTools'>) =>
+        this.callAgentRPC(sessionId, agentId, 'setActiveTools', payload),
+      stopBackground: ({ agentId, ...payload }: AgentScopedPayload<'stopBackground'>) =>
+        this.callAgentRPC(sessionId, agentId, 'stopBackground', payload),
+      detachBackground: ({ agentId, ...payload }: AgentScopedPayload<'detachBackground'>) =>
+        this.callAgentRPC(sessionId, agentId, 'detachBackground', payload),
+      clearContext: ({ agentId, ...payload }: AgentScopedPayload<'clearContext'>) =>
+        this.callAgentRPC(sessionId, agentId, 'clearContext', payload),
+      activateSkill: ({ agentId, ...payload }: AgentScopedPayload<'activateSkill'>) =>
+        this.callAgentRPC(sessionId, agentId, 'activateSkill', payload),
+      startBtw: ({ agentId, ...payload }: AgentScopedPayload<'startBtw'>) =>
+        this.callAgentRPC(sessionId, agentId, 'startBtw', payload),
+      createGoal: ({ agentId, ...payload }: AgentScopedPayload<'createGoal'>) =>
+        this.callAgentRPC(sessionId, agentId, 'createGoal', payload),
+      getGoal: ({ agentId, ...payload }: AgentScopedPayload<'getGoal'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getGoal', payload),
+      pauseGoal: ({ agentId, ...payload }: AgentScopedPayload<'pauseGoal'>) =>
+        this.callAgentRPC(sessionId, agentId, 'pauseGoal', payload),
+      resumeGoal: ({ agentId, ...payload }: AgentScopedPayload<'resumeGoal'>) =>
+        this.callAgentRPC(sessionId, agentId, 'resumeGoal', payload),
+      cancelGoal: ({ agentId, ...payload }: AgentScopedPayload<'cancelGoal'>) =>
+        this.callAgentRPC(sessionId, agentId, 'cancelGoal', payload),
+      getBackgroundOutput: ({
+        agentId,
+        ...payload
+      }: AgentScopedPayload<'getBackgroundOutput'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getBackgroundOutput', payload),
+      getContext: ({ agentId, ...payload }: AgentScopedPayload<'getContext'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getContext', payload),
+      getConfig: ({ agentId, ...payload }: AgentScopedPayload<'getConfig'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getConfig', payload),
+      getPermission: ({ agentId, ...payload }: AgentScopedPayload<'getPermission'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getPermission', payload),
+      getPlan: ({ agentId, ...payload }: AgentScopedPayload<'getPlan'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getPlan', payload),
+      getUsage: ({ agentId, ...payload }: AgentScopedPayload<'getUsage'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getUsage', payload),
+      getTools: ({ agentId, ...payload }: AgentScopedPayload<'getTools'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getTools', payload),
+      getBackground: ({ agentId, ...payload }: AgentScopedPayload<'getBackground'>) =>
+        this.callAgentRPC(sessionId, agentId, 'getBackground', payload),
+    };
+  }
+
+  private async callAgentRPC<K extends keyof IAgentRPCService>(
+    sessionId: string,
+    agentId: string,
+    method: K,
+    payload: Parameters<IAgentRPCService[K]>[0],
+  ): Promise<Awaited<ReturnType<IAgentRPCService[K]>>> {
+    const rpc = await this.requireRPC(sessionId, agentId);
+    return await rpc[method](payload as never) as Awaited<ReturnType<IAgentRPCService[K]>>;
+  }
+
+  private sessionTodo(method: string): never {
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      `TODO: SessionRPCService.${method} is not migrated to services/agent.`,
+    );
+  }
+
+  private async createRuntime(
+    session: CachedSessionRuntime,
+    agentId: string,
+  ): Promise<CachedRuntime | undefined> {
+    const meta = session.state.agents[agentId];
     if (meta === undefined) return undefined;
 
-    const runtime = await this.createRuntimeForSummary(summary, meta, agentId);
-    const eventSubscription = this.subscribeRuntimeEvents(runtime, sessionId, agentId);
+    const runtime = await this.createRuntimeForSession(session, meta, agentId);
+    const eventSubscription = this.subscribeRuntimeEvents(runtime, session.summary.id, agentId);
     try {
       await runtime.restore();
     } catch (error) {
@@ -311,11 +510,12 @@ export class AgentRuntimeService
     return { runtime, eventSubscription };
   }
 
-  private async createRuntimeForSummary(
-    summary: SessionSummary,
+  private async createRuntimeForSession(
+    session: CachedSessionRuntime,
     meta: AgentMetaState,
     agentId = 'main',
   ): Promise<AgentRuntime> {
+    const summary = session.summary;
     const config = this.loadRuntimeConfig();
     const modelProvider = new ProviderManager({
       config: () => this.configValue ?? config,
@@ -325,7 +525,6 @@ export class AgentRuntimeService
     });
     const kaos = await this.getKaos();
     const toolServices = await this.resolveRuntimeTools(config);
-    const skills = await this.createSkillRegistry(summary, config);
     return createAgentRuntime(this.instantiation, {
       sessionId: summary.id,
       agentId,
@@ -336,7 +535,7 @@ export class AgentRuntimeService
       config: () => this.configValue ?? config,
       modelProvider,
       toolServices,
-      skills,
+      skills: session.skills,
       telemetry: this.telemetry,
       cron: false,
       background: false,
@@ -370,10 +569,29 @@ export class AgentRuntimeService
     runtime.get(IProfileService).setThinking(thinking);
   }
 
-  private cacheRuntime(sessionId: string, agentId: string, runtime: AgentRuntime): void {
-    const key = runtimeKey(sessionId, agentId);
-    const eventSubscription = this.subscribeRuntimeEvents(runtime, sessionId, agentId);
-    this.runtimes.set(key, Promise.resolve({ runtime, eventSubscription }));
+  private cacheRuntime(
+    session: CachedSessionRuntime,
+    agentId: string,
+    runtime: AgentRuntime,
+  ): void {
+    const eventSubscription = this.subscribeRuntimeEvents(runtime, session.summary.id, agentId);
+    session.agents.set(agentId, Promise.resolve({ runtime, eventSubscription }));
+  }
+
+  private async closeSessionRuntime(
+    session: CachedSessionRuntime | undefined,
+  ): Promise<void> {
+    if (session === undefined) return;
+    const cached = [...session.agents.values()];
+    session.agents.clear();
+    const resolved = await Promise.allSettled(cached);
+    await Promise.all(
+      resolved.map(async (result) => {
+        if (result.status !== 'fulfilled') return;
+        result.value?.eventSubscription.dispose();
+        await result.value?.runtime.close();
+      }),
+    );
   }
 
   private subscribeRuntimeEvents(
@@ -513,10 +731,6 @@ async function writeSessionState(
     `${JSON.stringify(state, null, 2)}\n`,
     'utf8',
   );
-}
-
-function runtimeKey(sessionId: string, agentId: string): string {
-  return `${sessionId}:${agentId}`;
 }
 
 function createSessionId(): string {

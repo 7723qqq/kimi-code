@@ -68,6 +68,8 @@ export interface IProfileService {
   config(): KimiConfig | undefined;
   getActiveToolNames(): readonly string[] | undefined;
   isToolActive(name: string, source?: ToolSource): boolean;
+  addActiveTool(name: string): void;
+  removeActiveTool(name: string): void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

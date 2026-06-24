@@ -35,7 +35,10 @@ import { IWireRecord } from '../wireRecord/wireRecord';
 
 declare module '../types' {
   interface WireRecordMap {
-    'config.update': ProfileUpdateData;
+    'config.update': Omit<ProfileUpdateData, 'activeToolNames'>;
+    'tools.set_active_tools': {
+      names: readonly string[];
+    };
   }
 }
 
@@ -60,6 +63,9 @@ export class ProfileService implements IProfileService {
       const { type: _type, time: _time, ...changed } = record;
       this.apply(changed);
     });
+    wireRecord.register('tools.set_active_tools', (record) => {
+      this.applyActiveToolNames(record.names);
+    });
   }
 
   configure(options: ProfileServiceOptions): void {
@@ -81,9 +87,14 @@ export class ProfileService implements IProfileService {
   }
 
   update(changed: ProfileUpdateData): void {
-    if (Object.keys(changed).length === 0) return;
-    this.wireRecord.append({ type: 'config.update', ...changed });
-    this.apply(changed);
+    const { activeToolNames, ...configChanged } = changed;
+    if (Object.keys(configChanged).length > 0) {
+      this.wireRecord.append({ type: 'config.update', ...configChanged });
+      this.apply(configChanged);
+    }
+    if (activeToolNames !== undefined) {
+      this.setActiveTools(activeToolNames);
+    }
   }
 
   setModel(model: string): ProfileSetModelResult {
@@ -115,8 +126,8 @@ export class ProfileService implements IProfileService {
     this.update({
       profileName: profile.name,
       systemPrompt: profile.systemPrompt(context),
-      activeToolNames: profile.tools,
     });
+    this.setActiveTools(profile.tools);
   }
 
   data(): ProfileData {
@@ -190,6 +201,18 @@ export class ProfileService implements IProfileService {
       .some((pattern) => picomatch.isMatch(name, pattern));
   }
 
+  addActiveTool(name: string): void {
+    const activeToolNames = this.activeToolNames;
+    if (activeToolNames === undefined || activeToolNames.includes(name)) return;
+    this.applyActiveToolNames([...activeToolNames, name]);
+  }
+
+  removeActiveTool(name: string): void {
+    const activeToolNames = this.activeToolNames;
+    if (activeToolNames === undefined || !activeToolNames.includes(name)) return;
+    this.applyActiveToolNames(activeToolNames.filter((candidate) => candidate !== name));
+  }
+
   private apply(changed: ProfileUpdateData): void {
     this.replayBuilder.push({ type: 'config_updated', config: changed });
     if (changed.cwd !== undefined) {
@@ -206,12 +229,21 @@ export class ProfileService implements IProfileService {
     }
     if (changed.systemPrompt !== undefined) this.systemPrompt = changed.systemPrompt;
     if (changed.activeToolNames !== undefined) {
-      this.activeToolNames = [...changed.activeToolNames];
+      this.applyActiveToolNames(changed.activeToolNames);
     }
     if (this.hasProvider() && (changed.cwd !== undefined || changed.modelAlias !== undefined)) {
       this.optionsValue.initializeBuiltinTools?.();
     }
     this.emitStatusUpdated();
+  }
+
+  private setActiveTools(names: readonly string[]): void {
+    this.wireRecord.append({ type: 'tools.set_active_tools', names: [...names] });
+    this.applyActiveToolNames(names);
+  }
+
+  private applyActiveToolNames(names: readonly string[]): void {
+    this.activeToolNames = [...names];
   }
 
   private emitStatusUpdated(): void {

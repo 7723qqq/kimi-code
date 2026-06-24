@@ -9,6 +9,7 @@ import type {
   ExecutableToolContext,
   ExecutableToolResult,
 } from '../../../loop';
+import { IProfileService } from '../profile/profile';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import type { ToolResult } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
@@ -35,6 +36,7 @@ export class UserToolService extends Disposable implements IUserToolService {
   constructor(
     private readonly options: UserToolServiceOptions = {},
     @IToolRegistry private readonly registry: IToolRegistry,
+    @IProfileService private readonly profile: IProfileService,
     @IWireRecord private readonly wireRecord: IWireRecord,
   ) {
     super();
@@ -74,6 +76,7 @@ export class UserToolService extends Disposable implements IUserToolService {
       }),
     };
     this.registrations.set(name, this._register(this.registry.register(tool, { source: 'user' })));
+    this.profile.addActiveTool(name);
   }
 
   private applyUnregister(name: string): void {
@@ -81,6 +84,7 @@ export class UserToolService extends Disposable implements IUserToolService {
     if (registration === undefined) return;
     registration.dispose();
     this.registrations.delete(name);
+    this.profile.removeActiveTool(name);
   }
 
   private async executeUserTool(

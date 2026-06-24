@@ -25,7 +25,7 @@ export type {
 } from './types';
 
 export { IAgentRPCService, ISessionRPCService } from './rpc/rpc';
-export { AgentRPCService, SessionRPCService } from './rpc/rpcService';
+export { AgentRPCService } from './rpc/rpcService';
 
 export { IEventBus } from './eventBus/eventBus';
 export { EventBusService } from './eventBus/eventBusService';
@@ -202,6 +202,14 @@ export {
   type UsageRecordScope,
 } from './usage/usage';
 export { UsageService } from './usage/usageService';
+export {
+  IGoalService,
+  type GoalReasonInput,
+} from './goal/goal';
+export {
+  GoalService,
+  type GoalServiceOptions,
+} from './goal/goalService';
 
 export {
   ITelemetryService,
@@ -287,6 +295,7 @@ export {
   createAgentRuntime,
   getAgentServiceDescriptors,
   isAgentServiceIdentifier,
+  type AgentRuntimeDynamicInjection,
   type AgentRuntimeGoalOptions,
   type AgentRuntimeOptions,
   type AgentRuntimeType,

@@ -6,16 +6,11 @@ import type { SkillActivationOrigin } from '../../../agent/context';
 import { renderUserSlashSkillPrompt } from '../../../agent/skill/prompt';
 import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
 import { ErrorCodes, KimiError } from '../../../errors';
-import type { EnabledPluginSessionStart } from '../../../plugin/types';
 import {
   isUserActivatableSkillType,
+  type SkillCatalog,
   type SkillDefinition,
-  type SkillRoot,
-  type SkillSource,
 } from '../../../skill';
-import { SessionSkillRegistry } from '../../../skill/registry';
-import { escapeXmlAttr } from '../../../utils/xml-escape';
-import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
 import { IEventBus } from '../eventBus/eventBus';
 import { IPromptService } from '../prompt/prompt';
 import { ITelemetryService } from '../telemetry/telemetry';
@@ -38,59 +33,26 @@ declare module '../types' {
 export class AgentSkillService extends Disposable implements IAgentSkillService {
   declare readonly _serviceBrand: undefined;
 
-  private readonly registry: SessionSkillRegistry | undefined;
-  private pluginSessionStarts: readonly EnabledPluginSessionStart[] = [];
+  private readonly catalog: SkillCatalog | undefined;
 
   constructor(
     options: AgentSkillServiceOptions = {},
     @IPromptService private readonly prompt: IPromptService,
     @IEventBus private readonly events: IEventBus,
-    @IDynamicInjector dynamicInjector: IDynamicInjector,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
-    this.registry =
-      options.registry === null ? undefined : (options.registry ?? new SessionSkillRegistry());
+    this.catalog = options.catalog === null ? undefined : options.catalog;
     this._register(
       this.wireRecord.register('skill.activate', (record) => {
         this.publishActivation(record.origin);
       }),
     );
-    this._register(
-      dynamicInjector.register('plugin_session_start', ({ injectedAt }) => {
-        if (injectedAt !== null) return undefined;
-        return this.pluginSessionStartReminder();
-      }),
-    );
-  }
-
-  async loadRoots(roots: readonly SkillRoot[]): Promise<void> {
-    await this.registry?.loadRoots(roots);
-  }
-
-  setPluginSessionStarts(sessionStarts: readonly EnabledPluginSessionStart[]): void {
-    this.pluginSessionStarts = [...sessionStarts];
-  }
-
-  registerBuiltinSkill(skill: SkillDefinition): void {
-    this.registry?.registerBuiltinSkill(skill);
-  }
-
-  registerSkill(skill: SkillDefinition, options: { readonly replace?: boolean } = {}): void {
-    this.registry?.register(skill, options);
-  }
-
-  listSkills(): readonly SkillDefinition[] {
-    return this.registry?.listSkills() ?? [];
-  }
-
-  getModelSkillListing(): string {
-    return this.registry?.getModelSkillListing() ?? '';
   }
 
   activate(input: SkillActivationInput): Turn {
-    const skill = this.registry?.getSkill(input.name);
+    const skill = this.catalog?.getSkill(input.name);
     if (skill === undefined) {
       throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, `Skill "${input.name}" was not found`);
     }
@@ -131,7 +93,7 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
     )!;
   }
 
-  recordActivation(
+  private recordActivation(
     origin: SkillActivationOrigin,
     input?: readonly ContentPart[],
   ): Turn | undefined {
@@ -149,8 +111,8 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
   }
 
   private renderSkillPrompt(skill: SkillDefinition, rawArgs: string): string {
-    const registry = this.requireRegistry();
-    return registry.renderSkillPrompt(skill, rawArgs);
+    const catalog = this.requireCatalog();
+    return catalog.renderSkillPrompt(skill, rawArgs);
   }
 
   private publishActivation(origin: SkillActivationOrigin): void {
@@ -175,40 +137,10 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
     }
   }
 
-  private requireRegistry(): SessionSkillRegistry {
-    if (this.registry !== undefined) return this.registry;
-    throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, 'Skill registry is not available');
+  private requireCatalog(): SkillCatalog {
+    if (this.catalog !== undefined) return this.catalog;
+    throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, 'Skill catalog is not available');
   }
-
-  private pluginSessionStartReminder(): string | undefined {
-    if (this.pluginSessionStarts.length === 0) return undefined;
-    const registry = this.registry;
-    if (registry === undefined) return undefined;
-    const blocks: string[] = [];
-    for (const sessionStart of this.pluginSessionStarts) {
-      const skill = registry.getPluginSkill(sessionStart.pluginId, sessionStart.skillName);
-      if (skill === undefined) continue;
-      blocks.push(
-        renderSessionStartBlock(
-          sessionStart,
-          skill,
-          registry.renderSkillPrompt(skill, ''),
-        ),
-      );
-    }
-    return blocks.length === 0 ? undefined : blocks.join('\n');
-  }
-}
-
-function renderSessionStartBlock(
-  sessionStart: EnabledPluginSessionStart,
-  skill: SkillDefinition,
-  skillContent: string,
-): string {
-  return (
-    `<plugin_session_start plugin="${escapeXmlAttr(sessionStart.pluginId)}" ` +
-    `skill="${escapeXmlAttr(skill.name)}">\n${skillContent}\n</plugin_session_start>`
-  );
 }
 
 registerSingleton(
