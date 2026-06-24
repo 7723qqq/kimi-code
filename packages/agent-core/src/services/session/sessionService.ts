@@ -360,11 +360,12 @@ export class SessionService extends Disposable implements ISessionService {
   }
 
   async fork(id: string, input: SessionFork): Promise<Session> {
-    const source = await this.get(id);
+    const sourceSummary = await this.requireSummary(id);
+    const source = toProtocolSession(sourceSummary, await this.tryGetMeta(id));
     const title = input.title ?? `Fork: ${source.title || source.id}`;
     const metadata = input.metadata === undefined ? undefined : asJsonObject(input.metadata);
-    const summary = await this.core.rpc.forkSession({
-      sessionId: id,
+    const summary = await this.agentRuntimes.forkSession({
+      sourceId: id,
       title,
       metadata,
     });
@@ -420,15 +421,16 @@ export class SessionService extends Disposable implements ISessionService {
   }
 
   async createChild(id: string, input: SessionChildCreate): Promise<Session> {
-    const parent = await this.get(id);
+    const parentSummary = await this.requireSummary(id);
+    const parent = toProtocolSession(parentSummary, await this.tryGetMeta(id));
     const title = input.title ?? `Child: ${parent.title || parent.id}`;
     const metadata = asJsonObject({
       ...input.metadata,
       parent_session_id: id,
       child_session_kind: CHILD_SESSION_KIND,
     });
-    const summary = await this.core.rpc.forkSession({
-      sessionId: id,
+    const summary = await this.agentRuntimes.forkSession({
+      sourceId: id,
       title,
       metadata,
     });
@@ -531,8 +533,7 @@ export class SessionService extends Disposable implements ISessionService {
   }
 
   private async requireSummary(id: string): Promise<SessionSummary> {
-    const all = await this.core.rpc.listSessions({});
-    const summary = all.find((s) => s.id === id);
+    const summary = await this.agentRuntimes.getSessionSummary(id);
     if (summary === undefined) {
       throw new SessionNotFoundError(id);
     }

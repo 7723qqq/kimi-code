@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'pathe';
 import { KaosShellNotFoundError, LocalKaos, type Kaos } from '@moonshot-ai/kaos';
 import {
@@ -29,6 +30,11 @@ import {
   prepareSystemPromptContext,
 } from '../../profile';
 import {
+  registerBuiltinSkills,
+  resolveSkillRoots,
+  SessionSkillRegistry,
+} from '../../skill';
+import {
   ProviderManager,
   type BearerTokenProvider,
   type OAuthTokenProviderResolver,
@@ -49,6 +55,8 @@ import {
   createAgentRuntime,
   IEventBus,
   IAgentRPCService,
+  ISessionRPCService,
+  ITurnRunner,
   type AgentRuntime,
   type AgentRuntimeType,
   type AgentRuntimeOptions,
@@ -57,6 +65,7 @@ import { IProfileService } from '../agent/profile/profile';
 import { IEnvironmentService } from '../environment/environment';
 import {
   type AgentRuntimeCreateSessionOptions,
+  type AgentRuntimeForkSessionOptions,
   AgentRuntimeTodoError,
   IAgentRuntimeService,
 } from './agentRuntime';
@@ -80,6 +89,7 @@ export interface AgentRuntimeServiceOptions {
   readonly telemetry?: TelemetryClient | undefined;
   readonly kimiRequestHeaders?: Record<string, string> | undefined;
   readonly identity?: KimiHostIdentity | undefined;
+  readonly skillDirs?: readonly string[] | undefined;
 }
 
 export class AgentRuntimeService
@@ -92,6 +102,7 @@ export class AgentRuntimeService
   private readonly resolveOAuthTokenProvider: OAuthTokenProviderResolver;
   private readonly telemetry: TelemetryClient;
   private readonly kimiRequestHeaders: Record<string, string> | undefined;
+  private readonly skillDirs: readonly string[];
   private readonly runtimes = new Map<string, Promise<CachedRuntime | undefined>>();
   private kaos: Promise<Kaos> | undefined;
   private configValue: KimiConfig | undefined;
@@ -109,6 +120,7 @@ export class AgentRuntimeService
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.kimiRequestHeaders =
       options.kimiRequestHeaders ?? defaultKimiRequestHeaders(env.homeDir, options.identity);
+    this.skillDirs = options.skillDirs ?? [];
   }
 
   async createSession(
@@ -149,6 +161,21 @@ export class AgentRuntimeService
     }
   }
 
+  async forkSession(
+    options: AgentRuntimeForkSessionOptions,
+  ): Promise<SessionSummary> {
+    const source = await this.store.get(options.sourceId);
+    await this.assertForkableAndFlush(source.id);
+    const id = options.id ?? createSessionId();
+    await this.store.fork({
+      sourceId: source.id,
+      targetId: id,
+      title: options.title,
+      metadata: options.metadata,
+    });
+    return this.store.get(id);
+  }
+
   async get(sessionId: string, agentId = 'main'): Promise<AgentRuntime | undefined> {
     const cached = await this.getCached(sessionId, agentId);
     return cached?.runtime;
@@ -174,6 +201,16 @@ export class AgentRuntimeService
   async requireRPC(sessionId: string, agentId = 'main'): Promise<IAgentRPCService> {
     const runtime = await this.require(sessionId, agentId);
     return runtime.get(IAgentRPCService);
+  }
+
+  async getSessionRPC(sessionId: string): Promise<ISessionRPCService | undefined> {
+    const runtime = await this.get(sessionId, 'main');
+    return runtime?.get(ISessionRPCService);
+  }
+
+  async requireSessionRPC(sessionId: string): Promise<ISessionRPCService> {
+    const runtime = await this.require(sessionId, 'main');
+    return runtime.get(ISessionRPCService);
   }
 
   async getSessionSummary(sessionId: string): Promise<SessionSummary | undefined> {
@@ -231,6 +268,28 @@ export class AgentRuntimeService
     return cached;
   }
 
+  private async assertForkableAndFlush(sessionId: string): Promise<void> {
+    const cached = await this.cachedForSession(sessionId);
+    for (const entry of cached) {
+      if (entry.runtime.get(ITurnRunner).getActiveTurn() === undefined) continue;
+      throw new KimiError(
+        ErrorCodes.SESSION_FORK_ACTIVE_TURN,
+        `Session "${sessionId}" cannot be forked while a turn is running`,
+        { details: { sessionId } },
+      );
+    }
+    await Promise.all(cached.map((entry) => entry.runtime.flush()));
+  }
+
+  private async cachedForSession(sessionId: string): Promise<readonly CachedRuntime[]> {
+    const prefix = `${sessionId}:`;
+    const pending = [...this.runtimes.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, cached]) => cached);
+    const resolved = await Promise.all(pending);
+    return resolved.filter((entry): entry is CachedRuntime => entry !== undefined);
+  }
+
   private async createRuntime(
     sessionId: string,
     agentId: string,
@@ -266,6 +325,7 @@ export class AgentRuntimeService
     });
     const kaos = await this.getKaos();
     const toolServices = await this.resolveRuntimeTools(config);
+    const skills = await this.createSkillRegistry(summary, config);
     return createAgentRuntime(this.instantiation, {
       sessionId: summary.id,
       agentId,
@@ -276,6 +336,7 @@ export class AgentRuntimeService
       config: () => this.configValue ?? config,
       modelProvider,
       toolServices,
+      skills,
       telemetry: this.telemetry,
       cron: false,
       background: false,
@@ -360,6 +421,26 @@ export class AgentRuntimeService
             }),
     };
     return this.runtimeTools;
+  }
+
+  private async createSkillRegistry(
+    summary: SessionSummary,
+    config: KimiConfig,
+  ): Promise<SessionSkillRegistry> {
+    const registry = new SessionSkillRegistry({ sessionId: summary.id });
+    const roots = await resolveSkillRoots({
+      paths: {
+        userHomeDir: homedir(),
+        brandHomeDir: this.env.homeDir,
+        workDir: summary.workDir,
+      },
+      explicitDirs: this.skillDirs.length > 0 ? this.skillDirs : undefined,
+      extraDirs: config.extraSkillDirs,
+      mergeAllAvailableSkills: config.mergeAllAvailableSkills,
+    });
+    await registry.loadRoots(roots);
+    registerBuiltinSkills(registry);
+    return registry;
   }
 
   private getKaos(): Promise<Kaos> {

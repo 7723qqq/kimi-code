@@ -1,7 +1,7 @@
 import { createDecorator } from '../../di';
 import type { ClientTelemetryInfo, CoreRPC, JsonObject, SessionSummary } from '../../rpc';
 import type { AgentRuntime } from '../agent';
-import type { IAgentRPCService } from '../agent/rpc/rpc';
+import type { IAgentRPCService, ISessionRPCService } from '../agent/rpc/rpc';
 import type { ICoreProcessService } from '../coreProcess/coreProcess';
 
 export interface AgentRuntimeCreateSessionOptions {
@@ -14,14 +14,24 @@ export interface AgentRuntimeCreateSessionOptions {
   readonly client?: ClientTelemetryInfo | undefined;
 }
 
+export interface AgentRuntimeForkSessionOptions {
+  readonly sourceId: string;
+  readonly id?: string | undefined;
+  readonly title?: string | undefined;
+  readonly metadata?: JsonObject | undefined;
+}
+
 export interface IAgentRuntimeService {
   readonly _serviceBrand: undefined;
 
   createSession(options: AgentRuntimeCreateSessionOptions): Promise<SessionSummary>;
+  forkSession(options: AgentRuntimeForkSessionOptions): Promise<SessionSummary>;
   get(sessionId: string, agentId?: string): Promise<AgentRuntime | undefined>;
   require(sessionId: string, agentId?: string): Promise<AgentRuntime>;
   getRPC(sessionId: string, agentId?: string): Promise<IAgentRPCService | undefined>;
   requireRPC(sessionId: string, agentId?: string): Promise<IAgentRPCService>;
+  getSessionRPC(sessionId: string): Promise<ISessionRPCService | undefined>;
+  requireSessionRPC(sessionId: string): Promise<ISessionRPCService>;
   getSessionSummary(sessionId: string): Promise<SessionSummary | undefined>;
   listSessionSummaries(options?: {
     readonly workDir?: string;
@@ -76,6 +86,14 @@ export function agentRuntimeServiceFromCoreProcess(
       }
       return summary;
     },
+    async forkSession(options) {
+      return core.rpc.forkSession({
+        sessionId: options.sourceId,
+        id: options.id,
+        title: options.title,
+        metadata: options.metadata,
+      });
+    },
     async get() {
       return undefined;
     },
@@ -100,6 +118,23 @@ export function agentRuntimeServiceFromCoreProcess(
       throw new AgentRuntimeTodoError(
         'packages/agent-core/src/services/agentRuntime/agentRuntime.ts:requireRPC',
         `RPC for session "${sessionId}" agent "${agentId}" is not available through services/agent.`,
+      );
+    },
+    async getSessionRPC(sessionId: string) {
+      const summary = await this.getSessionSummary(sessionId);
+      if (summary === undefined) return undefined;
+      if (!resumed.has(sessionId)) {
+        await core.rpc.resumeSession({ sessionId });
+        resumed.add(sessionId);
+      }
+      return scopedSessionRPC(core.rpc, sessionId);
+    },
+    async requireSessionRPC(sessionId: string) {
+      const rpc = await this.getSessionRPC(sessionId);
+      if (rpc !== undefined) return rpc;
+      throw new AgentRuntimeTodoError(
+        'packages/agent-core/src/services/agentRuntime/agentRuntime.ts:requireSessionRPC',
+        `Session RPC for session "${sessionId}" is not available through services/agent.`,
       );
     },
     async getSessionSummary(sessionId: string) {
@@ -128,4 +163,18 @@ function scopedAgentRPC(
         method({ ...payload, sessionId, agentId } as never);
     },
   }) as IAgentRPCService;
+}
+
+function scopedSessionRPC(
+  core: CoreRPC,
+  sessionId: string,
+): ISessionRPCService {
+  return new Proxy({}, {
+    get(_target, prop) {
+      const method = core[prop as keyof CoreRPC];
+      if (typeof method !== 'function') return undefined;
+      return (payload: Record<string, unknown> = {}) =>
+        method({ ...payload, sessionId } as never);
+    },
+  }) as ISessionRPCService;
 }

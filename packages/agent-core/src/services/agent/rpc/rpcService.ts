@@ -1,5 +1,6 @@
 import { registerSingleton, SyncDescriptor } from '../../../di';
 import { ErrorCodes, KimiError } from '../../../errors';
+import { summarizeSkill } from '../../../skill';
 import type {
   ActivateSkillPayload,
   BeginCompactionPayload,
@@ -21,6 +22,7 @@ import type {
   StopBackgroundPayload,
   UndoHistoryPayload,
   UnregisterToolPayload,
+  SessionAPI,
 } from '../../../rpc/core-api';
 import { IBackgroundService } from '../background/background';
 import { IContextMemory } from '../contextMemory/contextMemory';
@@ -41,6 +43,7 @@ import { IUsageService } from '../usage/usage';
 import { IUserToolService } from '../userTool/userTool';
 import {
   IAgentRPCService,
+  ISessionRPCService,
 } from './rpc';
 
 export class AgentRPCService implements IAgentRPCService {
@@ -255,7 +258,212 @@ export class AgentRPCService implements IAgentRPCService {
   }
 }
 
+type AgentScopedPayload<T extends keyof SessionAPI> = Parameters<SessionAPI[T]>[0];
+
+export class SessionRPCService implements ISessionRPCService {
+  constructor(
+    @IAgentRPCService private readonly agent: IAgentRPCService,
+    @IAgentSkillService private readonly skills: IAgentSkillService,
+  ) {}
+
+  renameSession(_payload: AgentScopedPayload<'renameSession'>): void {
+    return this.todo('renameSession');
+  }
+
+  updateSessionMetadata(_payload: AgentScopedPayload<'updateSessionMetadata'>): void {
+    return this.todo('updateSessionMetadata');
+  }
+
+  getSessionMetadata(_payload: AgentScopedPayload<'getSessionMetadata'>) {
+    return this.todo('getSessionMetadata');
+  }
+
+  listSkills(_payload: AgentScopedPayload<'listSkills'>) {
+    return this.skills.listSkills().map(summarizeSkill);
+  }
+
+  listMcpServers(_payload: AgentScopedPayload<'listMcpServers'>) {
+    return this.todo('listMcpServers');
+  }
+
+  getMcpStartupMetrics(_payload: AgentScopedPayload<'getMcpStartupMetrics'>) {
+    return this.todo('getMcpStartupMetrics');
+  }
+
+  reconnectMcpServer(_payload: AgentScopedPayload<'reconnectMcpServer'>): void {
+    return this.todo('reconnectMcpServer');
+  }
+
+  generateAgentsMd(_payload: AgentScopedPayload<'generateAgentsMd'>): void {
+    return this.todo('generateAgentsMd');
+  }
+
+  addAdditionalDir(_payload: AgentScopedPayload<'addAdditionalDir'>) {
+    return this.todo('addAdditionalDir');
+  }
+
+  prompt({ agentId: _agentId, ...payload }: AgentScopedPayload<'prompt'>) {
+    return this.agent.prompt(payload);
+  }
+
+  steer({ agentId: _agentId, ...payload }: AgentScopedPayload<'steer'>) {
+    return this.agent.steer(payload);
+  }
+
+  cancel({ agentId: _agentId, ...payload }: AgentScopedPayload<'cancel'>) {
+    return this.agent.cancel(payload);
+  }
+
+  undoHistory({ agentId: _agentId, ...payload }: AgentScopedPayload<'undoHistory'>) {
+    return this.agent.undoHistory(payload);
+  }
+
+  setThinking({ agentId: _agentId, ...payload }: AgentScopedPayload<'setThinking'>) {
+    return this.agent.setThinking(payload);
+  }
+
+  setPermission({ agentId: _agentId, ...payload }: AgentScopedPayload<'setPermission'>) {
+    return this.agent.setPermission(payload);
+  }
+
+  setModel({ agentId: _agentId, ...payload }: AgentScopedPayload<'setModel'>) {
+    return this.agent.setModel(payload);
+  }
+
+  getModel({ agentId: _agentId, ...payload }: AgentScopedPayload<'getModel'>) {
+    return this.agent.getModel(payload);
+  }
+
+  enterPlan({ agentId: _agentId, ...payload }: AgentScopedPayload<'enterPlan'>) {
+    return this.agent.enterPlan(payload);
+  }
+
+  cancelPlan({ agentId: _agentId, ...payload }: AgentScopedPayload<'cancelPlan'>) {
+    return this.agent.cancelPlan(payload);
+  }
+
+  clearPlan({ agentId: _agentId, ...payload }: AgentScopedPayload<'clearPlan'>) {
+    return this.agent.clearPlan(payload);
+  }
+
+  enterSwarm({ agentId: _agentId, ...payload }: AgentScopedPayload<'enterSwarm'>) {
+    return this.agent.enterSwarm(payload);
+  }
+
+  exitSwarm({ agentId: _agentId, ...payload }: AgentScopedPayload<'exitSwarm'>) {
+    return this.agent.exitSwarm(payload);
+  }
+
+  getSwarmMode({ agentId: _agentId, ...payload }: AgentScopedPayload<'getSwarmMode'>) {
+    return this.agent.getSwarmMode(payload);
+  }
+
+  beginCompaction({ agentId: _agentId, ...payload }: AgentScopedPayload<'beginCompaction'>) {
+    return this.agent.beginCompaction(payload);
+  }
+
+  cancelCompaction({ agentId: _agentId, ...payload }: AgentScopedPayload<'cancelCompaction'>) {
+    return this.agent.cancelCompaction(payload);
+  }
+
+  registerTool({ agentId: _agentId, ...payload }: AgentScopedPayload<'registerTool'>) {
+    return this.agent.registerTool(payload);
+  }
+
+  unregisterTool({ agentId: _agentId, ...payload }: AgentScopedPayload<'unregisterTool'>) {
+    return this.agent.unregisterTool(payload);
+  }
+
+  setActiveTools({ agentId: _agentId, ...payload }: AgentScopedPayload<'setActiveTools'>) {
+    return this.agent.setActiveTools(payload);
+  }
+
+  stopBackground({ agentId: _agentId, ...payload }: AgentScopedPayload<'stopBackground'>) {
+    return this.agent.stopBackground(payload);
+  }
+
+  detachBackground({ agentId: _agentId, ...payload }: AgentScopedPayload<'detachBackground'>) {
+    return this.agent.detachBackground(payload);
+  }
+
+  clearContext({ agentId: _agentId, ...payload }: AgentScopedPayload<'clearContext'>) {
+    return this.agent.clearContext(payload);
+  }
+
+  activateSkill({ agentId: _agentId, ...payload }: AgentScopedPayload<'activateSkill'>) {
+    return this.agent.activateSkill(payload);
+  }
+
+  startBtw({ agentId: _agentId, ...payload }: AgentScopedPayload<'startBtw'>) {
+    return this.agent.startBtw(payload);
+  }
+
+  createGoal({ agentId: _agentId, ...payload }: AgentScopedPayload<'createGoal'>) {
+    return this.agent.createGoal(payload);
+  }
+
+  getGoal({ agentId: _agentId, ...payload }: AgentScopedPayload<'getGoal'>) {
+    return this.agent.getGoal(payload);
+  }
+
+  pauseGoal({ agentId: _agentId, ...payload }: AgentScopedPayload<'pauseGoal'>) {
+    return this.agent.pauseGoal(payload);
+  }
+
+  resumeGoal({ agentId: _agentId, ...payload }: AgentScopedPayload<'resumeGoal'>) {
+    return this.agent.resumeGoal(payload);
+  }
+
+  cancelGoal({ agentId: _agentId, ...payload }: AgentScopedPayload<'cancelGoal'>) {
+    return this.agent.cancelGoal(payload);
+  }
+
+  getBackgroundOutput({ agentId: _agentId, ...payload }: AgentScopedPayload<'getBackgroundOutput'>) {
+    return this.agent.getBackgroundOutput(payload);
+  }
+
+  getContext({ agentId: _agentId, ...payload }: AgentScopedPayload<'getContext'>) {
+    return this.agent.getContext(payload);
+  }
+
+  getConfig({ agentId: _agentId, ...payload }: AgentScopedPayload<'getConfig'>) {
+    return this.agent.getConfig(payload);
+  }
+
+  getPermission({ agentId: _agentId, ...payload }: AgentScopedPayload<'getPermission'>) {
+    return this.agent.getPermission(payload);
+  }
+
+  getPlan({ agentId: _agentId, ...payload }: AgentScopedPayload<'getPlan'>) {
+    return this.agent.getPlan(payload);
+  }
+
+  getUsage({ agentId: _agentId, ...payload }: AgentScopedPayload<'getUsage'>) {
+    return this.agent.getUsage(payload);
+  }
+
+  getTools({ agentId: _agentId, ...payload }: AgentScopedPayload<'getTools'>) {
+    return this.agent.getTools(payload);
+  }
+
+  getBackground({ agentId: _agentId, ...payload }: AgentScopedPayload<'getBackground'>) {
+    return this.agent.getBackground(payload);
+  }
+
+  private todo(method: string): never {
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      `TODO: SessionRPCService.${method} is not migrated to services/agent.`,
+    );
+  }
+}
+
 registerSingleton(
   IAgentRPCService,
   new SyncDescriptor(AgentRPCService, [], true),
+);
+
+registerSingleton(
+  ISessionRPCService,
+  new SyncDescriptor(SessionRPCService, [], true),
 );
