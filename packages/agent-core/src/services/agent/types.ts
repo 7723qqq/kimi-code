@@ -9,10 +9,7 @@ import type {
 } from '@moonshot-ai/kosong';
 
 import type { ContextMessage, PromptOrigin } from '../../agent/context';
-import type {
-  ExecutableToolContext,
-  ToolExecution as LoopToolExecution,
-} from '../../loop';
+import type { ExecutableToolContext } from '../../loop';
 import type { LLMRequestLogFields } from '../../loop';
 import type { ToolInputDisplay } from '../../tools/display';
 
@@ -82,11 +79,6 @@ export interface ToolDefinition {
   readonly parameters?: Record<string, unknown>;
   readonly source?: ToolSource;
   readonly info?: Record<string, unknown>;
-}
-
-export interface Tool extends ToolDefinition {
-  execute?(call: ToolCall, context: ToolExecutionContext): Promise<ToolResult> | ToolResult;
-  resolveExecution?(args: unknown): Promise<LoopToolExecution> | LoopToolExecution;
 }
 
 export interface ToolCall {

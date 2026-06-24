@@ -22,6 +22,11 @@ import { IEventService } from '../event/event';
 import { ILogService } from '../logger/logger';
 import { ISessionService, SessionNotFoundError } from '../session/session';
 import {
+  IAgentRuntimeService,
+  toAgentRuntimeService,
+  type AgentRuntimeServiceSource,
+} from '../agentRuntime/agentRuntime';
+import {
   IPromptService,
   PromptNotFoundError,
   PromptAlreadyCompletedError,
@@ -265,6 +270,7 @@ export class PromptService
    * on the hot path.
    */
   private readonly _dispatchLog = new Map<string, PromptDispatchLogEntry[]>();
+  private readonly agentRuntimes: IAgentRuntimeService;
 
   /**
    * VSCode-style Emitter for `prompt.completed` synthetic events. Listener
@@ -290,8 +296,10 @@ export class PromptService
     @IAuthSummaryService private readonly auth: IAuthSummaryService,
     @ISessionService private readonly sessionService: ISessionService,
     @ILogService private readonly _logger: ILogService,
+    @IAgentRuntimeService agentRuntimes?: AgentRuntimeServiceSource,
   ) {
     super();
+    this.agentRuntimes = toAgentRuntimeService(agentRuntimes ?? core);
     // Self-subscribe to the event stream for lifecycle synthesis.
     // `onDidPublish` is the VSCode-style accessor — calling it registers
     // `_handleBusEvent` and returns an `IDisposable` that detaches when
@@ -335,7 +343,6 @@ export class PromptService
 
   async submit(sid: string, body: PromptSubmission): Promise<PromptSubmitResult> {
     await this._requireSession(sid);
-    await this.core.rpc.resumeSession({ sessionId: sid });
 
     // Readiness gate. Throws AuthProvisioningRequired /
     // AuthTokenMissing / AuthModelNotResolved before we mint a prompt_id and
@@ -363,9 +370,9 @@ export class PromptService
 
   async startBtw(sid: string): Promise<string> {
     await this._requireSession(sid);
-    await this.core.rpc.resumeSession({ sessionId: sid });
     await this.auth.ensureReady();
-    return this.core.rpc.startBtw({ sessionId: sid, agentId: MAIN_AGENT_ID });
+    const rpc = await this._agentRPC(sid, MAIN_AGENT_ID);
+    return rpc.startBtw({});
   }
 
   async steer(sid: string, promptIds: readonly string[]): Promise<PromptSteerResult> {
@@ -394,11 +401,8 @@ export class PromptService
     this._replaceQueue(sid, MAIN_AGENT_ID, remaining);
 
     try {
-      await this.core.rpc.steer({
-        sessionId: sid,
-        agentId: MAIN_AGENT_ID,
-        input: steerContentToCoreParts(selected),
-      });
+      const rpc = await this._agentRPC(sid, MAIN_AGENT_ID);
+      await rpc.steer({ input: steerContentToCoreParts(selected) });
     } catch (error) {
       this._restoreSteeredQueueItems(sid, selected);
       throw error;
@@ -440,16 +444,13 @@ export class PromptService
     try {
       this._logger.debug(
         { sid, promptId: state.promptId, agentId: state.agentId, partCount: input.length },
-        '[DBG prompt-service.submit] -> core.rpc.prompt(...)',
+        '[DBG prompt-service.submit] -> agent.rpc.prompt(...)',
       );
-      await this.core.rpc.prompt({
-        sessionId: sid,
-        agentId: state.agentId,
-        input,
-      });
+      const rpc = await this._agentRPC(sid, state.agentId);
+      await rpc.prompt({ input });
       this._logger.debug(
         { sid, promptId: state.promptId },
-        '[DBG prompt-service.submit] core.rpc.prompt(...) resolved',
+        '[DBG prompt-service.submit] agent.rpc.prompt(...) resolved',
       );
     } catch (error) {
       // Clear our active-prompt state so the next submit succeeds; surface
@@ -459,7 +460,7 @@ export class PromptService
       }
       this._logger.debug(
         { sid, promptId: state.promptId, err: (error as Error)?.message ?? error },
-        '[DBG prompt-service.submit] core.rpc.prompt(...) threw',
+        '[DBG prompt-service.submit] agent.rpc.prompt(...) threw',
       );
       throw error;
     }
@@ -505,12 +506,10 @@ export class PromptService
       // Mark aborted optimistically — _handleBusEvent will not re-synthesize.
       state.aborted = true;
       try {
-        const cancelArgs: { sessionId: string; agentId: string; turnId?: number } = {
-          sessionId: sid,
-          agentId: state.agentId,
-        };
+        const cancelArgs: { turnId?: number } = {};
         if (state.turnId !== null) cancelArgs.turnId = state.turnId;
-        await this.core.rpc.cancel(cancelArgs);
+        const rpc = await this._agentRPC(sid, state.agentId);
+        await rpc.cancel(cancelArgs);
       } catch (error) {
         // Roll back the optimistic flag so the route surfaces a real error;
         // the caller will see a 50001 (internal) via the global error handler.
@@ -546,7 +545,8 @@ export class PromptService
     // No daemon-managed active prompt. Cancel whatever agent-core turn is
     // running (e.g. a skill activation) without requiring a turnId.
     // TurnFlow.cancel(undefined) is a safe no-op when idle.
-    await this.core.rpc.cancel({ sessionId: sid, agentId: MAIN_AGENT_ID });
+    const rpc = await this._agentRPC(sid, MAIN_AGENT_ID);
+    await rpc.cancel({});
     return { aborted: true };
   }
 
@@ -603,11 +603,12 @@ export class PromptService
    */
   private async _ensureAgentStateBootstrapped(sid: string): Promise<void> {
     if (this._agentState.has(sid)) return;
+    const rpc = await this._agentRPC(sid, MAIN_AGENT_ID);
     const [config, permission, plan, swarmMode] = await Promise.all([
-      this.core.rpc.getConfig({ sessionId: sid, agentId: MAIN_AGENT_ID }),
-      this.core.rpc.getPermission({ sessionId: sid, agentId: MAIN_AGENT_ID }),
-      this.core.rpc.getPlan({ sessionId: sid, agentId: MAIN_AGENT_ID }),
-      this.core.rpc.getSwarmMode({ sessionId: sid, agentId: MAIN_AGENT_ID }),
+      rpc.getConfig({}),
+      rpc.getPermission({}),
+      rpc.getPlan({}),
+      rpc.getSwarmMode({}),
     ]);
     const snapshot: AgentStateSnapshot = {};
     if (config.modelAlias !== undefined) snapshot.model = config.modelAlias;
@@ -648,16 +649,17 @@ export class PromptService
       );
     }
     const agentId = MAIN_AGENT_ID;
+    const rpc = await this._agentRPC(sid, agentId);
 
     if (patch.model !== undefined && patch.model !== shadow.model) {
       const payload = { sessionId: sid, agentId, model: patch.model };
-      await this.core.rpc.setModel(payload);
+      await rpc.setModel({ model: patch.model });
       shadow.model = patch.model;
       this._recordDispatch(sid, 'setModel', payload, promptId, source);
     }
     if (patch.thinking !== undefined && patch.thinking !== shadow.thinking) {
       const payload = { sessionId: sid, agentId, level: patch.thinking as PromptThinking };
-      await this.core.rpc.setThinking(payload);
+      await rpc.setThinking({ level: patch.thinking as PromptThinking });
       shadow.thinking = patch.thinking;
       this._recordDispatch(sid, 'setThinking', payload, promptId, source);
     }
@@ -670,20 +672,20 @@ export class PromptService
         agentId,
         mode: patch.permission_mode as PermissionMode,
       };
-      await this.core.rpc.setPermission(payload);
+      await rpc.setPermission({ mode: patch.permission_mode as PermissionMode });
       shadow.permissionMode = patch.permission_mode as PermissionMode;
       this._recordDispatch(sid, 'setPermission', payload, promptId, source);
     }
     if (patch.plan_mode !== undefined && patch.plan_mode !== shadow.planMode) {
       const payload = { sessionId: sid, agentId };
       if (patch.plan_mode) {
-        await this.core.rpc.enterPlan(payload);
+        await rpc.enterPlan({});
         this._recordDispatch(sid, 'enterPlan', payload, promptId, source);
       } else {
         // `cancelPlan({id?})` accepts an omitted id — `PlanMode.cancel`
         // clears whatever id is currently active. Shadow doesn't track
         // ids, so we always omit.
-        await this.core.rpc.cancelPlan(payload);
+        await rpc.cancelPlan({});
         this._recordDispatch(sid, 'cancelPlan', payload, promptId, source);
       }
       shadow.planMode = patch.plan_mode;
@@ -696,10 +698,10 @@ export class PromptService
       const payload = { sessionId: sid, agentId };
       if (patch.swarm_mode) {
         const enterPayload = { ...payload, trigger: 'manual' as const };
-        await this.core.rpc.enterSwarm(enterPayload);
+        await rpc.enterSwarm({ trigger: 'manual' });
         this._recordDispatch(sid, 'enterSwarm', enterPayload, promptId, source);
       } else {
-        await this.core.rpc.exitSwarm(payload);
+        await rpc.exitSwarm({});
         this._recordDispatch(sid, 'exitSwarm', payload, promptId, source);
       }
       shadow.swarmMode = patch.swarm_mode;
@@ -993,6 +995,10 @@ export class PromptService
     }
   }
 
+  private _agentRPC(sid: string, agentId: string) {
+    return this.agentRuntimes.requireRPC(sid, agentId);
+  }
+
   override dispose(): void {
     if (this._store.isDisposed) return;
     this._active.clear();
@@ -1006,7 +1012,7 @@ export class PromptService
 }
 
 // Self-register under the global singleton registry. All ctor deps are
-// `@I…`-injected (@ICoreProcessService / @IEventService / @IAuthSummaryService);
+// `@I…`-injected (@ICoreProcessService / @IAgentRuntimeService / @IEventService / @IAuthSummaryService);
 // `staticArguments = []`. `supportsDelayedInstantiation = false` preserves
 // current reverse-dispose semantics.
 registerSingleton(IPromptService, PromptService, InstantiationType.Delayed);

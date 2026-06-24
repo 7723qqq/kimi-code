@@ -4,10 +4,11 @@
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
 
-import { IToolRegistry } from '../agent';
 import {
   AgentRuntimeTodoError,
   IAgentRuntimeService,
+  toAgentRuntimeService,
+  type AgentRuntimeServiceSource,
 } from '../agentRuntime/agentRuntime';
 import { IToolService, toProtocolTool } from './tool';
 
@@ -16,11 +17,13 @@ const MAIN_AGENT_ID = 'main';
 
 export class ToolService extends Disposable implements IToolService {
   readonly _serviceBrand: undefined;
+  private readonly agentRuntimes: IAgentRuntimeService;
 
   constructor(
-    @IAgentRuntimeService private readonly agentRuntimes: IAgentRuntimeService,
+    @IAgentRuntimeService agentRuntimes: AgentRuntimeServiceSource,
   ) {
     super();
+    this.agentRuntimes = toAgentRuntimeService(agentRuntimes);
   }
 
   async list(sessionId?: string): Promise<readonly import('@moonshot-ai/protocol').ToolDescriptor[]> {
@@ -30,14 +33,8 @@ export class ToolService extends Disposable implements IToolService {
         'Session-less tool listing has not been migrated; require a session id or define an agent-runtime backed global source.',
       );
     }
-    const runtime = await this.agentRuntimes.get(sessionId, MAIN_AGENT_ID);
-    if (runtime !== undefined) {
-      return runtime.get(IToolRegistry).list().map((tool) => toProtocolTool(tool));
-    }
-    throw new AgentRuntimeTodoError(
-      'packages/agent-core/src/services/tool/toolService.ts:list',
-      `Load session "${sessionId}" through IAgentRuntimeService before listing tools.`,
-    );
+    const rpc = await this.agentRuntimes.requireRPC(sessionId, MAIN_AGENT_ID);
+    return (await rpc.getTools({})).map((tool) => toProtocolTool(tool));
   }
 }
 

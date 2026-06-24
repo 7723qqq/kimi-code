@@ -257,5 +257,5 @@ export class AgentRPCService implements IAgentRPCService {
 
 registerSingleton(
   IAgentRPCService,
-  new SyncDescriptor(AgentRPCService, [{}], true),
+  new SyncDescriptor(AgentRPCService, [], true),
 );

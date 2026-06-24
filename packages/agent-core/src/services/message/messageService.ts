@@ -28,10 +28,10 @@ import type {
   PageResponse,
 } from '@moonshot-ai/protocol';
 
-import { IContextMemory } from '../agent';
 import {
-  AgentRuntimeTodoError,
   IAgentRuntimeService,
+  toAgentRuntimeService,
+  type AgentRuntimeServiceSource,
 } from '../agentRuntime/agentRuntime';
 import { SessionNotFoundError } from '../session/session';
 import {
@@ -65,11 +65,13 @@ export class MessageService extends Disposable implements IMessageService {
   readonly _serviceBrand: undefined;
 
   private readonly transcriptCache = new Map<string, TranscriptCacheEntry>();
+  private readonly agentRuntimes: IAgentRuntimeService;
 
   constructor(
-    @IAgentRuntimeService private readonly agentRuntimes: IAgentRuntimeService,
+    @IAgentRuntimeService agentRuntimes: AgentRuntimeServiceSource,
   ) {
     super();
+    this.agentRuntimes = toAgentRuntimeService(agentRuntimes);
   }
 
   async list(sid: string, query: MessageListQuery): Promise<PageResponse<Message>> {
@@ -176,14 +178,8 @@ export class MessageService extends Disposable implements IMessageService {
   }
 
   private async _getLiveHistory(sid: string): Promise<readonly ContextMessage[]> {
-    const runtime = await this.agentRuntimes.get(sid, MAIN_AGENT_ID);
-    if (runtime !== undefined) {
-      return runtime.get(IContextMemory).getHistory();
-    }
-    throw new AgentRuntimeTodoError(
-      'packages/agent-core/src/services/message/messageService.ts:_getLiveHistory',
-      `Load session "${sid}" through IAgentRuntimeService before reading message history.`,
-    );
+    const rpc = await this.agentRuntimes.requireRPC(sid, MAIN_AGENT_ID);
+    return (await rpc.getContext({})).history;
   }
 
   /**

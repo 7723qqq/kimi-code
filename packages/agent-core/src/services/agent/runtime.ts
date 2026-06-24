@@ -1,0 +1,839 @@
+import type { Kaos } from '@moonshot-ai/kaos';
+import type { generate } from '@moonshot-ai/kosong';
+import { join } from 'pathe';
+
+import type { GoalSnapshot } from '../../agent/goal';
+import type {
+  PermissionMode,
+  PermissionRule,
+} from '../../agent/permission';
+import type { KimiConfig } from '../../config';
+import {
+  Disposable,
+  ServiceCollection,
+  SyncDescriptor,
+  getSingletonServiceDescriptors,
+  type IDisposable,
+  type IInstantiationService,
+  type ServiceIdentifier,
+} from '../../di';
+import type { ExperimentalFlagResolver } from '../../flags';
+import type { McpConnectionManager } from '../../mcp';
+import type { EnabledPluginSessionStart } from '../../plugin';
+import type { HookEngine } from '../../session/hooks';
+import type { ModelProvider } from '../../session/provider-manager';
+import type { SessionSkillRegistry } from '../../skill/registry';
+import { extendWorkspaceWithSkillRoots } from '../../skill';
+import type { SubagentResult } from '../../session/subagent-batch';
+import type {
+  QueuedSubagentTask,
+  SessionSubagentHost,
+} from '../../session/subagent-host';
+import {
+  noopTelemetryClient,
+  withTelemetryContext,
+  type TelemetryClient,
+} from '../../telemetry';
+import {
+  EditTool,
+  FetchURLTool,
+  GlobTool,
+  GrepTool,
+  ReadTool,
+  TaskListTool,
+  TaskOutputTool,
+  TaskStopTool,
+  WebSearchTool,
+  WriteTool,
+  type UrlFetcher,
+  type WebSearchProvider,
+} from '../../tools/builtin';
+import {
+  BackgroundTaskPersistence,
+  IBackgroundService,
+  type BackgroundOptions,
+  type BackgroundServiceOptions,
+} from './background/background';
+import { BackgroundService } from './background/backgroundService';
+import {
+  IBlobStoreService,
+  type BlobStoreServiceOptions,
+} from './blobStore/blobStore';
+import { BlobStoreService } from './blobStore/blobStoreService';
+import { IContextMemory } from './contextMemory/contextMemory';
+import { IContextProjector } from './contextProjector/contextProjector';
+import { IContextUsageService } from './contextUsage/contextUsage';
+import { ICronService, type CronOptions } from './cron/cron';
+import { CronService } from './cron/cronService';
+import { IDynamicInjector } from './dynamicInjector/dynamicInjector';
+import { IEventBus } from './eventBus/eventBus';
+import { EventBusService } from './eventBus/eventBusService';
+import {
+  IExternalHooksService,
+  type ExternalHooksServiceOptions,
+} from './externalHooks/externalHooks';
+import { ExternalHooksService } from './externalHooks/externalHooksService';
+import { IFullCompaction } from './fullCompaction/fullCompaction';
+import { GoalInjection } from './goalMode/injection/goalInjection';
+import { ILLMRequestLogService } from './llmRequestLog/llmRequestLog';
+import { ILLMRequester } from './llmRequester/llmRequester';
+import { LLMRequesterService } from './llmRequester/llmRequesterService';
+import { ILoopService } from './loop/loop';
+import { IMcpRuntimeService } from './mcpRuntime/mcpRuntime';
+import { McpRuntimeService } from './mcpRuntime/mcpRuntimeService';
+import {
+  IMicroCompactionService,
+  type MicroCompactionServiceOptions,
+} from './microCompaction/microCompaction';
+import { MicroCompactionService } from './microCompaction/microCompactionService';
+import {
+  IPermissionService,
+  type PermissionServiceOptions,
+} from './permission/permission';
+import { PermissionService } from './permission/permissionService';
+import { IPermissionModeService } from './permissionMode/permissionMode';
+import { IPermissionPolicyService } from './permissionPolicy/permissionPolicy';
+import { IPlanModeService } from './planMode/planMode';
+import {
+  IPermissionRulesService,
+  type PermissionRulesServiceOptions,
+} from './permissionRules/permissionRules';
+import { PermissionRulesService } from './permissionRules/permissionRulesService';
+import {
+  IProfileService,
+  type ProfileServiceOptions,
+} from './profile/profile';
+import { ProfileService } from './profile/profileService';
+import { IPromptService } from './prompt/prompt';
+import { IReplayBuilderService } from './replayBuilder/replayBuilder';
+import { IAgentRPCService } from './rpc/rpc';
+import {
+  IAgentSkillService,
+  type AgentSkillServiceOptions,
+} from './skill/skill';
+import { AgentSkillService } from './skill/skillService';
+import {
+  ISubagentHost,
+  type ISubagentHost as SubagentHostServiceShape,
+} from './subagentHost/subagentHost';
+import { SubagentHostService } from './subagentHost/subagentHostService';
+import { ISwarmMode } from './swarmMode/swarmMode';
+import { ITelemetryService } from './telemetry/telemetry';
+import { TelemetryService } from './telemetry/telemetryService';
+import { IToolExecutor } from './toolExecutor/toolExecutor';
+import { IToolRegistry } from './toolRegistry/toolRegistry';
+import { IToolStoreService } from './toolStore/toolStore';
+import { ITodoListService } from './todoList/todoList';
+import { ITurnRunner } from './turnRunner/turnRunner';
+import { IUsageService } from './usage/usage';
+import {
+  IUserToolService,
+  type UserToolServiceOptions,
+} from './userTool/userTool';
+import { UserToolService } from './userTool/userToolService';
+import {
+  IWireRecord,
+  type PersistedWireRecord,
+  type WireRecordRestoreOptions,
+  type WireRecordRestoreResult,
+  type WireRecordServiceOptions,
+} from './wireRecord/wireRecord';
+import { WireRecordService } from './wireRecord/wireRecordService';
+
+export type AgentRuntimeType = 'main' | 'sub' | 'independent';
+
+export interface AgentRuntimeGoalOptions {
+  readonly getGoal: () => GoalSnapshot | null;
+  readonly enabled?: () => boolean;
+}
+
+export interface AgentRuntimeToolServices {
+  readonly webSearcher?: WebSearchProvider;
+  readonly urlFetcher?: UrlFetcher;
+}
+
+export interface AgentRuntimeOptions {
+  readonly sessionId?: string;
+  readonly agentId?: string;
+  readonly type?: AgentRuntimeType;
+  readonly homedir?: string;
+  readonly cwd?: string | (() => string | undefined);
+  readonly chdir?: (cwd: string) => void | Promise<void>;
+  readonly kaos?: Kaos;
+  readonly config?: KimiConfig | (() => KimiConfig | undefined);
+  readonly modelProvider?: ModelProvider;
+  readonly generate?: typeof generate;
+  readonly toolServices?: AgentRuntimeToolServices;
+  readonly mcp?: McpConnectionManager;
+  readonly subagentHost?: SessionSubagentHost;
+  readonly telemetry?: TelemetryClient;
+  readonly hookEngine?: Pick<
+    HookEngine,
+    'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'
+  >;
+  readonly experimentalFlags?: ExperimentalFlagResolver;
+  readonly microCompaction?: MicroCompactionServiceOptions;
+  readonly permission?: PermissionServiceOptions;
+  readonly additionalDirs?: readonly string[];
+  readonly permissionRules?: readonly PermissionRule[];
+  readonly parentPermissionRules?: IPermissionRulesService;
+  readonly permissionMode?: PermissionMode;
+  readonly skills?: SessionSkillRegistry | null;
+  readonly pluginSessionStarts?: readonly EnabledPluginSessionStart[];
+  readonly userTool?: UserToolServiceOptions;
+  readonly wireRecord?: Omit<WireRecordServiceOptions, 'homedir' | 'blobStore'>;
+  readonly blobStore?: BlobStoreServiceOptions | IBlobStoreService;
+  readonly background?: BackgroundOptions | false;
+  readonly cron?: CronOptions | false;
+  readonly goal?: AgentRuntimeGoalOptions;
+  readonly initializeTools?: (registry: IToolRegistry) => void;
+  readonly emitStatusUpdated?: () => void;
+}
+
+interface AgentRuntimeRefs {
+  child?: IInstantiationService;
+  planMode?: IPlanModeService;
+}
+
+interface AgentRuntimeServiceContext {
+  readonly type: AgentRuntimeType;
+  readonly cwd: string | undefined;
+  readonly planMode: NonNullable<PermissionServiceOptions['planMode']>;
+  readonly swarmMode: NonNullable<PermissionServiceOptions['swarmMode']>;
+  initializeTools(): void;
+}
+
+export class AgentRuntime extends Disposable {
+  private closed = false;
+
+  constructor(readonly instantiation: IInstantiationService) {
+    super();
+    this._register(this.instantiation);
+  }
+
+  static create(
+    instantiation: IInstantiationService,
+    disposables: readonly IDisposable[] = [],
+  ): AgentRuntime {
+    const runtime = new AgentRuntime(instantiation);
+    for (const disposable of disposables) {
+      runtime._register(disposable);
+    }
+    return runtime;
+  }
+
+  get<T>(id: ServiceIdentifier<T>): T {
+    return this.instantiation.invokeFunction((accessor) => accessor.get(id));
+  }
+
+  async restore(
+    records?: readonly PersistedWireRecord[],
+    options?: WireRecordRestoreOptions,
+  ): Promise<WireRecordRestoreResult> {
+    const replayBuilder = this.get(IReplayBuilderService);
+    replayBuilder.postRestoring = true;
+    try {
+      return await this.get(IWireRecord).restore(records, options);
+    } finally {
+      replayBuilder.postRestoring = false;
+    }
+  }
+
+  async flush(): Promise<void> {
+    await this.get(IWireRecord).flush();
+  }
+
+  async close(reason = 'Agent runtime closed'): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    await this.get(ICronService).stop();
+    await this.get(IBackgroundService).stopAll(reason);
+    const wireRecord = this.get(IWireRecord);
+    await wireRecord.flush();
+    await wireRecord.close();
+    this.dispose();
+  }
+}
+
+export function createAgentRuntime(
+  parent: IInstantiationService,
+  options: AgentRuntimeOptions = {},
+): AgentRuntime {
+  const refs: AgentRuntimeRefs = {};
+  const type = options.type ?? 'main';
+  const services = new ServiceCollection(...getAgentServiceDescriptors());
+
+  configureAgentRuntimeServices(
+    services,
+    options,
+    createAgentRuntimeServiceContext(options, type, refs),
+  );
+
+  refs.child = parent.createChild(services);
+  refs.planMode = getService(refs.child, IPlanModeService);
+
+  const runtime = AgentRuntime.create(
+    refs.child,
+    createAgentRuntimeDisposables(refs.child, options),
+  );
+  try {
+    activateAgentServices(refs.child);
+    if (options.pluginSessionStarts !== undefined) {
+      runtime.get(IAgentSkillService).setPluginSessionStarts(options.pluginSessionStarts);
+    }
+    initializeAgentRuntimeTools(refs.child, options);
+  } catch (error) {
+    runtime.dispose();
+    throw error;
+  }
+  return runtime;
+}
+
+export function getAgentServiceDescriptors(): ReadonlyArray<
+  readonly [ServiceIdentifier<unknown>, SyncDescriptor<unknown>]
+> {
+  return getSingletonServiceDescriptors().filter(
+    (entry): entry is readonly [ServiceIdentifier<unknown>, SyncDescriptor<unknown>] =>
+      isAgentServiceIdentifier(entry[0]),
+  );
+}
+
+export function isAgentServiceIdentifier(id: ServiceIdentifier<unknown>): boolean {
+  const name = String(id);
+  return name.startsWith('agent') || name.endsWith('.agent');
+}
+
+function createAgentRuntimeServiceContext(
+  options: AgentRuntimeOptions,
+  type: AgentRuntimeType,
+  refs: AgentRuntimeRefs,
+): AgentRuntimeServiceContext {
+  return {
+    type,
+    cwd: currentCwd(options.cwd),
+    planMode: {
+      get isActive() {
+        return refs.planMode?.isActive ?? false;
+      },
+      get planFilePath() {
+        return refs.planMode?.planFilePath ?? null;
+      },
+      exit(id?: string) {
+        refs.planMode?.exit(id);
+      },
+    },
+    swarmMode: {
+      get isActive() {
+        return refs.child === undefined ? false : getService(refs.child, ISwarmMode).isActive;
+      },
+    },
+    initializeTools() {
+      const child = refs.child;
+      if (child === undefined) return;
+      initializeAgentRuntimeTools(child, options);
+    },
+  };
+}
+
+function initializeAgentRuntimeTools(
+  instantiation: IInstantiationService,
+  options: AgentRuntimeOptions,
+): void {
+  initializeRuntimeBuiltinTools(instantiation, options);
+  options.initializeTools?.(getService(instantiation, IToolRegistry));
+}
+
+function initializeRuntimeBuiltinTools(
+  instantiation: IInstantiationService,
+  options: AgentRuntimeOptions,
+): void {
+  // Plan/todo/cron/swarm/MCP/user tools are registered by their owning services.
+  // Bash/Agent/media/goal/question/skill tools still depend on unmigrated old-Agent paths.
+  const registry = getService(instantiation, IToolRegistry);
+  const background = getService(instantiation, IBackgroundService);
+  registry.register(new TaskListTool(background));
+  registry.register(new TaskOutputTool(background));
+  registry.register(new TaskStopTool(background));
+
+  const kaos = options.kaos;
+  if (kaos !== undefined) {
+    const profile = getService(instantiation, IProfileService);
+    const cwd = profile.data().cwd || currentCwd(options.cwd);
+    if (cwd !== undefined && cwd.length > 0) {
+      const workspace = extendWorkspaceWithSkillRoots(
+        {
+          workspaceDir: cwd,
+          additionalDirs: options.additionalDirs ?? [],
+        },
+        options.skills?.getSkillRoots() ?? [],
+      );
+      registry.register(new ReadTool(kaos, workspace));
+      registry.register(new WriteTool(kaos, workspace));
+      registry.register(new EditTool(kaos, workspace));
+      registry.register(new GrepTool(kaos, workspace));
+      registry.register(new GlobTool(kaos, workspace));
+    }
+  }
+
+  const toolServices = options.toolServices;
+  if (toolServices?.webSearcher !== undefined) {
+    registry.register(new WebSearchTool(toolServices.webSearcher));
+  }
+  if (toolServices?.urlFetcher !== undefined) {
+    registry.register(new FetchURLTool(toolServices.urlFetcher));
+  }
+}
+
+function configureAgentRuntimeServices(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+  context: AgentRuntimeServiceContext,
+): void {
+  configureBlobStoreService(services, options);
+  configureWireRecordService(services, options);
+  configureBackgroundService(services, options);
+  configureEventBusService(services);
+  configureProfileService(services, options, context);
+  configureLLMRequesterService(services, options);
+  configureMcpRuntimeService(services, options);
+  configurePermissionRulesService(services, options);
+  configurePermissionService(services, options, context);
+  configureUserToolService(services, options);
+  configureAgentSkillService(services, options);
+  configureMicroCompactionService(services, options);
+  configureExternalHooksService(services, options);
+  configureTelemetryService(services, options);
+  configureCronService(services, options, context.type);
+  configureSubagentHostService(services, options);
+}
+
+function configureBlobStoreService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  if (isBlobStoreInstance(options.blobStore)) {
+    services.set(IBlobStoreService, options.blobStore);
+    return;
+  }
+
+  services.set(
+    IBlobStoreService,
+    new SyncDescriptor(
+      BlobStoreService,
+      [
+        {
+          blobsDir: options.blobStore?.blobsDir ?? blobDir(options.homedir),
+          threshold: options.blobStore?.threshold,
+          maxCacheSize: options.blobStore?.maxCacheSize,
+        } satisfies BlobStoreServiceOptions,
+      ],
+      true,
+    ),
+  );
+}
+
+function configureWireRecordService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IWireRecord,
+    new SyncDescriptor(
+      WireRecordService,
+      [
+        {
+          homedir: options.homedir,
+          persistence: options.wireRecord?.persistence,
+          blobStore: isBlobStoreInstance(options.blobStore) ? options.blobStore : undefined,
+          onPersistenceError: options.wireRecord?.onPersistenceError,
+        } satisfies WireRecordServiceOptions,
+      ],
+      true,
+    ),
+  );
+}
+
+function configureBackgroundService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IBackgroundService,
+    new SyncDescriptor(
+      BackgroundService,
+      [backgroundServiceOptions(options)],
+      true,
+    ),
+  );
+}
+
+function configureEventBusService(services: ServiceCollection): void {
+  services.set(IEventBus, new SyncDescriptor(EventBusService, [], true));
+}
+
+function configureProfileService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+  context: AgentRuntimeServiceContext,
+): void {
+  services.set(
+    IProfileService,
+    new SyncDescriptor(
+      ProfileService,
+      [
+        {
+          cwd: options.cwd,
+          chdir: options.chdir,
+          modelProvider: options.modelProvider,
+          config: options.config,
+          initializeBuiltinTools: context.initializeTools,
+          emitStatusUpdated: options.emitStatusUpdated,
+        } satisfies ProfileServiceOptions,
+      ],
+      true,
+    ),
+  );
+}
+
+function configureLLMRequesterService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    ILLMRequester,
+    new SyncDescriptor(
+      LLMRequesterService,
+      [
+        {
+          modelProvider: options.modelProvider,
+          config: options.config,
+          generate: options.generate,
+        },
+      ],
+      true,
+    ),
+  );
+}
+
+function configureMcpRuntimeService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IMcpRuntimeService,
+    new SyncDescriptor(McpRuntimeService, [{ manager: options.mcp }], true),
+  );
+}
+
+function configurePermissionRulesService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IPermissionRulesService,
+    new SyncDescriptor(
+      PermissionRulesService,
+      [
+        {
+          initialRules: options.permissionRules,
+          parent: options.parentPermissionRules,
+        } satisfies PermissionRulesServiceOptions,
+      ],
+      true,
+    ),
+  );
+}
+
+function configurePermissionService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+  context: AgentRuntimeServiceContext,
+): void {
+  services.set(
+    IPermissionService,
+    new SyncDescriptor(
+      PermissionService,
+      [
+        {
+          sessionId: options.permission?.sessionId ?? options.sessionId,
+          agentId: options.permission?.agentId ?? options.agentId,
+          agentType:
+            options.permission?.agentType ?? (context.type === 'sub' ? 'sub' : 'main'),
+          cwd: options.permission?.cwd ?? context.cwd,
+          additionalDirs: options.permission?.additionalDirs ?? options.additionalDirs,
+          pathClass: options.permission?.pathClass,
+          planMode: options.permission?.planMode ?? context.planMode,
+          swarmMode: options.permission?.swarmMode ?? context.swarmMode,
+          gitWorkTreeMarker: options.permission?.gitWorkTreeMarker,
+          initialMode: options.permission?.initialMode ?? options.permissionMode,
+        } satisfies PermissionServiceOptions,
+      ],
+      true,
+    ),
+  );
+}
+
+function configureUserToolService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IUserToolService,
+    new SyncDescriptor(
+      UserToolService,
+      [
+        {
+          executeUserTool: options.userTool?.executeUserTool,
+        } satisfies UserToolServiceOptions,
+      ],
+      true,
+    ),
+  );
+}
+
+function configureAgentSkillService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IAgentSkillService,
+    new SyncDescriptor(
+      AgentSkillService,
+      [{ registry: options.skills } satisfies AgentSkillServiceOptions],
+      true,
+    ),
+  );
+}
+
+function configureMicroCompactionService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IMicroCompactionService,
+    new SyncDescriptor(
+      MicroCompactionService,
+      [
+        {
+          config: options.microCompaction?.config,
+          experimentalFlags:
+            options.microCompaction?.experimentalFlags ?? options.experimentalFlags,
+          now: options.microCompaction?.now,
+          maxContextTokens: options.microCompaction?.maxContextTokens,
+        } satisfies MicroCompactionServiceOptions,
+      ],
+      true,
+    ),
+  );
+}
+
+function configureExternalHooksService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IExternalHooksService,
+    new SyncDescriptor(
+      ExternalHooksService,
+      [{ hookEngine: options.hookEngine } satisfies ExternalHooksServiceOptions],
+      true,
+    ),
+  );
+}
+
+function configureTelemetryService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    ITelemetryService,
+    new SyncDescriptor(
+      TelemetryService,
+      [{ client: telemetryClient(options) }],
+      true,
+    ),
+  );
+}
+
+function configureCronService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+  type: AgentRuntimeType,
+): void {
+  services.set(
+    ICronService,
+    new SyncDescriptor(
+      CronService,
+      [cronServiceOptions(options, type)],
+      !isCronEnabled(options, type),
+    ),
+  );
+}
+
+function configureSubagentHostService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  if (options.subagentHost === undefined) {
+    services.set(ISubagentHost, new MissingSubagentHostService());
+    return;
+  }
+
+  services.set(
+    ISubagentHost,
+    new SyncDescriptor(SubagentHostService, [options.subagentHost], true),
+  );
+}
+
+function createAgentRuntimeDisposables(
+  instantiation: IInstantiationService,
+  options: AgentRuntimeOptions,
+): readonly IDisposable[] {
+  if (options.goal === undefined) return [];
+  return [
+    createDescriptorInstance(
+      instantiation,
+      new SyncDescriptor(GoalInjection, [options.goal]),
+    ),
+  ];
+}
+
+function activateAgentServices(instantiation: IInstantiationService): void {
+  instantiation.invokeFunction((accessor) => {
+    accessor.get(IWireRecord);
+    accessor.get(IEventBus);
+    accessor.get(IReplayBuilderService);
+    accessor.get(IContextMemory);
+    accessor.get(IContextUsageService);
+    accessor.get(ITelemetryService);
+    accessor.get(IProfileService);
+    accessor.get(IBackgroundService);
+    accessor.get(ILLMRequestLogService);
+    accessor.get(IToolRegistry);
+    accessor.get(IToolStoreService);
+    accessor.get(ITodoListService);
+    accessor.get(IUserToolService);
+    accessor.get(ISubagentHost);
+    accessor.get(IMcpRuntimeService);
+    accessor.get(IExternalHooksService);
+    accessor.get(IPermissionRulesService);
+    accessor.get(IPermissionModeService);
+    accessor.get(IPlanModeService);
+    accessor.get(IPermissionPolicyService);
+    accessor.get(IPermissionService);
+    accessor.get(IUsageService);
+    accessor.get(IDynamicInjector);
+    accessor.get(IMicroCompactionService);
+    accessor.get(IContextProjector);
+    accessor.get(ILLMRequester);
+    accessor.get(IToolExecutor);
+    accessor.get(ILoopService);
+    accessor.get(ITurnRunner);
+    accessor.get(IPromptService);
+    accessor.get(IAgentRPCService);
+    accessor.get(ICronService);
+    accessor.get(IFullCompaction);
+    accessor.get(ISwarmMode);
+    accessor.get(IAgentSkillService);
+  });
+}
+
+function backgroundServiceOptions(
+  options: AgentRuntimeOptions,
+): BackgroundServiceOptions {
+  const background = options.background === false ? undefined : options.background;
+  return {
+    persistence:
+      background?.persistence ??
+      (options.background === false || options.homedir === undefined
+        ? undefined
+        : new BackgroundTaskPersistence(options.homedir)),
+    maxRunningTasks: background?.maxRunningTasks,
+  };
+}
+
+function cronServiceOptions(
+  options: AgentRuntimeOptions,
+  type: AgentRuntimeType,
+): CronOptions {
+  const cron = options.cron === false ? undefined : options.cron;
+  const enabled = isCronEnabled(options, type);
+  return {
+    persistence: enabled ? cron?.persistence : undefined,
+    homedir: enabled ? (cron?.homedir ?? options.homedir) : undefined,
+    clocks: cron?.clocks,
+    pollIntervalMs: cron?.pollIntervalMs,
+    autoStart: enabled ? cron?.autoStart : false,
+    registerTools: enabled ? cron?.registerTools : false,
+    onPersistenceError: cron?.onPersistenceError,
+    isSubagent: !enabled,
+  };
+}
+
+function telemetryClient(options: AgentRuntimeOptions): TelemetryClient {
+  const client = options.telemetry ?? noopTelemetryClient;
+  if (options.sessionId === undefined) return client;
+  return withTelemetryContext(client, { sessionId: options.sessionId });
+}
+
+function isCronEnabled(
+  options: AgentRuntimeOptions,
+  type: AgentRuntimeType,
+): boolean {
+  return type !== 'sub' && options.cron !== false;
+}
+
+function currentCwd(cwd: AgentRuntimeOptions['cwd']): string | undefined {
+  return typeof cwd === 'function' ? cwd() : cwd;
+}
+
+function blobDir(homedir: string | undefined): string | undefined {
+  return homedir === undefined ? undefined : join(homedir, 'blobs');
+}
+
+function getService<T>(
+  instantiation: IInstantiationService,
+  id: ServiceIdentifier<T>,
+): T {
+  return instantiation.invokeFunction((accessor) => accessor.get(id));
+}
+
+function createDescriptorInstance<T>(
+  instantiation: IInstantiationService,
+  descriptor: SyncDescriptor<T>,
+): T {
+  return (
+    instantiation as IInstantiationService & {
+      createInstance<TInstance>(descriptor: SyncDescriptor<TInstance>): TInstance;
+    }
+  ).createInstance(descriptor);
+}
+
+function isBlobStoreInstance(
+  value: AgentRuntimeOptions['blobStore'],
+): value is IBlobStoreService {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'offloadParts' in value &&
+    'rehydrateParts' in value
+  );
+}
+
+class MissingSubagentHostService implements SubagentHostServiceShape {
+  declare readonly _serviceBrand: undefined;
+
+  getSwarmItem(_agentId: string): string | undefined {
+    return undefined;
+  }
+
+  startBtw(): Promise<string> {
+    throw new Error('Subagent host is not configured.');
+  }
+
+  runQueued<T>(
+    _tasks: readonly QueuedSubagentTask<T>[],
+  ): Promise<Array<SubagentResult<T>>> {
+    throw new Error('Subagent host is not configured.');
+  }
+}

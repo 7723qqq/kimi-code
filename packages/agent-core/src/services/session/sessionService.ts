@@ -27,6 +27,11 @@ import { toProtocolMessage, type ContextMessage } from '../message/message';
 import { IPromptService, type AgentStatePatch } from '../prompt/prompt';
 import { IQuestionService } from '../question/question';
 import {
+  IAgentRuntimeService,
+  toAgentRuntimeService,
+  type AgentRuntimeServiceSource,
+} from '../agentRuntime/agentRuntime';
+import {
   ISessionService,
   SessionNotFoundError,
   SessionUndoUnavailableError,
@@ -109,6 +114,7 @@ export class SessionService extends Disposable implements ISessionService {
   private readonly _activeTurns = new Set<string>();
   private readonly _abortedTurns = new Set<string>();
   private _promptService: IPromptService | undefined;
+  private readonly agentRuntimes: IAgentRuntimeService;
 
   constructor(
     @ICoreProcessService private readonly core: ICoreProcessService,
@@ -116,8 +122,10 @@ export class SessionService extends Disposable implements ISessionService {
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IApprovalService private readonly approvalService: IApprovalService,
     @IQuestionService private readonly questionService: IQuestionService,
+    @IAgentRuntimeService agentRuntimes?: AgentRuntimeServiceSource,
   ) {
     super();
+    this.agentRuntimes = toAgentRuntimeService(agentRuntimes ?? core);
     this._register(
       this.eventService.onDidPublish((event) => {
         this._handleBusEvent(event);
@@ -446,18 +454,15 @@ export class SessionService extends Disposable implements ISessionService {
   }
 
   async getStatus(id: string): Promise<SessionStatusResponse> {
-    const all = await this.core.rpc.listSessions({});
-    const summary = all.find((s) => s.id === id);
-    if (summary === undefined) {
-      throw new SessionNotFoundError(id);
-    }
+    await this.requireSummary(id);
+    const rpc = await this.agentRuntimes.requireRPC(id, 'main');
 
     const [config, context, permission, plan, swarmMode] = await Promise.all([
-      this.core.rpc.getConfig({ sessionId: id, agentId: 'main' }),
-      this.core.rpc.getContext({ sessionId: id, agentId: 'main' }),
-      this.core.rpc.getPermission({ sessionId: id, agentId: 'main' }),
-      this.core.rpc.getPlan({ sessionId: id, agentId: 'main' }),
-      this.core.rpc.getSwarmMode({ sessionId: id, agentId: 'main' }),
+      rpc.getConfig({}),
+      rpc.getContext({}),
+      rpc.getPermission({}),
+      rpc.getPlan({}),
+      rpc.getSwarmMode({}),
     ]);
 
     const maxContextTokens = config.modelCapabilities?.max_context_tokens ?? 0;
@@ -480,21 +485,11 @@ export class SessionService extends Disposable implements ISessionService {
   }
 
   async compact(id: string, input: CompactSessionRequest): Promise<CompactSessionResponse> {
-    const all = await this.core.rpc.listSessions({});
-    const summary = all.find((s) => s.id === id);
-    if (summary === undefined) {
-      throw new SessionNotFoundError(id);
-    }
-
-    // beginCompaction only sees sessions loaded in core memory — resume first
-    // (mirrors undo) so compacting a freshly-opened session doesn't throw
-    // SESSION_NOT_FOUND.
-    await this.core.rpc.resumeSession({ sessionId: id });
+    await this.requireSummary(id);
+    const rpc = await this.agentRuntimes.requireRPC(id, 'main');
 
     const instruction = normalizeOptionalString(input.instruction);
-    await this.core.rpc.beginCompaction({
-      sessionId: id,
-      agentId: 'main',
+    await rpc.beginCompaction({
       instruction,
     });
     return {};
@@ -502,16 +497,14 @@ export class SessionService extends Disposable implements ISessionService {
 
   async undo(id: string, input: UndoSessionRequest): Promise<UndoSessionResponse> {
     const summary = await this.requireSummary(id);
-    await this.core.rpc.resumeSession({ sessionId: id });
-    const before = await this.core.rpc.getContext({ sessionId: id, agentId: 'main' });
+    const rpc = await this.agentRuntimes.requireRPC(id, 'main');
+    const before = await rpc.getContext({});
     if (!canUndoHistory(before.history, input.count)) {
       throw new SessionUndoUnavailableError(id);
     }
 
     try {
-      await this.core.rpc.undoHistory({
-        sessionId: id,
-        agentId: 'main',
+      await rpc.undoHistory({
         count: input.count,
       });
     } catch (error) {
@@ -521,7 +514,7 @@ export class SessionService extends Disposable implements ISessionService {
       throw error;
     }
 
-    const after = await this.core.rpc.getContext({ sessionId: id, agentId: 'main' });
+    const after = await rpc.getContext({});
     return {
       messages: pageContextMessages(id, summary.createdAt, after, input.page_size),
       status: await this.getStatus(id),
