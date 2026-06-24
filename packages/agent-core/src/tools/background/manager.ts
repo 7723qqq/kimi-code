@@ -1,8 +1,12 @@
-import type { BackgroundTaskOutputSnapshot } from '../../agent/background';
+import type {
+  BackgroundTaskOutputSnapshot,
+  ForegroundTaskReleaseReason,
+  RegisterBackgroundTaskOptions,
+} from '../../agent/background';
 import type { BackgroundTask, BackgroundTaskInfo } from '../../agent/background/task';
 
 export interface BackgroundTaskRegistrar {
-  registerTask(task: BackgroundTask): string;
+  registerTask(task: BackgroundTask, options?: RegisterBackgroundTaskOptions): string;
 }
 
 export interface BackgroundTaskLauncher extends BackgroundTaskRegistrar {
@@ -16,4 +20,7 @@ export interface BackgroundTaskManager extends BackgroundTaskLauncher {
   readOutput(taskId: string, tail?: number): Promise<string>;
   suppressTerminalNotification(taskId: string): Promise<void>;
   wait(taskId: string, timeoutMs?: number): Promise<BackgroundTaskInfo | undefined>;
+  waitForForegroundRelease(
+    taskId: string,
+  ): Promise<ForegroundTaskReleaseReason | undefined>;
 }

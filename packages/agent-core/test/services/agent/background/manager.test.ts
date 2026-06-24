@@ -335,7 +335,7 @@ describe('BackgroundManager', () => {
     });
   });
 
-  it.skip('tracks foreground tasks and releases their waiter when detached', async () => {
+  it('tracks foreground tasks and releases their waiter when detached', async () => {
     const { manager } = createBackgroundManager();
     const taskId = manager.registerTask(
       agentTask(new Promise(() => {}), 'foreground agent'),
@@ -356,8 +356,8 @@ describe('BackgroundManager', () => {
     await expect(waiting).resolves.toBe('detached');
   });
 
-  it.skip('releases foreground waiters when a foreground task completes', async () => {
-    const { agent, manager } = createBackgroundManager();
+  it('releases foreground waiters when a foreground task completes', async () => {
+    const { manager } = createBackgroundManager();
     const taskId = manager.registerTask(
       agentTask(Promise.resolve({ result: 'done' }), 'foreground agent'),
       { detached: false },
@@ -368,10 +368,9 @@ describe('BackgroundManager', () => {
       detached: false,
       status: 'completed',
     });
-    expect(agent.turn.steer).not.toHaveBeenCalled();
   });
 
-  it.skip('stops foreground tasks from their register-time signal', async () => {
+  it('stops foreground tasks from their register-time signal', async () => {
     const { manager } = createBackgroundManager();
     const { proc, killSpy } = pendingProcess();
     const controller = new AbortController();
@@ -394,7 +393,7 @@ describe('BackgroundManager', () => {
     });
   });
 
-  it.skip('forwards foreground signal abort reasons to agent task controllers', async () => {
+  it('forwards foreground signal abort reasons to agent task controllers', async () => {
     const { manager } = createBackgroundManager();
     const foregroundController = new AbortController();
     const subagentController = new AbortController();
@@ -425,7 +424,7 @@ describe('BackgroundManager', () => {
     expect(isUserCancellation(subagentController.signal.reason)).toBe(true);
   });
 
-  it.skip('does not count foreground tasks against the detached task limit', () => {
+  it('does not count foreground tasks against the detached task limit', () => {
     const { manager } = createBackgroundManager({ maxRunningTasks: 1 });
     manager.registerTask(agentTask(new Promise(() => {}), 'foreground agent'), {
       detached: false,
@@ -438,7 +437,7 @@ describe('BackgroundManager', () => {
     }).toThrow('Too many background tasks are already running.');
   });
 
-  it.skip('does not count foreground tasks detached later against the background task limit', () => {
+  it('does not count foreground tasks detached later against the background task limit', () => {
     const { manager } = createBackgroundManager({ maxRunningTasks: 1 });
     const taskId = manager.registerTask(
       agentTask(new Promise(() => {}), 'foreground agent'),

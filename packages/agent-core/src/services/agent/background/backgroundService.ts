@@ -24,7 +24,14 @@ import {
   type BackgroundTaskOutputSnapshot,
   type BackgroundTaskPersistence,
   type BackgroundTaskStatus,
+  type ForegroundTaskReleaseReason,
+  type RegisterBackgroundTaskOptions,
 } from './background';
+
+interface ForegroundRelease {
+  readonly promise: Promise<ForegroundTaskReleaseReason>;
+  resolve(reason: ForegroundTaskReleaseReason): void;
+}
 
 interface ManagedTask {
   readonly taskId: string;
@@ -33,12 +40,15 @@ interface ManagedTask {
   outputSizeBytes: number;
   retainedOutputBytes: number;
   status: BackgroundTaskStatus;
+  readonly options: RegisterBackgroundTaskOptions;
   readonly startedAt: number;
   endedAt: number | null;
+  foregroundRelease?: ForegroundRelease;
   stopReason?: string;
   terminalNotificationSuppressed?: boolean;
   terminalFired: boolean;
   readonly abortController: AbortController;
+  foregroundSignalCleanup?: () => void;
   lifecyclePromise: Promise<void>;
   persistWriteQueue: Promise<void>;
   outputWriteQueue: Promise<void>;
@@ -49,6 +59,7 @@ interface ManagedTask {
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const SIGTERM_GRACE_MS = 5_000;
 const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
+const USER_INTERRUPT_REASON = 'Interrupted by user';
 
 export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean {
   return TERMINAL_STATUSES.has(status);
@@ -101,8 +112,15 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     this.maxRunningTasks = maxRunningTasks;
   }
 
-  registerTask(task: BackgroundTask): string {
-    this.assertCanRegister();
+  registerTask(task: BackgroundTask, options: RegisterBackgroundTaskOptions = {}): string {
+    const detached = options.detached ?? true;
+    const timeoutMs = options.timeoutMs ?? task.timeoutMs;
+    const entryOptions: RegisterBackgroundTaskOptions = {
+      detached,
+      timeoutMs,
+      signal: detached ? undefined : options.signal,
+    };
+    this.assertCanRegister(detached);
     const entry: ManagedTask = {
       taskId: generateTaskId(task.idPrefix),
       task,
@@ -110,8 +128,10 @@ export class BackgroundService extends Disposable implements IBackgroundService 
       outputSizeBytes: 0,
       retainedOutputBytes: 0,
       status: 'running',
+      options: entryOptions,
       startedAt: Date.now(),
       endedAt: null,
+      foregroundRelease: detached ? undefined : createForegroundRelease(),
       abortController: new AbortController(),
       lifecyclePromise: Promise.resolve(),
       persistWriteQueue: Promise.resolve(),
@@ -122,11 +142,11 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     this.tasks.set(entry.taskId, entry);
     this.ghosts.delete(entry.taskId);
 
-    if (task.timeoutMs !== undefined && task.timeoutMs > 0) {
+    if (timeoutMs !== undefined && timeoutMs > 0) {
       entry.timeoutHandle = setTimeout(() => {
-        entry.abortController.abort('timed out');
+        entry.abortController.abort('Timed out');
         void this.settleTask(entry, { status: 'timed_out' });
-      }, task.timeoutMs);
+      }, timeoutMs);
       entry.timeoutHandle.unref?.();
     }
 
@@ -147,9 +167,12 @@ export class BackgroundService extends Disposable implements IBackgroundService 
           stopReason: status === 'failed' ? errorMessage(error) : undefined,
         });
       });
+    this.installForegroundSignal(entry);
 
-    void this.persistLive(entry);
-    this.recordTaskStarted(this.toInfo(entry));
+    if (this.isDetached(entry)) {
+      void this.persistLive(entry);
+      this.recordTaskStarted(this.toInfo(entry));
+    }
     return entry.taskId;
   }
 
@@ -161,12 +184,14 @@ export class BackgroundService extends Disposable implements IBackgroundService 
   list(activeOnly = true, limit?: number): readonly BackgroundTaskInfo[] {
     const result: BackgroundTaskInfo[] = [];
     for (const entry of this.tasks.values()) {
-      if (activeOnly && TERMINAL_STATUSES.has(entry.status)) continue;
-      result.push(this.toInfo(entry));
+      const info = this.toInfo(entry);
+      if (!shouldListTask(info, activeOnly)) continue;
+      result.push(info);
       if (limit !== undefined && result.length >= limit) return result;
     }
     if (!activeOnly) {
       for (const ghost of this.ghosts.values()) {
+        if (!shouldListTask(ghost, activeOnly)) continue;
         result.push(ghost);
         if (limit !== undefined && result.length >= limit) return result;
       }
@@ -255,20 +280,45 @@ export class BackgroundService extends Disposable implements IBackgroundService 
   }
 
   detach(taskId: string): BackgroundTaskInfo | undefined {
-    return this.getTask(taskId);
+    const entry = this.tasks.get(taskId);
+    if (entry === undefined) return this.ghosts.get(taskId);
+    if (TERMINAL_STATUSES.has(entry.status)) return this.toInfo(entry);
+
+    const foregroundRelease = entry.foregroundRelease;
+    if (foregroundRelease === undefined) return this.toInfo(entry);
+
+    entry.foregroundRelease = undefined;
+    entry.foregroundSignalCleanup?.();
+    entry.foregroundSignalCleanup = undefined;
+    try {
+      entry.task.onDetach?.();
+    } catch {
+      /* detach has already succeeded; hooks must not make RPC fail */
+    }
+    void this.persistLive(entry);
+    this.recordTaskStarted(this.toInfo(entry));
+    foregroundRelease.resolve('detached');
+    return this.toInfo(entry);
   }
 
   async stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined> {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return undefined;
+    return await this.stopEntry(entry, normalizeReason(reason), normalizeReason(reason));
+  }
+
+  private async stopEntry(
+    entry: ManagedTask,
+    stopReason: string | undefined,
+    abortReason: unknown,
+  ): Promise<BackgroundTaskInfo | undefined> {
     if (TERMINAL_STATUSES.has(entry.status)) {
       await entry.persistWriteQueue;
       return this.toInfo(entry);
     }
 
-    const stopReason = normalizeReason(reason);
     entry.stopReason = stopReason;
-    entry.abortController.abort(stopReason);
+    entry.abortController.abort(abortReason);
 
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     const graceful = await Promise.race([
@@ -350,8 +400,33 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     return this.toInfo(entry);
   }
 
-  private assertCanRegister(): void {
+  async waitForForegroundRelease(
+    taskId: string,
+  ): Promise<ForegroundTaskReleaseReason | undefined> {
+    const entry = this.tasks.get(taskId);
+    if (entry === undefined) return undefined;
+    if (TERMINAL_STATUSES.has(entry.status)) {
+      await entry.persistWriteQueue;
+      return 'terminal';
+    }
+    if (this.isDetached(entry)) return 'detached';
+
+    const foregroundRelease = entry.foregroundRelease;
+    if (foregroundRelease === undefined) return 'detached';
+    const foregroundReleasePromise = foregroundRelease.promise;
+    const reason = await Promise.race([
+      foregroundReleasePromise,
+      entry.lifecyclePromise.then(() => 'terminal' as const),
+    ]);
+    if (reason === 'terminal') {
+      await entry.persistWriteQueue;
+    }
+    return reason;
+  }
+
+  private assertCanRegister(startedInBackground: boolean): void {
     if (this.maxRunningTasks === undefined) return;
+    if (!startedInBackground) return;
     if (this.activeTaskCount() < this.maxRunningTasks) return;
     throw new Error('Too many background tasks are already running.');
   }
@@ -359,9 +434,17 @@ export class BackgroundService extends Disposable implements IBackgroundService 
   private activeTaskCount(): number {
     let count = 0;
     for (const entry of this.tasks.values()) {
-      if (!TERMINAL_STATUSES.has(entry.status)) count++;
+      if (!TERMINAL_STATUSES.has(entry.status) && this.startedInBackground(entry)) count++;
     }
     return count;
+  }
+
+  private startedInBackground(entry: ManagedTask): boolean {
+    return entry.options.detached !== false;
+  }
+
+  private isDetached(entry: ManagedTask): boolean {
+    return entry.foregroundRelease === undefined;
   }
 
   private applyRestoredTask(
@@ -442,18 +525,25 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     entry.endedAt = Date.now();
     entry.stopReason =
       settlement.stopReason ?? (settlement.status === 'killed' ? entry.stopReason : undefined);
+    entry.foregroundSignalCleanup?.();
+    entry.foregroundSignalCleanup = undefined;
     if (entry.timeoutHandle !== undefined) {
       clearTimeout(entry.timeoutHandle);
       entry.timeoutHandle = undefined;
     }
-    await this.persistLive(entry);
+    const foregroundRelease = entry.foregroundRelease;
+    if (this.isDetached(entry)) {
+      await this.persistLive(entry);
+    }
     this.fireTerminalEffects(entry);
+    foregroundRelease?.resolve('terminal');
     this.resolveWaiters(entry);
     return true;
   }
 
   private fireTerminalEffects(entry: ManagedTask): void {
     if (entry.terminalFired) return;
+    if (!this.isDetached(entry)) return;
     entry.terminalFired = true;
     this.recordTaskTerminated(this.toInfo(entry));
   }
@@ -481,16 +571,35 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     for (const resolve of waiters) resolve();
   }
 
+  private installForegroundSignal(entry: ManagedTask): void {
+    const signal = entry.options.signal;
+    if (signal === undefined) return;
+
+    const abortFromSignal = (): void => {
+      if (this.isDetached(entry)) return;
+      void this.stopEntry(entry, USER_INTERRUPT_REASON, signal.reason);
+    };
+    if (signal.aborted) {
+      abortFromSignal();
+      return;
+    }
+    signal.addEventListener('abort', abortFromSignal, { once: true });
+    entry.foregroundSignalCleanup = () => {
+      signal.removeEventListener('abort', abortFromSignal);
+    };
+  }
+
   private toInfo(entry: ManagedTask): BackgroundTaskInfo {
     const base: BackgroundTaskInfoBase = {
       taskId: entry.taskId,
       description: entry.task.description,
       status: entry.status,
+      detached: this.isDetached(entry) ? true : false,
       startedAt: entry.startedAt,
       endedAt: entry.endedAt,
       stopReason: entry.stopReason,
       terminalNotificationSuppressed: entry.terminalNotificationSuppressed,
-      timeoutMs: entry.task.timeoutMs,
+      timeoutMs: entry.options.timeoutMs,
     };
     return entry.task.toInfo(base);
   }
@@ -506,6 +615,12 @@ function emptyOutputSnapshot(): BackgroundTaskOutputSnapshot {
   };
 }
 
+function shouldListTask(info: BackgroundTaskInfo, activeOnly: boolean): boolean {
+  if (!TERMINAL_STATUSES.has(info.status)) return true;
+  if (activeOnly) return false;
+  return info.detached !== false;
+}
+
 function generateTaskId(kind: string): string {
   const bytes = randomBytes(8);
   let suffix = '';
@@ -518,6 +633,14 @@ function generateTaskId(kind: string): string {
 function normalizeReason(reason: string | undefined): string | undefined {
   const trimmed = reason?.trim();
   return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+}
+
+function createForegroundRelease(): ForegroundRelease {
+  let resolve!: (reason: ForegroundTaskReleaseReason) => void;
+  const promise = new Promise<ForegroundTaskReleaseReason>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 function errorMessage(error: unknown): string {

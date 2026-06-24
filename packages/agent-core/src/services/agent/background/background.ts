@@ -40,6 +40,20 @@ export interface BackgroundTaskOutputSnapshot {
   readonly preview: string;
 }
 
+export interface RegisterBackgroundTaskOptions {
+  /**
+   * When false, the task is tracked by the manager while a foreground tool call
+   * still waits for it. It can later be detached through RPC.
+   */
+  readonly detached?: boolean;
+  /** Deadline owned by the background manager. `0` and `undefined` do not arm a timer. */
+  readonly timeoutMs?: number;
+  /** Foreground caller signal. Ignored for tasks created already detached. */
+  readonly signal?: AbortSignal;
+}
+
+export type ForegroundTaskReleaseReason = 'detached' | 'terminal';
+
 declare module '../types' {
   interface WireRecordMap {
     'background.task.started': {
@@ -52,7 +66,7 @@ declare module '../types' {
 }
 
 export interface BackgroundManager {
-  registerTask(task: BackgroundTask): string;
+  registerTask(task: BackgroundTask, options?: RegisterBackgroundTaskOptions): string;
   getTask(taskId: string): BackgroundTaskInfo | undefined;
   list(activeOnly?: boolean, limit?: number): readonly BackgroundTaskInfo[];
   loadFromDisk(options?: BackgroundLoadOptions): Promise<void>;
@@ -67,10 +81,15 @@ export interface BackgroundManager {
   stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined>;
   stopAll(reason?: string): Promise<readonly BackgroundTaskInfo[]>;
   wait(taskId: string, timeoutMs?: number): Promise<BackgroundTaskInfo | undefined>;
+  waitForForegroundRelease(
+    taskId: string,
+  ): Promise<ForegroundTaskReleaseReason | undefined>;
 }
 
 export interface IBackgroundService extends BackgroundManager {
   readonly _serviceBrand: undefined;
+  setPersistence(persistence: BackgroundTaskPersistence | undefined): void;
+  setMaxRunningTasks(maxRunningTasks: number | undefined): void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
