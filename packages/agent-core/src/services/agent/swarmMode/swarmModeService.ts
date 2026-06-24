@@ -72,23 +72,15 @@ export class SwarmModeService extends Disposable implements ISwarmMode {
     this.applyExit(true);
   }
 
-  restoreEnter(trigger: SwarmModeTrigger): void {
-    this.applyEnter(trigger, false);
-  }
-
-  data(): boolean {
-    return this.isActive;
-  }
-
-  get active(): SwarmModeTrigger | null {
-    return this._active;
-  }
-
   get isActive(): boolean {
     return this._active !== null;
   }
 
-  get shouldAutoExit(): boolean {
+  private restoreEnter(trigger: SwarmModeTrigger): void {
+    this.applyEnter(trigger, false);
+  }
+
+  private get shouldAutoExit(): boolean {
     return this._active === 'task' || this._active === 'tool';
   }
 

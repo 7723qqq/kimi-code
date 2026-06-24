@@ -4,13 +4,9 @@ export type SwarmModeTrigger = 'manual' | 'task' | 'tool';
 
 export interface ISwarmMode {
   readonly _serviceBrand: undefined;
-  readonly active: SwarmModeTrigger | null;
   readonly isActive: boolean;
-  readonly shouldAutoExit: boolean;
   enter(trigger: SwarmModeTrigger): void;
   exit(): void;
-  restoreEnter(trigger: SwarmModeTrigger): void;
-  data(): boolean;
 }
 
 declare module '../types' {

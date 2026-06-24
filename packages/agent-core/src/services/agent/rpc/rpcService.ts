@@ -138,7 +138,7 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   getSwarmMode(_payload: EmptyPayload): boolean {
-    return this.swarmMode.data();
+    return this.swarmMode.isActive;
   }
 
   beginCompaction(payload: BeginCompactionPayload): void {
