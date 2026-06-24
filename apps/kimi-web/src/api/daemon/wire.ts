@@ -259,7 +259,6 @@ export interface WireQuestionRequest {
   turn_id?: number;
   tool_call_id?: string;
   questions: WireQuestionItem[];
-  expires_at: string;
   created_at: string;
 }
 
@@ -728,8 +727,6 @@ type WireEventQuestionDismissed = WireEventBase<'event.question.dismissed', {
   dismissed_by: string;
   dismissed_at: string;
 }>;
-type WireEventQuestionExpired = WireEventBase<'event.question.expired', { question_id: string }>;
-
 // Background tasks
 type WireEventTaskCreated = WireEventBase<'event.task.created', { task: WireBackgroundTask }>;
 type WireEventTaskProgress = WireEventBase<'event.task.progress', {
@@ -791,7 +788,6 @@ export type WireEvent =
   | WireEventQuestionRequested
   | WireEventQuestionAnswered
   | WireEventQuestionDismissed
-  | WireEventQuestionExpired
   // Background tasks
   | WireEventTaskCreated
   | WireEventTaskProgress

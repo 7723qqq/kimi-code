@@ -26,10 +26,7 @@ import {
 
 import { IRestGateway, startServer, type RunningServer } from '../src';
 import { rawDataToString } from '../src/ws/rawData';
-import {
-  QuestionService,
-  QuestionExpiredError,
-} from '#/services/question/questionService';
+import { QuestionService } from '#/services/question/questionService';
 
 let tmpDir: string;
 let lockPath: string;
@@ -297,7 +294,6 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
             other_label?: string;
           }>;
           created_at: string;
-          expires_at: string;
         }>;
       }>(res.json());
       expect(env.code).toBe(0);
@@ -320,7 +316,6 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
         { id: 'opt_0_1', label: 'No' },
       ]);
       expect(item?.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-      expect(item?.expires_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
       const dismissed = await appOf(r).inject({
         method: 'POST',
@@ -510,6 +505,8 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
   });
 
   it('REST re-resolve on already-resolved question returns 40902 with data:{resolved:false}', async () => {
+
+
     const r = await bootDaemon();
     const sid = await createSession(r);
 
@@ -585,42 +582,5 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
 
     // Cleanup so the test doesn't leave a hanging Promise.
     broker.dismiss(questionId!);
-  });
-
-  it('60s timeout broadcasts event.question.expired + rejects with QuestionExpiredError', async () => {
-    const r = await bootDaemon();
-    const sid = await createSession(r);
-    const { ws, received } = await openSubscriber(r, sid);
-
-    const broker = r.services.invokeFunction(
-      (a) => a.get(IQuestionService) as QuestionService,
-    );
-    (broker as unknown as { _timeoutMs: number })._timeoutMs = 40;
-
-    const pending = broker.request({
-      sessionId: sid,
-      agentId: 'main',
-      questions: [
-        { question: '?', options: [{ label: 'A' }, { label: 'B' }] },
-      ],
-    });
-
-    let rejection: unknown;
-    try {
-      await pending;
-    } catch (err) {
-      rejection = err;
-    }
-    expect(rejection).toBeInstanceOf(QuestionExpiredError);
-
-    const expiredFrame = await waitFor(
-      received,
-      (f) => f['type'] === 'event.question.expired',
-      2000,
-    );
-    const payload = expiredFrame['payload'] as { question_id: string };
-    expect(payload.question_id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
-
-    ws.close();
   });
 });

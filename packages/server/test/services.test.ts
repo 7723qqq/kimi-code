@@ -733,29 +733,6 @@ describe('QuestionService (broadcasts + dismiss)', () => {
     bus.dispose();
   });
 
-  it('60s timeout broadcasts event.question.expired + rejects QuestionExpiredError', async () => {
-    const { broker, bus, broadcast, conn } = makeQuestionBroker();
-    broker._setTimeoutMsForTests(30);
-    const pending = broker.request({
-      sessionId: 's',
-      agentId: 'a',
-      questions: [
-        { question: '?', options: [{ label: 'A' }, { label: 'B' }] },
-      ],
-    } as Parameters<typeof broker.request>[0]);
-
-    await expect(pending).rejects.toMatchObject({ name: 'QuestionExpiredError' });
-    await broadcast._drainForTest('s');
-    const expiredFrame = conn.sent.find(
-      (f) => (f as { type: string }).type === 'event.question.expired',
-    );
-    expect(expiredFrame).toBeDefined();
-
-    broker.dispose();
-    broadcast.dispose();
-    bus.dispose();
-  });
-
   it('dispose rejects pending question Promises', async () => {
     const { broker, bus, broadcast } = makeQuestionBroker();
     const pending = broker.request({
