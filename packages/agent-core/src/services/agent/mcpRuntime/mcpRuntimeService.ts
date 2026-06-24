@@ -7,7 +7,7 @@ import {
   type IDisposable,
 } from '../../../di';
 import { ErrorCodes, makeErrorPayload } from '../../../errors';
-import type { ExecutableToolResult } from '../../../loop';
+import type { ExecutableTool, ExecutableToolResult } from '../../../loop';
 import { createMcpAuthTool } from '../../../mcp/auth-tool';
 import type { McpServerEntry } from '../../../mcp/connection-manager';
 import { mcpResultToExecutableOutput } from '../../../mcp/output';
@@ -15,7 +15,6 @@ import { qualifyMcpToolName } from '../../../mcp/tool-naming';
 import type { MCPClient } from '../../../mcp/types';
 import { IEventBus } from '../eventBus/eventBus';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import type { Tool } from '../types';
 import { IMcpRuntimeService, type McpRuntimeServiceOptions } from './mcpRuntime';
 
 interface McpToolRegistration {
@@ -229,7 +228,7 @@ export class McpRuntimeService extends Disposable implements IMcpRuntimeService 
     qualifiedName: string,
     tool: KosongTool,
     client: MCPClient,
-  ): Tool {
+  ): ExecutableTool {
     return {
       name: qualifiedName,
       description: tool.description,

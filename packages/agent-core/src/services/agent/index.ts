@@ -10,7 +10,6 @@ export type {
   ContextMessage,
   LLMEvent,
   LLMRequestOverrides,
-  Tool,
   ToolCall,
   ToolDefinition,
   ToolExecutionContext,

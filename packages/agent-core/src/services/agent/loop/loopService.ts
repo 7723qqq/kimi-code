@@ -41,7 +41,6 @@ import {
   type LoopEventDispatcher,
   type LoopRecordedEvent,
   type RunnableToolExecution,
-  type ToolExecution,
 } from '../../../loop';
 import type { TelemetryProperties } from '../../../telemetry';
 import { IContextMemory } from '../contextMemory/contextMemory';
@@ -57,7 +56,7 @@ import { IProfileService } from '../profile/profile';
 import { ITelemetryService } from '../telemetry/telemetry';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import { IToolExecutor } from '../toolExecutor/toolExecutor';
-import type { ContextMessage, ToolInfo, ToolResult, Turn, TurnResult } from '../types';
+import type { ContextMessage, ToolResult, Turn, TurnResult } from '../types';
 import { IUsageService } from '../usage/usage';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import { ILoopService, type LoopRunHooks } from './loop';
@@ -69,10 +68,6 @@ const TOOL_EMPTY_ERROR_STATUS =
 const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
 const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
   'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
-const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
-  type: 'object',
-  properties: {},
-};
 type ToolTelemetryEvent = 'tool_call' | 'tool_call_dedup_detected' | 'tool_call_repeat';
 
 export class LoopService extends Disposable implements ILoopService {
@@ -531,70 +526,22 @@ export class LoopService extends Disposable implements ILoopService {
     return this.toolRegistry
       .list()
       .filter((tool) => this.profile.isToolActive(tool.name, tool.source))
-      .map((tool) => this.executableTool(tool));
+      .flatMap((toolInfo) => {
+        const tool = this.toolRegistry.resolve(toolInfo.name);
+        return tool === undefined ? [] : [this.executableTool(tool)];
+      });
   }
 
-  private executableTool(toolInfo: ToolInfo): ExecutableTool {
+  private executableTool(tool: ExecutableTool): ExecutableTool {
     return {
-      name: toolInfo.name,
-      description: toolInfo.description,
-      parameters: toolInfo.parameters ?? EMPTY_TOOL_PARAMETERS,
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
       resolveExecution: async (args) => {
-        const execution = await this.resolveToolExecution(toolInfo, args);
+        const execution = await tool.resolveExecution(args);
         if (execution.isError === true) return execution;
-        return this.wrapToolExecution(toolInfo.name, args, execution);
+        return this.wrapToolExecution(tool.name, args, execution);
       },
-    };
-  }
-
-  private async resolveToolExecution(
-    toolInfo: ToolInfo,
-    args: unknown,
-  ): Promise<ToolExecution> {
-    const tool = this.toolRegistry.resolve(toolInfo.name);
-    if (tool === undefined) {
-      return {
-        output: `Tool "${toolInfo.name}" not found`,
-        isError: true,
-      };
-    }
-
-    if (tool.resolveExecution !== undefined) {
-      return tool.resolveExecution(args);
-    }
-
-    if (tool.execute === undefined) {
-      return {
-        output: `Tool "${toolInfo.name}" is not executable`,
-        isError: true,
-      };
-    }
-
-    return {
-      approvalRule: toolInfo.name,
-      execute: async (context) =>
-        toExecutableToolResult(
-          await tool.execute!(
-            {
-              id: context.toolCallId,
-              name: toolInfo.name,
-              arguments: args,
-            },
-            {
-              call: {
-                id: context.toolCallId,
-                name: toolInfo.name,
-                arguments: args,
-              },
-              args,
-              turnId: context.turnId,
-              toolCallId: context.toolCallId,
-              metadata: context.metadata,
-              signal: context.signal,
-              onUpdate: context.onUpdate,
-            },
-          ),
-        ),
     };
   }
 

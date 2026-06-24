@@ -4,9 +4,13 @@ import {
   SyncDescriptor,
   type IDisposable,
 } from '../../../di';
-import type { ExecutableToolContext, ExecutableToolResult } from '../../../loop';
+import type {
+  ExecutableTool,
+  ExecutableToolContext,
+  ExecutableToolResult,
+} from '../../../loop';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import type { Tool, ToolResult } from '../types';
+import type { ToolResult } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import {
   IUserToolService,
@@ -59,7 +63,7 @@ export class UserToolService extends Disposable implements IUserToolService {
   private applyRegister(input: UserToolRegistration): void {
     const { name, description, parameters } = input;
     this.applyUnregister(name);
-    const tool: Tool = {
+    const tool: ExecutableTool = {
       name,
       description,
       parameters,

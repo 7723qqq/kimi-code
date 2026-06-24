@@ -1,20 +1,21 @@
 import { createDecorator, type IDisposable } from '../../../di';
+import type { ExecutableTool } from '../../../loop';
 
 import type { Hooks } from '../hooks';
-import type { Tool, ToolInfo, ToolSource } from '../types';
+import type { ToolInfo, ToolSource } from '../types';
 
 export interface ToolRegistrationOptions {
   readonly source?: ToolSource;
 }
 
 export interface IToolRegistry {
-  register(tool: Tool, options?: ToolRegistrationOptions): IDisposable;
+  register(tool: ExecutableTool, options?: ToolRegistrationOptions): IDisposable;
   list(): readonly ToolInfo[];
-  resolve(name: string): Tool | undefined;
+  resolve(name: string): ExecutableTool | undefined;
 
   readonly hooks: Hooks<{
-    onRegistered: { tool: Tool };
-    onUnregistered: { tool: Tool };
+    onRegistered: { tool: ExecutableTool };
+    onUnregistered: { tool: ExecutableTool };
   }>;
 }
 

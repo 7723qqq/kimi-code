@@ -5,12 +5,13 @@ import {
   toDisposable,
   type IDisposable,
 } from '../../../di';
+import type { ExecutableTool } from '../../../loop';
 import { OrderedHookSlot } from '../hooks';
-import type { Tool, ToolInfo, ToolSource } from '../types';
+import type { ToolInfo, ToolSource } from '../types';
 import { IToolRegistry, type ToolRegistrationOptions } from './toolRegistry';
 
 interface ToolEntry {
-  readonly tool: Tool;
+  readonly tool: ExecutableTool;
   readonly source: ToolSource;
 }
 
@@ -18,17 +19,17 @@ export class ToolRegistryService extends Disposable implements IToolRegistry {
   private readonly tools = new Map<string, ToolEntry>();
 
   readonly hooks = {
-    onRegistered: new OrderedHookSlot<{ tool: Tool }>(),
-    onUnregistered: new OrderedHookSlot<{ tool: Tool }>(),
+    onRegistered: new OrderedHookSlot<{ tool: ExecutableTool }>(),
+    onUnregistered: new OrderedHookSlot<{ tool: ExecutableTool }>(),
   };
 
   constructor() {
     super();
   }
 
-  register(tool: Tool, options: ToolRegistrationOptions = {}): IDisposable {
-    const source = options.source ?? tool.source ?? 'builtin';
-    const entry: ToolEntry = { tool: withSource(tool, source), source };
+  register(tool: ExecutableTool, options: ToolRegistrationOptions = {}): IDisposable {
+    const source = options.source ?? 'builtin';
+    const entry: ToolEntry = { tool, source };
     this.unregisterTool(tool.name);
     this.tools.set(tool.name, entry);
 
@@ -48,12 +49,11 @@ export class ToolRegistryService extends Disposable implements IToolRegistry {
         description: tool.description,
         parameters: tool.parameters,
         source,
-        info: tool.info,
       }))
       .toSorted((a, b) => a.name.localeCompare(b.name));
   }
 
-  resolve(name: string): Tool | undefined {
+  resolve(name: string): ExecutableTool | undefined {
     return this.tools.get(name)?.tool;
   }
 
@@ -64,10 +64,6 @@ export class ToolRegistryService extends Disposable implements IToolRegistry {
     void this.hooks.onUnregistered.run({ tool: entry.tool });
     return entry;
   }
-}
-
-function withSource(tool: Tool, source: ToolSource): Tool {
-  return tool.source === source ? tool : { ...tool, source };
 }
 
 registerSingleton(IToolRegistry, new SyncDescriptor(ToolRegistryService, [], true));
