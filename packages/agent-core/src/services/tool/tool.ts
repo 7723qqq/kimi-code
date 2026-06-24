@@ -50,14 +50,13 @@ function mapToolSource(s: AgentCoreToolInfoLike['source']): ToolSource {
 }
 
 /**
- * Parse the server id segment from an MCP tool name. Convention:
- * `mcp:<server>:<tool>` (kosong's `mcpRegistrar.qualifiedName`). Returns
- * `undefined` when the name does not match — caller omits `mcp_server_id`.
+ * Parse the server id segment from an MCP tool name. Current agent-core names
+ * use `mcp__<server>__<tool>`.
  */
 function parseMcpServerIdFromToolName(name: string): string | undefined {
-  if (!name.startsWith('mcp:')) return undefined;
-  const rest = name.slice('mcp:'.length);
-  const sep = rest.indexOf(':');
+  if (!name.startsWith('mcp__')) return undefined;
+  const rest = name.slice('mcp__'.length);
+  const sep = rest.indexOf('__');
   if (sep <= 0) return undefined;
   return rest.slice(0, sep);
 }

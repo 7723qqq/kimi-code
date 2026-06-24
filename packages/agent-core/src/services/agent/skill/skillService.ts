@@ -4,27 +4,28 @@ import type { ContentPart } from '@moonshot-ai/kosong';
 
 import type { SkillActivationOrigin } from '../../../agent/context';
 import { renderUserSlashSkillPrompt } from '../../../agent/skill/prompt';
-import { Disposable } from '../../../di';
+import { Disposable, registerSingleton, SyncDescriptor } from '../../../di';
 import { ErrorCodes, KimiError } from '../../../errors';
 import type { EnabledPluginSessionStart } from '../../../plugin/types';
 import {
   isUserActivatableSkillType,
   type SkillDefinition,
-  type SkillRegistry,
   type SkillRoot,
   type SkillSource,
 } from '../../../skill';
 import { SessionSkillRegistry } from '../../../skill/registry';
 import { escapeXmlAttr } from '../../../utils/xml-escape';
 import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
-import { IPromptService } from '../prompt/prompt';
 import { IEventBus } from '../eventBus/eventBus';
+import { IPromptService } from '../prompt/prompt';
+import { ITelemetryService } from '../telemetry/telemetry';
 import type { ContextMessage, Turn } from '../types';
-
-export interface SkillActivationInput {
-  readonly name: string;
-  readonly args?: string;
-}
+import { IWireRecord } from '../wireRecord/wireRecord';
+import {
+  IAgentSkillService,
+  type AgentSkillServiceOptions,
+  type SkillActivationInput,
+} from './skill';
 
 declare module '../types' {
   interface AgentEventMap {
@@ -37,19 +38,36 @@ declare module '../types' {
       skillSource?: SkillSource;
     };
   }
+
+  interface WireRecordMap {
+    'skill.activate': {
+      origin: SkillActivationOrigin;
+    };
+  }
 }
 
-export class Skill extends Disposable implements SkillRegistry {
-  private readonly registry: SkillRegistry;
+export class AgentSkillService extends Disposable implements IAgentSkillService {
+  declare readonly _serviceBrand: undefined;
+
+  private readonly registry: SessionSkillRegistry | undefined;
   private pluginSessionStarts: readonly EnabledPluginSessionStart[] = [];
 
   constructor(
+    options: AgentSkillServiceOptions = {},
     @IPromptService private readonly prompt: IPromptService,
     @IEventBus private readonly events: IEventBus,
     @IDynamicInjector dynamicInjector: IDynamicInjector,
+    @IWireRecord private readonly wireRecord: IWireRecord,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
-    this.registry = new SessionSkillRegistry();
+    this.registry =
+      options.registry === null ? undefined : (options.registry ?? new SessionSkillRegistry());
+    this._register(
+      this.wireRecord.register('skill.activate', (record) => {
+        this.publishActivation(record.origin);
+      }),
+    );
     this._register(
       dynamicInjector.register('plugin_session_start', ({ injectedAt }) => {
         if (injectedAt !== null) return undefined;
@@ -59,7 +77,7 @@ export class Skill extends Disposable implements SkillRegistry {
   }
 
   async loadRoots(roots: readonly SkillRoot[]): Promise<void> {
-    await this.registry.loadRoots(roots);
+    await this.registry?.loadRoots(roots);
   }
 
   setPluginSessionStarts(sessionStarts: readonly EnabledPluginSessionStart[]): void {
@@ -67,47 +85,23 @@ export class Skill extends Disposable implements SkillRegistry {
   }
 
   registerBuiltinSkill(skill: SkillDefinition): void {
-    this.registry.registerBuiltinSkill(skill);
-  }
-
-  register(skill: SkillDefinition, options: { readonly replace?: boolean } = {}): void {
-    this.registry.register(skill, options);
+    this.registry?.registerBuiltinSkill(skill);
   }
 
   registerSkill(skill: SkillDefinition, options: { readonly replace?: boolean } = {}): void {
-    this.register(skill, options);
-  }
-
-  getSkill(name: string): SkillDefinition | undefined {
-    return this.registry.getSkill(name);
-  }
-
-  getPluginSkill(pluginId: string, name: string): SkillDefinition | undefined {
-    return this.registry.getPluginSkill(pluginId, name);
-  }
-
-  renderSkillPrompt(skill: SkillDefinition, rawArgs: string): string {
-    return this.registry.renderSkillPrompt(skill, rawArgs);
+    this.registry?.register(skill, options);
   }
 
   listSkills(): readonly SkillDefinition[] {
-    return this.registry.listSkills();
-  }
-
-  listInvocableSkills(): readonly SkillDefinition[] {
-    return this.registry.listInvocableSkills();
-  }
-
-  getSkillRoots(): readonly string[] {
-    return this.registry.getSkillRoots();
+    return this.registry?.listSkills() ?? [];
   }
 
   getModelSkillListing(): string {
-    return this.registry.getModelSkillListing();
+    return this.registry?.getModelSkillListing() ?? '';
   }
 
   activate(input: SkillActivationInput): Turn {
-    const skill = this.registry.getSkill(input.name);
+    const skill = this.registry?.getSkill(input.name);
     if (skill === undefined) {
       throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, `Skill "${input.name}" was not found`);
     }
@@ -119,7 +113,7 @@ export class Skill extends Disposable implements SkillRegistry {
     }
 
     const skillArgs = input.args ?? '';
-    const skillContent = this.registry.renderSkillPrompt(skill, skillArgs);
+    const skillContent = this.renderSkillPrompt(skill, skillArgs);
     const content: ContentPart[] = [
       {
         type: 'text',
@@ -152,15 +146,8 @@ export class Skill extends Disposable implements SkillRegistry {
     origin: SkillActivationOrigin,
     input?: readonly ContentPart[],
   ): Turn | undefined {
-    this.events.emit({
-      type: 'skill.activated',
-      activationId: origin.activationId,
-      skillName: origin.skillName,
-      trigger: origin.trigger,
-      skillArgs: origin.skillArgs,
-      skillPath: origin.skillPath,
-      skillSource: origin.skillSource,
-    });
+    this.wireRecord.append({ type: 'skill.activate', origin });
+    this.publishActivation(origin);
 
     if (input === undefined) return undefined;
     const message: ContextMessage = {
@@ -172,17 +159,51 @@ export class Skill extends Disposable implements SkillRegistry {
     return this.prompt.prompt(message);
   }
 
+  private renderSkillPrompt(skill: SkillDefinition, rawArgs: string): string {
+    const registry = this.requireRegistry();
+    return registry.renderSkillPrompt(skill, rawArgs);
+  }
+
+  private publishActivation(origin: SkillActivationOrigin): void {
+    this.events.emit({
+      type: 'skill.activated',
+      activationId: origin.activationId,
+      skillName: origin.skillName,
+      trigger: origin.trigger,
+      skillArgs: origin.skillArgs,
+      skillPath: origin.skillPath,
+      skillSource: origin.skillSource,
+    });
+    if (this.wireRecord.restoring !== null) return;
+    this.telemetry.track('skill_invoked', {
+      skill_name: origin.skillName,
+      trigger: origin.trigger,
+    });
+    if (origin.skillType === 'flow') {
+      this.telemetry.track('flow_invoked', {
+        flow_name: origin.skillName,
+      });
+    }
+  }
+
+  private requireRegistry(): SessionSkillRegistry {
+    if (this.registry !== undefined) return this.registry;
+    throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, 'Skill registry is not available');
+  }
+
   private pluginSessionStartReminder(): string | undefined {
     if (this.pluginSessionStarts.length === 0) return undefined;
+    const registry = this.registry;
+    if (registry === undefined) return undefined;
     const blocks: string[] = [];
     for (const sessionStart of this.pluginSessionStarts) {
-      const skill = this.registry.getPluginSkill(sessionStart.pluginId, sessionStart.skillName);
+      const skill = registry.getPluginSkill(sessionStart.pluginId, sessionStart.skillName);
       if (skill === undefined) continue;
       blocks.push(
         renderSessionStartBlock(
           sessionStart,
           skill,
-          this.registry.renderSkillPrompt(skill, ''),
+          registry.renderSkillPrompt(skill, ''),
         ),
       );
     }
@@ -200,3 +221,8 @@ function renderSessionStartBlock(
     `skill="${escapeXmlAttr(skill.name)}">\n${skillContent}\n</plugin_session_start>`
   );
 }
+
+registerSingleton(
+  IAgentSkillService,
+  new SyncDescriptor(AgentSkillService, [{}], true),
+);

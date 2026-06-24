@@ -1,16 +1,16 @@
 import { z } from 'zod';
 
-import type { SwarmMode } from '../../../agent/swarm';
 import type { BuiltinTool } from '../../../agent/tool';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   type QueuedSubagentTask,
-  type SessionSubagentHost,
 } from '../../../session/subagent-host';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { toInputJsonSchema } from '../../support/input-schema';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
+import type { ISubagentHost } from '../../../services/agent/subagentHost/subagentHost';
+import type { ISwarmMode } from '../../../services/agent';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
 const PROMPT_TEMPLATE_PLACEHOLDER = '{{item}}';
@@ -89,8 +89,8 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentSwarmToolInputSchema);
 
   constructor(
-    private readonly subagentHost: SessionSubagentHost,
-    private readonly swarmMode: SwarmMode,
+    private readonly subagentHost: ISubagentHost,
+    private readonly swarmMode: ISwarmMode,
   ) {}
 
   resolveExecution(args: AgentSwarmToolInput): ToolExecution {

@@ -9,7 +9,7 @@ import type { CompactionResult } from '../../../agent/compaction';
 import { estimateTokensForMessage } from '../../../utils/tokens';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IEventBus } from '../eventBus/eventBus';
-import { ILLMRequester } from '../llmRequester/llmRequester';
+import { IProfileService } from '../profile/profile';
 import type { ContextMessage } from '../types';
 import {
   IContextUsageService,
@@ -39,7 +39,7 @@ export class ContextUsageService
   constructor(
     @IContextMemory private readonly context: IContextMemory,
     @IEventBus private readonly events: IEventBus,
-    @ILLMRequester private readonly llmRequester: ILLMRequester,
+    @IProfileService private readonly profile: IProfileService,
   ) {
     super();
     this._register(
@@ -122,7 +122,7 @@ export class ContextUsageService
 
   private maxContextTokens(): number | undefined {
     try {
-      return this.llmRequester.getModelContext().modelCapabilities.max_context_tokens;
+      return this.profile.getModelCapabilities().max_context_tokens;
     } catch {
       return undefined;
     }

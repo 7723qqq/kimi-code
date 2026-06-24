@@ -46,6 +46,7 @@ export type {
   WireRecordMetadata,
   WireRecordPersistence,
   WireRecordRegisterOptions,
+  WireRecordRestoredContext,
   WireRecordRestoreOptions,
   WireRecordRestoreResult,
   WireRecordRestoringContext,
@@ -99,6 +100,22 @@ export {
 export {
   ToolRegistryService,
 } from './toolRegistry/toolRegistryService';
+
+export {
+  IMcpRuntimeService,
+  type McpResolvedServer,
+  type McpRuntimeServiceOptions,
+} from './mcpRuntime/mcpRuntime';
+export { McpRuntimeService } from './mcpRuntime/mcpRuntimeService';
+
+export {
+  IUserToolService,
+  type UserToolServiceOptions,
+  type UserToolRegistration,
+} from './userTool/userTool';
+export {
+  UserToolService,
+} from './userTool/userToolService';
 
 export { IToolStoreService } from './toolStore/toolStore';
 export { ToolStoreService } from './toolStore/toolStoreService';
@@ -162,6 +179,9 @@ export { PromptService } from './prompt/promptService';
 export {
   IProfileService,
   type ProfileData,
+  type ProfileModelContext,
+  type ProfileServiceOptions,
+  type ProfileSetModelResult,
   type ProfileUpdateData,
 } from './profile/profile';
 export { ProfileService } from './profile/profileService';
@@ -182,20 +202,39 @@ export { TelemetryService } from './telemetry/telemetryService';
 export { PlanMode } from './extensions/planMode';
 export { PermissionModeInjection } from './extensions/permissionModeInjection';
 export { GoalInjection, type GoalInjectionOptions } from './extensions/goalInjection';
-export { SwarmMode, type SwarmModeTrigger } from './extensions/swarmMode';
+export {
+  ISwarmMode,
+  type SwarmModeOptions,
+  type SwarmModeTrigger,
+} from './swarmMode/swarmMode';
+export {
+  SwarmModeService,
+  SwarmModeService as SwarmMode,
+} from './swarmMode/swarmModeService';
 export {
   Background,
+  type BackgroundLoadOptions,
   type BackgroundManager,
   type BackgroundTaskOutputSnapshot,
 } from './background/background';
 export {
   Cron,
   type CronFireOptions,
+  type CronLoadOptions,
   type CronOptions,
   type CronPersistence,
   type CronTaskInit,
 } from './cron/cron';
-export { Skill, type SkillActivationInput } from './extensions/skill';
+export {
+  IAgentSkillService,
+  type AgentSkillServiceOptions,
+  type AgentSkillServiceOptions as SkillOptions,
+  type SkillActivationInput,
+} from './skill/skill';
+export {
+  AgentSkillService,
+  AgentSkillService as Skill,
+} from './skill/skillService';
 export {
   IFullCompaction,
   type CompactInput,

@@ -136,6 +136,5 @@ export interface ToolExecutionContext extends ExecutableToolContext {
 }
 
 export interface ToolInfo extends ToolDefinition {
-  readonly active: boolean;
   readonly source: ToolSource;
 }

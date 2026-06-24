@@ -43,7 +43,7 @@ import { ILLMRequester } from '../llmRequester/llmRequester';
 import { IMcpRuntimeService } from '../mcpRuntime/mcpRuntime';
 import { IPermissionService } from '../permission/permission';
 import { IProfileService } from '../profile/profile';
-import { IToolCatalogService } from '../toolCatalog/toolCatalog';
+import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import { IToolExecutor } from '../toolExecutor/toolExecutor';
 import type { ContextMessage, ToolInfo, ToolResult, Turn, TurnResult } from '../types';
 import { IUsageService } from '../usage/usage';
@@ -153,7 +153,7 @@ export class LoopService extends Disposable implements ILoopService {
     @IContextUsageService private readonly contextUsage: IContextUsageService,
     @ILLMRequester private readonly llmRequester: ILLMRequester,
     @IEventBus private readonly events: IEventBus,
-    @IToolCatalogService private readonly toolCatalog: IToolCatalogService,
+    @IToolRegistry private readonly toolRegistry: IToolRegistry,
     @IToolExecutor private readonly toolExecutor: IToolExecutor,
     @IPermissionService private readonly permission: IPermissionService,
     @IUsageService private readonly usage: IUsageService,
@@ -554,9 +554,9 @@ export class LoopService extends Disposable implements ILoopService {
   }
 
   private executableTools(): readonly ExecutableTool[] {
-    return this.toolCatalog
+    return this.toolRegistry
       .list()
-      .filter((tool) => tool.active)
+      .filter((tool) => this.profile.isToolActive(tool.name, tool.source))
       .map((tool) => this.executableTool(tool));
   }
 
@@ -577,7 +577,7 @@ export class LoopService extends Disposable implements ILoopService {
     toolInfo: ToolInfo,
     args: unknown,
   ): Promise<ToolExecution> {
-    const tool = this.toolCatalog.resolve(toolInfo.name);
+    const tool = this.toolRegistry.resolve(toolInfo.name);
     if (tool === undefined) {
       return {
         output: `Tool "${toolInfo.name}" not found`,
