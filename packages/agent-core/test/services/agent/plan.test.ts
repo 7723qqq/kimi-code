@@ -83,30 +83,32 @@ describe('manual plan entry', () => {
   });
 
   it('enters plan mode through the EnterPlanMode tool and reminds the next step', async () => {
-    const enterPlanModeCall: ToolCall = {
-      type: 'function',
-      id: 'call_enter_plan',
-      name: 'EnterPlanMode',
-      arguments: '{}',
-    };
-    const ctx = testAgent({
-      kaos: createPlanKaos({
-        writeText: vi.fn(async (_path: string, content: string) => content.length),
-      }),
-    });
-    ctx.configure({ tools: ['EnterPlanMode'] });
-    await ctx.rpc.setPermission({ mode: 'yolo' });
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-tool-entry-'));
+    try {
+      const enterPlanModeCall: ToolCall = {
+        type: 'function',
+        id: 'call_enter_plan',
+        name: 'EnterPlanMode',
+        arguments: '{}',
+      };
+      const ctx = testAgent();
+      ctx.configure({ tools: ['EnterPlanMode'] });
+      ctx.profile.update({ cwd });
+      await ctx.rpc.setPermission({ mode: 'yolo' });
 
-    ctx.mockNextResponse({ type: 'text', text: 'I will enter plan mode.' }, enterPlanModeCall);
-    ctx.mockNextResponse({ type: 'text', text: 'Plan mode is active now.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Plan first' }] });
+      ctx.mockNextResponse({ type: 'text', text: 'I will enter plan mode.' }, enterPlanModeCall);
+      ctx.mockNextResponse({ type: 'text', text: 'Plan mode is active now.' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Plan first' }] });
 
-    await ctx.untilTurnEnd();
-    await delay(10);
-    expect(ctx.get(IPlanModeService).isActive).toBe(true);
-    expect(ctx.llmCalls).toHaveLength(2);
-    expect(toolResultText(ctx.llmCalls[1]!.history)).toContain('Plan mode is now active');
-    await ctx.expectResumeMatches();
+      await ctx.untilTurnEnd();
+      await delay(10);
+      expect(ctx.get(IPlanModeService).isActive).toBe(true);
+      expect(ctx.llmCalls).toHaveLength(2);
+      expect(toolResultText(ctx.llmCalls[1]!.history)).toContain('Plan mode is now active');
+      await ctx.expectResumeMatches();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 });
 
@@ -139,44 +141,45 @@ describe('plan clear', () => {
   });
 });
 
-describe.skip('plan exit tool', () => {
+describe('plan exit tool', () => {
   it('reads the current plan file and exits plan mode directly in auto mode', async () => {
-    const files = new Map<string, string>();
-    const readText = vi.fn(async (path: string) => files.get(path) ?? '');
-    const ctx = testAgent({
-      kaos: createPlanKaos({ readText }),
-    });
-    ctx.configure({ tools: ['ExitPlanMode'] });
-    await ctx.rpc.setPermission({ mode: 'auto' });
-    await ctx.get(IPlanModeService).enter('test-plan', false);
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-exit-'));
+    try {
+      const ctx = testAgent();
+      ctx.configure({ tools: ['ExitPlanMode'] });
+      ctx.profile.update({ cwd });
+      await ctx.rpc.setPermission({ mode: 'auto' });
+      await ctx.get(IPlanModeService).enter('test-plan', false);
 
-    const planPath = ctx.get(IPlanModeService).planFilePath;
-    if (planPath === null) throw new Error('expected active plan path');
-    files.set(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify');
+      const planPath = ctx.get(IPlanModeService).planFilePath;
+      if (planPath === null) throw new Error('expected active plan path');
+      await writeFile(planPath, '# Plan\n\n- Inspect\n- Change\n- Verify', 'utf8');
 
-    const exitPlanModeCall: ToolCall = {
-      type: 'function',
-      id: 'call_exit_plan',
-      name: 'ExitPlanMode',
-      arguments: '{}',
-    };
-    ctx.mockNextResponse({ type: 'text', text: 'I will present the plan.' }, exitPlanModeCall);
-    ctx.mockNextResponse({ type: 'text', text: 'I can execute after approval.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Show the plan' }] });
+      const exitPlanModeCall: ToolCall = {
+        type: 'function',
+        id: 'call_exit_plan',
+        name: 'ExitPlanMode',
+        arguments: '{}',
+      };
+      ctx.mockNextResponse({ type: 'text', text: 'I will present the plan.' }, exitPlanModeCall);
+      ctx.mockNextResponse({ type: 'text', text: 'I can execute after approval.' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Show the plan' }] });
 
-    await ctx.untilTurnEnd();
-    expect(
-      ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
-    ).toBe(false);
-    expect(readText).toHaveBeenCalledWith(planPath);
-    expect(ctx.get(IPlanModeService).isActive).toBe(false);
-    const llmInput = ctx.llmCalls[1]!;
-    expect(toolResultText(llmInput.history)).toContain('Plan mode deactivated');
-    expect(toolResultText(llmInput.history)).toContain('# Plan');
-    await ctx.expectResumeMatches();
+      await ctx.untilTurnEnd();
+      expect(
+        ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
+      ).toBe(false);
+      expect(ctx.get(IPlanModeService).isActive).toBe(false);
+      const llmInput = ctx.llmCalls[1]!;
+      expect(toolResultText(llmInput.history)).toContain('Plan mode deactivated');
+      expect(toolResultText(llmInput.history)).toContain('# Plan');
+      await ctx.expectResumeMatches();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
-  it('stops the turn and stays in plan mode when the user rejects the plan', async () => {
+  it.skip('stops the turn and stays in plan mode when the user rejects the plan', async () => {
     const files = new Map<string, string>();
     const readText = vi.fn(async (path: string) => files.get(path) ?? '');
     const ctx = testAgent({
@@ -211,7 +214,7 @@ describe.skip('plan exit tool', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('does not execute later tool calls in the same batch after plan rejection', async () => {
+  it.skip('does not execute later tool calls in the same batch after plan rejection', async () => {
     const files = new Map<string, string>();
     const readText = vi.fn(async (path: string) => files.get(path) ?? '');
     const execWithEnv = vi.fn(() => {
@@ -261,7 +264,7 @@ describe.skip('plan exit tool', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('refuses to exit when the current plan file is empty', async () => {
+  it.skip('refuses to exit when the current plan file is empty', async () => {
     const readText = vi.fn(async () => '');
     const ctx = testAgent({
       kaos: createPlanKaos({ readText }),
