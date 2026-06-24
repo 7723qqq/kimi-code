@@ -7,7 +7,6 @@ import {
 } from '../../../di';
 import { OrderedHookSlot } from '../hooks';
 import { IEventBus } from '../eventBus/eventBus';
-import { IProfileService } from '../profile/profile';
 import type { Tool, ToolInfo, ToolSource } from '../types';
 import { IToolRegistry, type ToolRegistrationOptions } from './toolRegistry';
 
@@ -33,10 +32,7 @@ export class ToolRegistryService extends Disposable implements IToolRegistry {
     onUnregistered: new OrderedHookSlot<{ tool: Tool }>(),
   };
 
-  constructor(
-    @IEventBus private readonly events: IEventBus,
-    @IProfileService private readonly profile: IProfileService,
-  ) {
+  constructor(@IEventBus private readonly events: IEventBus) {
     super();
   }
 
@@ -67,7 +63,6 @@ export class ToolRegistryService extends Disposable implements IToolRegistry {
         parameters: tool.parameters,
         source,
         info: tool.info,
-        active: this.profile.isToolActive(tool.name),
       }))
       .toSorted((a, b) => a.name.localeCompare(b.name));
   }

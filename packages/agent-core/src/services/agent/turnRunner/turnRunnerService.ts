@@ -8,6 +8,7 @@ import { ILoopService } from '../loop/loop';
 import { IMicroCompactionService } from '../microCompaction/microCompaction';
 import type { Turn, TurnEndedContext, TurnResult, TurnStepContext } from '../types';
 import { IUsageService } from '../usage/usage';
+import { IWireRecord } from '../wireRecord/wireRecord';
 import { ITurnRunner } from './turnRunner';
 
 declare module '../types' {
@@ -24,6 +25,13 @@ declare module '../types' {
       reason: TurnResult['reason'];
       error?: KimiErrorPayload;
       durationMs: number;
+    };
+  }
+
+  interface WireRecordMap {
+    'turn.launch': {
+      turnId: number;
+      origin: PromptOrigin;
     };
   }
 }
@@ -45,8 +53,12 @@ export class TurnRunnerService implements ITurnRunner {
     @ILoopService private readonly loop: ILoopService,
     @IUsageService private readonly usage: IUsageService,
     @IEventBus private readonly events: IEventBus,
+    @IWireRecord private readonly wireRecord: IWireRecord,
     @IMicroCompactionService _microCompaction: IMicroCompactionService,
   ) {
+    wireRecord.register('turn.launch', (record) => {
+      this.restoreLaunch(record.turnId);
+    });
     this.hooks.beforeStep.register('turn-before-step-event', async (ctx, next) => {
       this.events.emit({ type: 'turn.before_step', turnId: ctx.turn.id });
       await next();
@@ -59,10 +71,13 @@ export class TurnRunnerService implements ITurnRunner {
       throw new Error(`Cannot launch a new turn while turn ${this.activeTurn.id} is active`);
     }
 
+    const turnId = this.nextTurnId;
+    this.wireRecord.append({ type: 'turn.launch', turnId, origin });
+    this.restoreLaunch(turnId);
     const abortController = new AbortController();
     const ready = createControlledPromise<void>();
     const turn: MutableTurn = {
-      id: this.nextTurnId++,
+      id: turnId,
       abortController,
       ready: ready.promise,
       result: Promise.resolve({ reason: 'failed' }),
@@ -127,6 +142,12 @@ export class TurnRunnerService implements ITurnRunner {
     if (this.readySettled.has(turn)) return;
     this.readySettled.add(turn);
     this.readyControllers.get(turn)?.resolve();
+  }
+
+  private restoreLaunch(turnId: number): void {
+    if (Number.isInteger(turnId) && turnId >= this.nextTurnId) {
+      this.nextTurnId = turnId + 1;
+    }
   }
 
   private rejectReady(turn: Turn, reason: unknown): void {
