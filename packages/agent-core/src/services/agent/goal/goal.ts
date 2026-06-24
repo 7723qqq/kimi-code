@@ -14,26 +14,11 @@ export interface GoalReasonInput {
 
 export interface IGoalService {
   readonly _serviceBrand: undefined;
-  readonly enabled: boolean;
   getGoal(): GoalToolResult;
-  getActiveGoal(): GoalSnapshot | null;
   createGoal(input: CreateGoalInput, actor?: GoalActor): Promise<GoalSnapshot>;
   pauseGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot>;
-  pauseActiveGoal(
-    input?: GoalReasonInput,
-    actor?: GoalActor,
-  ): Promise<GoalSnapshot | null>;
   resumeGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot>;
-  setBudgetLimits(
-    input: { readonly budgetLimits: GoalBudgetLimits },
-    actor?: GoalActor,
-  ): Promise<GoalSnapshot>;
   cancelGoal(actor?: GoalActor): Promise<GoalSnapshot>;
-  markBlocked(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
-  markComplete(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
-  pauseOnInterrupt(input?: GoalReasonInput): Promise<GoalSnapshot | null>;
-  recordTokenUsage(tokenDelta: number): Promise<GoalSnapshot | null>;
-  incrementTurn(): Promise<GoalSnapshot | null>;
 }
 
 declare module '../types' {
