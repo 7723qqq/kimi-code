@@ -11,6 +11,7 @@ export interface AgentRuntimeCreateSessionOptions {
   readonly model?: string | undefined;
   readonly thinking?: string | undefined;
   readonly metadata?: JsonObject | undefined;
+  readonly additionalDirs?: readonly string[] | undefined;
   readonly client?: ClientTelemetryInfo | undefined;
 }
 
@@ -48,7 +49,7 @@ export class AgentRuntimeTodoError extends Error {
     readonly location: string,
     readonly logic: string,
   ) {
-    super(`TODO: ${location} is not migrated to services/agent. ${logic}`);
+    super(`${location} is not migrated to services/agent. ${logic}`);
     this.name = 'AgentRuntimeTodoError';
   }
 }
@@ -79,6 +80,7 @@ export function agentRuntimeServiceFromCoreProcess(
         model: options.model,
         thinking: options.thinking,
         metadata: options.metadata,
+        additionalDirs: options.additionalDirs,
         client: options.client,
       });
       if (options.title !== undefined) {

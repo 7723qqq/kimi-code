@@ -24,6 +24,39 @@ export type {
   WireRecord,
   WireRecordMap,
 } from './types';
+export type {
+  ApprovalResponse,
+  PermissionApprovalResultRecord,
+  PermissionMode,
+  PermissionPolicyContext,
+  PermissionRule,
+  ApprovalResponse as PermissionApprovalResponse,
+} from '../../agent/permission';
+export type { Agent } from '../../agent';
+export { PermissionManager } from '../../agent/permission';
+export { PermissionModeInjector } from '../../agent/injection/permission-mode';
+export {
+  matchPermissionRule,
+  parsePattern,
+  type PermissionRuleMatchExecution,
+} from '../../agent/permission/matches-rule';
+export { AgentSwarmExclusiveDenyPermissionPolicy } from '../../agent/permission/policies/agent-swarm-exclusive-deny';
+export { AutoModeApprovePermissionPolicy } from '../../agent/permission/policies/auto-mode-approve';
+export { AutoModeAskUserQuestionDenyPermissionPolicy } from '../../agent/permission/policies/auto-mode-ask-user-question-deny';
+export { FallbackAskPermissionPolicy } from '../../agent/permission/policies/fallback-ask';
+export { createPermissionDecisionPolicies } from '../../agent/permission/policies';
+export { SwarmModeAgentSwarmApprovePermissionPolicy } from '../../agent/permission/policies/swarm-mode-agent-swarm-approve';
+export { YoloModeApprovePermissionPolicy } from '../../agent/permission/policies/yolo-mode-approve';
+export {
+  renderModelToolSkillPrompt,
+  renderUserSlashSkillPrompt,
+} from '../../agent/skill/prompt';
+export type {
+  RenderModelToolSkillPromptInput,
+  RenderSkillPromptInput,
+  SkillPromptTrigger,
+} from '../../agent/skill/prompt';
+export { ToolCallDeduplicator, __testing as toolDedupTesting } from '../../agent/turn/tool-dedup';
 
 export { IAgentRPCService, ISessionRPCService } from './rpc/rpc';
 export { AgentRPCService } from './rpc/rpcService';
@@ -62,6 +95,31 @@ export type {
   FileSystemWireRecordPersistenceOptions,
   InMemoryWireRecordPersistenceOptions,
 } from './wireRecord/persistence';
+export {
+  isNewerWireVersion,
+  migrateWireRecord,
+  migrateWireRecords,
+  resolveWireMigrations,
+  type WireMigration,
+  type WireMigrationRecord,
+} from '../../agent/records/migration';
+export {
+  BlobStore,
+  isBlobRef,
+} from '../../agent/records/blobref';
+export {
+  FileSystemAgentRecordPersistence,
+  InMemoryAgentRecordPersistence,
+} from '../../agent/records';
+export type {
+  AgentRecord,
+  AgentRecordPersistence,
+  AgentRecordOf,
+} from '../../agent/records';
+export { migrateV1_0ToV1_1 } from '../../agent/records/migration/v1.1';
+export { migrateV1_1ToV1_2 } from '../../agent/records/migration/v1.2';
+export { migrateV1_2ToV1_3 } from '../../agent/records/migration/v1.3';
+export { migrateV1_3ToV1_4 } from '../../agent/records/migration/v1.4';
 
 export { IContextMemory } from './contextMemory/contextMemory';
 export { ContextMemoryService } from './contextMemory/contextMemoryService';

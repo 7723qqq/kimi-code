@@ -19,13 +19,19 @@ import {
 import { ErrorCodes, KimiError } from '../../errors';
 import { SessionStore } from '../../session/store';
 import type {
+  AddAdditionalDirPayload,
+  AddAdditionalDirResult,
   ClientTelemetryInfo,
   JsonObject,
   SessionAPI,
   SessionSummary,
 } from '../../rpc';
 import {
+  appendWorkspaceAdditionalDir,
   loadRuntimeConfigSafe,
+  normalizeAdditionalDirs,
+  readWorkspaceAdditionalDirs,
+  resolveWorkspaceAdditionalDirs,
   type KimiConfig,
   type MoonshotServiceConfig,
 } from '../../config';
@@ -61,6 +67,8 @@ import {
   createAgentRuntime,
   IEventBus,
   IAgentRPCService,
+  IMcpRuntimeService,
+  ISubagentHost,
   ITurnRunner,
   type AgentRuntime,
   type AgentRuntimeType,
@@ -94,6 +102,7 @@ interface CachedRuntime {
 interface CachedSessionRuntime {
   readonly summary: SessionSummary;
   state: SessionState;
+  additionalDirs: readonly string[];
   readonly skills: SessionSkillRegistry;
   readonly rpc: ISessionRPCService;
   readonly agents: Map<string, Promise<CachedRuntime | undefined>>;
@@ -143,6 +152,10 @@ export class AgentRuntimeService
     options: AgentRuntimeCreateSessionOptions,
   ): Promise<SessionSummary> {
     const id = options.id ?? createSessionId();
+    const additionalDirs = await this.resolveSessionAdditionalDirs(
+      options.workDir,
+      options.additionalDirs,
+    );
     const created = await this.store.create({ id, workDir: options.workDir });
     const agentHomedir = join(created.sessionDir, 'agents', 'main');
     const now = new Date().toISOString();
@@ -168,6 +181,7 @@ export class AgentRuntimeService
         `Session "${created.id}" state is not available`,
       );
     }
+    session.additionalDirs = additionalDirs;
     const runtime = await this.createRuntimeForSession(
       session,
       {
@@ -177,7 +191,10 @@ export class AgentRuntimeService
       'main',
     );
     try {
-      await this.initializeFreshMainRuntime(runtime, created, options);
+      await this.initializeFreshMainRuntime(runtime, created, {
+        ...options,
+        additionalDirs,
+      });
       await runtime.flush();
       this.cacheRuntime(session, 'main', runtime);
       this.trackSessionStarted(created.id, options.client);
@@ -362,9 +379,11 @@ export class AgentRuntimeService
     if (state === undefined) return undefined;
     const config = this.loadRuntimeConfig();
     const skills = await this.createSkillRegistry(summary, config);
+    const additionalDirs = await this.resolveSessionAdditionalDirs(summary.workDir);
     return {
       summary,
       state,
+      additionalDirs,
       skills,
       rpc: this.createSessionRPC(summary.id, skills),
       agents: new Map(),
@@ -376,24 +395,34 @@ export class AgentRuntimeService
     skills: SessionSkillRegistry,
   ): ISessionRPCService {
     return {
-      renameSession: (_payload: AgentScopedPayload<'renameSession'>) =>
-        this.sessionTodo('renameSession'),
-      updateSessionMetadata: (_payload: AgentScopedPayload<'updateSessionMetadata'>) =>
-        this.sessionTodo('updateSessionMetadata'),
+      renameSession: (payload: AgentScopedPayload<'renameSession'>) =>
+        this.store.rename(sessionId, payload.title),
+      updateSessionMetadata: (payload: AgentScopedPayload<'updateSessionMetadata'>) =>
+        this.store.updateMetadata(sessionId, payload.metadata),
       getSessionMetadata: (_payload: AgentScopedPayload<'getSessionMetadata'>) =>
-        this.sessionTodo('getSessionMetadata'),
+        this.store.getMetadata(sessionId),
       listSkills: (_payload: AgentScopedPayload<'listSkills'>) =>
         skills.listSkills().map(summarizeSkill),
-      listMcpServers: (_payload: AgentScopedPayload<'listMcpServers'>) =>
-        this.sessionTodo('listMcpServers'),
-      getMcpStartupMetrics: (_payload: AgentScopedPayload<'getMcpStartupMetrics'>) =>
-        this.sessionTodo('getMcpStartupMetrics'),
-      reconnectMcpServer: (_payload: AgentScopedPayload<'reconnectMcpServer'>) =>
-        this.sessionTodo('reconnectMcpServer'),
-      generateAgentsMd: (_payload: AgentScopedPayload<'generateAgentsMd'>) =>
-        this.sessionTodo('generateAgentsMd'),
-      addAdditionalDir: (_payload: AgentScopedPayload<'addAdditionalDir'>) =>
-        this.sessionTodo('addAdditionalDir'),
+      listMcpServers: async (_payload: AgentScopedPayload<'listMcpServers'>) => {
+        const runtime = await this.require(sessionId, 'main');
+        return runtime.get(IMcpRuntimeService).list();
+      },
+      getMcpStartupMetrics: async (_payload: AgentScopedPayload<'getMcpStartupMetrics'>) => {
+        const runtime = await this.require(sessionId, 'main');
+        const mcpRuntime = runtime.get(IMcpRuntimeService);
+        await mcpRuntime.waitForInitialLoad();
+        return { durationMs: mcpRuntime.initialLoadDurationMs() };
+      },
+      reconnectMcpServer: async (payload: AgentScopedPayload<'reconnectMcpServer'>) => {
+        const runtime = await this.require(sessionId, 'main');
+        await runtime.get(IMcpRuntimeService).reconnect(payload.name);
+      },
+      generateAgentsMd: async (_payload: AgentScopedPayload<'generateAgentsMd'>) => {
+        const runtime = await this.require(sessionId, 'main');
+        await runtime.get(ISubagentHost).generateAgentsMd();
+      },
+      addAdditionalDir: (payload: AgentScopedPayload<'addAdditionalDir'>) =>
+        this.addAdditionalDir(sessionId, payload),
       prompt: ({ agentId, ...payload }: AgentScopedPayload<'prompt'>) =>
         this.callAgentRPC(sessionId, agentId, 'prompt', payload),
       steer: ({ agentId, ...payload }: AgentScopedPayload<'steer'>) =>
@@ -484,11 +513,60 @@ export class AgentRuntimeService
     return await rpc[method](payload as never) as Awaited<ReturnType<IAgentRPCService[K]>>;
   }
 
-  private sessionTodo(method: string): never {
-    throw new KimiError(
-      ErrorCodes.NOT_IMPLEMENTED,
-      `TODO: SessionRPCService.${method} is not migrated to services/agent.`,
-    );
+  private async addAdditionalDir(
+    sessionId: string,
+    payload: AddAdditionalDirPayload,
+  ): Promise<AddAdditionalDirResult> {
+    const session = await this.requireCachedSession(sessionId);
+    const cwd = session.summary.workDir;
+    const kaos = (await this.getKaos()).withCwd(cwd);
+    if (payload.persist) {
+      const result = await appendWorkspaceAdditionalDir(
+        kaos,
+        cwd,
+        payload.path,
+        session.additionalDirs,
+      );
+      const additionalDirs = normalizeAdditionalDirs([
+        ...session.additionalDirs,
+        ...result.additionalDirs,
+      ]);
+      await this.setSessionAdditionalDirs(session, additionalDirs);
+      return { ...result, additionalDirs, persisted: true };
+    }
+
+    const workspace = await readWorkspaceAdditionalDirs(kaos, cwd);
+    const additionalDirs = await resolveWorkspaceAdditionalDirs(kaos, cwd, [payload.path]);
+    const nextAdditionalDirs = normalizeAdditionalDirs([
+      ...session.additionalDirs,
+      ...additionalDirs,
+    ]);
+    await this.setSessionAdditionalDirs(session, nextAdditionalDirs);
+    return {
+      projectRoot: workspace.projectRoot,
+      configPath: workspace.configPath,
+      additionalDirs: nextAdditionalDirs,
+      persisted: false,
+    };
+  }
+
+  private async requireCachedSession(sessionId: string): Promise<CachedSessionRuntime> {
+    const session = await this.getCachedSession(sessionId);
+    if (session !== undefined) return session;
+    throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `Session "${sessionId}" was not found`, {
+      details: { sessionId },
+    });
+  }
+
+  private async setSessionAdditionalDirs(
+    session: CachedSessionRuntime,
+    additionalDirs: readonly string[],
+  ): Promise<void> {
+    session.additionalDirs = normalizeAdditionalDirs(additionalDirs);
+    const cached = await Promise.all([...session.agents.values()]);
+    for (const entry of cached) {
+      entry?.runtime.setAdditionalDirs(session.additionalDirs);
+    }
   }
 
   private async createRuntime(
@@ -536,6 +614,7 @@ export class AgentRuntimeService
       modelProvider,
       toolServices,
       skills: session.skills,
+      additionalDirs: session.additionalDirs,
       telemetry: this.telemetry,
       cron: false,
       background: false,
@@ -554,6 +633,7 @@ export class AgentRuntimeService
       const preparedContext = await prepareSystemPromptContext(
         kaos,
         this.env.homeDir,
+        { additionalDirs: options.additionalDirs ?? [] },
       );
       runtime.get(IProfileService).useProfile(profile, {
         osEnv: kaos.osEnv,
@@ -639,6 +719,23 @@ export class AgentRuntimeService
             }),
     };
     return this.runtimeTools;
+  }
+
+  private async resolveSessionAdditionalDirs(
+    workDir: string,
+    additionalDirs: readonly string[] = [],
+  ): Promise<readonly string[]> {
+    const kaos = await this.getKaos();
+    const localWorkspaceDirs = await readWorkspaceAdditionalDirs(kaos, workDir);
+    const callerAdditionalDirs = await resolveWorkspaceAdditionalDirs(
+      kaos,
+      workDir,
+      additionalDirs,
+    );
+    return normalizeAdditionalDirs([
+      ...localWorkspaceDirs.additionalDirs,
+      ...callerAdditionalDirs,
+    ]);
   }
 
   private async createSkillRegistry(
