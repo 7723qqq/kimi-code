@@ -1,13 +1,13 @@
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { describe, expect, it } from 'vitest';
 
-import type { PermissionPolicyContext } from '../../../../src/agent/permission';
-import { DefaultToolApprovePermissionPolicy } from '../../../../src/agent/permission/policies/default-tool-approve';
 import { ToolAccesses } from '../../../../src/loop';
+import type { ResolvedToolExecutionHookContext } from '../../../../src/loop';
+import { DefaultToolApprovePermissionPolicyService } from '../../../../src/services/agent/permissionPolicy/policies/default-tool-approve';
 
 const signal = new AbortController().signal;
 
-function policyContext(toolName: string, args: unknown): PermissionPolicyContext {
+function policyContext(toolName: string, args: unknown): ResolvedToolExecutionHookContext {
   return {
     turnId: '0',
     stepNumber: 1,
@@ -33,11 +33,11 @@ function policyContext(toolName: string, args: unknown): PermissionPolicyContext
       approvalRule: toolName,
       execute: async () => ({ output: '' }),
     },
-  } as unknown as PermissionPolicyContext;
+  } as unknown as ResolvedToolExecutionHookContext;
 }
 
-describe('DefaultToolApprovePermissionPolicy', () => {
-  const policy = new DefaultToolApprovePermissionPolicy();
+describe('DefaultToolApprovePermissionPolicyService', () => {
+  const policy = new DefaultToolApprovePermissionPolicyService();
 
   it('auto-approves CronList', () => {
     expect(policy.evaluate(policyContext('CronList', {}))).toEqual({ kind: 'approve' });

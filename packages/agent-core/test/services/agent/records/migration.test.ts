@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   migrateWireRecord,
   type WireMigration,
-} from '../../../../src/agent/records/migration';
+} from '../../../../src/services/agent';
 
 describe('wire record migrations', () => {
   it('applies migrations in order', () => {

@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { IPromptService, type ContextMessage } from '../../../../src/services/agent';
 import { testAgent } from '../harness';
 
 const WALL_ANCHOR = 1_700_000_000_000;
@@ -33,6 +34,15 @@ function createClocks(initial: number = WALL_ANCHOR): ClockHarness {
   };
 }
 
+function spySteer(ctx: ReturnType<typeof testAgent>) {
+  return vi.spyOn(ctx.get(IPromptService), 'steer').mockImplementation((_message: ContextMessage) => ({
+    id: 1,
+    abortController: new AbortController(),
+    ready: Promise.resolve(),
+    result: Promise.resolve({ reason: 'completed' as const }),
+  }));
+}
+
 describe('CronService — P1.8 manual tick + SIGUSR1', () => {
   beforeEach(() => {
     // Disable jitter so fire-count assertions are deterministic.
@@ -52,7 +62,7 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
       const ctx = testAgent({
         cron: { autoStart: true, pollIntervalMs: 50, clocks: harness.clocks },
       });
-      const fireSpy = vi.spyOn(ctx.cron, 'fire');
+      const steerSpy = spySteer(ctx);
       try {
         ctx.cron.start();
 
@@ -63,11 +73,11 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
         // than enough to fire at least once. We do NOT use fake timers
         // here because the whole point is to prove no timer exists.
         await new Promise((r) => setTimeout(r, 50));
-        expect(fireSpy).toHaveBeenCalledTimes(0);
+        expect(steerSpy).toHaveBeenCalledTimes(0);
 
         // Manual drive → fires.
         ctx.cron.tick();
-        expect(fireSpy).toHaveBeenCalledTimes(1);
+        expect(steerSpy).toHaveBeenCalledTimes(1);
       } finally {
         await ctx.cron.stop();
       }
@@ -84,7 +94,7 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
       const ctx = testAgent({
         cron: { autoStart: true, pollIntervalMs: 50, clocks: harness.clocks },
       });
-      const fireSpy = vi.spyOn(ctx.cron, 'fire');
+      const steerSpy = spySteer(ctx);
       try {
         ctx.cron.start();
 
@@ -94,7 +104,7 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
         harness.advance(6 * 60_000);
         vi.advanceTimersByTime(60);
 
-        expect(fireSpy).toHaveBeenCalledTimes(1);
+        expect(steerSpy).toHaveBeenCalledTimes(1);
       } finally {
         await ctx.cron.stop();
       }
@@ -163,7 +173,7 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
         process.emit('SIGUSR1', 'SIGUSR1');
         expect(writeSpy).toHaveBeenCalled();
         const calls = writeSpy.mock.calls.map((c) => String(c[0]));
-        expect(calls.some((s) => /cron\/manager.*SIGUSR1/.test(s))).toBe(
+        expect(calls.some((s) => /cron\/service.*SIGUSR1/.test(s))).toBe(
           true,
         );
         expect(calls.some((s) => s.includes('debug-boom'))).toBe(true);
@@ -189,9 +199,9 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
           throw new Error('silent-boom');
         });
         process.emit('SIGUSR1', 'SIGUSR1');
-        // No cron/manager line was emitted because debug is off.
+        // No cron/service line was emitted because debug is off.
         const calls = writeSpy.mock.calls.map((c) => String(c[0]));
-        expect(calls.some((s) => /cron\/manager/.test(s))).toBe(false);
+        expect(calls.some((s) => /cron\/service/.test(s))).toBe(false);
       } finally {
         writeSpy.mockRestore();
         await ctx.cron.stop();
@@ -201,10 +211,10 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
     it('stop() removes the SIGUSR1 listener (no leak)', async () => {
       if (process.platform === 'win32') return;
 
+      const before = process.listenerCount('SIGUSR1');
       const ctx = testAgent({
         cron: { autoStart: true, pollIntervalMs: null },
       });
-      const before = process.listenerCount('SIGUSR1');
       // Constructor auto-starts, which binds SIGUSR1 under KIMI_CRON_MANUAL_TICK=1.
       expect(process.listenerCount('SIGUSR1')).toBe(before + 1);
       await ctx.cron.stop();
@@ -214,10 +224,10 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
     it('start() is idempotent — second call does not double-bind', async () => {
       if (process.platform === 'win32') return;
 
+      const before = process.listenerCount('SIGUSR1');
       const ctx = testAgent({
         cron: { autoStart: true, pollIntervalMs: null },
       });
-      const before = process.listenerCount('SIGUSR1');
       // Constructor already calls start() once; an explicit second
       // call must not stack a handler.
       try {

@@ -8,18 +8,35 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CronManager } from '../../../src/agent/cron';
-import { CronCreateTool } from '../../../src/tools/cron/cron-create';
-import { CronDeleteTool } from '../../../src/tools/cron/cron-delete';
-import { CronListTool } from '../../../src/tools/cron/cron-list';
-import type { ExecutableToolOutput } from '../../../src/loop/types';
+import { CronCreateTool } from '../../../../src/tools/cron/cron-create';
+import { CronDeleteTool } from '../../../../src/tools/cron/cron-delete';
+import { CronListTool } from '../../../../src/tools/cron/cron-list';
+import type { ExecutableToolOutput } from '../../../../src/loop/types';
+import {
+  IPromptService,
+  type ContextMessage,
+} from '../../../../src/services/agent';
 import { testAgent, type TestAgentContext } from '../harness';
-import { createClocks } from './harness/stub';
 
 // Local-time anchor (cron-expr matches on local fields, so a UTC anchor
 // would shift the result by the host's offset). At noon + 15 min the
 // `*\/5 * * * *` ideal fires are 12:05/12:10/12:15 → coalescedCount=3.
 const LOCAL_ANCHOR_MS = new Date(2024, 5, 1, 12, 0, 0, 0).getTime();
+
+function createClocks(initial = LOCAL_ANCHOR_MS) {
+  let wall = initial;
+  let mono = initial;
+  return {
+    clocks: {
+      wallNow: () => wall,
+      monoNowMs: () => mono,
+    },
+    advance(ms: number) {
+      wall += ms;
+      mono += ms;
+    },
+  };
+}
 
 /**
  * Coerce an `ExecutableToolOutput` (string | ContentPart[]) into a
@@ -33,6 +50,7 @@ function outputText(out: ExecutableToolOutput): string {
 
 describe('Cron — session E2E (P1.9)', () => {
   let ctx: TestAgentContext;
+  let harness: ReturnType<typeof createClocks>;
 
   beforeEach(() => {
     // Pin jitter off so the recurring fire lands at the ideal 12:05:00
@@ -42,8 +60,16 @@ describe('Cron — session E2E (P1.9)', () => {
     // itself — this flag is belt-and-braces against any future refactor
     // that widens the jitter window past 10 minutes.
     vi.stubEnv('KIMI_CRON_NO_JITTER', '1');
-    ctx = testAgent();
+    harness = createClocks();
+    ctx = testAgent({
+      cron: {
+        autoStart: false,
+        clocks: harness.clocks,
+        pollIntervalMs: null,
+      },
+    });
     ctx.configure();
+    ctx.cron.start();
   });
 
   afterEach(async () => {
@@ -56,41 +82,21 @@ describe('Cron — session E2E (P1.9)', () => {
   });
 
   it('recurring */5 task advances 15min → exactly one steer with coalescedCount=3', async () => {
-    // Swap the auto-built CronManager (which uses SYSTEM_CLOCKS) for one
-    // bound to our mock clock. The `as any` cast is the documented
-    // test-only escape hatch — Agent.cron is `readonly` precisely
-    // because production code must never overwrite it; tests are the
-    // only legitimate exception.
-    await ctx.cron.stop();
-    const harness = createClocks(LOCAL_ANCHOR_MS);
-    const cronManager = new CronManager(
-      ctx.runtime,
-      {
-        clocks: harness.clocks,
-        // `null` → no setInterval; we drive `tick()` ourselves to keep
-        // the test free of timing races.
-        pollIntervalMs: null,
-      },
-    );
-    (ctx.runtime as unknown as { cron: CronManager }).cron = cronManager;
-    cronManager.start();
-
-    // Spy on runtime.turn.steer. We wrap rather than replace so the real
-    // steer logic still runs (and the `turn.steer` record is written /
-    // a turn is launched against the scripted-generate harness). A pure
-    // replacement would silence interesting failure modes — e.g. a
-    // regression that emits the wrong record type but still calls
-    // handleFire.
+    // Spy on the service prompt surface so cron does not launch a real
+    // turn without a scripted LLM response.
     const steerCalls: Array<{
       readonly content: readonly unknown[];
       readonly origin: unknown;
     }> = [];
-    const originalSteer = ctx.runtime.turn.steer.bind(ctx.runtime.turn);
-    (ctx.runtime.turn as unknown as { steer: typeof ctx.runtime.turn.steer }).steer =
-      (content, origin) => {
-        steerCalls.push({ content, origin });
-        return originalSteer(content, origin);
+    vi.spyOn(ctx.get(IPromptService), 'steer').mockImplementation((message: ContextMessage) => {
+      steerCalls.push({ content: message.content, origin: message.origin });
+      return {
+        id: 1,
+        abortController: new AbortController(),
+        ready: Promise.resolve(),
+        result: Promise.resolve({ reason: 'completed' as const }),
       };
+    });
 
     // Schedule via the full tool surface — the scheduling path goes
     // through validation (parse, 5-year window, cap, byte length) just
@@ -98,7 +104,7 @@ describe('Cron — session E2E (P1.9)', () => {
     // bypass `emitScheduled` telemetry and skip the byte-length /
     // expression checks; that would not be the production code path
     // this commit is meant to smoke.
-    const createTool = new CronCreateTool(cronManager);
+    const createTool = new CronCreateTool(ctx.cron);
     const execution = createTool.resolveExecution({
       cron: '*/5 * * * *',
       prompt: 'cron-fired prompt',
@@ -115,13 +121,13 @@ describe('Cron — session E2E (P1.9)', () => {
       signal: new AbortController().signal,
     });
     expect(createResult.isError ?? false).toBe(false);
-    expect(cronManager.store.list().length).toBe(1);
+    expect(ctx.cron.list().length).toBe(1);
 
     // Advance 15 minutes — exactly three ideal */5 fires across the gap
     // (12:05, 12:10, 12:15). See the file header for the calibration
     // derivation.
     harness.advance(15 * 60_000);
-    cronManager.tick();
+    ctx.cron.tick();
 
     // ── Steer was called exactly once ─────────────────────────────────
     expect(steerCalls.length).toBe(1);

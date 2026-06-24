@@ -5,8 +5,11 @@ import { join } from 'pathe';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BlobStore, isBlobRef } from '../../../../src/agent/records/blobref';
-import type { AgentRecord } from '../../../../src/agent/records';
+import {
+  BlobStore,
+  isBlobRef,
+  type AgentRecord,
+} from '../../../../src/services/agent';
 
 const cleanups: string[] = [];
 

@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
 
-import type { PromptOrigin } from '../../../../src/agent/context/types';
 import {
   CRON_FIRED,
   CRON_MISSED,
@@ -18,7 +17,7 @@ import {
   IPromptService,
   ITurnRunner,
 } from '../../../../src/services/agent';
-import type { ContextMessage } from '../../../../src/services/agent';
+import type { ContextMessage, PromptOrigin, Turn } from '../../../../src/services/agent';
 import { testAgent, type TestAgentContext } from '../harness';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -55,16 +54,19 @@ function createClocks(initial = WALL_ANCHOR) {
 
 function createSteerSpy(
   ctx: TestAgentContext,
-  returnValue: { id: number; abortController: AbortController; ready: Promise<void>; result: Promise<{ reason: 'completed' }> } | undefined = {
+  ...args: [
+    returnValue?: Turn | undefined,
+  ]
+) {
+  const returnValue = args.length === 0 ? {
     id: 1,
     abortController: new AbortController(),
     ready: Promise.resolve(),
     result: Promise.resolve({ reason: 'completed' as const }),
-  },
-) {
+  } : args[0];
   const calls: Array<{ content: readonly ContentPart[]; origin: PromptOrigin }> = [];
   vi.spyOn(ctx.get(IPromptService), 'steer').mockImplementation((message: ContextMessage) => {
-    calls.push({ content: message.content, origin: message.origin });
+    calls.push({ content: message.content, origin: message.origin as PromptOrigin });
     return returnValue;
   });
   return calls;
@@ -507,7 +509,7 @@ describe('CronManager', () => {
 
       expect(steerCalls.length).toBe(1);
       const call = steerCalls[0]!;
-      expect(call.content).toBe(rendered);
+      expect(call.content).toStrictEqual(rendered);
       expect(call.origin.kind).toBe('cron_missed');
       if (call.origin.kind !== 'cron_missed') throw new Error('unreachable');
       expect(call.origin.count).toBe(2);

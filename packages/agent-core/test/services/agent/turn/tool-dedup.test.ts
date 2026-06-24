@@ -5,9 +5,9 @@ import type {
   TelemetryClient,
   TelemetryProperties,
 } from '#/services/agent/telemetry/telemetry';
-import { ToolCallDeduplicator, __testing } from '#/services/agent/turn/tool-dedup';
+import { ToolCallDeduplicator, toolDedupTesting } from '../../../../src/services/agent';
 
-const { REMINDER_TEXT_1, REMINDER_TEXT_3, makeReminderText2 } = __testing;
+const { REMINDER_TEXT_1, REMINDER_TEXT_3, makeReminderText2 } = toolDedupTesting;
 
 interface RecordedTelemetryEvent {
   readonly event: string;

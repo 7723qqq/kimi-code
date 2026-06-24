@@ -4,7 +4,10 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { BackgroundManager, BackgroundTaskPersistence } from '../../../../src/agent/background';
+import {
+  BackgroundTaskPersistence,
+  LegacyBackgroundManager,
+} from '../../../../src/services/agent/background/background';
 
 let sessionDir: string;
 
@@ -105,7 +108,7 @@ describe('BackgroundTaskPersistence legacy compatibility', () => {
       turn: { steer: vi.fn() },
       hooks: undefined,
     };
-    const manager = new BackgroundManager(agent as never, persistence);
+    const manager = new LegacyBackgroundManager(agent as never, persistence);
 
     await manager.loadFromDisk();
     await manager.reconcile();

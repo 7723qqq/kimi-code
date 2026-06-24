@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { UsageRecorder } from '../../../src/services/agent/usage';
+import { testAgent } from './harness';
 
 describe('Agent usage', () => {
   it('accumulates usage by model', () => {
-    const usage = new UsageRecorder();
+    const usage = testAgent().usage;
 
     usage.record('model-a', {
       inputOther: 1,
@@ -51,7 +51,7 @@ describe('Agent usage', () => {
   });
 
   it('tracks current turn usage separately from session totals', () => {
-    const usage = new UsageRecorder();
+    const usage = testAgent().usage;
 
     usage.record('model-a', {
       inputOther: 1,
@@ -102,7 +102,7 @@ describe('Agent usage', () => {
   });
 
   it('returns immutable status snapshots', () => {
-    const usage = new UsageRecorder();
+    const usage = testAgent().usage;
 
     usage.record('model-a', {
       inputOther: 1,

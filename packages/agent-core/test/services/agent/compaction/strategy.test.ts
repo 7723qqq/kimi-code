@@ -3,7 +3,7 @@ import {
 } from '@moonshot-ai/kosong';
 import { describe, expect, it } from 'vitest';
 
-import { DefaultCompactionStrategy } from '../../../../src/agent/compaction';
+import { DefaultCompactionStrategy } from '../../../../src/services/agent/fullCompaction/compactionStrategy';
 import { estimateTokensForMessages } from '../../../../src/utils/tokens';
 
 describe('DefaultCompactionStrategy', () => {

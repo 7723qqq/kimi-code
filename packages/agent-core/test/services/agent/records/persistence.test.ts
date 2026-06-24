@@ -11,7 +11,7 @@ import {
   FileSystemAgentRecordPersistence,
   InMemoryAgentRecordPersistence,
   type AgentRecord,
-} from '../../../../src/agent/records';
+} from '../../../../src/services/agent';
 
 const cleanups: string[] = [];
 

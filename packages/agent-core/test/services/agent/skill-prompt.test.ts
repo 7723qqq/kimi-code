@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   renderModelToolSkillPrompt,
   renderUserSlashSkillPrompt,
-} from '../../../src/services/agent/skill/prompt';
+} from '../../../src/services/agent';
 
 /**
  * Regression coverage for the skill directory being surfaced on the

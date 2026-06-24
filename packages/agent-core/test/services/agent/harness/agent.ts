@@ -7,8 +7,6 @@ import type { ContentPart, ModelCapability, ProviderConfig } from '@moonshot-ai/
 import type { generate as kosongGenerate } from '@moonshot-ai/kosong';
 import { expect, onTestFinished, vi } from 'vitest';
 
-import { AGENT_WIRE_PROTOCOL_VERSION } from '../../../../src/agent/records';
-import type { PermissionMode, PermissionRule } from '../../../../src/agent/permission';
 import type { KimiConfig } from '../../../../src/config';
 import {
   InstantiationService,
@@ -27,6 +25,7 @@ import {
 } from '../../../../src/services';
 import {
   AgentRuntime,
+  AGENT_WIRE_PROTOCOL_VERSION,
   IAgentRPCService,
   IBackgroundService,
   IContextMemory,
@@ -46,6 +45,8 @@ import {
   createAgentRuntime,
   type AgentRuntimeOptions,
   type ContextMessage,
+  type PermissionMode,
+  type PermissionRule,
   type PersistedWireRecord,
   type ToolOutput,
   type ToolResult,

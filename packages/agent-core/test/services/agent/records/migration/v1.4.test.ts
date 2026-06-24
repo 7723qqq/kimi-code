@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { migrateV1_3ToV1_4 } from '../../../../../../src/agent/records/migration/v1.4';
+import { migrateV1_3ToV1_4 } from '../../../../../src/services/agent';
 import { runMigration } from './utils';
 
 describe('1.3 to 1.4', () => {

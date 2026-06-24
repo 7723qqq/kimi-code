@@ -16,8 +16,7 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
-import type { PromptOrigin } from '../../../../src/agent/context/types';
-import type { ContextMessage } from '../../../../src/services/agent';
+import type { ContextMessage, PromptOrigin } from '../../../../src/services/agent';
 import { IPromptService } from '../../../../src/services/agent';
 import { createCronPersistStore } from '../../../../src/tools/cron/persist';
 import type { ClockSources } from '../../../../src/tools/cron/clock';
