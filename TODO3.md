@@ -25,7 +25,7 @@
   - `goal.test.ts`：用 `IGoalService`、wire record、event bus / replay builder 覆盖旧 `GoalMode` 行为。
   - `injection/plan-mode.test.ts`：用 `IPlanModeService` + `IDynamicInjector` 覆盖 plan reminder 内容和 cadence，而不是旧 `PlanModeInjector`。
   - `injection/plugin-session-start.test.ts`：等待服务层 plugin session-start injection 入口后再迁移；当前仍只能测旧 injector。
-- [ ] 重写 `records/index.test.ts` 里的 skipped replay range 覆盖。旧测试可以保留“历史日志输入”的意图，但断言应基于 v1.5 `context.splice`，不要要求恢复 `context.append_message` / `context.clear` / `context.undo` 作为当前输出。
+- [x] 重写 `records/index.test.ts` 里的 skipped replay range 覆盖。fixture 已从旧 `context.append_message` / `context.clear` / `context.undo` 迁到 v1.5 `context.splice`，`describe.skip` 已解除，断言改为基于 splice 输出（其中 `does not rewrite migrated wire records while projecting` 本就是带旧 `protocol_version` 的 migration compat 用例，保持不变）。剩余 6 个测试仍红，根因已下沉为服务层 replay 缺口（见下方“行为待对齐”里的 replay range / splice 条目），不再是 fixture 迁移债。
 - [ ] 清理 skipped 测试中的旧 wire snapshot。`context.test.ts`、`resume.test.ts`、`plan.test.ts`、`turn.test.ts`、`permission.test.ts`、`compaction/full.test.ts`、`compaction/micro.test.ts` 里仍有大量旧 record 形状；解除 skip 前先判断是“迁移 fixture”还是“当前协议快照”。
 - [ ] 给 service runtime 的 `Skill` model-tool 语义补等价测试后，恢复 `skill-tool-manager.test.ts` 中 skipped 的 model-invocable skill 覆盖。用户 slash skill activation 已有 `IAgentSkillService`，不要混为同一件事。
 
@@ -43,7 +43,11 @@
 ## 行为待对齐
 
 - [ ] 恢复 skipped 的 resume projection 覆盖：从历史记录重建 turn counter、tool-store 状态、compaction/goal replay cards、延迟 reminders、pending tool results，以及中断 tool call 的合成结果。这里应按 v1.5 canonical records 断言；旧 records 只用于 migration 输入。覆盖测试：`resume.test.ts`、`context.test.ts`、`records/index.test.ts`。
-- [ ] 恢复 session 级 approval replay 到 `PermissionRulesService.sessionApprovalRulePatterns`，不能只恢复一次性的 approval notification。覆盖测试：`permission.test.ts`。
+- [ ] 修复 replay range 无法下传到 runtime 的缺口：`buildReplayFromPersistence(persistence, range)` 的 `range` 形参当前被丢弃（commit `2ebe339e` 在跳过该 describe 的同一提交里删掉了 `testAgent({ …, replay: { range } })`），`AgentRuntimeOptions` / `WireRecordRestoreOptions` 已无 replay 选项、`ReplayBuilderService` 始终以 `{}` 构造，导致 `buildResult()` 永远返回未切片的完整列表。需要把 range 重新接回 restore / replay builder 路径。覆盖测试：`records/index.test.ts`（`applies start and count ...`、`returns the last count ...`、`continues reading all segments ...` 等）。
+- [ ] 让 `context.splice` 的删除反映到 replay：`ContextMemoryService.applySplice` 目前只对插入消息 `replayBuilder.push({ type: 'message' })`，`deleteCount > 0` 时无人调用 `removeLastMessages`，被删消息仍留在 replay 中。覆盖测试：`records/index.test.ts`（含旧 `context.undo` → splice 删除的用例）。
+- [ ] 让 `context.splice` 成为 undo boundary：`ReplayBuilderService.finishRestoringRecord` 的 `UNDO_BOUNDARY_RECORD_TYPES` 仍是旧的 `context.clear` / `context.apply_compaction`，迁移后实际类型是 `context.splice`，分段冻结 / 钳位永不触发。覆盖测试：`records/index.test.ts`（分段 / range 用例）。注：compaction replay 投影缺口由上方 full-compaction 对齐项统一收口，不重复列入。
+- [x] 恢复 session 级 approval replay 到 `PermissionRulesService.sessionApprovalRulePatterns`，不能只恢复一次性的 approval notification。已修复：`PermissionRulesService` 的 `permission.record_approval_result` handler 在构造函数里注册，但 DI 中是懒代理，`AgentRuntime.restore()` 的预热块未触发其构造，回放时 handler 不存在、session rule 无法恢复。已在该预热块补 `accessor.get(IPermissionRulesService).rules` 强制构造。`permission.test.ts` 全绿（178），`it('replays session approval wire events into agent permission state')` 已解除 skip，one-shot 对比测试行为不变。
+- [ ] 排查 `activateAgentServices()` 懒代理“假预热”：里面很多 service 只做 `accessor.get(...)` 而不访问成员，按懒代理语义是 no-op，handler 注册实际依赖 `restore()` 预热块或外部成员访问。本次只补了 `IPermissionRulesService`；其它在 `activateAgentServices()` 里“假预热”且在 restore 期间需要 handler 的 service 可能有相同时序缺口，需要逐一核对。覆盖测试：`permission.test.ts`，以及未来新增的 restore 回归测试。
 - [ ] 恢复 registered user-tool 的 full resume parity：restore 后应恢复 active registered tools、permission mode、累计 usage，以及 completed-turn context。覆盖测试：`tool.test.ts`，以及 `basic.test.ts` / `config.test.ts` 中暂时关闭的 `expectResumeMatches()`。
 - [ ] 完成 `PlanModeService` 行为对齐：path derivation、filesystem calls、clear/read/exit flow、approval rejection handling、plan reminders、injection cadence，以及 resume parity。Bash-in-plan-mode 依赖 Bash builtin 迁移，单独跟 Bash 项收口。覆盖测试：`plan.test.ts`、`injection/plan-mode.test.ts`。
 - [ ] 恢复服务层 goal replay 语义：`goal.*` records、fork boundaries、goal-cleared reminders、goal injector boundary cadence，以及 goal-outcome cleanup。覆盖测试：`goal.test.ts`、`injection/goal.test.ts`、`records/index.test.ts`、`resume.test.ts`。
