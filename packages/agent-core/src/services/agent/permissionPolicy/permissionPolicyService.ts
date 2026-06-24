@@ -10,6 +10,7 @@ import {
   type PermissionGitWorkTreeMarker,
   type PermissionServiceOptions,
 } from '../permission/permission';
+import { IExternalHooksService } from '../externalHooks/externalHooks';
 import { IPermissionModeService } from '../permissionMode/permissionMode';
 import { IPermissionRulesService } from '../permissionRules/permissionRules';
 import { IProfileService } from '../profile/profile';
@@ -29,6 +30,7 @@ import {
 } from './policies/path-utils';
 import { PlanModeGuardDenyPermissionPolicyService } from './policies/plan-mode-guard-deny';
 import { PlanModeToolApprovePermissionPolicyService } from './policies/plan-mode-tool-approve';
+import { PreToolCallHookPermissionPolicyService } from './policies/pre-tool-call-hook';
 import type { PermissionPolicyRuntime } from './policies/runtime';
 import { SensitiveFileAccessAskPermissionPolicyService } from './policies/sensitive-file-access-ask';
 import { SessionApprovalHistoryPermissionPolicyService } from './policies/session-approval-history';
@@ -71,8 +73,10 @@ export class PermissionPolicyService
       const rulesService = accessor.get(IPermissionRulesService);
       const profile = accessor.get(IProfileService);
       const telemetry = accessor.get(ITelemetryService);
+      const externalHooks = accessor.get(IExternalHooksService);
 
       return [
+        new PreToolCallHookPermissionPolicyService(externalHooks),
         new AgentSwarmExclusiveDenyPermissionPolicyService(),
         new AutoModeAskUserQuestionDenyPermissionPolicyService(modeService),
         new PlanModeGuardDenyPermissionPolicyService(this),

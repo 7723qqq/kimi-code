@@ -25,7 +25,7 @@
 import type { Kaos, KaosProcess } from '@moonshot-ai/kaos';
 import { z } from 'zod';
 
-import { ProcessBackgroundTask, type BackgroundManager } from '../../../agent/background';
+import { ProcessBackgroundTask } from '../../../agent/background';
 import type { BuiltinTool } from '../../../agent/tool';
 import type { ExecutableToolResult, ToolExecution, ToolUpdate } from '../../../loop/types';
 import { renderPrompt } from '../../../utils/render-prompt';
@@ -33,6 +33,7 @@ import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
 import { ToolResultBuilder } from '../../support/result-builder';
 import bashDescriptionTemplate from './bash.md?raw';
+import type { IBackgroundService } from '../../../services/agent';
 
 const MS_PER_SECOND = 1000;
 const DEFAULT_TIMEOUT_S = 60;
@@ -159,7 +160,7 @@ export class BashTool implements BuiltinTool<BashInput> {
   constructor(
     private readonly kaos: Kaos,
     private readonly cwd: string,
-    private readonly backgroundManager: BackgroundManager,
+    private readonly backgroundManager: IBackgroundService,
     options?: {
       allowBackground?: boolean | undefined;
     },

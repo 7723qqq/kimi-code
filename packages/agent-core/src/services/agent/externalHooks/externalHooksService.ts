@@ -25,6 +25,24 @@ function fireAndForget(
 export class ExternalHooksService implements IExternalHooksService {
   constructor(private readonly options: ExternalHooksServiceOptions = {}) {}
 
+  async triggerPreToolUse(
+    payload: Parameters<IExternalHooksService['triggerPreToolUse']>[0],
+    signal: AbortSignal,
+  ): Promise<string | undefined> {
+    signal.throwIfAborted();
+    const block = await this.options.hookEngine?.triggerBlock('PreToolUse', {
+      matcherValue: payload.toolName,
+      signal,
+      inputData: {
+        toolName: payload.toolName,
+        toolInput: payload.toolInput,
+        toolCallId: payload.toolCallId,
+      },
+    });
+    signal.throwIfAborted();
+    return block?.reason;
+  }
+
   async triggerUserPromptSubmit(
     input: Parameters<IExternalHooksService['triggerUserPromptSubmit']>[0],
     signal: AbortSignal,

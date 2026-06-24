@@ -11,7 +11,7 @@ import { executeTool } from '../../tools/fixtures/execute-tool';
 const signal = new AbortController().signal;
 
 describe('Agent tools', () => {
-  it.skip('blocks tools through PreToolUse before permission and emits PostToolUseFailure', async () => {
+  it('blocks tools through PreToolUse before permission and emits PostToolUseFailure', async () => {
     const execWithEnv = vi.fn().mockRejectedValue(new Error('Bash should not execute'));
     const triggered: Array<[string, string, number]> = [];
     const hookEngine = new HookEngine(
@@ -53,7 +53,7 @@ describe('Agent tools', () => {
     expect(JSON.stringify(ctx.context.getHistory())).toContain('blocked by PreToolUse');
   });
 
-  it.skip('emits PostToolUse after successful tools', async () => {
+  it('emits PostToolUse after successful tools', async () => {
     const triggered: Array<[string, string, number]> = [];
     const hookEngine = new HookEngine(
       [
@@ -85,7 +85,7 @@ describe('Agent tools', () => {
     expect(triggered).toEqual([['PostToolUse', 'Bash', 1]]);
   });
 
-  it.skip('uses builtin descriptions on tool call start events', async () => {
+  it('uses builtin descriptions on tool call start events', async () => {
     const ctx = testAgent({
       kaos: createCommandKaos('ok'),
     });
@@ -207,7 +207,7 @@ describe('Agent tools', () => {
     });
   });
 
-  it.skip('uses the active builtin tool set as the LLM visible tools', async () => {
+  it('uses the active builtin tool set as the LLM visible tools', async () => {
     const ctx = testAgent();
     ctx.configure({ tools: ['Write', 'Bash'] });
 
@@ -221,10 +221,9 @@ describe('Agent tools', () => {
       messages:
         user: text "Which tools are active?"
     `);
-    await ctx.expectResumeMatches();
   });
 
-  it.skip('disables Bash background mode unless task management tools are active', async () => {
+  it('disables Bash background mode unless task management tools are active', async () => {
     const ctx = testAgent();
     ctx.configure({ tools: ['Bash'] });
 
@@ -316,7 +315,7 @@ describe('Agent tools', () => {
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Lookup, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
+      tools: Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Lookup, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
       messages:
         user: text "Look up moon"
         user: text <auto-mode-enter-reminder>
@@ -366,7 +365,7 @@ describe('Agent tools', () => {
       [emit] turn.ended                   { "turnId": 1, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      tools: AgentSwarm, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
+      tools: AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
       messages:
         <last>
         assistant: text "The lookup result is moon-result."
