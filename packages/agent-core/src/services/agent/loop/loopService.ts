@@ -38,6 +38,7 @@ import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
 import { IContextUsageService } from '../contextUsage/contextUsage';
 import { IEventBus } from '../eventBus/eventBus';
+import { IExternalHooksService } from '../externalHooks/externalHooks';
 import { IFullCompaction } from '../fullCompaction/fullCompaction';
 import { ILLMRequester } from '../llmRequester/llmRequester';
 import { IMcpRuntimeService } from '../mcpRuntime/mcpRuntime';
@@ -161,6 +162,7 @@ export class LoopService extends Disposable implements ILoopService {
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IMcpRuntimeService private readonly mcpRuntime: IMcpRuntimeService,
+    @IExternalHooksService private readonly externalHooks: IExternalHooksService,
   ) {
     super();
     this.context.hooks.onSpliced.register('loop-service-reconcile', async (_event, next) => {
@@ -662,6 +664,7 @@ export class LoopService extends Disposable implements ILoopService {
       },
     });
     let continueAfterStop = false;
+    let stopHookContinuationUsed = false;
     return {
       beforeStep: async () => {
         deduper.beginStep();
@@ -693,10 +696,29 @@ export class LoopService extends Disposable implements ILoopService {
           context.args,
           context.result,
         ),
-      shouldContinueAfterStop: async () => {
+      shouldContinueAfterStop: async (context) => {
         const shouldContinue = continueAfterStop;
         continueAfterStop = false;
-        return { continue: shouldContinue };
+        if (shouldContinue) return { continue: true };
+
+        if (!stopHookContinuationUsed) {
+          const reason = await this.externalHooks.triggerStop(
+            context.signal,
+            stopHookContinuationUsed,
+          );
+          if (reason !== undefined) {
+            stopHookContinuationUsed = true;
+            this.appendImmediately({
+              role: 'user',
+              content: [{ type: 'text', text: reason }],
+              toolCalls: [],
+              origin: { kind: 'system_trigger', name: 'stop_hook' },
+            });
+            return { continue: true };
+          }
+        }
+
+        return { continue: false };
       },
     };
   }

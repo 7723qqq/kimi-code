@@ -94,6 +94,14 @@ export { ILoopService } from './loop/loop';
 export { LoopService } from './loop/loopService';
 
 export {
+  IExternalHooksService,
+  type ExternalHooksServiceOptions,
+  type RenderedExternalHookResult,
+  type UserPromptHookDecision,
+} from './externalHooks/externalHooks';
+export { ExternalHooksService } from './externalHooks/externalHooksService';
+
+export {
   IToolRegistry,
   type ToolRegistrationOptions,
 } from './toolRegistry/toolRegistry';

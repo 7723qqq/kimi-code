@@ -66,6 +66,7 @@ export interface WireRecordRegisterOptions<T extends keyof WireRecordMap> {
 
 export interface IWireRecord {
   readonly restoring: WireRecordRestoringContext | null;
+  readonly postRestoring: boolean;
 
   append(record: WireRecord): void;
   register<T extends keyof WireRecordMap>(

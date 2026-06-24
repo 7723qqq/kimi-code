@@ -13,10 +13,10 @@ const UNDO_BOUNDARY_RECORD_TYPES = new Set(['context.clear', 'context.apply_comp
 export class ReplayBuilderService extends Disposable implements IReplayBuilderService {
   declare readonly _serviceBrand: undefined;
 
-  postRestoring = false;
   captureLiveRecords = false;
 
   private readonly records: AgentReplayRecord[] = [];
+  private _postRestoring = false;
   private frozen = false;
   private segmentStart = 0;
 
@@ -35,8 +35,20 @@ export class ReplayBuilderService extends Disposable implements IReplayBuilderSe
     );
   }
 
+  get postRestoring(): boolean {
+    return this._postRestoring || this.wireRecord.postRestoring;
+  }
+
+  set postRestoring(value: boolean) {
+    this._postRestoring = value;
+  }
+
   push(record: AgentReplayRecordPayload): void {
-    if (!this.captureLiveRecords && this.wireRecord.restoring === null && !this.postRestoring) {
+    if (
+      !this.captureLiveRecords &&
+      this.wireRecord.restoring === null &&
+      !this.postRestoring
+    ) {
       return;
     }
     if (this.frozen) return;

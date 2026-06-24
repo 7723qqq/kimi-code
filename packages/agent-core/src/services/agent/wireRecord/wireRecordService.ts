@@ -48,6 +48,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
   private readonly persistence: WireRecordPersistence | undefined;
   private readonly blobStore: IBlobStoreService | undefined;
   private _restoring: { time?: number } | null = null;
+  private _postRestoring = false;
   private metadataInitialized = false;
   readonly hooks = {
     onRestoredRecord: new OrderedHookSlot<WireRecordRestoredContext>(),
@@ -74,6 +75,10 @@ export class WireRecordService extends Disposable implements IWireRecord {
 
   get restoring() {
     return this._restoring;
+  }
+
+  get postRestoring() {
+    return this._postRestoring;
   }
 
   append(record: WireRecord): void {
@@ -234,7 +239,12 @@ export class WireRecordService extends Disposable implements IWireRecord {
   }
 
   private async runResumeEndedHooks(): Promise<void> {
-    await this.hooks.onResumeEnded.run({});
+    this._postRestoring = true;
+    try {
+      await this.hooks.onResumeEnded.run({});
+    } finally {
+      this._postRestoring = false;
+    }
   }
 
   private reportPersistenceError(
