@@ -128,6 +128,7 @@ import { TelemetryService } from './telemetry/telemetryService';
 import { IToolExecutor } from './toolExecutor/toolExecutor';
 import { IToolRegistry } from './toolRegistry/toolRegistry';
 import { IToolStoreService } from './toolStore/toolStore';
+import './todoList/todoListService';
 import { ITodoListService } from './todoList/todoList';
 import { ITurnRunner } from './turnRunner/turnRunner';
 import { IUsageService } from './usage/usage';

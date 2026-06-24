@@ -1,114 +1,142 @@
 import { describe, expect, it } from 'vitest';
 
-import { DynamicInjector } from '../../../../src/agent/injection/injector';
-import { InjectionManager } from '../../../../src/agent/injection/manager';
-import { TodoListReminderInjector } from '../../../../src/agent/injection/todo-list';
+import {
+  IDynamicInjector,
+  type ContextMessage,
+} from '../../../../src/services/agent';
 import { testAgent } from '../harness';
 
-class RecordingInjector extends DynamicInjector {
-  override readonly injectionVariant = 'recording_test';
-  compactionCalls = 0;
-  clearCalls = 0;
+type InjectableDynamicInjector = {
+  inject(): Promise<void>;
+};
 
-  override onContextClear(): void {
-    this.clearCalls += 1;
-    super.onContextClear();
-  }
+type DynamicInjectorInternals = {
+  entries: Set<{ variant: string }>;
+};
 
-  override onContextCompacted(compactedCount: number): void {
-    this.compactionCalls += 1;
-    super.onContextCompacted(compactedCount);
-  }
-
-  protected override getInjection(): string | undefined {
-    return undefined;
-  }
+async function injectDynamic(ctx: ReturnType<typeof testAgent>): Promise<void> {
+  await (ctx.get(IDynamicInjector) as unknown as InjectableDynamicInjector).inject();
 }
 
-class BoomInjector extends DynamicInjector {
-  override readonly injectionVariant = 'boom_test';
-
-  override onContextCompacted(_compactedCount: number): void {
-    throw new Error('boom-compact');
-  }
-
-  protected override getInjection(): string | undefined {
-    return undefined;
-  }
+function userMessage(text: string): ContextMessage {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    origin: { kind: 'user' },
+  };
 }
 
-function installInjectors(manager: InjectionManager, injectors: DynamicInjector[]): void {
-  (manager as unknown as { injectors: DynamicInjector[] }).injectors = injectors;
+function compactionSummary(text: string): ContextMessage {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    origin: { kind: 'compaction_summary' },
+  };
 }
 
-describe('InjectionManager.onContextCompacted', () => {
-  it('notifies every registered injector when compaction occurs', () => {
+function lastText(ctx: ReturnType<typeof testAgent>): string | undefined {
+  const message = ctx.context.getHistory().at(-1);
+  const part = message?.content[0];
+  return part?.type === 'text' ? part.text : undefined;
+}
+
+describe('DynamicInjectorService', () => {
+  it('registers providers and appends injection messages with the provider variant', async () => {
     const ctx = testAgent();
     ctx.configure();
-    const a = new RecordingInjector(ctx.runtime);
-    const b = new RecordingInjector(ctx.runtime);
-    installInjectors(ctx.runtime.injection, [a, b]);
+    const seen: Array<number | null> = [];
 
-    ctx.runtime.injection.onContextCompacted(3);
-
-    expect(a.compactionCalls).toBe(1);
-    expect(b.compactionCalls).toBe(1);
-  });
-
-  it('isolates compaction hook failures so later injectors still receive the notification', () => {
-    const ctx = testAgent();
-    ctx.configure();
-    const recorder = new RecordingInjector(ctx.runtime);
-    installInjectors(ctx.runtime.injection, [new BoomInjector(ctx.runtime), recorder]);
-
-    expect(() => {
-      ctx.runtime.injection.onContextCompacted(2);
-    }).not.toThrow();
-    expect(recorder.compactionCalls).toBe(1);
-  });
-
-  it('continues notifying surviving injectors on later compactions', () => {
-    const ctx = testAgent();
-    ctx.configure();
-    const recorder = new RecordingInjector(ctx.runtime);
-    installInjectors(ctx.runtime.injection, [new BoomInjector(ctx.runtime), recorder]);
-
-    expect(() => {
-      ctx.runtime.injection.onContextCompacted(1);
-    }).not.toThrow();
-    expect(recorder.compactionCalls).toBe(1);
-
-    ctx.runtime.injection.onContextCompacted(1);
-    expect(recorder.compactionCalls).toBe(2);
-  });
-
-  it('replays context lifecycle records through ContextMemory only once', () => {
-    const ctx = testAgent();
-    ctx.configure();
-    const recorder = new RecordingInjector(ctx.runtime);
-    installInjectors(ctx.runtime.injection, [recorder]);
-
-    ctx.runtime.records.restore({ type: 'context.clear' });
-    ctx.runtime.records.restore({
-      type: 'context.apply_compaction',
-      summary: 'Compacted summary.',
-      compactedCount: 2,
-      tokensBefore: 10,
-      tokensAfter: 4,
+    ctx.get(IDynamicInjector).register('recording_test', ({ injectedAt }) => {
+      seen.push(injectedAt);
+      return 'recorded reminder';
     });
 
-    expect(recorder.clearCalls).toBe(1);
-    expect(recorder.compactionCalls).toBe(1);
+    await injectDynamic(ctx);
+
+    expect(seen).toEqual([null]);
+    expect(lastText(ctx)).toContain('<system-reminder>');
+    expect(lastText(ctx)).toContain('recorded reminder');
+    expect(ctx.context.getHistory().at(-1)?.origin).toEqual({
+      kind: 'injection',
+      variant: 'recording_test',
+    });
+  });
+
+  it('passes the previous injection index back to the provider', async () => {
+    const ctx = testAgent();
+    ctx.configure();
+    const seen: Array<number | null> = [];
+
+    ctx.get(IDynamicInjector).register('recording_test', ({ injectedAt }) => {
+      seen.push(injectedAt);
+      return injectedAt === null ? 'recorded reminder' : undefined;
+    });
+
+    await injectDynamic(ctx);
+    await injectDynamic(ctx);
+
+    expect(seen).toEqual([null, 0]);
+    expect(ctx.context.getHistory()).toHaveLength(1);
+  });
+
+  it('resets the stored injection index after context clear', async () => {
+    const ctx = testAgent();
+    ctx.configure();
+    const seen: Array<number | null> = [];
+
+    ctx.get(IDynamicInjector).register('recording_test', ({ injectedAt }) => {
+      seen.push(injectedAt);
+      return injectedAt === null ? 'recorded reminder' : undefined;
+    });
+
+    await injectDynamic(ctx);
+    ctx.context.spliceHistory(0, ctx.context.getHistory().length);
+    await injectDynamic(ctx);
+
+    expect(seen).toEqual([null, null]);
+    expect(ctx.context.getHistory()).toHaveLength(1);
+    expect(ctx.context.getHistory()[0]?.origin).toEqual({
+      kind: 'injection',
+      variant: 'recording_test',
+    });
+  });
+
+  it('keeps the injection index aligned after compaction replaces the prefix', async () => {
+    const ctx = testAgent();
+    ctx.configure();
+    const seen: Array<number | null> = [];
+
+    ctx.context.spliceHistory(0, 0, userMessage('before reminder'));
+    ctx.get(IDynamicInjector).register('recording_test', ({ injectedAt }) => {
+      seen.push(injectedAt);
+      return injectedAt === null ? 'recorded reminder' : undefined;
+    });
+
+    await injectDynamic(ctx);
+    ctx.context.spliceHistory(
+      0,
+      2,
+      compactionSummary('Compacted summary.'),
+    );
+    await injectDynamic(ctx);
+
+    expect(seen).toEqual([null, 0]);
+    expect(ctx.context.getHistory()).toHaveLength(1);
+    expect(ctx.context.getHistory()[0]?.origin).toEqual({ kind: 'compaction_summary' });
   });
 });
 
-describe('InjectionManager registration', () => {
-  it('registers TodoListReminderInjector in the default injector chain', () => {
+describe('DynamicInjectorService registration', () => {
+  it('registers the todo-list reminder in the default injector chain', () => {
     const ctx = testAgent();
     ctx.configure();
 
-    const injectors = (ctx.runtime.injection as unknown as { injectors: DynamicInjector[] }).injectors;
+    const entries = [
+      ...(ctx.get(IDynamicInjector) as unknown as DynamicInjectorInternals).entries,
+    ];
 
-    expect(injectors.some((injector) => injector instanceof TodoListReminderInjector)).toBe(true);
+    expect(entries.some((entry) => entry.variant === 'todo_list_reminder')).toBe(true);
   });
 });

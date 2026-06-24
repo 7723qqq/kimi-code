@@ -53,5 +53,5 @@ export class TodoListService extends Disposable implements ITodoListService {
 
 registerSingleton(
   ITodoListService,
-  new SyncDescriptor(TodoListService, [], true),
+  new SyncDescriptor(TodoListService, [], false),
 );
