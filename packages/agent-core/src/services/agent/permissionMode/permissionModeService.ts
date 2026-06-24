@@ -7,8 +7,7 @@ import { OrderedHookSlot } from '../hooks';
 import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import type { WireRecord } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
-import AUTO_MODE_ENTER_REMINDER from '../extensions/permission-mode-auto-enter-reminder.md?raw';
-import AUTO_MODE_EXIT_REMINDER from '../extensions/permission-mode-auto-exit-reminder.md?raw';
+import { registerPermissionModeInjection } from './injection/permissionModeInjection';
 import { IPermissionModeService } from './permissionMode';
 
 declare module '../types' {
@@ -26,11 +25,8 @@ declare module '../types' {
   }
 }
 
-const PERMISSION_MODE_INJECTION_VARIANT = 'permission_mode';
-
 export class PermissionModeService extends Disposable implements IPermissionModeService {
   private currentMode: PermissionMode = 'manual';
-  private lastInjectedMode: PermissionMode | undefined;
 
   readonly hooks = {
     onChanged: new OrderedHookSlot<{
@@ -52,7 +48,7 @@ export class PermissionModeService extends Disposable implements IPermissionMode
       }),
     );
     this._register(
-      dynamicInjector.register(PERMISSION_MODE_INJECTION_VARIANT, () => this.autoModeReminder()),
+      registerPermissionModeInjection(dynamicInjector, this),
     );
   }
 
@@ -79,16 +75,6 @@ export class PermissionModeService extends Disposable implements IPermissionMode
       permission: this.currentMode,
     });
     void this.hooks.onChanged.run({ mode: this.currentMode, previousMode });
-  }
-
-  private autoModeReminder(): string | undefined {
-    const previousMode = this.lastInjectedMode;
-    if (this.currentMode === previousMode) return undefined;
-
-    this.lastInjectedMode = this.currentMode;
-    if (this.currentMode === 'auto') return AUTO_MODE_ENTER_REMINDER;
-    if (previousMode === 'auto') return AUTO_MODE_EXIT_REMINDER;
-    return undefined;
   }
 }
 

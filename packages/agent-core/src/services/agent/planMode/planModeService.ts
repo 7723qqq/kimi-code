@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'pathe';
 
-import { Disposable } from '../../../di';
+import {
+  Disposable,
+  registerSingleton,
+  SyncDescriptor,
+} from '../../../di';
 import type { ExecutableToolResult } from '../../../loop';
 import type { ToolInputDisplay } from '../../../tools/display';
 import ENTER_PLAN_MODE_DESCRIPTION from '../../../tools/builtin/planning/enter-plan-mode.md?raw';
@@ -23,43 +27,20 @@ import { ITelemetryService } from '../telemetry/telemetry';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import type { ContextMessage } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
+import {
+  IPlanModeService,
+  type PlanData,
+  type PlanFilePath,
+} from './planMode';
 import PLAN_MODE_EXIT_REMINDER from './plan-mode-exit-reminder.md?raw';
-
-export type PlanData = null | {
-  readonly id: string;
-  readonly content: string;
-  readonly path: string;
-};
-
-export type PlanFilePath = string | null;
-
-declare module '../types' {
-  interface WireRecordMap {
-    'plan_mode.enter': {
-      id: string;
-    };
-    'plan_mode.cancel': {
-      id?: string;
-    };
-    'plan_mode.exit': {
-      id?: string;
-    };
-  }
-
-  interface AgentEventMap {
-    'plan_mode.changed': {
-      isActive: boolean;
-      planId: string | null;
-      planFilePath: PlanFilePath;
-    };
-  }
-}
 
 const PLAN_MODE_DEDUP_MIN_TURNS = 2;
 const PLAN_MODE_FULL_REFRESH_TURNS = 5;
 const PLAN_MODE_INJECTION_VARIANT = 'plan_mode';
 
-export class PlanMode extends Disposable {
+export class PlanModeService extends Disposable implements IPlanModeService {
+  declare readonly _serviceBrand: undefined;
+
   private _active = false;
   private planId: string | null = null;
   private _planFilePath: PlanFilePath = null;
@@ -574,3 +555,10 @@ function isMissingFileError(error: unknown): boolean {
   const code = (error as { readonly code?: unknown }).code;
   return code === 'ENOENT';
 }
+
+export { PlanModeService as PlanMode };
+
+registerSingleton(
+  IPlanModeService,
+  new SyncDescriptor(PlanModeService, [], true),
+);

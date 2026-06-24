@@ -1,7 +1,7 @@
 import type { ContentPart, Message } from '@moonshot-ai/kosong';
 
 import type { ContextMessage } from '../types';
-import type { IContextProjector } from '../contextProjector/contextProjector';
+import type { IContextProjector } from './contextProjector';
 
 export interface MicroCompactingProjectorOptions {
   readonly keepRecentMessages?: number;
