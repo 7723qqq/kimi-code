@@ -1,148 +1,182 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { PlanModeInjector } from '../../../../src/agent/injection/plan-mode';
+import { createFakeKaos } from '../../../tools/fixtures/fake-kaos';
+import {
+  IDynamicInjector,
+  IPlanModeService,
+  type ContextMessage,
+} from '../../../../src/services/agent';
+import { testAgent } from '../harness';
 
-interface PlanModeStub {
-  isActive: boolean;
-  planFilePath?: string | null;
+type InjectableDynamicInjector = {
+  inject(): Promise<void>;
+};
+
+function createPlanAgent({
+  readText,
+}: {
+  readonly readText?: (path: string) => Promise<string>;
+} = {}) {
+  const readPlanText = readText ?? (async () => '');
+  const ctx = testAgent({
+    kaos: createFakeKaos({
+      mkdir: vi.fn().mockResolvedValue(undefined),
+      readText: readPlanText,
+      writeText: vi.fn(async (_path: string, content: string) => content.length),
+    }),
+  });
+  ctx.configure();
+  return ctx;
 }
 
-function planAgent(stub: PlanModeStub) {
-  const history: unknown[] = [];
-  return {
-    type: 'main',
-    planMode: {
-      get isActive() {
-        return stub.isActive;
-      },
-      get planFilePath() {
-        return stub.planFilePath ?? null;
-      },
-    },
-    context: {
-      history,
-      appendSystemReminder: (content: string) => {
-        history.push({ role: 'user', content: [{ type: 'text', text: content }] });
-      },
-    },
-  } as any;
+async function enterPlan(
+  ctx: ReturnType<typeof testAgent>,
+  id = 'test-plan',
+): Promise<string> {
+  await ctx.get(IPlanModeService).enter(id, false);
+  const planFilePath = ctx.get(IPlanModeService).planFilePath;
+  if (planFilePath === null) {
+    throw new Error('expected plan file path');
+  }
+  return planFilePath;
 }
 
-function history(agent: any): Array<{ role: string; content?: ReadonlyArray<{ text?: string }> }> {
-  return agent.context.history as unknown as Array<{
-    role: string;
-    content?: ReadonlyArray<{ text?: string }>;
-  }>;
+async function injectDynamic(ctx: ReturnType<typeof testAgent>): Promise<void> {
+  await (ctx.get(IDynamicInjector) as unknown as InjectableDynamicInjector).inject();
 }
 
-function lastReminder(agent: any): string {
-  const last = history(agent).findLast((message) => message.role === 'user');
-  return last?.content?.map((part) => part.text ?? '').join('') ?? '';
+function appendAssistantTurn(ctx: ReturnType<typeof testAgent>, text: string): void {
+  ctx.appendAssistantTurn(ctx.context.getHistory().length, text);
 }
 
-describe('PlanModeInjector content', () => {
+function planReminderMessages(ctx: ReturnType<typeof testAgent>): readonly ContextMessage[] {
+  return ctx.context.getHistory().filter((message) => {
+    return message.origin?.kind === 'injection' && message.origin.variant === 'plan_mode';
+  });
+}
+
+function lastPlanReminder(ctx: ReturnType<typeof testAgent>): string {
+  const message = planReminderMessages(ctx).at(-1);
+  if (message === undefined) return '';
+  return message.content
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .join('');
+}
+
+describe('PlanModeService dynamic injection content', () => {
   it('injects the full reminder with the current plan file footer', async () => {
-    const agent = planAgent({ isActive: true, planFilePath: '/tmp/plan.md' });
-    const injector = new PlanModeInjector(agent);
+    const ctx = createPlanAgent();
+    const planFilePath = await enterPlan(ctx);
 
-    await injector.inject();
-    const text = lastReminder(agent);
+    await injectDynamic(ctx);
+    const text = lastPlanReminder(ctx);
 
     expect(text).toContain('Plan mode is active');
     expect(text).toContain('current plan file');
     expect(text).toContain('Write');
     expect(text).toContain('Edit');
     expect(text).toContain('ExitPlanMode');
-    expect(text).toContain('Plan file: /tmp/plan.md');
+    expect(text).toContain(`Plan file: ${planFilePath}`);
   });
 
-  it('uses the inline reminder when no plan file path is available', async () => {
-    const agent = planAgent({ isActive: true, planFilePath: null });
-    const injector = new PlanModeInjector(agent);
+  it('derives a plan file path before injecting the full reminder', async () => {
+    const ctx = createPlanAgent();
+    const planFilePath = await enterPlan(ctx, 'derived-plan');
 
-    await injector.inject();
+    await injectDynamic(ctx);
 
-    const text = lastReminder(agent);
-    expect(text).toContain('Plan mode is active');
-    expect(text).toContain('Wait for the host to provide a plan file path');
-    expect(text).not.toContain('Plan file:');
+    expect(planFilePath).toContain('derived-plan.md');
+    expect(lastPlanReminder(ctx)).toContain(`Plan file: ${planFilePath}`);
+    expect(lastPlanReminder(ctx)).not.toContain('Wait for the host to provide a plan file path');
   });
 
   it('injects the exit reminder when plan mode turns off after being active', async () => {
-    const stub: PlanModeStub = { isActive: true, planFilePath: '/tmp/plan.md' };
-    const agent = planAgent(stub);
-    const injector = new PlanModeInjector(agent);
+    const ctx = createPlanAgent();
+    await enterPlan(ctx);
 
-    await injector.inject();
-    stub.isActive = false;
-    await injector.inject();
+    await injectDynamic(ctx);
+    ctx.get(IPlanModeService).exit();
+    await injectDynamic(ctx);
 
-    expect(lastReminder(agent)).toContain('Plan mode is no longer active');
+    expect(lastPlanReminder(ctx)).toContain('Plan mode is no longer active');
   });
 
   it('does not inject anything when plan mode is inactive from the start', async () => {
-    const agent = planAgent({ isActive: false });
-    const injector = new PlanModeInjector(agent);
+    const ctx = createPlanAgent();
 
-    await injector.inject();
+    await injectDynamic(ctx);
 
-    expect(history(agent)).toHaveLength(0);
+    expect(planReminderMessages(ctx)).toHaveLength(0);
+    expect(ctx.context.getHistory()).toHaveLength(0);
+  });
+
+  it('injects a reentry reminder when restored plan mode already has plan content', async () => {
+    const ctx = createPlanAgent({
+      readText: vi.fn(async () => '# Existing Plan\n\n- Keep this context'),
+    });
+    await ctx.dispatch({
+      type: 'plan_mode.enter',
+      id: 'restored-plan',
+    });
+
+    await injectDynamic(ctx);
+
+    expect(lastPlanReminder(ctx)).toContain('Re-entering Plan Mode');
+    expect(lastPlanReminder(ctx)).toContain('Read the existing plan file');
   });
 });
 
-describe('PlanModeInjector cadence', () => {
+describe('PlanModeService dynamic injection cadence', () => {
   it('skips reinjection before the assistant-turn threshold', async () => {
-    const agent = planAgent({ isActive: true, planFilePath: '/tmp/plan.md' });
-    const injector = new PlanModeInjector(agent);
+    const ctx = createPlanAgent();
+    await enterPlan(ctx);
 
-    await injector.inject();
-    const messages = history(agent);
-    messages.push({ role: 'assistant' });
-    await injector.inject();
+    await injectDynamic(ctx);
+    appendAssistantTurn(ctx, 'assistant one');
+    await injectDynamic(ctx);
 
-    expect(messages).toHaveLength(2);
+    expect(planReminderMessages(ctx)).toHaveLength(1);
   });
 
   it('injects the sparse reminder after the short assistant-turn threshold', async () => {
-    const agent = planAgent({ isActive: true, planFilePath: '/tmp/plan.md' });
-    const injector = new PlanModeInjector(agent);
+    const ctx = createPlanAgent();
+    const planFilePath = await enterPlan(ctx);
 
-    await injector.inject();
-    const messages = history(agent);
-    messages.push({ role: 'assistant' }, { role: 'assistant' });
-    await injector.inject();
+    await injectDynamic(ctx);
+    appendAssistantTurn(ctx, 'assistant one');
+    appendAssistantTurn(ctx, 'assistant two');
+    await injectDynamic(ctx);
 
-    const text = lastReminder(agent);
+    const text = lastPlanReminder(ctx);
     expect(text).toContain('Plan mode still active');
     expect(text).toContain('see full instructions earlier');
-    expect(text).toContain('Plan file: /tmp/plan.md');
+    expect(text).toContain(`Plan file: ${planFilePath}`);
   });
 
   it('refreshes the full reminder after the long assistant-turn threshold', async () => {
-    const agent = planAgent({ isActive: true, planFilePath: '/tmp/plan.md' });
-    const injector = new PlanModeInjector(agent);
+    const ctx = createPlanAgent();
+    await enterPlan(ctx);
 
-    await injector.inject();
-    const messages = history(agent);
+    await injectDynamic(ctx);
     for (let i = 0; i < 5; i += 1) {
-      messages.push({ role: 'assistant' });
+      appendAssistantTurn(ctx, `assistant ${String(i)}`);
     }
-    await injector.inject();
+    await injectDynamic(ctx);
 
-    const text = lastReminder(agent);
+    const text = lastPlanReminder(ctx);
     expect(text).toContain('Plan mode is active');
     expect(text).not.toContain('Plan mode still active');
   });
 
   it('refreshes the full reminder if a user message appears after the last injection', async () => {
-    const agent = planAgent({ isActive: true, planFilePath: '/tmp/plan.md' });
-    const injector = new PlanModeInjector(agent);
+    const ctx = createPlanAgent();
+    await enterPlan(ctx);
 
-    await injector.inject();
-    history(agent).push({ role: 'user', content: [{ text: 'next task' }] });
-    await injector.inject();
+    await injectDynamic(ctx);
+    ctx.appendUserMessage([{ type: 'text', text: 'next task' }]);
+    await injectDynamic(ctx);
 
-    const text = lastReminder(agent);
+    const text = lastPlanReminder(ctx);
     expect(text).toContain('Plan mode is active');
     expect(text).not.toContain('Plan mode still active');
   });
