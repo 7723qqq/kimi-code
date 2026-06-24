@@ -10,8 +10,8 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Make active-turn `steer()` enter at a step boundary instead of waiting for the whole turn to finish.
 - [x] Replace plain active-turn errors with `KimiError(ErrorCodes.TURN_AGENT_BUSY)`.
 - [x] Keep `retry()` origin-free for now; no current service logic consumes retry origin.
-- [ ] Add replay/resume equivalents for prompt/steer if the service layer takes over wire replay.
-- [ ] Add user prompt hook behavior if hooks remain outside `TurnRunner`.
+- [x] Add replay/resume handling for `turn.launch` events if the service layer takes over wire replay.
+- [x] Add user prompt hook behavior if hooks remain outside `TurnRunner`.
 
 ## ContextMemory
 
@@ -42,7 +42,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Allow `afterStep` hooks to request continuation of the current turn.
 - [x] Continue automatically after tool results so the model can observe tool output.
 - [x] Use monotonic numeric turn ids.
-- [ ] Restore the turn id counter from replayed loop events.
+- [x] Restore the turn id counter from replayed `turn.launch` records.
 - [x] Emit protocol turn lifecycle events and clear the active turn with current RPC timing.
 - [x] Bridge loop step lifecycle events to protocol events.
 - [x] Bridge loop retry/interruption events to protocol events.
@@ -51,8 +51,8 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Add turn interruption telemetry and API error classification.
 - [x] Add first-request readiness semantics based on first model/step activity.
 - [x] Add cancel API with turn id validation and abort reason propagation.
-- [ ] Add user prompt hook block/append behavior.
-- [ ] Add stop-hook continuation.
+- [x] Add user prompt hook block/append behavior.
+- [x] Add stop-hook continuation.
 - [ ] Add goal continuation driver and budget handling.
 
 ## LoopService / Tool Execution
@@ -95,7 +95,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Create plan directories/files and roll back failed enter operations.
 - [x] Implement `cancel(id)`, `clear()`, and `data()`.
 - [x] Use record types compatible with current plan replay.
-- [ ] Update replay builder state.
+- [x] Update replay builder state.
 - [x] Emit status updates.
 - [x] Replace the minimal `EnterPlanMode` and `ExitPlanMode` tools with behavior matching current tools.
 - [x] Implement plan file validation, empty-plan rejection, plan review display, and options validation.
@@ -140,7 +140,7 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Emit status updates.
 - [x] Add data/RPC-facing state output.
 - [x] Auto-exit at turn end for task/tool triggers.
-- [ ] Restore tool/task/permission integration. (permission deferred)
+- [x] Restore tool/task/permission integration.
 - [x] Verify replay restore behavior.
 
 ## Background
@@ -158,17 +158,17 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [x] Add disk loading and scheduling timers.
 - [x] Add cron record/replay behavior.
 - [x] Keep cron disabled for subagents.
-- [ ] Integrate with background/session lifecycle.
+- [x] Integrate with background/session lifecycle.
 - [x] Restore full coalescing and next-run handling.
 - [ ] Revisit cron `steer()` behavior after PromptService/TurnRunner settle.
 
 ## Skill
 
-- [ ] Integrate profile system prompt, cwd listing, AGENTS.md context, and skill listing.
-- [ ] Support the no-skill-registry case.
-- [ ] Record and replay skill activation.
-- [ ] Restore plugin session start and plugin skill activation paths.
-- [ ] Recheck activation behavior after PromptService/TurnRunner settle.
+- [x] Integrate profile system prompt, cwd listing, AGENTS.md context, and skill listing.
+- [x] Support the no-skill-registry case.
+- [x] Record and replay skill activation.
+- [x] Restore plugin session start and plugin skill activation paths.
+- [x] Recheck activation behavior after PromptService/TurnRunner settle.
 
 ## Profile / Config
 
@@ -193,4 +193,4 @@ against the current implementation under `packages/agent-core/src/agent`.
 - [ ] Add blob store support and replay builder integration.
 - [x] Report persistence write errors.
 - [ ] Map local events to RPC/session/server protocol events.
-- [ ] Preserve status-updated aggregation behavior.
+- [ ] Keep status-updated events as partial patches; consumers merge present fields and treat omitted fields as unchanged.
