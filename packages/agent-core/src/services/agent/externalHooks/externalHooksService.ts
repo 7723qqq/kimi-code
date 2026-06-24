@@ -7,6 +7,7 @@ import { toKimiErrorPayload } from '../../../errors';
 import {
   IExternalHooksService,
   type ExternalHooksServiceOptions,
+  type NotificationHookPayload,
   type UserPromptHookDecision,
 } from './externalHooks';
 
@@ -74,18 +75,15 @@ export class ExternalHooksService implements IExternalHooksService {
     );
   }
 
-  async triggerPermissionRequest(
-    payload: Parameters<IExternalHooksService['triggerPermissionRequest']>[0],
-    signal: AbortSignal,
-  ): Promise<void> {
-    fireAndForget(this.options.hookEngine, 'PermissionRequest', payload, signal, payload.toolName);
-  }
-
-  async triggerPermissionResult(
-    payload: Parameters<IExternalHooksService['triggerPermissionResult']>[0],
-    signal: AbortSignal,
-  ): Promise<void> {
-    fireAndForget(this.options.hookEngine, 'PermissionResult', payload, signal, payload.toolName);
+  triggerNotification(payload: NotificationHookPayload): void {
+    const signal = new AbortController().signal;
+    fireAndForget(
+      this.options.hookEngine,
+      'Notification',
+      { sink: 'context', ...payload },
+      signal,
+      payload.notificationType,
+    );
   }
 }
 

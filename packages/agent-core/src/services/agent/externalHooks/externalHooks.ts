@@ -2,7 +2,6 @@ import type { ContentPart } from '@moonshot-ai/kosong';
 
 import { createDecorator } from '../../../di';
 import type { ExecutableToolResult } from '../../../loop';
-import type { ToolInputDisplay } from '../../../tools/display';
 import type { HookEngine } from '../../../session/hooks';
 
 export interface RenderedExternalHookResult {
@@ -21,6 +20,15 @@ export interface ExternalHooksServiceOptions {
     | undefined;
 }
 
+export interface NotificationHookPayload {
+  readonly notificationType: string;
+  readonly title: string;
+  readonly body: string;
+  readonly severity: 'info' | 'warning';
+  readonly sourceKind: string;
+  readonly sourceId: string;
+}
+
 export interface IExternalHooksService {
   triggerUserPromptSubmit(
     input: readonly ContentPart[],
@@ -36,27 +44,7 @@ export interface IExternalHooksService {
     },
     signal: AbortSignal,
   ): Promise<void>;
-  triggerPermissionRequest(
-    payload: {
-      toolCallId: string;
-      toolName: string;
-      action: string;
-      display: ToolInputDisplay;
-    },
-    signal: AbortSignal,
-  ): Promise<void>;
-  triggerPermissionResult(
-    payload: {
-      toolCallId: string;
-      toolName: string;
-      action: string;
-      decision: string;
-      scope?: string | undefined;
-      feedback?: string | undefined;
-      error?: unknown;
-    },
-    signal: AbortSignal,
-  ): Promise<void>;
+  triggerNotification(payload: NotificationHookPayload): void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
