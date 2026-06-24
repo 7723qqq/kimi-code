@@ -264,32 +264,39 @@ describe('plan exit tool', () => {
     await ctx.expectResumeMatches();
   });
 
-  it.skip('refuses to exit when the current plan file is empty', async () => {
-    const readText = vi.fn(async () => '');
-    const ctx = testAgent({
-      kaos: createPlanKaos({ readText }),
-    });
-    ctx.configure({ tools: ['ExitPlanMode'] });
-    await ctx.rpc.setPermission({ mode: 'yolo' });
-    await ctx.get(IPlanModeService).enter('empty-plan', false);
+  it('refuses to exit when the current plan file is empty', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-empty-exit-'));
+    try {
+      const ctx = testAgent();
+      ctx.configure({ tools: ['ExitPlanMode'] });
+      ctx.profile.update({ cwd });
+      await ctx.rpc.setPermission({ mode: 'yolo' });
+      await ctx.get(IPlanModeService).enter('empty-plan', false);
 
-    const exitPlanModeCall: ToolCall = {
-      type: 'function',
-      id: 'call_exit_empty_plan',
-      name: 'ExitPlanMode',
-      arguments: '{}',
-    };
-    ctx.mockNextResponse(
-      { type: 'text', text: 'I will present the empty plan.' },
-      exitPlanModeCall,
-    );
-    ctx.mockNextResponse({ type: 'text', text: 'I need to write the plan first.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Show an empty plan' }] });
+      const planPath = ctx.get(IPlanModeService).planFilePath;
+      if (planPath === null) throw new Error('expected active plan path');
+      await writeFile(planPath, '', 'utf8');
 
-    await ctx.untilTurnEnd();
-    expect(ctx.get(IPlanModeService).isActive).toBe(true);
-    expect(toolResultText(ctx.llmCalls[1]!.history)).toContain('No plan file found');
-    await ctx.expectResumeMatches();
+      const exitPlanModeCall: ToolCall = {
+        type: 'function',
+        id: 'call_exit_empty_plan',
+        name: 'ExitPlanMode',
+        arguments: '{}',
+      };
+      ctx.mockNextResponse(
+        { type: 'text', text: 'I will present the empty plan.' },
+        exitPlanModeCall,
+      );
+      ctx.mockNextResponse({ type: 'text', text: 'I need to write the plan first.' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Show an empty plan' }] });
+
+      await ctx.untilTurnEnd();
+      expect(ctx.get(IPlanModeService).isActive).toBe(true);
+      expect(toolResultText(ctx.llmCalls[1]!.history)).toContain('No plan file found');
+      await ctx.expectResumeMatches();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 });
 

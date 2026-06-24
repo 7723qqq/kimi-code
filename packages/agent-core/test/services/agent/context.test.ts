@@ -17,35 +17,16 @@ describe('Agent context', () => {
 
     ctx.appendUserMessage([{ type: 'text', text: 'hello' }]);
     ctx.appendSystemReminder('Remember this.', { kind: 'injection', variant: 'host' });
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: { type: 'step.begin', uuid: 'origin-step', turnId: '', step: 1 },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'assistant',
+      content: [],
+      toolCalls: [{ type: 'function', id: 'call_origin', name: 'Run', arguments: '{}' }],
     });
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.call',
-        uuid: 'origin-tool',
-        turnId: '',
-        step: 1,
-        stepUuid: 'origin-step',
-        toolCallId: 'call_origin',
-        name: 'Run',
-        args: {},
-      },
-    });
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: { type: 'step.end', uuid: 'origin-step', turnId: '', step: 1 },
-    });
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'origin-tool',
-        toolCallId: 'call_origin',
-        result: { output: 'tool output' },
-      },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'tool',
+      content: [{ type: 'text', text: 'tool output' }],
+      toolCalls: [],
+      toolCallId: 'call_origin',
     });
 
     expect(ctx.context.getHistory().map(({ role, origin }) => ({ role, origin }))).toEqual([
@@ -61,42 +42,27 @@ describe('Agent context', () => {
     const ctx = testAgent();
     ctx.configure();
 
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: { type: 'step.begin', uuid: 's1', turnId: 't', step: 1 },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'assistant',
+      content: [],
+      toolCalls: [
+        { type: 'function', id: 'call_error', name: 'Run', arguments: '{}' },
+        { type: 'function', id: 'call_empty', name: 'Run', arguments: '{}' },
+      ],
     });
-    for (const toolCallId of ['call_error', 'call_empty']) {
-      void ctx.dispatch({
-        type: 'context.append_loop_event',
-        event: {
-          type: 'tool.call',
-          uuid: toolCallId,
-          turnId: 't',
-          step: 1,
-          stepUuid: 's1',
-          toolCallId,
-          name: 'Run',
-          args: {},
-        },
-      });
-    }
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_error',
-        toolCallId: 'call_error',
-        result: { output: 'permission denied', isError: true },
-      },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'tool',
+      content: [
+        { type: 'text', text: '<system>ERROR: Tool execution failed.</system>\npermission denied' },
+      ],
+      toolCalls: [],
+      toolCallId: 'call_error',
     });
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_empty',
-        toolCallId: 'call_empty',
-        result: { output: '' },
-      },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'tool',
+      content: [{ type: 'text', text: '<system>Tool output is empty.</system>' }],
+      toolCalls: [],
+      toolCallId: 'call_empty',
     });
 
     expect(ctx.project()).toMatchObject([

@@ -449,13 +449,13 @@ describe('agent replay range build', () => {
     const expectedMessage = userMessage('expected');
     const records: PersistedWireRecord[] = [
       { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
-      { type: 'context.append_message', message: firstMessage },
-      { type: 'context.append_message', message: removedBeforeStart },
-      { type: 'context.append_message', message: removedAtStart },
-      { type: 'context.append_message', message: removedAfterStart },
-      { type: 'context.undo', count: 3 },
-      { type: 'context.append_message', message: nextMessage },
-      { type: 'context.append_message', message: expectedMessage },
+      { type: 'context.splice', start: 0, deleteCount: 0, messages: [firstMessage] },
+      { type: 'context.splice', start: 1, deleteCount: 0, messages: [removedBeforeStart] },
+      { type: 'context.splice', start: 2, deleteCount: 0, messages: [removedAtStart] },
+      { type: 'context.splice', start: 3, deleteCount: 0, messages: [removedAfterStart] },
+      { type: 'context.splice', start: 1, deleteCount: 3, messages: [] },
+      { type: 'context.splice', start: 1, deleteCount: 0, messages: [nextMessage] },
+      { type: 'context.splice', start: 2, deleteCount: 0, messages: [expectedMessage] },
     ];
 
     await expect(buildReplay(records, { start: 2, count: 1 })).resolves.toEqual([
@@ -469,10 +469,10 @@ describe('agent replay range build', () => {
     const afterClearMessage = userMessage('after-clear');
     const records: PersistedWireRecord[] = [
       { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
-      { type: 'context.append_message', message: firstMessage },
-      { type: 'context.append_message', message: secondMessage },
-      { type: 'context.clear' },
-      { type: 'context.append_message', message: afterClearMessage },
+      { type: 'context.splice', start: 0, deleteCount: 0, messages: [firstMessage] },
+      { type: 'context.splice', start: 1, deleteCount: 0, messages: [secondMessage] },
+      { type: 'context.splice', start: 0, deleteCount: 2, messages: [] },
+      { type: 'context.splice', start: 0, deleteCount: 0, messages: [afterClearMessage] },
     ];
 
     await expect(buildReplay(records, { start: 0, count: 10 })).resolves.toEqual([
