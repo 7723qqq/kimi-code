@@ -952,7 +952,7 @@ describe('Agent turn flow', () => {
     expect(JSON.stringify(ctx.contextData().history)).not.toContain('late pre tool hook');
   });
 
-  it.skip('fires StopFailure when a turn fails', async () => {
+  it('fires StopFailure when a turn fails', async () => {
     const triggered: Array<[string, string, number]> = [];
     const hookEngine = new HookEngine(
       [

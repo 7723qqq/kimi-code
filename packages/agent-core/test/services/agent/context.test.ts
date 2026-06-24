@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { estimateTokensForMessages } from '../../../src/utils/tokens';
 import { testAgent } from './harness';
 import {
-  IReplayBuilderService,
   project,
   renderNotificationXml,
   type ContextMessage,
@@ -339,84 +338,48 @@ describe('Agent context', () => {
   it('defers system reminders until pending tool results are recorded and resumed', async () => {
     const ctx = testAgent();
     ctx.configure();
-    const stepUuid = 'skill-batch-step';
 
     ctx.appendUserMessage([{ type: 'text', text: 'load a skill' }]);
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: { type: 'step.begin', uuid: stepUuid, turnId: '0', step: 1 },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'assistant',
+      content: [],
+      toolCalls: [
+        { type: 'function', id: 'call_write', name: 'Write', arguments: '{}' },
+        { type: 'function', id: 'call_skill', name: 'Skill', arguments: '{}' },
+      ],
     });
-    for (const [toolCallId, name] of [
-      ['call_write', 'Write'],
-      ['call_skill', 'Skill'],
-    ] as const) {
-      void ctx.dispatch({
-        type: 'context.append_loop_event',
-        event: {
-          type: 'tool.call',
-          uuid: toolCallId,
-          turnId: '0',
-          step: 1,
-          stepUuid,
-          toolCallId,
-          name,
-          args: {},
-        },
-      });
-    }
-
-    void ctx.dispatch({
-      type: 'context.append_message',
-      message: {
-        role: 'user',
-        content: [{ type: 'text', text: '<system-reminder>\nskill body\n</system-reminder>' }],
-        toolCalls: [],
-        origin: {
-          kind: 'skill_activation',
-          activationId: 'act_skill',
-          skillName: 'demo',
-          trigger: 'model-tool',
-        },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'user',
+      content: [{ type: 'text', text: '<system-reminder>\nskill body\n</system-reminder>' }],
+      toolCalls: [],
+      origin: {
+        kind: 'skill_activation',
+        activationId: 'act_skill',
+        skillName: 'demo',
+        trigger: 'model-tool',
       },
     });
 
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual(['user', 'assistant']);
-
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'step.end',
-        uuid: stepUuid,
-        turnId: '0',
-        step: 1,
-        finishReason: 'tool_use',
-      },
-    });
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual(['user', 'assistant']);
-
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_write',
-        toolCallId: 'call_write',
-        result: { output: 'wrote file' },
-      },
-    });
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
       'user',
       'assistant',
-      'tool',
+      'user',
     ]);
+    expect(ctx.project().map((message) => message.role)).toEqual(['user', 'assistant']);
 
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_skill',
-        toolCallId: 'call_skill',
-        result: { output: 'skill loaded' },
-      },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'tool',
+      content: [{ type: 'text', text: 'wrote file' }],
+      toolCalls: [],
+      toolCallId: 'call_write',
+    });
+    expect(ctx.project().map((message) => message.role)).toEqual(['user', 'assistant', 'tool']);
+
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'tool',
+      content: [{ type: 'text', text: 'skill loaded' }],
+      toolCalls: [],
+      toolCallId: 'call_skill',
     });
 
     expect(ctx.project().map((message) => message.role)).toEqual([
@@ -449,7 +412,6 @@ describe('Agent context', () => {
       toolCalls: [],
       origin: { kind: 'compaction_summary' },
     });
-    ctx.contextUsage.applyCompactionResult({ tokensAfter: 40 });
     ctx.appendSystemReminder('second reminder', {
       kind: 'injection',
       variant: 'host',
@@ -462,14 +424,11 @@ describe('Agent context', () => {
       'tool',
     ]);
 
-    void ctx.dispatch({
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'call_open_two',
-        toolCallId: 'call_open_two',
-        result: { output: 'two result' },
-      },
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+      role: 'tool',
+      content: [{ type: 'text', text: 'two result' }],
+      toolCalls: [],
+      toolCallId: 'call_open_two',
     });
 
     expect(ctx.project().map((message) => message.role)).toEqual([
@@ -759,22 +718,12 @@ describe('Agent context', () => {
         origin: { kind: 'injection', variant: 'plan_mode' },
       }),
     ]);
-    expect(ctx.get(IReplayBuilderService).buildResult()).toEqual([
-      expect.objectContaining({
-        type: 'message',
-        message: expect.objectContaining({
-          origin: { kind: 'injection', variant: 'plan_mode' },
-        }),
-      }),
-    ]);
   });
 
 });
 
 describe('Agent context notification projection', () => {
-  it('renders task notifications with escaped attributes and a bounded output tail', () => {
-    const tail = Array.from({ length: 25 }, (_, index) => `line ${String(index + 1)}`).join('\n');
-
+  it('renders task notifications with escaped attributes and generic children', () => {
     const text = renderNotificationXml({
       id: 'n_"1&2',
       category: 'task',
@@ -784,17 +733,24 @@ describe('Agent context notification projection', () => {
       title: 'Task finished',
       severity: 'info',
       body: 'The task completed.',
-      tail_output: tail,
+      children: [
+        [
+          '<output-file path="/tmp/logs/a&amp;b/output.log" bytes="1234">',
+          'Read the output file to retrieve the result: /tmp/logs/a&amp;b/output.log',
+          '</output-file>',
+        ].join('\n'),
+      ],
     });
 
     expect(text).toContain('id="n_&quot;1&amp;2"');
     expect(text).toContain('source_id="bg&amp;1"');
     expect(text).toContain('Title: Task finished');
     expect(text).toContain('Severity: info');
-    expect(text).toContain('<task-notification>');
-    expect(text).not.toContain('line 5');
-    expect(text).toContain('line 6');
-    expect(text).toContain('line 25');
+    expect(text).toContain('<output-file path="/tmp/logs/a&amp;b/output.log" bytes="1234">');
+    expect(text).toContain(
+      'Read the output file to retrieve the result: /tmp/logs/a&amp;b/output.log',
+    );
+    expect(text).not.toContain('<task-notification>');
     expect(text.trimEnd()).toMatch(/<\/notification>$/);
   });
 

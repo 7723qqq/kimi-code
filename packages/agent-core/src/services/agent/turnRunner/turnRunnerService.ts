@@ -137,6 +137,7 @@ export class TurnRunnerService implements ITurnRunner {
         this.rejectReady(turn, turn.abortController.signal.reason);
         return result;
       }
+      this.externalHooks.triggerStopFailure(error, turn.abortController.signal);
       this.rejectReady(turn, error);
       result = { reason: 'failed', error };
       return result;
