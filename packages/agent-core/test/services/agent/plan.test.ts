@@ -1,4 +1,8 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+
 import type { ToolCall } from '@moonshot-ai/kosong';
+import { join } from 'pathe';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
@@ -12,7 +16,7 @@ function createPlanKaos(overrides: Parameters<typeof createFakeKaos>[0] = {}) {
   });
 }
 
-describe.skip('manual plan entry', () => {
+describe('manual plan entry', () => {
   it('keeps permission gating out of the PlanMode state object', () => {
     const ctx = testAgent();
 
@@ -20,50 +24,62 @@ describe.skip('manual plan entry', () => {
   });
 
   it('enters plan mode without starting a model turn and prepares the plan directory', async () => {
-    const mkdir = vi.fn().mockResolvedValue(undefined);
     const writeText = vi.fn().mockResolvedValue(0);
-    const ctx = testAgent({
-      kaos: createFakeKaos({ mkdir, writeText }),
-    });
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-entry-'));
+    try {
+      const ctx = testAgent({
+        kaos: createFakeKaos({ writeText }),
+      });
+      ctx.profile.update({ cwd });
 
-    await ctx.rpc.enterPlan({});
-    await delay(10);
+      await ctx.rpc.enterPlan({});
+      await delay(10);
 
-    expect(ctx.get(IPlanModeService).isActive).toBe(true);
-    expect(ctx.get(IPlanModeService).planFilePath).toMatch(/\.md$/);
-    expect(mkdir).toHaveBeenCalledWith('/workspace/plan', { parents: true, existOk: true });
-    expect(writeText).not.toHaveBeenCalled();
-    expect(ctx.allEvents.some((event) => event.event === 'turn.started')).toBe(false);
-    expect(ctx.llmCalls).toHaveLength(0);
+      expect(ctx.get(IPlanModeService).isActive).toBe(true);
+      expect(ctx.get(IPlanModeService).planFilePath?.startsWith(`${join(cwd, 'plan')}/`)).toBe(true);
+      expect(ctx.get(IPlanModeService).planFilePath?.endsWith('.md')).toBe(true);
+      expect(writeText).not.toHaveBeenCalled();
+      expect(ctx.allEvents.some((event) => event.event === 'turn.started')).toBe(false);
+      expect(ctx.llmCalls).toHaveLength(0);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it('derives the no-homedir plan path from cwd on enter and restore', async () => {
-    const ctx = testAgent({
-      kaos: createPlanKaos({
-        writeText: vi.fn(async (_path: string, content: string) => content.length),
-      }),
-    });
-    await ctx.get(IPlanModeService).enter('stable-plan');
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-plan-path-'));
+    try {
+      const ctx = testAgent({
+        kaos: createPlanKaos({
+          writeText: vi.fn(async (_path: string, content: string) => content.length),
+        }),
+      });
+      ctx.profile.update({ cwd });
+      await ctx.get(IPlanModeService).enter('stable-plan');
 
-    const livePath = ctx.get(IPlanModeService).planFilePath;
-    if (livePath === null) throw new Error('expected active plan path');
-    expect(livePath).toBe('/workspace/plan/stable-plan.md');
+      const livePath = ctx.get(IPlanModeService).planFilePath;
+      if (livePath === null) throw new Error('expected active plan path');
+      expect(livePath).toBe(join(cwd, 'plan', 'stable-plan.md'));
 
-    const enterRecord = ctx.allEvents.find(
-      (event) => event.type === '[wire]' && event.event === 'plan_mode.enter',
-    );
-    expect(enterRecord?.args).toEqual({
-      id: 'stable-plan',
-      time: expect.any(Number),
-    });
+      const enterRecord = ctx.allEvents.find(
+        (event) => event.type === '[wire]' && event.event === 'plan_mode.enter',
+      );
+      expect(enterRecord?.args).toEqual({
+        id: 'stable-plan',
+        time: expect.any(Number),
+      });
 
-    const resumed = testAgent({ kaos: createFakeKaos() });
-    void resumed.dispatch({
-      type: 'plan_mode.enter',
-      id: 'stable-plan',
-    });
+      const resumed = testAgent({ kaos: createFakeKaos() });
+      resumed.profile.update({ cwd });
+      await resumed.dispatch({
+        type: 'plan_mode.enter',
+        id: 'stable-plan',
+      });
 
-    expect(resumed.get(IPlanModeService).planFilePath).toBe(livePath);
+      expect(resumed.get(IPlanModeService).planFilePath).toBe(livePath);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it('enters plan mode through the EnterPlanMode tool and reminds the next step', async () => {
