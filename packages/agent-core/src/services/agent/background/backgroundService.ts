@@ -9,6 +9,7 @@ import {
   type BackgroundTaskInfoBase,
   type BackgroundTaskSettlement,
 } from '../../../agent/background/task';
+import { escapeXml, escapeXmlAttr } from '../../../utils/xml-escape';
 import {
   Disposable,
   registerSingleton,
@@ -50,7 +51,7 @@ type BackgroundTaskNotification = Record<string, unknown> & {
   readonly title: string;
   readonly severity: 'info' | 'warning';
   readonly body: string;
-  readonly tail_output: string;
+  readonly children?: readonly string[] | undefined;
 };
 
 interface BackgroundTaskNotificationContext {
@@ -89,7 +90,7 @@ const MAX_OUTPUT_BYTES = 1024 * 1024;
 const SIGTERM_GRACE_MS = 5_000;
 const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 const USER_INTERRUPT_REASON = 'Interrupted by user';
-const NOTIFICATION_TAIL_BYTES = 3_000;
+const NOTIFICATION_FALLBACK_PREVIEW_BYTES = 3_000;
 
 export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean {
   return TERMINAL_STATUSES.has(status);
@@ -685,8 +686,10 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     if (this.hasDeliveredNotification(key)) return undefined;
     this.scheduledNotificationKeys.add(key);
 
-    const tailOutput = (await this.getOutputSnapshot(info.taskId, NOTIFICATION_TAIL_BYTES))
-      .preview;
+    let output = await this.getOutputSnapshot(info.taskId, 0);
+    if (!output.fullOutputAvailable) {
+      output = await this.getOutputSnapshot(info.taskId, NOTIFICATION_FALLBACK_PREVIEW_BYTES);
+    }
     if (this.isTerminalNotificationSuppressed(info.taskId)) return undefined;
     const notification: BackgroundTaskNotification = {
       id: origin.notificationId,
@@ -698,7 +701,7 @@ export class BackgroundService extends Disposable implements IBackgroundService 
       title: `Background ${info.kind} ${info.status}`,
       severity: info.status === 'completed' ? 'info' : 'warning',
       body: buildBackgroundTaskNotificationBody(info),
-      tail_output: tailOutput,
+      children: backgroundTaskNotificationChildren(output),
     };
     const content = [
       {
@@ -784,6 +787,35 @@ function emptyOutputSnapshot(): BackgroundTaskOutputSnapshot {
     fullOutputAvailable: false,
     preview: '',
   };
+}
+
+function backgroundTaskNotificationChildren(
+  output: BackgroundTaskOutputSnapshot,
+): readonly string[] | undefined {
+  if (output.fullOutputAvailable && output.outputPath !== undefined) {
+    return [renderOutputFileBlock(output.outputPath, output.outputSizeBytes)];
+  }
+  if (output.preview.length === 0) return undefined;
+  return [renderOutputPreviewBlock(output)];
+}
+
+function renderOutputFileBlock(outputPath: string, outputSizeBytes: number): string {
+  return [
+    `<output-file path="${escapeXmlAttr(outputPath)}" bytes="${String(outputSizeBytes)}">`,
+    `Read the output file to retrieve the result: ${escapeXml(outputPath)}`,
+    '</output-file>',
+  ].join('\n');
+}
+
+function renderOutputPreviewBlock(output: BackgroundTaskOutputSnapshot): string {
+  return [
+    `<output-preview bytes="${String(output.previewBytes)}" total_bytes="${String(output.outputSizeBytes)}" truncated="${String(output.truncated)}">`,
+    output.truncated
+      ? `Showing the last ${String(output.previewBytes)} bytes. No persisted full output is available.`
+      : 'No persisted full output is available; this preview is the currently buffered task output.',
+    escapeXml(output.preview),
+    '</output-preview>',
+  ].join('\n');
 }
 
 function shouldListTask(info: BackgroundTaskInfo, activeOnly: boolean): boolean {

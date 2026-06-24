@@ -462,7 +462,9 @@ describe('BackgroundManager — notification delivery', () => {
       const content = message.content as Array<{ text: string }>;
       const text = content[0]!.text;
       expect(text).toContain('Background agent completed');
-      expect(text).toContain('restored subagent summary');
+      expect(text).not.toContain('restored subagent summary');
+      expect(text).toContain('<output-file');
+      expect(text).toContain(persistence.taskOutputFile('agent-done0000'));
     } finally {
       await rm(sessionDir, { recursive: true, force: true });
     }
@@ -494,13 +496,15 @@ describe('BackgroundManager — notification delivery', () => {
       const content = message.content as Array<{ text: string }>;
       const text = content[0]!.text;
       expect(text).toContain('Background process completed');
-      expect(text).toContain('restored shell output');
+      expect(text).not.toContain('restored shell output');
+      expect(text).toContain('<output-file');
+      expect(text).toContain(persistence.taskOutputFile('bash-done0000'));
     } finally {
       await rm(sessionDir, { recursive: true, force: true });
     }
   });
 
-  it('reads only a bounded output tail for restored process task notifications', async () => {
+  it('references persisted output without reading a tail for restored process notifications', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-bash-tail-'));
     try {
       const taskId = 'bash-large000';
@@ -520,9 +524,10 @@ describe('BackgroundManager — notification delivery', () => {
       const message = args[args.length - 1]!;
       const content = message.content as Array<{ text: string }>;
       const text = content[0]!.text;
-      expect(text).toContain('final output line');
+      expect(text).toContain('<output-file');
+      expect(text).toContain(persistence.taskOutputFile(taskId));
+      expect(text).not.toContain('final output line');
       expect(text).not.toContain('early-output-marker');
-      expect(text.length).toBeLessThan(largeOutput.length);
     } finally {
       await rm(sessionDir, { recursive: true, force: true });
     }
