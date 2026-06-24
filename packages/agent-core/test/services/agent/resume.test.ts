@@ -13,6 +13,10 @@ import {
   ITurnRunner,
   type PersistedWireRecord,
 } from '../../../src/services/agent';
+import type {
+  BackgroundTaskInfo,
+  IBackgroundService,
+} from '../../../src/services/agent/background/background';
 import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
 import { DEFAULT_TEST_SYSTEM_PROMPT, testAgent } from './harness';
 
@@ -21,6 +25,11 @@ const MOCK_PROVIDER = {
   apiKey: 'test-key',
   model: 'mock-model',
 } as const;
+
+type BackgroundServiceTestManager = IBackgroundService & {
+  loadFromDisk(): Promise<void>;
+  reconcile(): Promise<readonly BackgroundTaskInfo[]>;
+};
 
 function turnCurrentId(ctx: ReturnType<typeof testAgent>): number {
   const runner = ctx.get(ITurnRunner) as unknown as { nextTurnId: number };
@@ -320,8 +329,9 @@ describe('Agent resume', () => {
         ctx.context.getHistory().some((message) => message.origin?.kind === 'background_task'),
       ).toBe(false);
 
-      await ctx.background.loadFromDisk();
-      await ctx.background.reconcile();
+      const background = ctx.background as BackgroundServiceTestManager;
+      await background.loadFromDisk();
+      await background.reconcile();
 
       expect(steer).not.toHaveBeenCalled();
     } finally {

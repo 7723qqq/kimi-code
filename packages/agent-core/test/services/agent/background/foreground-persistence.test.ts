@@ -16,8 +16,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   BackgroundTaskPersistence,
+  type IBackgroundService,
   ProcessBackgroundTask,
-  type BackgroundManager,
 } from '../../../../src/services/agent/background/background';
 import { testAgent, type TestAgentContext } from '../harness';
 
@@ -71,7 +71,7 @@ function controllableProcess(): {
 }
 
 function registerForeground(
-  background: BackgroundManager,
+  background: IBackgroundService,
   proc: KaosProcess,
   command: string,
   description: string,

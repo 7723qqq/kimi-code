@@ -23,8 +23,21 @@ import { join } from 'pathe';
 import { describe, expect, it, vi } from 'vitest';
 
 import { testAgent } from './harness';
-import { BackgroundTaskPersistence, IPromptService, ITurnRunner } from '../../../src/services/agent';
-import { AgentBackgroundTask } from '../../../src/services/agent/background/background';
+import {
+  BackgroundTaskPersistence,
+  IPromptService,
+  ITurnRunner,
+} from '../../../src/services/agent';
+import {
+  AgentBackgroundTask,
+  type BackgroundTaskInfo,
+  type IBackgroundService,
+} from '../../../src/services/agent/background/background';
+
+type BackgroundServiceTestManager = IBackgroundService & {
+  loadFromDisk(): Promise<void>;
+  reconcile(): Promise<readonly BackgroundTaskInfo[]>;
+};
 
 function agentTask(
   completion: Promise<{ result: string }>,
@@ -283,11 +296,12 @@ describe('background notification → main agent (real Agent instance)', () => {
       const steerSpy = vi.spyOn(ctx.rpcMethods, 'steer');
 
       // Reproduce Agent.resume()'s post-replay sequence.
-      await ctx.background.loadFromDisk();
-      await ctx.background.reconcile();
+      const background = ctx.background as BackgroundServiceTestManager;
+      await background.loadFromDisk();
+      await background.reconcile();
 
       // The agent-* running task should now be lost.
-      expect(ctx.background.getTask('agent-prev0000')?.status).toBe('lost');
+      expect(background.getTask('agent-prev0000')?.status).toBe('lost');
 
       // Give the silent append a beat.
       await vi.waitFor(() => {

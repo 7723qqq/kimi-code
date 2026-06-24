@@ -32,8 +32,8 @@ import { renderPrompt } from '../../../utils/render-prompt';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
 import { ToolResultBuilder } from '../../support/result-builder';
+import type { BackgroundTaskManager } from '../../background/manager';
 import bashDescriptionTemplate from './bash.md?raw';
-import type { IBackgroundService } from '../../../services/agent';
 
 const MS_PER_SECOND = 1000;
 const DEFAULT_TIMEOUT_S = 60;
@@ -160,7 +160,7 @@ export class BashTool implements BuiltinTool<BashInput> {
   constructor(
     private readonly kaos: Kaos,
     private readonly cwd: string,
-    private readonly backgroundManager: IBackgroundService,
+    private readonly backgroundManager: BackgroundTaskManager,
     options?: {
       allowBackground?: boolean | undefined;
     },

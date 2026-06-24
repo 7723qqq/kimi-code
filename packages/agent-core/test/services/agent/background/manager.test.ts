@@ -14,24 +14,28 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AgentBackgroundTask,
   BackgroundTaskPersistence,
+  type IBackgroundService,
   ProcessBackgroundTask,
-  type BackgroundManager,
   type BackgroundTaskInfo,
 } from '../../../../src/services/agent/background/background';
 import type { SessionSubagentHost, SubagentHandle } from '../../../../src/session/subagent-host';
 import { isUserCancellation, userCancellationReason } from '../../../../src/utils/abort';
 import { testAgent, type TestAgentContext } from '../harness';
 
-interface BackgroundManagerFixture {
+type BackgroundServiceTestManager = IBackgroundService & {
+  loadFromDisk(): Promise<void>;
+};
+
+interface BackgroundServiceFixture {
   ctx: TestAgentContext;
-  manager: BackgroundManager;
+  manager: BackgroundServiceTestManager;
   persistence?: BackgroundTaskPersistence;
 }
 
 function createBackgroundManager(options: {
   sessionDir?: string;
   maxRunningTasks?: number;
-} = {}): BackgroundManagerFixture {
+} = {}): BackgroundServiceFixture {
   const persistence =
     options.sessionDir === undefined
       ? undefined
@@ -44,13 +48,13 @@ function createBackgroundManager(options: {
   });
   return {
     ctx,
-    manager: ctx.background,
+    manager: ctx.background as BackgroundServiceTestManager,
     persistence,
   };
 }
 
 function registerProcess(
-  manager: BackgroundManager,
+  manager: IBackgroundService,
   proc: KaosProcess,
   command: string,
   description: string,
@@ -91,7 +95,7 @@ function agentTask(
 }
 
 async function waitForTerminal(
-  manager: BackgroundManager,
+  manager: IBackgroundService,
   taskId: string,
   timeoutMs = 30_000,
 ): Promise<BackgroundTaskInfo | undefined> {
@@ -113,7 +117,7 @@ async function waitForTerminal(
 }
 
 async function waitForOutput(
-  manager: BackgroundManager,
+  manager: IBackgroundService,
   taskId: string,
   expected: string,
 ): Promise<void> {

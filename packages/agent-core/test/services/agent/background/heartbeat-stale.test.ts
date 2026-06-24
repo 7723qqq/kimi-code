@@ -11,11 +11,28 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BackgroundTaskPersistence,
   type BackgroundTaskInfo,
+  type IBackgroundService,
 } from '../../../../src/services/agent/background/background';
-import { testAgent } from '../harness';
+import { testAgent, type TestAgentContext } from '../harness';
 
 let sessionDir: string;
 let persistence: BackgroundTaskPersistence;
+
+type BackgroundServiceTestManager = IBackgroundService & {
+  loadFromDisk(): Promise<void>;
+  reconcile(): Promise<readonly BackgroundTaskInfo[]>;
+};
+
+function testAgentWithBackground(): {
+  ctx: TestAgentContext;
+  background: BackgroundServiceTestManager;
+} {
+  const ctx = testAgent({ background: { persistence: new BackgroundTaskPersistence(sessionDir) } });
+  return {
+    ctx,
+    background: ctx.background as BackgroundServiceTestManager,
+  };
+}
 
 function runningGhost(taskId: string): Extract<BackgroundTaskInfo, { kind: 'process' }> {
   return {
@@ -48,16 +65,15 @@ describe('Background reconcile — stale ghost detection', () => {
   it('emits a terminated event with status=lost for a running ghost', async () => {
     await persistence.writeTask(runningGhost('bash-stale000'));
 
-    const ctx = testAgent();
-    ctx.background.setPersistence(new BackgroundTaskPersistence(sessionDir));
+    const { ctx, background } = testAgentWithBackground();
 
     const emittedEvents: any[] = [];
     ctx.events.on((event) => {
       emittedEvents.push(event);
     });
 
-    await ctx.background.loadFromDisk();
-    await ctx.background.reconcile();
+    await background.loadFromDisk();
+    await background.reconcile();
 
     expect(emittedEvents).toContainEqual({
       type: 'background.task.terminated',
@@ -71,17 +87,16 @@ describe('Background reconcile — stale ghost detection', () => {
   it('second reconcile does not emit a duplicate termination event', async () => {
     await persistence.writeTask(runningGhost('bash-dedup000'));
 
-    const ctx = testAgent();
-    ctx.background.setPersistence(new BackgroundTaskPersistence(sessionDir));
+    const { ctx, background } = testAgentWithBackground();
 
     const emittedEvents: any[] = [];
     ctx.events.on((event) => {
       emittedEvents.push(event);
     });
 
-    await ctx.background.loadFromDisk();
-    await ctx.background.reconcile();
-    await ctx.background.reconcile();
+    await background.loadFromDisk();
+    await background.reconcile();
+    await background.reconcile();
 
     expect(
       emittedEvents.filter(

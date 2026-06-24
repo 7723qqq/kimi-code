@@ -22,6 +22,10 @@ import { IPromptService } from '../../../../src/services/agent';
 import type { SessionSubagentHost, SubagentHandle } from '../../../../src/session/subagent-host';
 
 type FireAndForgetTrigger = NonNullable<TestAgentOptions['hookEngine']>['fireAndForgetTrigger'];
+type BackgroundServiceTestManager = IBackgroundService & {
+  loadFromDisk(): Promise<void>;
+  reconcile(): Promise<readonly BackgroundTaskInfo[]>;
+};
 
 function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
   return {
@@ -135,10 +139,10 @@ interface FakeBackgroundAgent {
   hooks?: { fireAndForgetTrigger: FireAndForgetTrigger };
 }
 
-interface BackgroundManagerFixture {
+interface BackgroundServiceFixture {
   ctx: TestAgentContext;
   agent: FakeBackgroundAgent;
-  manager: IBackgroundService;
+  manager: BackgroundServiceTestManager;
   persistence?: BackgroundTaskPersistence;
 }
 
@@ -146,7 +150,7 @@ function createBackgroundManager(options: {
   sessionDir?: string;
   maxRunningTasks?: number;
   hooks?: FakeBackgroundAgent['hooks'];
-} = {}): BackgroundManagerFixture {
+} = {}): BackgroundServiceFixture {
   const track = vi.fn();
   const hookEngine: TestAgentOptions['hookEngine'] = options.hooks === undefined
     ? undefined
@@ -203,7 +207,7 @@ function createBackgroundManager(options: {
   return {
     ctx,
     agent,
-    manager: ctx.background,
+    manager: ctx.background as BackgroundServiceTestManager,
     persistence,
   };
 }
