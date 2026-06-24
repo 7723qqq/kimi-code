@@ -480,6 +480,52 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
     ws.close();
   });
 
+  it('aborts the pending question when the request signal aborts', async () => {
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const { ws, received } = await openSubscriber(r, sid);
+
+    const broker = r.services.invokeFunction(
+      (a) => a.get(IQuestionService) as QuestionService,
+    );
+
+    const controller = new AbortController();
+    const pending = broker.request(
+      {
+        sessionId: sid,
+        agentId: 'main',
+        questions: [{ question: '?', options: [{ label: 'A' }, { label: 'B' }] }],
+      },
+      { signal: controller.signal },
+    );
+
+    const requested = await waitFor(
+      received,
+      (f) => f['type'] === 'event.question.requested',
+      2000,
+    );
+    const payload = requested['payload'] as { question_id: string };
+
+    // Simulate the turn being aborted before the user answers.
+    controller.abort();
+
+    const dismissedFrame = await waitFor(
+      received,
+      (f) => f['type'] === 'event.question.dismissed',
+      2000,
+    );
+    const dPayload = dismissedFrame['payload'] as { question_id: string };
+    expect(dPayload.question_id).toBe(payload.question_id);
+
+    // Broker entry is cleaned up so listPending/session status don't stick.
+    expect(broker.isPending(payload.question_id)).toBe(false);
+
+    const result: QuestionResult = await pending;
+    expect(result).toBeNull();
+
+    ws.close();
+  });
+
   it('REST resolve on unknown question_id returns 40405', async () => {
     const r = await bootDaemon();
     const sid = await createSession(r);

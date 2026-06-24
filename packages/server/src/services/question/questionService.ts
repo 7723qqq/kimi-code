@@ -16,6 +16,7 @@ export const QUESTION_RECENTLY_RESOLVED_CAP = 1024;
 
 class PendingQuestion implements IDisposable {
   private _settled = false;
+  private _abortCleanup: (() => void) | undefined;
 
   constructor(
     readonly questionId: string,
@@ -27,9 +28,15 @@ class PendingQuestion implements IDisposable {
     private readonly _rejectFn: (e: Error) => void,
   ) {}
 
+  setAbortCleanup(cleanup: () => void): void {
+    this._abortCleanup = cleanup;
+  }
+
   markSettled(): void {
     if (this._settled) return;
     this._settled = true;
+    this._abortCleanup?.();
+    this._abortCleanup = undefined;
   }
 
   resolve(r: QuestionResult): void {
@@ -43,6 +50,8 @@ class PendingQuestion implements IDisposable {
   dispose(): void {
     if (this._settled) return;
     this._settled = true;
+    this._abortCleanup?.();
+    this._abortCleanup = undefined;
     try {
       this.reject(new Error('server shutting down'));
     } catch {
@@ -69,6 +78,7 @@ export class QuestionService extends Disposable implements IQuestionService {
 
   async request(
     req: QuestionRequest & { sessionId: string; agentId: string },
+    options?: { signal?: AbortSignal },
   ): Promise<QuestionResult> {
     if (this._store.isDisposed) {
       throw new Error('question service disposed');
@@ -103,18 +113,29 @@ export class QuestionService extends Disposable implements IQuestionService {
     );
 
     return new Promise<QuestionResult>((resolve, reject) => {
-      this._pending.set(
+      const pending = new PendingQuestion(
         questionId,
-        new PendingQuestion(
-          questionId,
-          req.sessionId,
-          req.toolCallId,
-          createdAt,
-          protocolRequest,
-          resolve,
-          reject,
-        ),
+        req.sessionId,
+        req.toolCallId,
+        createdAt,
+        protocolRequest,
+        resolve,
+        reject,
       );
+      this._pending.set(questionId, pending);
+
+      // When the agent's turn is aborted, the broker entry must be settled so
+      // listPending()/session status don't stay stuck in awaiting_question.
+      const signal = options?.signal;
+      if (signal !== undefined) {
+        if (signal.aborted) {
+          this.dismiss(questionId);
+        } else {
+          const onAbort = () => this.dismiss(questionId);
+          signal.addEventListener('abort', onAbort, { once: true });
+          pending.setAbortCleanup(() => signal.removeEventListener('abort', onAbort));
+        }
+      }
     });
   }
 

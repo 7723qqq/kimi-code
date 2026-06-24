@@ -66,7 +66,10 @@ export interface IQuestionService {
    * Resolves with the in-process `QuestionResult` (null = no handler / fully
    * dismissed). Concrete impls own timeout policy.
    */
-  request(req: InProcessQuestionRequest & { sessionId: string; agentId: string }): Promise<QuestionResult>;
+  request(
+    req: InProcessQuestionRequest & { sessionId: string; agentId: string },
+    options?: { signal?: AbortSignal },
+  ): Promise<QuestionResult>;
 
   /**
    * Called by the answer-side (REST handler / TUI / mock) to settle a pending
