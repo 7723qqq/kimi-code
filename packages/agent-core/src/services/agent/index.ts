@@ -24,6 +24,9 @@ export type {
   WireRecordMap,
 } from './types';
 
+export { IAgentRPCService } from './rpc/rpc';
+export { AgentRPCService } from './rpc/rpcService';
+
 export { IEventBus } from './eventBus/eventBus';
 export { EventBusService } from './eventBus/eventBusService';
 

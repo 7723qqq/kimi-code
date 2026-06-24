@@ -62,6 +62,7 @@ export interface BackgroundManager {
   ): Promise<BackgroundTaskOutputSnapshot>;
   readOutput(taskId: string, tail?: number): Promise<string>;
   suppressTerminalNotification(taskId: string): Promise<void>;
+  detach(taskId: string): BackgroundTaskInfo | undefined;
   stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined>;
   stopAll(reason?: string): Promise<readonly BackgroundTaskInfo[]>;
   wait(taskId: string, timeoutMs?: number): Promise<BackgroundTaskInfo | undefined>;

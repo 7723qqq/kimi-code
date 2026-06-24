@@ -20,6 +20,10 @@ export class SubagentHostService implements ISubagentHost {
     return this.subagentHost?.getSwarmItem(agentId);
   }
 
+  startBtw(): Promise<string> {
+    return this.subagentHost.startBtw();
+  }
+
   runQueued<T>(
     tasks: readonly QueuedSubagentTask<T>[],
   ): Promise<Array<QueuedSubagentRunResult<T>>> {

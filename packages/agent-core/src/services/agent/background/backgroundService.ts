@@ -254,6 +254,10 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     if (ghost !== undefined) return;
   }
 
+  detach(taskId: string): BackgroundTaskInfo | undefined {
+    return this.getTask(taskId);
+  }
+
   async stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined> {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return undefined;

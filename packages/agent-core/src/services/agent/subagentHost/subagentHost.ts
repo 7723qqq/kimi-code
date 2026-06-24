@@ -5,6 +5,7 @@ import type { SubagentResult } from '../../../session/subagent-batch';
 export interface ISubagentHost {
   readonly _serviceBrand: undefined;
   getSwarmItem(agentId: string): string | undefined;
+  startBtw(): Promise<string>;
   runQueued<T>(tasks: readonly QueuedSubagentTask<T>[]): Promise<Array<SubagentResult<T>>>;
 }
 
