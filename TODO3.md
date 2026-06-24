@@ -33,7 +33,7 @@
 
 - [x] 增加服务原生 foreground task 语义：`detached: false`、等待 foreground release、注册时 abort signal、foreground task 不计入 detached/background task limit。覆盖测试：`background/foreground-persistence.test.ts`、`background/manager.test.ts`。
 - [x] 定义并实现 foreground task detach 持久化状态迁移，包括 detach 前已完成输出 flush 到磁盘。覆盖测试：`background/foreground-persistence.test.ts`。
-- [ ] 将旧 manager 的 background notification delivery 行为迁移到服务层：`turn.steer`、context replay、`Notification` hook delivery、idle auto-turn launch、busy-turn buffering，以及 restore 后的 terminal notification injection。覆盖测试：`background/rpc-events.test.ts`、`bg-idle-notification-repro.test.ts`。
+- [x] 将旧 manager 的 background notification delivery 行为迁移到服务层：`turn.steer`、context replay、`Notification` hook delivery、idle auto-turn launch、busy-turn buffering，以及 restore 后的 terminal notification injection。覆盖测试：`background/rpc-events.test.ts`、`bg-idle-notification-repro.test.ts`。
 - [ ] 将 Bash builtin 迁移到服务 runtime，包括 Bash 专属 permission turns、plan-mode Bash 行为、approval/cancel/steer 交互，以及 Bash 执行前后的 hook cadence。覆盖测试：`permission.test.ts`、`plan.test.ts`、`tool.test.ts`、`turn.test.ts`。
 - [ ] 将仍缺服务层 model-tool 入口的旧 Agent-bound tools 迁完：`Agent`、media upload/read、goal tools、question tools、model-invoked `Skill`。注意：`AgentSwarm` 已由 `SwarmModeService` 注册，`TodoList` / `Cron*` / `EnterPlanMode` / `ExitPlanMode` 也已经是 service-owned tools，不应再列入“未注册 builtin”。覆盖测试：`tool.test.ts`、`turn.test.ts`、`skill-tool-manager.test.ts`。
 - [ ] 将 plugin session-start injection 完整迁移到服务层 dynamic-injection runtime，包括 skill lookup、instruction rendering、warning behavior，以及 replay de-duplication。覆盖测试：`injection/plugin-session-start.test.ts`。

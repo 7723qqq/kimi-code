@@ -23,7 +23,7 @@ import { join } from 'pathe';
 import { describe, expect, it, vi } from 'vitest';
 
 import { testAgent } from './harness';
-import { BackgroundTaskPersistence, ITurnRunner } from '../../../src/services/agent';
+import { BackgroundTaskPersistence, IPromptService, ITurnRunner } from '../../../src/services/agent';
 import { AgentBackgroundTask } from '../../../src/services/agent/background/background';
 
 function agentTask(
@@ -74,7 +74,7 @@ describe('background notification → main agent (real Agent instance)', () => {
     expect(flatHistoryText).toContain('background agent finished its job');
   });
 
-  it.skip('BUSY: completed bg agent during an active turn is flushed before the next LLM call', async () => {
+  it('BUSY: completed bg agent during an active turn is flushed before the next LLM call', async () => {
     const ctx = testAgent();
     ctx.configure({ tools: [] });
 
@@ -94,7 +94,7 @@ describe('background notification → main agent (real Agent instance)', () => {
     // case is hard to model without LLM-side multi-step. Instead we
     // test the buffer mechanism directly:
 
-    const steerSpy = vi.spyOn(ctx.rpcMethods, 'steer');
+    const steerSpy = vi.spyOn(ctx.get(IPromptService), 'steer');
 
     // Pretend a turn is active by calling prompt and not awaiting end.
     // Queue a response that will be consumed.
@@ -136,7 +136,7 @@ describe('background notification → main agent (real Agent instance)', () => {
     expect(flatContext).toContain('busy-state bg result');
   });
 
-  it.skip('IDLE × N: a GROUP of bg agents completes — all notifications should reach the LLM', async () => {
+  it('IDLE × N: a GROUP of bg agents completes — all notifications should reach the LLM', async () => {
     const ctx = testAgent();
     ctx.configure({ tools: [] });
 
@@ -183,7 +183,7 @@ describe('background notification → main agent (real Agent instance)', () => {
     expect(flatHistoryText).toContain('bg #3 result');
   });
 
-  it.skip('RACE: bg completion fires AFTER LLM returns but BEFORE activeTurn is cleared', async () => {
+  it('RACE: bg completion fires AFTER LLM returns but BEFORE activeTurn is cleared', async () => {
     // We're hunting a window: shouldContinueAfterStop reads an empty
     // steerBuffer → returns { continue: false } → runTurn unwinds →
     // finally block hasn't yet set activeTurn = null. If a steer()

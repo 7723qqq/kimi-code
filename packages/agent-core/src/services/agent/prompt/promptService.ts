@@ -17,6 +17,10 @@ export class PromptService implements IPromptService {
     @ITurnRunner private readonly turnRunner: ITurnRunner,
     @IWireRecord private readonly wireRecord: IWireRecord,
   ) {
+    turnRunner.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
+      this.flushSteerQueue();
+      await next();
+    });
     turnRunner.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
       await next();
       if (this.flushSteerQueue()) {
