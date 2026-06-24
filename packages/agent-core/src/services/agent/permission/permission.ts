@@ -29,6 +29,7 @@ export interface PermissionServiceOptions {
   readonly agentId?: string;
   readonly agentType?: 'main' | 'sub';
   readonly cwd?: string;
+  readonly additionalDirs?: readonly string[];
   readonly pathClass?: PathClass;
   readonly planMode?: PermissionPlanModeState;
   readonly swarmMode?: PermissionSwarmModeState;

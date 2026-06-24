@@ -166,6 +166,10 @@ export class CronService
     );
   }
 
+  get isEnabled(): boolean {
+    return this.enabled;
+  }
+
   addTask(init: CronTaskInit): CronTask {
     const task = this.store.add(init, this.clocks.wallNow());
     this.wireRecord.append({ type: 'cron.add', task });
