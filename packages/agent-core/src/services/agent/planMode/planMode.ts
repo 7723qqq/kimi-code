@@ -10,18 +10,13 @@ export type PlanFilePath = string | null;
 
 export interface IPlanModeService {
   readonly _serviceBrand: undefined;
-  readonly active: boolean;
   readonly isActive: boolean;
-  readonly id: string | null;
   readonly planFilePath: PlanFilePath;
-  createPlanId(): string;
-  enter(id?: string, createFile?: boolean, emitStatus?: boolean): Promise<void>;
-  restoreEnter(input: { readonly id: string }): void;
+  enter(id?: string, createFile?: boolean): Promise<void>;
   cancel(id?: string): void;
   clear(): Promise<void>;
   exit(id?: string): void;
   data(): Promise<PlanData>;
-  planFilePathFor(id: string): string;
 }
 
 declare module '../types' {

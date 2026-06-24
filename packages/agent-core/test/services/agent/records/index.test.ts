@@ -293,15 +293,15 @@ describe('AgentRecords persistence metadata', () => {
   });
 });
 
-describe.skip('agent replay range build', () => {
+describe('agent replay range build', () => {
   it('returns the complete replay when no range is requested', async () => {
     const firstMessage = userMessage('first');
     const afterClearMessage = userMessage('after-clear');
     const records: PersistedWireRecord[] = [
       { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
-      { type: 'context.append_message', message: firstMessage },
-      { type: 'context.clear' },
-      { type: 'context.append_message', message: afterClearMessage },
+      { type: 'context.splice', start: 0, deleteCount: 0, messages: [firstMessage] },
+      { type: 'context.splice', start: 0, deleteCount: 1, messages: [] },
+      { type: 'context.splice', start: 0, deleteCount: 0, messages: [afterClearMessage] },
     ];
 
     await expect(buildReplay(records)).resolves.toEqual([
@@ -330,7 +330,7 @@ describe.skip('agent replay range build', () => {
         usage: { inputOther: 2, inputCacheRead: 0, inputCacheCreation: 0, output: 1 },
       },
       { type: 'permission.set_mode', mode: 'yolo' },
-      { type: 'context.append_message', message },
+      { type: 'context.splice', start: 0, deleteCount: 0, messages: [message] },
     ]);
 
     const replay = await buildReplayFromPersistence(persistence, { start: 1, count: 2 });
@@ -348,10 +348,10 @@ describe.skip('agent replay range build', () => {
     const thirdMessage = userMessage('third');
     const records: PersistedWireRecord[] = [
       { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
-      { type: 'context.append_message', message: firstMessage },
+      { type: 'context.splice', start: 0, deleteCount: 0, messages: [firstMessage] },
       { type: 'permission.set_mode', mode: 'auto' },
-      { type: 'context.append_message', message: secondMessage },
-      { type: 'context.append_message', message: thirdMessage },
+      { type: 'context.splice', start: 1, deleteCount: 0, messages: [secondMessage] },
+      { type: 'context.splice', start: 2, deleteCount: 0, messages: [thirdMessage] },
     ];
 
     await expect(buildReplay(records, { count: 2 })).resolves.toEqual([
@@ -375,9 +375,19 @@ describe.skip('agent replay range build', () => {
     );
     const records: PersistedWireRecord[] = [
       { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
-      ...beforeClearMessages.map((message) => ({ type: 'context.append_message' as const, message })),
-      { type: 'context.clear' },
-      ...afterClearMessages.map((message) => ({ type: 'context.append_message' as const, message })),
+      ...beforeClearMessages.map((message, index) => ({
+        type: 'context.splice' as const,
+        start: index,
+        deleteCount: 0,
+        messages: [message],
+      })),
+      { type: 'context.splice', start: 0, deleteCount: 50, messages: [] },
+      ...afterClearMessages.map((message, index) => ({
+        type: 'context.splice' as const,
+        start: index,
+        deleteCount: 0,
+        messages: [message],
+      })),
     ];
 
     const replay = await buildReplay(records, { count: 10 });

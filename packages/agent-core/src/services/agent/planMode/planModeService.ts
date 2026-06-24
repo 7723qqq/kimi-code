@@ -108,7 +108,7 @@ export class PlanModeService extends Disposable implements IPlanModeService {
     let wasActive = false;
     this._register(
       dynamicInjector.register(PLAN_MODE_INJECTION_VARIANT, async ({ injectedAt }) => {
-        if (!this.active) {
+        if (!this.isActive) {
           if (!wasActive) return undefined;
           wasActive = false;
           return PLAN_MODE_EXIT_REMINDER;
@@ -128,23 +128,15 @@ export class PlanModeService extends Disposable implements IPlanModeService {
     );
   }
 
-  get active(): boolean {
-    return this._active;
-  }
-
   get isActive(): boolean {
     return this._active;
-  }
-
-  get id(): string | null {
-    return this.planId;
   }
 
   get planFilePath(): PlanFilePath {
     return this._planFilePath;
   }
 
-  createPlanId(): string {
+  private createPlanId(): string {
     return generateHeroSlug(randomUUID(), new Set());
   }
 
@@ -183,7 +175,7 @@ export class PlanModeService extends Disposable implements IPlanModeService {
     if (emitStatus) this.emitChanged();
   }
 
-  restoreEnter({ id }: { readonly id: string }): void {
+  private restoreEnter({ id }: { readonly id: string }): void {
     this.replayBuilder.push({ type: 'plan_updated', enabled: true });
     this._active = true;
     this.planId = id;
@@ -224,7 +216,7 @@ export class PlanModeService extends Disposable implements IPlanModeService {
     };
   }
 
-  planFilePathFor(id: string): string {
+  private planFilePathFor(id: string): string {
     return join(this.currentCwd(), 'plan', `${id}.md`);
   }
 

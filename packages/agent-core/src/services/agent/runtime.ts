@@ -254,6 +254,13 @@ export class AgentRuntime extends Disposable {
       accessor.get(IPermissionModeService).mode;
       // oxlint-disable-next-line no-unused-expressions
       accessor.get(IPlanModeService).isActive;
+      // Force-construct PermissionRulesService so its wireRecord handlers
+      // (permission.rules.add / permission.record_approval_result) are
+      // registered before records are replayed below. accessor.get() alone
+      // returns a lazy proxy and does not run the constructor; reading a
+      // member is what actually instantiates the service.
+      // oxlint-disable-next-line no-unused-expressions
+      accessor.get(IPermissionRulesService).rules;
     });
     const replayBuilder = this.get(IReplayBuilderService);
     replayBuilder.postRestoring = true;

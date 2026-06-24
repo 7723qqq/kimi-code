@@ -314,6 +314,7 @@ describe('Agent context', () => {
   it('projects user, assistant, tool call, and tool result records into LLM history', async () => {
     const ctx = testAgent();
     ctx.configure();
+    ctx.profile.update({ activeToolNames: [] });
     ctx.appendAssistantText(1, 'earlier assistant');
     ctx.appendToolExchange();
 
@@ -338,6 +339,7 @@ describe('Agent context', () => {
   it('keeps system reminders separate from real user prompts', async () => {
     const ctx = testAgent();
     ctx.configure();
+    ctx.profile.update({ activeToolNames: [] });
     ctx.appendSystemReminder('Remember the host note.', {
       kind: 'injection',
       variant: 'host',
@@ -513,6 +515,7 @@ describe('Agent context', () => {
   it('clears context before the next LLM request', async () => {
     const ctx = testAgent();
     ctx.configure();
+    ctx.profile.update({ activeToolNames: [] });
     ctx.appendUserMessage([{ type: 'text', text: 'stale user message' }]);
     await ctx.rpc.clearContext({});
 
@@ -532,6 +535,7 @@ describe('Agent context', () => {
   it('uses compacted summary plus recent messages', async () => {
     const ctx = testAgent();
     ctx.configure();
+    ctx.profile.update({ activeToolNames: [] });
     ctx.appendUserMessage([{ type: 'text', text: 'old user message' }]);
     ctx.appendUserMessage([{ type: 'text', text: 'recent user message' }]);
     ctx.context.spliceHistory(0, 1, {
@@ -552,7 +556,8 @@ describe('Agent context', () => {
       tools: []
       messages:
         assistant: text "summary of old context"
-        user: text "recent user message\\n\\nnew prompt"
+        user: text "recent user message"
+        user: text "new prompt"
     `);
     await ctx.expectResumeMatches();
   });
