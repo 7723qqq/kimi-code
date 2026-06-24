@@ -21,10 +21,12 @@
 
 ## 测试迁移债
 
-- [ ] 将剩余直接引用旧 `src/agent` 的测试迁移到服务层：
+- [x] 将剩余直接引用旧 `src/agent` 的测试迁移到服务层：
   - [x] `goal.test.ts`：已迁到 `IGoalService`、wire record、event bus / replay builder 覆盖旧 `GoalMode` 行为，不再直接引用旧 `src/agent`。
   - [x] `injection/plan-mode.test.ts`：已迁到 `IPlanModeService` + `IDynamicInjector`，覆盖 plan reminder 内容和 cadence，不再直接引用旧 `src/agent`。
   - [x] `injection/plugin-session-start.test.ts`：已迁到服务层 `AgentRuntimeOptions.pluginSessionStarts` + `IDynamicInjector`，覆盖 skill lookup、instruction rendering、warning、replay de-duplication，不再直接引用旧 `src/agent`。
+  - [x] `background/output-access.test.ts`：已从旧 background helper 迁到 `IBackgroundService` + `ProcessBackgroundTask`，不再直接或经测试 helper 依赖旧 `src/agent`。
+  - [x] `background/ids.test.ts`：已从旧 background helper 迁到 `IBackgroundService` + service-owned task classes，不再经测试 helper 依赖旧 `src/agent`。
 - [x] 重写 `records/index.test.ts` 里的 skipped replay range 覆盖。fixture 已从旧 `context.append_message` / `context.clear` / `context.undo` 迁到 v1.5 `context.splice`，`describe.skip` 已解除，断言改为基于 splice 输出（其中 `does not rewrite migrated wire records while projecting` 本就是带旧 `protocol_version` 的 migration compat 用例，保持不变）。剩余 6 个测试仍红，根因已下沉为服务层 replay 缺口（见下方“行为待对齐”里的 replay range / splice 条目），不再是 fixture 迁移债。
 - [ ] 清理 skipped 测试中的旧 wire snapshot。`context.test.ts`、`resume.test.ts`、`plan.test.ts`、`turn.test.ts`、`permission.test.ts`、`compaction/full.test.ts`、`compaction/micro.test.ts` 里仍有大量旧 record 形状；解除 skip 前先判断是“迁移 fixture”还是“当前协议快照”。
 - [ ] 给 service runtime 的 `Skill` model-tool 语义补等价测试后，恢复 `skill-tool-manager.test.ts` 中 skipped 的 model-invocable skill 覆盖。用户 slash skill activation 已有 `IAgentSkillService`，不要混为同一件事。

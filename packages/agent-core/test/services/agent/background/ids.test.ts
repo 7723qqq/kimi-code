@@ -1,15 +1,47 @@
-/**
- * Background task id format.
- */
-
 import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 
 import type { KaosProcess } from '@moonshot-ai/kaos';
 import { describe, expect, it, vi } from 'vitest';
 
-import { BackgroundTaskPersistence } from '../../../../src/services/agent';
-import { agentTask, createBackgroundManager, registerProcess } from '../../../agent/background/helpers';
+import {
+  AgentBackgroundTask,
+  BackgroundTaskPersistence,
+  type IBackgroundService,
+  ProcessBackgroundTask,
+} from '../../../../src/services/agent/background/background';
+import type { SessionSubagentHost, SubagentHandle } from '../../../../src/session/subagent-host';
+import { testAgent } from '../harness';
+
+function registerProcess(
+  manager: IBackgroundService,
+  proc: KaosProcess,
+  command: string,
+  description: string,
+): string {
+  return manager.registerTask(new ProcessBackgroundTask(proc, command, description));
+}
+
+function agentTask(
+  completion: Promise<{ result: string }>,
+  description: string,
+): AgentBackgroundTask {
+  const handle: SubagentHandle = {
+    agentId: 'agent-child',
+    profileName: 'coder',
+    resumed: false,
+    completion,
+  };
+  return new AgentBackgroundTask(
+    handle,
+    description,
+    { markActiveChildDetached: vi.fn() } as unknown as Pick<
+      SessionSubagentHost,
+      'markActiveChildDetached'
+    >,
+    new AbortController(),
+  );
+}
 
 function pendingProcess(): KaosProcess {
   return {
@@ -26,7 +58,7 @@ function pendingProcess(): KaosProcess {
 
 describe('background task id format', () => {
   it('assigns bash-prefixed ids to process tasks', () => {
-    const { manager } = createBackgroundManager();
+    const manager = testAgent().background;
     const id = registerProcess(manager, pendingProcess(), 'sleep 60', 'process task');
 
     expect(id).toMatch(/^bash-[0-9a-z]{8}$/);
@@ -34,7 +66,7 @@ describe('background task id format', () => {
   });
 
   it('assigns agent-prefixed ids to agent tasks', () => {
-    const { manager } = createBackgroundManager();
+    const manager = testAgent().background;
     const id = manager.registerTask(
       agentTask(new Promise(() => {}), 'agent task'),
     );

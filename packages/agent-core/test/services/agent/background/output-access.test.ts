@@ -1,7 +1,3 @@
-/**
- * BackgroundManager output retrieval surface.
- */
-
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
@@ -11,12 +7,55 @@ import { join } from 'pathe';
 import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { BackgroundManager } from '../../../../src/agent/background';
 import {
-  createBackgroundManager,
-  registerProcess,
-  waitForOutput,
-} from '../../../agent/background/helpers';
+  BackgroundTaskPersistence,
+  type IBackgroundService,
+  ProcessBackgroundTask,
+} from '../../../../src/services/agent/background/background';
+import { testAgent, type TestAgentContext } from '../harness';
+
+type BackgroundServiceTestManager = IBackgroundService & {
+  loadFromDisk(): Promise<void>;
+  reconcile(): Promise<readonly unknown[]>;
+};
+
+interface BackgroundServiceFixture {
+  readonly ctx: TestAgentContext;
+  readonly manager: BackgroundServiceTestManager;
+  readonly persistence: BackgroundTaskPersistence;
+}
+
+function createBackgroundService(sessionDir: string): BackgroundServiceFixture {
+  const persistence = new BackgroundTaskPersistence(sessionDir);
+  const ctx = testAgent({ background: { persistence } });
+  return {
+    ctx,
+    manager: ctx.background as BackgroundServiceTestManager,
+    persistence,
+  };
+}
+
+function registerProcess(
+  manager: IBackgroundService,
+  proc: KaosProcess,
+  command: string,
+  description: string,
+): string {
+  return manager.registerTask(new ProcessBackgroundTask(proc, command, description));
+}
+
+async function waitForOutput(
+  manager: IBackgroundService,
+  taskId: string,
+  expected: string,
+): Promise<void> {
+  for (let i = 0; i < 20; i++) {
+    const output = await manager.readOutput(taskId);
+    if (output.includes(expected)) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`Timed out waiting for output: ${expected}`);
+}
 
 function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
   return {
@@ -33,17 +72,20 @@ function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
 
 describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
   let sessionDir: string;
-  let manager: BackgroundManager;
-  let persistence: NonNullable<ReturnType<typeof createBackgroundManager>['persistence']>;
+  let manager: BackgroundServiceTestManager;
+  let persistence: BackgroundTaskPersistence;
+  let ctx: TestAgentContext;
 
   beforeEach(() => {
     sessionDir = mkdtempSync(join(tmpdir(), 'bpm-output-'));
-    const fixture = createBackgroundManager({ sessionDir });
+    const fixture = createBackgroundService(sessionDir);
+    ctx = fixture.ctx;
     manager = fixture.manager;
-    persistence = fixture.persistence!;
+    persistence = fixture.persistence;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await ctx.close();
     rmSync(sessionDir, { recursive: true, force: true });
   });
 
@@ -112,7 +154,7 @@ describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
     await waitForOutput(manager, taskId, 'persisted line');
     await manager.wait(taskId);
 
-    const fresh = createBackgroundManager({ sessionDir }).manager;
+    const fresh = createBackgroundService(sessionDir).manager;
     await fresh.loadFromDisk();
     await fresh.reconcile();
 
