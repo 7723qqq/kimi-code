@@ -1,7 +1,8 @@
 /**
  * `ToolService` + `McpService` (Chain 7 / P1.7, W9.1) unit tests.
  *
- * Hermetic: mocks `ICoreProcessService` with an in-memory `rpc` proxy. Exercises:
+ * Hermetic: mocks `IAgentRuntimeService` for tools and `ICoreProcessService`
+ * for MCP with in-memory state. Exercises:
  *   - tool source mapping: 'builtin' / 'user'→'skill' / 'mcp' + mcp_server_id parse
  *   - mcp server status mapping (all 5 agent-core literals → 4 wire literals)
  *   - transport pass-through
@@ -21,6 +22,7 @@ import type {
 } from '../../src';
 
 import {
+  type IAgentRuntimeService,
   type ICoreProcessService,
   McpServerNotFoundError,
   McpService,
@@ -35,17 +37,35 @@ interface FakeBridgeState {
   tools: AgentCoreToolInfoLike[];
   mcpServers: McpServerInfo[];
   reconnectCalls: ReconnectMcpServerPayload[];
+  getToolsError?: Error;
+}
+
+function makeFakeAgentRuntimes(state: FakeBridgeState): IAgentRuntimeService {
+  const getRPC: IAgentRuntimeService['getRPC'] = async (sessionId) => {
+    if (!state.sessions.some((session) => session.id === sessionId)) return undefined;
+    return {
+      getTools: async () => {
+        if (state.getToolsError !== undefined) throw state.getToolsError;
+        return state.tools as unknown as readonly never[];
+      },
+    } as unknown as Awaited<ReturnType<IAgentRuntimeService['requireRPC']>>;
+  };
+
+  return {
+    listSessionSummaries: async () => state.sessions,
+    getRPC,
+    requireRPC: async (sessionId: string, agentId?: string) => {
+      const rpc = await getRPC(sessionId, agentId);
+      if (rpc !== undefined) return rpc;
+      throw new Error(`missing session ${sessionId}`);
+    },
+    _serviceBrand: undefined,
+  } as unknown as IAgentRuntimeService;
 }
 
 function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
   const rpc: Partial<CoreRPC> = {
     listSessions: async () => state.sessions,
-    resumeSession: async (p: { sessionId: string }) => {
-      const found = state.sessions.find((session) => session.id === p.sessionId);
-      if (found === undefined) throw new Error(`missing session ${p.sessionId}`);
-      return found;
-    },
-    getTools: async (_p: unknown) => state.tools as unknown as readonly never[],
     listMcpServers: async (_p: EmptyPayload & { sessionId: string }) => state.mcpServers,
     reconnectMcpServer: async (
       p: ReconnectMcpServerPayload & { sessionId: string },
@@ -156,7 +176,7 @@ describe('toProtocolMcpServer adapter', () => {
 
 describe('ToolService.list', () => {
   it('returns [] when no sessions exist (CoreAPI gap)', async () => {
-    const svc = new ToolService(makeFakeBridge(freshState()));
+    const svc = new ToolService(makeFakeAgentRuntimes(freshState()));
     const out = await svc.list();
     expect(out).toEqual([]);
   });
@@ -169,7 +189,7 @@ describe('ToolService.list', () => {
       { name: 'Bash', description: 'b', source: 'builtin' },
       { name: 'mcp__lark__search', description: 'l', source: 'mcp' },
     );
-    const svc = new ToolService(makeFakeBridge(state));
+    const svc = new ToolService(makeFakeAgentRuntimes(state));
     const out = await svc.list();
     expect(out).toHaveLength(2);
     expect(out[0]!.source).toBe('builtin');
@@ -180,11 +200,8 @@ describe('ToolService.list', () => {
   it('propagates getTools errors instead of hiding runtime failures', async () => {
     const state = freshState();
     state.sessions.push(fakeSession('s', 1));
-    const bridge = makeFakeBridge(state);
-    (bridge.rpc as CoreRPC).getTools = async () => {
-      throw new Error('session not loaded');
-    };
-    const svc = new ToolService(bridge);
+    state.getToolsError = new Error('session not loaded');
+    const svc = new ToolService(makeFakeAgentRuntimes(state));
     await expect(svc.list()).rejects.toThrow('session not loaded');
   });
 });

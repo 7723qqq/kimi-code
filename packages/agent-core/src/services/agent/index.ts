@@ -161,6 +161,7 @@ export { LoopService } from './loop/loopService';
 export {
   IExternalHooksService,
   type ExternalHooksServiceOptions,
+  type NotificationHookPayload,
   type RenderedExternalHookResult,
   type UserPromptHookDecision,
 } from './externalHooks/externalHooks';

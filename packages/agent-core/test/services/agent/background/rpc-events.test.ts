@@ -12,13 +12,16 @@ import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentBackgroundTask, ProcessBackgroundTask } from '../../../../src/services/agent/background/background';
-import { testAgent } from '../harness';
+import { testAgent, type TestAgentContext, type TestAgentOptions } from '../harness';
 import {
   BackgroundTaskPersistence,
   type BackgroundTaskInfo,
   type IBackgroundService,
 } from '../../../../src/services/agent/background/background';
+import { IPromptService } from '../../../../src/services/agent';
 import type { SessionSubagentHost, SubagentHandle } from '../../../../src/session/subagent-host';
+
+type FireAndForgetTrigger = NonNullable<TestAgentOptions['hookEngine']>['fireAndForgetTrigger'];
 
 function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
   return {
@@ -129,10 +132,11 @@ interface FakeBackgroundAgent {
   telemetry: { track: ReturnType<typeof vi.fn> };
   context: { appendUserMessage: ReturnType<typeof vi.fn> };
   turn: { steer: ReturnType<typeof vi.fn> };
-  hooks?: { fireAndForgetTrigger: ReturnType<typeof vi.fn> };
+  hooks?: { fireAndForgetTrigger: FireAndForgetTrigger };
 }
 
 interface BackgroundManagerFixture {
+  ctx: TestAgentContext;
   agent: FakeBackgroundAgent;
   manager: IBackgroundService;
   persistence?: BackgroundTaskPersistence;
@@ -144,6 +148,13 @@ function createBackgroundManager(options: {
   hooks?: FakeBackgroundAgent['hooks'];
 } = {}): BackgroundManagerFixture {
   const track = vi.fn();
+  const hookEngine: TestAgentOptions['hookEngine'] = options.hooks === undefined
+    ? undefined
+    : {
+        trigger: vi.fn().mockResolvedValue([]),
+        triggerBlock: vi.fn().mockResolvedValue(undefined),
+        fireAndForgetTrigger: options.hooks.fireAndForgetTrigger,
+      };
   const ctx = testAgent({
     telemetry: {
       track,
@@ -157,6 +168,7 @@ function createBackgroundManager(options: {
           : new BackgroundTaskPersistence(options.sessionDir),
       maxRunningTasks: options.maxRunningTasks,
     },
+    hookEngine,
   });
   ctx.configure();
 
@@ -165,7 +177,7 @@ function createBackgroundManager(options: {
     emittedEvents.push(event as { type: string; info?: unknown });
   });
 
-  const steerSpy = vi.spyOn(ctx.rpcMethods, 'steer');
+  const steerSpy = vi.spyOn(ctx.get(IPromptService), 'steer').mockReturnValue(undefined);
   const spliceHistorySpy = vi.spyOn(ctx.context, 'spliceHistory');
 
   const agent: FakeBackgroundAgent = {
@@ -189,6 +201,7 @@ function createBackgroundManager(options: {
       : new BackgroundTaskPersistence(options.sessionDir);
 
   return {
+    ctx,
     agent,
     manager: ctx.background,
     persistence,
@@ -343,7 +356,7 @@ describe('BackgroundManager — event emission', () => {
   });
 });
 
-describe.skip('BackgroundManager — notification delivery', () => {
+describe('BackgroundManager — notification delivery', () => {
   it('steers completed agent task notifications into the turn flow', async () => {
     const { agent, manager } = createBackgroundManager();
     const taskId = manager.registerTask(
@@ -359,15 +372,15 @@ describe.skip('BackgroundManager — notification delivery', () => {
       expect(agent.turn.steer).toHaveBeenCalledTimes(1);
     });
     expect(agent.context.appendUserMessage).not.toHaveBeenCalled();
-    const [payload] = agent.turn.steer.mock.calls[0]!;
-    const origin = (payload as { origin?: { kind: string; taskId: string; status: string; notificationId: string } }).origin;
+    const [message] = agent.turn.steer.mock.calls[0]!;
+    const origin = (message as { origin?: { kind: string; taskId: string; status: string; notificationId: string } }).origin;
     expect(origin).toEqual({
       kind: 'background_task',
       taskId,
       status: 'completed',
       notificationId: `task:${taskId}:completed`,
     });
-    const content = (payload as { input: Array<{ text: string }> }).input;
+    const content = (message as { content: Array<{ text: string }> }).content;
     const text = content[0]!.text;
     expect(text).toContain('Background agent completed');
     expect(text).toContain('final subagent summary');
@@ -382,15 +395,15 @@ describe.skip('BackgroundManager — notification delivery', () => {
     await vi.waitFor(() => {
       expect(agent.turn.steer).toHaveBeenCalledTimes(1);
     });
-    const [payload] = agent.turn.steer.mock.calls[0]!;
-    const origin = (payload as { origin?: { kind: string; taskId: string; status: string; notificationId: string } }).origin;
+    const [message] = agent.turn.steer.mock.calls[0]!;
+    const origin = (message as { origin?: { kind: string; taskId: string; status: string; notificationId: string } }).origin;
     expect(origin).toEqual({
       kind: 'background_task',
       taskId,
       status: 'completed',
       notificationId: `task:${taskId}:completed`,
     });
-    const content = (payload as { input: Array<{ text: string }> }).input;
+    const content = (message as { content: Array<{ text: string }> }).content;
     const text = content[0]!.text;
     expect(text).toContain('Background process completed');
     expect(text).toContain('shell task completed.');
@@ -405,15 +418,15 @@ describe.skip('BackgroundManager — notification delivery', () => {
     await vi.waitFor(() => {
       expect(agent.turn.steer).toHaveBeenCalledTimes(1);
     });
-    const [payload] = agent.turn.steer.mock.calls[0]!;
-    const origin = (payload as { origin?: { kind: string; taskId: string; status: string; notificationId: string } }).origin;
+    const [message] = agent.turn.steer.mock.calls[0]!;
+    const origin = (message as { origin?: { kind: string; taskId: string; status: string; notificationId: string } }).origin;
     expect(origin).toEqual({
       kind: 'background_task',
       taskId,
       status: 'killed',
       notificationId: `task:${taskId}:killed`,
     });
-    const content = (payload as { input: Array<{ text: string }> }).input;
+    const content = (message as { content: Array<{ text: string }> }).content;
     expect(content[0]!.text).toContain(
       'Background process killed',
     );
@@ -492,8 +505,6 @@ describe.skip('BackgroundManager — notification delivery', () => {
       await persistence.writeTask(persistedProcess({ taskId }));
       await persistence.appendTaskOutput(taskId, largeOutput);
       const { agent, manager } = createBackgroundManager({ sessionDir });
-      const readOutputSpy = vi.spyOn(manager, 'readOutput');
-      const snapshotSpy = vi.spyOn(manager, 'getOutputSnapshot');
 
       await manager.loadFromDisk();
       await manager.reconcile();
@@ -501,15 +512,13 @@ describe.skip('BackgroundManager — notification delivery', () => {
       await vi.waitFor(() => {
         expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       });
-      expect(readOutputSpy).not.toHaveBeenCalled();
-      expect(snapshotSpy).toHaveBeenCalledWith(taskId, expect.any(Number));
-      expect(snapshotSpy.mock.calls[0]![1]).toBeLessThan(largeOutput.length);
       const args = agent.context.appendUserMessage.mock.calls[0]!;
       const message = args[args.length - 1]!;
       const content = message.content as Array<{ text: string }>;
       const text = content[0]!.text;
       expect(text).toContain('final output line');
       expect(text).not.toContain('early-output-marker');
+      expect(text.length).toBeLessThan(largeOutput.length);
     } finally {
       await rm(sessionDir, { recursive: true, force: true });
     }
@@ -527,8 +536,15 @@ describe.skip('BackgroundManager — notification delivery', () => {
       const persistence = new BackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(persistedAgent({ taskId: 'agent-seen0000' }));
       await persistence.appendTaskOutput('agent-seen0000', 'already delivered summary');
-      const { agent, manager } = createBackgroundManager({ sessionDir });
-      await manager.suppressTerminalNotification(origin.taskId);
+      const { agent, ctx, manager } = createBackgroundManager({ sessionDir });
+      ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
+        role: 'user',
+        content: [{ type: 'text', text: 'already delivered' }],
+        toolCalls: [],
+        origin,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      agent.context.appendUserMessage.mockClear();
 
       await manager.loadFromDisk();
       await manager.reconcile();
@@ -579,7 +595,7 @@ describe.skip('BackgroundManager — notification delivery', () => {
   });
 
   it('fires a Notification hook when a background agent notification is delivered', async () => {
-    const fireAndForgetTrigger = vi.fn(() => Promise.resolve([]));
+    const fireAndForgetTrigger = vi.fn<FireAndForgetTrigger>(async () => []);
     const { agent, manager } = createBackgroundManager({
       hooks: { fireAndForgetTrigger },
     });
@@ -596,7 +612,7 @@ describe.skip('BackgroundManager — notification delivery', () => {
       expect(agent.turn.steer).toHaveBeenCalled();
       expect(fireAndForgetTrigger).toHaveBeenCalled();
     });
-    expect(fireAndForgetTrigger).toHaveBeenCalledWith('Notification', {
+    expect(fireAndForgetTrigger).toHaveBeenCalledWith('Notification', expect.objectContaining({
       matcherValue: 'task.completed',
       inputData: {
         sink: 'context',
@@ -607,11 +623,11 @@ describe.skip('BackgroundManager — notification delivery', () => {
         sourceKind: 'background_task',
         sourceId: taskId,
       },
-    });
+    }));
   });
 
   it('does not let Notification hook failures interrupt notification delivery', async () => {
-    const fireAndForgetTrigger = vi.fn(() => {
+    const fireAndForgetTrigger = vi.fn<FireAndForgetTrigger>(async () => {
       throw new Error('notification hook failed');
     });
     const { agent, manager } = createBackgroundManager({
@@ -633,7 +649,7 @@ describe.skip('BackgroundManager — notification delivery', () => {
   });
 
   it('fires Notification hooks for process task notifications', async () => {
-    const fireAndForgetTrigger = vi.fn(() => Promise.resolve([]));
+    const fireAndForgetTrigger = vi.fn<FireAndForgetTrigger>(async () => []);
     const { agent, manager } = createBackgroundManager({
       hooks: { fireAndForgetTrigger },
     });
@@ -645,7 +661,7 @@ describe.skip('BackgroundManager — notification delivery', () => {
       expect(agent.turn.steer).toHaveBeenCalled();
       expect(fireAndForgetTrigger).toHaveBeenCalled();
     });
-    expect(fireAndForgetTrigger).toHaveBeenCalledWith('Notification', {
+    expect(fireAndForgetTrigger).toHaveBeenCalledWith('Notification', expect.objectContaining({
       matcherValue: 'task.completed',
       inputData: {
         sink: 'context',
@@ -656,11 +672,11 @@ describe.skip('BackgroundManager — notification delivery', () => {
         sourceKind: 'background_task',
         sourceId: taskId,
       },
-    });
+    }));
   });
 });
 
-describe.skip('BackgroundManager — agent recovery notification bodies', () => {
+describe('BackgroundManager — agent recovery notification bodies', () => {
   it('failed agent task body includes resume instructions with the correct agent_id', async () => {
     const { agent, manager } = createBackgroundManager();
     const taskId = manager.registerTask(
@@ -676,8 +692,8 @@ describe.skip('BackgroundManager — agent recovery notification bodies', () => 
     await vi.waitFor(() => {
       expect(agent.turn.steer).toHaveBeenCalled();
     });
-    const [payload] = agent.turn.steer.mock.calls[0]!;
-    const content = (payload as { input: Array<{ text: string }> }).input;
+    const [message] = agent.turn.steer.mock.calls[0]!;
+    const content = (message as { content: Array<{ text: string }> }).content;
     const text = content[0]!.text;
     expect(text).toContain('agent_id="agent-7"');
     expect(text).toMatch(/Agent\(resume="agent-7"/);
@@ -699,8 +715,8 @@ describe.skip('BackgroundManager — agent recovery notification bodies', () => 
     await vi.waitFor(() => {
       expect(agent.turn.steer).toHaveBeenCalled();
     });
-    const [payload] = agent.turn.steer.mock.calls[0]!;
-    const content = (payload as { input: Array<{ text: string }> }).input;
+    const [message] = agent.turn.steer.mock.calls[0]!;
+    const content = (message as { content: Array<{ text: string }> }).content;
     const text = content[0]!.text;
     expect(text).toContain('agent_id="agent-8"');
     expect(text).not.toMatch(/Agent\(resume="agent-8"/);
@@ -715,8 +731,8 @@ describe.skip('BackgroundManager — agent recovery notification bodies', () => 
     await vi.waitFor(() => {
       expect(agent.turn.steer).toHaveBeenCalled();
     });
-    const [payload] = agent.turn.steer.mock.calls[0]!;
-    const content = (payload as { input: Array<{ text: string }> }).input;
+    const [message] = agent.turn.steer.mock.calls[0]!;
+    const content = (message as { content: Array<{ text: string }> }).content;
     const text = content[0]!.text;
     expect(text).not.toContain('agent_id=');
     expect(text).not.toMatch(/Agent\(resume=/);
