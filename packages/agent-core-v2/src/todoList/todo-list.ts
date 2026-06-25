@@ -15,10 +15,10 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool } from '../../../agent/tool';
+import type { BuiltinTool } from '#/toolRegistry';
 import type { ToolExecution } from '#/toolRegistry';
-import { toInputJsonSchema } from '../../support/input-schema';
-import type { ToolStore } from '../../store';
+import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
+import type { ToolStore } from '#/toolStore';
 import DESCRIPTION from './todo-list.md?raw';
 import TODO_LIST_WRITE_REMINDER from './todo-list-write-reminder.md?raw';
 
@@ -42,7 +42,7 @@ export function readTodoItems(raw: unknown): readonly TodoItem[] {
   }));
 }
 
-declare module '../../store' {
+declare module '#/toolStore' {
   interface ToolStoreData {
     todo: readonly TodoItem[];
   }

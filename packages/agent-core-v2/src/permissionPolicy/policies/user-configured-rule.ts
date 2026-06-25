@@ -2,12 +2,12 @@ import type {
   PermissionRule,
   PermissionRuleDecision,
   PermissionRuleScope,
-} from '../../../../agent/permission';
+} from '#/permissionRules';
 import {
   matchPermissionRule,
   type PermissionRuleMatch,
-} from '../../../../agent/permission/matches-rule';
-import type { ResolvedToolExecutionHookContext } from '../../../../loop';
+} from '#/permissionRules';
+import type { ResolvedToolExecutionHookContext } from '#/loop';
 import type { IPermissionRulesService } from '../../permissionRules/permissionRules';
 import type { PermissionPolicyResult } from '../permissionPolicy';
 import type { PermissionPolicyRuntime } from './runtime';

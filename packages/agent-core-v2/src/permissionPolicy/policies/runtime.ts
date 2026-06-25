@@ -1,4 +1,4 @@
-import type { PathClass } from '../../../../tools/policies/path-access';
+import type { PathClass } from '#/_base/tools/policies/path-access';
 import type {
   PermissionGitWorkTreeMarker,
   PermissionServiceOptions,

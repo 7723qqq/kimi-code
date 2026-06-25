@@ -6,3 +6,4 @@
 
 export * from './goal';
 export * from './goalService';
+export * from './types';

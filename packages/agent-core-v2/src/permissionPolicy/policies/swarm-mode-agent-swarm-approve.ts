@@ -1,4 +1,4 @@
-import type { ResolvedToolExecutionHookContext } from '../../../../loop';
+import type { ResolvedToolExecutionHookContext } from '#/loop';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,

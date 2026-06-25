@@ -1,8 +1,8 @@
-import type { PermissionMode } from '../../../../agent/permission';
-import type { ResolvedToolExecutionHookContext } from '../../../../loop';
+import type { ResolvedToolExecutionHookContext } from '#/loop';
 import { IPermissionModeService } from '../../permissionMode/permissionMode';
 import type {
   PermissionPolicy,
+  PermissionMode,
   PermissionPolicyResult,
 } from '../permissionPolicy';
 

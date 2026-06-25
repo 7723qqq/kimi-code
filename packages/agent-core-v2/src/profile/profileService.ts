@@ -10,7 +10,7 @@ import {
 import picomatch from 'picomatch';
 
 import { ErrorCodes, KimiError } from "#/_base/errors";
-import { resolveThinkingEffort, type ThinkingEffort } from '#/agent/config/thinking';
+import { resolveThinkingEffort, type ThinkingEffort } from '#/config/thinking';
 import type { KimiConfig } from '#/config';
 import {
   applyKimiEnvSamplingParams,
@@ -23,7 +23,7 @@ import type { ResolvedRuntimeProvider } from '#/session/provider-manager';
 import { IEventBus } from '#/eventBus';
 import { IReplayBuilderService } from '#/replayBuilder';
 import { ITelemetryService } from '#/telemetry';
-import type { ToolSource } from '../types';
+import type { ToolSource } from '#/toolRegistry';
 import { IWireRecord } from '#/wireRecord';
 import type {
   ProfileData,

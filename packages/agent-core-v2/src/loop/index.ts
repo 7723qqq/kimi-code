@@ -40,6 +40,11 @@ export type {
 } from './types';
 
 export { ToolAccesses } from './tool-access';
+export type {
+  ToolFileAccess,
+  ToolFileAccessOperation,
+  ToolResourceAccess,
+} from './tool-access';
 
 export type {
   CreateLoopEventDispatcherInput,

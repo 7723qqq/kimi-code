@@ -35,7 +35,7 @@ import {
   TODO_STORE_KEY,
   renderTodoList,
   type TodoItem,
-} from '../../../tools/builtin/state/todo-list';
+} from '#/todoList/todo-list';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
 import {
   IFullCompaction,

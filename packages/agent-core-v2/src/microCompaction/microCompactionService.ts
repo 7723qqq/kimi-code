@@ -12,6 +12,7 @@ import {
 import type { TelemetryProperties } from '#/telemetry';
 import { IContextMemory } from '#/contextMemory';
 import { IContextSizeService } from '#/contextSize';
+import { IFlagService } from '#/flag';
 import { IProfileService } from '#/profile';
 import { ITelemetryService } from '#/telemetry';
 import { ITurnService } from '#/turn';
@@ -45,6 +46,7 @@ export class MicroCompactionService
     @IContextMemory private readonly context: IContextMemory,
     @IContextSizeService private readonly contextSize: IContextSizeService,
     @IWireRecord private readonly wireRecord: IWireRecord,
+    @IFlagService private readonly flags: IFlagService,
     @IProfileService private readonly profile: IProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ITurnService turn: ITurnService,

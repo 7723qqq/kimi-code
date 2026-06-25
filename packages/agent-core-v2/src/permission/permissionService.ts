@@ -1,7 +1,7 @@
 import type {
   ApprovalResponse,
   PermissionData,
-} from '../../../agent/permission';
+} from '#/permissionPolicy';
 import {
   Disposable,
   IInstantiationService,
@@ -9,8 +9,8 @@ import {
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,
-} from '../../../loop';
-import type { ToolInputDisplay } from '../../../tools/display';
+} from '#/loop';
+import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { IApprovalService } from "#/approval/approval";
 import { IExternalHooksService } from '#/externalHooks';
 import { IPermissionModeService } from '#/permissionMode';

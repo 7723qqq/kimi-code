@@ -1,4 +1,4 @@
-import type { PermissionMode } from '../../../../agent/permission';
+import type { PermissionMode } from '#/permissionPolicy';
 import type { IDisposable } from "#/_base/di";
 import type { IDynamicInjector } from '../../dynamicInjector/dynamicInjector';
 import type { IPermissionModeService } from '../permissionMode';

@@ -39,7 +39,7 @@
 import { z } from 'zod';
 
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '../../loop/types';
-import { toInputJsonSchema } from '../support/input-schema';
+import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { CronToolManager } from './types';
 import CRON_DELETE_DESCRIPTION from './cron-delete.md?raw';
 

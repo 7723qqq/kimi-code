@@ -1,14 +1,14 @@
 import { z } from 'zod';
 
-import type { BuiltinTool } from '../../../agent/tool';
+import type { BuiltinTool } from '#/toolRegistry';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   type QueuedSubagentRunResult,
   type QueuedSubagentTask,
-} from '../../../session/subagent-host';
-import { ToolAccesses } from '../../../loop/tool-access';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import { toInputJsonSchema } from '../../support/input-schema';
+} from '#/subagentHost';
+import { ToolAccesses } from '#/loop';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/loop';
+import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';

@@ -1,4 +1,4 @@
-import type { ResolvedToolExecutionHookContext } from '../../../../loop';
+import type { ResolvedToolExecutionHookContext } from '#/loop';
 import { IProfileService } from '../../profile/profile';
 import type {
   PermissionPolicy,

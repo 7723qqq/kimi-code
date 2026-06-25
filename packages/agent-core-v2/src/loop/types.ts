@@ -12,7 +12,7 @@
 
 import type { ContentPart, Message, TokenUsage, Tool, ToolCall } from '@moonshot-ai/kosong';
 
-import type { ToolInputDisplay } from '../_base/tools/display';
+import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import type { ToolAccesses } from './tool-access';
 import type { LLM } from './llm';
 

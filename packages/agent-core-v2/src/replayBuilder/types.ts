@@ -1,18 +1,15 @@
-import type { AgentType } from '#';
+import type { AgentType } from '#/types';
 import type { BackgroundTaskInfo } from '#/background';
 import type { CompactionResult } from '#/fullCompaction';
 import type { AgentConfigData, AgentConfigUpdateData } from '#/config';
 import type { AgentContextData, ContextMessage } from '#/contextMemory';
 import type { GoalChange, GoalSnapshot } from '#/goal';
-import type {
-  PermissionApprovalResultRecord,
-  PermissionData,
-  PermissionMode,
-} from '#/permission';
+import type { PermissionApprovalResultRecord } from '#/permissionRules';
+import type { PermissionData, PermissionMode } from '#/permissionPolicy';
 import type { PlanData } from '#/plan';
-import type { ToolInfo } from '#/tool';
+import type { ToolInfo } from '#/toolRegistry';
 import type { SessionSummary } from '#/rpc/core-api';
-import type { UsageStatus } from '#/rpc/events';
+import type { UsageStatus } from '@moonshot-ai/protocol';
 import type { SessionMeta } from '#/session';
 
 export type AgentReplayRecordPayload =

@@ -1,10 +1,9 @@
-import { ErrorCodes, KimiError } from '#/errors';
+import { ErrorCodes, KimiError } from '#/_base/errors';
 import type { McpServerConfig } from '#/config/schema';
-import { log as defaultLog } from '#/logging/logger';
-import type { Logger } from '#/logging/types';
+import type { ILogger as Logger } from '#/log';
 import type { Tool } from '@moonshot-ai/kosong';
 
-import { abortable } from '../utils/abort';
+import { abortable } from '#/_base/utils/abort';
 import { HttpMcpClient } from './client-http';
 import { isRemoteMcpConfig } from './client-remote';
 import { SseMcpClient } from './client-sse';
@@ -39,6 +38,13 @@ export type McpStatusListener = (entry: McpServerEntry) => void;
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 
 type RuntimeMcpClient = StdioMcpClient | HttpMcpClient | SseMcpClient;
+const defaultLog: Logger = {
+  error: () => {},
+  warn: () => {},
+  info: () => {},
+  debug: () => {},
+  child: () => defaultLog,
+};
 
 export interface McpConnectionManagerOptions {
   readonly envLookup?: (name: string) => string | undefined;

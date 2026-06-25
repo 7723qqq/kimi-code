@@ -15,13 +15,12 @@ export * from './kosong/index';
 export * from './records/index';
 export * from './config/index';
 
-export * from './tool/index';
-export * from './skill/index';
+import './skill/index';
 export * from './permission/index';
+import './flag/index';
 export * from './flag/index';
 
-export * from './turn/index';
-export * from './compaction/index';
+import './turn/index';
 export * from './plan/index';
 export * from './goal/index';
 export * from './swarm/index';
@@ -29,17 +28,15 @@ export * from './usage/index';
 export * from './tooldedup/index';
 
 export * from './background/index';
-export * from './cron/index';
-export * from './mcp/index';
+import './cron/index';
 
 export * from './agent-lifecycle/index';
 export * from './session-context/index';
 export * from './session-activity/index';
 export * from './session/index';
-export * from './hooks/index';
 
 export * from './event/index';
-export * from './approval/index';
+import './approval/index';
 export * from './question/index';
 export * from './gateway/index';
 
@@ -58,7 +55,6 @@ export * from './dynamicInjector/index';
 export * from './eventBus/index';
 export * from './externalHooks/index';
 export * from './fullCompaction/index';
-export * from './goalMode/index';
 export * from './llmRequestLog/index';
 export * from './llmRequester/index';
 export * from './loop/index';
@@ -74,7 +70,7 @@ export * from './rpc/index';
 export * from './subagentHost/index';
 export * from './todoList/index';
 export * from './toolExecutor/index';
-export * from './toolRegistry/index';
+import './toolRegistry/index';
 export * from './toolStore/index';
 export * from './userTool/index';
 export * from './wireRecord/index';

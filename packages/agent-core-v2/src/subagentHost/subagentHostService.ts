@@ -2,8 +2,7 @@ import type {
   QueuedSubagentRunResult,
   QueuedSubagentTask,
   SessionSubagentHost,
-} from './subagent-host';
-import { DEFAULT_INIT_PROMPT } from '#/profile';
+} from './subagentHost';
 import {
   ISubagentHost,
 } from './subagentHost';
@@ -27,7 +26,7 @@ export class SubagentHostService implements ISubagentHost {
     const handle = await this.subagentHost.spawn({
       profileName: 'coder',
       parentToolCallId: 'generate-agents-md',
-      prompt: DEFAULT_INIT_PROMPT,
+      prompt: 'Initialize AGENTS.md for this workspace.',
       description: 'Initialize AGENTS.md',
       runInBackground: false,
       signal: new AbortController().signal,

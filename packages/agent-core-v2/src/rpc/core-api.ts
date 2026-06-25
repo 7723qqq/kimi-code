@@ -10,12 +10,12 @@ import type {
   GoalStatus,
   GoalToolResult,
 } from '#/goal';
-import type { PermissionData, PermissionMode } from '#/permissionMode';
+import type { PermissionData, PermissionMode } from '#/permissionPolicy';
 import type { PlanData } from '#/plan';
 import type { SwarmModeTrigger } from '#/swarm';
-import type { ToolInfo } from '#/tool';
+import type { ToolInfo } from '#/toolRegistry';
 import type { KimiConfig, KimiConfigPatch, McpServerConfig } from '#/config';
-import type { ExperimentalFeatureState } from '#/flags';
+import type { ExperimentalFeatureState } from '#/flag';
 import type { ResumeSessionResult } from '#/rpc/resumed';
 import type { SessionMeta } from '#/session';
 import type { ContentPart } from '@moonshot-ai/kosong';

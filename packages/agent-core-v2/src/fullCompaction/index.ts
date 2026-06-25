@@ -5,3 +5,4 @@
 export * from './strategy';
 export * from './fullCompaction';
 export * from './fullCompactionService';
+export * from './types';

@@ -5,25 +5,25 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
 
-import type { SkillActivationOrigin } from '../../../agent/context';
+import type { ContextMessage, SkillActivationOrigin } from '#/contextMemory';
 import {
   renderModelToolSkillPrompt,
   renderUserSlashSkillPrompt,
-  } from '../../../agent/skill/prompt';
+} from './prompt';
 import { Disposable,
 } from "#/_base/di";
 import { ErrorCodes, KimiError } from "#/_base/errors";
-import type { ExecutableToolResult } from '../../../loop';
+import type { ExecutableToolResult } from '#/loop';
 import {
   isInlineSkillType,
   isUserActivatableSkillType,
   type SkillCatalog,
   type SkillDefinition,
-} from '../../../skill';
+} from './skill';
 import { IEventBus } from '#/eventBus';
 import { IPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';
-import type { ContextMessage, Turn } from '../types';
+import type { Turn } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 import {
   IAgentSkillService,

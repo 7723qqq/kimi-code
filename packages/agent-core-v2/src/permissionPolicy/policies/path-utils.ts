@@ -3,12 +3,11 @@ import * as nodePath from 'node:path';
 import * as posixPath from 'node:path/posix';
 import * as win32Path from 'node:path/win32';
 
-import type { ResolvedToolExecutionHookContext } from '../../../../loop';
-import type { ToolFileAccess } from '../../../../loop/tool-access';
+import type { ResolvedToolExecutionHookContext, ToolFileAccess } from '#/loop';
 import {
   isWithinDirectory,
   type PathClass,
-} from '../../../../tools/policies/path-access';
+} from '#/_base/tools/policies/path-access';
 import type { PermissionGitWorkTreeMarker } from '../../permission/permission';
 
 export function fileAccesses(context: ResolvedToolExecutionHookContext): ToolFileAccess[] {

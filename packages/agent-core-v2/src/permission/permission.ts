@@ -1,13 +1,13 @@
 import type {
   PermissionData,
   PermissionMode,
-} from '../../../agent/permission';
+} from '#/permissionPolicy';
 import { createDecorator } from "#/_base/di";
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,
-} from '../../../loop';
-import type { PathClass } from '../../../tools/policies/path-access';
+} from '#/loop';
+import type { PathClass } from '#/_base/tools/policies/path-access';
 
 export interface PermissionPlanModeState {
   readonly isActive: boolean;

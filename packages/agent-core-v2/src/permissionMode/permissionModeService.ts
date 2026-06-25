@@ -1,4 +1,4 @@
-import type { PermissionMode } from '../../../agent/permission';
+import type { PermissionMode } from '#/permissionPolicy';
 import {
   Disposable,
 } from "#/_base/di";
@@ -9,7 +9,7 @@ import { IDynamicInjector } from '#/dynamicInjector';
 import { IEventBus } from '#/eventBus';
 import { OrderedHookSlot } from '../hooks';
 import { IReplayBuilderService } from '#/replayBuilder';
-import type { WireRecord } from '../types';
+import type { WireRecord } from '#/wireRecord';
 import { IWireRecord } from '#/wireRecord';
 import { registerPermissionModeInjection } from './injection/permissionModeInjection';
 import { IPermissionModeService } from './permissionMode';

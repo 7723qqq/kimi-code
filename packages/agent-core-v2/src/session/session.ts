@@ -13,6 +13,13 @@ import type { IScopeHandle } from '#/_base/di/scope';
 
 export type SessionStatus = 'running' | 'idle' | 'awaiting_approval';
 
+export interface SessionMeta {
+  readonly id: string;
+  readonly title?: string;
+  readonly agents?: readonly string[];
+  readonly [key: string]: unknown;
+}
+
 export interface ISessionService {
   readonly _serviceBrand: undefined;
   status(): SessionStatus;

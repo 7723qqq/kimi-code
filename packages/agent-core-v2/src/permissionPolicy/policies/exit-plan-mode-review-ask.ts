@@ -1,11 +1,11 @@
-import type { ApprovalResponse } from '../../../../agent/permission';
-import type { ResolvedToolExecutionHookContext } from '../../../../loop';
+import type { ResolvedToolExecutionHookContext } from '#/loop';
 import { IPermissionModeService } from '../../permissionMode/permissionMode';
 import { ITelemetryService } from '../../telemetry/telemetry';
 import type {
   PermissionPolicy,
   PermissionPolicyResolution,
   PermissionPolicyResult,
+  ApprovalResponse,
 } from '../permissionPolicy';
 import type { PermissionPolicyRuntime } from './runtime';
 
