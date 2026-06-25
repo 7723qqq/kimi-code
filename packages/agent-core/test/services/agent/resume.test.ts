@@ -743,7 +743,7 @@ describe('Agent resume', () => {
 
     const freshUserRecordIndex = persistence.records.findIndex(
       (record) =>
-        record.type === 'context.splice' &&
+        isContextSpliceRecord(record) &&
         record.messages.some(
           (message) =>
             message.role === 'user' &&
@@ -1586,6 +1586,18 @@ function textContent(
       .map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
       .join('') ?? ''
   );
+}
+
+type ContextSpliceRecord = PersistedWireRecord & {
+  readonly type: 'context.splice';
+  readonly messages: readonly {
+    readonly role: string;
+    readonly content: readonly { readonly type: string; readonly text?: string }[];
+  }[];
+};
+
+function isContextSpliceRecord(record: PersistedWireRecord): record is ContextSpliceRecord {
+  return record.type === 'context.splice';
 }
 
 function isLegacyAppendLoopEventRecord(

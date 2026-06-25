@@ -240,18 +240,18 @@ describe('Agent config', () => {
     ctx.mockNextResponse({ type: 'text', text: 'Still using the original turn config.' });
     await toolCallEvents;
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] context.splice         { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "original-result" } ], "toolCalls": [], "toolCallId": "call_lookup" } ], "time": "<time>" }
-      [emit] tool.result            { "turnId": 0, "toolCallId": "call_lookup", "output": "original-result" }
-      [emit] agent.status.updated   { "contextTokens": 26, "maxContextTokens": 1000000, "contextUsage": 0.000026 }
-      [emit] turn.step.completed    { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
-      [emit] turn.step.started      { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
-      [emit] assistant.delta        { "turnId": 0, "delta": "Still using the original turn config." }
-      [wire] context.splice         { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Still using the original turn config." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "changed-model", "usage": { "inputOther": 31, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "changed-model": { "inputOther": 31, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 40, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 40, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [emit] agent.status.updated   { "contextTokens": 44, "maxContextTokens": 1000000, "contextUsage": 0.000044 }
-      [emit] turn.step.completed    { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 31, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-      [emit] turn.ended             { "turnId": 0, "reason": "completed" }
+      [wire] context.splice          { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "original-result" } ], "toolCalls": [], "toolCallId": "call_lookup" } ], "time": "<time>" }
+      [emit] tool.result             { "turnId": 0, "toolCallId": "call_lookup", "output": "original-result" }
+      [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
+      [emit] turn.step.started       { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
+      [emit] assistant.delta         { "turnId": 0, "delta": "Still using the original turn config." }
+      [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Still using the original turn config." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] usage.record            { "model": "changed-model", "usage": { "inputOther": 31, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "changed-model": { "inputOther": 31, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 40, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 40, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context_size.measured   { "length": 4, "tokens": 44, "time": "<time>" }
+      [emit] agent.status.updated    { "contextTokens": 44, "maxContextTokens": 1000000, "contextUsage": 0.000044 }
+      [emit] turn.step.completed     { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 31, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [emit] turn.ended              { "turnId": 0, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: "Changed system prompt."
@@ -265,17 +265,18 @@ describe('Agent config', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Start a fresh turn' }] });
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] context.splice         { "start": 4, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Start a fresh turn" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 1, "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started           { "turnId": 1, "origin": { "kind": "user" } }
-      [emit] turn.step.started      { "turnId": 1, "step": 1, "stepId": "<uuid-3>" }
-      [emit] assistant.delta        { "turnId": 1, "delta": "Now the changed config is active." }
-      [wire] context.splice         { "start": 5, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Now the changed config is active." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "changed-model", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "changed-model": { "inputOther": 81, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 90, "output": 42, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [emit] agent.status.updated   { "contextTokens": 62, "maxContextTokens": 1000000, "contextUsage": 0.000062 }
-      [emit] turn.step.completed    { "turnId": 1, "step": 1, "stepId": "<uuid-3>", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-      [emit] turn.ended             { "turnId": 1, "reason": "completed" }
+      [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Start a fresh turn" } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] turn.launch             { "turnId": 1, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started            { "turnId": 1, "origin": { "kind": "user" } }
+      [emit] turn.step.started       { "turnId": 1, "step": 1, "stepId": "<uuid-3>" }
+      [emit] assistant.delta         { "turnId": 1, "delta": "Now the changed config is active." }
+      [wire] context.splice          { "start": 5, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Now the changed config is active." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] usage.record            { "model": "changed-model", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "changed-model": { "inputOther": 81, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 90, "output": 42, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context_size.measured   { "length": 6, "tokens": 62, "time": "<time>" }
+      [emit] agent.status.updated    { "contextTokens": 62, "maxContextTokens": 1000000, "contextUsage": 0.000062 }
+      [emit] turn.step.completed     { "turnId": 1, "step": 1, "stepId": "<uuid-3>", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [emit] turn.ended              { "turnId": 1, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       tools: []

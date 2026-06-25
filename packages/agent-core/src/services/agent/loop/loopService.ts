@@ -76,6 +76,7 @@ export class LoopService extends Disposable implements ILoopService {
   private readonly toolCallDupType = new Map<string, 'normal' | 'cross_step'>();
   private readonly stepToolCallKeys = new Map<number, Set<string>>();
   private readonly stepFailureByTurn = new Map<number, Extract<LoopEvent, { type: 'turn.interrupted' }>>();
+  private readonly pendingMeasurements = new Map<string, PendingContextMeasurement>();
   private ownSpliceDepth = 0;
   private protocolTurnId: number | undefined;
 
@@ -140,7 +141,13 @@ export class LoopService extends Disposable implements ILoopService {
             recordStepUsage: (usage, context) => {
               this.usage.record(usageModel, usage, 'turn');
               const tokens = tokenUsageTotal(usage);
-              if (tokens > 0) {
+              if (tokens <= 0) return;
+              if (context.toolCallCount > 0) {
+                this.pendingMeasurements.set(context.stepUuid, {
+                  tokens,
+                  remainingToolCalls: context.toolCallCount,
+                });
+              } else {
                 this.contextSize.measure(this.measurementLength(context.stepUuid), tokens);
               }
             },
@@ -177,6 +184,7 @@ export class LoopService extends Disposable implements ILoopService {
       this.toolCallDupType.clear();
       this.stepToolCallKeys.clear();
       this.stepFailureByTurn.delete(turn.id);
+      this.pendingMeasurements.clear();
     }
   }
 
@@ -193,6 +201,7 @@ export class LoopService extends Disposable implements ILoopService {
       }
       case 'step.end': {
         this.openSteps.delete(event.uuid);
+        this.pendingMeasurements.delete(event.uuid);
         return;
       }
       case 'content.part':
@@ -214,6 +223,7 @@ export class LoopService extends Disposable implements ILoopService {
             },
           ],
         }));
+        this.applyPendingMeasurementAfterToolCall(event.stepUuid);
         return;
       case 'tool.result':
         this.appendToolResult(event.toolCallId, event.result);
@@ -763,11 +773,33 @@ export class LoopService extends Disposable implements ILoopService {
     const index = history.indexOf(openStep.message);
     return index === -1 ? history.length : index + 1;
   }
+
+  private applyPendingMeasurementAfterToolCall(stepUuid: string): void {
+    const pending = this.pendingMeasurements.get(stepUuid);
+    if (pending === undefined) return;
+
+    const remainingToolCalls = pending.remainingToolCalls - 1;
+    if (remainingToolCalls > 0) {
+      this.pendingMeasurements.set(stepUuid, {
+        ...pending,
+        remainingToolCalls,
+      });
+      return;
+    }
+
+    this.pendingMeasurements.delete(stepUuid);
+    this.contextSize.measure(this.measurementLength(stepUuid), pending.tokens);
+  }
 }
 
 interface OpenStep {
   readonly message: ContextMessage;
   readonly inserted: boolean;
+}
+
+interface PendingContextMeasurement {
+  readonly tokens: number;
+  readonly remainingToolCalls: number;
 }
 
 interface ToolCallTelemetryStart {

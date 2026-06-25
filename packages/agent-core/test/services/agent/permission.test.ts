@@ -76,33 +76,35 @@ describe('Agent permission', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run Bash in auto mode' }] });
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] permission.set_mode    { "mode": "auto", "time": "<time>" }
-      [emit] agent.status.updated   { "permission": "auto" }
-      [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Run Bash in auto mode" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" } }
-      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<auto-mode-enter-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "permission_mode" } } ], "time": "<time>" }
-      [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-      [emit] assistant.delta        { "turnId": 0, "delta": "Running without asking." }
-      [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf permission-output\\",\\"timeout\\":60}" }
-      [wire] context.splice         { "start": 2, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Running without asking." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.splice         { "start": 2, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Running without asking." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf permission-output\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
-      [emit] tool.call.started      { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf permission-output", "timeout": 60 }, "description": "Running: printf permission-output", "display": { "kind": "command", "command": "printf permission-output", "cwd": "<cwd>", "language": "bash" } }
-      [emit] tool.progress          { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "auto-output" } }
-      [wire] context.splice         { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "auto-output" } ], "toolCalls": [], "toolCallId": "call_bash" } ], "time": "<time>" }
-      [emit] tool.result            { "turnId": 0, "toolCallId": "call_bash", "output": "auto-output" }
-      [emit] agent.status.updated   { "contextTokens": 116, "maxContextTokens": 1000000, "contextUsage": 0.000116 }
-      [emit] turn.step.completed    { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
-      [emit] turn.step.started      { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
-      [emit] assistant.delta        { "turnId": 0, "delta": "The command printed auto-output." }
-      [wire] context.splice         { "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The command printed auto-output." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 120, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 211, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 211, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 211, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [emit] agent.status.updated   { "contextTokens": 131, "maxContextTokens": 1000000, "contextUsage": 0.000131 }
-      [emit] turn.step.completed    { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 120, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-      [emit] turn.ended             { "turnId": 0, "reason": "completed" }
+      [wire] permission.set_mode     { "mode": "auto", "time": "<time>" }
+      [emit] agent.status.updated    { "permission": "auto" }
+      [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Run Bash in auto mode" } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
+      [wire] context.splice          { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<auto-mode-enter-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "permission_mode" } } ], "time": "<time>" }
+      [emit] turn.step.started       { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
+      [emit] assistant.delta         { "turnId": 0, "delta": "Running without asking." }
+      [emit] tool.call.delta         { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf permission-output\\",\\"timeout\\":60}" }
+      [wire] context.splice          { "start": 2, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Running without asking." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.splice          { "start": 2, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Running without asking." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf permission-output\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
+      [wire] context_size.measured   { "length": 3, "tokens": 116, "time": "<time>" }
+      [emit] agent.status.updated    { "contextTokens": 116, "maxContextTokens": 1000000, "contextUsage": 0.000116 }
+      [emit] tool.call.started       { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf permission-output", "timeout": 60 }, "description": "Running: printf permission-output", "display": { "kind": "command", "command": "printf permission-output", "cwd": "<cwd>", "language": "bash" } }
+      [emit] tool.progress           { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "auto-output" } }
+      [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "auto-output" } ], "toolCalls": [], "toolCallId": "call_bash" } ], "time": "<time>" }
+      [emit] tool.result             { "turnId": 0, "toolCallId": "call_bash", "output": "auto-output" }
+      [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
+      [emit] turn.step.started       { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
+      [emit] assistant.delta         { "turnId": 0, "delta": "The command printed auto-output." }
+      [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The command printed auto-output." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 120, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 211, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 211, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 211, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context_size.measured   { "length": 5, "tokens": 131, "time": "<time>" }
+      [emit] agent.status.updated    { "contextTokens": 131, "maxContextTokens": 1000000, "contextUsage": 0.000131 }
+      [emit] turn.step.completed     { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 120, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [emit] turn.ended              { "turnId": 0, "reason": "completed" }
     `);
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
@@ -130,32 +132,34 @@ describe('Agent permission', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run Bash in yolo mode' }] });
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] permission.set_mode    { "mode": "yolo", "time": "<time>" }
-      [emit] agent.status.updated   { "permission": "yolo" }
-      [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Run Bash in yolo mode" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" } }
-      [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-      [emit] assistant.delta        { "turnId": 0, "delta": "Running in yolo mode." }
-      [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf permission-output\\",\\"timeout\\":60}" }
-      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Running in yolo mode." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.splice         { "start": 1, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Running in yolo mode." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf permission-output\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
-      [emit] tool.call.started      { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf permission-output", "timeout": 60 }, "description": "Running: printf permission-output", "display": { "kind": "command", "command": "printf permission-output", "cwd": "<cwd>", "language": "bash" } }
-      [emit] tool.progress          { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "yolo-output" } }
-      [wire] context.splice         { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "yolo-output" } ], "toolCalls": [], "toolCallId": "call_bash" } ], "time": "<time>" }
-      [emit] tool.result            { "turnId": 0, "toolCallId": "call_bash", "output": "yolo-output" }
-      [emit] agent.status.updated   { "contextTokens": 32, "maxContextTokens": 1000000, "contextUsage": 0.000032 }
-      [emit] turn.step.completed    { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
-      [emit] turn.step.started      { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
-      [emit] assistant.delta        { "turnId": 0, "delta": "The command printed yolo-output." }
-      [wire] context.splice         { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The command printed yolo-output." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 36, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 43, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 43, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 43, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [emit] agent.status.updated   { "contextTokens": 47, "maxContextTokens": 1000000, "contextUsage": 0.000047 }
-      [emit] turn.step.completed    { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 36, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-      [emit] turn.ended             { "turnId": 0, "reason": "completed" }
+      [wire] permission.set_mode     { "mode": "yolo", "time": "<time>" }
+      [emit] agent.status.updated    { "permission": "yolo" }
+      [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Run Bash in yolo mode" } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
+      [emit] turn.step.started       { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
+      [emit] assistant.delta         { "turnId": 0, "delta": "Running in yolo mode." }
+      [emit] tool.call.delta         { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf permission-output\\",\\"timeout\\":60}" }
+      [wire] context.splice          { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Running in yolo mode." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.splice          { "start": 1, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Running in yolo mode." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf permission-output\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
+      [wire] context_size.measured   { "length": 2, "tokens": 32, "time": "<time>" }
+      [emit] agent.status.updated    { "contextTokens": 32, "maxContextTokens": 1000000, "contextUsage": 0.000032 }
+      [emit] tool.call.started       { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf permission-output", "timeout": 60 }, "description": "Running: printf permission-output", "display": { "kind": "command", "command": "printf permission-output", "cwd": "<cwd>", "language": "bash" } }
+      [emit] tool.progress           { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "yolo-output" } }
+      [wire] context.splice          { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "yolo-output" } ], "toolCalls": [], "toolCallId": "call_bash" } ], "time": "<time>" }
+      [emit] tool.result             { "turnId": 0, "toolCallId": "call_bash", "output": "yolo-output" }
+      [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
+      [emit] turn.step.started       { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
+      [emit] assistant.delta         { "turnId": 0, "delta": "The command printed yolo-output." }
+      [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The command printed yolo-output." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 36, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 43, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 43, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 43, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context_size.measured   { "length": 4, "tokens": 47, "time": "<time>" }
+      [emit] agent.status.updated    { "contextTokens": 47, "maxContextTokens": 1000000, "contextUsage": 0.000047 }
+      [emit] turn.step.completed     { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 36, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [emit] turn.ended              { "turnId": 0, "reason": "completed" }
     `);
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
@@ -185,20 +189,21 @@ describe('Agent permission', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Back to manual' }] });
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] permission.set_mode    { "mode": "manual", "time": "<time>" }
-      [emit] agent.status.updated   { "permission": "manual" }
-      [wire] context.splice         { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Back to manual" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 1, "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started           { "turnId": 1, "origin": { "kind": "user" } }
-      [wire] context.splice         { "start": 4, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<auto-mode-exit-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "permission_mode" } } ], "time": "<time>" }
-      [emit] turn.step.started      { "turnId": 1, "step": 1, "stepId": "<uuid-2>" }
-      [emit] assistant.delta        { "turnId": 1, "delta": "Manual turn done." }
-      [wire] context.splice         { "start": 5, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Manual turn done." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 161, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 250, "output": 15, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 250, "output": 15, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 161, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [emit] agent.status.updated   { "contextTokens": 169, "maxContextTokens": 1000000, "contextUsage": 0.000169 }
-      [emit] turn.step.completed    { "turnId": 1, "step": 1, "stepId": "<uuid-2>", "usage": { "inputOther": 161, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-      [emit] turn.ended             { "turnId": 1, "reason": "completed" }
+      [wire] permission.set_mode     { "mode": "manual", "time": "<time>" }
+      [emit] agent.status.updated    { "permission": "manual" }
+      [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Back to manual" } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] turn.launch             { "turnId": 1, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started            { "turnId": 1, "origin": { "kind": "user" } }
+      [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<auto-mode-exit-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "permission_mode" } } ], "time": "<time>" }
+      [emit] turn.step.started       { "turnId": 1, "step": 1, "stepId": "<uuid-2>" }
+      [emit] assistant.delta         { "turnId": 1, "delta": "Manual turn done." }
+      [wire] context.splice          { "start": 5, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Manual turn done." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 161, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 250, "output": 15, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 250, "output": 15, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 161, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context_size.measured   { "length": 6, "tokens": 169, "time": "<time>" }
+      [emit] agent.status.updated    { "contextTokens": 169, "maxContextTokens": 1000000, "contextUsage": 0.000169 }
+      [emit] turn.step.completed     { "turnId": 1, "step": 1, "stepId": "<uuid-2>", "usage": { "inputOther": 161, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [emit] turn.ended              { "turnId": 1, "reason": "completed" }
     `);
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
@@ -255,16 +260,18 @@ describe('Agent permission', () => {
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] permission.record_approval_result   { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf should-not-run", "result": { "decision": "rejected", "selectedLabel": "reject" }, "time": "<time>" }
       [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will try Bash." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
+      [wire] context_size.measured               { "length": 2, "tokens": 27, "time": "<time>" }
+      [emit] agent.status.updated                { "contextTokens": 27, "maxContextTokens": 1000000, "contextUsage": 0.000027 }
       [emit] tool.call.started                   { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf should-not-run", "timeout": 60 }, "description": "Running: printf should-not-run", "display": { "kind": "command", "command": "printf should-not-run", "cwd": "<cwd>", "language": "bash" } }
       [wire] context.splice                      { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "<system>ERROR: Tool execution failed.</system>\\nTool \\"Bash\\" was not run because the user rejected the approval request." } ], "toolCalls": [], "toolCallId": "call_bash", "isError": true } ], "time": "<time>" }
       [emit] tool.result                         { "turnId": 0, "toolCallId": "call_bash", "output": "Tool \\"Bash\\" was not run because the user rejected the approval request.", "isError": true }
-      [emit] agent.status.updated                { "contextTokens": 27, "maxContextTokens": 1000000, "contextUsage": 0.000027 }
       [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
       [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
       [emit] assistant.delta                     { "turnId": 0, "delta": "I will not run the command." }
       [wire] context.splice                      { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will not run the command." } ], "toolCalls": [] } ], "time": "<time>" }
       [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 58, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated                { "usage": { "byModel": { "mock-model": { "inputOther": 63, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 63, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 63, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context_size.measured               { "length": 4, "tokens": 68, "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 68, "maxContextTokens": 1000000, "contextUsage": 0.000068 }
       [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 58, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
       [emit] turn.ended                          { "turnId": 0, "reason": "completed" }

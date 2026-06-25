@@ -96,9 +96,8 @@ export class ContextSizeService
     }
     next[0] = 0;
 
-    const base = next[start] ?? null;
-    if (base !== null && context.tokens !== undefined) {
-      next[start + context.messages.length] = base + context.tokens;
+    if (context.tokens !== undefined) {
+      next[this.estimates.length] = Math.max(0, context.tokens);
     }
 
     this.measuredPrefixTokens = next;

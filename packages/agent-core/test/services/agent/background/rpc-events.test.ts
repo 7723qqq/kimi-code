@@ -146,6 +146,16 @@ interface BackgroundServiceFixture {
   persistence?: BackgroundTaskPersistence;
 }
 
+type TestContextMessage = {
+  readonly origin?: {
+    readonly kind: string;
+    readonly taskId: string;
+    readonly status: string;
+    readonly notificationId: string;
+  };
+  readonly content: readonly { readonly text: string }[];
+};
+
 function createBackgroundManager(options: {
   sessionDir?: string;
   maxRunningTasks?: number;
@@ -210,6 +220,17 @@ function createBackgroundManager(options: {
     manager: ctx.background as BackgroundServiceTestManager,
     persistence,
   };
+}
+
+function firstAppendedContextMessage(agent: FakeBackgroundAgent): TestContextMessage {
+  const call = agent.context.appendUserMessage.mock.calls[0] as unknown as [
+    number,
+    number,
+    readonly TestContextMessage[],
+  ];
+  const message = call[2].at(-1);
+  if (message === undefined) throw new Error('Expected an appended context message');
+  return message;
 }
 
 function registerProcess(
@@ -451,16 +472,14 @@ describe('BackgroundManager — notification delivery', () => {
         expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       });
       expect(agent.turn.steer).not.toHaveBeenCalled();
-      const args = agent.context.appendUserMessage.mock.calls[0]!;
-      const message = args[args.length - 1]!;
+      const message = firstAppendedContextMessage(agent);
       expect(message.origin).toEqual({
         kind: 'background_task',
         taskId: 'agent-done0000',
         status: 'completed',
         notificationId: 'task:agent-done0000:completed',
       });
-      const content = message.content as Array<{ text: string }>;
-      const text = content[0]!.text;
+      const text = message.content[0]!.text;
       expect(text).toContain('Background agent completed');
       expect(text).not.toContain('restored subagent summary');
       expect(text).toContain('<output-file');
@@ -485,16 +504,14 @@ describe('BackgroundManager — notification delivery', () => {
         expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       });
       expect(agent.turn.steer).not.toHaveBeenCalled();
-      const args = agent.context.appendUserMessage.mock.calls[0]!;
-      const message = args[args.length - 1]!;
+      const message = firstAppendedContextMessage(agent);
       expect(message.origin).toEqual({
         kind: 'background_task',
         taskId: 'bash-done0000',
         status: 'completed',
         notificationId: 'task:bash-done0000:completed',
       });
-      const content = message.content as Array<{ text: string }>;
-      const text = content[0]!.text;
+      const text = message.content[0]!.text;
       expect(text).toContain('Background process completed');
       expect(text).not.toContain('restored shell output');
       expect(text).toContain('<output-file');
@@ -520,10 +537,8 @@ describe('BackgroundManager — notification delivery', () => {
       await vi.waitFor(() => {
         expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       });
-      const args = agent.context.appendUserMessage.mock.calls[0]!;
-      const message = args[args.length - 1]!;
-      const content = message.content as Array<{ text: string }>;
-      const text = content[0]!.text;
+      const message = firstAppendedContextMessage(agent);
+      const text = message.content[0]!.text;
       expect(text).toContain('<output-file');
       expect(text).toContain(persistence.taskOutputFile(taskId));
       expect(text).not.toContain('final output line');
@@ -589,15 +604,14 @@ describe('BackgroundManager — notification delivery', () => {
         expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       });
       expect(agent.turn.steer).not.toHaveBeenCalled();
-      const args = agent.context.appendUserMessage.mock.calls[0]!;
-      const message = args[args.length - 1]!;
+      const message = firstAppendedContextMessage(agent);
       expect(message.origin).toEqual({
         kind: 'background_task',
         taskId: 'agent-run00000',
         status: 'lost',
         notificationId: 'task:agent-run00000:lost',
       });
-      expect((message.content as Array<{ text: string }>)[0]!.text).toContain(
+      expect(message.content[0]!.text).toContain(
         'Background agent lost',
       );
     } finally {

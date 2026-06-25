@@ -374,6 +374,8 @@ describe('Agent tools', () => {
       [wire] usage.record               { "model": "mock-model", "usage": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated       { "usage": { "byModel": { "mock-model": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] context.splice             { "start": 2, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will look it up." } ], "toolCalls": [ { "type": "function", "id": "call_lookup", "name": "Lookup", "arguments": "{\\"query\\":\\"moon\\"}" } ] } ], "time": "<time>" }
+      [wire] context_size.measured      { "length": 3, "tokens": 104, "time": "<time>" }
+      [emit] agent.status.updated       { "contextTokens": 104, "maxContextTokens": 1000000, "contextUsage": 0.000104 }
       [emit] tool.call.started          { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "moon" } }
       [emit] toolCall                   { "turnId": 0, "toolCallId": "call_lookup", "args": { "query": "moon" } }
     `);
@@ -387,18 +389,18 @@ describe('Agent tools', () => {
 
     ctx.mockNextResponse({ type: 'text', text: 'The lookup result is moon-result.' });
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] context.splice         { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "moon-result" } ], "toolCalls": [], "toolCallId": "call_lookup" } ], "time": "<time>" }
-      [emit] tool.result            { "turnId": 0, "toolCallId": "call_lookup", "output": "moon-result" }
-      [emit] agent.status.updated   { "contextTokens": 104, "maxContextTokens": 1000000, "contextUsage": 0.000104 }
-      [emit] turn.step.completed    { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
-      [emit] turn.step.started      { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
-      [emit] assistant.delta        { "turnId": 0, "delta": "The lookup result is moon-result." }
-      [wire] context.splice         { "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is moon-result." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 196, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 196, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 196, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [emit] agent.status.updated   { "contextTokens": 120, "maxContextTokens": 1000000, "contextUsage": 0.00012 }
-      [emit] turn.step.completed    { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-      [emit] turn.ended             { "turnId": 0, "reason": "completed" }
+      [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "moon-result" } ], "toolCalls": [], "toolCallId": "call_lookup" } ], "time": "<time>" }
+      [emit] tool.result             { "turnId": 0, "toolCallId": "call_lookup", "output": "moon-result" }
+      [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
+      [emit] turn.step.started       { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
+      [emit] assistant.delta         { "turnId": 0, "delta": "The lookup result is moon-result." }
+      [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is moon-result." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 196, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 196, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 196, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context_size.measured   { "length": 5, "tokens": 120, "time": "<time>" }
+      [emit] agent.status.updated    { "contextTokens": 120, "maxContextTokens": 1000000, "contextUsage": 0.00012 }
+      [emit] turn.step.completed     { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [emit] turn.ended              { "turnId": 0, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       messages:
@@ -422,6 +424,7 @@ describe('Agent tools', () => {
       [wire] context.splice               { "start": 6, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "No lookup tool is available." } ], "toolCalls": [] } ], "time": "<time>" }
       [wire] usage.record                 { "model": "mock-model", "usage": { "inputOther": 128, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated         { "usage": { "byModel": { "mock-model": { "inputOther": 324, "output": 38, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 324, "output": 38, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 128, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context_size.measured        { "length": 7, "tokens": 138, "time": "<time>" }
       [emit] agent.status.updated         { "contextTokens": 138, "maxContextTokens": 1000000, "contextUsage": 0.000138 }
       [emit] turn.step.completed          { "turnId": 1, "step": 1, "stepId": "<uuid-3>", "usage": { "inputOther": 128, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
       [emit] turn.ended                   { "turnId": 1, "reason": "completed" }

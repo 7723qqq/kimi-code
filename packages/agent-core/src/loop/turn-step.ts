@@ -129,6 +129,7 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     turnId,
     stepNumber: currentStep,
     stepUuid,
+    toolCallCount: response.toolCalls.length,
   });
   const stopTurnAfterUsage = usageResult?.stopTurn === true;
   const stopReason = deriveStepStopReason(response);
