@@ -385,6 +385,20 @@ function copyAssistantRun(index: number): void {
   }).catch(() => {/* ignore */});
 }
 
+function copyUserMessage(turn: ChatTurn): void {
+  const text = turn.text;
+  if (!text.trim()) return;
+  void copyTextToClipboard(text).then((ok) => {
+    if (!ok) return;
+    copiedTurn.value = turn.id;
+    if (copiedTimer !== null) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedTimer = null;
+      copiedTurn.value = null;
+    }, 1400);
+  }).catch(() => {/* ignore */});
+}
+
 function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }): boolean {
   if (turn.id !== streamingTurnId.value) return false;
   return block.sourceIndex === turnBlocks(turn).length - 1;
@@ -497,6 +511,21 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
               </button>
             </div>
           </div>
+          <button
+            v-if="turn.text.trim().length > 0"
+            type="button"
+            class="u-copy"
+            :data-tooltip="t('filePreview.copy')"
+            @click.stop="copyUserMessage(turn)"
+          >
+            <svg v-if="copiedTurn !== turn.id" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="9" height="9" rx="1.5"/>
+              <path d="M6 1h7a1 1 0 0 1 1 1v7"/>
+            </svg>
+            <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3,8 6.5,11.5 13,5"/>
+            </svg>
+          </button>
           <button
             v-if="turn.createdAt"
             type="button"
@@ -1029,13 +1058,33 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
 }
 .u-edit span { line-height: 1; }
 .u-edit:hover { opacity: 1; color: var(--blue); background: var(--hover); }
+/* Copy button — icon-only, shares the undo button's muted→hover style. */
+.u-copy {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 5px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--muted);
+  font: inherit;
+  font-size: calc(var(--ui-font-size) - 3px);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+  min-height: 22px;
+  box-sizing: border-box;
+}
+.u-copy svg { display: block; flex: none; }
+.u-copy:hover { opacity: 1; color: var(--blue); background: var(--hover); }
 /* Custom tooltip for the undo button: appears faster than the native title
    tooltip and avoids duplicating the browser's long default delay. */
-.u-edit[data-tooltip] {
+.u-meta [data-tooltip] {
   position: relative;
 }
-.u-edit[data-tooltip]::after,
-.u-edit[data-tooltip]::before {
+.u-meta [data-tooltip]::after,
+.u-meta [data-tooltip]::before {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
@@ -1046,7 +1095,7 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
   transition-delay: 0s;
   z-index: 100;
 }
-.u-edit[data-tooltip]::after {
+.u-meta [data-tooltip]::after {
   content: attr(data-tooltip);
   bottom: calc(100% + 6px);
   padding: 4px 8px;
@@ -1057,17 +1106,17 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
   border-radius: 5px;
   white-space: nowrap;
 }
-.u-edit[data-tooltip]::before {
+.u-meta [data-tooltip]::before {
   content: '';
   bottom: calc(100% + 2px);
   border-width: 4px;
   border-style: solid;
   border-color: var(--ink) transparent transparent transparent;
 }
-.u-edit[data-tooltip]:hover::after,
-.u-edit[data-tooltip]:hover::before,
-.u-edit[data-tooltip]:focus-visible::after,
-.u-edit[data-tooltip]:focus-visible::before {
+.u-meta [data-tooltip]:hover::after,
+.u-meta [data-tooltip]:hover::before,
+.u-meta [data-tooltip]:focus-visible::after,
+.u-meta [data-tooltip]:focus-visible::before {
   opacity: 1;
   visibility: visible;
   transition-delay: 0.25s;
