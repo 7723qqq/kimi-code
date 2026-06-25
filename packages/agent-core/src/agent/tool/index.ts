@@ -13,6 +13,16 @@ import type { MCPClient } from '../../mcp/types';
 import { DEFAULT_AGENT_PROFILES } from '../../profile';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
 import * as b from '../../tools/builtin';
+import {
+  isNativeToolsEnabled,
+  tryLoadNative,
+  NativeReadTool,
+  NativeWriteTool,
+  NativeEditTool,
+  NativeGrepTool,
+  NativeGlobTool,
+  NativeBashTool,
+} from '../../tools/builtin/native-tools';
 import type { ToolStore, ToolStoreData, ToolStoreKey } from '../../tools/store';
 import type {
   BuiltinTool,
@@ -376,16 +386,42 @@ export class ToolManager {
       this.enabledTools.has('TaskOutput') &&
       this.enabledTools.has('TaskStop');
     const goalToolsEnabled = this.agent.type === 'main';
+
+    // Check if native tools are available and enabled.
+    const useNative = isNativeToolsEnabled() && tryLoadNative() !== undefined;
+
+    // Tool descriptions for native tools.
+    const toolDescs = {
+      read: 'Read a text file with line numbers.',
+      write: 'Write content to a file.',
+      edit: 'Edit a file by replacing exact strings.',
+      grep: 'Search for patterns in files.',
+      glob: 'Find files matching a glob pattern.',
+      bash: 'Execute a shell command.',
+    };
+
     this.builtinTools = new Map(
       [
-        new b.ReadTool(kaos, workspace),
-        new b.WriteTool(kaos, workspace),
-        new b.EditTool(kaos, workspace),
-        new b.GrepTool(kaos, workspace),
-        new b.GlobTool(kaos, workspace),
-        new b.BashTool(kaos, cwd, background, {
-          allowBackground,
-        }),
+        useNative
+          ? new NativeReadTool(kaos, workspace, toolDescs.read)
+          : new b.ReadTool(kaos, workspace),
+        useNative
+          ? new NativeWriteTool(kaos, workspace, toolDescs.write)
+          : new b.WriteTool(kaos, workspace),
+        useNative
+          ? new NativeEditTool(kaos, workspace, toolDescs.edit)
+          : new b.EditTool(kaos, workspace),
+        useNative
+          ? new NativeGrepTool(kaos, workspace, toolDescs.grep)
+          : new b.GrepTool(kaos, workspace),
+        useNative
+          ? new NativeGlobTool(kaos, workspace, toolDescs.glob)
+          : new b.GlobTool(kaos, workspace),
+        useNative
+          ? new NativeBashTool(cwd, toolDescs.bash)
+          : new b.BashTool(kaos, cwd, background, {
+              allowBackground,
+            }),
         (modelCapabilities.image_in || modelCapabilities.video_in) &&
           new b.ReadMediaFileTool(kaos, workspace, modelCapabilities, videoUploader),
         new b.EnterPlanModeTool(this.agent),
