@@ -705,6 +705,13 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   ) {
     clearStreaming(sessionId);
   }
+  // Session removed via the WS delete event: release the streaming entry so it
+  // does not leak as an orphan. `forgetSession()` already does this, but that
+  // path only covers not-found / archive — the WS delete event flows through the
+  // reducer instead, so it must clear the store here too.
+  if (event.type === 'sessionDeleted') {
+    clearStreaming(sessionId);
+  }
 
   if (event.type === 'configChanged') {
     rawState.defaultModel = event.config.defaultModel ?? null;

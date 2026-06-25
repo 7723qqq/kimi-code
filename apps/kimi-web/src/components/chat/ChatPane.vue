@@ -24,6 +24,7 @@ import {
   turnFinalText,
   turnToMarkdown,
 } from '../chatTurnRendering';
+import { streamingBySession, type StreamingBlock } from '../../composables/client/streamingStore';
 
 const { t } = useI18n();
 
@@ -300,14 +301,37 @@ function confirmEditMessage(turn: ChatTurn): void {
 const copiedConversation = ref(false);
 let copiedConversationTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Live text/thinking blocks for the turn currently streaming, if any. */
+function liveBlocksForStreaming(): StreamingBlock[] {
+  if (!props.running || !props.sessionId) return [];
+  return streamingBySession[props.sessionId]?.blocks ?? [];
+}
+
+/**
+ * Merge the still-streaming live blocks into a turn for serialization (copy).
+ * Live text/thinking is not in `turn.blocks` during streaming (deltas bypass
+ * messagesBySession), so without this a copy mid-stream would drop the tail.
+ */
+function withLiveBlocks(turn: ChatTurn, liveBlocks: StreamingBlock[]): ChatTurn {
+  if (liveBlocks.length === 0) return turn;
+  const blocks = turn.blocks ? [...turn.blocks] : turnBlocks(turn);
+  for (const blk of liveBlocks) {
+    if (blk.kind === 'text' && blk.text) blocks.push({ kind: 'text', text: blk.text });
+    else if (blk.kind === 'thinking' && blk.text) blocks.push({ kind: 'thinking', thinking: blk.text });
+  }
+  return { ...turn, blocks };
+}
+
 /** Convert the entire conversation to Markdown and copy to clipboard. */
 function copyConversation(): void {
   if (props.turns.length === 0) return;
+  const liveBlocks = liveBlocksForStreaming();
   const lines: string[] = [];
   for (const turn of props.turns) {
     if (turn.role === 'compaction') continue; // dividers don't copy
+    const t = turn.id === streamingTurnId.value ? withLiveBlocks(turn, liveBlocks) : turn;
     const roleLabel = turn.role === 'user' ? 'User' : 'Assistant';
-    const content = turnToMarkdown(turn);
+    const content = turnToMarkdown(t);
     if (content.trim()) {
       lines.push(`**${roleLabel}**\n\n${content}`);
     }
@@ -336,8 +360,9 @@ function assistantRunEndingAt(index: number): ChatTurn[] {
 }
 
 function assistantRunFinalText(index: number): string {
+  const liveBlocks = liveBlocksForStreaming();
   return assistantRunEndingAt(index)
-    .map((t) => turnFinalText(t))
+    .map((t) => turnFinalText(t.id === streamingTurnId.value ? withLiveBlocks(t, liveBlocks) : t))
     .filter(Boolean)
     .join('\n\n');
 }
