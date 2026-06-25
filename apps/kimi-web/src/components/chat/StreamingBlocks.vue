@@ -27,7 +27,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
-  openThinking: [target: { turnId: string; blockIndex: number }];
+  openThinking: [target: { turnId: string; blockIndex: number; live?: boolean }];
 }>();
 
 // Subscribe to this session's live blocks. Only this computed (and therefore
@@ -42,7 +42,7 @@ const blocks = computed(() => streamingBySession[props.sessionId]?.blocks ?? [])
       :text="blk.text"
       :mobile="mobile"
       :streaming="true"
-      @open="emit('openThinking', { turnId, blockIndex: blk.contentIndex })"
+      @open="emit('openThinking', { turnId, blockIndex: blk.contentIndex, live: true })"
     />
     <div v-else-if="blk.kind === 'text' && blk.text" class="msg">
       <Markdown :text="blk.text" :streaming="true" :open-file="(target) => emit('openFile', target)" />
