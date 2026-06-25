@@ -19,7 +19,7 @@ import {
   isUserActivatableSkillType,
   type SkillCatalog,
   type SkillDefinition,
-} from './skill';
+} from './types';
 import { IEventBus } from '#/eventBus';
 import { IPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';

@@ -12,7 +12,8 @@ export * from './environment/index';
 export * from './kaos/index';
 export * from './kosong/index';
 
-export * from './records/index';
+export * from './sessionStore/index';
+export * from './sessionMetaStore/index';
 export * from './config/index';
 
 import './skill/index';

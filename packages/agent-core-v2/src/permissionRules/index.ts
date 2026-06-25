@@ -3,4 +3,5 @@
  */
 
 export * from './permissionRules';
+export * from './matchesRule';
 export * from './permissionRulesService';

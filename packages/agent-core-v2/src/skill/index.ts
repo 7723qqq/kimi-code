@@ -5,4 +5,5 @@
  */
 
 export * from './skill';
+export * from './types';
 export * from './skillService';
