@@ -22,6 +22,7 @@ import {
 
 import { canonicalTelemetryArgs, isPlainRecord } from '../../../agent/turn/canonical-args';
 import { ToolCallDeduplicator } from '../../../agent/turn/tool-dedup';
+import { abortable } from '../../../utils/abort';
 import { Disposable, IInstantiationService, registerSingleton, SyncDescriptor } from '../../../di';
 import {
   ErrorCodes,
@@ -121,6 +122,10 @@ export class LoopService extends Disposable implements ILoopService {
     const loopHooks = this.loopHooks(turn, hooks);
     try {
       await this.mcpRuntime.waitForInitialLoad(turn.abortController.signal);
+      // Preflight the model configuration before any step begins. Legacy reads
+      // `config.model` at the top of its step loop, so a missing model fails the
+      // turn before `step.begin` ever fires (no step.interrupted, no api_error).
+      this.profile.resolveModelContext();
       while (true) {
         try {
           const result = await runLoopTurn({
@@ -139,6 +144,9 @@ export class LoopService extends Disposable implements ILoopService {
           });
           if (result.stopReason === 'aborted') {
             return { reason: 'cancelled', error: turn.abortController.signal.reason };
+          }
+          if (result.stopReason === 'filtered') {
+            return { reason: 'filtered' };
           }
           return { reason: 'completed' };
         } catch (error) {
@@ -608,7 +616,13 @@ export class LoopService extends Disposable implements ILoopService {
         );
         return cached === null ? undefined : { syntheticResult: cached };
       },
-      authorizeToolExecution: (context) => this.permission().authorize(context),
+      authorizeToolExecution: (context) =>
+        // The approval broker resolves out-of-band and is not signal-aware, so a
+        // cancel that lands while we wait for approval would otherwise hang the
+        // turn. Race it against the abort signal: on cancel this rejects with the
+        // abort reason, the loop sees signal.aborted and settles the tool call as
+        // a user interruption (matching legacy behavior).
+        abortable(this.permission().authorize(context), context.signal),
       finalizeToolResult: async (context) => {
         const result = await deduper.finalizeResult(
           context.toolCall.id,

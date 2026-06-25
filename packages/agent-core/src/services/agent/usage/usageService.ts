@@ -28,10 +28,6 @@ export class UsageService implements IUsageService {
     wireRecord.register('usage.record', (record) => {
       this.apply(record.model, record.usage, 'session');
     });
-    wireRecord.hooks.onResumeEnded.register('usage-publish-restored', async (_ctx, next) => {
-      await next();
-      this.publishChanged();
-    });
   }
 
   beginTurn(): void {

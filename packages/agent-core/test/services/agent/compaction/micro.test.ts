@@ -40,7 +40,7 @@ describe('MicroCompaction', () => {
     expect(new FlagResolver({}, FLAG_DEFINITIONS).enabled('micro_compaction')).toBe(true);
   });
 
-  it.skip('truncates old tool results after cache miss', () => {
+  it('truncates old tool results after cache miss', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -103,7 +103,7 @@ describe('MicroCompaction', () => {
     expect(hasMarker(messages)).toBe(false);
   });
 
-  it.skip('persists cutoff across calls until cache miss resets it', () => {
+  it('persists cutoff across calls until cache miss resets it', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -213,7 +213,7 @@ describe('MicroCompaction', () => {
     expect(hasMarker(messages)).toBe(false);
   });
 
-  it.skip('clears cutoff on context clear', () => {
+  it('clears cutoff on context clear', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -238,7 +238,7 @@ describe('MicroCompaction', () => {
     expect((ctx.get(IMicroCompactionService) as any).lastAssistantAt).toBeNull();
   });
 
-  it.skip('sends truncated old tool results to the next model request without mutating history', async () => {
+  it('sends truncated old tool results to the next model request without mutating history', async () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -278,7 +278,7 @@ describe('MicroCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
-  it.skip('restores lastAssistantAt from record time before applying cache-miss rules', async () => {
+  it('restores lastAssistantAt from record time before applying cache-miss rules', async () => {
     vi.useFakeTimers();
     const assistantRecordTime = 2_000;
     const ctx = testAgent({
@@ -309,7 +309,7 @@ describe('MicroCompaction', () => {
     expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER]);
   });
 
-  it.skip('preserves the restored cutoff when resuming before the next cache miss', async () => {
+  it('preserves the restored cutoff when resuming before the next cache miss', async () => {
     vi.useFakeTimers();
     const persistence = new InMemoryWireRecordPersistence();
     const config = {
@@ -351,7 +351,7 @@ describe('MicroCompaction', () => {
     ]);
   });
 
-  it.skip('recomputes the restored cutoff when resuming after the cache-miss threshold', async () => {
+  it('recomputes the restored cutoff when resuming after the cache-miss threshold', async () => {
     vi.useFakeTimers();
     const persistence = new InMemoryWireRecordPersistence();
     const config = {
@@ -398,7 +398,7 @@ describe('MicroCompaction', () => {
     expect(lastMicroCompactionCutoff(resumedPersistence.records)).toBe(7);
   });
 
-  it.skip('keeps an old cutoff while cache is warm and advances it on the next miss', () => {
+  it('keeps an old cutoff while cache is warm and advances it on the next miss', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -440,7 +440,7 @@ describe('MicroCompaction', () => {
     ]);
   });
 
-  it.skip('clamps cutoff when undo shortens the context', () => {
+  it('clamps cutoff when undo shortens the context', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -476,7 +476,7 @@ describe('MicroCompaction', () => {
     ]);
   });
 
-  it.skip('tracks telemetry when a cache miss advances the micro_compaction cutoff', () => {
+  it('tracks telemetry when a cache miss advances the micro_compaction cutoff', () => {
     vi.useFakeTimers();
     const records: TelemetryRecord[] = [];
     const microCompaction = {
@@ -529,7 +529,7 @@ describe('MicroCompaction', () => {
     expect(records.filter((record) => record.event === 'micro_compaction_finished')).toHaveLength(1);
   });
 
-  it.skip('reports context token deltas from the previously compacted projection', () => {
+  it('reports context token deltas from the previously compacted projection', () => {
     vi.useFakeTimers();
     const records: TelemetryRecord[] = [];
     const microCompaction = {
@@ -600,7 +600,7 @@ describe('MicroCompaction', () => {
     expect(lastMicroCompactionCutoff(persistence.records)).toBeUndefined();
   });
 
-  it.skip('uses the custom marker at the minContentTokens boundary', () => {
+  it('uses the custom marker at the minContentTokens boundary', () => {
     vi.useFakeTimers();
     const marker = '[tool output removed for test]';
     const ctx = testAgent({
@@ -626,7 +626,7 @@ describe('MicroCompaction', () => {
     expect(textOf(ctx.context.getHistory()[2])).toBe('abcd');
   });
 
-  it.skip('keeps raw pending token accounting even when projection truncates tool output', () => {
+  it('keeps raw pending token accounting even when projection truncates tool output', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -661,7 +661,7 @@ describe('MicroCompaction', () => {
     );
   });
 
-  it.skip('replaces rich error tool content while preserving context metadata before projection', () => {
+  it('replaces rich error tool content while preserving context metadata before projection', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -721,7 +721,7 @@ describe('MicroCompaction', () => {
     expect(toolTexts(ctx.project())).toEqual(['orphan tool-like output']);
   });
 
-  it.skip('clears cutoff on full compaction', async () => {
+  it('clears cutoff on full compaction', async () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -783,7 +783,7 @@ describe('MicroCompaction', () => {
     expect(hasMarker(messages)).toBe(false);
   });
 
-  it.skip('applies when context usage is above minContextUsageRatio', () => {
+  it('applies when context usage is above minContextUsageRatio', () => {
     vi.useFakeTimers();
     const ctx = testAgent({
       microCompaction: {
@@ -924,7 +924,7 @@ function resumeToolExchangeRecords(assistantRecordTime: number): PersistedWireRe
     },
     {
       type: 'context.splice',
-      time: assistantRecordTime + 1,
+      time: assistantRecordTime,
       start: 1,
       deleteCount: 0,
       messages: [

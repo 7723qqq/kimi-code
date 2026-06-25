@@ -8,6 +8,8 @@ import {
   IExternalHooksService,
   type ExternalHooksServiceOptions,
   type NotificationHookPayload,
+  type PermissionRequestHookPayload,
+  type PermissionResultHookPayload,
   type UserPromptHookDecision,
 } from './externalHooks';
 
@@ -18,7 +20,10 @@ function fireAndForget(
   signal: AbortSignal,
   matcherValue?: string,
 ): void {
-  signal.throwIfAborted();
+  // Genuinely fire-and-forget: never throw on an already-aborted signal. A
+  // cancelled tool still finalizes its result (e.g. the "manually interrupted"
+  // output), and throwing here would clobber that with a finalize-abort error.
+  // Matches legacy `fireAndForgetTrigger`, which fires unconditionally.
   void engine?.fireAndForgetTrigger(event, { matcherValue, signal, inputData });
 }
 
@@ -93,6 +98,20 @@ export class ExternalHooksService implements IExternalHooksService {
     );
   }
 
+  triggerPermissionRequest(payload: PermissionRequestHookPayload): void {
+    void this.options.hookEngine?.fireAndForgetTrigger('PermissionRequest', {
+      matcherValue: payload.toolName,
+      inputData: payload,
+    });
+  }
+
+  triggerPermissionResult(payload: PermissionResultHookPayload): void {
+    void this.options.hookEngine?.fireAndForgetTrigger('PermissionResult', {
+      matcherValue: payload.toolName,
+      inputData: payload,
+    });
+  }
+
   triggerStopFailure(error: unknown, signal: AbortSignal): void {
     const payload = toKimiErrorPayload(error);
     fireAndForget(
@@ -110,6 +129,32 @@ export class ExternalHooksService implements IExternalHooksService {
   triggerInterrupt(payload: Parameters<IExternalHooksService['triggerInterrupt']>[0]): void {
     void this.options.hookEngine?.fireAndForgetTrigger('Interrupt', {
       inputData: payload,
+    });
+  }
+
+  async triggerPreCompact(
+    payload: Parameters<IExternalHooksService['triggerPreCompact']>[0],
+    signal: AbortSignal,
+  ): Promise<void> {
+    signal.throwIfAborted();
+    await this.options.hookEngine?.trigger('PreCompact', {
+      matcherValue: payload.trigger,
+      signal,
+      inputData: {
+        trigger: payload.trigger,
+        tokenCount: payload.tokenCount,
+      },
+    });
+    signal.throwIfAborted();
+  }
+
+  triggerPostCompact(payload: Parameters<IExternalHooksService['triggerPostCompact']>[0]): void {
+    void this.options.hookEngine?.fireAndForgetTrigger('PostCompact', {
+      matcherValue: payload.trigger,
+      inputData: {
+        trigger: payload.trigger,
+        estimatedTokenCount: payload.estimatedTokenCount,
+      },
     });
   }
 

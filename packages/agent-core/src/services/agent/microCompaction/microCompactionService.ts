@@ -84,6 +84,10 @@ export class MicroCompactionService
     );
   }
 
+  get lastAssistantAt(): number | null {
+    return this._lastAssistantAt;
+  }
+
   private reset(maxCutoff = 0): void {
     this.cutoff = Math.min(this.cutoff, maxCutoff);
   }

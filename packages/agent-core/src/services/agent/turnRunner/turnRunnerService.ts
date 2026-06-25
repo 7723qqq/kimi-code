@@ -283,9 +283,22 @@ function toTurnEndedEvent(
     type: 'turn.ended',
     turnId: turn.id,
     reason: result.reason,
-    error: toKimiErrorPayload(result.error),
+    error: summarizeTurnError(result.error, turn.id),
     durationMs,
   };
+}
+
+const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
+
+function summarizeTurnError(error: unknown, turnId: number): KimiErrorPayload {
+  const payload = toKimiErrorPayload(error);
+  const details = { ...payload.details, turnId };
+  // Substitute a friendlier, login-aware message for model-not-configured. The
+  // raw "Model not set" / "Provider not set" text is not actionable.
+  if (payload.code === 'model.not_configured') {
+    return { ...payload, message: LLM_NOT_SET_MESSAGE, details };
+  }
+  return { ...payload, details };
 }
 
 interface ControlledPromise<T> {

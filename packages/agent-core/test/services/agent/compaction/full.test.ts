@@ -48,7 +48,7 @@ const CATALOGUED_MODEL_CAPABILITIES = {
 } as const;
 const MICRO_COMPACTION_FLAG_ENV = getMicroCompactionFlagEnv();
 
-describe.skip('FullCompaction', () => {
+describe('FullCompaction', () => {
   it('keeps an oversized trailing user message as recent', () => {
     const strategy = testCompactionStrategy();
     const messages = [
@@ -261,7 +261,7 @@ describe.skip('FullCompaction', () => {
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
-    void ctx.dispatch({
+    await ctx.dispatch({
       type: 'context.splice',
       start: ctx.context.getHistory().length,
       deleteCount: 0,
@@ -314,6 +314,12 @@ describe.skip('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
+
+    // Force-construct the micro-compaction service so it registers its
+    // onSpliced observer before the tool exchanges are appended (otherwise the
+    // lazily-instantiated service never records the assistant cache anchor that
+    // `detect()` needs).
+    (ctx.get(IMicroCompactionService) as any).compact([]);
 
     vi.setSystemTime(0);
     ctx.appendToolExchange();
@@ -790,7 +796,7 @@ describe.skip('FullCompaction', () => {
       attempts += 1;
       throw new APIStatusError(400, 'Bad request');
     };
-    const ctx = testAgent({ generate });
+    const ctx = testAgent({ generate, fullCompaction: { compactionStrategy: alwaysCompactOnce } });
     ctx.configure();
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger failed auto compaction' }] });
@@ -834,7 +840,7 @@ describe.skip('FullCompaction', () => {
         rawFinishReason: 'length',
       };
     };
-    const ctx = testAgent({ generate });
+    const ctx = testAgent({ generate, fullCompaction: { compactionStrategy: alwaysCompactOnce } });
     ctx.configure();
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger truncated auto compaction' }] });
@@ -947,7 +953,7 @@ describe.skip('FullCompaction', () => {
       'assistant',
       'tool',
     ]);
-    void ctx.dispatch({
+    await ctx.dispatch({
       type: 'context.splice',
       start: ctx.context.getHistory().length,
       deleteCount: 0,
@@ -1136,7 +1142,13 @@ describe.skip('FullCompaction', () => {
       expect.arrayContaining([
         expect.objectContaining({ type: '[wire]', event: 'context.splice' }),
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),
-        expect.objectContaining({ type: '[wire]', event: 'context.clear' }),
+        // Clearing context is a full-history `context.splice` (the v1.5
+        // equivalent of the legacy `context.clear` record).
+        expect.objectContaining({
+          type: '[wire]',
+          event: 'context.splice',
+          args: expect.objectContaining({ start: 0, deleteCount: 4, messages: [] }),
+        }),
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.cancel' }),
         expect.objectContaining({ type: '[rpc]', event: 'compaction.cancelled' }),
       ]),
@@ -1193,6 +1205,7 @@ describe.skip('FullCompaction', () => {
           user: text <compaction-instruction>
 
       call 2:
+        tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, ReadMediaFile, TaskList, TaskOutput, TaskStop, TodoList, Write
         messages:
           assistant: text "Auto compacted summary."
           user: text "recent user three"
@@ -1247,7 +1260,7 @@ describe.skip('FullCompaction', () => {
     ]);
 
     // Closing the exchange flushes the deferred reminder to history.
-    void ctx.dispatch({
+    await ctx.dispatch({
       type: 'context.splice',
       start: ctx.context.getHistory().length,
       deleteCount: 0,
@@ -1260,7 +1273,7 @@ describe.skip('FullCompaction', () => {
         },
       ],
     });
-    void ctx.dispatch({
+    await ctx.dispatch({
       type: 'context.splice',
       start: ctx.context.getHistory().length,
       deleteCount: 0,
@@ -1321,7 +1334,7 @@ describe.skip('FullCompaction', () => {
       'tool',
     ]);
 
-    void ctx.dispatch({
+    await ctx.dispatch({
       type: 'context.splice',
       start: ctx.context.getHistory().length,
       deleteCount: 0,
@@ -1839,7 +1852,7 @@ describe.skip('FullCompaction', () => {
   });
 
   it('emits context.overflow and terminates the turn after too many auto compactions', async () => {
-    const ctx = testAgent();
+    const ctx = testAgent({ fullCompaction: { compactionStrategy: alwaysCompactOnce } });
     ctx.configure();
 
     ctx.mockNextResponse({ type: 'text', text: 'First compacted summary.' });
@@ -1873,6 +1886,7 @@ describe.skip('FullCompaction', () => {
           user: text <compaction-instruction>
 
       call 2:
+        tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
         messages:
           assistant: text "First compacted summary."
     `);

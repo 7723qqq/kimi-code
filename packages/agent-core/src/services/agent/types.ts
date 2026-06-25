@@ -43,7 +43,7 @@ export type LLMEvent =
     };
 
 export interface TurnResult {
-  readonly reason: 'completed' | 'cancelled' | 'failed';
+  readonly reason: 'completed' | 'cancelled' | 'failed' | 'filtered';
   readonly error?: unknown;
 }
 

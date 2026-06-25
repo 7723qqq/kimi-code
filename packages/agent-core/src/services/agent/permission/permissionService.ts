@@ -14,6 +14,7 @@ import type {
 } from '../../../loop';
 import type { ToolInputDisplay } from '../../../tools/display';
 import { IApprovalService } from '../../approval/approval';
+import { IExternalHooksService } from '../externalHooks/externalHooks';
 import { IPermissionModeService } from '../permissionMode/permissionMode';
 import {
   IPermissionPolicyService,
@@ -33,6 +34,7 @@ export class PermissionService extends Disposable implements IPermissionService 
     @IPermissionModeService private readonly modeService: IPermissionModeService,
     @IPermissionRulesService private readonly rulesService: IPermissionRulesService,
     @IPermissionPolicyService private readonly policyService: IPermissionPolicyService,
+    @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
@@ -114,6 +116,14 @@ export class PermissionService extends Disposable implements IPermissionService 
     if (approvalService === undefined) {
       response = { decision: 'approved' };
     } else {
+      this.externalHooks.triggerPermissionRequest({
+        turnId: numericTurnId(context.turnId),
+        toolCallId: context.toolCall.id,
+        toolName: name,
+        action,
+        toolInput: context.args,
+        display,
+      });
       try {
         response = await approvalService.request({
           sessionId: this.options.sessionId ?? 'service-session',
@@ -136,6 +146,14 @@ export class PermissionService extends Disposable implements IPermissionService 
           session_cache_written: false,
           has_feedback: false,
         });
+        this.externalHooks.triggerPermissionResult({
+          turnId: numericTurnId(context.turnId),
+          toolCallId: context.toolCall.id,
+          toolName: name,
+          action,
+          decision: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        });
         const resolved = result.resolveError?.(error);
         if (resolved !== undefined) {
           return this.permissionPolicyResolutionToAuthorize(resolved, context, policyName);
@@ -148,6 +166,18 @@ export class PermissionService extends Disposable implements IPermissionService 
       response.decision === 'approved' && response.scope === 'session'
         ? context.execution.approvalRule
         : undefined;
+    if (approvalService !== undefined) {
+      this.externalHooks.triggerPermissionResult({
+        turnId: numericTurnId(context.turnId),
+        toolCallId: context.toolCall.id,
+        toolName: name,
+        action,
+        decision: response.decision,
+        scope: response.scope,
+        feedback: response.feedback,
+        selectedLabel: response.selectedLabel,
+      });
+    }
     this.rulesService.recordApprovalResult({
       turnId: numericTurnId(context.turnId),
       toolCallId: context.toolCall.id,

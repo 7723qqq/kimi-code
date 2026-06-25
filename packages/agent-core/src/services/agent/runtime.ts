@@ -1,5 +1,5 @@
 import type { Kaos } from '@moonshot-ai/kaos';
-import type { generate } from '@moonshot-ai/kosong';
+import type { ChatProvider, generate } from '@moonshot-ai/kosong';
 import { join } from 'pathe';
 
 import type {
@@ -23,6 +23,7 @@ import type { QuestionRequest } from '../../rpc';
 import type { HookEngine } from '../../session/hooks';
 import type { ModelProvider } from '../../session/provider-manager';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
+import type { WorkspaceConfig } from '../../tools/support/workspace';
 import type { SkillCatalog, SkillDefinition } from '../../skill';
 import { DEFAULT_AGENT_PROFILES } from '../../profile';
 import type { SubagentResult } from '../../session/subagent-batch';
@@ -43,6 +44,7 @@ import {
   FetchURLTool,
   GlobTool,
   GrepTool,
+  ReadMediaFileTool,
   ReadTool,
   TaskListTool,
   TaskOutputTool,
@@ -50,6 +52,7 @@ import {
   WebSearchTool,
   WriteTool,
   type UrlFetcher,
+  type VideoUploader,
   type WebSearchProvider,
 } from '../../tools/builtin';
 import { escapeXmlAttr } from '../../utils/xml-escape';
@@ -83,6 +86,10 @@ import {
 } from './externalHooks/externalHooks';
 import { ExternalHooksService } from './externalHooks/externalHooksService';
 import { IFullCompaction } from './fullCompaction/fullCompaction';
+import {
+  FullCompactionService,
+  type FullCompactionServiceOptions,
+} from './fullCompaction/fullCompactionService';
 import { IGoalService } from './goal/goal';
 import {
   GoalService,
@@ -206,6 +213,7 @@ export interface AgentRuntimeOptions {
   >;
   readonly experimentalFlags?: ExperimentalFlagResolver;
   readonly microCompaction?: MicroCompactionServiceOptions;
+  readonly fullCompaction?: FullCompactionServiceOptions;
   readonly permission?: PermissionServiceOptions;
   readonly additionalDirs?: readonly string[];
   readonly permissionRules?: readonly PermissionRule[];
@@ -249,6 +257,9 @@ export class AgentRuntime extends Disposable {
   constructor(
     readonly instantiation: IInstantiationService,
     private readonly updateAdditionalDirs?: (additionalDirs: readonly string[]) => void,
+    // The provider manager used to resolve provider configs/auth. Exposed so
+    // callers (and tests) can drive provider-config resolution directly.
+    readonly modelProvider?: ModelProvider,
   ) {
     super();
     this._register(this.instantiation);
@@ -258,8 +269,9 @@ export class AgentRuntime extends Disposable {
     instantiation: IInstantiationService,
     disposables: readonly IDisposable[] = [],
     updateAdditionalDirs?: (additionalDirs: readonly string[]) => void,
+    modelProvider?: ModelProvider,
   ): AgentRuntime {
-    const runtime = new AgentRuntime(instantiation, updateAdditionalDirs);
+    const runtime = new AgentRuntime(instantiation, updateAdditionalDirs, modelProvider);
     for (const disposable of disposables) {
       runtime._register(disposable);
     }
@@ -356,6 +368,7 @@ export function createAgentRuntime(
       if (child === undefined) return;
       updateAgentRuntimeAdditionalDirs(child, options, context, additionalDirs);
     },
+    options.modelProvider,
   );
   try {
     activateAgentServices(refs.child);
@@ -495,6 +508,7 @@ function initializeRuntimeBuiltinTools(
             profile.isToolActive('TaskStop'),
         }),
       );
+      registerReadMediaFileTool(registry, kaos, workspace, profile, options);
     }
   }
 
@@ -508,6 +522,69 @@ function initializeRuntimeBuiltinTools(
   if ((options.skills?.listInvocableSkills().length ?? 0) > 0) {
     registry.register(new ModelSkillTool(getService(instantiation, IAgentSkillService)));
   }
+}
+
+// Capability-gated; re-runs whenever the model (and thus capabilities/provider)
+// changes via `initializeBuiltinTools`. The tool registry replaces by name, so
+// re-registration is idempotent.
+function registerReadMediaFileTool(
+  registry: IToolRegistry,
+  kaos: Kaos,
+  workspace: WorkspaceConfig,
+  profile: IProfileService,
+  options: AgentRuntimeOptions,
+): void {
+  if (!profile.hasModel()) return;
+  const capabilities = profile.getModelCapabilities();
+  if (!capabilities.image_in && !capabilities.video_in) return;
+  try {
+    registry.register(
+      new ReadMediaFileTool(
+        kaos,
+        workspace,
+        capabilities,
+        buildVideoUploader(profile, options),
+      ),
+    );
+  } catch (error) {
+    // ReadMediaFileTool throws a `SkipThisTool` error when the model lacks
+    // image/video input; the capability guard above normally prevents this,
+    // but stay defensive against capability races.
+    if ((error as { name?: string }).name !== 'SkipThisTool') throw error;
+  }
+}
+
+// Mirrors the legacy agent's `createVideoUploader`: resolve OAuth auth (with
+// the 401 force-refresh / login-required retry handled inside `resolveAuth`)
+// and forward it to the provider's `uploadVideo`. The provider and auth are
+// resolved lazily at upload time — the tool is registered once when the model
+// is set, but the active provider can change afterwards. When the provider
+// cannot upload video the bytes are inlined as a data URL (legacy parity for
+// the tool's no-uploader branch).
+function buildVideoUploader(
+  profile: IProfileService,
+  options: AgentRuntimeOptions,
+): VideoUploader {
+  return async (input) => {
+    let provider: ChatProvider | undefined;
+    try {
+      provider = profile.provider;
+    } catch {
+      provider = undefined;
+    }
+    const uploadVideo = provider?.uploadVideo?.bind(provider);
+    if (uploadVideo === undefined) {
+      return {
+        type: 'video_url',
+        videoUrl: {
+          url: `data:${input.mimeType};base64,${Buffer.from(input.data).toString('base64')}`,
+        },
+      };
+    }
+    const withAuth = options.modelProvider?.resolveAuth?.(profile.getModel());
+    if (withAuth === undefined) return uploadVideo(input);
+    return withAuth((auth) => uploadVideo(input, { auth }));
+  };
 }
 
 function tryGetQuestionService(instantiation: IInstantiationService): IQuestionService | undefined {
@@ -537,6 +614,7 @@ function configureAgentRuntimeServices(
   configureUserToolService(services, options);
   configureAgentSkillService(services, options);
   configureMicroCompactionService(services, options);
+  configureFullCompactionService(services, options);
   configureExternalHooksService(services, options);
   configureTelemetryService(services, options);
   configureGoalService(services, options, context.type);
@@ -817,7 +895,25 @@ function configureMicroCompactionService(
           maxContextTokens: options.microCompaction?.maxContextTokens,
         } satisfies MicroCompactionServiceOptions,
       ],
-      true,
+      false,
+    ),
+  );
+}
+
+function configureFullCompactionService(
+  services: ServiceCollection,
+  options: AgentRuntimeOptions,
+): void {
+  services.set(
+    IFullCompaction,
+    new SyncDescriptor(
+      FullCompactionService,
+      [
+        {
+          compactionStrategy: options.fullCompaction?.compactionStrategy,
+        } satisfies FullCompactionServiceOptions,
+      ],
+      false,
     ),
   );
 }
@@ -1012,20 +1108,22 @@ function activateAgentServices(instantiation: IInstantiationService): void {
     accessor.get(ITelemetryService);
     accessor.get(IProfileService).data();
     // Force real BackgroundService construction before restore/replay registers its hooks.
-    // oxlint-disable-next-line no-unused-expressions
-    accessor.get(IBackgroundService).list;
+    void accessor.get(IBackgroundService).list;
     accessor.get(ILLMRequestLogService);
     accessor.get(IToolRegistry);
     accessor.get(IToolStoreService);
     accessor.get(ITodoListService);
     accessor.get(IUserToolService);
     accessor.get(ISubagentHost);
-    accessor.get(IMcpRuntimeService);
+    // Force real (non-proxy) construction so the MCP status-change listener
+    // registered in the constructor is live before restore/replay runs.
+    void accessor.get(IMcpRuntimeService).oauthService;
     accessor.get(IExternalHooksService);
     accessor.get(IPermissionRulesService);
-    // oxlint-disable-next-line no-unused-expressions
-    accessor.get(IPermissionModeService).mode;
-    accessor.get(IPlanModeService);
+    void accessor.get(IPermissionModeService).mode;
+    // Force real construction so the plan_mode.enter/cancel/exit wire
+    // resumers registered in the constructor are live before replay.
+    void accessor.get(IPlanModeService).isActive;
     accessor.get(IPermissionPolicyService);
     accessor.get(IPermissionService).data();
     accessor.get(IUsageService);
@@ -1035,16 +1133,18 @@ function activateAgentServices(instantiation: IInstantiationService): void {
     accessor.get(IContextProjector);
     accessor.get(ILLMRequester);
     accessor.get(IToolExecutor);
-    accessor.get(ILoopService);
+    // Force real construction so the loop-service-reconcile (onSpliced) and
+    // finish-resume (onResumeEnded) hooks registered in the constructor are
+    // live before restore/replay runs.
+    void accessor.get(ILoopService).runTurn;
     accessor.get(ITurnRunner);
     accessor.get(IPromptService);
     accessor.get(IAgentRPCService);
     accessor.get(ICronService);
     accessor.get(IFullCompaction);
-    accessor.get(ISwarmMode).isActive;
+    void accessor.get(ISwarmMode).isActive;
     // Force-construct AgentSkillService so skill.activate records can replay.
-    // oxlint-disable-next-line no-unused-expressions
-    accessor.get(IAgentSkillService).activate;
+    void accessor.get(IAgentSkillService).activate;
   });
 }
 

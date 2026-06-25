@@ -32,6 +32,7 @@ import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
 import { IContextUsageService } from '../contextUsage/contextUsage';
 import { IEventBus } from '../eventBus/eventBus';
+import { IExternalHooksService } from '../externalHooks/externalHooks';
 import { ILLMRequester } from '../llmRequester/llmRequester';
 import { IProfileService } from '../profile/profile';
 import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
@@ -48,6 +49,13 @@ import {
 import { RuntimeCompactionStrategy } from './compactionStrategy';
 
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
+
+export interface FullCompactionServiceOptions {
+  // Optional override for the compaction strategy. Defaults to the
+  // model-window-driven RuntimeCompactionStrategy. Tests inject a fixed
+  // strategy to force compaction without configuring a tiny model window.
+  readonly compactionStrategy?: CompactionStrategy;
+}
 
 type CompactionTelemetryProperties = Record<string, string | number | boolean | undefined>;
 
@@ -76,6 +84,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
   private compacting: ActiveCompaction | null = null;
 
   constructor(
+    private readonly options: FullCompactionServiceOptions = {},
     @IContextMemory private readonly context: IContextMemory,
     @IContextProjector private readonly projector: IContextProjector,
     @IContextUsageService private readonly contextUsage: IContextUsageService,
@@ -87,10 +96,13 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
+    @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @ITurnRunner turnRunner: ITurnRunner,
   ) {
     super();
-    this.strategy = new RuntimeCompactionStrategy(() => this.profile.resolveModelContext());
+    this.strategy =
+      this.options.compactionStrategy ??
+      new RuntimeCompactionStrategy(() => this.profile.resolveModelContext());
     this._register(
       turnRunner.hooks.onLaunched.register('full-compaction-reset', async (_ctx, next) => {
         this.resetForTurn();
@@ -272,6 +284,10 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       if (this.compacting !== active) return;
       this.markCompleted();
       this.events.emit({ type: 'compaction.completed', result: finalResult });
+      this.externalHooks.triggerPostCompact({
+        trigger: data.source,
+        estimatedTokenCount: finalResult.tokensAfter,
+      });
     } catch (error) {
       if (isAbortError(error)) return;
       const blockedByTurn = this.compacting === active && active.blockedByTurn;
@@ -303,6 +319,11 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       let compactedCount = initialCompactedCount;
       signal.throwIfAborted();
 
+      await this.externalHooks.triggerPreCompact(
+        { trigger: data.source, tokenCount: tokensBefore },
+        signal,
+      );
+
       const delays = retryBackoffDelays(MAX_COMPACTION_RETRY_ATTEMPTS);
       let attempt: CompactionAttemptResult | undefined;
       while (true) {
@@ -315,7 +336,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
         ];
 
         try {
-          attempt = await collectSummary(this.llmRequester.request({ messages }, signal));
+          attempt = await collectSummary(this.llmRequester.request({ messages, tools: [] }, signal));
           break;
         } catch (error) {
           if (
@@ -377,6 +398,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
 
       this.context.spliceHistory(0, compactedCount, createCompactionSummaryMessage(summary));
       this.contextUsage.applyCompactionResult(result);
+      this.wireRecord.append({ type: 'context.apply_compaction', ...result });
       return result;
     } catch (error) {
       if (isAbortError(error)) return undefined;
@@ -475,8 +497,12 @@ function historyUnchanged(
   current: readonly ContextMessage[],
   original: readonly ContextMessage[],
 ): boolean {
-  if (current.length !== original.length) return false;
-  return current.every((message, index) => message === original[index]);
+  // Only the compacted prefix must be intact. Messages appended to the tail
+  // while the summary request was in flight are fine — the splice replaces just
+  // the prefix and leaves the appended tail in place (matching legacy, which
+  // compared `newHistory[i] !== originalHistory[i]` over the original length).
+  if (current.length < original.length) return false;
+  return original.every((message, index) => message === current[index]);
 }
 
 function usageTelemetry(usage: TokenUsage | null): CompactionTelemetryProperties {
@@ -500,4 +526,9 @@ function isTodoItem(value: unknown): value is TodoItem {
 
 export { FullCompactionService as FullCompaction };
 
-registerSingleton(IFullCompaction, new SyncDescriptor(FullCompactionService, [], true));
+// Construct eagerly (not delayed): the service registers turn-lifecycle hooks
+// (onLaunched / beforeStep / afterStep) in its constructor that drive auto
+// compaction. With delayed instantiation the eager `accessor.get(IFullCompaction)`
+// only realizes a proxy, so the hooks would not register until the first RPC —
+// after turns have already run without the auto-compaction gate.
+registerSingleton(IFullCompaction, new SyncDescriptor(FullCompactionService, [{}], false));

@@ -81,9 +81,11 @@ export class LLMRequesterService implements ILLMRequester {
     let requestStartedAt = Date.now();
     let firstChunkAt: number | undefined;
     let streamEndedAt: number | undefined;
+    let streamedAnyPart = false;
     const callbacks: GenerateCallbacks = {
       onMessagePart: (part) => {
         firstChunkAt ??= Date.now();
+        streamedAnyPart = true;
         queue.push({ type: 'part', part });
       },
     };
@@ -91,6 +93,7 @@ export class LLMRequesterService implements ILLMRequester {
       requestStartedAt = Date.now();
       firstChunkAt = undefined;
       streamEndedAt = undefined;
+      streamedAnyPart = false;
       this.requestLog.logRequest({
         provider: request.provider,
         modelAlias: request.modelAlias,
@@ -116,6 +119,17 @@ export class LLMRequesterService implements ILLMRequester {
           },
         },
       );
+      // Providers that resolve the whole response at once (rather than
+      // streaming through `onMessagePart`) still carry their content on
+      // `result.message`. Surface it as parts so downstream consumers (e.g.
+      // compaction summary collection) observe the content, matching the
+      // legacy path that read `response.message.content` directly.
+      if (!streamedAnyPart) {
+        for (const part of result.message.content) {
+          firstChunkAt ??= Date.now();
+          queue.push({ type: 'part', part });
+        }
+      }
       queue.push({
         type: 'usage',
         usage: result.usage ?? emptyUsage(),
