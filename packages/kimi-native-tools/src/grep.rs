@@ -204,6 +204,8 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
     // Collect results — use parallel walker for multi-file searches.
     // This mirrors ripgrep's internal approach (same `ignore` crate).
     let file_matches: Mutex<Vec<(PathBuf, usize, std::time::SystemTime)>> = Mutex::new(Vec::new());
+    // Cache file content for content mode to avoid re-reading matched files.
+    let content_cache: Mutex<Vec<(PathBuf, String)>> = Mutex::new(Vec::new());
     let filtered_sensitive: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let timed_out = AtomicBool::new(false);
     let deadline = config
@@ -215,6 +217,7 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
         let glob_filter = &glob_filter;
         let file_type_globs = &file_type_globs;
         let file_matches = &file_matches;
+        let content_cache = &content_cache;
         let filtered_sensitive = &filtered_sensitive;
         let timed_out = &timed_out;
         let deadline = &deadline;
@@ -269,12 +272,14 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
             // Stream file line-by-line instead of loading entirely into memory.
             // For files_with_matches: stop at first match (early termination).
             // For count_matches: count all matches without building output.
+            // For content mode: accumulate lines for caching.
             let file = match fs::File::open(path) {
                 Ok(f) => f,
                 Err(_) => return ignore::WalkState::Continue,
             };
             let reader = BufReader::new(file);
             let mut match_count: usize = 0;
+            let mut accumulated_content = String::new();
 
             if is_files_with_matches {
                 // Early termination: stop reading as soon as we find one match.
@@ -286,7 +291,17 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                         }
                     }
                 }
+            } else if needs_full_content {
+                // Content mode: accumulate lines while counting matches.
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        match_count += regex.find_iter(&line).count();
+                        accumulated_content.push_str(&line);
+                        accumulated_content.push('\n');
+                    }
+                }
             } else {
+                // Count mode: just count matches.
                 for line in reader.lines() {
                     if let Ok(line) = line {
                         match_count += regex.find_iter(&line).count();
@@ -299,6 +314,9 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                     .and_then(|m| m.modified())
                     .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                 file_matches.lock().unwrap().push((path.to_path_buf(), match_count, mtime));
+                if needs_full_content && !accumulated_content.is_empty() {
+                    content_cache.lock().unwrap().push((path.to_path_buf(), accumulated_content));
+                }
             }
 
             ignore::WalkState::Continue
@@ -308,20 +326,29 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
     let timed_out = timed_out.load(Ordering::Relaxed);
     let mut file_matches: Vec<(PathBuf, usize, std::time::SystemTime)> = file_matches.into_inner().unwrap();
     let filtered_sensitive = filtered_sensitive.into_inner().unwrap();
+    let content_cache: Vec<(PathBuf, String)> = content_cache.into_inner().unwrap();
     let total_matches: usize = file_matches.iter().map(|(_, c, _)| c).sum();
 
     file_matches.sort_by_key(|(_, _, mtime)| std::cmp::Reverse(*mtime));
 
     let content = if needs_full_content {
-        // Re-read matched files and collect line-level content.
+        // Use cached content from walker to avoid re-reading matched files.
+        let content_map: std::collections::HashMap<&Path, &str> = content_cache
+            .iter()
+            .map(|(path, content)| (path.as_path(), content.as_str()))
+            .collect();
+
         let mut line_matches: Vec<MatchEntry> = Vec::new();
         let mut output_bytes: usize = 0;
         for (path, _, _) in &file_matches {
-            let content = match fs::read_to_string(path) {
-                Ok(c) => c,
-                Err(_) => continue,
+            let content_str = match content_map.get(path.as_path()) {
+                Some(c) => c.to_string(),
+                None => match fs::read_to_string(path) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                },
             };
-            let lines: Vec<&str> = content.split('\n').collect();
+            let lines: Vec<&str> = content_str.split('\n').collect();
             let matched_lines: Vec<usize> = lines
                 .iter()
                 .enumerate()
