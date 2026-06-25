@@ -1,20 +1,20 @@
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
 import {
   estimateTokensForMessage,
 } from "#/_base/utils/tokens";
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IEventBus } from '../eventBus/eventBus';
-import { IProfileService } from '../profile/profile';
-import type { ContextMessage, WireRecord } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import type { ContextMessage } from '#/contextMemory';
+import { IContextMemory } from '#/contextMemory';
+import { IEventBus } from '#/eventBus';
+import { IProfileService } from '#/profile';
+import { IWireRecord, type WireRecord } from '#/wireRecord';
 import {
   IContextSizeService,
   type ContextSizeStatus,
 } from './contextSize';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -171,7 +171,10 @@ function sum(values: readonly number[]): number {
   return total;
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IContextSizeService,
-  new SyncDescriptor(ContextSizeService, [], true),
+  ContextSizeService,
+  InstantiationType.Delayed,
+  'contextSize',
 );

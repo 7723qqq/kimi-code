@@ -4,3 +4,5 @@
 
 export * from './contextMemory';
 export * from './contextMemoryService';
+export * from './types';
+

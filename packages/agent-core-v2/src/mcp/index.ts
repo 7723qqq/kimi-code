@@ -1,7 +1,5 @@
 /**
- * `mcp` domain barrel — re-exports the MCP contract (`mcp`) and its scoped
- * service (`mcpService`). Importing this barrel registers the `IMcpService`
- * binding into the scope registry.
+ * `mcp` domain barrel - re-exports the mcp service contract and implementation.
  */
 
 export * from './mcp';

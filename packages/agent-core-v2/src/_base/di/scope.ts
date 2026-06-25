@@ -85,6 +85,21 @@ function buildCollection(kind: LifecycleScope, extra?: ScopeSeed): ServiceCollec
   return collection;
 }
 
+export function createScopedChildHandle(
+  parent: IInstantiationService,
+  kind: LifecycleScope,
+  id: string,
+  options: ScopeOptions = {},
+): IScopeHandle {
+  const collection = buildCollection(kind, options.extra);
+  const child = parent.createChild(collection);
+  const accessor: ServicesAccessor = {
+    get: <T>(serviceId: ServiceIdentifier<T>): T =>
+      child.invokeFunction((a) => a.get(serviceId)),
+  };
+  return { id, kind, accessor };
+}
+
 export class Scope implements IDisposable {
   readonly children = new Map<string, Scope>();
   readonly accessor: ServicesAccessor;

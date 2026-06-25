@@ -1,6 +1,9 @@
-import { addUsage, type TokenUsage } from '@moonshot-ai/kosong';
+import {
+  addUsage,
+  type TokenUsage } from '@moonshot-ai/kosong';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { registerSingleton, SyncDescriptor } from "#/_base/di";
 
 import { IEventBus } from '../eventBus/eventBus';
 import type { UsageRecordScope, UsageStatus } from './usage';
@@ -107,4 +110,10 @@ function totalUsage(byModel: Record<string, TokenUsage>): TokenUsage | undefined
   return total;
 }
 
-registerSingleton(IUsageService, new SyncDescriptor(UsageService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IUsageService,
+  UsageService,
+  InstantiationType.Delayed,
+  'usage',
+);

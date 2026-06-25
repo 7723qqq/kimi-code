@@ -1,6 +1,7 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { registerSingleton, SyncDescriptor } from "#/_base/di";
 import { isAbortError } from '../../../loop/errors';
 import type {
   ExecutableToolResult,
@@ -134,4 +135,10 @@ function isAborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
 }
 
-registerSingleton(IToolExecutor, new SyncDescriptor(ToolExecutorService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IToolExecutor,
+  ToolExecutorService,
+  InstantiationType.Delayed,
+  'toolExecutor',
+);

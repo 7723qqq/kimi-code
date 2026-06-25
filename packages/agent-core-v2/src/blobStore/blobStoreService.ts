@@ -1,9 +1,13 @@
-import { createHash } from 'node:crypto';
-import { mkdir, open, readFile } from 'node:fs/promises';
+import {
+  createHash } from 'node:crypto';
+import { mkdir,
+  open,
+  readFile } from 'node:fs/promises';
 import { join } from 'pathe';
 import type { ContentPart } from '@moonshot-ai/kosong';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { registerSingleton, SyncDescriptor } from "#/_base/di";
 import {
   BLOBREF_PROTOCOL,
   IBlobStoreService,
@@ -196,4 +200,10 @@ function asMediaContainer(value: unknown): { url: unknown } | undefined {
   return 'url' in obj ? (obj as { url: unknown }) : undefined;
 }
 
-registerSingleton(IBlobStoreService, new SyncDescriptor(BlobStoreService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IBlobStoreService,
+  BlobStoreService,
+  InstantiationType.Delayed,
+  'blobStore',
+);

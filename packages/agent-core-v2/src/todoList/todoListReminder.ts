@@ -2,7 +2,7 @@ import {
   TODO_LIST_TOOL_NAME,
   type TodoItem,
 } from '../../../tools/builtin/state/todo-list';
-import type { ContextMessage } from '../types';
+import type { ContextMessage } from '#/contextMemory';
 
 export const TODO_LIST_REMINDER_VARIANT = 'todo_list_reminder';
 

@@ -1,14 +1,13 @@
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
   toDisposable,
   type IDisposable,
 } from "#/_base/di";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ExecutableTool } from '#/loop';
 import { OrderedHookSlot } from '../hooks';
-import type { ToolInfo, ToolSource } from '../types';
-import { IToolRegistry, type ToolRegistrationOptions } from './toolRegistry';
+import { IToolRegistry, type ToolInfo, type ToolRegistrationOptions, type ToolSource } from './toolRegistry';
 
 interface ToolEntry {
   readonly tool: ExecutableTool;
@@ -66,4 +65,10 @@ export class ToolRegistryService extends Disposable implements IToolRegistry {
   }
 }
 
-registerSingleton(IToolRegistry, new SyncDescriptor(ToolRegistryService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IToolRegistry,
+  ToolRegistryService,
+  InstantiationType.Delayed,
+  'toolRegistry',
+);

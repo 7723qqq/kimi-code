@@ -1,8 +1,10 @@
-import { createHash } from 'node:crypto';
+import {
+  createHash } from 'node:crypto';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import type { Tool } from '@moonshot-ai/kosong';
 
-import { registerSingleton, SyncDescriptor } from "#/_base/di";
 import { ILogService } from "#/log/log";
 import {
   ILLMRequestLogService,
@@ -57,7 +59,10 @@ function fingerprint(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   ILLMRequestLogService,
-  new SyncDescriptor(LLMRequestLogService, [], true),
+  LLMRequestLogService,
+  InstantiationType.Delayed,
+  'llmRequestLog',
 );

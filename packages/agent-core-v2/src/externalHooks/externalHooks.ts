@@ -1,9 +1,9 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
 
 import { createDecorator } from "#/_base/di";
-import type { ExecutableToolResult } from '../../../loop';
-import type { HookEngine } from '../../../session/hooks';
-import type { ToolInputDisplay } from '../../../tools/display';
+import type { ExecutableToolResult } from '#/loop';
+import type { ToolInputDisplay } from '#/tools/display';
+import type { HookEngine } from './engine';
 
 export interface RenderedExternalHookResult {
   readonly event: string;

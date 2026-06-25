@@ -1,14 +1,15 @@
-import { randomBytes } from 'node:crypto';
+import {
+  randomBytes } from 'node:crypto';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
 
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
 import { escapeXml, escapeXmlAttr } from "#/_base/utils/xml-escape";
-import type { BackgroundTaskOrigin } from '#/context';
+import type { BackgroundTaskOrigin } from '#/contextMemory';
 import { renderNotificationXml } from '#/contextMemory/notification-xml';
 import {
   TERMINAL_STATUSES,
@@ -21,7 +22,7 @@ import { IEventBus } from '#/eventBus/eventBus';
 import { IExternalHooksService } from '#/externalHooks/externalHooks';
 import { IPromptService } from '#/prompt/prompt';
 import { ITelemetryService } from '#/telemetry/telemetry';
-import type { WireRecord } from '#/types';
+import type { WireRecord } from '#/wireRecord';
 import { IWireRecord } from '#/wireRecord/wireRecord';
 import {
   IBackgroundService,
@@ -889,7 +890,10 @@ function errorMessage(error: unknown): string {
 
 export { BackgroundService as Background };
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IBackgroundService,
-  new SyncDescriptor(BackgroundService, [{}], true),
+  BackgroundService,
+  InstantiationType.Delayed,
+  'background',
 );

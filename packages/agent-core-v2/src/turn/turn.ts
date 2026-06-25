@@ -1,6 +1,5 @@
 import { createDecorator } from "#/_base/di";
-import type { ContextMessage, PromptOrigin } from '#/context';
-
+import type { ContextMessage, PromptOrigin } from '#/contextMemory';
 import type { Hooks } from '#/hooks';
 
 

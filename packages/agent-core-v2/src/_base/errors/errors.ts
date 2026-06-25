@@ -63,6 +63,10 @@ export class KimiError extends Error {
   }
 }
 
+export function isKimiError(error: unknown): error is KimiError {
+  return error instanceof KimiError;
+}
+
 export class NotImplementedError extends KimiError {
   constructor(feature?: string) {
     super(

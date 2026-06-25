@@ -1,8 +1,11 @@
-import { Disposable, registerSingleton, SyncDescriptor } from "#/_base/di";
+import {
+  Disposable,
+} from "#/_base/di";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { OrderedHookSlot } from '../hooks';
-import type { WireRecord } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
 import { IToolStoreService, type ToolStoreData, type ToolStoreKey } from './toolStore';
+import { IWireRecord, type WireRecord } from '#/wireRecord';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -60,4 +63,10 @@ export class ToolStoreService extends Disposable implements IToolStoreService {
   }
 }
 
-registerSingleton(IToolStoreService, new SyncDescriptor(ToolStoreService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IToolStoreService,
+  ToolStoreService,
+  InstantiationType.Delayed,
+  'toolStore',
+);

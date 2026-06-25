@@ -4,8 +4,7 @@ import {
   type ToolCall,
 } from '@moonshot-ai/kosong';
 
-import type { CompactionResult } from '#/compaction';
-import type { ContextMessage, PromptOrigin } from '#/context';
+import type { ContextMessage, PromptOrigin } from '#/contextMemory';
 import type {
   ExecutableToolResult,
   LoopContentPartEvent,
@@ -439,8 +438,12 @@ interface V1_4AppendLoopEventRecord extends WireMigrationRecord {
   readonly event: LoopRecordedEvent;
 }
 
-interface V1_4ApplyCompactionRecord extends WireMigrationRecord, CompactionResult {
+interface V1_4ApplyCompactionRecord extends WireMigrationRecord {
   readonly type: 'context.apply_compaction';
+  summary: string;
+  compactedCount: number;
+  tokensBefore: number;
+  tokensAfter: number;
 }
 
 interface V1_4UndoRecord extends WireMigrationRecord {

@@ -1,10 +1,14 @@
-import { Disposable, registerSingleton, SyncDescriptor } from "#/_base/di";
+import {
+  Disposable,
+} from "#/_base/di";
 import { estimateTokensForMessages } from "#/_base/utils/tokens";
 import { OrderedHookSlot } from '#/hooks';
-import { IReplayBuilderService } from '#/replayBuilder/replayBuilder';
-import type { ContextMessage, WireRecord } from '#/types';
-import { IWireRecord } from '#/wireRecord/wireRecord';
+import { IReplayBuilderService } from '#/replayBuilder';
+import { IWireRecord, type WireRecord } from '#/wireRecord';
 import { IContextMemory } from './contextMemory';
+import type { ContextMessage } from './types';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -128,4 +132,10 @@ function textContent(message: ContextMessage | undefined): string {
   );
 }
 
-registerSingleton(IContextMemory, new SyncDescriptor(ContextMemoryService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IContextMemory,
+  ContextMemoryService,
+  InstantiationType.Delayed,
+  'contextMemory',
+);

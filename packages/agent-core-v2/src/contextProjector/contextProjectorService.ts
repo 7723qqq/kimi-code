@@ -1,9 +1,9 @@
 import type { Message } from '@moonshot-ai/kosong';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import {
   IInstantiationService,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
 import { IMicroCompactionService } from '#/microCompaction/microCompaction';
 import type { ContentPart, TextPart } from '@moonshot-ai/kosong';
@@ -284,4 +284,10 @@ function isInterruptedToolResult(message: Message): boolean {
 }
 
 
-registerSingleton(IContextProjector, new SyncDescriptor(ContextProjectorService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IContextProjector,
+  ContextProjectorService,
+  InstantiationType.Delayed,
+  'contextProjector',
+);

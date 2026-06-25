@@ -1,6 +1,7 @@
 import { createDecorator } from "#/_base/di";
+import type { ContextMessage } from "#/contextMemory";
+import type { Turn } from "#/turn";
 
-import type { ContextMessage, Turn } from '../types';
 
 export interface IPromptService {
   prompt(message: ContextMessage): Turn | undefined;

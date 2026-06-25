@@ -1,8 +1,13 @@
-import { Disposable, registerSingleton, SyncDescriptor } from "#/_base/di";
-import type { AgentReplayRecord, AgentReplayRecordPayload } from '../../../rpc/resumed';
+import {
+  Disposable,
+} from "#/_base/di";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import type { AgentReplayRecord, AgentReplayRecordPayload } from './types';
 
-import type { ContextMessage, WireRecord } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import type { ContextMessage } from "#/contextMemory";
+import type { WireRecord } from "#/wireRecord";
+import { IWireRecord } from '#/wireRecord';
 import {
   IReplayBuilderService,
   type ReplayBuilderServiceOptions,
@@ -135,7 +140,10 @@ export class ReplayBuilderService extends Disposable implements IReplayBuilderSe
   }
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IReplayBuilderService,
-  new SyncDescriptor(ReplayBuilderService, [{}], true),
+  ReplayBuilderService,
+  InstantiationType.Delayed,
+  'replayBuilder',
 );

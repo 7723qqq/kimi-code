@@ -1,4 +1,7 @@
-import { createHash } from 'node:crypto';
+import {
+  createHash } from 'node:crypto';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import {
   APIConnectionError,
@@ -19,12 +22,15 @@ import {
   type StreamedMessagePart,
   type TokenUsage,
   type ToolCall as KosongToolCall,
-} from '@moonshot-ai/kosong';
+  } from '@moonshot-ai/kosong';
 
-import { canonicalTelemetryArgs, isPlainRecord } from './canonical-args';
+import { canonicalTelemetryArgs,
+  isPlainRecord } from './canonical-args';
 import { ToolCallDeduplicator } from './tool-dedup';
 import { abortable } from "#/_base/utils/abort";
-import { Disposable, IInstantiationService, registerSingleton, SyncDescriptor } from "#/_base/di";
+import { Disposable,
+  IInstantiationService,
+} from "#/_base/di";
 import {
   ErrorCodes,
   isKimiError,
@@ -51,16 +57,16 @@ import { IEventBus } from '../eventBus/eventBus';
 import { IExternalHooksService } from '../externalHooks/externalHooks';
 import { IFullCompaction } from '../fullCompaction/fullCompaction';
 import { ILLMRequester } from '../llmRequester/llmRequester';
-import { IMcpRuntimeService } from '../mcpRuntime/mcpRuntime';
+import { IMcpRuntimeService } from '../mcp/mcpRuntime';
 import { IPermissionService } from '../permission/permission';
 import { IProfileService } from '../profile/profile';
 import { ITelemetryService } from '../telemetry/telemetry';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import { IToolExecutor } from '../toolExecutor/toolExecutor';
-import type { ContextMessage, ToolResult, Turn, TurnResult } from '../types';
 import { IUsageService } from '../usage/usage';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import { ILoopService, type LoopRunHooks } from './loop';
+import type { Turn, TurnResult } from '../turn';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
@@ -1154,4 +1160,10 @@ interface ToolCallDelta {
   readonly argumentsPart?: string;
 }
 
-registerSingleton(ILoopService, new SyncDescriptor(LoopService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  ILoopService,
+  LoopService,
+  InstantiationType.Delayed,
+  'loop',
+);

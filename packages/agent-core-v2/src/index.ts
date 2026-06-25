@@ -65,7 +65,7 @@ export * from './goalMode/index';
 export * from './llmRequestLog/index';
 export * from './llmRequester/index';
 export * from './loop/index';
-export * from './mcpRuntime/index';
+export * from './mcp/index';
 export * from './microCompaction/index';
 export * from './permissionMode/index';
 export * from './permissionPolicy/index';

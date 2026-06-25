@@ -1,5 +1,9 @@
 import type { PermissionMode } from '../../../agent/permission';
-import { Disposable, registerSingleton, SyncDescriptor } from "#/_base/di";
+import {
+  Disposable,
+} from "#/_base/di";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
 import { IEventBus } from '../eventBus/eventBus';
@@ -66,7 +70,10 @@ export class PermissionModeService extends Disposable implements IPermissionMode
   }
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IPermissionModeService,
-  new SyncDescriptor(PermissionModeService, [], true),
+  PermissionModeService,
+  InstantiationType.Delayed,
+  'permissionMode',
 );

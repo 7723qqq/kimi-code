@@ -1,3 +1,5 @@
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import {
   createProvider,
   UNKNOWN_CAPABILITY,
@@ -7,21 +9,22 @@ import {
 } from '@moonshot-ai/kosong';
 import picomatch from 'picomatch';
 
+import { ErrorCodes, KimiError } from "#/_base/errors";
+import { resolveThinkingEffort, type ThinkingEffort } from '#/agent/config/thinking';
+import type { KimiConfig } from '#/config';
 import {
   applyKimiEnvSamplingParams,
   applyKimiEnvThinkingKeep,
-} from '../../../config/kimi-env-params';
-import { registerSingleton, SyncDescriptor } from "#/_base/di";
-import { ErrorCodes, KimiError } from "#/_base/errors";
-import type { ResolvedAgentProfile, SystemPromptContext } from '../../../profile';
-import type { ResolvedRuntimeProvider } from '../../../session/provider-manager';
-import { resolveThinkingEffort, type ThinkingEffort } from '../../../agent/config/thinking';
-import type { KimiConfig } from '../../../config';
-import { isMcpToolName } from '../../../mcp/tool-naming';
+} from '#/config/kimi-env-params';
+import { isMcpToolName } from '#/mcp/tool-naming';
+import type { ResolvedAgentProfile, SystemPromptContext } from '#/profile';
+import type { ResolvedRuntimeProvider } from '#/session/provider-manager';
 
 import { IEventBus } from '../eventBus/eventBus';
+import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import { ITelemetryService } from '../telemetry/telemetry';
 import type { ToolSource } from '../types';
+import { IWireRecord } from '../wireRecord/wireRecord';
 import type {
   ProfileData,
   ProfileModelContext,
@@ -30,8 +33,6 @@ import type {
   ProfileUpdateData,
 } from './profile';
 import { IProfileService } from './profile';
-import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
-import { IWireRecord } from '../wireRecord/wireRecord';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -331,4 +332,10 @@ export class ProfileService implements IProfileService {
   }
 }
 
-registerSingleton(IProfileService, new SyncDescriptor(ProfileService, [{}], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IProfileService,
+  ProfileService,
+  InstantiationType.Delayed,
+  'profile',
+);

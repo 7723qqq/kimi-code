@@ -1,11 +1,29 @@
-import { randomUUID } from 'node:crypto';
+import {
+  randomUUID } from 'node:crypto';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
 import { ErrorCodes, KimiError } from "#/_base/errors";
+import type { ContextMessage } from '#/contextMemory';
+import { IContextMemory } from '#/contextMemory/contextMemory';
+import { IDynamicInjector } from '#/dynamicInjector/dynamicInjector';
+import { IEventBus } from '#/eventBus/eventBus';
+import { IReplayBuilderService } from '#/replayBuilder/replayBuilder';
+import type { TelemetryProperties } from '#/telemetry';
+import { ITelemetryService } from '#/telemetry/telemetry';
+import type { WireRecord } from '#/wireRecord';
+import { IWireRecord } from '#/wireRecord/wireRecord';
+import {
+  IGoalService,
+  type GoalReasonInput,
+} from './goal';
+import {
+  GoalInjection,
+  type GoalInjectionOptions,
+} from './injection/goalInjection';
 import type {
   CreateGoalInput,
   GoalActor,
@@ -16,23 +34,7 @@ import type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
-} from '../../../agent/goal';
-import type { TelemetryProperties } from '../../../telemetry';
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IEventBus } from '../eventBus/eventBus';
-import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
-import { ITelemetryService } from '../telemetry/telemetry';
-import type { ContextMessage, WireRecord } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
-import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
-import {
-  GoalInjection,
-  type GoalInjectionOptions,
-} from './injection/goalInjection';
-import {
-  IGoalService,
-  type GoalReasonInput,
-} from './goal';
+} from './types';
 
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
 
@@ -566,7 +568,10 @@ function normalizeCompletionCriterion(value: string | undefined): string | undef
   return trimmed?.length ? trimmed : undefined;
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IGoalService,
-  new SyncDescriptor(GoalService, [{}], true),
+  GoalService,
+  InstantiationType.Delayed,
+  'goal',
 );

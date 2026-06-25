@@ -1,6 +1,6 @@
 import { createDecorator } from "#/_base/di";
 
-import type { Turn, TurnResult, TurnStepContext } from '../types';
+import type { Turn, TurnResult, TurnStepContext } from '#/turn';
 
 export interface LoopRunHook<TContext> {
   run(context: TContext): Promise<void>;

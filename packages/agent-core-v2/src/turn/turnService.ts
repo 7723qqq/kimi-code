@@ -1,13 +1,12 @@
 import {
   IInstantiationService,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { toKimiErrorPayload, type KimiErrorPayload } from "#/_base/errors";
 import { isUserCancellation, userCancellationReason } from "#/_base/utils/abort";
-import type { ContextMessage, PromptOrigin } from '#/context';
-import { USER_PROMPT_ORIGIN } from '#/context';
-import { IContextMemory } from '#/contextMemory/contextMemory';
+import type { ContextMessage, PromptOrigin } from '#/contextMemory';
+import { IContextMemory, USER_PROMPT_ORIGIN } from '#/contextMemory';
 import { IEventBus } from '#/eventBus/eventBus';
 import { IExternalHooksService } from '#/externalHooks/externalHooks';
 import { OrderedHookSlot } from '#/hooks';
@@ -321,4 +320,10 @@ function createControlledPromise<T>(): ControlledPromise<T> {
   return { promise, resolve, reject };
 }
 
-registerSingleton(ITurnRunner, new SyncDescriptor(TurnRunnerService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  ITurnRunner,
+  TurnRunnerService,
+  InstantiationType.Delayed,
+  'turn',
+);

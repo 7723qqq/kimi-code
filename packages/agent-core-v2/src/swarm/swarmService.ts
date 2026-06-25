@@ -2,10 +2,10 @@ import SWARM_MODE_ENTER_REMINDER from '../../../agent/swarm/enter-reminder.md?ra
 import SWARM_MODE_EXIT_REMINDER from '../../../agent/swarm/exit-reminder.md?raw';
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
 import { AgentSwarmTool } from '../../../tools/builtin/collaboration/agent-swarm';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IEventBus } from '../eventBus/eventBus';
@@ -155,7 +155,10 @@ export class SwarmService extends Disposable implements ISwarmService {
   }
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   ISwarmService,
-  new SyncDescriptor(SwarmService, [{}], true),
+  SwarmService,
+  InstantiationType.Delayed,
+  'swarm',
 );

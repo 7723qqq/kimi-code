@@ -6,7 +6,7 @@ import type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
-} from '../../../agent/goal';
+} from './types';
 
 export interface GoalReasonInput {
   readonly reason?: string;

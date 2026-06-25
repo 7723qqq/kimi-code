@@ -15,6 +15,8 @@ export interface ErrorPayload {
   readonly retryable: boolean;
 }
 
+export type KimiErrorPayload = ErrorPayload;
+
 export interface CodedErrorShape {
   readonly code: ErrorCode;
   readonly message: string;
@@ -68,6 +70,8 @@ export function toErrorPayload(error: unknown): ErrorPayload {
   }
   return makeErrorPayload(ErrorCodes.INTERNAL, String(error));
 }
+
+export const toKimiErrorPayload = toErrorPayload;
 
 export function fromErrorPayload(payload: ErrorPayload): KimiError {
   return new KimiError(payload.code, payload.message, {

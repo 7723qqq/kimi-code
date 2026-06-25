@@ -1,26 +1,34 @@
-/**
- * `mcp` domain (L5) — manages MCP server connections.
- *
- * Defines the public contract of MCP: the `McpServerStatusEvent` model and the
- * `IMcpService` used to connect, disconnect, and list servers and observe
- * `onDidChangeServerStatus`. Session-scoped — one instance per session.
- */
+import type { Tool as KosongTool } from '@moonshot-ai/kosong';
 
-import type { Event } from '#/_base/event';
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { createDecorator, type IDisposable } from "#/_base/di";
+import type {
+  McpConnectionManager,
+  McpServerEntry,
+} from '../../../mcp/connection-manager';
+import type { McpOAuthService } from '../../../mcp/oauth';
+import type { MCPClient } from '../../../mcp/types';
 
-export interface McpServerStatusEvent {
-  readonly serverId: string;
-  readonly status: string;
+export interface McpResolvedServer {
+  readonly client: MCPClient;
+  readonly tools: readonly KosongTool[];
+  readonly enabledNames: ReadonlySet<string>;
 }
 
-export interface IMcpService {
-  readonly _serviceBrand: undefined;
-  readonly onDidChangeServerStatus: Event<McpServerStatusEvent>;
-  connect(serverId: string): Promise<void>;
-  disconnect(serverId: string): Promise<void>;
-  list(): readonly string[];
+export interface IMcpRuntimeService {
+  readonly oauthService: McpOAuthService | undefined;
+
+  waitForInitialLoad(signal?: AbortSignal): Promise<void>;
+  initialLoadDurationMs(): number;
+  list(): readonly McpServerEntry[];
+  resolved(name: string): McpResolvedServer | undefined;
+  getRemoteServerUrl(name: string): string | undefined;
+  reconnect(name: string, signal?: AbortSignal): Promise<void>;
+  onStatusChange(listener: (entry: McpServerEntry) => void): IDisposable;
 }
 
-export const IMcpService: ServiceIdentifier<IMcpService> =
-  createDecorator<IMcpService>('mcpService');
+export interface McpRuntimeServiceOptions {
+  readonly manager?: McpConnectionManager;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const IMcpRuntimeService = createDecorator<IMcpRuntimeService>('agentMcpRuntimeService');

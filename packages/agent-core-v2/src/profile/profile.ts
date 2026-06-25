@@ -4,12 +4,11 @@ import type {
   ProviderConfig,
 } from '@moonshot-ai/kosong';
 
-import type { AgentConfigData } from '../../../agent/config';
-import type { ThinkingEffort } from '../../../agent/config/thinking';
-import type { KimiConfig } from '../../../config';
 import { createDecorator } from "#/_base/di";
-import type { ResolvedAgentProfile, SystemPromptContext } from '../../../profile';
-import type { ModelProvider } from '../../../session/provider-manager';
+import type { AgentConfigData, KimiConfig } from '#/config';
+import type { ThinkingEffort } from '#/config/thinking';
+import type { ResolvedAgentProfile, SystemPromptContext } from '#/profile';
+import type { ModelProvider } from '#/session/provider-manager';
 import type { ToolSource } from '../types';
 
 export interface ProfileData extends AgentConfigData {

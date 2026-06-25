@@ -3,9 +3,9 @@ import type { ContentPart } from '@moonshot-ai/kosong';
 import { createDecorator } from "#/_base/di";
 import type { IDisposable } from "#/_base/di";
 
-import type { IBlobStoreService } from '../blobStore/blobStore';
-import type { Hooks } from '../hooks';
-import type { WireRecord, WireRecordMap } from '../types';
+import type { IBlobStoreService } from '#/blobStore';
+import type { Hooks } from '#/hooks';
+import type { WireRecord, WireRecordMap } from '#/wireRecord';
 import type { WireMigrationRecord } from './migration';
 
 export { AGENT_WIRE_PROTOCOL_VERSION } from './migration';

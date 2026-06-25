@@ -1,10 +1,12 @@
-import { randomUUID } from 'node:crypto';
-import { dirname, join } from 'pathe';
+import {
+  randomUUID } from 'node:crypto';
+import { dirname,
+  join } from 'pathe';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
 import type { ExecutableToolResult } from '../../../loop';
 import type { ToolInputDisplay } from '../../../tools/display';
@@ -550,7 +552,10 @@ function isMissingFileError(error: unknown): boolean {
 
 export { PlanService as Plan };
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IPlanService,
-  new SyncDescriptor(PlanService, [], true),
+  PlanService,
+  InstantiationType.Delayed,
+  'plan',
 );

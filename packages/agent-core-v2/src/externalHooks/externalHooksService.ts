@@ -1,8 +1,3 @@
-import { registerSingleton, SyncDescriptor } from "#/_base/di";
-import {
-  renderUserPromptHookBlockResult,
-  renderUserPromptHookResult,
-} from '../../../session/hooks';
 import { toKimiErrorPayload } from "#/_base/errors";
 import {
   IExternalHooksService,
@@ -12,6 +7,12 @@ import {
   type PermissionResultHookPayload,
   type UserPromptHookDecision,
 } from './externalHooks';
+import {
+  renderUserPromptHookBlockResult,
+  renderUserPromptHookResult,
+} from './user-prompt';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 function fireAndForget(
   engine: ExternalHooksServiceOptions['hookEngine'],
@@ -28,7 +29,7 @@ function fireAndForget(
 }
 
 export class ExternalHooksService implements IExternalHooksService {
-  constructor(private readonly options: ExternalHooksServiceOptions = {}) {}
+  constructor(private readonly options: ExternalHooksServiceOptions = {}) { }
 
   async triggerPreToolUse(
     payload: Parameters<IExternalHooksService['triggerPreToolUse']>[0],
@@ -212,7 +213,10 @@ function permissionResultInputData(payload: PermissionResultHookPayload): Record
   };
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IExternalHooksService,
-  new SyncDescriptor(ExternalHooksService, [{}], true),
+  ExternalHooksService,
+  InstantiationType.Delayed,
+  'externalHooks',
 );

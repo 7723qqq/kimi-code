@@ -1,4 +1,7 @@
-import { randomUUID } from 'node:crypto';
+import {
+  randomUUID } from 'node:crypto';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
 
@@ -6,8 +9,9 @@ import type { SkillActivationOrigin } from '../../../agent/context';
 import {
   renderModelToolSkillPrompt,
   renderUserSlashSkillPrompt,
-} from '../../../agent/skill/prompt';
-import { Disposable, registerSingleton, SyncDescriptor } from "#/_base/di";
+  } from '../../../agent/skill/prompt';
+import { Disposable,
+} from "#/_base/di";
 import { ErrorCodes, KimiError } from "#/_base/errors";
 import type { ExecutableToolResult } from '../../../loop';
 import {
@@ -206,7 +210,10 @@ function errorResult(message: string): ExecutableToolResult {
   return { isError: true, output: message };
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IAgentSkillService,
-  new SyncDescriptor(AgentSkillService, [{}], true),
+  AgentSkillService,
+  InstantiationType.Delayed,
+  'skill',
 );

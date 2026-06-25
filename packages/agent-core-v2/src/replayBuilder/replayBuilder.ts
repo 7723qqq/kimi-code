@@ -1,7 +1,7 @@
 import { createDecorator } from "#/_base/di";
-import type { AgentReplayRecord, AgentReplayRecordPayload } from '../../../rpc/resumed';
-
-import type { ContextMessage, WireRecord } from '../types';
+import type { ContextMessage } from '#/contextMemory';
+import type { WireRecord } from "#/wireRecord";
+import type { AgentReplayRecord, AgentReplayRecordPayload } from './types';
 
 export interface ReplayRangeOptions {
   readonly start?: number;

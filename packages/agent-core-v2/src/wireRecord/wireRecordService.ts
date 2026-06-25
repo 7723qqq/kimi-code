@@ -1,11 +1,20 @@
-import { join } from 'pathe';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import {
+  join
+} from 'pathe';
 
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
   toDisposable,
 } from "#/_base/di";
+import {
+  IBlobStoreService,
+  type BlobStoreServiceOptions,
+} from '../blobStore/blobStore';
+import { BlobStoreService } from '../blobStore/blobStoreService';
+import { OrderedHookSlot } from '../hooks';
+import type { WireRecord, WireRecordMap } from '../wireRecord';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   applyWireMigrations,
@@ -14,13 +23,7 @@ import {
   type WireMigration,
   type WireMigrationRecord,
 } from './migration';
-import {
-  IBlobStoreService,
-  type BlobStoreServiceOptions,
-} from '../blobStore/blobStore';
-import { BlobStoreService } from '../blobStore/blobStoreService';
-import { OrderedHookSlot } from '../hooks';
-import type { WireRecord, WireRecordMap } from '../types';
+import { FileSystemWireRecordPersistence } from './persistence';
 import {
   IWireRecord,
   type PersistedWireRecord,
@@ -33,7 +36,6 @@ import {
   type WireRecordRestoreResult,
   type WireRecordServiceOptions,
 } from './wireRecord';
-import { FileSystemWireRecordPersistence } from './persistence';
 
 type Resumer<T extends keyof WireRecordMap> = (data: WireRecord<T>) => void | Promise<void>;
 type BlobSelector<T extends keyof WireRecordMap> = WireRecordBlobSelector<WireRecord<T>>;
@@ -341,7 +343,13 @@ async function* toAsyncIterable<T>(
   }
 }
 
-registerSingleton(IWireRecord, new SyncDescriptor(WireRecordService, [{}], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IWireRecord,
+  WireRecordService,
+  InstantiationType.Delayed,
+  'wireRecord',
+);
 
 function isWireRecordMetadata(record: PersistedWireRecord): record is WireRecordMetadata {
   return record.type === 'metadata' && typeof record['protocol_version'] === 'string';

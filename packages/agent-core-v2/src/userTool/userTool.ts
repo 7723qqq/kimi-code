@@ -1,5 +1,5 @@
 import { createDecorator } from "#/_base/di";
-import type { ToolResult } from '../types';
+import type { ToolResult } from '#/toolRegistry';
 
 export interface UserToolRegistration {
   readonly name: string;

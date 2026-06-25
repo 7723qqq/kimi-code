@@ -1,4 +1,23 @@
-import { registerSingleton, SyncDescriptor } from "#/_base/di";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IBackgroundService } from '../background/background';
+import { IContextMemory } from '../contextMemory/contextMemory';
+import { IContextSizeService } from '../contextSize/contextSize';
+import { IFullCompaction } from '../fullCompaction/fullCompaction';
+import { IGoalService } from '../goal/goal';
+import { IPermissionService } from '../permission/permission';
+import { IPermissionModeService } from '../permissionMode/permissionMode';
+import { IPlanService } from '../plan';
+import { IProfileService } from '../profile/profile';
+import { IPromptService } from '../prompt/prompt';
+import { IAgentSkillService } from '../skill/skill';
+import { ISubagentHost } from '../subagentHost/subagentHost';
+import { ISwarmService } from '../swarm';
+import { ITelemetryService } from '../telemetry/telemetry';
+import { IToolRegistry } from '../toolRegistry/toolRegistry';
+import { ITurnRunner } from '../turn';
+import { IUsageService } from '../usage/usage';
+import { IUserToolService } from '../userTool/userTool';
 import type {
   ActivateSkillPayload,
   BeginCompactionPayload,
@@ -20,25 +39,7 @@ import type {
   StopBackgroundPayload,
   UndoHistoryPayload,
   UnregisterToolPayload,
-} from '../../../rpc/core-api';
-import { IBackgroundService } from '../background/background';
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IContextSizeService } from '../contextSize/contextSize';
-import { IFullCompaction } from '../fullCompaction/fullCompaction';
-import { IGoalService } from '../goal/goal';
-import { IPermissionService } from '../permission/permission';
-import { IPermissionModeService } from '../permissionMode/permissionMode';
-import { IPlanService } from '../plan/planMode';
-import { IProfileService } from '../profile/profile';
-import { IPromptService } from '../prompt/prompt';
-import { IAgentSkillService } from '../skill/skill';
-import { ISubagentHost } from '../subagentHost/subagentHost';
-import { ISwarmService } from '../swarm/swarmMode';
-import { ITelemetryService } from '../telemetry/telemetry';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import { ITurnRunner } from '../turnRunner/turnRunner';
-import { IUsageService } from '../usage/usage';
-import { IUserToolService } from '../userTool/userTool';
+} from './core-api';
 import { IAgentRPCService } from './rpc';
 
 export class AgentRPCService implements IAgentRPCService {
@@ -247,7 +248,10 @@ export class AgentRPCService implements IAgentRPCService {
   }
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IAgentRPCService,
-  new SyncDescriptor(AgentRPCService, [], true),
+  AgentRPCService,
+  InstantiationType.Delayed,
+  'rpc',
 );

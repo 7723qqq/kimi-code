@@ -1,10 +1,14 @@
 import type { AgentEvent as ProtocolAgentEvent } from '@moonshot-ai/protocol';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { Disposable, registerSingleton, SyncDescriptor } from "#/_base/di";
+import {
+  Disposable,
+} from "#/_base/di";
 import { Emitter } from "#/_base/event";
 
-import { IEventBus } from './eventBus';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IEventBus } from '#/eventBus';
+import { IWireRecord } from '#/wireRecord';
 
 export class EventBusService extends Disposable implements IEventBus {
   private readonly onDidEmitEmitter = this._register(new Emitter<ProtocolAgentEvent>());
@@ -23,4 +27,10 @@ export class EventBusService extends Disposable implements IEventBus {
   }
 }
 
-registerSingleton(IEventBus, new SyncDescriptor(EventBusService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IEventBus,
+  EventBusService,
+  InstantiationType.Delayed,
+  'eventBus',
+);

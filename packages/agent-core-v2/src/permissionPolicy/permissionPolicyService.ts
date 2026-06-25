@@ -1,8 +1,6 @@
 import {
   Disposable,
   IInstantiationService,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
 import type { ResolvedToolExecutionHookContext } from '#/loop';
 import type { PathClass } from '../../../tools/policies/path-access';
@@ -44,6 +42,8 @@ import {
   type PermissionPolicyEvaluation,
 } from './permissionPolicy';
 import type { PermissionPolicy } from "./types";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 interface PlanModeRuntimeState {
   isActive: boolean;
@@ -167,7 +167,10 @@ export class PermissionPolicyService
   }
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IPermissionPolicyService,
-  new SyncDescriptor(PermissionPolicyService, [], true),
+  PermissionPolicyService,
+  InstantiationType.Delayed,
+  'permissionPolicy',
 );

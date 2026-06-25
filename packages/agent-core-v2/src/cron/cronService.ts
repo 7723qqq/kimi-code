@@ -1,11 +1,29 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
   toDisposable,
 } from "#/_base/di";
+import type { ContextMessage } from '#/contextMemory';
+import { IEventBus } from '#/eventBus/eventBus';
+import { IPromptService } from '#/prompt/prompt';
+import { ITelemetryService } from '#/telemetry/telemetry';
+import { IToolRegistry } from '#/toolRegistry/toolRegistry';
+import type { Turn } from '#/turn';
+import { ITurnRunner } from '#/turnRunner/turnRunner';
+import { IWireRecord } from '#/wireRecord/wireRecord';
+import {
+  ICronService,
+  type CronFireOptions,
+  type CronJobOrigin,
+  type CronLoadOptions,
+  type CronMissedOrigin,
+  type CronOptions,
+  type CronPersistence,
+  type CronTaskInit,
+} from './cron';
 import {
   resolveClockSources,
   SYSTEM_CLOCKS,
@@ -15,37 +33,19 @@ import { CronCreateTool } from './tools/cron-create';
 import { CronDeleteTool } from './tools/cron-delete';
 import { renderCronFireXml } from './tools/cron-fire-xml';
 import { CronListTool } from './tools/cron-list';
+import { createCronPersistStore } from './tools/persist';
+import {
+  createCronScheduler,
+  type CronScheduler,
+} from './tools/scheduler';
+import { SessionCronStore } from './tools/session-store';
 import {
   CRON_DELETED,
   CRON_FIRED,
   CRON_MISSED,
   CRON_SCHEDULED,
 } from './tools/telemetry-events';
-import { createCronPersistStore } from './tools/persist';
-import { SessionCronStore } from './tools/session-store';
-import {
-  createCronScheduler,
-  type CronScheduler,
-} from './tools/scheduler';
 import type { CronTask, CronToolManager } from './tools/types';
-import { IEventBus } from '#/eventBus/eventBus';
-import { IPromptService } from '#/prompt/prompt';
-import { ITelemetryService } from '#/telemetry/telemetry';
-import { IToolRegistry } from '#/toolRegistry/toolRegistry';
-import { ITurnRunner } from '#/turnRunner/turnRunner';
-import type { ContextMessage } from '#/types';
-import { IWireRecord } from '#/wireRecord/wireRecord';
-import {
-  ICronService,
-  type CronJobOrigin,
-  type CronFireOptions,
-  type CronLoadOptions,
-  type CronMissedOrigin,
-  type CronOptions,
-  type CronPersistence,
-  type CronTaskInit,
-} from './cron';
-import type { Turn } from '#/turn';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -416,4 +416,10 @@ export class CronService
   }
 }
 
-registerSingleton(ICronService, new SyncDescriptor(CronService, [{}], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  ICronService,
+  CronService,
+  InstantiationType.Delayed,
+  'cron',
+);

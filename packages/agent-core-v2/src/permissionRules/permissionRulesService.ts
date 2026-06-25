@@ -1,14 +1,17 @@
-import type {
-  PermissionApprovalResultRecord,
-  PermissionRule,
-} from '../../../agent/permission';
-import { Disposable, registerSingleton, SyncDescriptor } from "#/_base/di";
+
+import {
+  Disposable,
+} from "#/_base/di";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import { OrderedHookSlot } from '../hooks';
 import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import {
   IPermissionRulesService,
+  type PermissionApprovalResultRecord,
+  type PermissionRule,
   type PermissionRulesServiceOptions,
 } from './permissionRules';
 
@@ -98,7 +101,10 @@ export class PermissionRulesService extends Disposable implements IPermissionRul
   }
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IPermissionRulesService,
-  new SyncDescriptor(PermissionRulesService, [{}], true),
+  PermissionRulesService,
+  InstantiationType.Delayed,
+  'permissionRules',
 );

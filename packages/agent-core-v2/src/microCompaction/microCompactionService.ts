@@ -1,9 +1,9 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
 import { FlagResolver, type ExperimentalFlagResolver } from '#/flags';
 import {
@@ -15,7 +15,7 @@ import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextSizeService } from '../contextSize/contextSize';
 import { IProfileService } from '../profile/profile';
 import { ITelemetryService } from '../telemetry/telemetry';
-import { ITurnRunner } from '../turnRunner/turnRunner';
+import { ITurnRunner } from '../turnRunner';
 import type { ContextMessage } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import {
@@ -237,7 +237,10 @@ function isAssistantCacheAnchor(message: ContextMessage): boolean {
   return message.role === 'assistant' && !isCompactionSummary(message);
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IMicroCompactionService,
-  new SyncDescriptor(MicroCompactionService, [{}], false),
+  MicroCompactionService,
+  InstantiationType.Eager,
+  'microCompaction',
 );

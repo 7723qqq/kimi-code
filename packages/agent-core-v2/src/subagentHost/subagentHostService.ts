@@ -1,7 +1,3 @@
-import {
-  registerSingleton,
-  SyncDescriptor,
-} from "#/_base/di";
 import type {
   QueuedSubagentRunResult,
   QueuedSubagentTask,
@@ -11,6 +7,8 @@ import { DEFAULT_INIT_PROMPT } from '../../../profile';
 import {
   ISubagentHost,
 } from './subagentHost';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 export class SubagentHostService implements ISubagentHost {
   declare readonly _serviceBrand: undefined;
@@ -48,7 +46,10 @@ export class SubagentHostService implements ISubagentHost {
   }
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Session,
   ISubagentHost,
-  new SyncDescriptor(SubagentHostService, [{}], true),
+  SubagentHostService,
+  InstantiationType.Delayed,
+  'subagentHost',
 );

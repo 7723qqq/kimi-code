@@ -9,17 +9,12 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import {
+  createScopedChildHandle,
   type IScopeHandle,
   LifecycleScope,
-  getScopedServiceDescriptors,
   registerScopedService,
 } from '#/_base/di/scope';
-import {
-  IInstantiationService,
-  type ServiceIdentifier,
-  type ServicesAccessor,
-} from '#/_base/di/instantiation';
-import { ServiceCollection } from '#/_base/di/serviceCollection';
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { ISessionMetaStore } from '#/records/records';
 import { ISessionContext } from '#/session-context/sessionContext';
 
@@ -41,15 +36,11 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
 
   create(opts: CreateAgentOptions): Promise<IScopeHandle> {
     const agentId = opts.agentId ?? `agent-${nextAgentId++}`;
-    const collection = new ServiceCollection();
-    for (const entry of getScopedServiceDescriptors(LifecycleScope.Agent)) {
-      collection.set(entry.id, entry.descriptor);
-    }
-    const child = this.instantiation.createChild(collection);
-    const accessor: ServicesAccessor = {
-      get: <T>(id: ServiceIdentifier<T>): T => child.invokeFunction((a) => a.get(id)),
-    };
-    const handle: IScopeHandle = { id: agentId, kind: LifecycleScope.Agent, accessor };
+    const handle = createScopedChildHandle(
+      this.instantiation,
+      LifecycleScope.Agent,
+      agentId,
+    );
     this.handles.set(agentId, handle);
     return Promise.resolve(handle);
   }

@@ -6,11 +6,12 @@ import {
   type Message,
   type ProviderRequestAuth,
   type Tool as KosongTool,
-} from '@moonshot-ai/kosong';
+  } from '@moonshot-ai/kosong';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import type { KimiConfig } from '../../../config';
-import { registerSingleton, SyncDescriptor } from "#/_base/di";
-import type { ModelProvider } from '../../../session/provider-manager';
+import type { KimiConfig } from '#/config';
+import type { ModelProvider } from '#/session/provider-manager';
 import {
   applyCompletionBudget,
   resolveCompletionBudget,
@@ -19,7 +20,7 @@ import { IProfileService } from '../profile/profile';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import type { LLMEvent, LLMRequestOverrides } from '../types';
+import type { LLMEvent, LLMRequestOverrides } from '.';
 import { ILLMRequestLogService } from '../llmRequestLog/llmRequestLog';
 import { AsyncEventQueue } from './asyncEventQueue';
 import { ILLMRequester } from './llmRequester';
@@ -206,4 +207,10 @@ interface ResolvedLLMRequest {
   readonly generate: typeof generate;
 }
 
-registerSingleton(ILLMRequester, new SyncDescriptor(LLMRequesterService, [{}], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  ILLMRequester,
+  LLMRequesterService,
+  InstantiationType.Delayed,
+  'llmRequester',
+);

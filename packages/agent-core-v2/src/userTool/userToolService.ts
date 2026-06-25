@@ -1,7 +1,5 @@
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
   type IDisposable,
 } from "#/_base/di";
 import type {
@@ -9,15 +7,16 @@ import type {
   ExecutableToolContext,
   ExecutableToolResult,
 } from '#/loop';
-import { IProfileService } from '../profile/profile';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import type { ToolResult } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IProfileService } from '#/profile';
+import { IToolRegistry, type ToolResult } from '#/toolRegistry';
+import { IWireRecord } from '#/wireRecord';
 import {
   IUserToolService,
   type UserToolRegistration,
   type UserToolServiceOptions,
 } from './userTool';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -126,4 +125,10 @@ function toExecutableToolResult(result: ToolResult): ExecutableToolResult {
   };
 }
 
-registerSingleton(IUserToolService, new SyncDescriptor(UserToolService, [{}], false));
+registerScopedService(
+  LifecycleScope.Agent,
+  IUserToolService,
+  UserToolService,
+  InstantiationType.Eager,
+  'userTool',
+);

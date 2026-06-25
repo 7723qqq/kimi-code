@@ -5,12 +5,12 @@ import {
   isContentPart,
   isRetryableGenerateError,
   type TokenUsage,
-} from '@moonshot-ai/kosong';
+  } from '@moonshot-ai/kosong';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import {
   Disposable,
-  SyncDescriptor,
-  registerSingleton,
 } from "#/_base/di";
 import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/_base/errors";
 import { renderPrompt } from "#/_base/utils/render-prompt";
@@ -20,7 +20,7 @@ import { IContextProjector } from '#/contextProjector/contextProjector';
 import { IContextSizeService } from '#/contextSize/contextSize';
 import { IEventBus } from '#/eventBus/eventBus';
 import { IExternalHooksService } from '#/externalHooks/externalHooks';
-import { ILLMRequester } from '#/llmRequester/llmRequester';
+import { ILLMRequester, type LLMEvent } from '#/llmRequester/llmRequester';
 import { isAbortError } from '#/loop/errors';
 import { retryBackoffDelays, sleepForRetry } from '#/loop/retry';
 import { IProfileService } from '#/profile/profile';
@@ -28,7 +28,7 @@ import { IReplayBuilderService } from '#/replayBuilder/replayBuilder';
 import { ITelemetryService } from '#/telemetry/telemetry';
 import { IToolStoreService } from '#/toolStore/toolStore';
 import { ITurnRunner } from '#/turnRunner/turnRunner';
-import type { ContextMessage, LLMEvent } from '#/types';
+import type { ContextMessage } from '#/contextMemory';
 import { IUsageService } from '#/usage/usage';
 import { IWireRecord } from '#/wireRecord/wireRecord';
 import {
@@ -567,4 +567,10 @@ export { FullCompactionService as FullCompaction };
 // compaction. With delayed instantiation the eager `accessor.get(IFullCompaction)`
 // only realizes a proxy, so the hooks would not register until the first RPC —
 // after turns have already run without the auto-compaction gate.
-registerSingleton(IFullCompaction, new SyncDescriptor(FullCompactionService, [{}], false));
+registerScopedService(
+  LifecycleScope.Agent,
+  IFullCompaction,
+  FullCompactionService,
+  InstantiationType.Eager,
+  'fullCompaction',
+);

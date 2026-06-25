@@ -5,8 +5,6 @@ import type {
 import {
   Disposable,
   IInstantiationService,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
 import type {
   AuthorizeToolExecutionResult,
@@ -27,6 +25,8 @@ import {
   IPermissionService,
   type PermissionServiceOptions,
 } from './permission';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 export class PermissionService extends Disposable implements IPermissionService {
   constructor(
@@ -254,7 +254,10 @@ function numericTurnId(turnId: string): number {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   IPermissionService,
-  new SyncDescriptor(PermissionService, [{}], true),
+  PermissionService,
+  InstantiationType.Delayed,
+  'permission',
 );

@@ -1,13 +1,13 @@
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
   toDisposable,
 } from "#/_base/di";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { ITurnRunner } from '../turnRunner/turnRunner';
-import type { ContextMessage } from '../types';
+import { IContextMemory } from '../contextMemory';
+import { ITurnRunner } from '../turn';
+import type { ContextMessage } from '#/contextMemory';
 import {
   IDynamicInjector,
   type DynamicInjectionOptions,
@@ -194,4 +194,10 @@ function createInjectionMessage(content: string, variant: string): ContextMessag
   };
 }
 
-registerSingleton(IDynamicInjector, new SyncDescriptor(DynamicInjectorService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IDynamicInjector,
+  DynamicInjectorService,
+  InstantiationType.Delayed,
+  'dynamicInjector',
+);

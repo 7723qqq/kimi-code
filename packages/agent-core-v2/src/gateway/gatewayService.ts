@@ -10,17 +10,12 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import {
+  createScopedChildHandle,
   type IScopeHandle,
   LifecycleScope,
-  getScopedServiceDescriptors,
   registerScopedService,
 } from '#/_base/di/scope';
-import {
-  IInstantiationService,
-  type ServiceIdentifier,
-  type ServicesAccessor,
-} from '#/_base/di/instantiation';
-import { ServiceCollection } from '#/_base/di/serviceCollection';
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
 import { IEventService } from '#/event/event';
 import { ITurnService } from '#/turn/turn';
@@ -40,15 +35,11 @@ export class ScopeRegistry implements IScopeRegistry {
   constructor(@IInstantiationService private readonly instantiation: IInstantiationService) {}
 
   createSession(opts: CreateSessionOptions): Promise<IScopeHandle> {
-    const collection = new ServiceCollection();
-    for (const entry of getScopedServiceDescriptors(LifecycleScope.Session)) {
-      collection.set(entry.id, entry.descriptor);
-    }
-    const child = this.instantiation.createChild(collection);
-    const accessor: ServicesAccessor = {
-      get: <T>(id: ServiceIdentifier<T>): T => child.invokeFunction((a) => a.get(id)),
-    };
-    const handle: IScopeHandle = { id: opts.sessionId, kind: LifecycleScope.Session, accessor };
+    const handle = createScopedChildHandle(
+      this.instantiation,
+      LifecycleScope.Session,
+      opts.sessionId,
+    );
     this.sessions.set(opts.sessionId, handle);
     return Promise.resolve(handle);
   }

@@ -1,6 +1,7 @@
 import type { Kaos } from '@moonshot-ai/kaos';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { registerSingleton, SyncDescriptor } from "#/_base/di";
 import { IKaosService } from './kaos';
 
 export interface KaosServiceOptions {
@@ -17,4 +18,10 @@ export class KaosService implements IKaosService {
   }
 }
 
-registerSingleton(IKaosService, new SyncDescriptor(KaosService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IKaosService,
+  KaosService,
+  InstantiationType.Delayed,
+  'kaos',
+);

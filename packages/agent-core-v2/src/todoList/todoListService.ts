@@ -1,7 +1,5 @@
 import {
   Disposable,
-  registerSingleton,
-  SyncDescriptor,
 } from "#/_base/di";
 import {
   TODO_LIST_TOOL_NAME,
@@ -20,6 +18,8 @@ import { IProfileService } from '../profile/profile';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import { IToolStoreService } from '../toolStore/toolStore';
 import { ITodoListService } from './todoList';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 export class TodoListService extends Disposable implements ITodoListService {
   declare readonly _serviceBrand: undefined;
@@ -51,7 +51,10 @@ export class TodoListService extends Disposable implements ITodoListService {
   }
 }
 
-registerSingleton(
+registerScopedService(
+  LifecycleScope.Agent,
   ITodoListService,
-  new SyncDescriptor(TodoListService, [], false),
+  TodoListService,
+  InstantiationType.Eager,
+  'todoList',
 );

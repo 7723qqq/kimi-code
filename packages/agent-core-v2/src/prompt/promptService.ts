@@ -1,12 +1,11 @@
-import { registerSingleton, SyncDescriptor } from "#/_base/di";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError, makeErrorPayload } from "#/_base/errors";
-import { USER_PROMPT_ORIGIN } from '../../../agent/context';
 
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IEventBus } from '../eventBus/eventBus';
-import { ITurnRunner } from '../turnRunner/turnRunner';
-import type { ContextMessage, Turn } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IContextMemory, USER_PROMPT_ORIGIN, type ContextMessage } from '#/contextMemory';
+import { IEventBus } from '#/eventBus';
+import { ITurnRunner, type Turn } from '#/turn';
+import { IWireRecord } from '#/wireRecord/wireRecord';
 import { IPromptService } from './prompt';
 
 export class PromptService implements IPromptService {
@@ -170,4 +169,10 @@ function formatPromptCount(count: number): string {
   return `${String(count)} ${count === 1 ? 'prompt' : 'prompts'}`;
 }
 
-registerSingleton(IPromptService, new SyncDescriptor(PromptService, [], true));
+registerScopedService(
+  LifecycleScope.Agent,
+  IPromptService,
+  PromptService,
+  InstantiationType.Delayed,
+  'prompt',
+);
