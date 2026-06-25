@@ -1,7 +1,7 @@
-import { migrateV1_0ToV1_1 } from '../../../../agent/records/migration/v1.1';
-import { migrateV1_1ToV1_2 } from '../../../../agent/records/migration/v1.2';
-import { migrateV1_2ToV1_3 } from '../../../../agent/records/migration/v1.3';
-import { migrateV1_3ToV1_4 } from '../../../../agent/records/migration/v1.4';
+import { migrateV1_0ToV1_1 } from './v1.1';
+import { migrateV1_1ToV1_2 } from './v1.2';
+import { migrateV1_2ToV1_3 } from './v1.3';
+import { migrateV1_3ToV1_4 } from './v1.4';
 import { migrateV1_4ToV1_5 } from './v1.5';
 
 export {
