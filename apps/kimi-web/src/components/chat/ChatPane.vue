@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import type { ChatTurn, ApprovalBlock, FilePreviewRequest, ToolMedia } from '../../types';
 import ToolCall from './ToolCall.vue';
 import Markdown from './Markdown.vue';
+import StreamingBlocks from './StreamingBlocks.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import ActivityNotice from './ActivityNotice.vue';
 import AgentCard from './AgentCard.vue';
@@ -44,6 +45,12 @@ onUnmounted(() => {
 const props = withDefaults(
   defineProps<{
     turns: ChatTurn[];
+    /**
+     * The session these turns belong to. Used by the streaming renderer to look
+     * up the live text in the streaming store. Optional so SideChatPanel (which
+     * renders a subagent transcript, not a streaming session) can omit it.
+     */
+    sessionId?: string;
     approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string }[];
     /**
      * Bubble chat layout: render each turn as a chat bubble (user = right-aligned
@@ -537,6 +544,14 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
           <AgentGroup v-else-if="blk.kind === 'agentGroup'" :members="blk.members" @open="emit('openAgent', { turnId: turn.id, blockIndex: blk.sourceIndex, memberId: $event })" />
           <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :mobile="childBubble" :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" />
         </template>
+        <StreamingBlocks
+          v-if="sessionId && turn.id === streamingTurnId"
+          :session-id="sessionId"
+          :turn-id="turn.id"
+          :mobile="childBubble"
+          @open-file="(target) => emit('openFile', target)"
+          @open-thinking="emit('openThinking', $event)"
+        />
         <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti) && (assistantRunFinalText(ti).trim().length > 0 || turn.durationMs !== undefined)" class="a-msg-ft">
           <span v-if="turn.durationMs !== undefined" class="a-duration" :title="`${turn.durationMs} ms`">{{ formatDuration(turn.durationMs) }}</span>
           <button
@@ -679,6 +694,14 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
               <AgentGroup v-else-if="blk.kind === 'agentGroup'" :members="blk.members" @open="emit('openAgent', { turnId: turn.id, blockIndex: blk.sourceIndex, memberId: $event })" />
               <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" />
             </template>
+            <StreamingBlocks
+              v-if="sessionId && turn.id === streamingTurnId"
+              :session-id="sessionId"
+              :turn-id="turn.id"
+              :mobile="childBubble"
+              @open-file="(target) => emit('openFile', target)"
+              @open-thinking="emit('openThinking', $event)"
+            />
           </template>
         </div>
 

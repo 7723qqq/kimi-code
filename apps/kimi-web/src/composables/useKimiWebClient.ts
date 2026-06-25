@@ -19,6 +19,7 @@ import {
   STORAGE_KEYS,
 } from '../lib/storage';
 import { createEventBatcher, isRenderEvent } from './client/eventBatcher';
+import { appendStreamingDelta, clearStreaming } from './client/streamingStore';
 import { useAppearance } from './client/useAppearance';
 import { useNotification } from './client/useNotification';
 import { useTaskPoller } from './client/useTaskPoller';
@@ -639,8 +640,28 @@ function nextOptimisticMsgId(): string {
 // past the queue check and clobber promptIdBySession (breaking abort).
 const inFlightPromptSessions = new Set<string>();
 
+// Mirror of the reducer's advanceSeq, for the one event (assistantDelta) that
+// bypasses the reducer. lastSeqBySession is a resync cursor with no rendering
+// dependencies, so mutating it in place is both safe and cheap.
+function advanceSeqCursor(sessionId: string | undefined, seq: number | undefined): void {
+  if (sessionId !== undefined && seq !== undefined && seq > 0) {
+    const prev = rawState.lastSeqBySession[sessionId] ?? 0;
+    if (seq > prev) rawState.lastSeqBySession[sessionId] = seq;
+  }
+}
+
 // Helper: mutate rawState by applying a reducer on a snapshot then re-assigning fields
 function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq: number): void {
+  // Streaming text/thinking deltas bypass the reducer entirely. Appending to the
+  // fine-grained streaming store is O(1) and dirties only the single
+  // StreamingBlocks component — instead of cloning all of `rawState` and
+  // re-rendering the whole App + sidebar on every token.
+  if (event.type === 'assistantDelta') {
+    appendStreamingDelta(sessionId, event.messageId, event.contentIndex, event.delta);
+    advanceSeqCursor(sessionId, seq);
+    return;
+  }
+
   const snapshot: KimiClientState = {
     sessions: rawState.sessions,
     activeSessionId: rawState.activeSessionId,
@@ -669,6 +690,20 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   rawState.compactionBySession = next.compactionBySession;
   rawState.config = next.config ?? null;
   rawState.warnings = next.warnings;
+
+  // `messageUpdated` carries the authoritative full content of a message (tool
+  // slot / step end / turn end): drop the live streaming entry so the just-
+  // committed content takes over without rendering the same text twice.
+  if (event.type === 'messageUpdated') {
+    clearStreaming(sessionId);
+  }
+  // Turn end: release the streaming entry for the session.
+  if (
+    event.type === 'sessionStatusChanged' &&
+    (event.status === 'idle' || event.status === 'aborted')
+  ) {
+    clearStreaming(sessionId);
+  }
 
   if (event.type === 'configChanged') {
     rawState.defaultModel = event.config.defaultModel ?? null;

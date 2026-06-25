@@ -1008,6 +1008,7 @@ defineExpose({ loadComposerForEdit });
               ref="chatPaneRef"
               :key="fileReloadKey ?? 'no-session'"
               :turns="turns"
+              :session-id="sessionId"
               :approvals="approvals"
               :bubble="bubble"
               :mobile="mobile"
