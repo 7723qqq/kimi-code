@@ -4,7 +4,7 @@ import { IProfileService } from '../../profile/profile';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 import { writeFileAccesses } from './path-utils';
 import type { PermissionPolicyRuntime } from './runtime';
 

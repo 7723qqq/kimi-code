@@ -1,4 +1,3 @@
-import type { AgentType } from '#/types';
 import type { BackgroundTaskInfo } from '#/background';
 import type { CompactionResult } from '#/fullCompaction';
 import type { AgentConfigData, AgentConfigUpdateData } from '#/config';
@@ -11,6 +10,8 @@ import type { ToolInfo } from '#/toolRegistry';
 import type { SessionSummary } from '#/rpc/core-api';
 import type { UsageStatus } from '@moonshot-ai/protocol';
 import type { SessionMeta } from '#/session';
+
+type AgentType = 'main' | 'sub';
 
 export type AgentReplayRecordPayload =
   | { type: 'message'; message: ContextMessage }

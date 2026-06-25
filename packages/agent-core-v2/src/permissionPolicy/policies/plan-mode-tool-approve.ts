@@ -2,7 +2,7 @@ import type { ResolvedToolExecutionHookContext } from '#/loop';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 import { writesOnlyPlanFile } from './path-utils';
 import type { PermissionPolicyRuntime } from './runtime';
 

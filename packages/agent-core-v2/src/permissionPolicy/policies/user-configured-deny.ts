@@ -3,7 +3,7 @@ import { IPermissionRulesService } from '../../permissionRules/permissionRules';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 import type { PermissionPolicyRuntime } from './runtime';
 import { evaluateUserConfiguredRule } from './user-configured-rule';
 

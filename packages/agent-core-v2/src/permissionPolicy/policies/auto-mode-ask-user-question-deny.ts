@@ -3,7 +3,7 @@ import { IPermissionModeService } from '../../permissionMode/permissionMode';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 
 export class AutoModeAskUserQuestionDenyPermissionPolicyService implements PermissionPolicy {
   readonly name = 'auto-mode-ask-user-question-deny';

@@ -2,7 +2,7 @@ import type { ResolvedToolExecutionHookContext } from '#/loop';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 
 export class AgentSwarmExclusiveDenyPermissionPolicyService implements PermissionPolicy {
   readonly name = 'agent-swarm-exclusive-deny';

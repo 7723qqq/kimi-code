@@ -3,7 +3,7 @@ import { IProfileService } from '../../profile/profile';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 import {
   fileAccesses,
   hasGitPathComponent,

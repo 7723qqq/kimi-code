@@ -4,8 +4,8 @@
  *
  * Owns the in-memory config store, the section registry, and the per-agent
  * config view; reads the environment through `environment`, resolves the agent
- * cwd through `kaos`, records through `records`, and logs through `log`. Bound
- * at Core (registry and service) and Agent (agent view) scopes.
+ * cwd through `kaos`, and logs through `log`. Bound at Core (registry and
+ * service) and Agent (agent view) scopes.
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
@@ -15,7 +15,6 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IEnvironmentService } from '#/environment';
 import { IKaosService } from '#/kaos';
 import { ILogService } from '#/log';
-import { IAgentRecords } from '#/records';
 
 import {
   type ConfigChangedEvent,
@@ -107,7 +106,6 @@ export class AgentConfigService implements IAgentConfigService {
 
   constructor(
     @IConfigService config: IConfigService,
-    @IAgentRecords _records: IAgentRecords,
     @IKaosService agentKaos: IKaosService,
   ) {
     const section = config.get<AgentSection>('agent');
@@ -115,7 +113,7 @@ export class AgentConfigService implements IAgentConfigService {
     this.thinkingLevelValue = section?.thinkingLevel;
     this.systemPromptValue = section?.systemPrompt;
     this.providerValue = section?.provider;
-    this.cwdValue = agentKaos.cwd;
+    this.cwdValue = agentKaos.kaos?.getcwd() ?? process.cwd();
   }
 
   get modelAlias(): string | undefined {

@@ -8,7 +8,7 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ScopeSeed } from '#/_base/di/scope';
-import type { ISessionMetaStore } from '#/records';
+import type { ISessionMetaStore } from '#/sessionMetaStore';
 
 export interface ISessionContext {
   readonly sessionId: string;

@@ -2,7 +2,7 @@ import { IPermissionModeService } from '../../permissionMode/permissionMode';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 
 export class YoloModeApprovePermissionPolicyService implements PermissionPolicy {
   readonly name = 'yolo-mode-approve';

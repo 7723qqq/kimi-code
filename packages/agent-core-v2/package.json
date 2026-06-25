@@ -54,6 +54,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@moonshot-ai/kaos": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-telemetry": "workspace:^",
@@ -62,6 +63,7 @@
     "nunjucks": "^3.2.4",
     "pathe": "^2.0.3",
     "picomatch": "^4.0.4",
+    "retry": "0.13.1",
     "smol-toml": "^1.6.1",
     "socks": "^2.8.9",
     "undici": "^7.27.1",
@@ -70,6 +72,7 @@
   "devDependencies": {
     "@types/nunjucks": "^3.2.6",
     "@types/picomatch": "^4.0.3",
+    "@types/retry": "0.12.0",
     "@types/sinon": "^21.0.1",
     "sinon": "^22.0.0"
   }

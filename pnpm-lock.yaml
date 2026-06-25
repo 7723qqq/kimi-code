@@ -432,6 +432,9 @@ importers:
 
   packages/agent-core-v2:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
       '@moonshot-ai/kaos':
         specifier: workspace:^
         version: link:../kaos
@@ -456,6 +459,9 @@ importers:
       picomatch:
         specifier: ^4.0.4
         version: 4.0.4
+      retry:
+        specifier: 0.13.1
+        version: 0.13.1
       smol-toml:
         specifier: ^1.6.1
         version: 1.6.1
@@ -475,6 +481,9 @@ importers:
       '@types/picomatch':
         specifier: ^4.0.3
         version: 4.0.3
+      '@types/retry':
+        specifier: 0.12.0
+        version: 0.12.0
       '@types/sinon':
         specifier: ^21.0.1
         version: 21.0.1

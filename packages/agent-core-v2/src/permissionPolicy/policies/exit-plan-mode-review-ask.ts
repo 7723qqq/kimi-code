@@ -6,7 +6,7 @@ import type {
   PermissionPolicyResolution,
   PermissionPolicyResult,
   ApprovalResponse,
-} from '../permissionPolicy';
+} from '../types';
 import type { PermissionPolicyRuntime } from './runtime';
 
 interface PlanReviewOption {

@@ -9,7 +9,7 @@ import {
 } from '#/permissionRules';
 import type { ResolvedToolExecutionHookContext } from '#/loop';
 import type { IPermissionRulesService } from '../../permissionRules/permissionRules';
-import type { PermissionPolicyResult } from '../permissionPolicy';
+import type { PermissionPolicyResult } from '../types';
 import type { PermissionPolicyRuntime } from './runtime';
 
 const USER_CONFIGURED_SCOPES = new Set<PermissionRuleScope>([

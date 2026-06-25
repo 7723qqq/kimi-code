@@ -1,9 +1,9 @@
 /**
  * `agent-lifecycle` domain (L6) — `IAgentLifecycleService` implementation.
  *
- * Creates and tracks the session's agents as child scopes; persists records
- * through `records` and reads session context through `session-context`. Bound
- * at Session scope.
+ * Creates and tracks the session's agents as child scopes; reads session
+ * metadata through `sessionMetaStore` and session context through
+ * `session-context`. Bound at Session scope.
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
@@ -15,7 +15,7 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { ISessionMetaStore } from '#/records';
+import { ISessionMetaStore } from '#/sessionMetaStore';
 import { ISessionContext } from '#/session-context/sessionContext';
 
 import { type CreateAgentOptions, IAgentLifecycleService } from './agentLifecycle';

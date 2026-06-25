@@ -2,7 +2,7 @@ import type { ResolvedToolExecutionHookContext } from '#/loop';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 
 const DEFAULT_APPROVE_TOOLS = new Set([
   'Read',

@@ -3,15 +3,15 @@
  *
  * Owns the session's child-agent set and session-level operations; drives
  * agent lifecycle through `agent-lifecycle`, broadcasts through `event`,
- * persists session metadata through `records`, and records activity through
- * `session-activity`. Bound at Session scope.
+ * persists session metadata through `sessionMetaStore`, and records activity
+ * through `session-activity`. Bound at Session scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
 import { IEventService } from '#/event';
-import { ISessionMetaStore } from '#/records';
+import { ISessionMetaStore } from '#/sessionMetaStore';
 import { ISessionActivity } from '#/session-activity/sessionActivity';
 
 import { type SessionStatus, ISessionService } from './session';

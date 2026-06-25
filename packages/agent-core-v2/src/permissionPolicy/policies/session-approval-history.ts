@@ -4,7 +4,7 @@ import { IPermissionRulesService } from '../../permissionRules/permissionRules';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 
 export class SessionApprovalHistoryPermissionPolicyService implements PermissionPolicy {
   readonly name = 'session-approval-history';

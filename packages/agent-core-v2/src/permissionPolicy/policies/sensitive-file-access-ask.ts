@@ -3,7 +3,7 @@ import { isSensitiveFile } from '#/_base/tools/policies/sensitive';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 import { fileAccesses } from './path-utils';
 
 export class SensitiveFileAccessAskPermissionPolicyService implements PermissionPolicy {

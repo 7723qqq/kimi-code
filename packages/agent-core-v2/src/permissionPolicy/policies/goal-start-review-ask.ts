@@ -4,7 +4,7 @@ import type {
   PermissionPolicy,
   PermissionMode,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 
 export class GoalStartReviewAskPermissionPolicyService implements PermissionPolicy {
   readonly name = 'goal-start-review-ask';

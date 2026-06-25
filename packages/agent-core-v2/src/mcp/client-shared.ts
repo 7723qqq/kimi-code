@@ -1,4 +1,4 @@
-import { getCoreVersion } from '#/version';
+import { getCoreVersion } from '#/_base/version';
 
 import type { MCPToolDefinition, MCPToolResult } from './types';
 
