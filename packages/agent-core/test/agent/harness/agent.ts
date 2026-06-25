@@ -25,6 +25,7 @@ import type { Logger } from '../../../src/logging';
 import { ProviderManager } from '../../../src/session/provider-manager';
 import type { QuestionResult, RPCCallOptions, SDKAgentRPC } from '../../../src/rpc';
 import type { AgentAPI } from '../../../src/rpc/core-api';
+import type { PathClass } from '../../../src/tools/policies/path-access';
 import type { ToolServices } from '../../../src/tools/support/services';
 import type { TelemetryClient } from '../../../src/telemetry';
 import type { PromisifyMethods } from '../../../src/utils/types';
@@ -737,7 +738,7 @@ export class AgentTestContext {
 
   async expectResumeMatches(): Promise<void> {
     const resumed = testAgent({
-      kaos: createResumeNoSideEffectKaos(this.agent.config.cwd),
+      kaos: createResumeNoSideEffectKaos(this.agent.config.cwd, () => this.agent.kaos.pathClass()),
       runtime: {
         urlFetcher: this.agent.toolServices?.urlFetcher,
         webSearcher: this.agent.toolServices?.webSearcher,
@@ -962,7 +963,10 @@ const failOnResumeGenerate: GenerateFn = async () => {
   throw new Error('Resume replay unexpectedly called the LLM');
 };
 
-function createResumeNoSideEffectKaos(initialCwd: string): Kaos {
+function createResumeNoSideEffectKaos(
+  initialCwd: string,
+  pathClass: () => PathClass = () => 'posix',
+): Kaos {
   const fail = (method: string): never => {
     throw new Error(`Resume replay unexpectedly called kaos.${method}`);
   };
@@ -974,12 +978,12 @@ function createResumeNoSideEffectKaos(initialCwd: string): Kaos {
   return {
     name: 'resume-no-side-effects',
     osEnv: TEST_OS_ENV,
-    pathClass: () => 'posix',
+    pathClass,
     normpath: (p: string) => p,
     gethome: () => '/home/test',
     getcwd: () => cwd,
-    withCwd: (next: string) => createResumeNoSideEffectKaos(next),
-    withEnv: () => createResumeNoSideEffectKaos(cwd),
+    withCwd: (next: string) => createResumeNoSideEffectKaos(next, pathClass),
+    withEnv: () => createResumeNoSideEffectKaos(cwd, pathClass),
     chdir: async (next: string) => {
       cwd = next;
     },
