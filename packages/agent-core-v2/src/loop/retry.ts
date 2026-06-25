@@ -1,0 +1,136 @@
+import type { ILogger as Logger } from '#/log';
+
+import { abortable } from '#/_base/utils/abort';
+import type { LoopEventDispatcher } from './events';
+import { isAbortError } from './errors';
+import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
+
+export const DEFAULT_MAX_RETRY_ATTEMPTS = 3;
+
+const RETRY_MIN_TIMEOUT_MS = 300;
+const RETRY_MAX_TIMEOUT_MS = 5000;
+const RETRY_FACTOR = 2;
+
+export interface ChatWithRetryInput {
+  readonly llm: LLM;
+  readonly params: LLMChatParams;
+  readonly dispatchEvent: LoopEventDispatcher;
+  readonly turnId: string;
+  readonly currentStep: number;
+  readonly stepUuid: string;
+  readonly maxAttempts?: number;
+  readonly log?: Logger | undefined;
+}
+
+export async function chatWithRetry(input: ChatWithRetryInput): Promise<LLMChatResponse> {
+  const maxAttempts = input.maxAttempts ?? DEFAULT_MAX_RETRY_ATTEMPTS;
+
+  if (input.llm.isRetryableError === undefined || maxAttempts <= 1) {
+    const effectiveMaxAttempts = Math.max(maxAttempts, 1);
+    try {
+      return await input.llm.chat(paramsForAttempt(input, 1, effectiveMaxAttempts));
+    } catch (error) {
+      logRequestFailure(input, error, 1, effectiveMaxAttempts);
+      throw error;
+    }
+  }
+
+  const delays = retryBackoffDelays(maxAttempts);
+
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await input.llm.chat(paramsForAttempt(input, attempt, maxAttempts));
+    } catch (error) {
+      if (attempt >= maxAttempts || !input.llm.isRetryableError(error)) {
+        logRequestFailure(input, error, attempt, maxAttempts);
+        throw error;
+      }
+
+      const delayMs = delays[attempt - 1] ?? 0;
+      input.params.signal.throwIfAborted();
+      input.dispatchEvent({
+        type: 'step.retrying',
+        turnId: input.turnId,
+        step: input.currentStep,
+        stepUuid: input.stepUuid,
+        failedAttempt: attempt,
+        nextAttempt: attempt + 1,
+        maxAttempts,
+        delayMs,
+        ...retryErrorFields(error),
+      });
+      await sleepForRetry(delayMs, input.params.signal);
+    }
+  }
+}
+
+function logRequestFailure(
+  input: ChatWithRetryInput,
+  error: unknown,
+  attempt: number,
+  maxAttempts: number,
+): void {
+  if (isAbortError(error) || input.params.signal.aborted) return;
+  input.log?.warn('llm request failed', {
+    turnStep: `${input.turnId}.${String(input.currentStep)}`,
+    attempt: `${String(attempt)}/${String(maxAttempts)}`,
+    model: input.llm.modelName,
+    ...retryErrorFields(error),
+  });
+}
+
+function paramsForAttempt(
+  input: ChatWithRetryInput,
+  attempt: number,
+  maxAttempts: number,
+): LLMChatParams {
+  const turnStep = `${input.turnId}.${String(input.currentStep)}`;
+  return {
+    ...input.params,
+    requestLogFields:
+      attempt === 1
+        ? { turnStep }
+        : { turnStep, attempt: `${String(attempt)}/${String(maxAttempts)}` },
+  };
+}
+
+export function retryBackoffDelays(maxAttempts: number): number[] {
+  return Array.from({ length: Math.max(maxAttempts - 1, 0) }, (_unused, index) => {
+    const baseDelay = Math.min(
+      RETRY_MAX_TIMEOUT_MS,
+      RETRY_MIN_TIMEOUT_MS * RETRY_FACTOR ** index,
+    );
+    return Math.round(baseDelay * (1 + Math.random()));
+  });
+}
+
+export async function sleepForRetry(delayMs: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  await abortable(sleep(delayMs), signal);
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+interface RetryErrorFields {
+  readonly errorName: string;
+  readonly errorMessage: string;
+  readonly statusCode?: number;
+}
+
+function retryErrorFields(error: unknown): RetryErrorFields {
+  return {
+    errorName: error instanceof Error ? error.name : typeof error,
+    errorMessage: error instanceof Error ? error.message : String(error),
+    statusCode: maybeStatusCode(error),
+  };
+}
+
+function maybeStatusCode(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  return typeof statusCode === 'number' ? statusCode : undefined;
+}

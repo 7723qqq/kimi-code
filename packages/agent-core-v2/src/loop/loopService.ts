@@ -21,8 +21,8 @@ import {
   type ToolCall as KosongToolCall,
 } from '@moonshot-ai/kosong';
 
-import { canonicalTelemetryArgs, isPlainRecord } from '../../../agent/turn/canonical-args';
-import { ToolCallDeduplicator } from '../../../agent/turn/tool-dedup';
+import { canonicalTelemetryArgs, isPlainRecord } from './canonical-args';
+import { ToolCallDeduplicator } from './tool-dedup';
 import { abortable } from "#/_base/utils/abort";
 import { Disposable, IInstantiationService, registerSingleton, SyncDescriptor } from "#/_base/di";
 import {
@@ -31,20 +31,19 @@ import {
   toKimiErrorPayload,
   type KimiErrorPayload,
 } from "#/_base/errors";
-import {
-  runTurn as runLoopTurn,
-  type ExecutableTool,
-  type ExecutableToolResult,
-  type LLM,
-  type LLMChatParams,
-  type LLMChatResponse,
-  type LoopHooks,
-  type LoopEvent,
-  type LoopEventDispatcher,
-  type LoopRecordedEvent,
-  type RunnableToolExecution,
-} from '../../../loop';
-import type { TelemetryProperties } from '../../../telemetry';
+import { runTurn as runLoopTurn } from './run-turn';
+import type {
+  ExecutableTool,
+  ExecutableToolResult,
+  LoopHooks,
+  RunnableToolExecution,
+} from './types';
+import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
+import type {
+  LoopEvent,
+  LoopEventDispatcher,
+  LoopRecordedEvent,
+} from './events';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
 import { IContextSizeService } from '../contextSize/contextSize';
@@ -69,6 +68,7 @@ const TOOL_EMPTY_ERROR_STATUS =
   '<system>ERROR: Tool execution failed. Tool output is empty.</system>';
 const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
 type ToolTelemetryEvent = 'tool_call' | 'tool_call_dedup_detected' | 'tool_call_repeat';
+type TelemetryProperties = Record<string, unknown>;
 
 export class LoopService extends Disposable implements ILoopService {
   private readonly openSteps = new Map<string, OpenStep>();

@@ -1,6 +1,79 @@
 /**
- * `loop` domain barrel - re-exports the loop service contract and implementation.
+ * `loop` domain barrel — re-exports the stateless loop facade and scoped
+ * service contract/implementation.
  */
+
+export type {
+  AfterStepHook,
+  AfterStepResult,
+  BeforeStepResult,
+  BeforeStepHook,
+  LoopHooks,
+  LoopAfterStepContext,
+  LoopStepHookContext,
+  LoopStepStopReason,
+  LoopStoppedStepContext,
+  LoopTerminalStepStopReason,
+  LoopTurnStopReason,
+  StopReason,
+  RecordStepUsageContext,
+  RecordStepUsageResult,
+  ShouldContinueAfterStopHook,
+  ShouldContinueAfterStopResult,
+  LoopMessageBuilder,
+  ExecutableTool,
+  ToolExecution,
+  RunnableToolExecution,
+  ToolCall,
+  ExecutableToolContext,
+  ToolExecutionHookContext,
+  ResolvedToolExecutionHookContext,
+  PrepareToolExecutionHook,
+  AuthorizeToolExecutionHook,
+  AuthorizeToolExecutionResult,
+  PrepareToolExecutionResult,
+  ExecutableToolResult,
+  FinalizeToolResultContext,
+  FinalizeToolResultHook,
+  ToolUpdate,
+  TurnResult,
+} from './types';
+
+export { ToolAccesses } from './tool-access';
+
+export type {
+  CreateLoopEventDispatcherInput,
+  LoopContentPartEvent,
+  LoopRecordedEvent,
+  LoopStepBeginEvent,
+  LoopStepEndEvent,
+  LoopStepRetryingEvent,
+  LoopLiveOnlyEvent,
+  LoopEvent,
+  LoopInterruptReason,
+  LoopLiveEventEmitter,
+  LoopEventDispatcher,
+  LoopTextDeltaEvent,
+  LoopThinkingDeltaEvent,
+  LoopToolCallDeltaEvent,
+  LoopToolCallEvent,
+  LoopToolProgressEvent,
+  LoopToolResultEvent,
+  LoopTurnInterruptedEvent,
+} from './events';
+export { createLoopEventDispatcher } from './events';
+
+export type {
+  LLM,
+  LLMChatParams,
+  LLMChatResponse,
+  LLMRequestLogFields,
+  LLMStreamTiming,
+  ToolCallDelta,
+} from './llm';
+
+export { runTurn } from './run-turn';
+export type { RunTurnInput } from './run-turn';
 
 export * from './loop';
 export * from './loopService';
