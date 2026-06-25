@@ -1,5 +1,6 @@
 /**
- * `turnRunner` domain barrel - re-exports the turnRunner service contract and implementation.
+ * `turn` domain barrel — re-exports the turn service contract and
+ * implementation.
  */
 
 export * from './turn';

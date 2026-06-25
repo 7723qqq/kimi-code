@@ -47,7 +47,7 @@ export class MicroCompactionService
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IProfileService private readonly profile: IProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @ITurn turn: ITurn,
+    @ITurnService turn: ITurnService,
   ) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...options.config };

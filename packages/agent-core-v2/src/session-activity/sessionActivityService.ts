@@ -21,7 +21,7 @@ export class SessionActivity implements ISessionActivity {
   isIdle(): boolean {
     for (const handle of this.agents.list()) {
       const turn = handle.accessor.get(ITurnService);
-      if (turn.hasActiveTurn) return false;
+      if (turn.getActiveTurn() !== undefined) return false;
     }
     return true;
   }

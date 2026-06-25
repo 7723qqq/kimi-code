@@ -14,15 +14,15 @@ export class PromptService implements IPromptService {
 
   constructor(
     @IContextMemory private readonly context: IContextMemory,
-    @ITurnService private readonly turnRunner: ITurnService,
+    @ITurnService private readonly turnService: ITurnService,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
   ) {
-    turnRunner.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
+    turnService.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
       this.flushSteerQueue();
       await next();
     });
-    turnRunner.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
+    turnService.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
       await next();
       if (this.flushSteerQueue()) {
         ctx.continueTurn = true;
@@ -33,13 +33,13 @@ export class PromptService implements IPromptService {
   prompt(message: ContextMessage): Turn | undefined {
     if (this.emitBusyIfActive()) return undefined;
     this.append(message);
-    const turn = this.turnRunner.launch(message.origin ?? USER_PROMPT_ORIGIN);
+    const turn = this.turnService.launch(message.origin ?? USER_PROMPT_ORIGIN);
     this.observe(turn);
     return turn;
   }
 
   steer(message: ContextMessage): Turn | undefined {
-    const activeTurn = this.turnRunner.getActiveTurn();
+    const activeTurn = this.turnService.getActiveTurn();
     if (activeTurn !== undefined) {
       this.steerQueue.push(message);
       this.observe(activeTurn);
@@ -47,14 +47,14 @@ export class PromptService implements IPromptService {
     }
 
     this.append(message);
-    const turn = this.turnRunner.launch(message.origin ?? USER_PROMPT_ORIGIN);
+    const turn = this.turnService.launch(message.origin ?? USER_PROMPT_ORIGIN);
     this.observe(turn);
     return turn;
   }
 
   retry(trigger?: string): Turn | undefined {
     if (this.emitBusyIfActive()) return undefined;
-    const turn = this.turnRunner.launch({ kind: 'retry', trigger });
+    const turn = this.turnService.launch({ kind: 'retry', trigger });
     this.observe(turn);
     return turn;
   }
@@ -132,7 +132,7 @@ export class PromptService implements IPromptService {
   }
 
   private emitBusyIfActive(): boolean {
-    const activeTurn = this.turnRunner.getActiveTurn();
+    const activeTurn = this.turnService.getActiveTurn();
     if (activeTurn === undefined) return false;
     this.events.emit({
       type: 'error',

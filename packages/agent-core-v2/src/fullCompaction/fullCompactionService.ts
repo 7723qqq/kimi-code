@@ -27,7 +27,7 @@ import { IProfileService } from '#/profile';
 import { IReplayBuilderService } from '#/replayBuilder';
 import { ITelemetryService } from '#/telemetry';
 import { IToolStoreService } from '#/toolStore';
-import { ITurnRunner } from '#/turnRunner';
+import { ITurnService } from '#/turn';
 import type { ContextMessage } from '#/contextMemory';
 import { IUsageService } from '#/usage';
 import { IWireRecord } from '#/wireRecord';
@@ -100,26 +100,26 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     @IEventBus private readonly events: IEventBus,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
-    @ITurnRunner turnRunner: ITurnRunner,
+    @ITurnService turnService: ITurnService,
   ) {
     super();
     this.strategy =
       this.options.compactionStrategy ??
       new RuntimeCompactionStrategy(() => this.profile.resolveModelContext());
     this._register(
-      turnRunner.hooks.onLaunched.register('full-compaction-reset', async (_ctx, next) => {
+      turnService.hooks.onLaunched.register('full-compaction-reset', async (_ctx, next) => {
         this.resetForTurn();
         await next();
       }),
     );
     this._register(
-      turnRunner.hooks.beforeStep.register('full-compaction', async (ctx, next) => {
+      turnService.hooks.beforeStep.register('full-compaction', async (ctx, next) => {
         await this.beforeStep(ctx.turn.abortController.signal, ctx.turn.id);
         await next();
       }),
     );
     this._register(
-      turnRunner.hooks.afterStep.register('full-compaction', async (_ctx, next) => {
+      turnService.hooks.afterStep.register('full-compaction', async (_ctx, next) => {
         await this.afterStep();
         await next();
       }),

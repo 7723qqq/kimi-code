@@ -45,7 +45,7 @@ import { IAgentRPCService } from './rpc';
 export class AgentRPCService implements IAgentRPCService {
   constructor(
     @IPromptService private readonly promptService: IPromptService,
-    @ITurnService private readonly turnRunner: ITurnService,
+    @ITurnService private readonly turnService: ITurnService,
     @IProfileService private readonly profile: IProfileService,
     @IPermissionModeService private readonly permissionMode: IPermissionModeService,
     @IPermissionService private readonly permission: IPermissionService,
@@ -82,10 +82,10 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   cancel(payload: CancelPayload): void {
-    if (this.turnRunner.getActiveTurn() !== undefined) {
+    if (this.turnService.getActiveTurn() !== undefined) {
       this.telemetry.track('cancel', { from: 'streaming' });
     }
-    this.turnRunner.cancel(payload.turnId);
+    this.turnService.cancel(payload.turnId);
   }
 
   undoHistory(payload: UndoHistoryPayload): void {

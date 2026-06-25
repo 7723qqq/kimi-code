@@ -18,6 +18,7 @@ import {
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
 import { IEventService } from '#/event';
+import { IPromptService } from '#/prompt';
 import { ITurnService } from '#/turn';
 
 import {
@@ -59,24 +60,35 @@ export class RestGateway implements IRestGateway {
 
   constructor(@IScopeRegistry private readonly scopes: IScopeRegistry) {}
 
-  private turn(sessionId: string, agentId: string): ITurnService {
+  private agent(sessionId: string, agentId: string): IScopeHandle {
     const session = this.scopes.get(sessionId);
     if (session === undefined) throw new Error(`unknown session '${sessionId}'`);
     const agents = session.accessor.get(IAgentLifecycleService);
     const agent = agents.getHandle(agentId);
     if (agent === undefined) throw new Error(`unknown agent '${agentId}'`);
-    return agent.accessor.get(ITurnService);
+    return agent;
   }
 
   prompt(sessionId: string, agentId: string, input: string): Promise<void> {
-    return this.turn(sessionId, agentId).prompt(input);
+    this.agent(sessionId, agentId).accessor.get(IPromptService).prompt({
+      role: 'user',
+      content: [{ type: 'text', text: input }],
+      toolCalls: [],
+      origin: { kind: 'user' },
+    });
+    return Promise.resolve();
   }
   steer(sessionId: string, agentId: string, content: string): Promise<void> {
-    this.turn(sessionId, agentId).steer(content);
+    this.agent(sessionId, agentId).accessor.get(IPromptService).steer({
+      role: 'user',
+      content: [{ type: 'text', text: content }],
+      toolCalls: [],
+      origin: { kind: 'user' },
+    });
     return Promise.resolve();
   }
   cancel(sessionId: string, agentId: string, reason?: string): Promise<void> {
-    this.turn(sessionId, agentId).cancel(reason);
+    this.agent(sessionId, agentId).accessor.get(ITurnService).cancel(undefined, reason);
     return Promise.resolve();
   }
   getStatus(sessionId: string): Promise<unknown> {
