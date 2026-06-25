@@ -28,7 +28,7 @@ import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
 import {
   GoalInjection,
   type GoalInjectionOptions,
-} from '../goalMode/injection/goalInjection';
+} from './injection/goalInjection';
 import {
   IGoalService,
   type GoalReasonInput,

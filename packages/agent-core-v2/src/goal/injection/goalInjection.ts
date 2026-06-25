@@ -1,4 +1,4 @@
-import type { GoalSnapshot } from '../../../../agent/goal';
+import type { GoalSnapshot } from '#/goal';
 import { Disposable } from "#/_base/di";
 import { renderPrompt } from "#/_base/utils/render-prompt";
 import { IDynamicInjector } from '../../dynamicInjector/dynamicInjector';
