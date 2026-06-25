@@ -22,7 +22,7 @@ export interface IFullCompaction {
   handleOverflowError(signal: AbortSignal, error: unknown, turnId?: number): Promise<void>;
 }
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'full_compaction.begin': CompactionBeginData;
     'full_compaction.cancel': {};

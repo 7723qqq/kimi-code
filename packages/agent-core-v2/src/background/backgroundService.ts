@@ -8,21 +8,21 @@ import {
   SyncDescriptor,
 } from "#/_base/di";
 import { escapeXml, escapeXmlAttr } from "#/_base/utils/xml-escape";
-import type { BackgroundTaskOrigin } from '../../../agent/context';
-import { renderNotificationXml } from '../../../agent/context/notification-xml';
+import type { BackgroundTaskOrigin } from '#/context';
+import { renderNotificationXml } from '#/contextMemory/notification-xml';
 import {
   TERMINAL_STATUSES,
   type BackgroundTaskInfoBase,
   type BackgroundTaskSettlement,
 } from './task';
 
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IEventBus } from '../eventBus/eventBus';
-import { IExternalHooksService } from '../externalHooks/externalHooks';
-import { IPromptService } from '../prompt/prompt';
-import { ITelemetryService } from '../telemetry/telemetry';
-import type { WireRecord } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IContextMemory } from '#/contextMemory/contextMemory';
+import { IEventBus } from '#/eventBus/eventBus';
+import { IExternalHooksService } from '#/externalHooks/externalHooks';
+import { IPromptService } from '#/prompt/prompt';
+import { ITelemetryService } from '#/telemetry/telemetry';
+import type { WireRecord } from '#/types';
+import { IWireRecord } from '#/wireRecord/wireRecord';
 import {
   IBackgroundService,
   type BackgroundLoadOptions,

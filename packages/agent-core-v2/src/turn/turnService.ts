@@ -24,7 +24,7 @@ import type {
 } from './turn';
 import { ITurnRunner } from './turn';
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'turn.launch': {
       turnId: number;

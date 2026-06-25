@@ -53,7 +53,7 @@ export interface RegisterBackgroundTaskOptions {
 
 export type ForegroundTaskReleaseReason = 'detached' | 'terminal';
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'background.task.started': {
       info: BackgroundTaskInfo;

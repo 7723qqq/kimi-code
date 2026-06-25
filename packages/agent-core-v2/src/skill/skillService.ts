@@ -28,7 +28,7 @@ import {
   type SkillActivationInput,
 } from './skill';
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'skill.activate': {
       origin: SkillActivationOrigin;

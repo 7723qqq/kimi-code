@@ -6,7 +6,7 @@ import type { ContextMessage, WireRecord } from '#/types';
 import { IWireRecord } from '#/wireRecord/wireRecord';
 import { IContextMemory } from './contextMemory';
 
-declare module '#/types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'context.splice': {
       start: number;

@@ -4,7 +4,7 @@ import type { WireRecord } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
 import { IToolStoreService, type ToolStoreData, type ToolStoreKey } from './toolStore';
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'tools.update_store': {
       key: ToolStoreKey;

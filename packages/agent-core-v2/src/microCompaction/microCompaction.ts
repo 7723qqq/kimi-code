@@ -28,7 +28,7 @@ export interface IMicroCompactionService {
   compact(messages: readonly ContextMessage[]): readonly ContextMessage[];
 }
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'micro_compaction.apply': {
       cutoff: number;

@@ -21,7 +21,7 @@ export interface IGoalService {
   cancelGoal(actor?: GoalActor): Promise<GoalSnapshot>;
 }
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     forked: {};
     'goal.create': {

@@ -12,7 +12,7 @@ import {
   type PermissionRulesServiceOptions,
 } from './permissionRules';
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'permission.rules.add': {
       rules: readonly PermissionRule[];

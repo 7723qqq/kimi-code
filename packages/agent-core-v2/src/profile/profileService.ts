@@ -33,7 +33,7 @@ import { IProfileService } from './profile';
 import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
 import { IWireRecord } from '../wireRecord/wireRecord';
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'config.update': Omit<ProfileUpdateData, 'activeToolNames'>;
     'tools.set_active_tools': {

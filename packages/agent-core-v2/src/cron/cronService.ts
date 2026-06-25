@@ -47,7 +47,7 @@ import {
 } from './cron';
 import type { Turn } from '#/turn';
 
-declare module '#/types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'cron.add': {
       task: CronTask;
