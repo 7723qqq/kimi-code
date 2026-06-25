@@ -73,15 +73,23 @@ export function useDetailPanel({
     // A live (still-streaming) thinking block is not in `client.turns` — its
     // text lives in the streaming store. Read it there so the panel shows the
     // growing text while the reply is still streaming (reactive: updates on
-    // each delta). Once the turn settles the store is cleared and the live
-    // target goes stale; return null so the panel closes rather than indexing
-    // `turn.blocks` with a contentIndex that does not match its sourceIndex.
+    // each delta).
     if (target.live) {
       const sid = client.activeSessionId.value;
       const live = streamingBySession[sid]?.blocks.find(
         (b) => b.kind === 'thinking' && b.contentIndex === target.blockIndex,
       );
-      return live?.text ?? null;
+      if (live?.text) return live.text;
+      // The store is cleared at every `messageUpdated` (tool slot / step end /
+      // turn end) so the committed content takes over in the chat. The last
+      // deltas and that clear land in the same tick and coalesce, so without a
+      // fallback the panel would close *before* rendering the final chunk.
+      // Fall back to the committed thinking block in the turn — it already
+      // holds the full text — so the panel keeps showing the complete content
+      // through the boundary instead of flickering closed.
+      const turn = client.turns.value.find((tn) => tn.id === target.turnId);
+      const committed = turn?.blocks?.find((b) => b.kind === 'thinking');
+      return committed?.kind === 'thinking' ? committed.thinking : null;
     }
     const turn = client.turns.value.find((tn) => tn.id === target.turnId);
     const blk = turn?.blocks?.[target.blockIndex];
