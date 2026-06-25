@@ -1,5 +1,5 @@
 import { createDecorator } from "#/_base/di";
-import type { ExperimentalFlagResolver } from '../../../flags';
+import type { ExperimentalFlagResolver } from '#/flags';
 
 import type { ContextMessage } from '../types';
 

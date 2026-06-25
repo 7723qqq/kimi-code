@@ -5,12 +5,12 @@ import {
   registerSingleton,
   SyncDescriptor,
 } from "#/_base/di";
-import { FlagResolver, type ExperimentalFlagResolver } from '../../../flags';
+import { FlagResolver, type ExperimentalFlagResolver } from '#/flags';
 import {
   estimateTokensForContentParts,
   estimateTokensForMessages,
 } from "#/_base/utils/tokens";
-import type { TelemetryProperties } from '../../../telemetry';
+import type { TelemetryProperties } from '#/telemetry';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextSizeService } from '../contextSize/contextSize';
 import { IProfileService } from '../profile/profile';

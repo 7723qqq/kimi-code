@@ -5,7 +5,7 @@ import {
   toDisposable,
   type IDisposable,
 } from "#/_base/di";
-import type { ExecutableTool } from '../../../loop';
+import type { ExecutableTool } from '#/loop';
 import { OrderedHookSlot } from '../hooks';
 import type { ToolInfo, ToolSource } from '../types';
 import { IToolRegistry, type ToolRegistrationOptions } from './toolRegistry';

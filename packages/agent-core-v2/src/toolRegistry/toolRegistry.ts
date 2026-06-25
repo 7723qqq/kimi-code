@@ -1,5 +1,5 @@
 import { createDecorator, type IDisposable } from "#/_base/di";
-import type { ExecutableTool } from '../../../loop';
+import type { ExecutableTool } from '#/loop';
 
 import type { Hooks } from '../hooks';
 import type { ToolInfo, ToolSource } from '../types';
