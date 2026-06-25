@@ -173,7 +173,8 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
         let start_line = line_offset as usize;
         let max_lines = config.n_lines.unwrap_or(MAX_LINES as u32) as usize;
         let max_lines = max_lines.min(MAX_LINES);
-        read_forward_streaming(path, scan.total_lines, start_line, max_lines, scan.line_ending_style)
+        // Single-pass: scan + read in one file traversal.
+        scan_and_read_forward(path, start_line, max_lines)
     }
 }
 
@@ -240,13 +241,116 @@ fn scan_text_file(path: &Path) -> io::Result<TextScanResult> {
     })
 }
 
-fn read_forward_streaming(
+/// Single-pass scan + read: reads the file once, detecting line endings and
+/// NUL bytes while simultaneously collecting the requested line range.
+/// Returns the ReadResult directly, avoiding a second file traversal.
+fn scan_and_read_forward(
     path: &Path,
-    total_lines: usize,
     start_line: usize,
     max_lines: usize,
-    line_ending_style: LineEndingStyle,
 ) -> ReadResult {
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            return ReadResult {
+                content: String::new(),
+                line_count: 0,
+                error: Some(e.to_string()),
+            };
+        }
+    };
+
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    let mut line_no = 0usize;
+    let mut total_lines = 0usize;
+    let mut has_nul = false;
+    let mut flags = LineEndingFlags::default();
+    let mut rendered = Vec::new();
+    let mut total_bytes = 0usize;
+    let mut truncated_line_numbers = Vec::new();
+    let mut max_lines_reached = false;
+
+    loop {
+        line.clear();
+        let bytes_read = match reader.read_line(&mut line) {
+            Ok(n) => n,
+            Err(e) => {
+                return ReadResult {
+                    content: String::new(),
+                    line_count: total_lines as i32,
+                    error: Some(e.to_string()),
+                };
+            }
+        };
+        if bytes_read == 0 {
+            break;
+        }
+
+        // Check for NUL bytes.
+        if line.as_bytes().contains(&0) {
+            has_nul = true;
+        }
+
+        // Track line endings.
+        let stripped_for_scan = line.strip_suffix("\r\n").or_else(|| line.strip_suffix('\n')).unwrap_or(&line);
+        for ch in stripped_for_scan.bytes() {
+            if ch == b'\r' {
+                flags.feed(ch);
+            } else if ch == b'\n' {
+                flags.feed(ch);
+            } else {
+                flags.feed(ch);
+            }
+        }
+        // Correct CRLF detection: if line ends with \r\n, mark as CRLF.
+        if line.ends_with("\r\n") {
+            flags.feed_crlf();
+        }
+
+        total_lines += 1;
+        line_no += 1;
+
+        // Skip lines before start_line.
+        if line_no < start_line {
+            continue;
+        }
+
+        // Stop if we've collected enough lines.
+        if rendered.len() >= max_lines {
+            max_lines_reached = max_lines >= MAX_LINES;
+            continue; // keep counting total_lines
+        }
+
+        let stripped = strip_trailing_lf(&line);
+        let (rendered_line, was_truncated) = render_line(stripped, line_no, flags.style());
+        if was_truncated {
+            truncated_line_numbers.push(line_no);
+        }
+        let line_bytes = rendered_line.len() + 1;
+        if total_bytes + line_bytes > MAX_BYTES && !rendered.is_empty() {
+            break;
+        }
+        total_bytes += line_bytes;
+        rendered.push(rendered_line);
+    }
+
+    if has_nul {
+        return ReadResult {
+            content: String::new(),
+            line_count: 0,
+            error: Some(not_readable_message(&path.to_string_lossy())),
+        };
+    }
+
+    if total_lines == 0 {
+        return ReadResult {
+            content: String::new(),
+            line_count: 0,
+            error: None,
+        };
+    }
+
     if start_line > total_lines {
         let message = format!(
             "Line {} exceeds the total number of lines ({}).",
@@ -259,60 +363,6 @@ fn read_forward_streaming(
         };
     }
 
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) => {
-            return ReadResult {
-                content: String::new(),
-                line_count: 0,
-                error: Some(error.to_string()),
-            };
-        }
-    };
-    let mut reader = BufReader::new(file);
-    let mut rendered = Vec::new();
-    let mut total_bytes = 0usize;
-    let mut truncated_line_numbers = Vec::new();
-    let mut max_lines_reached = false;
-    let mut line = String::new();
-    let mut line_no = 0usize;
-
-    loop {
-        line.clear();
-        let bytes_read = match reader.read_line(&mut line) {
-            Ok(n) => n,
-            Err(error) => {
-                return ReadResult {
-                    content: String::new(),
-                    line_count: total_lines as i32,
-                    error: Some(error.to_string()),
-                };
-            }
-        };
-        if bytes_read == 0 {
-            break;
-        }
-        line_no += 1;
-        if line_no < start_line {
-            continue;
-        }
-        if rendered.len() >= max_lines {
-            max_lines_reached = max_lines >= MAX_LINES;
-            break;
-        }
-        let stripped = strip_trailing_lf(&line);
-        let (rendered_line, was_truncated) = render_line(stripped, line_no, line_ending_style);
-        if was_truncated {
-            truncated_line_numbers.push(line_no);
-        }
-        let line_bytes = rendered_line.len() + 1;
-        if total_bytes + line_bytes > MAX_BYTES && !rendered.is_empty() {
-            break;
-        }
-        total_bytes += line_bytes;
-        rendered.push(rendered_line);
-    }
-
     let message = finish_message(
         rendered.len(),
         start_line,
@@ -320,10 +370,9 @@ fn read_forward_streaming(
         max_lines_reached,
         total_bytes >= MAX_BYTES,
         &truncated_line_numbers,
-        line_ending_style,
+        flags.style(),
         max_lines,
     );
-
     let content = finish_output(&rendered, &message);
 
     ReadResult {

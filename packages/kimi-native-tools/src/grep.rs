@@ -9,6 +9,7 @@ use ignore::WalkBuilder;
 use napi_derive::napi;
 use regex::RegexBuilder;
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -265,20 +266,36 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                 return ignore::WalkState::Continue;
             }
 
-            let content = match fs::read_to_string(path) {
-                Ok(c) => c,
+            // Stream file line-by-line instead of loading entirely into memory.
+            // For files_with_matches: stop at first match (early termination).
+            // For count_matches: count all matches without building output.
+            let file = match fs::File::open(path) {
+                Ok(f) => f,
                 Err(_) => return ignore::WalkState::Continue,
             };
+            let reader = BufReader::new(file);
+            let mut match_count: usize = 0;
 
             if is_files_with_matches {
-                if regex.find(&content).is_some() {
-                    file_matches.lock().unwrap().push((path.to_path_buf(), 1));
+                // Early termination: stop reading as soon as we find one match.
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        if regex.find(&line).is_some() {
+                            match_count = 1;
+                            break;
+                        }
+                    }
                 }
             } else {
-                let count = regex.find_iter(&content).count();
-                if count > 0 {
-                    file_matches.lock().unwrap().push((path.to_path_buf(), count));
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        match_count += regex.find_iter(&line).count();
+                    }
                 }
+            }
+
+            if match_count > 0 {
+                file_matches.lock().unwrap().push((path.to_path_buf(), match_count));
             }
 
             ignore::WalkState::Continue
