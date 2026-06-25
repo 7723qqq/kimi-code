@@ -1,8 +1,11 @@
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
+import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ToolExecution } from '../../src/loop/types';
 import {
   isNativeToolsEnabled,
   NativeBashTool,
@@ -15,8 +18,39 @@ import {
 } from '../../src/tools/builtin/native-tools';
 import { createFakeKaos } from './fixtures/fake-kaos';
 import { executeTool } from './fixtures/execute-tool';
+import { createBackgroundManager } from '../agent/background/helpers';
 
 const signal = new AbortController().signal;
+
+function expectRunnable(execution: ToolExecution) {
+  if (execution.isError === true) {
+    throw new Error('Expected runnable execution.');
+  }
+  return execution;
+}
+
+function completedProcess(stdoutText: string): KaosProcess {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  stdout.end(stdoutText);
+  stderr.end();
+  let exitCode: number | null = 0;
+  return {
+    stdin,
+    stdout,
+    stderr,
+    pid: 1,
+    get exitCode() {
+      return exitCode;
+    },
+    wait: async () => 0,
+    kill: async () => {
+      exitCode = -1;
+    },
+    dispose: () => {},
+  };
+}
 
 describe('native-tools flag gating', () => {
   afterEach(() => {
@@ -75,6 +109,47 @@ describe('native-tools integration', () => {
     expect(result.isError).toBeUndefined();
     expect(result.output).toContain('hello');
     expect(result.output).toContain('world');
+    expect(result.output).toContain('<system>');
+    expect(result.output).toContain('</system>');
+    expect(result.output).toContain('2 lines read');
+  });
+
+  it('reads a file with line_offset and n_lines', async () => {
+    writeFileSync(join(tmpDir, 'lines.txt'), 'aaa\nbbb\nccc\nddd\neee');
+
+    const tool = new NativeReadTool(makeKaos(), workspace, 'Read a text file.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_read_offset',
+      args: { path: join(tmpDir, 'lines.txt'), line_offset: 2, n_lines: 2 },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('bbb');
+    expect(result.output).toContain('ccc');
+    expect(result.output).not.toContain('aaa');
+    expect(result.output).not.toContain('eee');
+    expect(result.output).toContain('<system>');
+  });
+
+  it('reads a file with tail mode (negative line_offset)', async () => {
+    writeFileSync(join(tmpDir, 'tail.txt'), 'aaa\nbbb\nccc\nddd\neee');
+
+    const tool = new NativeReadTool(makeKaos(), workspace, 'Read a text file.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_read_tail',
+      args: { path: join(tmpDir, 'tail.txt'), line_offset: -3 },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('ccc');
+    expect(result.output).toContain('ddd');
+    expect(result.output).toContain('eee');
+    expect(result.output).not.toContain('aaa');
+    expect(result.output).toContain('<system>');
   });
 
   it('writes a file through the native module', async () => {
@@ -143,8 +218,28 @@ describe('native-tools integration', () => {
     expect(result.output).toContain('b.ts');
   });
 
+  it('glob relativizes results under the workspace', async () => {
+    writeFileSync(join(tmpDir, 'file.ts'), '');
+    const globWorkspace = { workspaceDir: tmpDir, additionalDirs: [] };
+    const tool = new NativeGlobTool(makeKaos(), globWorkspace, 'Find files.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_glob_rel',
+      args: { pattern: '*.ts' },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('file.ts');
+    expect(result.output).not.toContain(tmpDir);
+  });
+
   it('runs a bash command through the native module', async () => {
-    const tool = new NativeBashTool(tmpDir, 'Run a command.');
+    const kaos = createFakeKaos({
+      getcwd: () => tmpDir,
+      execWithEnv: async () => completedProcess('hello\n'),
+    });
+    const tool = new NativeBashTool(kaos, tmpDir, createBackgroundManager().manager);
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_bash',
@@ -152,7 +247,7 @@ describe('native-tools integration', () => {
       signal,
     });
 
-    expect(result.isError).toBeUndefined();
+    expect(result.isError).not.toBe(true);
     expect(result.output).toContain('hello');
   });
 
@@ -181,12 +276,9 @@ describe('native-tools integration', () => {
     });
 
     expect(result.isError).toBeUndefined();
-    // The secret content from .env must not leak into the result.
     expect(result.output).not.toContain('abcdef123');
-    // A redaction notice should call out the filtered file by name.
     expect(result.output).toContain('Filtered');
     expect(result.output).toContain('.env');
-    // The non-sensitive match should still come through.
     expect(result.output).toContain('public-marker');
   });
 
@@ -205,6 +297,44 @@ describe('native-tools integration', () => {
     expect(result.isError).toBeUndefined();
     expect(result.output).toContain('needle in ts');
     expect(result.output).not.toContain('needle in py');
+  });
+
+  it('grep count_matches mode includes a summary message', async () => {
+    writeFileSync(join(tmpDir, 'counts.txt'), 'needle line\nneedle again\nneedle third');
+    writeFileSync(join(tmpDir, 'nope.txt'), 'nothing here');
+
+    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_grep_count',
+      args: { pattern: 'needle', path: tmpDir, output_mode: 'count_matches' },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('counts.txt');
+    expect(result.output).toContain('3');
+    expect(result.message).toContain('Found');
+    expect(result.message).toContain('occurrence');
+  });
+
+  it('grep files_with_matches mode lists file paths', async () => {
+    writeFileSync(join(tmpDir, 'match1.txt'), 'needle here');
+    writeFileSync(join(tmpDir, 'match2.txt'), 'needle there');
+    writeFileSync(join(tmpDir, 'nope.txt'), 'nothing');
+
+    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_grep_fwm',
+      args: { pattern: 'needle', path: tmpDir, output_mode: 'files_with_matches' },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('match1.txt');
+    expect(result.output).toContain('match2.txt');
+    expect(result.output).not.toContain('nope.txt');
   });
 
   it('grep skips VCS metadata directories', async () => {
@@ -226,19 +356,16 @@ describe('native-tools integration', () => {
   });
 
   it('native tools advertise a non-trivial approvalRule', () => {
-    // Regression: the previous version hard-coded `auto-approve` on every
-    // native tool, silently bypassing the permission system whenever the
-    // experimental flag was on.
     const read = new NativeReadTool(makeKaos(), workspace, 'Read a text file.');
-    const readExec = read.resolveExecution({ path: join(tmpDir, 'x.txt') });
+    const readExec = expectRunnable(read.resolveExecution({ path: join(tmpDir, 'x.txt') }));
     expect(readExec.approvalRule).not.toBe('auto-approve');
 
-    const bash = new NativeBashTool(tmpDir, 'Run a command.');
-    const bashExec = bash.resolveExecution({ command: 'echo hi' });
+    const bash = new NativeBashTool(makeKaos(), tmpDir, createBackgroundManager().manager);
+    const bashExec = expectRunnable(bash.resolveExecution({ command: 'echo hi' }));
     expect(bashExec.approvalRule).not.toBe('auto-approve');
 
     const grep = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
-    const grepExec = grep.resolveExecution({ pattern: 'x' });
+    const grepExec = expectRunnable(grep.resolveExecution({ pattern: 'x' }));
     expect(grepExec.approvalRule).not.toBe('auto-approve');
   });
 });

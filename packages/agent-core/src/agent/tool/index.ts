@@ -19,10 +19,6 @@ import { GREP_DESCRIPTION } from '../../tools/builtin/file/grep';
 import { READ_DESCRIPTION } from '../../tools/builtin/file/read';
 import { WRITE_DESCRIPTION } from '../../tools/builtin/file/write';
 import {
-  renderBashDescription,
-  withoutBackgroundDescription,
-} from '../../tools/builtin/shell/bash';
-import {
   isNativeToolsEnabled,
   tryLoadNative,
   NativeReadTool,
@@ -409,9 +405,6 @@ export class ToolManager {
         kaos.pathClass() === 'win32'
           ? GLOB_DESCRIPTION + WINDOWS_PATH_HINT
           : GLOB_DESCRIPTION,
-      bash: allowBackground
-        ? renderBashDescription(kaos.osEnv.shellName)
-        : withoutBackgroundDescription(renderBashDescription(kaos.osEnv.shellName)),
     };
 
     this.builtinTools = new Map(
@@ -432,7 +425,9 @@ export class ToolManager {
           ? new NativeGlobTool(kaos, workspace, toolDescs.glob)
           : new b.GlobTool(kaos, workspace),
         useNative
-          ? new NativeBashTool(cwd, toolDescs.bash)
+          ? new NativeBashTool(kaos, cwd, background, {
+              allowBackground,
+            })
           : new b.BashTool(kaos, cwd, background, {
               allowBackground,
             }),

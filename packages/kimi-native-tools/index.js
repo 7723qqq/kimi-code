@@ -4,8 +4,8 @@
 /// Rust module. It handles loading the correct platform-specific .node file
 /// and provides typed wrappers for each tool.
 
-const { existsSync, readFileSync } = require('node:fs');
-const { join } = require('node:path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 // Platform-specific native module loading.
 const BINDING_NAME = 'kimi-native-tools';
@@ -34,9 +34,9 @@ function loadBinding() {
 
   // Try from release build directory (cargo build --release).
   const ext = process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
-  const releasePath = join(__dirname, 'target', 'release', `${BINDING_NAME}.${ext}`);
+  const releasePath = path.join(__dirname, 'target', 'release', `${BINDING_NAME}.${ext}`);
   try {
-    if (existsSync(releasePath)) {
+    if (fs.existsSync(releasePath)) {
       return require(releasePath);
     }
   } catch {
@@ -44,9 +44,9 @@ function loadBinding() {
   }
 
   // Try from debug build directory.
-  const debugPath = join(__dirname, 'target', 'debug', `${BINDING_NAME}.${ext}`);
+  const debugPath = path.join(__dirname, 'target', 'debug', `${BINDING_NAME}.${ext}`);
   try {
-    if (existsSync(debugPath)) {
+    if (fs.existsSync(debugPath)) {
       return require(debugPath);
     }
   } catch {

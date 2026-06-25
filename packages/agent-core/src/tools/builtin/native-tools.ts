@@ -10,11 +10,12 @@
 import type { Kaos } from '@moonshot-ai/kaos';
 import { z } from 'zod';
 
+import type { BackgroundManager } from '../../agent/background';
 import { flags } from '../../flags';
 import type { BuiltinTool } from '../../agent/tool';
 import type { ToolExecution } from '../../loop/types';
 import { ToolAccesses } from '../../loop/tool-access';
-import { resolvePathAccessPath } from '../../tools/policies/path-access';
+import { isWithinDirectory, resolvePathAccessPath } from '../../tools/policies/path-access';
 import type { WorkspaceConfig } from '../../tools/support/workspace';
 import { toInputJsonSchema } from '../../tools/support/input-schema';
 import {
@@ -22,6 +23,7 @@ import {
   matchesGlobRuleSubject,
   matchesPathRuleSubject,
 } from '../../tools/support/rule-match';
+import { BashTool } from './shell/bash';
 
 // Lazy-load the native module to avoid hard dependency.
 let nativeModule: Record<string, unknown> | undefined;
@@ -52,6 +54,12 @@ function callNative<T>(fnName: string, ...args: unknown[]): T | undefined {
   const fn = mod[fnName];
   if (typeof fn !== 'function') return undefined;
   return fn(...args) as T;
+}
+
+function joinSearchPath(base: string, relativePath: string, pathClass: 'posix' | 'win32'): string {
+  if (relativePath === '') return base;
+  const separator = pathClass === 'win32' ? '\\' : '/';
+  return `${base.replace(/[\\/]+$/, '')}${separator}${relativePath}`;
 }
 
 // ============================================================================
@@ -346,9 +354,6 @@ export class NativeGrepTool implements BuiltinTool {
         if (result.error) {
           return { isError: true, output: result.error };
         }
-        // Surface redacted sensitive files and timeout state as a trailing
-        // notice — keeps the result.content payload pure for downstream
-        // parsing while still informing the model that a filter fired.
         const notices: string[] = [];
         if (result.filteredSensitive.length > 0) {
           notices.push(
@@ -364,7 +369,11 @@ export class NativeGrepTool implements BuiltinTool {
               ? notices.join('\n')
               : `${result.content}\n${notices.join('\n')}`
             : result.content;
-        return { output };
+        const message =
+          input.output_mode === 'count_matches'
+            ? `Found ${result.matchCount} ${result.matchCount === 1 ? 'occurrence' : 'occurrences'} across ${result.fileCount} ${result.fileCount === 1 ? 'file' : 'files'}.`
+            : undefined;
+        return { output, message };
       },
     };
   }
@@ -422,7 +431,12 @@ export class NativeGlobTool implements BuiltinTool {
         if (result.error) {
           return { isError: true, output: result.error };
         }
-        const content = result.files.join('\n');
+        const pathClass = this.kaos.pathClass();
+        const shouldRelativize = isWithinDirectory(searchPath, this.workspace.workspaceDir, pathClass);
+        const files = shouldRelativize
+          ? result.files
+          : result.files.map((file) => joinSearchPath(searchPath, file, pathClass));
+        const content = files.join('\n');
         const truncationNote = result.truncated
           ? `\n\nResults truncated to ${result.files.length} matches.`
           : '';
@@ -432,67 +446,15 @@ export class NativeGlobTool implements BuiltinTool {
   }
 }
 
-// ============================================================================
-// BashTool adapter
-// ============================================================================
-
-const NativeBashInputSchema = z.object({
-  command: z.string().min(1).describe('The command to execute.'),
-  cwd: z.string().optional().describe('Working directory.'),
-  timeout: z.number().int().positive().optional().describe('Timeout in seconds.'),
-});
-
-export class NativeBashTool implements BuiltinTool {
-  readonly name = 'Bash' as const;
-  readonly description: string;
-  readonly parameters: Record<string, unknown>;
-
+export class NativeBashTool extends BashTool {
   constructor(
-    private readonly cwd: string,
-    description: string,
+    kaos: Kaos,
+    cwd: string,
+    backgroundManager: BackgroundManager,
+    options?: {
+      allowBackground?: boolean | undefined;
+    },
   ) {
-    this.description = description;
-    this.parameters = toInputJsonSchema(NativeBashInputSchema);
-  }
-
-  resolveExecution(input: { command: string; cwd?: string; timeout?: number }): ToolExecution {
-    const effectiveCwd = input.cwd ?? this.cwd;
-
-    return {
-      description: `Running ${input.command.slice(0, 60)}`,
-      approvalRule: literalRulePattern(this.name, input.command),
-      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, input.command),
-      execute: async () => {
-        const result = callNative<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean; error?: string }>(
-          'nativeBash',
-          input.command,
-          { cwd: effectiveCwd, timeout: input.timeout },
-        );
-        if (!result) {
-          return { isError: true, output: 'Native tools module not available.' };
-        }
-        if (result.error) {
-          return { isError: true, output: result.error };
-        }
-
-        let output = '';
-        if (result.stdout) output += result.stdout;
-        if (result.stderr) {
-          if (output) output += '\n';
-          output += `[stderr]\n${result.stderr}`;
-        }
-        if (result.timedOut) {
-          output += `\n\nCommand timed out after ${input.timeout ?? 60}s.`;
-        }
-        if (result.exitCode !== 0) {
-          output += `\n\nExit code: ${result.exitCode}`;
-        }
-
-        return {
-          output: output || '(no output)',
-          isError: result.exitCode !== 0 ? true : undefined,
-        };
-      },
-    };
+    super(kaos, cwd, backgroundManager, options);
   }
 }

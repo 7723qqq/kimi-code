@@ -15,8 +15,8 @@
     ]
   },
   "scripts": {
-    "build": "napi build --platform --release",
-    "build:debug": "napi build --platform",
+    "build": "napi build --platform --release --dts target/napi-generated.d.ts",
+    "build:debug": "napi build --platform --dts target/napi-generated.d.ts",
     "artifacts": "napi artifacts",
     "test": "cargo test",
     "test:js": "node --test test.mjs"

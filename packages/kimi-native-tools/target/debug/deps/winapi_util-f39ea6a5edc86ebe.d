@@ -1,9 +1,0 @@
-D:\shujuku\kimi-code\packages\kimi-native-tools\target\debug\deps\winapi_util-f39ea6a5edc86ebe.d: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\console.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\file.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\sysinfo.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\win.rs
-
-D:\shujuku\kimi-code\packages\kimi-native-tools\target\debug\deps\libwinapi_util-f39ea6a5edc86ebe.rmeta: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\console.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\file.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\sysinfo.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\win.rs
-
-C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\lib.rs:
-C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\console.rs:
-C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\file.rs:
-C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\sysinfo.rs:
-C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\winapi-util-0.1.11\src\win.rs:

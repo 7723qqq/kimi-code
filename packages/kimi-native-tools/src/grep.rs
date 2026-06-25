@@ -336,13 +336,15 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
     // Format output.
     let content = match config.output_mode {
         OutputMode::FilesWithMatches => {
-            let files: Vec<String> = file_matches
-                .keys()
+            let mut files: Vec<&PathBuf> = file_matches.keys().collect();
+            files.sort_by_key(|path| std::cmp::Reverse(file_mtime(path)));
+            files
+                .into_iter()
                 .skip(config.offset)
                 .take(config.head_limit)
                 .map(|p| relativize(p, &search_path))
-                .collect();
-            files.join("\n")
+                .collect::<Vec<_>>()
+                .join("\n")
         }
         OutputMode::CountMatches => {
             let mut lines = Vec::new();
@@ -497,6 +499,12 @@ fn relativize(path: &Path, base: &Path) -> String {
     path.strip_prefix(base)
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| path.display().to_string())
+}
+
+fn file_mtime(path: &Path) -> std::time::SystemTime {
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
 }
 
 /// Map a ripgrep-style file type name to a list of glob patterns.
