@@ -1,9 +1,9 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
 
 import { createDecorator } from "#/_base/di";
-import type { ClockSources } from '../../../tools/cron/clock';
-import type { SessionCronTaskInit } from '../../../tools/cron/session-store';
-import type { CronTask, CronToolManager } from '../../../tools/cron/types';
+import type { ClockSources } from './tools/clock';
+import type { SessionCronTaskInit } from './tools/session-store';
+import type { CronTask, CronToolManager } from './tools/types';
 import type { Turn } from '../types';
 
 export type CronTaskInit = SessionCronTaskInit;
@@ -32,6 +32,20 @@ export interface CronLoadOptions {
 export interface CronFireOptions {
   readonly coalescedCount?: number;
   readonly firedAt?: number;
+}
+
+export interface CronJobOrigin {
+  readonly kind: 'cron_job';
+  readonly jobId: string;
+  readonly cron: string;
+  readonly recurring: boolean;
+  readonly coalescedCount: number;
+  readonly stale: boolean;
+}
+
+export interface CronMissedOrigin {
+  readonly kind: 'cron_missed';
+  readonly count: number;
 }
 
 export interface ICronService extends CronToolManager {
