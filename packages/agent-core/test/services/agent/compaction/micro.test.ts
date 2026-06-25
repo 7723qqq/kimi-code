@@ -712,11 +712,13 @@ describe('MicroCompaction', () => {
     });
 
     vi.setSystemTime(61 * MINUTE);
-    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
-      role: 'tool',
-      content: [{ type: 'text', text: 'orphan tool-like output' }],
-      toolCalls: [],
-    });
+    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, [
+      {
+        role: 'tool',
+        content: [{ type: 'text', text: 'orphan tool-like output' }],
+        toolCalls: [],
+      },
+    ]);
 
     expect(toolTexts(ctx.project())).toEqual(['orphan tool-like output']);
   });
@@ -872,27 +874,34 @@ function appendMicroToolExchange(
 
   ctx.appendUserMessage([{ type: 'text', text: `lookup ${String(index)}` }]);
 
-  ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
-    role: 'assistant',
-    content: [
-      { type: 'text', text: `calling Lookup ${String(index)}` },
-    ],
-    toolCalls: [
-      { type: 'function', id: toolCallId, name: 'Lookup', arguments: JSON.stringify({ query: `item-${String(index)}` }) },
-    ],
-  });
+  ctx.context.spliceHistory(ctx.context.getHistory().length, 0, [
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: `calling Lookup ${String(index)}` },
+      ],
+      toolCalls: [
+        { type: 'function', id: toolCallId, name: 'Lookup', arguments: JSON.stringify({ query: `item-${String(index)}` }) },
+      ],
+    },
+  ]);
 
   if (usage !== undefined) {
-    ctx.contextSize.coverThrough(ctx.context.getHistory().length, usage);
+    ctx.contextSize.measure(
+      ctx.context.getHistory().length,
+      usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation,
+    );
   }
 
-  ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
-    role: 'tool',
-    content: typeof output === 'string' ? [{ type: 'text', text: output }] : [...output],
-    toolCalls: [],
-    toolCallId,
-    isError: options.isError,
-  });
+  ctx.context.spliceHistory(ctx.context.getHistory().length, 0, [
+    {
+      role: 'tool',
+      content: typeof output === 'string' ? [{ type: 'text', text: output }] : [...output],
+      toolCalls: [],
+      toolCallId,
+      isError: options.isError,
+    },
+  ]);
 }
 
 function resumeToolExchangeRecords(assistantRecordTime: number): PersistedWireRecord[] {

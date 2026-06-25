@@ -89,14 +89,14 @@ export class ContextSizeService
     this.estimates.splice(start, deleteCount, ...inserted);
 
     const previous = this.measuredPrefixTokens;
-    const next = new Array<number | null>(this.estimates.length + 1).fill(null);
+    const next = Array.from({ length: this.estimates.length + 1 }, () => null as number | null);
     const copied = Math.min(start, previous.length - 1);
     for (let index = 0; index <= copied; index++) {
       next[index] = previous[index] ?? null;
     }
     next[0] = 0;
 
-    const base = next[start];
+    const base = next[start] ?? null;
     if (base !== null && context.tokens !== undefined) {
       next[start + context.messages.length] = base + context.tokens;
     }
@@ -124,10 +124,7 @@ export class ContextSizeService
 
   private emitIfChanged(): void {
     const status = this.getStatus();
-    if (
-      status.contextTokens === this.lastEmitted.contextTokens &&
-      status.contextTokensWithPending === this.lastEmitted.contextTokensWithPending
-    ) {
+    if (status.contextTokens === this.lastEmitted.contextTokens) {
       return;
     }
     this.lastEmitted = status;

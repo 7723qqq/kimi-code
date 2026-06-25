@@ -138,11 +138,11 @@ export class LoopService extends Disposable implements ILoopService {
             maxSteps: this.profile.config()?.loopControl?.maxStepsPerTurn,
             maxRetryAttempts: this.profile.config()?.loopControl?.maxRetriesPerStep,
             recordStepUsage: (usage, context) => {
+              this.usage.record(usageModel, usage, 'turn');
               const tokens = tokenUsageTotal(usage);
               if (tokens > 0) {
                 this.contextSize.measure(this.measurementLength(context.stepUuid), tokens);
               }
-              this.usage.record(usageModel, usage, 'turn');
             },
           });
           if (result.stopReason === 'aborted') {

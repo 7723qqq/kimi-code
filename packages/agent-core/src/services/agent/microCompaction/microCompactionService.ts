@@ -110,7 +110,7 @@ export class MicroCompactionService
     if (cacheAgeMs < this.config.cacheMissedThresholdMs) return;
 
     const history = this.context.getHistory();
-    if (this.contextSizeRatio() < this.config.minContextUsageRatio) return;
+    if (this.contextUsageRatio() < this.config.minContextUsageRatio) return;
 
     const previousCutoff = this.cutoff;
     const nextCutoff = Math.max(0, history.length - this.config.keepRecentMessages);

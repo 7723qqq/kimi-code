@@ -88,7 +88,7 @@ function sessionStartRuntime(input: {
   });
   ctx.configure();
   if (input.history !== undefined) {
-    ctx.context.spliceHistory(0, 0, ...input.history);
+    ctx.context.spliceHistory(0, 0, input.history);
   }
   return { ctx, warnings };
 }

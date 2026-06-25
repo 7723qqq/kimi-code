@@ -902,11 +902,8 @@ export class AgentTestContext {
       inputCacheRead: 0,
       inputCacheCreation: 0,
     };
-    // Cover the live context-token count immediately, and persist a turn-scoped
-    // `usage.record` (as the real loop does) so the coverage is rebuilt on
-    // resume. `endTurn()` then clears the live per-turn aggregate so the live
-    // `usage.data()` matches a resumed session, which re-applies the record as a
-    // cumulative `session` total with no in-flight turn.
+    // Persist both the context-size measurement and turn-scoped usage so resume
+    // rebuilds size and usage the same way the real loop does.
     this.contextSize.measure(this.context.getHistory().length, tokenTotal);
     this.usage.record(this.profile.data().modelAlias ?? 'mock-model', usage, 'turn');
     this.usage.endTurn();

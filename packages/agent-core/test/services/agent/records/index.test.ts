@@ -299,7 +299,7 @@ describe('AgentRecords persistence metadata', () => {
     expect(ctx.context.getHistory()).toHaveLength(0);
   });
 
-  it('preconstructs context usage restore handlers during runtime activation', async () => {
+  it('preconstructs context size restore handlers during runtime activation', async () => {
     const { runtime } = createBareRuntime();
     try {
       await runtime.get(IWireRecord).restore([
@@ -315,6 +315,11 @@ describe('AgentRecords persistence metadata', () => {
               toolCalls: [],
             },
           ],
+        },
+        {
+          type: 'context_size.measured',
+          length: 1,
+          tokens: 42,
         },
         {
           type: 'usage.record',

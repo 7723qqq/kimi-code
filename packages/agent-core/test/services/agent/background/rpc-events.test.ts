@@ -546,12 +546,14 @@ describe('BackgroundManager — notification delivery', () => {
       await persistence.writeTask(persistedAgent({ taskId: 'agent-seen0000' }));
       await persistence.appendTaskOutput('agent-seen0000', 'already delivered summary');
       const { agent, ctx, manager } = createBackgroundManager({ sessionDir });
-      ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {
-        role: 'user',
-        content: [{ type: 'text', text: 'already delivered' }],
-        toolCalls: [],
-        origin,
-      });
+      ctx.context.spliceHistory(ctx.context.getHistory().length, 0, [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'already delivered' }],
+          toolCalls: [],
+          origin,
+        },
+      ]);
       await new Promise((resolve) => setTimeout(resolve, 0));
       agent.context.appendUserMessage.mockClear();
 

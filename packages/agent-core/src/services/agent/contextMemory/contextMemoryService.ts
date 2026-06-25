@@ -98,7 +98,7 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
           summary: textContent(messages[0]),
           compactedCount: record.deleteCount,
           tokensBefore,
-          tokensAfter: estimateTokensForMessages(this.history),
+          tokensAfter: record.tokens ?? estimateTokensForMessages(this.history),
         },
       });
     } else {

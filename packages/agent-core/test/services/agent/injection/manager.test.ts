@@ -92,7 +92,7 @@ describe('DynamicInjectorService', () => {
     });
 
     await injectDynamic(ctx);
-    ctx.context.spliceHistory(0, ctx.context.getHistory().length);
+    ctx.context.spliceHistory(0, ctx.context.getHistory().length, []);
     await injectDynamic(ctx);
 
     expect(seen).toEqual([null, null]);
@@ -108,7 +108,7 @@ describe('DynamicInjectorService', () => {
     ctx.configure();
     const seen: Array<number | null> = [];
 
-    ctx.context.spliceHistory(0, 0, userMessage('before reminder'));
+    ctx.context.spliceHistory(0, 0, [userMessage('before reminder')]);
     ctx.get(IDynamicInjector).register('recording_test', ({ injectedAt }) => {
       seen.push(injectedAt);
       return injectedAt === null ? 'recorded reminder' : undefined;
@@ -118,7 +118,7 @@ describe('DynamicInjectorService', () => {
     ctx.context.spliceHistory(
       0,
       2,
-      compactionSummary('Compacted summary.'),
+      [compactionSummary('Compacted summary.')],
     );
     await injectDynamic(ctx);
 

@@ -1714,15 +1714,7 @@ describe('Agent turn flow', () => {
         duration_ms: expect.any(Number),
       }),
     });
-    // NOTE: `expectResumeMatches()` is intentionally omitted here. A cancelled
-    // turn writes a turn-scoped `usage.record` whose step never reaches
-    // `step.end`, so the live path (which only covers tokens on `step.end`)
-    // leaves `contextTokens` at 0, while the resume path covers it from the
-    // replayed `usage.record`. There is no wire-level signal distinguishing a
-    // cancelled step from a completed one (a rejected ExitPlanMode turn has the
-    // identical record shape but legitimately covers its tokens), so the two
-    // cannot be reconciled in the contextUsage service alone. Tracked as a
-    // known resume-parity gap in TODO3.md (turn-flow hook/event parity).
+    await ctx.expectResumeMatches();
   });
 
   it('buffers steer input and includes it in the same turn after approval', async () => {
