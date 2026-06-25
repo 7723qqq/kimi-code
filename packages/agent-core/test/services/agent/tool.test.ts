@@ -169,7 +169,7 @@ describe('Agent tools', () => {
     });
   });
 
-  it.skip('continues after a foreground Agent tool returns a max_tokens failure', async () => {
+  it('continues after a foreground Agent tool returns a max_tokens failure', async () => {
     const completion = Promise.reject(
       new Error('Subagent turn failed before completing its final summary: reason=max_tokens.'),
     );

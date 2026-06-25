@@ -60,6 +60,12 @@ export interface IProfileService {
   data(): ProfileData;
   resolveModelContext(): ProfileModelContext;
   getProvider(): ChatProvider;
+  /**
+   * The resolved chat provider for the active model. Equivalent to
+   * {@link getProvider}, exposed as a property so media/video tooling (and
+   * tests) can read or override the upload-capable provider directly.
+   */
+  readonly provider: ChatProvider;
   getModelCapabilities(): ModelCapability;
   getMaxOutputSize(): number | undefined;
   hasModel(): boolean;

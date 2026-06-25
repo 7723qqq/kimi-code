@@ -169,6 +169,10 @@ export class ProfileService implements IProfileService {
     return applyKimiEnvThinkingKeep(applyKimiEnvSamplingParams(provider), this.thinkingLevel);
   }
 
+  get provider(): ChatProvider {
+    return this.getProvider();
+  }
+
   getModelCapabilities(): ModelCapability {
     return this.tryResolvedProviderConfig()?.modelCapabilities ?? UNKNOWN_CAPABILITY;
   }
