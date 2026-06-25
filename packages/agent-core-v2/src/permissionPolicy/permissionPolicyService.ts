@@ -4,7 +4,7 @@ import {
   registerSingleton,
   SyncDescriptor,
 } from "#/_base/di";
-import type { ResolvedToolExecutionHookContext } from '../../../loop';
+import type { ResolvedToolExecutionHookContext } from '#/loop';
 import type { PathClass } from '../../../tools/policies/path-access';
 import {
   type PermissionGitWorkTreeMarker,
@@ -41,9 +41,9 @@ import { UserConfiguredDenyPermissionPolicyService } from './policies/user-confi
 import { YoloModeApprovePermissionPolicyService } from './policies/yolo-mode-approve';
 import {
   IPermissionPolicyService,
-  type PermissionPolicy,
   type PermissionPolicyEvaluation,
 } from './permissionPolicy';
+import type { PermissionPolicy } from "./types";
 
 interface PlanModeRuntimeState {
   isActive: boolean;
