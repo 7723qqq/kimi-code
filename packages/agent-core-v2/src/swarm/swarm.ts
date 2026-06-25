@@ -9,7 +9,7 @@ export interface ISwarmService {
   exit(): void;
 }
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'swarm_mode.enter': {
       trigger: SwarmModeTrigger;

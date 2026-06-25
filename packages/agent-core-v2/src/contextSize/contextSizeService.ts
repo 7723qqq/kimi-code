@@ -16,7 +16,7 @@ import {
   type ContextSizeStatus,
 } from './contextSize';
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'context_size.measured': {
       length: number;

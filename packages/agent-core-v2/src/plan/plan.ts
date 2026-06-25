@@ -19,7 +19,7 @@ export interface IPlanService {
   data(): Promise<PlanData>;
 }
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'plan_mode.enter': {
       id: string;

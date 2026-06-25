@@ -15,11 +15,6 @@ import type { ToolInputDisplay } from '../../tools/display';
 
 export type { ContextMessage, PromptOrigin };
 
-export interface WireRecordMap {}
-
-export type WireRecord<K extends keyof WireRecordMap = keyof WireRecordMap> = {
-  [T in K]: { readonly type: T; readonly time?: number } & Readonly<WireRecordMap[T]>;
-}[K];
 
 export interface LLMRequestOverrides {
   messages?: readonly Message[];

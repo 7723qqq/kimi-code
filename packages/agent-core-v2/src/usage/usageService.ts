@@ -7,7 +7,7 @@ import type { UsageRecordScope, UsageStatus } from './usage';
 import { IUsageService } from './usage';
 import { IWireRecord } from '../wireRecord/wireRecord';
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'usage.record': {
       model: string;

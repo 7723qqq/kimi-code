@@ -19,7 +19,7 @@ import {
   type UserToolServiceOptions,
 } from './userTool';
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'tools.register_user_tool': UserToolRegistration;
     'tools.unregister_user_tool': {

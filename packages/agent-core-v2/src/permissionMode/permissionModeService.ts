@@ -10,7 +10,7 @@ import { IWireRecord } from '../wireRecord/wireRecord';
 import { registerPermissionModeInjection } from './injection/permissionModeInjection';
 import { IPermissionModeService } from './permissionMode';
 
-declare module '../types' {
+declare module '#/wireRecord' {
   interface WireRecordMap {
     'permission.set_mode': {
       mode: PermissionMode;
