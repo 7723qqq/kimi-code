@@ -75,7 +75,17 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
-    // Set environment variables.
+    // Inject non-interactive environment variables so tools like git / node
+    // don't open a pager and paints don't colour the stream. Mirrors the
+    // TS BashTool's `noninteractiveEnv` block.
+    cmd.env("NO_COLOR", "1");
+    cmd.env("TERM", "dumb");
+    cmd.env("SHELL", &shell);
+    if std::env::var("GIT_TERMINAL_PROMPT").is_err() {
+        cmd.env("GIT_TERMINAL_PROMPT", "0");
+    }
+
+    // Set user-supplied environment variables (override defaults above).
     if let Some(ref env) = config.env {
         for (key, value) in env {
             cmd.env(key, value);
