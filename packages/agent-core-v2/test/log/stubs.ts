@@ -28,6 +28,7 @@ export function stubLog(): ILogService {
     _serviceBrand: undefined,
     level: 'info',
     setLevel: () => {},
+    flush: () => Promise.resolve(),
   };
 }
 

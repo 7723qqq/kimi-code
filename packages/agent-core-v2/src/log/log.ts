@@ -3,11 +3,13 @@
  *
  * Defines the public contract of logging: the `LogEntry` / `LogLevel` model,
  * the `ILogger` / `ILogService` used by other domains to emit leveled entries,
- * and the `ILogSink` they are written to. Core-scoped — one shared instance
- * for the process.
+ * the `ILogWriterService` they are written to, and the per-session `ISessionLogService`
+ * that owns a session-scoped sink. `ILogService` is Core-scoped;
+ * `ISessionLogService` is Session-scoped.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { ScopeSeed } from '#/_base/di/scope';
 
 export type LogLevel = 'off' | 'error' | 'warn' | 'info' | 'debug';
 
@@ -28,12 +30,14 @@ export interface LogEntry {
   readonly error?: LogEntryError;
 }
 
-export interface ILogSink {
+export interface ILogWriterService {
   write(entry: LogEntry): void;
+  flush?(): Promise<void>;
+  close?(): Promise<void>;
 }
 
-export const ILogSink: ServiceIdentifier<ILogSink> =
-  createDecorator<ILogSink>('logSink');
+export const ILogWriterService: ServiceIdentifier<ILogWriterService> =
+  createDecorator<ILogWriterService>('logWriterService');
 
 export interface ILogger {
   error(message: string, payload?: LogPayload): void;
@@ -47,6 +51,7 @@ export interface ILogService extends ILogger {
   readonly _serviceBrand: undefined;
   readonly level: LogLevel;
   setLevel(level: LogLevel): void;
+  flush(): Promise<void>;
 }
 
 export const ILogService: ServiceIdentifier<ILogService> =
@@ -63,4 +68,30 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
 export function levelEnabled(level: LogLevel, configured: LogLevel): boolean {
   if (level === 'off' || configured === 'off') return false;
   return LEVEL_ORDER[level] <= LEVEL_ORDER[configured];
+}
+
+export interface ISessionLogService extends ILogger {
+  readonly _serviceBrand: undefined;
+  flush(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export const ISessionLogService: ServiceIdentifier<ISessionLogService> =
+  createDecorator<ISessionLogService>('sessionLogService');
+
+export interface ISessionLogOptions {
+  readonly sessionId: string;
+  readonly sessionDir: string;
+}
+
+export const ISessionLogOptions: ServiceIdentifier<ISessionLogOptions> =
+  createDecorator<ISessionLogOptions>('sessionLogOptions');
+
+export function sessionLogSeed(sessionId: string, sessionDir: string): ScopeSeed {
+  return [
+    [
+      ISessionLogOptions as ServiceIdentifier<unknown>,
+      { sessionId, sessionDir } satisfies ISessionLogOptions,
+    ],
+  ];
 }

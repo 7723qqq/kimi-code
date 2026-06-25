@@ -1,8 +1,8 @@
 /**
- * `log` domain (L1) — `ILogService` implementation and built-in sinks.
+ * `log` domain (L1) — `ILogService` implementation and built-in writers.
  *
  * Filters entries by the configured `LogLevel` and writes them to the bound
- * `ILogSink`; provides the console and in-memory `ILogSink` implementations.
+ * `ILogWriterService`; provides the console and in-memory `ILogWriterService` implementations.
  * Bound at Core scope.
  */
 
@@ -17,7 +17,7 @@ import {
   type LogLevel,
   type LogPayload,
   ILogService,
-  ILogSink,
+  ILogWriterService,
   levelEnabled,
 } from './log';
 
@@ -47,14 +47,14 @@ function extractContext(payload: LogPayload): LogContext | undefined {
   return undefined;
 }
 
-export class MemoryLogSink implements ILogSink {
+export class MemoryLogWriterService implements ILogWriterService {
   readonly entries: LogEntry[] = [];
   write(entry: LogEntry): void {
     this.entries.push(entry);
   }
 }
 
-export class ConsoleLogSink implements ILogSink {
+export class ConsoleLogWriterService implements ILogWriterService {
   write(entry: LogEntry): void {
     const line = entry.ctx !== undefined ? `${entry.msg} ${JSON.stringify(entry.ctx)}` : entry.msg;
     switch (entry.level) {
@@ -82,7 +82,7 @@ export class LogService implements ILogService {
   private _level: LogLevel;
 
   constructor(
-    @ILogSink private readonly sink: ILogSink,
+    @ILogWriterService protected readonly writer: ILogWriterService,
     private readonly bound: LogContext = {},
     level: LogLevel = 'info',
   ) {
@@ -95,6 +95,10 @@ export class LogService implements ILogService {
 
   setLevel(level: LogLevel): void {
     this._level = level;
+  }
+
+  flush(): Promise<void> {
+    return this.writer.flush?.() ?? Promise.resolve();
   }
 
   error(message: string, payload?: LogPayload): void {
@@ -111,7 +115,7 @@ export class LogService implements ILogService {
   }
 
   child(ctx: LogContext): ILogger {
-    return new LogService(this.sink, { ...this.bound, ...ctx }, this._level);
+    return new LogService(this.writer, { ...this.bound, ...ctx }, this._level);
   }
 
   private emit(
@@ -133,14 +137,14 @@ export class LogService implements ILogService {
       ...(ctx !== undefined ? { ctx } : {}),
       ...(error !== undefined ? { error } : {}),
     };
-    this.sink.write(entry);
+    this.writer.write(entry);
   }
 }
 
 registerScopedService(
   LifecycleScope.Core,
-  ILogSink,
-  ConsoleLogSink,
+  ILogWriterService,
+  ConsoleLogWriterService,
   InstantiationType.Eager,
   'log',
 );

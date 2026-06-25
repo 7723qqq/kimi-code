@@ -1,8 +1,12 @@
 /**
- * `log` domain barrel — re-exports the `log` contract and its scoped service
- * (`logService`). Importing this barrel registers the `ILogService` and
- * `ILogSink` bindings into the scope registry.
+ * `log` domain barrel — re-exports the logging contract and its scoped
+ * services. Importing this barrel registers the `ILogService` / `ILogWriterService`
+ * (Core) and `ISessionLogService` (Session) bindings into the scope registry.
  */
 
 export * from './log';
+export * from './logConfig';
 export * from './logService';
+export * from './sessionLogService';
+export * from './logWriter';
+export * from './formatter';
