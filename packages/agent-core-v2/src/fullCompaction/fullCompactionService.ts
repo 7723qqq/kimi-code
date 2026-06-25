@@ -14,40 +14,42 @@ import {
 } from "#/_base/di";
 import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/_base/errors";
 import { isAbortError } from '../../../loop/errors';
-import { retryBackoffDelays, sleepForRetry } from '../../../loop/retry';
+import { retryBackoffDelays, sleepForRetry } from '#/loop/retry';
 import { estimateTokens, estimateTokensForMessages } from "#/_base/utils/tokens";
 import { renderPrompt } from "#/_base/utils/render-prompt";
 import compactionInstructionTemplate from '../../../agent/compaction/compaction-instruction.md?raw';
 import {
   type CompactionBeginData,
   type CompactionResult,
+} from './types';
+import {
   type CompactionStrategy,
-} from '../../../agent/compaction';
+} from './strategy';
 import {
   TODO_STORE_KEY,
   renderTodoList,
   type TodoItem,
 } from '../../../tools/builtin/state/todo-list';
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IContextProjector } from '../contextProjector/contextProjector';
-import { IContextSizeService } from '../contextSize/contextSize';
-import { IEventBus } from '../eventBus/eventBus';
-import { IExternalHooksService } from '../externalHooks/externalHooks';
-import { ILLMRequester } from '../llmRequester/llmRequester';
-import { IProfileService } from '../profile/profile';
-import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
-import { ITelemetryService } from '../telemetry/telemetry';
-import { IToolStoreService } from '../toolStore/toolStore';
-import { ITurnRunner } from '../turnRunner/turnRunner';
-import type { ContextMessage, LLMEvent } from '../types';
-import { IUsageService } from '../usage/usage';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IContextMemory } from '#/contextMemory/contextMemory';
+import { IContextProjector } from '#/contextProjector/contextProjector';
+import { IContextSizeService } from '#/contextSize/contextSize';
+import { IEventBus } from '#/eventBus/eventBus';
+import { IExternalHooksService } from '#/externalHooks/externalHooks';
+import { ILLMRequester } from '#/llmRequester/llmRequester';
+import { IProfileService } from '#/profile/profile';
+import { IReplayBuilderService } from '#/replayBuilder/replayBuilder';
+import { ITelemetryService } from '#/telemetry/telemetry';
+import { IToolStoreService } from '#/toolStore/toolStore';
+import { ITurnRunner } from '#/turnRunner/turnRunner';
+import type { ContextMessage, LLMEvent } from '#/types';
+import { IUsageService } from '#/usage/usage';
+import { IWireRecord } from '#/wireRecord/wireRecord';
 import {
   IFullCompaction,
   type CompactInput,
   type FullCompactionCompleteData,
 } from './fullCompaction';
-import { RuntimeCompactionStrategy } from './compactionStrategy';
+import { RuntimeCompactionStrategy } from './strategy';
 
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
 

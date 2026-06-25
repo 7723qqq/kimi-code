@@ -2,7 +2,7 @@ import type {
   CompactionBeginData,
   CompactionResult,
   CompactionSource,
-} from '../../../agent/compaction';
+} from './types';
 import { createDecorator } from "#/_base/di";
 
 export type FullCompactionCompleteData = Omit<CompactionResult, 'summary'>;
