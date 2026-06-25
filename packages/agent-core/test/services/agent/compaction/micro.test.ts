@@ -744,7 +744,7 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * 60 * 1000);
 
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
     ctx.mockNextResponse({ type: 'text', text: 'Summary.' });
     await ctx.rpc.beginCompaction({});
     await compacted;

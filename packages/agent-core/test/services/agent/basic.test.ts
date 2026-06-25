@@ -67,7 +67,7 @@ it('forwards provider finish diagnostics on filtered steps', async () => {
     [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
     [emit] agent.status.updated   { "contextTokens": 8, "maxContextTokens": 1000000, "contextUsage": 0.000008 }
     [emit] turn.step.completed    { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "filtered", "providerFinishReason": "filtered", "rawFinishReason": "content_filter" }
-    [emit] turn.ended             { "turnId": 0, "reason": "completed" }
+    [emit] turn.ended             { "turnId": 0, "reason": "filtered" }
   `);
 
   const rpcStepEnd = ctx.allEvents.find(
@@ -141,7 +141,6 @@ it('runs an agent turn through registered tool approval and execution', async ()
     [emit] turn.step.started      { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
     [emit] assistant.delta        { "turnId": 0, "delta": "The lookup result is lookup-result." }
     [wire] context.splice         { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is lookup-result." } ], "toolCalls": [] } ], "time": "<time>" }
-    [emit] agent.status.updated   { "contextTokens": 20, "maxContextTokens": 1000000, "contextUsage": 0.00002 }
     [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
     [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 29, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 29, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 29, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
     [emit] agent.status.updated   { "contextTokens": 37, "maxContextTokens": 1000000, "contextUsage": 0.000037 }

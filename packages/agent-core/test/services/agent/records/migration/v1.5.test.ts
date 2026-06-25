@@ -207,18 +207,19 @@ describe('1.4 to 1.5', () => {
         },
       ]),
     ).toMatchInlineSnapshot(`
-      [wire] metadata         { "protocol_version": "<protocol-version>", "created_at": "<time>" }
-      [wire] goal.create      { "goalId": "goal-1", "objective": "finish migration", "time": "<time>" }
-      [wire] goal.clear       { "time": "<time>" }
-      [wire] context.splice   { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "before tool" } ], "toolCalls": [], "origin": { "kind": "user" } } ], "time": "<time>" }
-      [wire] turn.launch      { "turnId": 2, "origin": { "kind": "system_trigger", "name": "migrated_turn" }, "time": "<time>" }
-      [wire] context.splice   { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [], "toolCalls": [ { "type": "function", "id": "call_interrupted", "name": "Write", "arguments": "{\\"file\\":\\"example.test\\"}" } ] } ], "time": "<time>" }
-      [wire] turn.launch      { "turnId": 3, "origin": { "kind": "system_trigger", "name": "migrated_turn" }, "time": "<time>" }
-      [wire] context.splice   { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "<system>ERROR: Tool execution failed.</system>\\nTool execution was interrupted before its result was recorded. Do not assume the tool completed successfully." } ], "toolCalls": [], "toolCallId": "call_interrupted", "isError": true } ], "time": "<time>" }
-      [wire] context.splice   { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "after interruption" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] context.splice   { "start": 0, "deleteCount": 2, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "compacted summary" } ], "toolCalls": [], "origin": { "kind": "compaction_summary" } } ], "time": "<time>" }
-      [wire] context.splice   { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "remove this" } ], "toolCalls": [], "origin": { "kind": "user" } } ], "time": "<time>" }
-      [wire] context.splice   { "start": 3, "deleteCount": 1, "messages": [], "time": "<time>" }
+      [wire] metadata                   { "protocol_version": "<protocol-version>", "created_at": "<time>" }
+      [wire] goal.create                { "goalId": "goal-1", "objective": "finish migration", "time": "<time>" }
+      [wire] goal.clear                 { "time": "<time>" }
+      [wire] context.splice             { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "before tool" } ], "toolCalls": [], "origin": { "kind": "user" } } ], "time": "<time>" }
+      [wire] turn.launch                { "turnId": 2, "origin": { "kind": "system_trigger", "name": "migrated_turn" }, "time": "<time>" }
+      [wire] context.splice             { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [], "toolCalls": [ { "type": "function", "id": "call_interrupted", "name": "Write", "arguments": "{\\"file\\":\\"example.test\\"}" } ] } ], "time": "<time>" }
+      [wire] turn.launch                { "turnId": 3, "origin": { "kind": "system_trigger", "name": "migrated_turn" }, "time": "<time>" }
+      [wire] context.splice             { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "<system>ERROR: Tool execution failed.</system>\\nTool execution was interrupted before its result was recorded. Do not assume the tool completed successfully." } ], "toolCalls": [], "toolCallId": "call_interrupted", "isError": true } ], "time": "<time>" }
+      [wire] context.splice             { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "after interruption" } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] context.splice             { "start": 0, "deleteCount": 2, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "compacted summary" } ], "toolCalls": [], "origin": { "kind": "compaction_summary" } } ], "time": "<time>" }
+      [wire] full_compaction.complete   { "compactedCount": 2, "tokensBefore": 100, "tokensAfter": 20, "time": "<time>" }
+      [wire] context.splice             { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "remove this" } ], "toolCalls": [], "origin": { "kind": "user" } } ], "time": "<time>" }
+      [wire] context.splice             { "start": 3, "deleteCount": 1, "messages": [], "time": "<time>" }
     `);
   });
 });

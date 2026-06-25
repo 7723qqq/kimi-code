@@ -5,6 +5,8 @@ import type {
 } from '../../../agent/compaction';
 import { createDecorator } from '../../../di';
 
+export type FullCompactionCompleteData = Omit<CompactionResult, 'summary'>;
+
 export interface CompactInput {
   readonly source: CompactionSource;
   readonly instruction?: string;
@@ -24,12 +26,7 @@ declare module '../types' {
   interface WireRecordMap {
     'full_compaction.begin': CompactionBeginData;
     'full_compaction.cancel': {};
-    'full_compaction.complete': {};
-    // Informational marker emitted alongside the compaction-summary
-    // `context.splice` that actually folds history. It carries the compaction
-    // result for UI/transcript consumers and has no resumer (restore is driven
-    // by the splice), matching the legacy `context.apply_compaction` event.
-    'context.apply_compaction': CompactionResult;
+    'full_compaction.complete': FullCompactionCompleteData;
   }
 }
 

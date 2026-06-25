@@ -316,9 +316,13 @@ describe('background notification → main agent (real Agent instance)', () => {
       expect(ctx.llmCalls.length).toBe(0);
       expect(ctx.runtime.get(ITurnRunner).getActiveTurn()).toBeUndefined();
 
-      // Both notifications are in context, waiting for the user.
+      // Both notifications are in context, waiting for the user. The
+      // completed bash task references its persisted output file rather
+      // than inlining the content (parity with the restored-notification
+      // behavior pinned in background/rpc-events.test.ts).
       const flatContext = JSON.stringify(ctx.contextData());
-      expect(flatContext).toContain('previous bash output');
+      expect(flatContext).toContain('<output-file');
+      expect(flatContext).not.toContain('previous bash output');
       expect(flatContext).toMatch(/task\.completed/);
       expect(flatContext).toMatch(/task\.lost/);
     } finally {

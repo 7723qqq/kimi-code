@@ -192,7 +192,7 @@ describe('FullCompaction', () => {
     ctx.appendExchange(2, 'old user two', 'old assistant two', 40);
     ctx.appendExchange(3, 'recent user three', 'recent assistant three', 120);
     const compacted = new Promise<void>((resolve) => {
-      ctx.emitter.once('context.apply_compaction', () => {
+      ctx.emitter.once('full_compaction.complete', () => {
         resolve();
       });
     });
@@ -209,11 +209,26 @@ describe('FullCompaction', () => {
       expect.arrayContaining([
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),
         expect.objectContaining({ type: '[rpc]', event: 'compaction.started' }),
-        expect.objectContaining({ type: '[wire]', event: 'context.apply_compaction' }),
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.complete' }),
         expect.objectContaining({ type: '[rpc]', event: 'compaction.completed' }),
       ]),
     );
+    type WireCompleteEvent = {
+      type: '[wire]';
+      event: 'full_compaction.complete';
+      args: Record<string, unknown>;
+    };
+    const completeEvent = events.find((event): event is WireCompleteEvent => {
+      if (event === null || typeof event !== 'object') return false;
+      const candidate = event as { type?: unknown; event?: unknown };
+      return candidate.type === '[wire]' && candidate.event === 'full_compaction.complete';
+    });
+    expect(completeEvent?.args).toEqual(expect.objectContaining({
+      compactedCount: expect.any(Number),
+      tokensBefore: expect.any(Number),
+      tokensAfter: expect.any(Number),
+    }));
+    expect(completeEvent?.args).not.toHaveProperty('summary');
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
       tools: []
@@ -269,7 +284,7 @@ describe('FullCompaction', () => {
     });
     ctx.appendExchange(3, 'old user two', 'old assistant two', 40);
     const compacted = new Promise<void>((resolve) => {
-      ctx.emitter.once('context.apply_compaction', () => {
+      ctx.emitter.once('full_compaction.complete', () => {
         resolve();
       });
     });
@@ -328,7 +343,7 @@ describe('FullCompaction', () => {
     vi.setSystemTime(61 * 60 * 1000);
 
     (ctx.get(IMicroCompactionService) as any).detect();
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
     await ctx.rpc.beginCompaction({ instruction: 'Summarize tool exchanges.' });
     await compacted;
@@ -365,7 +380,7 @@ describe('FullCompaction', () => {
     ctx.newEvents();
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    const outcome = ctx.onceAny(['context.apply_compaction', 'error']);
+    const outcome = ctx.onceAny(['full_compaction.complete', 'error']);
 
     await ctx.rpc.beginCompaction({});
 
@@ -391,12 +406,12 @@ describe('FullCompaction', () => {
       { role: 'assistant', text: 'recent assistant two' },
     ]);
 
-    const retryOutcome = ctx.onceAny(['context.apply_compaction', 'error']);
+    const retryOutcome = ctx.onceAny(['full_compaction.complete', 'error']);
     const completed = ctx.once('compaction.completed');
 
     await ctx.rpc.beginCompaction({});
 
-    expect(await retryOutcome).toBe('context.apply_compaction');
+    expect(await retryOutcome).toBe('full_compaction.complete');
     await completed;
     expect(authKeys).toEqual(['fresh-token', 'forced-refresh-token', 'fresh-token']);
     expect(tokenCalls).toEqual([undefined, true, undefined]);
@@ -426,7 +441,7 @@ describe('FullCompaction', () => {
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'old user two', 'old assistant two', 40);
     ctx.appendExchange(3, 'recent user three', 'recent assistant three', 120);
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
 
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
     ctx.get(IFullCompaction).begin({ source: 'auto', instruction: undefined });
@@ -515,7 +530,7 @@ describe('FullCompaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
     const completed = ctx.once('compaction.completed');
 
     await ctx.rpc.beginCompaction({});
@@ -553,7 +568,7 @@ describe('FullCompaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
     const completed = ctx.once('compaction.completed');
 
     await ctx.rpc.beginCompaction({});
@@ -609,7 +624,7 @@ describe('FullCompaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
     const completed = ctx.once('compaction.completed');
 
     await ctx.rpc.beginCompaction({});
@@ -695,7 +710,7 @@ describe('FullCompaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
@@ -909,7 +924,7 @@ describe('FullCompaction', () => {
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendRichToolExchange();
     const compacted = new Promise<void>((resolve) => {
-      ctx.emitter.once('context.apply_compaction', () => {
+      ctx.emitter.once('full_compaction.complete', () => {
         resolve();
       });
     });
@@ -931,7 +946,7 @@ describe('FullCompaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendPartiallyResolvedParallelToolExchange();
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
     const completed = ctx.once('compaction.completed');
 
     ctx.mockNextResponse({ type: 'text', text: 'Compacted before open tools.' });
@@ -984,7 +999,7 @@ describe('FullCompaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
     const completed = ctx.once('compaction.completed');
 
     ctx.mockNextResponse({ type: 'text', text: 'Compacted prefix.' });
@@ -998,7 +1013,6 @@ describe('FullCompaction', () => {
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),
-        expect.objectContaining({ type: '[wire]', event: 'context.apply_compaction' }),
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.complete' }),
         expect.objectContaining({ type: '[rpc]', event: 'compaction.completed' }),
       ]),
@@ -1044,28 +1058,15 @@ describe('FullCompaction', () => {
       6_000,
     );
     const firstSummary = `large manual summary ${'x'.repeat(14_000)}`;
-    let appliedCount = 0;
-    const secondCompacted = new Promise<void>((resolve) => {
-      const handler = () => {
-        appliedCount += 1;
-        if (appliedCount === 2) {
-          ctx.emitter.off('context.apply_compaction', handler);
-          resolve();
-        }
-      };
-      ctx.emitter.on('context.apply_compaction', handler);
-    });
-
     ctx.mockNextResponse({ type: 'text', text: firstSummary });
     ctx.mockNextResponse({ type: 'text', text: 'Second manual summary.' });
     const completed = ctx.once('compaction.completed');
     await ctx.rpc.beginCompaction({});
     ctx.appendExchange(2, 'new user while compacting', 'new assistant while compacting', 6_000);
-    await secondCompacted;
     await completed;
 
     const events = ctx.newEvents();
-    expect(countEvents(events, 'context.apply_compaction')).toBe(2);
+    expect(countEvents(events, 'full_compaction.complete')).toBe(1);
     expect(countEvents(events, 'compaction.started')).toBe(1);
     expect(countEvents(events, 'compaction.completed')).toBe(1);
     expect(ctx.llmCalls).toHaveLength(2);
@@ -1114,7 +1115,7 @@ describe('FullCompaction', () => {
       estimateTokensForMessages(call.history.slice(0, -1)),
     );
     expect(initialTokens).toBeGreaterThan(maxContextTokens * 9);
-    expect(countEvents(events, 'context.apply_compaction')).toBeGreaterThan(1);
+    expect(countEvents(events, 'full_compaction.complete')).toBe(1);
     expect(countEvents(events, 'compaction.completed')).toBe(1);
     expect(compactedPrefixSizes.length).toBeGreaterThan(1);
     expect(compactedPrefixSizes.every((size) => size <= maxContextTokens)).toBe(true);
@@ -1188,7 +1189,6 @@ describe('FullCompaction', () => {
         expect.objectContaining({ type: '[wire]', event: 'context.splice' }),
         expect.objectContaining({ type: '[wire]', event: 'turn.launch' }),
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),
-        expect.objectContaining({ type: '[wire]', event: 'context.apply_compaction' }),
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.complete' }),
         expect.objectContaining({ type: '[rpc]', event: 'turn.ended' }),
       ]),
@@ -1238,28 +1238,47 @@ describe('FullCompaction', () => {
       variant: 'host',
     });
 
-    // Tool exchange is open, so the reminder is deferred — not yet in history.
+    // ContextMemory records raw insertion order — the reminder sits where it
+    // was added, right after the still-open tool exchange.
     expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+      'user',
+    ]);
+    // The projector is what guarantees ordering for the model: while the tool
+    // exchange is open the reminder is deferred (never between a tool call and
+    // its results), so it does not appear in the projection.
+    expect(ctx.project().map((m) => m.role)).toEqual([
       'user',
       'assistant',
       'user',
       'assistant',
     ]);
 
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
     ctx.mockNextResponse({ type: 'text', text: 'Compacted with open tools.' });
     await ctx.rpc.beginCompaction({});
     await compacted;
 
-    // Compaction preserves the in-flight tool exchange in recent; the deferred
-    // reminder still cannot land because the tool exchange is still open.
+    // Compaction preserves the in-flight tool exchange (and the reminder behind
+    // it) in recent; the projection still defers the reminder while the tool
+    // exchange is open.
     expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+      'assistant',
+      'user',
+      'assistant',
+      'user',
+    ]);
+    expect(ctx.project().map((m) => m.role)).toEqual([
       'assistant',
       'user',
       'assistant',
     ]);
 
-    // Closing the exchange flushes the deferred reminder to history.
+    // Closing the exchange (both results together) lets the projector place the
+    // reminder after the tool results.
     await ctx.dispatch({
       type: 'context.splice',
       start: ctx.context.getHistory().length,
@@ -1271,13 +1290,6 @@ describe('FullCompaction', () => {
           toolCalls: [],
           toolCallId: 'call_unresolved_one',
         },
-      ],
-    });
-    await ctx.dispatch({
-      type: 'context.splice',
-      start: ctx.context.getHistory().length,
-      deleteCount: 0,
-      messages: [
         {
           role: 'tool',
           content: [{ type: 'text', text: 'two result' }],
@@ -1287,7 +1299,18 @@ describe('FullCompaction', () => {
       ],
     });
 
+    // Raw history keeps insertion order (reminder before the trailing results).
     expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+      'assistant',
+      'user',
+      'assistant',
+      'user',
+      'tool',
+      'tool',
+    ]);
+    // Projection moves the reminder to after the now-closed tool exchange.
+    const projected = ctx.project();
+    expect(projected.map((m) => m.role)).toEqual([
       'assistant',
       'user',
       'assistant',
@@ -1295,7 +1318,7 @@ describe('FullCompaction', () => {
       'tool',
       'user',
     ]);
-    expect(ctx.context.getHistory().at(-1)?.content).toEqual([
+    expect(projected.at(-1)?.content).toEqual([
       { type: 'text', text: '<system-reminder>\nhost note\n</system-reminder>' },
     ]);
   });
@@ -1313,8 +1336,18 @@ describe('FullCompaction', () => {
       variant: 'host',
     });
 
-    // One tool result has landed but the second is still pending — reminder defers.
+    // One tool result has landed but the second is still pending. Raw history
+    // keeps insertion order (reminder after the partial exchange); the
+    // projector defers it because the exchange is still open.
     expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+      'tool',
+      'user',
+    ]);
+    expect(ctx.project().map((m) => m.role)).toEqual([
       'user',
       'assistant',
       'user',
@@ -1322,12 +1355,19 @@ describe('FullCompaction', () => {
       'tool',
     ]);
 
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
     ctx.mockNextResponse({ type: 'text', text: 'Compacted with partial tools.' });
     await ctx.rpc.beginCompaction({});
     await compacted;
 
     expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+      'assistant',
+      'user',
+      'assistant',
+      'tool',
+      'user',
+    ]);
+    expect(ctx.project().map((m) => m.role)).toEqual([
       'assistant',
       'user',
       'assistant',
@@ -1348,7 +1388,18 @@ describe('FullCompaction', () => {
       ],
     });
 
+    // Raw history keeps insertion order; the projector moves the reminder to
+    // after the now-closed tool exchange.
     expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+      'assistant',
+      'user',
+      'assistant',
+      'tool',
+      'user',
+      'tool',
+    ]);
+    const projected = ctx.project();
+    expect(projected.map((m) => m.role)).toEqual([
       'assistant',
       'user',
       'assistant',
@@ -1356,7 +1407,7 @@ describe('FullCompaction', () => {
       'tool',
       'user',
     ]);
-    expect(ctx.context.getHistory().at(-1)?.content).toEqual([
+    expect(projected.at(-1)?.content).toEqual([
       { type: 'text', text: '<system-reminder>\nhost note\n</system-reminder>' },
     ]);
   });
@@ -1405,7 +1456,7 @@ describe('FullCompaction', () => {
     ctx.clearContext();
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    const compacted = ctx.once('context.apply_compaction');
+    const compacted = ctx.once('full_compaction.complete');
     const completed = ctx.once('compaction.completed');
 
     ctx.mockNextResponse({ type: 'text', text: 'Compacted after no-op cancel.' });
@@ -1571,10 +1622,12 @@ describe('FullCompaction', () => {
     );
     expect(events).toContainEqual(
       expect.objectContaining({
-        event: 'context.apply_compaction',
+        event: 'compaction.completed',
         args: expect.objectContaining({
-          summary: 'Overflow compacted summary.',
-          compactedCount: 2,
+          result: expect.objectContaining({
+            summary: 'Overflow compacted summary.',
+            compactedCount: 2,
+          }),
         }),
       }),
     );
@@ -1704,10 +1757,12 @@ describe('FullCompaction', () => {
     );
     expect(events).toContainEqual(
       expect.objectContaining({
-        event: 'context.apply_compaction',
+        event: 'compaction.completed',
         args: expect.objectContaining({
-          summary: 'Unknown window compacted summary.',
-          compactedCount: 2,
+          result: expect.objectContaining({
+            summary: 'Unknown window compacted summary.',
+            compactedCount: 2,
+          }),
         }),
       }),
     );
@@ -1836,10 +1891,12 @@ describe('FullCompaction', () => {
     );
     expect(events).toContainEqual(
       expect.objectContaining({
-        event: 'context.apply_compaction',
+        event: 'compaction.completed',
         args: expect.objectContaining({
-          summary: 'Placeholder compacted summary.',
-          compactedCount: 2,
+          result: expect.objectContaining({
+            summary: 'Placeholder compacted summary.',
+            compactedCount: 2,
+          }),
         }),
       }),
     );
@@ -1908,7 +1965,7 @@ describe('FullCompaction', () => {
     ]);
 
     const compacted = new Promise<void>((resolve) => {
-      ctx.emitter.once('context.apply_compaction', () => {
+      ctx.emitter.once('full_compaction.complete', () => {
         resolve();
       });
     });

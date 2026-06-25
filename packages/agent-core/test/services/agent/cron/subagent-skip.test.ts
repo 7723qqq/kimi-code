@@ -5,8 +5,8 @@
  * never serve any purpose — default subagent profiles don't expose the
  * Cron tools to the LLM. This test pins both halves of the fix:
  *
- *   1. `agent.cron` is `null` for `type: 'sub'` so no timers or
- *      listeners leak for ephemeral agents.
+ *   1. `agent.cron` is disabled (`isEnabled === false`) for `type: 'sub'`
+ *      so no scheduler, timers or listeners leak for ephemeral agents.
  *   2. `cron.start()` is never called for subagents, so the SIGUSR1
  *      listener count stays put.
  *   3. The three Cron tools (`CronCreate` / `CronList` / `CronDelete`)
@@ -39,8 +39,10 @@ describe('Agent + Cron — subagent suppression', () => {
     const before = process.listenerCount('SIGUSR1');
     const ctx = testAgent({ type: 'sub' });
 
-    // Subagents do not get a CronManager instance at all.
-    expect(ctx.cron).toBeNull();
+    // Subagents get a disabled CronService: no scheduler, no timers,
+    // no SIGUSR1 listener and no tools — the service-DI equivalent of
+    // the old `agent.cron === null`.
+    expect(ctx.cron.isEnabled).toBe(false);
 
     // start() was not called — no SIGUSR1 binding accrued.
     expect(process.listenerCount('SIGUSR1')).toBe(before);

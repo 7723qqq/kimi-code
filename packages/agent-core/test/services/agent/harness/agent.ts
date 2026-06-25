@@ -124,6 +124,7 @@ export interface TestAgentOptions {
   readonly runtime?: AgentRuntimeOptions['toolServices'] | undefined;
   readonly toolServices?: AgentRuntimeOptions['toolServices'] | undefined;
   readonly microCompaction?: AgentRuntimeOptions['microCompaction'];
+  readonly fullCompaction?: AgentRuntimeOptions['fullCompaction'];
   readonly generate?: GenerateFn | undefined;
   readonly hookEngine?: AgentRuntimeOptions['hookEngine'];
   readonly type?: AgentRuntimeOptions['type'];
@@ -270,6 +271,7 @@ export class AgentTestContext {
       hookEngine: options.hookEngine,
       experimentalFlags: options.experimentalFlags,
       microCompaction: options.microCompaction,
+      fullCompaction: options.fullCompaction,
       permission: options.permission,
       permissionRules: options.permissionRules,
       permissionMode: options.permissionMode,
@@ -632,6 +634,7 @@ export class AgentTestContext {
       providerManagerOverrides: this.options.providerManagerOverrides,
       generate: failOnResumeGenerate,
       microCompaction: this.options.microCompaction,
+      fullCompaction: this.options.fullCompaction,
       subagentHost: this.options.subagentHost,
       experimentalFlags: this.options.experimentalFlags,
       pluginSessionStarts: this.options.pluginSessionStarts,
@@ -893,12 +896,20 @@ export class AgentTestContext {
 
   private coverUsage(tokenTotal: number | undefined): void {
     if (tokenTotal === undefined) return;
-    this.contextUsage.coverThrough(this.context.getHistory().length, {
+    const usage = {
       inputOther: tokenTotal - 1,
       output: 1,
       inputCacheRead: 0,
       inputCacheCreation: 0,
-    });
+    };
+    // Cover the live context-token count immediately, and persist a turn-scoped
+    // `usage.record` (as the real loop does) so the coverage is rebuilt on
+    // resume. `endTurn()` then clears the live per-turn aggregate so the live
+    // `usage.data()` matches a resumed session, which re-applies the record as a
+    // cumulative `session` total with no in-flight turn.
+    this.contextUsage.coverThrough(this.context.getHistory().length, usage);
+    this.usage.record(this.profile.data().modelAlias ?? 'mock-model', usage, 'turn');
+    this.usage.endTurn();
   }
 }
 

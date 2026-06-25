@@ -45,6 +45,7 @@ import { IWireRecord } from '../wireRecord/wireRecord';
 import {
   IFullCompaction,
   type CompactInput,
+  type FullCompactionCompleteData,
 } from './fullCompaction';
 import { RuntimeCompactionStrategy } from './compactionStrategy';
 
@@ -134,6 +135,21 @@ export class FullCompactionService extends Disposable implements IFullCompaction
         this.replayBuilder.patchLast('compaction', { result: 'cancelled' });
       }),
     );
+    this._register(
+      wireRecord.register('full_compaction.complete', (record) => {
+        this.contextUsage.applyCompactionResult(record);
+        const summary = compactionSummaryText(this.context.getHistory());
+        if (summary === undefined) return;
+        this.replayBuilder.patchLast('compaction', {
+          result: {
+            summary,
+            compactedCount: record.compactedCount,
+            tokensBefore: record.tokensBefore,
+            tokensAfter: record.tokensAfter,
+          },
+        });
+      }),
+    );
   }
 
   get isCompacting(): boolean {
@@ -182,9 +198,9 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     this.events.emit({ type: 'compaction.cancelled' });
   }
 
-  private markCompleted(): void {
+  private markCompleted(result: FullCompactionCompleteData): void {
     if (this.compacting === null) return;
-    this.wireRecord.append({ type: 'full_compaction.complete' });
+    this.wireRecord.append({ type: 'full_compaction.complete', ...result });
     this.compacting = null;
   }
 
@@ -282,7 +298,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       }
 
       if (this.compacting !== active) return;
-      this.markCompleted();
+      this.markCompleted(completeData(finalResult));
       this.events.emit({ type: 'compaction.completed', result: finalResult });
       this.externalHooks.triggerPostCompact({
         trigger: data.source,
@@ -398,7 +414,6 @@ export class FullCompactionService extends Disposable implements IFullCompaction
 
       this.context.spliceHistory(0, compactedCount, createCompactionSummaryMessage(summary));
       this.contextUsage.applyCompactionResult(result);
-      this.wireRecord.append({ type: 'context.apply_compaction', ...result });
       return result;
     } catch (error) {
       if (isAbortError(error)) return undefined;
@@ -491,6 +506,22 @@ function createCompactionSummaryMessage(summary: string): ContextMessage {
     toolCalls: [],
     origin: { kind: 'compaction_summary' },
   };
+}
+
+function completeData(result: CompactionResult): FullCompactionCompleteData {
+  return {
+    compactedCount: result.compactedCount,
+    tokensBefore: result.tokensBefore,
+    tokensAfter: result.tokensAfter,
+  };
+}
+
+function compactionSummaryText(history: readonly ContextMessage[]): string | undefined {
+  const message = history[0];
+  if (message?.origin?.kind !== 'compaction_summary') return undefined;
+  return message.content
+    .map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
+    .join('');
 }
 
 function historyUnchanged(

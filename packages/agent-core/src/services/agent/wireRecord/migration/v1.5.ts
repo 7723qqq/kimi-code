@@ -62,6 +62,8 @@ class V1_5MigrationState {
         return this.migrateClear(record);
       case 'context.apply_compaction':
         return this.migrateApplyCompaction(record as V1_4ApplyCompactionRecord);
+      case 'full_compaction.complete':
+        return [];
       case 'context.undo':
         return this.migrateUndo(record as V1_4UndoRecord);
       case 'context.splice':
@@ -147,7 +149,10 @@ class V1_5MigrationState {
     const deleteCount = clampDeleteCount(record.compactedCount, this.history.length);
     this.history.splice(0, deleteCount, message);
     this.resetLoopState();
-    return [this.createContextSpliceRecord(0, deleteCount, [message], record)];
+    return [
+      this.createContextSpliceRecord(0, deleteCount, [message], record),
+      this.createFullCompactionCompleteRecord(record),
+    ];
   }
 
   private migrateUndo(record: V1_4UndoRecord): WireMigrationRecord[] {
@@ -345,6 +350,17 @@ class V1_5MigrationState {
   ): WireMigrationRecord {
     this.markTurnLaunched(turnId);
     return withTime(source, { type: 'turn.launch', turnId, origin });
+  }
+
+  private createFullCompactionCompleteRecord(
+    source: V1_4ApplyCompactionRecord,
+  ): WireMigrationRecord {
+    return withTime(source, {
+      type: 'full_compaction.complete',
+      compactedCount: source.compactedCount,
+      tokensBefore: source.tokensBefore,
+      tokensAfter: source.tokensAfter,
+    });
   }
 
   private ensureTurnLaunchForEvent(

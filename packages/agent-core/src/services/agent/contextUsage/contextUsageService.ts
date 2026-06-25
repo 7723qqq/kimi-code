@@ -94,6 +94,11 @@ export class ContextUsageService
     this.contextTokens = result.tokensAfter;
     this.coveredMessageCount = this.estimates.length;
     this.coveredEstimatedTokens = this.totalEstimatedTokens;
+    // A compaction is the most recent authoritative context size. Pin it as the
+    // restored-turn anchor so the post-resume reconciliation (which would
+    // otherwise prefer the last turn-scoped `usage.record`) does not clobber the
+    // compacted total with a pre-compaction usage figure.
+    this.restoredTurnContextTokens = result.tokensAfter;
     this.emitChanged();
   }
 
@@ -102,6 +107,7 @@ export class ContextUsageService
     readonly deleteCount: number;
     readonly messages: readonly ContextMessage[];
   }): void {
+    const previousContextTokens = this.contextTokens;
     const start = normalizeSpliceStart(context.start, this.estimates.length);
     const inserted = context.messages.map((message) => estimateTokensForMessage(message));
     const removed = this.estimates.splice(start, context.deleteCount, ...inserted);
@@ -114,7 +120,15 @@ export class ContextUsageService
       this.coveredMessageCount = this.estimates.length;
       this.coveredEstimatedTokens = this.totalEstimatedTokens;
     }
-    this.emitChanged();
+    // A full clear (history emptied) supersedes any earlier turn-usage anchor;
+    // re-anchor to 0 so the post-resume reconciliation does not restore a
+    // pre-clear usage figure onto an empty context.
+    if (start === 0 && this.estimates.length === 0) {
+      this.restoredTurnContextTokens = 0;
+    }
+    if (this.contextTokens !== previousContextTokens) {
+      this.emitChanged();
+    }
   }
 
   private emitChanged(): void {
