@@ -8,7 +8,7 @@ import type {
   ExecutableTool,
   ExecutableToolContext,
   ExecutableToolResult,
-} from '../../../loop';
+} from '#/loop';
 import { IProfileService } from '../profile/profile';
 import { IToolRegistry } from '../toolRegistry/toolRegistry';
 import type { ToolResult } from '../types';

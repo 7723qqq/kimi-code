@@ -4,8 +4,8 @@ import {
   type ToolCall,
 } from '@moonshot-ai/kosong';
 
-import type { CompactionResult } from '../../../../agent/compaction';
-import type { ContextMessage, PromptOrigin } from '../../../../agent/context';
+import type { CompactionResult } from '#/compaction';
+import type { ContextMessage, PromptOrigin } from '#/context';
 import type {
   ExecutableToolResult,
   LoopContentPartEvent,
@@ -13,7 +13,7 @@ import type {
   LoopStepEndEvent,
   LoopToolCallEvent,
   LoopToolResultEvent,
-} from '../../../../loop';
+} from '#/loop';
 import type { WireMigration, WireMigrationRecord } from './index';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';

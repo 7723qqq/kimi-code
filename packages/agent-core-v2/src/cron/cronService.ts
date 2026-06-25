@@ -28,13 +28,13 @@ import {
   type CronScheduler,
 } from './tools/scheduler';
 import type { CronTask, CronToolManager } from './tools/types';
-import { IEventBus } from '../eventBus/eventBus';
-import { IPromptService } from '../prompt/prompt';
-import { ITelemetryService } from '../telemetry/telemetry';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import { ITurnRunner } from '../turnRunner/turnRunner';
-import type { ContextMessage, Turn } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IEventBus } from '#/eventBus/eventBus';
+import { IPromptService } from '#/prompt/prompt';
+import { ITelemetryService } from '#/telemetry/telemetry';
+import { IToolRegistry } from '#/toolRegistry/toolRegistry';
+import { ITurnRunner } from '#/turnRunner/turnRunner';
+import type { ContextMessage } from '#/types';
+import { IWireRecord } from '#/wireRecord/wireRecord';
 import {
   ICronService,
   type CronJobOrigin,
@@ -45,8 +45,9 @@ import {
   type CronPersistence,
   type CronTaskInit,
 } from './cron';
+import type { Turn } from '#/turn';
 
-declare module '../types' {
+declare module '#/types' {
   interface WireRecordMap {
     'cron.add': {
       task: CronTask;
@@ -65,8 +66,7 @@ const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class CronService
   extends Disposable
-  implements ICronService, CronToolManager
-{
+  implements ICronService, CronToolManager {
   declare readonly _serviceBrand: undefined;
 
   readonly store = new SessionCronStore();
@@ -97,9 +97,9 @@ export class CronService
     this.persistStore =
       this.enabled
         ? options.persistence ??
-          (options.homedir === undefined
-            ? undefined
-            : createCronPersistStore(options.homedir))
+        (options.homedir === undefined
+          ? undefined
+          : createCronPersistStore(options.homedir))
         : undefined;
 
     this._register(
@@ -378,7 +378,7 @@ export class CronService
     if (this.persistStore === undefined) return;
     const prev = this.persistQueues.get(id) ?? Promise.resolve();
     const next = prev
-      .catch(() => {})
+      .catch(() => { })
       .then(() => work())
       .catch((error: unknown) => {
         this.options.onPersistenceError?.(error, id);

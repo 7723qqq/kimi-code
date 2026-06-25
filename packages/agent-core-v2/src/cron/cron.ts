@@ -4,7 +4,7 @@ import { createDecorator } from "#/_base/di";
 import type { ClockSources } from './tools/clock';
 import type { SessionCronTaskInit } from './tools/session-store';
 import type { CronTask, CronToolManager } from './tools/types';
-import type { Turn } from '../types';
+import type { Turn } from '#/turn';
 
 export type CronTaskInit = SessionCronTaskInit;
 

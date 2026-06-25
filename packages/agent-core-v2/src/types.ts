@@ -42,35 +42,6 @@ export type LLMEvent =
       readonly streamDurationMs: number;
     };
 
-export interface TurnResult {
-  readonly reason: 'completed' | 'cancelled' | 'failed' | 'filtered';
-  readonly error?: unknown;
-}
-
-export interface Turn {
-  readonly id: number;
-  readonly abortController: AbortController;
-  readonly ready: Promise<void>;
-  readonly result: Promise<TurnResult>;
-}
-
-export interface TurnStepContext {
-  readonly turn: Turn;
-  continueTurn: boolean;
-}
-
-export interface TurnRunContext {
-  readonly turn: Turn;
-  readonly origin: PromptOrigin;
-  readonly promptMessage?: ContextMessage;
-  result?: TurnResult;
-}
-
-export interface TurnEndedContext {
-  readonly turn: Turn;
-  readonly result: TurnResult;
-}
-
 export type ToolSource = 'builtin' | 'user' | 'mcp';
 
 export interface ToolDefinition {
