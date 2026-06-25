@@ -10,6 +10,21 @@ export function project(history: readonly ContextMessage[]): Message[] {
   return mergeAdjacentUserMessages(deferMessagesAroundOpenToolExchanges(usable));
 }
 
+const TOOL_INTERRUPTED_STATUS = '<system>ERROR: Tool execution failed.</system>';
+const TOOL_INTERRUPTED_OUTPUT =
+  'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
+
+/**
+ * Normalizes a raw history into a sequence the model can consume: every
+ * assistant tool call is immediately followed by its results (real results are
+ * pulled up right after the call; messages that landed between a call and its
+ * results — e.g. injected reminders — are moved to after the exchange closes),
+ * and any tool call left unanswered is closed with a synthetic error result.
+ *
+ * This is the single place tool exchanges are made valid. `ContextMemory`
+ * stores the raw insertion order and never closes anything; closure is
+ * recomputed here on every projection, so it does not need to be persisted.
+ */
 export function deferMessagesAroundOpenToolExchanges(
   history: readonly ContextMessage[],
 ): ContextMessage[] {
@@ -25,13 +40,23 @@ export function deferMessagesAroundOpenToolExchanges(
     }
   };
 
-  const flushDeferredMessagesIfToolExchangeClosed = (): void => {
-    if (pendingToolResultIds.size > 0 || deferredMessages.length === 0) return;
+  const flushDeferredMessages = (): void => {
+    if (deferredMessages.length === 0) return;
     const messages = deferredMessages;
     deferredMessages = [];
     for (const message of messages) {
       visit(message);
     }
+  };
+
+  // Synthesize a result for every tool call still unanswered, then release the
+  // messages that were waiting behind the (now closed) exchange.
+  const closeOpenExchange = (): void => {
+    for (const toolCallId of pendingToolResultIds) {
+      out.push(createInterruptedToolResult(toolCallId));
+    }
+    pendingToolResultIds.clear();
+    flushDeferredMessages();
   };
 
   const visit = (message: ContextMessage): void => {
@@ -40,6 +65,7 @@ export function deferMessagesAroundOpenToolExchanges(
       return;
     }
 
+    // A real result for one of the open calls — pull it up right after the call.
     if (
       message.role === 'tool' &&
       message.toolCallId !== undefined &&
@@ -47,17 +73,42 @@ export function deferMessagesAroundOpenToolExchanges(
     ) {
       out.push(message);
       pendingToolResultIds.delete(message.toolCallId);
-      flushDeferredMessagesIfToolExchangeClosed();
+      if (pendingToolResultIds.size === 0) flushDeferredMessages();
       return;
     }
 
+    // A new assistant turn means the open calls will never be answered — close
+    // them (synthetic results) before the new exchange starts.
+    if (message.role === 'assistant') {
+      closeOpenExchange();
+      visit(message);
+      return;
+    }
+
+    // Everything else (a stray reminder, a result for another call) waits behind
+    // the open exchange and is released once it closes.
     deferredMessages.push(message);
   };
 
   for (const message of history) {
     visit(message);
   }
+  // Close any exchange still open at the end of history.
+  closeOpenExchange();
+
   return out;
+}
+
+function createInterruptedToolResult(toolCallId: string): ContextMessage {
+  return {
+    role: 'tool',
+    content: [
+      { type: 'text', text: `${TOOL_INTERRUPTED_STATUS}\n${TOOL_INTERRUPTED_OUTPUT}` },
+    ],
+    toolCalls: [],
+    toolCallId,
+    isError: true,
+  };
 }
 
 function mergeAdjacentUserMessages(history: readonly ContextMessage[]): Message[] {

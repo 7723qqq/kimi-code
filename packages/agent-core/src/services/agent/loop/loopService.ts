@@ -67,8 +67,6 @@ const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
 const TOOL_EMPTY_ERROR_STATUS =
   '<system>ERROR: Tool execution failed. Tool output is empty.</system>';
 const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
-const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
-  'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
 type ToolTelemetryEvent = 'tool_call' | 'tool_call_dedup_detected' | 'tool_call_repeat';
 
 export class LoopService extends Disposable implements ILoopService {
@@ -678,19 +676,10 @@ export class LoopService extends Disposable implements ILoopService {
   }
 
   private finishResume(): void {
-    const interruptedToolCallIds = unresolvedToolCallIdsFromHistory(this.context.getHistory());
+    // Interrupted (unanswered) tool calls are closed by the projector on every
+    // projection, so resume does not persist any synthetic results — it only
+    // needs to drop the live in-progress step state from before the restart.
     this.openSteps.clear();
-    for (const toolCallId of interruptedToolCallIds) {
-      this.handleEvent({
-        type: 'tool.result',
-        parentUuid: toolCallId,
-        toolCallId,
-        result: {
-          output: TOOL_INTERRUPTED_ON_RESUME_OUTPUT,
-          isError: true,
-        },
-      });
-    }
   }
 
   private replaceOpenStep(
@@ -777,25 +766,6 @@ interface ToolCallTelemetryStart {
   readonly startedAt: number;
 }
 
-function unresolvedToolCallIdsFromHistory(history: readonly ContextMessage[]): string[] {
-  const answered = new Set<string>();
-  for (const message of history) {
-    if (message.role === 'tool' && message.toolCallId !== undefined) {
-      answered.add(message.toolCallId);
-    }
-  }
-
-  const unresolved: string[] = [];
-  for (const message of history) {
-    if (message.role !== 'assistant') continue;
-    for (const toolCall of message.toolCalls) {
-      if (!answered.has(toolCall.id)) {
-        unresolved.push(toolCall.id);
-      }
-    }
-  }
-  return unresolved;
-}
 
 function stringifyToolArguments(args: unknown): string | null {
   if (args === undefined) return null;
