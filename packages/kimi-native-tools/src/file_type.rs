@@ -290,6 +290,159 @@ pub fn is_sensitive_file(path: &str) -> bool {
     false
 }
 
+/// Same logic as [`is_sensitive_file`], but operates directly on UTF-16 code
+/// units (`&[u16]`) — V8's native string format.
+///
+/// This avoids the UTF-16→UTF-8 conversion + `String` heap allocation that
+/// napi's `String` parameter triggers (~130ns/call overhead). For ASCII
+/// paths (the overwhelming majority), u16 code units are identical to byte
+/// values, so results are identical to `is_sensitive_file`.
+///
+/// All comparison helpers are allocation-free: no `replace`, `to_lowercase`,
+/// `format!`, or `Vec` creation.
+pub fn is_sensitive_file_u16(path: &[u16]) -> bool {
+    // ── Allocation-free comparison helpers ─────────────────────────
+
+    #[inline]
+    fn lower(c: u16) -> u16 {
+        if (0x41..=0x5A).contains(&c) { c + 0x20 } else { c }
+    }
+
+    /// Case-insensitive equality of a u16 slice against an ASCII byte string.
+    fn eq_ascii(s: &[u16], ascii: &[u8]) -> bool {
+        s.len() == ascii.len()
+            && s.iter().zip(ascii).all(|(&c, &a)| lower(c) == a as u16)
+    }
+
+    /// Case-insensitive starts-with of a u16 slice against an ASCII prefix.
+    fn starts_with_ascii(s: &[u16], prefix: &[u8]) -> bool {
+        s.len() >= prefix.len()
+            && s[..prefix.len()].iter().zip(prefix).all(|(&c, &a)| lower(c) == a as u16)
+    }
+
+    /// Case-insensitive char match that also treats `\` and `/` as equivalent.
+    #[inline]
+    fn char_eq_sep(c: u16, a: u8) -> bool {
+        let c = lower(c);
+        let a = if a.is_ascii_uppercase() { a.to_ascii_lowercase() } else { a };
+        let c = if c == b'\\' as u16 { b'/' as u16 } else { c };
+        c == a as u16
+    }
+
+    /// Case-insensitive path-ends-with, treating `\` and `/` as equivalent.
+    fn path_ends_with(path: &[u16], suffix: &[u8]) -> bool {
+        if path.len() < suffix.len() {
+            return false;
+        }
+        let off = path.len() - suffix.len();
+        path[off..].iter().zip(suffix).all(|(&c, &a)| char_eq_sep(c, a))
+    }
+
+    /// Case-insensitive path-contains, treating `\` and `/` as equivalent.
+    fn path_contains(path: &[u16], needle: &[u8]) -> bool {
+        if needle.len() > path.len() {
+            return false;
+        }
+        'outer: for start in 0..=(path.len() - needle.len()) {
+            for (i, &a) in needle.iter().enumerate() {
+                if !char_eq_sep(path[start + i], a) {
+                    continue 'outer;
+                }
+            }
+            return true;
+        }
+        false
+    }
+
+    // ── Basename extraction (find last `/` or `\`) ─────────────────
+
+    let slash = b'/' as u16;
+    let backslash = b'\\' as u16;
+    let basename_start = path
+        .iter()
+        .rposition(|&c| c == slash || c == backslash)
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let name = &path[basename_start..];
+
+    // ── Exemptions ─────────────────────────────────────────────────
+
+    if eq_ascii(name, b".env.example")
+        || eq_ascii(name, b".env.sample")
+        || eq_ascii(name, b".env.template")
+    {
+        return false;
+    }
+    if eq_ascii(name, b"id_rsa.pub")
+        || eq_ascii(name, b"id_ed25519.pub")
+        || eq_ascii(name, b"id_ecdsa.pub")
+    {
+        return false;
+    }
+
+    // ── Exact basename matches ─────────────────────────────────────
+
+    if eq_ascii(name, b".env")
+        || eq_ascii(name, b"id_rsa")
+        || eq_ascii(name, b"id_ed25519")
+        || eq_ascii(name, b"id_ecdsa")
+        || eq_ascii(name, b"credentials")
+    {
+        return true;
+    }
+
+    // ── .env.* prefix ──────────────────────────────────────────────
+
+    if starts_with_ascii(name, b".env.") {
+        return true;
+    }
+
+    // ── Prefixed variants: id_rsa.bak, id_rsa-backup, etc. ─────────
+
+    const PREFIXES: &[&[u8]] = &[
+        b"id_rsa",
+        b"id_ed25519",
+        b"id_ecdsa",
+        b"credentials",
+    ];
+    const DOT_SUFFIXES: &[&[u8]] = &[
+        b".bak", b".backup", b".copy", b".disabled", b".key", b".old", b".orig", b".pem",
+        b".save", b".tmp",
+    ];
+
+    for &prefix in PREFIXES {
+        if name.len() > prefix.len() && starts_with_ascii(name, prefix) {
+            let suffix = &name[prefix.len()..];
+            let next = suffix[0];
+            if next == b'-' as u16 || next == b'_' as u16 {
+                return true;
+            }
+            if next == b'.' as u16 {
+                for &dot_suffix in DOT_SUFFIXES {
+                    if eq_ascii(suffix, dot_suffix) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Path suffix checks: .aws/credentials, .gcp/credentials ─────
+
+    if path_ends_with(path, b"/.aws/credentials")
+        || path_contains(path, b"/.aws/credentials/")
+    {
+        return true;
+    }
+    if path_ends_with(path, b"/.gcp/credentials")
+        || path_contains(path, b"/.gcp/credentials/")
+    {
+        return true;
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,6 +558,74 @@ mod tests {
     fn test_is_sensitive_file_case_insensitive() {
         assert!(is_sensitive_file("/repo/.ENV"));
         assert!(is_sensitive_file("/home/User/.SSH/ID_RSA"));
+    }
+
+    // ============================================================================
+    // is_sensitive_file_u16 — verifies identical results to is_sensitive_file
+    // ============================================================================
+
+    fn str_to_u16(s: &str) -> Vec<u16> {
+        s.encode_utf16().collect()
+    }
+
+    #[test]
+    fn test_u16_matches_str_all_cases() {
+        let cases = [
+            // (path, expected)
+            (".env", true),
+            (".env.local", true),
+            (".env.production", true),
+            ("/repo/.env", true),
+            ("/home/user/.ssh/id_rsa", true),
+            ("/home/user/.ssh/id_ed25519", true),
+            ("/home/user/.ssh/id_ecdsa", true),
+            ("/home/user/.aws/credentials", true),
+            ("/some/path/.gcp/credentials", true),
+            ("C:\\Users\\foo\\.aws\\credentials", true),
+            // Exemptions
+            (".env.example", false),
+            (".env.sample", false),
+            (".env.template", false),
+            ("id_rsa.pub", false),
+            ("id_ed25519.pub", false),
+            ("id_ecdsa.pub", false),
+            // Variants
+            ("/secrets/id_rsa.bak", true),
+            ("/secrets/id_rsa.old", true),
+            ("/secrets/id_rsa-backup", true),
+            ("/secrets/id_rsa_disabled", true),
+            ("/secrets/id_rsa.pem", true),
+            ("/secrets/id_rsa.save", true),
+            ("/code/id_rsafoo.txt", false),
+            ("/code/credentials.json", false),
+            // Case insensitive
+            ("/repo/.ENV", true),
+            ("/home/User/.SSH/ID_RSA", true),
+            ("/home/User/.SSH/Id_Ed25519", true),
+            ("/PATH/.AWS/CREDENTIALS", true),
+            // Non-sensitive
+            ("app.py", false),
+            ("src/components/Button.tsx", false),
+            ("package.json", false),
+            ("", false),
+            ("/", false),
+            ("foo/", false),
+        ];
+
+        for (path, expected) in cases {
+            let str_result = is_sensitive_file(path);
+            let u16_result = is_sensitive_file_u16(&str_to_u16(path));
+            assert_eq!(
+                str_result, u16_result,
+                "str/u16 mismatch for {:?}: str={}, u16={}",
+                path, str_result, u16_result
+            );
+            assert_eq!(
+                u16_result, expected,
+                "u16 result mismatch for {:?}: got {}, expected {}",
+                path, u16_result, expected
+            );
+        }
     }
 
     // ============================================================================

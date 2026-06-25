@@ -9,6 +9,7 @@ use crate::grep::{self, GrepConfig, GrepResult, OutputMode, DEFAULT_HEAD_LIMIT};
 use crate::list_directory::{self, ListDirectoryConfig, ListDirectoryResult};
 use crate::read::{self, ReadConfig, ReadResult, MAX_BYTES, MAX_LINE_LENGTH, MAX_LINES};
 use crate::write::{self, WriteMode, WriteResult};
+use napi::bindgen_prelude::Uint16Array;
 use napi_derive::napi;
 
 // ============================================================================
@@ -291,4 +292,14 @@ pub fn native_sniff_image_dimensions(data: Vec<u8>) -> Option<ImageDimensions> {
 #[napi]
 pub fn native_is_sensitive_file(path: String) -> bool {
     file_type::is_sensitive_file(&path)
+}
+
+/// Same as `native_is_sensitive_file` but accepts a `Uint16Array` (V8's
+/// native UTF-16 format) to avoid the UTF-16→UTF-8 string conversion that
+/// `String` parameters trigger. The JS wrapper converts the string to a
+/// `Uint16Array` via `charCodeAt`, which is a direct read from V8's
+/// internal buffer with no encoding conversion.
+#[napi]
+pub fn native_is_sensitive_file_u16(path: Uint16Array) -> bool {
+    file_type::is_sensitive_file_u16(&path)
 }
