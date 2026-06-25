@@ -4,7 +4,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { CompactionService } from '#/compaction/compactionService';
-import { IAgentConfigService } from '#/config';
+import { ISessionConfigService } from '#/config';
 import { IContextService } from '#/context';
 import { ContextService } from '#/context/contextService';
 import { IInjectionService } from '#/injection';
@@ -23,7 +23,7 @@ describe('CompactionService', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     ix.stub(IAgentRecords, stubAgentRecords());
-    ix.stub(IAgentConfigService, {});
+    ix.stub(ISessionConfigService, {});
     ix.stub(ITelemetryService, {});
     ix.stub(ITurnService, stubTurn());
     ix.set(IContextService, new SyncDescriptor(ContextService));

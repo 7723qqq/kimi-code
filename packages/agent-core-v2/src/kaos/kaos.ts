@@ -1,19 +1,20 @@
 import type { Kaos } from '@moonshot-ai/kaos';
 
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from '#/_base/di/instantiation';
 
 export interface IKaosService {
   readonly _serviceBrand: undefined;
   readonly kaos: Kaos | undefined;
+  readonly cwd: string;
+  chdir(cwd: string): Promise<void>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IKaosService = createDecorator<IKaosService>('agentKaosService');
 
-export interface KaosFactoryOptions {
-  readonly kind?: 'local' | 'ssh';
-  readonly cwd?: string;
-}
+export type KaosFactoryOptions =
+  | { readonly kind: 'local'; readonly cwd?: string }
+  | { readonly kind: 'ssh'; readonly host: string; readonly cwd?: string };
 
 export interface IKaosFactory {
   readonly _serviceBrand: undefined;

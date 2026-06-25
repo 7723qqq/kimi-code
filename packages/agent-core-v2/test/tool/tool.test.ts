@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentConfigService } from '#/config';
+import { ISessionConfigService } from '#/config';
 import { IKaosService } from '#/kaos';
 import { ILLMService } from '#/kosong';
 import { IPermissionService } from '#/permission';
@@ -45,7 +45,7 @@ describe('ToolService', () => {
     reg = new ToolDefinitionRegistry();
     reg.register(echoDef);
     ix.set(IToolDefinitionRegistry, reg);
-    ix.stub(IAgentConfigService, {});
+    ix.stub(ISessionConfigService, {});
     ix.stub(IAgentRecords, {});
     ix.stub(IKaosService, {});
     ix.stub(IPermissionService, {});

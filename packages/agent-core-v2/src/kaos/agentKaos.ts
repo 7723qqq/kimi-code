@@ -1,7 +1,8 @@
 /**
  * `kaos` domain (L1) — `IKaosService` implementation.
  *
- * Exposes the agent's active `Kaos` instance. Bound at Agent scope.
+ * Exposes the agent's active `Kaos` instance and working directory, and
+ * switches the working directory on `chdir`. Bound at Agent scope.
  */
 
 import type { Kaos } from '@moonshot-ai/kaos';
@@ -21,6 +22,15 @@ export class AgentKaos implements IKaosService {
 
   get kaos(): Kaos {
     return this._kaos;
+  }
+
+  get cwd(): string {
+    return this._kaos.getcwd();
+  }
+
+  chdir(cwd: string): Promise<void> {
+    this._kaos = this._kaos.withCwd(cwd);
+    return Promise.resolve();
   }
 }
 

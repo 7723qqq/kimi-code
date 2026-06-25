@@ -5,7 +5,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IApprovalService } from '#/approval';
 import { ApprovalService } from '#/approval/approvalService';
-import { IAgentConfigService } from '#/config';
+import { ISessionConfigService } from '#/config';
 import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
 import {
@@ -41,7 +41,7 @@ describe('PermissionService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    ix.stub(IAgentConfigService, {});
+    ix.stub(ISessionConfigService, {});
     ix.stub(IAgentRecords, stubAgentRecords());
     ix.stub(ILogService, stubLog());
     ix.set(IPermissionPolicyRegistry, new SyncDescriptor(PermissionPolicyRegistry));

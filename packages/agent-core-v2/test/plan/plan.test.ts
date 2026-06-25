@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentConfigService } from '#/config';
+import { ISessionConfigService } from '#/config';
 import { IContextService } from '#/context';
 import { ContextService } from '#/context/contextService';
 import { IInjectionService } from '#/injection';
@@ -25,7 +25,7 @@ describe('PlanService', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.stub(IAgentRecords, stubAgentRecords());
     ix.stub(IKaosService, {});
-    ix.stub(IAgentConfigService, {});
+    ix.stub(ISessionConfigService, {});
     ix.stub(ITurnService, stubTurn());
     ix.set(IContextService, new SyncDescriptor(ContextService));
     ix.set(IInjectionService, new SyncDescriptor(InjectionService));

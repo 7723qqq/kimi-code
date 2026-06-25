@@ -16,6 +16,18 @@ export class KaosService implements IKaosService {
   get kaos(): Kaos | undefined {
     return this.options.kaos;
   }
+
+  get cwd(): string {
+    const kaos = this.options.kaos;
+    if (kaos === undefined) {
+      throw new Error('KaosService.cwd accessed before kaos was provided');
+    }
+    return kaos.getcwd();
+  }
+
+  chdir(): Promise<void> {
+    return Promise.reject(new Error('KaosService.chdir is not supported'));
+  }
 }
 
 registerScopedService(

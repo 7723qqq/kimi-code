@@ -83,7 +83,57 @@ export function isErrorCode(code: unknown): code is ErrorCode {
   return typeof code === 'string' && KIMI_ERROR_CODES.has(code as ErrorCode);
 }
 
+// Human-facing overrides for the codes that benefit from a clearer title or a
+// concrete next action. Codes not listed here fall back to the generic
+// `errorInfo` below (title = code, retryable from RETRYABLE_ERROR_CODES).
+const ERROR_INFO_OVERRIDES: Record<string, ErrorInfo> = {
+  [ErrorCodes.INTERNAL]: {
+    title: 'Internal error',
+    retryable: false,
+    public: true,
+    action: 'Inspect logs or report the issue with diagnostics.',
+  },
+  [ErrorCodes.NOT_IMPLEMENTED]: {
+    title: 'Not implemented',
+    retryable: false,
+    public: true,
+    action: 'This feature is not implemented yet.',
+  },
+  [ErrorCodes.LOOP_MAX_STEPS_EXCEEDED]: {
+    title: 'Loop max steps exceeded',
+    retryable: false,
+    public: true,
+    action: 'Raise the max step limit or inspect the tool loop for non-convergence.',
+  },
+  [ErrorCodes.CONTEXT_OVERFLOW]: {
+    title: 'Context overflow',
+    retryable: true,
+    public: true,
+    action: 'Compact the conversation or retry with fewer tokens.',
+  },
+  [ErrorCodes.PROVIDER_RATE_LIMIT]: {
+    title: 'Provider rate limit',
+    retryable: true,
+    public: true,
+    action: 'Retry after the provider rate limit resets.',
+  },
+  [ErrorCodes.PROVIDER_AUTH_ERROR]: {
+    title: 'Provider authentication failed',
+    retryable: false,
+    public: true,
+    action: 'Check provider credentials and authentication configuration.',
+  },
+  [ErrorCodes.AUTH_LOGIN_REQUIRED]: {
+    title: 'Login required',
+    retryable: false,
+    public: true,
+    action: 'Run /login to authenticate with the OAuth provider.',
+  },
+};
+
 export function errorInfo(code: ErrorCode): ErrorInfo {
+  const override = ERROR_INFO_OVERRIDES[code];
+  if (override !== undefined) return override;
   return {
     title: code,
     retryable: RETRYABLE_ERROR_CODES.has(code),

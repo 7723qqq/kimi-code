@@ -1,22 +1,42 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, _clearScopedRegistryForTests } from '#/_base/di/scope';
-import { createScopedTestHost, stubPair } from '#/_base/di/test';
+import { DisposableStore } from '#/_base/di/lifecycle';
 import {
-  ConsoleLogSink,
+  LifecycleScope,
+  _clearScopedRegistryForTests,
+  registerScopedService,
+} from '#/_base/di/scope';
+import { createScopedTestHost, createServices, stubPair } from '#/_base/di/test';
+import type { TestInstantiationService } from '#/_base/di/test';
+import {
+  ConsoleLogWriterService,
   ILogService,
-  ILogSink,
+  ILogWriterService,
   LogService,
-  MemoryLogSink,
+  MemoryLogWriterService,
   levelEnabled,
 } from '#/log/index';
-import { registerScopedService } from '#/_base/di/scope';
 
-describe('LogService (unit)', () => {
+describe('LogService', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+  let sink: MemoryLogWriterService;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    sink = new MemoryLogWriterService();
+    ix = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.defineInstance(ILogWriterService, sink);
+        reg.define(ILogService, LogService);
+      },
+    });
+  });
+  afterEach(() => disposables.dispose());
+
   it('emits entries to the sink at/above the configured level', () => {
-    const sink = new MemoryLogSink();
-    const log = new LogService(sink, {}, 'info');
+    const log = ix.get(ILogService);
     log.debug('hidden');
     log.info('hello');
     log.warn('careful');
@@ -25,8 +45,7 @@ describe('LogService (unit)', () => {
   });
 
   it('extracts Error payload onto entry.error', () => {
-    const sink = new MemoryLogSink();
-    const log = new LogService(sink, {}, 'info');
+    const log = ix.get(ILogService);
     const err = new Error('boom');
     log.error('failed', err);
     expect(sink.entries[0]?.error?.message).toBe('boom');
@@ -34,15 +53,15 @@ describe('LogService (unit)', () => {
   });
 
   it('merges object payload into ctx', () => {
-    const sink = new MemoryLogSink();
-    const log = new LogService(sink, {}, 'debug');
+    const log = ix.get(ILogService);
+    log.setLevel('debug');
     log.info('with ctx', { requestId: 'r1', count: 2 });
     expect(sink.entries[0]?.ctx).toEqual({ requestId: 'r1', count: 2 });
   });
 
   it('child merges bound context and bound wins over payload', () => {
-    const sink = new MemoryLogSink();
-    const parent = new LogService(sink, {}, 'debug');
+    const parent = ix.get(ILogService);
+    parent.setLevel('debug');
     const child = parent.child({ sessionId: 's1', agentId: 'main' });
     child.info('evt', { sessionId: 'override', extra: 'x' });
     expect(sink.entries[0]?.ctx).toEqual({
@@ -53,20 +72,36 @@ describe('LogService (unit)', () => {
   });
 
   it('child chains accumulate context', () => {
-    const sink = new MemoryLogSink();
-    const root = new LogService(sink, {}, 'debug');
+    const root = ix.get(ILogService);
+    root.setLevel('debug');
     const leaf = root.child({ a: 1 }).child({ b: 2 });
     leaf.info('evt');
     expect(sink.entries[0]?.ctx).toEqual({ a: 1, b: 2 });
   });
 
   it('setLevel changes filtering at runtime', () => {
-    const sink = new MemoryLogSink();
-    const log = new LogService(sink, {}, 'error');
+    const log = ix.get(ILogService);
+    log.setLevel('error');
     log.info('hidden');
     log.setLevel('info');
     log.info('shown');
     expect(sink.entries.map((e) => e.msg)).toEqual(['shown']);
+  });
+
+  it('flush delegates to the sink when present', async () => {
+    let flushed = false;
+    (sink as MemoryLogWriterService & { flush?: () => Promise<void> }).flush = () => {
+      flushed = true;
+      return Promise.resolve();
+    };
+    const log = ix.get(ILogService);
+    await log.flush();
+    expect(flushed).toBe(true);
+  });
+
+  it('flush resolves when the sink has no flush', async () => {
+    const log = ix.get(ILogService);
+    await expect(log.flush()).resolves.toBeUndefined();
   });
 });
 
@@ -84,8 +119,8 @@ describe('ILogService (scoped)', () => {
     _clearScopedRegistryForTests();
     registerScopedService(
       LifecycleScope.Core,
-      ILogSink,
-      ConsoleLogSink,
+      ILogWriterService,
+      ConsoleLogWriterService,
       InstantiationType.Eager,
       'log',
     );
@@ -99,8 +134,8 @@ describe('ILogService (scoped)', () => {
   });
 
   it('resolves ILogService from the Core scope with its sink injected', () => {
-    const sink = new MemoryLogSink();
-    const host = createScopedTestHost([stubPair(ILogSink, sink)]);
+    const sink = new MemoryLogWriterService();
+    const host = createScopedTestHost([stubPair(ILogWriterService, sink)]);
     const log = host.core.accessor.get(ILogService);
     log.info('scoped-hello');
     expect(sink.entries.map((e) => e.msg)).toEqual(['scoped-hello']);
@@ -108,8 +143,8 @@ describe('ILogService (scoped)', () => {
   });
 
   it('a scoped child logger bound to sessionId is resolvable downstream', () => {
-    const sink = new MemoryLogSink();
-    const host = createScopedTestHost([stubPair(ILogSink, sink)]);
+    const sink = new MemoryLogWriterService();
+    const host = createScopedTestHost([stubPair(ILogWriterService, sink)]);
     const root = host.core.accessor.get(ILogService);
     const sessionLog = root.child({ sessionId: 's1' });
     sessionLog.warn('bound');
