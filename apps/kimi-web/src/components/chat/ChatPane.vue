@@ -205,7 +205,7 @@ const emit = defineEmits<{
   openMedia: [media: ToolMedia];
   copyConversationCopied: [];
   /** Show a thinking block's full text in the right-side panel. */
-  openThinking: [target: { turnId: string; blockIndex: number }];
+  openThinking: [target: { turnId: string; blockIndex: number; live?: boolean }];
   /** Show a compaction divider's summary text in the right-side panel. */
   openCompaction: [target: { turnId: string }];
   /** Show a subagent's full detail in the right-side panel. */
