@@ -1,9 +1,8 @@
 import { Disposable, registerSingleton, SyncDescriptor } from "#/_base/di";
-import type { ToolStoreData, ToolStoreKey } from '../../../tools/store';
 import { OrderedHookSlot } from '../hooks';
 import type { WireRecord } from '../types';
 import { IWireRecord } from '../wireRecord/wireRecord';
-import { IToolStoreService } from './toolStore';
+import { IToolStoreService, type ToolStoreData, type ToolStoreKey } from './toolStore';
 
 declare module '../types' {
   interface WireRecordMap {
