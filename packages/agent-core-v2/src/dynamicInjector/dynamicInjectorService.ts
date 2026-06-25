@@ -29,17 +29,17 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
 
   constructor(
     @IContextMemory private readonly context: IContextMemory,
-    @ITurnService turnRunner: ITurnService,
+    @ITurnService turnService: ITurnService,
   ) {
     super();
     this._register(
-      turnRunner.hooks.beforeStep.register('dynamic-injector', async (_ctx, next) => {
+      turnService.hooks.beforeStep.register('dynamic-injector', async (_ctx, next) => {
         await next();
         await this.inject();
       }),
     );
     this._register(
-      turnRunner.hooks.onLaunched.register('dynamic-injector', (_ctx, next) => {
+      turnService.hooks.onLaunched.register('dynamic-injector', (_ctx, next) => {
         for (const entry of this.entries) {
           if (entry.cadence !== 'turn') continue;
           entry.injectedAt = null;

@@ -1,5 +1,5 @@
 import type { AgentConfigData } from '#/config';
-import type { AgentContextData } from '#/context';
+import type { AgentContextData } from '#/contextMemory';
 import type { BackgroundTaskInfo } from '#/background';
 import type {
   GoalBudgetLimits,

@@ -12,7 +12,7 @@ import { IPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';
 import { IToolRegistry } from '#/toolRegistry';
 import type { Turn } from '#/turn';
-import { ITurnRunner } from '#/turnRunner';
+import { ITurnService } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 import {
   ICronService,
@@ -84,7 +84,7 @@ export class CronService
     @IPromptService private readonly prompt: IPromptService,
     @IEventBus private readonly events: IEventBus,
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @ITurnRunner private readonly turnRunner: ITurnRunner,
+    @ITurnService private readonly turnService: ITurnService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IToolRegistry toolRegistry: IToolRegistry,
   ) {
@@ -132,7 +132,7 @@ export class CronService
       this.scheduler = createCronScheduler({
         clocks: this.clocks,
         source: () => this.store.list(),
-        isIdle: () => this.turnRunner.getActiveTurn() === undefined,
+        isIdle: () => this.turnService.getActiveTurn() === undefined,
         isKilled: () => process.env['KIMI_DISABLE_CRON'] === '1',
         onFire: (task, ctx) => {
           this.handleFire(task, ctx);
