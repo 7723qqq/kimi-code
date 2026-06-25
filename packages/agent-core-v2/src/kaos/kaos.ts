@@ -5,6 +5,8 @@ import { createDecorator } from '#/_base/di/instantiation';
 export interface IKaosService {
   readonly _serviceBrand: undefined;
   readonly kaos: Kaos | undefined;
+  readonly cwd: string;
+  chdir(cwd: string): Promise<void>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

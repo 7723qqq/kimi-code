@@ -1,64 +1,87 @@
 /**
- * `workspace` domain (cross-cutting) — `IWorkspaceRegistry` /
- * `IWorkspaceFsService` implementation.
+ * `workspace` domain (cross-cutting) — `IWorkspaceService` implementation.
  *
- * Owns the workspace registry and path resolution; resolves filesystem access
- * through `kaos` and logs through `log`. Bound at Core scope.
+ * Turns the raw `Kaos` environments and additional roots owned by
+ * `ISessionKaosService` into workspace-relative path operations. Bound at
+ * Session scope — one instance per session.
  */
 
-import { join } from 'node:path';
+import type { Kaos } from '@moonshot-ai/kaos';
 
 import { InstantiationType } from '#/_base/di/extensions';
+import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IKaosFactory } from '#/kaos';
-import { ILogService } from '#/log';
-
 import {
-  type WorkspaceInfo,
-  IWorkspaceFsService,
-  IWorkspaceRegistry,
-} from './workspace';
+  type PathAccessOperation,
+  type PathClass,
+  assertPathAllowed,
+  canonicalizePath,
+  isWithinWorkspace,
+} from '#/_base/tools/policies/path-access';
+import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
+import { ISessionKaosService } from '#/kaos/kaos';
+import { ILogService } from '#/log/log';
 
-let nextWorkspaceId = 0;
+import { IWorkspaceService } from './workspace';
 
-export class WorkspaceRegistry implements IWorkspaceRegistry {
-  declare readonly _serviceBrand: undefined;
-  private readonly workspaces = new Map<string, WorkspaceInfo>();
-
-  constructor(
-    @IKaosFactory _kaosFactory: IKaosFactory,
-    @ILogService _log: ILogService,
-  ) {}
-
-  register(root: string): WorkspaceInfo {
-    const id = `ws-${nextWorkspaceId++}`;
-    const info: WorkspaceInfo = { id, root };
-    this.workspaces.set(id, info);
-    return info;
-  }
-  get(id: string): WorkspaceInfo | undefined {
-    return this.workspaces.get(id);
-  }
-  list(): readonly WorkspaceInfo[] {
-    return [...this.workspaces.values()];
-  }
-}
-
-export class WorkspaceFsService implements IWorkspaceFsService {
+export class WorkspaceService extends Disposable implements IWorkspaceService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    private readonly registry: IWorkspaceRegistry = new WorkspaceRegistry(undefined as never, undefined as never),
-    @IKaosFactory _kaosFactory: IKaosFactory,
-    @ILogService _log: ILogService,
-  ) {}
+    @ISessionKaosService private readonly sessionKaos: ISessionKaosService,
+    @ILogService private readonly _log: ILogService,
+  ) {
+    super();
+  }
 
-  resolve(workspaceId: string, rel: string): string {
-    const ws = this.registry.get(workspaceId);
-    if (ws === undefined) throw new Error(`unknown workspace '${workspaceId}'`);
-    return join(ws.root, rel);
+  private get kaos(): Kaos {
+    return this.sessionKaos.toolKaos;
+  }
+
+  private get pathClass(): PathClass {
+    return this.kaos.pathClass();
+  }
+
+  get workDir(): string {
+    return this.kaos.getcwd();
+  }
+
+  get additionalDirs(): readonly string[] {
+    return this.sessionKaos.additionalDirs;
+  }
+
+  resolve(rel: string): string {
+    return canonicalizePath(rel, this.workDir, this.pathClass);
+  }
+
+  isWithin(path: string): boolean {
+    return isWithinWorkspace(this.resolve(path), this.toConfig(), this.pathClass);
+  }
+
+  assertAllowed(path: string, op: PathAccessOperation): string {
+    return assertPathAllowed(path, this.workDir, this.toConfig(), {
+      mode: op,
+      pathClass: this.pathClass,
+    });
+  }
+
+  toConfig(): WorkspaceConfig {
+    return { workspaceDir: this.workDir, additionalDirs: this.additionalDirs };
+  }
+
+  addAdditionalDir(dir: string): void {
+    this.sessionKaos.addAdditionalDir(dir);
+  }
+
+  removeAdditionalDir(dir: string): void {
+    this.sessionKaos.removeAdditionalDir(dir);
   }
 }
 
-registerScopedService(LifecycleScope.Core, IWorkspaceRegistry, WorkspaceRegistry, InstantiationType.Delayed, 'workspace');
-registerScopedService(LifecycleScope.Core, IWorkspaceFsService, WorkspaceFsService, InstantiationType.Delayed, 'workspace');
+registerScopedService(
+  LifecycleScope.Session,
+  IWorkspaceService,
+  WorkspaceService,
+  InstantiationType.Delayed,
+  'workspace',
+);

@@ -43,6 +43,8 @@ const DOMAIN_LAYER = new Map([
   ['kosong', 1],
   // L2 — data
   ['records', 2],
+  ['wireRecord', 2],
+  ['blobStore', 2],
   ['config', 2],
   // L3 — registries
   ['tool', 3],
@@ -117,6 +119,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'cron>session-context',
   'cron>session-activity',
   'session>event',
+  'wireRecord>hooks',
 ]);
 
 // Matches: import ... from 'x' | export ... from 'x' | import('x') | require('x')

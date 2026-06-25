@@ -31,6 +31,8 @@ export interface IRestGateway {
   steer(sessionId: string, agentId: string, content: string): Promise<void>;
   cancel(sessionId: string, agentId: string, reason?: string): Promise<void>;
   getStatus(sessionId: string): Promise<unknown>;
+  flushLogs(sessionId: string): Promise<void>;
+  flushGlobalLogs(): Promise<void>;
 }
 
 export const IRestGateway: ServiceIdentifier<IRestGateway> =

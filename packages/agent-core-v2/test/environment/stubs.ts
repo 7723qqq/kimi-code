@@ -23,7 +23,8 @@ export function stubEnvironment(homeDir = '/tmp/kimi-home'): IEnvironmentService
   };
 }
 
-/** Register the default `IEnvironmentService` rooted at `/tmp/kimi-home`. */
+/** Register the default `IEnvironmentService` rooted at an isolated temp dir. */
 export function registerEnvironmentServices(reg: ServiceRegistration): void {
-  reg.defineInstance(IEnvironmentService, stubEnvironment());
+  const homeDir = `/tmp/kimi-code-agent-core-v2-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  reg.defineInstance(IEnvironmentService, stubEnvironment(homeDir));
 }

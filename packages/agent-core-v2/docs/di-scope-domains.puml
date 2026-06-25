@@ -86,7 +86,7 @@ package "Turn scope (per turn)" #FDEDEC {
 }
 
 package "Multi-scope" #F5EEF8 {
-  rectangle "<b>config</b>\n<size:9><i>Multi</i></size>\n  IConfigRegistry(C)\n  IConfigService(C)\n  IAgentConfigService(A)" as config #E8DAEF
+  rectangle "<b>config</b>\n<size:9><i>Multi</i></size>\n  IConfigRegistry(C)\n  IConfigService(C)\n  ISessionConfigService(S)" as config #E8DAEF
   rectangle "<b>kosong</b>\n<size:9><i>Multi</i></size>\n  IModelCatalogService(C)\n  IProviderManager(S)\n  ILLMService(A)" as kosong #E8DAEF
   rectangle "<b>records</b>\n<size:9><i>Multi</i></size>\n  ISessionStore(C)\n  ISessionMetaStore(S)\n  IAgentRecords(A)" as records #E8DAEF
   rectangle "<b>tool</b>\n<size:9><i>Multi</i></size>\n  IToolDefinitionRegistry(C)\n  IToolService(A)" as tool #E8DAEF

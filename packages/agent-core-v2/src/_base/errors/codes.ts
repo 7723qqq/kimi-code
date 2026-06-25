@@ -11,6 +11,7 @@ export const ErrorCodes = {
   CONTEXT_OVERFLOW: 'context.overflow',
   PROVIDER_RATE_LIMIT: 'provider.rate_limit',
   PROVIDER_AUTH_ERROR: 'provider.auth_error',
+  AUTH_LOGIN_REQUIRED: 'auth.login_required',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -64,6 +65,12 @@ export const ERROR_INFO = {
     retryable: false,
     public: true,
     action: 'Check provider credentials and authentication configuration.',
+  },
+  'auth.login_required': {
+    title: 'Login required',
+    retryable: false,
+    public: true,
+    action: 'Run /login to authenticate with the OAuth provider.',
   },
 } as const satisfies Record<ErrorCode, ErrorInfo>;
 

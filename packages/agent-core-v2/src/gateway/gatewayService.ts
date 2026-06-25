@@ -3,8 +3,8 @@
  * `IWSBroadcastService` implementation.
  *
  * Owns the session scope registry and the REST/WS entry points; resolves agents
- * through `agent-lifecycle`, drives turns through `turn`, and subscribes to
- * broadcasts through `event`. Bound at Core scope.
+ * through `agent-lifecycle`, drives turns through `turn`, flushes logs through
+ * `log`, and subscribes to broadcasts through `event`. Bound at Core scope.
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
@@ -17,8 +17,9 @@ import {
 } from '#/_base/di/scope';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IEventService } from '#/event';
-import { ITurnService } from '#/turn';
+import { IEventService } from '#/event/event';
+import { ILogService, ISessionLogService } from '#/log/log';
+import { ITurnService } from '#/turn/turn';
 
 import {
   type CreateSessionOptions,
@@ -57,7 +58,10 @@ export class ScopeRegistry implements IScopeRegistry {
 export class RestGateway implements IRestGateway {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IScopeRegistry private readonly scopes: IScopeRegistry) {}
+  constructor(
+    @IScopeRegistry private readonly scopes: IScopeRegistry,
+    @ILogService private readonly log: ILogService,
+  ) {}
 
   private turn(sessionId: string, agentId: string): ITurnService {
     const session = this.scopes.get(sessionId);
@@ -81,6 +85,16 @@ export class RestGateway implements IRestGateway {
   }
   getStatus(sessionId: string): Promise<unknown> {
     return Promise.resolve(this.scopes.get(sessionId) !== undefined);
+  }
+
+  async flushLogs(sessionId: string): Promise<void> {
+    const session = this.scopes.get(sessionId);
+    if (session === undefined) return;
+    await session.accessor.get(ISessionLogService).flush();
+  }
+
+  flushGlobalLogs(): Promise<void> {
+    return this.log.flush();
   }
 }
 

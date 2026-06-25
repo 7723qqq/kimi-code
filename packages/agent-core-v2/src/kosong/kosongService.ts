@@ -9,8 +9,8 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentConfigService, IConfigService } from '#/config';
-import { IEnvironmentService } from '#/environment';
+import { IConfigService, ISessionConfigService } from '#/config/config';
+import { IEnvironmentService } from '#/environment/environment';
 
 import {
   type GenerateArgs,
@@ -86,14 +86,14 @@ export class LLMService implements ILLMService {
 
   constructor(
     @IProviderManager private readonly providers: IProviderManager,
-    @IAgentConfigService private readonly agentConfig: IAgentConfigService,
+    @ISessionConfigService private readonly sessionConfig: ISessionConfigService,
   ) {}
 
   // eslint-disable-next-line require-yield -- TODO stub: yields the kosong stream once wired.
   async *generate(_args: GenerateArgs): AsyncIterable<GenerateResult> {
     const resolved = await this.providers.resolve(
-      this.agentConfig.provider,
-      this.agentConfig.modelAlias,
+      this.sessionConfig.provider,
+      this.sessionConfig.modelAlias,
     );
     throw new Error(`TODO: LLMService.generate (${resolved.providerId}/${resolved.modelId})`);
   }

@@ -2,7 +2,7 @@ import type {
   PermissionData,
   PermissionMode,
 } from '../../../agent/permission';
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,

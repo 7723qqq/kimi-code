@@ -118,7 +118,7 @@ This pattern recurs throughout the codebase and confirms the rule:
   (`Session`, this session's metadata) + `IAgentRecords` (`Agent`, this agent's record
   stream).
 - **`config`** — `IConfigRegistry` / `IConfigService` (`Core`, global config) +
-  `IAgentConfigService` (`Agent`, this agent's config view).
+  `ISessionConfigService` (`Session`, this session's runtime config).
 - **`kosong`** — `IModelCatalogService` (`Core`, model catalog) + `IProviderManager`
   (`Session`) + `ILLMService` (`Agent`, this agent's generation).
 - **`tool`** — `IToolDefinitionRegistry` (`Core`, tool-definition registry) + `IToolService`

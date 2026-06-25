@@ -1,7 +1,7 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
 
-import { createDecorator } from "#/_base/di";
-import type { IDisposable } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
+import type { IDisposable } from "#/_base/di/lifecycle";
 
 import type { IBlobStoreService } from '#/blobStore';
 import type { Hooks } from '#/hooks';
