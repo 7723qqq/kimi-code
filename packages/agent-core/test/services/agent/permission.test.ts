@@ -18,6 +18,7 @@ import {
   parsePattern,
   type Agent,
   type ApprovalResponse,
+  type ExternalHooksServiceOptions,
   type PermissionMode,
   type PermissionPolicyContext,
   type PermissionRule,
@@ -279,7 +280,10 @@ describe('Agent permission', () => {
   });
 
   it('fires Permission observer hooks while Bash waits for approval', async () => {
-    const fireAndForgetTrigger = vi.fn(async () => []);
+    type FireAndForgetTrigger = NonNullable<
+      ExternalHooksServiceOptions['hookEngine']
+    >['fireAndForgetTrigger'];
+    const fireAndForgetTrigger = vi.fn<FireAndForgetTrigger>(async () => []);
     const hookEngine = {
       trigger: vi.fn(async () => []),
       triggerBlock: vi.fn(async () => undefined),

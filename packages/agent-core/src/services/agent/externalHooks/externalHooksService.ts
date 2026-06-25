@@ -101,14 +101,21 @@ export class ExternalHooksService implements IExternalHooksService {
   triggerPermissionRequest(payload: PermissionRequestHookPayload): void {
     void this.options.hookEngine?.fireAndForgetTrigger('PermissionRequest', {
       matcherValue: payload.toolName,
-      inputData: payload,
+      inputData: {
+        turnId: payload.turnId,
+        toolCallId: payload.toolCallId,
+        toolName: payload.toolName,
+        action: payload.action,
+        toolInput: payload.toolInput,
+        display: payload.display,
+      },
     });
   }
 
   triggerPermissionResult(payload: PermissionResultHookPayload): void {
     void this.options.hookEngine?.fireAndForgetTrigger('PermissionResult', {
       matcherValue: payload.toolName,
-      inputData: payload,
+      inputData: permissionResultInputData(payload),
     });
   }
 
@@ -180,6 +187,29 @@ function toolOutputText(
     })
     .map((part) => part.text)
     .join('');
+}
+
+function permissionResultInputData(payload: PermissionResultHookPayload): Record<string, unknown> {
+  if (payload.decision === 'error') {
+    return {
+      turnId: payload.turnId,
+      toolCallId: payload.toolCallId,
+      toolName: payload.toolName,
+      action: payload.action,
+      decision: payload.decision,
+      error: payload.error,
+    };
+  }
+  return {
+    turnId: payload.turnId,
+    toolCallId: payload.toolCallId,
+    toolName: payload.toolName,
+    action: payload.action,
+    decision: payload.decision,
+    scope: payload.scope,
+    feedback: payload.feedback,
+    selectedLabel: payload.selectedLabel,
+  };
 }
 
 registerSingleton(

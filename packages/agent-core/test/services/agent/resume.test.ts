@@ -705,21 +705,28 @@ describe('Agent resume', () => {
 
     await ctx.runtime.restore();
 
+    // Raw history keeps the interrupted call open — closure is not persisted.
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+    ]);
+    // The projector closes the unanswered call with a synthetic error result.
+    const projected = ctx.project();
+    expect(projected.map((message) => message.role)).toEqual([
       'user',
       'assistant',
       'tool',
       'tool',
     ]);
-    const syntheticResult = ctx.context.getHistory().at(-1);
-    expect(syntheticResult).toMatchObject({
+    expect(projected.at(-1)).toMatchObject({
       role: 'tool',
       toolCallId: 'call_interrupted_two',
-      isError: true,
     });
-    expect(textContent(syntheticResult)).toContain(
+    expect(textContent(projected.at(-1))).toContain(
       'Tool execution was interrupted before its result was recorded',
     );
+    // Replay records stay raw (no synthetic result persisted).
     const replayMessages = ctx.get(IReplayBuilderService)
       .buildResult()
       .flatMap((record) => (record.type === 'message' ? [record.message] : []));
@@ -727,16 +734,7 @@ describe('Agent resume', () => {
       'user',
       'assistant',
       'tool',
-      'tool',
     ]);
-    expect(replayMessages.at(-1)).toMatchObject({
-      role: 'tool',
-      toolCallId: 'call_interrupted_two',
-      isError: true,
-    });
-    expect(textContent(replayMessages.at(-1))).toContain(
-      'Tool execution was interrupted before its result was recorded',
-    );
     expect(persistence.appended).toEqual([]);
 
     ctx.mockNextResponse({ type: 'text', text: 'Recovered after resume.' });
@@ -754,6 +752,8 @@ describe('Agent resume', () => {
     );
     expect(freshUserRecordIndex).toBeGreaterThan(-1);
 
+    // The history sent to the model is the projected one — the interrupted call
+    // is closed and the new prompt follows.
     const llmHistory = ctx.llmCalls[0]?.history ?? [];
     expect(llmHistory.map((message) => message.role)).toEqual([
       'user',
@@ -778,7 +778,16 @@ describe('Agent resume', () => {
     const resumedAgain = testAgent({ persistence });
     await resumedAgain.runtime.restore();
 
+    // Restored again: the open call is still raw (unclosed) in history; the
+    // projector re-synthesizes its result on demand.
     expect(resumedAgain.context.getHistory().map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'user',
+      'assistant',
+    ]);
+    expect(resumedAgain.project().map((message) => message.role)).toEqual([
       'user',
       'assistant',
       'tool',
@@ -786,10 +795,10 @@ describe('Agent resume', () => {
       'user',
       'assistant',
     ]);
-    expect(textContent(resumedAgain.context.getHistory()[3])).toContain(
+    expect(textContent(resumedAgain.project()[3])).toContain(
       'Tool execution was interrupted before its result was recorded',
     );
-    expect(textContent(resumedAgain.context.getHistory()[4])).toBe('continue after resume');
+    expect(textContent(resumedAgain.context.getHistory()[3])).toBe('continue after resume');
   });
 
   it('closes an interrupted tool call mid-history so later turns stay aligned', async () => {
@@ -866,39 +875,39 @@ describe('Agent resume', () => {
 
     await ctx.runtime.restore();
 
+    // Raw history keeps the interrupted mid-history call open (no synthetic
+    // result persisted); the deferred prompt stays in its recorded position.
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+    ]);
+    expect(textContent(ctx.context.getHistory()[2])).toBe('keep going');
+    expect(textContent(ctx.context.getHistory()[3])).toBe('All done.');
+
+    // The projector closes the interrupted call in place (index 2), directly
+    // after the interrupted assistant step — not flushed to the tail.
+    const projected = ctx.project();
+    expect(projected.map((message) => message.role)).toEqual([
       'user',
       'assistant',
       'tool',
       'user',
       'assistant',
     ]);
-    // The synthetic result is spliced in place (index 2), directly after the
-    // interrupted assistant step — not flushed to the tail.
-    const synthetic = ctx.context.getHistory()[2];
-    expect(synthetic).toMatchObject({
+    expect(projected[2]).toMatchObject({
       role: 'tool',
       toolCallId: 'call_interrupted',
-      isError: true,
     });
-    expect(textContent(synthetic)).toContain(
+    expect(textContent(projected[2])).toContain(
       'Tool execution was interrupted before its result was recorded',
     );
-    // The deferred user prompt is restored in its recorded position, between the
-    // closed exchange and the following turn.
-    expect(textContent(ctx.context.getHistory()[3])).toBe('keep going');
-    expect(textContent(ctx.context.getHistory()[4])).toBe('All done.');
+    expect(textContent(projected[3])).toBe('keep going');
+    expect(textContent(projected[4])).toBe('All done.');
 
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'user',
-      'assistant',
-    ]);
-
-    // Option A: the mid-history result is re-derived on every resume and is not
-    // persisted as a positioned record (replay logging is suppressed).
+    // The mid-history result is re-derived on every projection and is never
+    // persisted as a positioned record.
     expect(
       persistence.appended.filter(
         (record) =>
@@ -1004,20 +1013,32 @@ describe('Agent resume', () => {
 
     await ctx.runtime.restore();
 
-    // The trailing duplicate is dropped: exactly one synthetic result, in place.
+    // Raw history keeps the stale tail result exactly as recorded.
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+      'tool',
+    ]);
+    // The projector closes the call in place (index 2) and drops the stale tail
+    // duplicate, leaving exactly one (synthetic) result.
+    const projected = ctx.project();
+    expect(projected.map((message) => message.role)).toEqual([
       'user',
       'assistant',
       'tool',
       'user',
       'assistant',
     ]);
-    expect(ctx.context.getHistory()[2]).toMatchObject({
+    expect(projected[2]).toMatchObject({
       role: 'tool',
       toolCallId: 'call_interrupted',
-      isError: true,
     });
-    expect(textContent(ctx.context.getHistory()[4])).toBe('All done.');
+    expect(textContent(projected[2])).toContain(
+      'Tool execution was interrupted before its result was recorded',
+    );
+    expect(textContent(projected[4])).toBe('All done.');
     await ctx.expectResumeMatches();
   });
 
@@ -1080,25 +1101,24 @@ describe('Agent resume', () => {
 
     await ctx.runtime.restore();
 
-    // Both open calls get a synthetic result, in tool-call order, before the
-    // next turn.
+    // Raw history keeps the interrupted multi-call step open.
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'assistant',
+    ]);
+    // The projector closes both open calls, in tool-call order, before the next
+    // turn.
+    const projected = ctx.project();
+    expect(projected.map((message) => message.role)).toEqual([
       'user',
       'assistant',
       'tool',
       'tool',
       'assistant',
     ]);
-    expect(ctx.context.getHistory()[2]).toMatchObject({
-      role: 'tool',
-      toolCallId: 'call_a',
-      isError: true,
-    });
-    expect(ctx.context.getHistory()[3]).toMatchObject({
-      role: 'tool',
-      toolCallId: 'call_b',
-      isError: true,
-    });
+    expect(projected[2]).toMatchObject({ role: 'tool', toolCallId: 'call_a' });
+    expect(projected[3]).toMatchObject({ role: 'tool', toolCallId: 'call_b' });
     await ctx.expectResumeMatches();
   });
 
@@ -1174,21 +1194,29 @@ describe('Agent resume', () => {
 
     await ctx.runtime.restore();
 
+    // Raw history keeps the recorded result and leaves the second call open.
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'assistant',
+    ]);
+    expect(ctx.context.getHistory()[2]).toMatchObject({ toolCallId: 'call_done' });
+    expect(textContent(ctx.context.getHistory()[2])).toBe('real result');
+    // The projector keeps the recorded result verbatim and synthesizes only the
+    // open call.
+    const projected = ctx.project();
+    expect(projected.map((message) => message.role)).toEqual([
       'user',
       'assistant',
       'tool',
       'tool',
       'assistant',
     ]);
-    // The recorded result is kept verbatim; only the open call is synthesized.
-    expect(ctx.context.getHistory()[2]).toMatchObject({ toolCallId: 'call_done' });
-    expect(textContent(ctx.context.getHistory()[2])).toBe('real result');
-    expect(ctx.context.getHistory()[3]).toMatchObject({
-      toolCallId: 'call_open',
-      isError: true,
-    });
-    expect(textContent(ctx.context.getHistory()[3])).toContain(
+    expect(projected[2]).toMatchObject({ toolCallId: 'call_done' });
+    expect(textContent(projected[2])).toBe('real result');
+    expect(projected[3]).toMatchObject({ toolCallId: 'call_open' });
+    expect(textContent(projected[3])).toContain(
       'Tool execution was interrupted before its result was recorded',
     );
     await ctx.expectResumeMatches();
@@ -1279,7 +1307,16 @@ describe('Agent resume', () => {
 
     await ctx.runtime.restore();
 
+    // Raw history keeps both interrupted steps open.
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'assistant',
+      'assistant',
+    ]);
+    // The projector closes each interrupted step at its own boundary.
+    const projected = ctx.project();
+    expect(projected.map((message) => message.role)).toEqual([
       'user',
       'assistant',
       'tool',
@@ -1287,8 +1324,8 @@ describe('Agent resume', () => {
       'tool',
       'assistant',
     ]);
-    expect(ctx.context.getHistory()[2]).toMatchObject({ toolCallId: 'call_one', isError: true });
-    expect(ctx.context.getHistory()[4]).toMatchObject({ toolCallId: 'call_two', isError: true });
+    expect(projected[2]).toMatchObject({ toolCallId: 'call_one' });
+    expect(projected[4]).toMatchObject({ toolCallId: 'call_two' });
     await ctx.expectResumeMatches();
   });
 
@@ -1342,13 +1379,15 @@ describe('Agent resume', () => {
 
     await ctx.runtime.restore();
 
+    // Raw history keeps the orphan result as recorded.
     expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
       'user',
       'assistant',
+      'tool',
     ]);
-    expect(
-      ctx.context.getHistory().some((message) => message.role === 'tool'),
-    ).toBe(false);
+    // The projector drops the orphan (its call was never recorded).
+    expect(ctx.project().map((message) => message.role)).toEqual(['user', 'assistant']);
+    expect(ctx.project().some((message) => message.role === 'tool')).toBe(false);
     await ctx.expectResumeMatches();
   });
 

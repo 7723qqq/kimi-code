@@ -16,6 +16,7 @@ export interface BackgroundTaskLauncher extends BackgroundTaskRegistrar {
 
 export interface BackgroundTaskManager extends BackgroundTaskLauncher {
   list(activeOnly?: boolean, limit?: number): readonly BackgroundTaskInfo[];
+  persistOutput(taskId: string): void;
   getOutputSnapshot(taskId: string, maxPreviewBytes: number): Promise<BackgroundTaskOutputSnapshot>;
   readOutput(taskId: string, tail?: number): Promise<string>;
   suppressTerminalNotification(taskId: string): Promise<void>;

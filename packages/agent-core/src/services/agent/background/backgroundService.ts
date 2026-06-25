@@ -240,6 +240,12 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     return result;
   }
 
+  persistOutput(taskId: string): void {
+    const entry = this.tasks.get(taskId);
+    if (entry === undefined) return;
+    this.startOutputPersist(entry);
+  }
+
   async loadFromDisk(options: BackgroundLoadOptions = {}): Promise<void> {
     const persistence = this.persistence;
     if (persistence === undefined) return;

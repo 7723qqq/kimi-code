@@ -8,6 +8,7 @@ import {
   KIMI_CODE_PROVIDER_NAME,
   type KimiHostIdentity,
 } from '@moonshot-ai/kimi-code-oauth';
+import type { SessionWarning } from '@moonshot-ai/protocol';
 
 import {
   Disposable,
@@ -420,6 +421,8 @@ export class AgentRuntimeService
         const runtime = await this.require(sessionId, 'main');
         await runtime.get(ISubagentHost).generateAgentsMd();
       },
+      getSessionWarnings: (_payload: AgentScopedPayload<'getSessionWarnings'>) =>
+        this.getSessionWarnings(sessionId),
       addAdditionalDir: (payload: AgentScopedPayload<'addAdditionalDir'>) =>
         this.addAdditionalDir(sessionId, payload),
       prompt: ({ agentId, ...payload }: AgentScopedPayload<'prompt'>) =>
@@ -547,6 +550,26 @@ export class AgentRuntimeService
       additionalDirs: nextAdditionalDirs,
       persisted: false,
     };
+  }
+
+  private async getSessionWarnings(sessionId: string): Promise<readonly SessionWarning[]> {
+    const session = await this.requireCachedSession(sessionId);
+    try {
+      const kaos = (await this.getKaos()).withCwd(session.summary.workDir);
+      const context = await prepareSystemPromptContext(kaos, this.env.homeDir, {
+        additionalDirs: session.additionalDirs,
+      });
+      if (context.agentsMdWarning === undefined) return [];
+      return [
+        {
+          code: 'agents-md-oversized',
+          message: context.agentsMdWarning,
+          severity: 'warning',
+        },
+      ];
+    } catch {
+      return [];
+    }
   }
 
   private async requireCachedSession(sessionId: string): Promise<CachedSessionRuntime> {

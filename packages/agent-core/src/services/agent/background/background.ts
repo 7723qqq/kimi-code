@@ -70,6 +70,7 @@ export interface IBackgroundService {
   registerTask(task: BackgroundTask, options?: RegisterBackgroundTaskOptions): string;
   getTask(taskId: string): BackgroundTaskInfo | undefined;
   list(activeOnly?: boolean, limit?: number): readonly BackgroundTaskInfo[];
+  persistOutput(taskId: string): void;
   getOutputSnapshot(
     taskId: string,
     maxPreviewBytes: number,

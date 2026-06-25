@@ -45,7 +45,7 @@ export class ModelSkillTool implements ExecutableTool<SkillToolInput> {
     });
   }
 
-  private execution(args: SkillToolInput): ExecutableToolResult {
+  private async execution(args: SkillToolInput): Promise<ExecutableToolResult> {
     const queryDepth = this.options.initialQueryDepth ?? this.options.queryDepth ?? 0;
     if (queryDepth >= MAX_SKILL_QUERY_DEPTH) {
       throw new NestedSkillTooDeepError(MAX_SKILL_QUERY_DEPTH, args.skill);
