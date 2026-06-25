@@ -21,8 +21,8 @@ import {
   validateToolArgs,
   type JsonType,
   type ToolArgsValidator,
-} from '../tools/args-validator';
-import { PathSecurityError } from '../tools/policies/path-access';
+} from '../_base/tools/args-validator';
+import { PathSecurityError } from '../_base/tools/policies/path-access';
 
 import { isUserCancellation } from '#/_base/utils/abort';
 import { errorMessage, isAbortError } from './errors';

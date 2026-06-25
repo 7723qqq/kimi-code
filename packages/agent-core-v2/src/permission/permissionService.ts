@@ -12,15 +12,15 @@ import type {
 } from '../../../loop';
 import type { ToolInputDisplay } from '../../../tools/display';
 import { IApprovalService } from "#/approval/approval";
-import { IExternalHooksService } from '../externalHooks/externalHooks';
-import { IPermissionModeService } from '../permissionMode/permissionMode';
+import { IExternalHooksService } from '#/externalHooks';
+import { IPermissionModeService } from '#/permissionMode';
 import {
   IPermissionPolicyService,
   type PermissionPolicyResolution,
   type PermissionPolicyResult,
-} from '../permissionPolicy/permissionPolicy';
-import { IPermissionRulesService } from '../permissionRules/permissionRules';
-import { ITelemetryService } from '../telemetry/telemetry';
+} from '#/permissionPolicy';
+import { IPermissionRulesService } from '#/permissionRules';
+import { ITelemetryService } from '#/telemetry';
 import {
   IPermissionService,
   type PermissionServiceOptions,

@@ -20,11 +20,11 @@ import {
   type SkillCatalog,
   type SkillDefinition,
 } from '../../../skill';
-import { IEventBus } from '../eventBus/eventBus';
-import { IPromptService } from '../prompt/prompt';
-import { ITelemetryService } from '../telemetry/telemetry';
+import { IEventBus } from '#/eventBus';
+import { IPromptService } from '#/prompt';
+import { ITelemetryService } from '#/telemetry';
 import type { ContextMessage, Turn } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IWireRecord } from '#/wireRecord';
 import {
   IAgentSkillService,
   type AgentSkillServiceOptions,

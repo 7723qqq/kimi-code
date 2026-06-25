@@ -7,12 +7,12 @@ import type { PathClass } from '../../../tools/policies/path-access';
 import {
   type PermissionGitWorkTreeMarker,
   type PermissionServiceOptions,
-} from '../permission/permission';
-import { IExternalHooksService } from '../externalHooks/externalHooks';
-import { IPermissionModeService } from '../permissionMode/permissionMode';
-import { IPermissionRulesService } from '../permissionRules/permissionRules';
-import { IProfileService } from '../profile/profile';
-import { ITelemetryService } from '../telemetry/telemetry';
+} from '#/permission';
+import { IExternalHooksService } from '#/externalHooks';
+import { IPermissionModeService } from '#/permissionMode';
+import { IPermissionRulesService } from '#/permissionRules';
+import { IProfileService } from '#/profile';
+import { ITelemetryService } from '#/telemetry';
 import { AgentSwarmExclusiveDenyPermissionPolicyService } from './policies/agent-swarm-exclusive-deny';
 import { AutoModeApprovePermissionPolicyService } from './policies/auto-mode-approve';
 import { AutoModeAskUserQuestionDenyPermissionPolicyService } from './policies/auto-mode-ask-user-question-deny';

@@ -6,7 +6,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import { IContextMemory } from '../contextMemory';
-import { ITurnRunner } from '../turn';
+import { ITurnService } from '../turn';
 import type { ContextMessage } from '#/contextMemory';
 import {
   IDynamicInjector,
@@ -29,7 +29,7 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
 
   constructor(
     @IContextMemory private readonly context: IContextMemory,
-    @ITurnRunner turnRunner: ITurnRunner,
+    @ITurnService turnRunner: ITurnService,
   ) {
     super();
     this._register(

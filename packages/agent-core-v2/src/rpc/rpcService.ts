@@ -1,23 +1,23 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IBackgroundService } from '../background/background';
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IContextSizeService } from '../contextSize/contextSize';
-import { IFullCompaction } from '../fullCompaction/fullCompaction';
-import { IGoalService } from '../goal/goal';
-import { IPermissionService } from '../permission/permission';
-import { IPermissionModeService } from '../permissionMode/permissionMode';
+import { IBackgroundService } from '#/background';
+import { IContextMemory } from '#/contextMemory';
+import { IContextSizeService } from '#/contextSize';
+import { IFullCompaction } from '#/fullCompaction';
+import { IGoalService } from '#/goal';
+import { IPermissionService } from '#/permission';
+import { IPermissionModeService } from '#/permissionMode';
 import { IPlanService } from '../plan';
-import { IProfileService } from '../profile/profile';
-import { IPromptService } from '../prompt/prompt';
-import { IAgentSkillService } from '../skill/skill';
-import { ISubagentHost } from '../subagentHost/subagentHost';
+import { IProfileService } from '#/profile';
+import { IPromptService } from '#/prompt';
+import { IAgentSkillService } from '#/skill';
+import { ISubagentHost } from '#/subagentHost';
 import { ISwarmService } from '../swarm';
-import { ITelemetryService } from '../telemetry/telemetry';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import { ITurnRunner } from '../turn';
-import { IUsageService } from '../usage/usage';
-import { IUserToolService } from '../userTool/userTool';
+import { ITelemetryService } from '#/telemetry';
+import { IToolRegistry } from '#/toolRegistry';
+import { ITurnService } from '../turn';
+import { IUsageService } from '#/usage';
+import { IUserToolService } from '#/userTool';
 import type {
   ActivateSkillPayload,
   BeginCompactionPayload,
@@ -45,7 +45,7 @@ import { IAgentRPCService } from './rpc';
 export class AgentRPCService implements IAgentRPCService {
   constructor(
     @IPromptService private readonly promptService: IPromptService,
-    @ITurnRunner private readonly turnRunner: ITurnRunner,
+    @ITurnService private readonly turnRunner: ITurnService,
     @IProfileService private readonly profile: IProfileService,
     @IPermissionModeService private readonly permissionMode: IPermissionModeService,
     @IPermissionService private readonly permission: IPermissionService,

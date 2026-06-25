@@ -2,7 +2,7 @@ import { createDecorator } from "#/_base/di";
 import type {
   ResolvedToolExecutionHookContext
 } from '#/loop';
-import type { PermissionServiceOptions } from '../permission/permission';
+import type { PermissionServiceOptions } from '#/permission';
 import type { PermissionPolicyResult } from './types';
 
 

@@ -1,7 +1,7 @@
 import { createDecorator } from "#/_base/di";
-import type { ExecutableToolResult } from '../../../loop';
-import type { SkillCatalog } from '../../../skill';
-import type { Turn } from '../types';
+import type { ExecutableToolResult } from '#/loop';
+import type { SkillCatalog } from '#/skill';
+import type { Turn } from '#/turn';
 
 export interface SkillActivationInput {
   readonly name: string;

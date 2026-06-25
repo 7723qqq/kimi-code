@@ -2,7 +2,7 @@ import { createDecorator } from "#/_base/di";
 import type {
   AgentAPI,
   SessionAPI,
-} from '../../../rpc/core-api';
+} from './core-api';
 import type { PromisableMethods } from "#/_base/utils/types";
 
 export interface IAgentRPCService extends PromisableMethods<AgentAPI> {}

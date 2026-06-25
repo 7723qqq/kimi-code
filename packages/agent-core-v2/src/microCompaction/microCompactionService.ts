@@ -5,19 +5,18 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import {
   Disposable,
 } from "#/_base/di";
-import { FlagResolver, type ExperimentalFlagResolver } from '#/flags';
 import {
   estimateTokensForContentParts,
   estimateTokensForMessages,
 } from "#/_base/utils/tokens";
 import type { TelemetryProperties } from '#/telemetry';
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IContextSizeService } from '../contextSize/contextSize';
-import { IProfileService } from '../profile/profile';
-import { ITelemetryService } from '../telemetry/telemetry';
-import { ITurnRunner } from '../turnRunner';
-import type { ContextMessage } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IContextMemory } from '#/contextMemory';
+import { IContextSizeService } from '#/contextSize';
+import { IProfileService } from '#/profile';
+import { ITelemetryService } from '#/telemetry';
+import { ITurnService } from '#/turn';
+import type { ContextMessage } from '../contextMemory';
+import { IWireRecord } from '#/wireRecord';
 import {
   IMicroCompactionService,
   type MicroCompactionConfig,
@@ -38,8 +37,6 @@ export class MicroCompactionService
   implements IMicroCompactionService
 {
   private cutoff = 0;
-  private readonly flags: ExperimentalFlagResolver;
-  private readonly clock: () => number;
   private readonly config: MicroCompactionConfig;
   private _lastAssistantAt: number | null = null;
 
@@ -50,14 +47,12 @@ export class MicroCompactionService
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IProfileService private readonly profile: IProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @ITurnRunner turnRunner: ITurnRunner,
+    @ITurn turn: ITurn,
   ) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...options.config };
-    this.flags = options.experimentalFlags ?? new FlagResolver();
-    this.clock = options.now ?? Date.now;
     this._register(
-      turnRunner.hooks.beforeStep.register(
+      turn.hooks.beforeStep.register(
         'micro-compaction',
         async (_ctx, next) => {
           this.detect();
@@ -106,7 +101,7 @@ export class MicroCompactionService
     const lastAssistantAt = this._lastAssistantAt;
     if (lastAssistantAt === null) return;
 
-    const cacheAgeMs = this.clock() - lastAssistantAt;
+    const cacheAgeMs = Date.now() - lastAssistantAt;
     if (cacheAgeMs < this.config.cacheMissedThresholdMs) return;
 
     const history = this.context.getHistory();
@@ -178,7 +173,7 @@ export class MicroCompactionService
     }
 
     if (context.messages.some(isAssistantCacheAnchor)) {
-      this._lastAssistantAt = this.wireRecord.restoring?.time ?? this.clock();
+      this._lastAssistantAt = this.wireRecord.restoring?.time ?? Date.now();
     }
   }
 

@@ -1,7 +1,6 @@
 import { createDecorator } from "#/_base/di";
 import type { ToolExecution, ToolUpdate } from '#/loop';
-
-import type { ToolCall, ToolResult } from '../types';
+import type { ToolCall, ToolResult } from '#/toolRegistry';
 
 export interface ToolExecutorOptions {
   readonly signal?: AbortSignal;
@@ -19,4 +18,4 @@ export interface IToolExecutor {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const IToolExecutor = createDecorator<IToolExecutor>('agentToolExecutorService');
+export const IToolExecutor = createDecorator<IToolExecutor>('toolExecutorService');

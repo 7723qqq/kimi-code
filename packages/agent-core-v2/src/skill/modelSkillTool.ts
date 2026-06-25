@@ -1,15 +1,15 @@
-import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '../../../loop';
+import { renderPrompt } from "#/_base/utils/render-prompt";
+import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/loop';
+import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
+import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
+import type { IAgentSkillService } from './skill';
 import {
   MAX_SKILL_QUERY_DEPTH,
   NestedSkillTooDeepError,
   SkillToolInputSchema,
   type SkillToolInput,
-} from '../../../tools/builtin/collaboration/skill-tool';
-import skillDescriptionTemplate from '../../../tools/builtin/collaboration/skill-tool.md?raw';
-import { toInputJsonSchema } from '../../../tools/support/input-schema';
-import { matchesGlobRuleSubject } from '../../../tools/support/rule-match';
-import { renderPrompt } from "#/_base/utils/render-prompt";
-import type { IAgentSkillService } from './skill';
+} from './skill-tool';
+import skillDescriptionTemplate from './skill-tool.md?raw';
 
 export interface ModelSkillToolOptions {
   readonly queryDepth?: number;

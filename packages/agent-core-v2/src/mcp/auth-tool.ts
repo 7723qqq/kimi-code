@@ -31,7 +31,7 @@ import {
   type ExecutableToolContext,
   type ExecutableToolResult,
 } from '../loop';
-import { toInputJsonSchema } from '../tools/support/input-schema';
+import { toInputJsonSchema } from '../_base/tools/support/input-schema';
 import {
   MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
   type McpOAuthAuthorizationUrlUpdateData,

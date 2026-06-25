@@ -8,8 +8,8 @@ import {
 } from "#/_base/di";
 import { ErrorCodes, makeErrorPayload } from "#/_base/errors";
 import type { ExecutableTool, ExecutableToolResult } from '#/loop';
-import { IEventBus } from '../eventBus/eventBus';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
+import { IEventBus } from '#/eventBus';
+import { IToolRegistry } from '#/toolRegistry';
 import { createMcpAuthTool } from './auth-tool';
 import type { McpServerEntry } from './connection-manager';
 import { IMcpService, type McpServiceOptions } from './mcp';

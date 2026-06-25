@@ -1,10 +1,10 @@
-import type { ResolvedToolExecutionHookContext } from '../../../../loop';
-import { isPlainRecord } from '../../../../agent/turn/canonical-args';
+import { isPlainRecord } from '#/_base/utils/canonical-args';
+import type { ResolvedToolExecutionHookContext } from '#/loop';
 import { IExternalHooksService } from '../../externalHooks/externalHooks';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
-} from '../permissionPolicy';
+} from '../types';
 
 export class PreToolCallHookPermissionPolicyService implements PermissionPolicy {
   readonly name = 'pre-tool-call-hook';

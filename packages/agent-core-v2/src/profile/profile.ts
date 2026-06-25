@@ -9,7 +9,7 @@ import type { AgentConfigData, KimiConfig } from '#/config';
 import type { ThinkingEffort } from '#/config/thinking';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/profile';
 import type { ModelProvider } from '#/session/provider-manager';
-import type { ToolSource } from '../types';
+import type { ToolSource } from '../toolRegistry';
 
 export interface ProfileData extends AgentConfigData {
   readonly activeToolNames?: readonly string[];

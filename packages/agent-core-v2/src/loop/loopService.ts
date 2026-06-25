@@ -1,5 +1,9 @@
 import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import {
+  getScopedServiceDescriptors,
+  LifecycleScope,
+  registerScopedService,
+} from '#/_base/di/scope';
 import {
   createHash
 } from 'node:crypto';
@@ -27,7 +31,9 @@ import {
 
 import {
   Disposable,
+  DisposableStore,
   IInstantiationService,
+  ServiceCollection,
 } from "#/_base/di";
 import {
   ErrorCodes,
@@ -36,26 +42,27 @@ import {
   type KimiErrorPayload,
 } from "#/_base/errors";
 import { abortable } from "#/_base/utils/abort";
-import { IContextMemory } from '#/contextMemory';
+import {
+  canonicalTelemetryArgs,
+  isPlainRecord
+} from '#/_base/utils/canonical-args';
+import { IContextMemory, type ContextMessage } from '#/contextMemory';
 import { IContextProjector } from '#/contextProjector';
 import { IContextSizeService } from '#/contextSize';
 import { IEventBus } from '#/eventBus';
 import { IExternalHooksService } from '#/externalHooks';
 import { IFullCompaction } from '#/fullCompaction';
 import { ILLMRequester } from '#/llmRequester';
-import type { IMcpService } from '#/mcp';
+import { IMcpService } from '#/mcp';
 import { IPermissionService } from '#/permission';
 import { IProfileService } from '#/profile';
 import { ITelemetryService } from '#/telemetry';
 import { IToolExecutor } from '#/toolExecutor';
-import { IToolRegistry } from '#/toolRegistry';
+import { IToolDedupService } from '#/tooldedup/tooldedup';
+import { IToolRegistry, type ToolResult } from '#/toolRegistry';
 import type { Turn, TurnResult } from '#/turn';
 import { IUsageService } from '#/usage';
 import { IWireRecord } from '#/wireRecord';
-import {
-  canonicalTelemetryArgs,
-  isPlainRecord
-} from './canonical-args';
 import type {
   LoopEvent,
   LoopEventDispatcher,
@@ -64,7 +71,6 @@ import type {
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { ILoopService, type LoopRunHooks } from './loop';
 import { runTurn as runLoopTurn } from './run-turn';
-import { ToolCallDeduplicator } from './tool-dedup';
 import type {
   ExecutableTool,
   ExecutableToolResult,
@@ -79,6 +85,11 @@ const TOOL_EMPTY_ERROR_STATUS =
 const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
 type ToolTelemetryEvent = 'tool_call' | 'tool_call_dedup_detected' | 'tool_call_repeat';
 type TelemetryProperties = Record<string, unknown>;
+
+interface TurnScopedService<T> {
+  readonly service: T;
+  dispose(): void;
+}
 
 export class LoopService extends Disposable implements ILoopService {
   private readonly openSteps = new Map<string, OpenStep>();
@@ -129,7 +140,8 @@ export class LoopService extends Disposable implements ILoopService {
     const llm = this.createLLM((model) => {
       usageModel = model ?? this.profile.data().modelAlias ?? 'unknown';
     });
-    const loopHooks = this.loopHooks(turn, hooks);
+    const turnDeduper = this.createTurnDeduper();
+    const loopHooks = this.loopHooks(turn, hooks, turnDeduper.service);
     try {
       await this.mcp.waitForInitialLoad(turn.abortController.signal);
       // Preflight the model configuration before any step begins. Legacy reads
@@ -195,6 +207,7 @@ export class LoopService extends Disposable implements ILoopService {
       this.stepToolCallKeys.clear();
       this.stepFailureByTurn.delete(turn.id);
       this.pendingMeasurements.clear();
+      turnDeduper.dispose();
     }
   }
 
@@ -600,16 +613,25 @@ export class LoopService extends Disposable implements ILoopService {
     };
   }
 
-  private loopHooks(turn: Turn, hooks: LoopRunHooks | undefined): LoopHooks {
-    const deduper = new ToolCallDeduplicator({
-      telemetry: {
-        track: (event, properties) => {
-          if (event === 'tool_call_repeat') {
-            this.emitToolTelemetry(event, properties);
-          }
-        },
-      },
-    });
+  private createTurnDeduper(): TurnScopedService<IToolDedupService> {
+    const store = new DisposableStore();
+    const collection = new ServiceCollection();
+    for (const entry of getScopedServiceDescriptors(LifecycleScope.Turn)) {
+      collection.set(entry.id, entry.descriptor);
+    }
+    const child = this.instantiation.createChild(collection, store);
+    const service = child.invokeFunction((accessor) => accessor.get(IToolDedupService));
+    return {
+      service,
+      dispose: () => store.dispose(),
+    };
+  }
+
+  private loopHooks(
+    turn: Turn,
+    hooks: LoopRunHooks | undefined,
+    deduper: IToolDedupService,
+  ): LoopHooks {
     let continueAfterStop = false;
     let stopHookContinuationUsed = false;
     return {
@@ -643,7 +665,7 @@ export class LoopService extends Disposable implements ILoopService {
         // a user interruption (matching legacy behavior).
         abortable(this.permission().authorize(context), context.signal),
       finalizeToolResult: async (context) => {
-        const result = await deduper.finalizeResult(
+        const result: ExecutableToolResult = await deduper.finalizeResult(
           context.toolCall.id,
           context.toolCall.name,
           context.args,

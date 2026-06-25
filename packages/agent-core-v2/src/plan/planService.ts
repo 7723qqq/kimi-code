@@ -1,34 +1,36 @@
-import {
-  randomUUID } from 'node:crypto';
-import { dirname,
-  join } from 'pathe';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import {
+  randomUUID
+} from 'node:crypto';
+import {
+  dirname,
+  join
+} from 'pathe';
 
 import {
   Disposable,
 } from "#/_base/di";
-import type { ExecutableToolResult } from '../../../loop';
-import type { ToolInputDisplay } from '../../../tools/display';
-import ENTER_PLAN_MODE_DESCRIPTION from '../../../tools/builtin/planning/enter-plan-mode.md?raw';
-import { EnterPlanModeInputSchema } from '../../../tools/builtin/planning/enter-plan-mode';
-import EXIT_PLAN_MODE_DESCRIPTION from '../../../tools/builtin/planning/exit-plan-mode.md?raw';
+import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
+import { generateHeroSlug } from "#/_base/utils/hero-slug";
+import { IContextMemory, type ContextMessage } from '#/contextMemory';
+import { IDynamicInjector } from '#/dynamicInjector';
+import { IEventBus } from '#/eventBus';
+import { IKaosService } from '#/kaos';
+import { IProfileService } from '#/profile';
+import { IReplayBuilderService } from '#/replayBuilder';
+import { ITelemetryService } from '#/telemetry';
+import { IToolRegistry } from '#/toolRegistry';
+import { IWireRecord } from '#/wireRecord';
+import type { ToolInputDisplay } from '@moonshot-ai/protocol';
+import type { ExecutableToolResult } from '../loop';
+import { EnterPlanModeInputSchema } from './enter-plan-mode';
+import ENTER_PLAN_MODE_DESCRIPTION from './enter-plan-mode.md?raw';
 import {
   ExitPlanModeInputSchema,
   type ExitPlanModeInput,
-} from '../../../tools/builtin/planning/exit-plan-mode';
-import { toInputJsonSchema } from '../../../tools/support/input-schema';
-import { generateHeroSlug } from "#/_base/utils/hero-slug";
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
-import { IEventBus } from '../eventBus/eventBus';
-import { IKaosService } from '../kaos/kaos';
-import { IProfileService } from '../profile/profile';
-import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
-import { ITelemetryService } from '../telemetry/telemetry';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import type { ContextMessage } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+} from './exit-plan-mode';
+import EXIT_PLAN_MODE_DESCRIPTION from './exit-plan-mode.md?raw';
 import {
   IPlanService,
   type PlanData,

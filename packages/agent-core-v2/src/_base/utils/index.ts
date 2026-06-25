@@ -4,6 +4,7 @@
  */
 
 export * from './abort';
+export * from './canonical-args';
 export * from './completion-budget';
 export * from './fs';
 export * from './hero-slug';

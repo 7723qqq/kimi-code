@@ -1,7 +1,7 @@
 /**
- * JSON canonicalization used by tool-call telemetry and dedup.
- * Recursively sorts object keys so semantically-equal args produce identical keys.
+ * `_base` utility — canonical JSON argument serialization for stable tool-call keys.
  */
+
 export function canonicalTelemetryArgs(args: unknown): string {
   const json = JSON.stringify(sortJsonValue(args));
   return json ?? String(args);

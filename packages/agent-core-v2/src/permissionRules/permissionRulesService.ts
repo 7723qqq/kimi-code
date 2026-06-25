@@ -6,8 +6,8 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import { OrderedHookSlot } from '../hooks';
-import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IReplayBuilderService } from '#/replayBuilder';
+import { IWireRecord } from '#/wireRecord';
 import {
   IPermissionRulesService,
   type PermissionApprovalResultRecord,

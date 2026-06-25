@@ -20,11 +20,11 @@ import { isMcpToolName } from '#/mcp/tool-naming';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/profile';
 import type { ResolvedRuntimeProvider } from '#/session/provider-manager';
 
-import { IEventBus } from '../eventBus/eventBus';
-import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
-import { ITelemetryService } from '../telemetry/telemetry';
+import { IEventBus } from '#/eventBus';
+import { IReplayBuilderService } from '#/replayBuilder';
+import { ITelemetryService } from '#/telemetry';
 import type { ToolSource } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IWireRecord } from '#/wireRecord';
 import type {
   ProfileData,
   ProfileModelContext,

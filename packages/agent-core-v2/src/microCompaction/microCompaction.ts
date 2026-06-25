@@ -1,7 +1,5 @@
 import { createDecorator } from "#/_base/di";
-import type { ExperimentalFlagResolver } from '#/flags';
-
-import type { ContextMessage } from '../types';
+import type { ContextMessage } from '#/contextMemory';
 
 export interface MicroCompactionConfig {
   keepRecentMessages: number;
@@ -13,8 +11,6 @@ export interface MicroCompactionConfig {
 
 export interface MicroCompactionServiceOptions {
   readonly config?: Partial<MicroCompactionConfig>;
-  readonly experimentalFlags?: ExperimentalFlagResolver;
-  readonly now?: () => number;
   readonly maxContextTokens?: () => number | undefined;
 }
 

@@ -5,12 +5,12 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
-import { IEventBus } from '../eventBus/eventBus';
+import { IDynamicInjector } from '#/dynamicInjector';
+import { IEventBus } from '#/eventBus';
 import { OrderedHookSlot } from '../hooks';
-import { IReplayBuilderService } from '../replayBuilder/replayBuilder';
+import { IReplayBuilderService } from '#/replayBuilder';
 import type { WireRecord } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IWireRecord } from '#/wireRecord';
 import { registerPermissionModeInjection } from './injection/permissionModeInjection';
 import { IPermissionModeService } from './permissionMode';
 

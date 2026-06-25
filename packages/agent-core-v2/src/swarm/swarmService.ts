@@ -1,19 +1,18 @@
-import SWARM_MODE_ENTER_REMINDER from '../../../agent/swarm/enter-reminder.md?raw';
-import SWARM_MODE_EXIT_REMINDER from '../../../agent/swarm/exit-reminder.md?raw';
 import {
   Disposable,
 } from "#/_base/di";
-import { AgentSwarmTool } from '../../../tools/builtin/collaboration/agent-swarm';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IEventBus } from '../eventBus/eventBus';
-import { ISubagentHost } from '../subagentHost/subagentHost';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import { ITurnRunner } from '../turnRunner/turnRunner';
-import type { ContextMessage } from '../types';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import type { ContextMessage } from '#/contextMemory';
+import { IContextMemory } from '#/contextMemory';
+import { IEventBus } from '#/eventBus';
+import { ISubagentHost } from '#/subagentHost';
+import { IToolRegistry } from '#/toolRegistry';
+import { ITurnService } from '#/turn';
+import { IWireRecord } from '#/wireRecord';
+import SWARM_MODE_ENTER_REMINDER from './enter-reminder.md?raw';
+import SWARM_MODE_EXIT_REMINDER from './exit-reminder.md?raw';
+import { AgentSwarmTool } from './agent-swarm';
 import {
   ISwarmService,
   type SwarmModeTrigger,
@@ -33,7 +32,7 @@ export class SwarmService extends Disposable implements ISwarmService {
     @IContextMemory private readonly context: IContextMemory,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventBus private readonly events: IEventBus,
-    @ITurnRunner turnRunner?: ITurnRunner,
+    @ITurnService turnService?: ITurnService,
     @IToolRegistry toolRegistry?: IToolRegistry,
     @ISubagentHost subagentHost?: ISubagentHost,
   ) {
@@ -48,9 +47,9 @@ export class SwarmService extends Disposable implements ISwarmService {
         this.applyExit(false);
       }),
     );
-    if (turnRunner !== undefined) {
+    if (turnService !== undefined) {
       this._register(
-        turnRunner.hooks.onEnded.register('swarm-mode-auto-exit', (_ctx, next) => {
+        turnService.hooks.onEnded.register('swarm-mode-auto-exit', (_ctx, next) => {
           const done = next();
           if (this.shouldAutoExit) {
             this.exit();

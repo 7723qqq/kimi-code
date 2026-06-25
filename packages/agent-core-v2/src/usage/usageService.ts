@@ -5,10 +5,10 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 
-import { IEventBus } from '../eventBus/eventBus';
+import { IEventBus } from '#/eventBus';
 import type { UsageRecordScope, UsageStatus } from './usage';
 import { IUsageService } from './usage';
-import { IWireRecord } from '../wireRecord/wireRecord';
+import { IWireRecord } from '#/wireRecord';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {

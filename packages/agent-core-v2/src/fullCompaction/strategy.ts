@@ -1,5 +1,5 @@
 import type { Message } from '@moonshot-ai/kosong';
-import type { ProfileModelContext } from '../profile/profile';
+import type { ProfileModelContext } from '#/profile';
 import type { CompactionSource } from './types';
 import { estimateTokensForMessage } from '../_base/utils';
 

@@ -16,12 +16,12 @@ import {
   applyCompletionBudget,
   resolveCompletionBudget,
 } from "#/_base/utils/completion-budget";
-import { IProfileService } from '../profile/profile';
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IContextProjector } from '../contextProjector/contextProjector';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
+import { IProfileService } from '#/profile';
+import { IContextMemory } from '#/contextMemory';
+import { IContextProjector } from '#/contextProjector';
+import { IToolRegistry } from '#/toolRegistry';
 import type { LLMEvent, LLMRequestOverrides } from '.';
-import { ILLMRequestLogService } from '../llmRequestLog/llmRequestLog';
+import { ILLMRequestLogService } from '#/llmRequestLog';
 import { AsyncEventQueue } from './asyncEventQueue';
 import { ILLMRequester } from './llmRequester';
 

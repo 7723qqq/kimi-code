@@ -33,7 +33,7 @@ export interface TurnEndedContext {
 }
 
 
-export interface ITurnRunner {
+export interface ITurnService {
   launch(origin: PromptOrigin): Turn;
   getActiveTurn(): Turn | undefined;
   cancel(turnId?: number, reason?: unknown): void;
@@ -47,4 +47,4 @@ export interface ITurnRunner {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ITurnRunner = createDecorator<ITurnRunner>('agentTurnRunnerService');
+export const ITurnService = createDecorator<ITurnService>('turnService');

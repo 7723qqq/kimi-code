@@ -2,8 +2,8 @@ import type {
   QueuedSubagentRunResult,
   QueuedSubagentTask,
   SessionSubagentHost,
-} from '../../../session/subagent-host';
-import { DEFAULT_INIT_PROMPT } from '../../../profile';
+} from './subagent-host';
+import { DEFAULT_INIT_PROMPT } from '#/profile';
 import {
   ISubagentHost,
 } from './subagentHost';

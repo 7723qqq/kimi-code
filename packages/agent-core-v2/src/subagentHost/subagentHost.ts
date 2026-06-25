@@ -1,6 +1,5 @@
 import { createDecorator } from "#/_base/di";
-import type { QueuedSubagentTask } from '../../../session';
-import type { SubagentResult } from '../../../session/subagent-batch';
+import type { QueuedSubagentTask, SubagentResult } from './subagent-batch';
 
 export interface ISubagentHost {
   readonly _serviceBrand: undefined;

@@ -7,16 +7,16 @@ import {
   TodoListTool,
   readTodoItems,
   type TodoItem,
-} from '../../../tools/builtin/state/todo-list';
+} from './todo-list';
 import {
   TODO_LIST_REMINDER_VARIANT,
   todoListStaleReminder,
 } from './todoListReminder';
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IDynamicInjector } from '../dynamicInjector/dynamicInjector';
-import { IProfileService } from '../profile/profile';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import { IToolStoreService } from '../toolStore/toolStore';
+import { IContextMemory } from '#/contextMemory';
+import { IDynamicInjector } from '#/dynamicInjector';
+import { IProfileService } from '#/profile';
+import { IToolRegistry } from '#/toolRegistry';
+import { IToolStoreService } from '#/toolStore';
 import { ITodoListService } from './todoList';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';

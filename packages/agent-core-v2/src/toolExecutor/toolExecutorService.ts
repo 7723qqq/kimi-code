@@ -1,14 +1,11 @@
-import type { ContentPart } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import type { ContentPart } from '@moonshot-ai/kosong';
 
-import { isAbortError } from '../../../loop/errors';
-import type {
-  ExecutableToolResult,
-  ToolExecution,
-} from '../../../loop/types';
 import { isUserCancellation } from "#/_base/utils/abort";
-import type { ToolCall, ToolResult } from '../types';
+import type { ExecutableToolResult, ToolExecution } from '#/loop';
+import { isAbortError } from '#/loop/errors';
+import type { ToolCall, ToolResult } from '#/toolRegistry';
 import { IToolExecutor, type ToolExecutorOptions } from './toolExecutor';
 
 const TOOL_OUTPUT_EMPTY = 'Tool output is empty.';

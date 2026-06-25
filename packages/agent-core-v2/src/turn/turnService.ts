@@ -21,7 +21,7 @@ import type {
   TurnResult,
   TurnStepContext,
 } from './turn';
-import { ITurnRunner } from './turn';
+import { ITurnService } from './turn';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -32,7 +32,7 @@ declare module '#/wireRecord' {
   }
 }
 
-export class TurnRunnerService implements ITurnRunner {
+export class TurnRunnerService implements ITurnService {
   private nextTurnId = 0;
   private activeTurn: Turn | undefined;
   private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
@@ -322,7 +322,7 @@ function createControlledPromise<T>(): ControlledPromise<T> {
 
 registerScopedService(
   LifecycleScope.Agent,
-  ITurnRunner,
+  ITurnService,
   TurnRunnerService,
   InstantiationType.Delayed,
   'turn',

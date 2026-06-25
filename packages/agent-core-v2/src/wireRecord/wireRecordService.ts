@@ -11,7 +11,7 @@ import {
 import {
   IBlobStoreService,
   type BlobStoreServiceOptions,
-} from '../blobStore/blobStore';
+} from '#/blobStore';
 import { BlobStoreService } from '../blobStore/blobStoreService';
 import { OrderedHookSlot } from '../hooks';
 import type { WireRecord, WireRecordMap } from '../wireRecord';
