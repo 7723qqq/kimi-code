@@ -67,11 +67,15 @@ export class TurnService implements ITurnService {
     });
     this.events.on((event) => {
       if (event.type === 'turn.step.started') {
-        this.currentStepByTurn.set(event.turnId, event.step);
+        if (typeof event.turnId === 'number' && typeof event.step === 'number') {
+          this.currentStepByTurn.set(event.turnId, event.step);
+        }
         return;
       }
       if (event.type === 'turn.step.interrupted') {
-        this.trackTurnInterrupted(event.turnId, event.step);
+        if (typeof event.turnId === 'number' && typeof event.step === 'number') {
+          this.trackTurnInterrupted(event.turnId, event.step);
+        }
       }
     });
   }

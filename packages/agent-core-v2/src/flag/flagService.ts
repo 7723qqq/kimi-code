@@ -19,11 +19,11 @@ import {
   IFlagService,
 } from './flag';
 import {
-  ExperimentalConfigSchema,
   type FlagDefinitionInput,
   type FlagId,
   FlagRegistry,
 } from './registry';
+import { ExperimentalConfigSchema } from '#/config/schema';
 
 export const MASTER_ENV = 'KIMI_CODE_EXPERIMENTAL_FLAG';
 

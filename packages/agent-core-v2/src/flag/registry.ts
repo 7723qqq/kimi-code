@@ -3,8 +3,6 @@
  * `[experimental]` config section schema.
  */
 
-import { z } from 'zod';
-
 export type FlagSurface = 'core' | 'tui' | 'both';
 
 export interface FlagDefinitionInput {
@@ -30,9 +28,6 @@ export const FLAG_DEFINITIONS = [
 export type FlagId = (typeof FLAG_DEFINITIONS)[number]['id'];
 
 export type FlagDefinition = FlagDefinitionInput & { readonly id: FlagId };
-
-export const ExperimentalConfigSchema = z.record(z.string(), z.boolean());
-export type ExperimentalConfig = z.infer<typeof ExperimentalConfigSchema>;
 
 export class FlagRegistry {
   private readonly byId: ReadonlyMap<string, FlagDefinitionInput>;

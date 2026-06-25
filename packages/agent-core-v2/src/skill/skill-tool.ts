@@ -11,18 +11,14 @@
  * without bound.
  */
 
-import { randomUUID } from 'node:crypto';
-
 import { z } from 'zod';
 
-import type { SkillActivationOrigin } from '#/contextMemory';
-import { renderModelToolSkillPrompt } from './prompt';
 import type { BuiltinTool } from '#/toolRegistry';
-import type { ExecutableToolResult, ToolExecution } from '#/toolRegistry';
-import { isInlineSkillType, type SkillDefinition } from './skill';
-import { renderPrompt } from './utils/render-prompt';
-import { toInputJsonSchema } from '../../support/input-schema';
-import { matchesGlobRuleSubject } from '../../support/rule-match';
+import type { ExecutableToolResult, ToolExecution } from '#/loop';
+import type { IAgentSkillService } from './skill';
+import { renderPrompt } from '#/_base/utils/render-prompt';
+import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
+import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import skillDescriptionTemplate from './skill-tool.md?raw';
 
 export const MAX_SKILL_QUERY_DEPTH = 3;
@@ -72,7 +68,7 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SkillToolInputSchema);
 
   constructor(
-    private readonly agent: Agent,
+    private readonly skills: IAgentSkillService,
     private readonly options: SkillToolOptions = {},
   ) {}
 
@@ -87,7 +83,7 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
   }
 
   withInitialQueryDepth(initialQueryDepth: number): SkillTool {
-    return new SkillTool(this.agent, {
+    return new SkillTool(this.skills, {
       ...this.options,
       initialQueryDepth,
     });
@@ -104,72 +100,10 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
       throw new NestedSkillTooDeepError(MAX_SKILL_QUERY_DEPTH, args.skill);
     }
 
-    const skills = this.agent.skills;
-    if (skills === null) {
-      return errorResult(`Skill "${args.skill}" not found in the current skill listing.`);
-    }
-    const skill = skills.registry.getSkill(args.skill);
-    if (skill === undefined) {
-      return errorResult(`Skill "${args.skill}" not found in the current skill listing.`);
-    }
-    if (skill.metadata.disableModelInvocation === true) {
-      // Keep the exact wording "can only be triggered by the user" so
-      // contract audits and integration tests stay deterministic.
-      return errorResult(
-        `Skill "${args.skill}" can only be triggered by the user (model invocation is disabled).`,
-      );
-    }
-
-    const skillArgs = args.args ?? '';
-    if (!isInlineSkillType(skill.metadata.type)) {
-      return errorResult(
-        `Skill "${skill.name}" is not an inline skill and cannot be invoked by the model in v1.`,
-      );
-    }
-
-    const origin = skillOrigin(skill, skillArgs, currentDepth);
-    const promptTrigger = origin.trigger === 'nested-skill' ? 'nested-skill' : 'model-tool';
-    skills.recordActivation(origin);
-    const skillContent = skills.registry.renderSkillPrompt(skill, skillArgs);
-    this.agent.context.appendUserMessage(
-      [
-        {
-          type: 'text' as const,
-          text: renderModelToolSkillPrompt({
-            skillName: skill.name,
-            skillArgs,
-            skillContent,
-            skillSource: skill.source,
-            skillDir: skill.dir,
-            trigger: promptTrigger,
-          }),
-        },
-      ],
-      origin,
-    );
-    return {
-      output: `Skill "${skill.name}" loaded inline. Follow its instructions.`,
-    };
+    return this.skills.activateFromModel({
+      name: args.skill,
+      args: args.args,
+      queryDepth: currentDepth,
+    });
   }
-}
-
-function errorResult(message: string): ExecutableToolResult {
-  return { isError: true, output: message };
-}
-
-function skillOrigin(
-  skill: SkillDefinition,
-  skillArgs: string,
-  currentDepth: number,
-): SkillActivationOrigin {
-  return {
-    kind: 'skill_activation',
-    activationId: randomUUID(),
-    skillName: skill.name,
-    skillArgs: skillArgs.length > 0 ? skillArgs : undefined,
-    trigger: currentDepth > 0 ? 'nested-skill' : 'model-tool',
-    skillType: skill.metadata.type,
-    skillPath: skill.path,
-    skillSource: skill.source,
-  };
 }

@@ -8,6 +8,8 @@ import type {
 import type { Hooks } from '../hooks';
 import type { ToolInputDisplay } from "@moonshot-ai/protocol";
 
+export type BuiltinTool<Input = unknown> = ExecutableTool<Input>;
+
 export interface ToolDefinition {
   readonly name: string;
   readonly description: string;

@@ -16,13 +16,12 @@ import type { SwarmModeTrigger } from '#/swarm';
 import type { ToolInfo } from '#/toolRegistry';
 import type { KimiConfig, KimiConfigPatch, McpServerConfig } from '#/config';
 import type { ExperimentalFeatureState } from '#/flag';
-import type { ResumeSessionResult } from '#/rpc/resumed';
+import type { ResumeSessionResult } from '#/replayBuilder/types';
 import type { SessionMeta } from '#/session';
 import type { ContentPart } from '@moonshot-ai/kosong';
-import type { SessionWarning } from '@moonshot-ai/protocol';
+import type { SessionWarning, UsageStatus } from '@moonshot-ai/protocol';
 
 import type { PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
-import type { UsageStatus } from './events';
 import type { WithAgentId, WithSessionId } from './types';
 
 export type JsonPrimitive = string | number | boolean | null;

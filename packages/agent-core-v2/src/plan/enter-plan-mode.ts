@@ -5,13 +5,13 @@
  * does not require approval in any permission mode.
  */
 
-
-import type { Agent } from '#/agent';
 import { z } from 'zod';
 
-import type { BuiltinTool } from '../../../agent/tool';
-import type { ToolExecution } from '../../../loop/types';
-import { toInputJsonSchema } from '../../support/input-schema';
+import type { BuiltinTool } from '#/toolRegistry';
+import type { ToolExecution } from '#/loop';
+import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
+import type { ITelemetryService } from '#/telemetry';
+import type { IPlanService } from './plan';
 import DESCRIPTION from './enter-plan-mode.md?raw';
 
 // ── Input schema ─────────────────────────────────────────────────────
@@ -24,7 +24,10 @@ export class EnterPlanModeTool implements BuiltinTool<EnterPlanModeInput> {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EnterPlanModeInputSchema);
 
-  constructor(private readonly agent: Agent) {}
+  constructor(
+    private readonly planMode: IPlanService,
+    private readonly telemetry: ITelemetryService,
+  ) {}
 
   resolveExecution(_args: EnterPlanModeInput): ToolExecution {
     return {
@@ -32,7 +35,7 @@ export class EnterPlanModeTool implements BuiltinTool<EnterPlanModeInput> {
       approvalRule: this.name,
       execute: async () => {
         // Guard: already in plan mode
-        if (this.agent.planMode.isActive) {
+        if (this.planMode.isActive) {
           return {
             isError: true,
             output: 'Plan mode is already active. Use ExitPlanMode when the plan is ready.',
@@ -40,14 +43,14 @@ export class EnterPlanModeTool implements BuiltinTool<EnterPlanModeInput> {
         }
 
         try {
-          await this.agent.planMode.enter();
+          await this.planMode.enter();
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Failed to enter plan mode.';
           return { isError: true, output: `Failed to enter plan mode: ${message}` };
         }
 
-        this.agent.telemetry.track('plan_enter_resolved', { outcome: 'auto_approved' });
-        return { output: enteredPlanModeMessage(this.agent.planMode.planFilePath) };
+        this.telemetry.track('plan_enter_resolved', { outcome: 'auto_approved' });
+        return { output: enteredPlanModeMessage(this.planMode.planFilePath) };
       },
     };
   }

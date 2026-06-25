@@ -6,14 +6,14 @@
  * file; this tool reads that file and flips plan mode off.
  */
 
-import type { Agent } from '#/agent';
-import type { PlanData } from '#/agent/plan';
+import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
-import type { BuiltinTool } from '../../../agent/tool';
-import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import type { ToolInputDisplay } from '../../display';
-import { toInputJsonSchema } from '../../support/input-schema';
+import type { BuiltinTool } from '#/toolRegistry';
+import type { ExecutableToolResult, ToolExecution } from '#/loop';
+import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
+import type { ITelemetryService } from '#/telemetry';
+import type { IPlanService, PlanData } from './plan';
 import DESCRIPTION from './exit-plan-mode.md?raw';
 
 // ── Input schema ─────────────────────────────────────────────────────
@@ -84,7 +84,10 @@ export class ExitPlanModeTool implements BuiltinTool<ExitPlanModeInput> {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ExitPlanModeInputSchema);
 
-  constructor(private readonly agent: Agent) {}
+  constructor(
+    private readonly planMode: IPlanService,
+    private readonly telemetry: ITelemetryService,
+  ) {}
 
   async resolveExecution(args: ExitPlanModeInput): Promise<ToolExecution> {
     return {
@@ -98,10 +101,10 @@ export class ExitPlanModeTool implements BuiltinTool<ExitPlanModeInput> {
   private async resolvePlanReviewDisplay(
     args: ExitPlanModeInput,
   ): Promise<ToolInputDisplay | undefined> {
-    if (!this.agent.planMode.isActive) return undefined;
+    if (!this.planMode.isActive) return undefined;
     let data: PlanData;
     try {
-      data = await this.agent.planMode.data();
+      data = await this.planMode.data();
     } catch {
       return undefined;
     }
@@ -118,7 +121,7 @@ export class ExitPlanModeTool implements BuiltinTool<ExitPlanModeInput> {
   }
 
   private async execution(args: ExitPlanModeInput): Promise<ExecutableToolResult> {
-    if (!this.agent.planMode.isActive) {
+    if (!this.planMode.isActive) {
       return {
         isError: true,
         output:
@@ -129,14 +132,14 @@ export class ExitPlanModeTool implements BuiltinTool<ExitPlanModeInput> {
     const resolvedPlan = await this.resolvePlan();
     if (!resolvedPlan.ok) return resolvedPlan.error;
 
-    this.agent.telemetry.track('plan_submitted', {
+    this.telemetry.track('plan_submitted', {
       has_options: args.options !== undefined && args.options.length >= 2,
     });
 
     const failed = this.exitPlanMode();
     if (failed !== undefined) return failed;
 
-    this.agent.telemetry.track('plan_resolved', { outcome: 'auto_approved' });
+    this.telemetry.track('plan_resolved', { outcome: 'auto_approved' });
 
     return {
       isError: false,
@@ -146,7 +149,7 @@ export class ExitPlanModeTool implements BuiltinTool<ExitPlanModeInput> {
 
   private exitPlanMode(): ExecutableToolResult | undefined {
     try {
-      this.agent.planMode.exit();
+      this.planMode.exit();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to exit plan mode.';
       return {
@@ -159,7 +162,7 @@ export class ExitPlanModeTool implements BuiltinTool<ExitPlanModeInput> {
   private async resolvePlan(): Promise<ResolvePlanResult> {
     let source: ExitPlanModePlanSource | null;
     try {
-      const data = await this.agent.planMode.data();
+      const data = await this.planMode.data();
       source = data === null ? null : { plan: data.content, path: data.path };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to read plan file.';
@@ -177,7 +180,7 @@ export class ExitPlanModeTool implements BuiltinTool<ExitPlanModeInput> {
       };
     }
 
-    const path = source?.path ?? this.agent.planMode.planFilePath;
+    const path = source?.path ?? this.planMode.planFilePath;
     return {
       ok: false,
       error: {

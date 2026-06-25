@@ -3,7 +3,7 @@ import {
   IInstantiationService,
 } from "#/_base/di";
 import type { ResolvedToolExecutionHookContext } from '#/loop';
-import type { PathClass } from '../../../tools/policies/path-access';
+import type { PathClass } from '#/_base/tools/policies/path-access';
 import {
   type PermissionGitWorkTreeMarker,
   type PermissionServiceOptions,

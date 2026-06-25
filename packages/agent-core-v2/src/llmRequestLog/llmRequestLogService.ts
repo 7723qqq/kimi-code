@@ -35,7 +35,7 @@ export class LLMRequestLogService implements ILLMRequestLogService {
     });
     if (signature !== this.lastConfigLogSignature) {
       this.lastConfigLogSignature = signature;
-      this.log.info({ ...requestLogFields, ...config }, 'llm config');
+      this.log.info('llm config', { ...requestLogFields, ...config });
     }
 
     const partialMessageCount = input.messages.filter(
@@ -47,7 +47,7 @@ export class LLMRequestLogService implements ILLMRequestLogService {
       partialMessageCount?: number;
     } = { ...requestLogFields };
     if (partialMessageCount > 0) requestFields.partialMessageCount = partialMessageCount;
-    this.log.info(requestFields, 'llm request');
+    this.log.info('llm request', requestFields);
   }
 }
 
