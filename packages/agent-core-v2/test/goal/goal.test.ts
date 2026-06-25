@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IGoalService } from '#/goal/goal';
-import { IInjectionService } from '#/injection/injection';
-import { IAgentRecords } from '#/records/records';
-import { ITurnService } from '#/turn/turn';
+import { IGoalService } from '#/goal';
+import { IInjectionService } from '#/injection';
+import { IAgentRecords } from '#/records';
+import { ITurnService } from '#/turn';
 import { stubTurn } from '../turn/stubs';
 
 import { GoalService } from '#/goal/goalService';

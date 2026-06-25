@@ -9,8 +9,8 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentConfigService, IConfigService } from '#/config/config';
-import { IEnvironmentService } from '#/environment/environment';
+import { IAgentConfigService, IConfigService } from '#/config';
+import { IEnvironmentService } from '#/environment';
 
 import {
   type GenerateArgs,

@@ -16,11 +16,11 @@ import {
   type ServicesAccessor,
 } from '#/_base/di/instantiation';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentConfigService } from '#/config/config';
-import { IAgentKaos } from '#/kaos/kaos';
-import { ILLMService } from '#/kosong/kosong';
-import { IPermissionService } from '#/permission/permission';
-import { IAgentRecords } from '#/records/records';
+import { IAgentConfigService } from '#/config';
+import { IKaosService } from '#/kaos';
+import { ILLMService } from '#/kosong';
+import { IPermissionService } from '#/permission';
+import { IAgentRecords } from '#/records';
 
 import {
   type ToolCallResult,
@@ -69,7 +69,7 @@ export class ToolService implements IToolService {
     @IToolDefinitionRegistry private readonly registry: IToolDefinitionRegistry,
     @IAgentConfigService _agentConfig: IAgentConfigService,
     @IAgentRecords _records: IAgentRecords,
-    @IAgentKaos _agentKaos: IAgentKaos,
+    @IKaosService _agentKaos: IKaosService,
     @IPermissionService _permission: IPermissionService,
     @ILLMService _llm: ILLMService,
     @IInstantiationService instantiation: IInstantiationService,

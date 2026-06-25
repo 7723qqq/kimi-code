@@ -6,7 +6,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IRestGateway, IScopeRegistry } from '#/gateway/gateway';
+import { IRestGateway, IScopeRegistry } from '#/gateway';
 import { RestGateway, ScopeRegistry } from '#/gateway/gatewayService';
 import { stubTurn } from '../turn/stubs';
 

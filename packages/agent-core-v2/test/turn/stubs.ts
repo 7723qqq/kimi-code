@@ -12,7 +12,7 @@ import type {
   TurnStartEvent,
   TurnStepEvent,
   TurnToolEvent,
-} from '#/turn/turn';
+} from '#/turn';
 
 const noneEvent = (<T>(): Event<T> => () => ({ dispose: () => {} }))();
 

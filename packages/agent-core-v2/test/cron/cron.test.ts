@@ -6,16 +6,16 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { ICronFireCoordinator, ICronService } from '#/cron/cron';
+import { ICronFireCoordinator, ICronService } from '#/cron';
 import { CronFireCoordinator, CronService } from '#/cron/cronService';
-import { IEnvironmentService } from '#/environment/environment';
+import { IEnvironmentService } from '#/environment';
 import { stubEnvironment } from '../environment/stubs';
-import { ILogService } from '#/log/log';
+import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
-import { ISessionMetaStore } from '#/records/records';
+import { ISessionMetaStore } from '#/records';
 import { ISessionActivity } from '#/session-activity/sessionActivity';
 import { ISessionContext } from '#/session-context/sessionContext';
-import { ITelemetryService } from '#/telemetry/telemetry';
+import { ITelemetryService } from '#/telemetry';
 import { stubTurn } from '../turn/stubs';
 
 function activity(idle: boolean): ISessionActivity {

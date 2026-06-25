@@ -5,7 +5,7 @@
  * production tree. Import from a relative path (`./stubs` or `../log/stubs`).
  */
 
-import type { ILogger, ILogService } from '#/log/log';
+import type { ILogger, ILogService } from '#/log';
 
 /** A no-op `ILogger`: every method is a no-op, `child()` returns itself. */
 export function stubLogger(): ILogger {

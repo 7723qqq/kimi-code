@@ -5,11 +5,11 @@ import { LocalKaos } from '@moonshot-ai/kaos';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IEnvironmentService } from '#/environment/environment';
-import { ILogService } from '#/log/log';
+import { IEnvironmentService } from '#/environment';
+import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
 
-import { IAgentKaos, IKaosFactory, ISessionKaosService } from '#/kaos/kaos';
+import { IKaosService, IKaosFactory, ISessionKaosService } from '#/kaos';
 import { AgentKaos } from '#/kaos/agentKaos';
 import { KaosFactory } from '#/kaos/kaosFactory';
 import { SessionKaosService } from '#/kaos/sessionKaosService';
@@ -110,7 +110,7 @@ describe('AgentKaos', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
     ix.set(ISessionKaosService, new SyncDescriptor(SessionKaosService));
-    ix.set(IAgentKaos, new SyncDescriptor(AgentKaos));
+    ix.set(IKaosService, new SyncDescriptor(AgentKaos));
   });
   afterEach(() => disposables.dispose());
 
@@ -119,7 +119,7 @@ describe('AgentKaos', () => {
     const base = await LocalKaos.create();
     session.setToolKaos(base);
 
-    const agent = ix.get(IAgentKaos);
+    const agent = ix.get(IKaosService);
     expect(agent.cwd).toBe(base.getcwd());
 
     const next = base.withCwd('/').getcwd();

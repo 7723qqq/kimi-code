@@ -9,11 +9,11 @@ import { LocalKaos } from '@moonshot-ai/kaos';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IFsService } from '#/fs/fs';
+import { IFsService } from '#/fs';
 import { FsService } from '#/fs/fsService';
-import { ISessionKaosService } from '#/kaos/kaos';
+import { ISessionKaosService } from '#/kaos';
 import { SessionKaosService } from '#/kaos/sessionKaosService';
-import { ILogService } from '#/log/log';
+import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
 
 describe('FsService', () => {

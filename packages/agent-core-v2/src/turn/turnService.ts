@@ -7,14 +7,14 @@ import { toKimiErrorPayload, type KimiErrorPayload } from "#/_base/errors";
 import { isUserCancellation, userCancellationReason } from "#/_base/utils/abort";
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
 import { IContextMemory, USER_PROMPT_ORIGIN } from '#/contextMemory';
-import { IEventBus } from '#/eventBus/eventBus';
-import { IExternalHooksService } from '#/externalHooks/externalHooks';
+import { IEventBus } from '#/eventBus';
+import { IExternalHooksService } from '#/externalHooks';
 import { OrderedHookSlot } from '#/hooks';
-import { ILoopService } from '#/loop/loop';
-import { IPlanService } from '#/plan/plan';
-import { ITelemetryService } from '#/telemetry/telemetry';
-import { IUsageService } from '#/usage/usage';
-import { IWireRecord } from '#/wireRecord/wireRecord';
+import { ILoopService } from '#/loop';
+import { IPlanService } from '#/plan';
+import { ITelemetryService } from '#/telemetry';
+import { IUsageService } from '#/usage';
+import { IWireRecord } from '#/wireRecord';
 import type {
   Turn,
   TurnEndedContext,

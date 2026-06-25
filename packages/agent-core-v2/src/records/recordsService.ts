@@ -13,8 +13,8 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { slugifyWorkDirName } from '#/_base/utils/workdir-slug';
-import { IKaosFactory, IAgentKaos, ISessionKaosService } from '#/kaos/kaos';
-import { ILogService } from '#/log/log';
+import { IKaosFactory, IKaosService, ISessionKaosService } from '#/kaos';
+import { ILogService } from '#/log';
 
 import {
   type AgentRecord,
@@ -92,7 +92,7 @@ export class AgentRecords extends Disposable implements IAgentRecords {
   private readonly path: string;
 
   constructor(
-    @IAgentKaos private readonly agentKaos: IAgentKaos,
+    @IKaosService private readonly agentKaos: IKaosService,
     @ILogService _log: ILogService,
     path: string = 'wire.jsonl',
   ) {

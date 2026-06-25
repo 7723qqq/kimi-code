@@ -5,7 +5,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import {
   IInstantiationService,
 } from "#/_base/di";
-import { IMicroCompactionService } from '#/microCompaction/microCompaction';
+import { IMicroCompactionService } from '#/microCompaction';
 import type { ContentPart, TextPart } from '@moonshot-ai/kosong';
 import { IContextProjector } from './contextProjector';
 import { ErrorCodes, KimiError } from '#/_base/errors';

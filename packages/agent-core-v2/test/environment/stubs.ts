@@ -6,7 +6,7 @@
  * `../environment/stubs`).
  */
 
-import type { IEnvironmentService } from '#/environment/environment';
+import type { IEnvironmentService } from '#/environment';
 
 /**
  * An `IEnvironmentService` rooted at the given home dir. `detect()` rejects

@@ -5,7 +5,7 @@
  * production tree. Import from a relative path (`./stubs` or `../records/stubs`).
  */
 
-import type { IAgentRecords } from '#/records/records';
+import type { IAgentRecords } from '#/records';
 
 /**
  * A no-op `IAgentRecords`: writes vanish, replay yields nothing, restore is a

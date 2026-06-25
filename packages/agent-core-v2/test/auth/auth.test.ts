@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IOAuthService } from '#/auth/auth';
-import { IConfigService } from '#/config/config';
-import { IEnvironmentService } from '#/environment/environment';
-import { ITelemetryService } from '#/telemetry/telemetry';
+import { IOAuthService } from '#/auth';
+import { IConfigService } from '#/config';
+import { IEnvironmentService } from '#/environment';
+import { ITelemetryService } from '#/telemetry';
 
 import { OAuthService } from '#/auth/authService';
 

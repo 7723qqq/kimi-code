@@ -4,15 +4,15 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { CompactionService } from '#/compaction/compactionService';
-import { IAgentConfigService } from '#/config/config';
-import { IContextService } from '#/context/context';
+import { IAgentConfigService } from '#/config';
+import { IContextService } from '#/context';
 import { ContextService } from '#/context/contextService';
-import { IInjectionService } from '#/injection/injection';
+import { IInjectionService } from '#/injection';
 import { InjectionService } from '#/injection/injectionService';
-import { IAgentRecords } from '#/records/records';
+import { IAgentRecords } from '#/records';
 import { stubAgentRecords } from '../records/stubs';
-import { ITelemetryService } from '#/telemetry/telemetry';
-import { ITurnService } from '#/turn/turn';
+import { ITelemetryService } from '#/telemetry';
+import { ITurnService } from '#/turn';
 import { stubTurn } from '../turn/stubs';
 
 describe('CompactionService', () => {

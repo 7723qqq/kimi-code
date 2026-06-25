@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { ITelemetryService } from '#/telemetry/telemetry';
-import { IToolDedupService } from '#/tooldedup/tooldedup';
-import { ITurnContext } from '#/turn/turn';
+import { ITelemetryService } from '#/telemetry';
+import { IToolDedupService } from '#/tooldedup';
+import { ITurnContext } from '#/turn';
 
 import { ToolDedupService } from '#/tooldedup/tooldedupService';
 

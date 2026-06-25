@@ -4,11 +4,11 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IBackgroundService } from '#/background/background';
-import { IAgentKaos } from '#/kaos/kaos';
-import { ILogService } from '#/log/log';
-import { IAgentRecords } from '#/records/records';
-import { ITelemetryService } from '#/telemetry/telemetry';
+import { IBackgroundService } from '#/background';
+import { IKaosService } from '#/kaos';
+import { ILogService } from '#/log';
+import { IAgentRecords } from '#/records';
+import { ITelemetryService } from '#/telemetry';
 
 import { BackgroundService } from '#/background/backgroundService';
 
@@ -19,7 +19,7 @@ describe('BackgroundService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    ix.stub(IAgentKaos, {});
+    ix.stub(IKaosService, {});
     ix.stub(IAgentRecords, {});
     ix.stub(ILogService, {});
     ix.stub(ITelemetryService, {});

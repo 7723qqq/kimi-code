@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IConfigRegistry, IConfigService } from '#/config/config';
-import { IEnvironmentService } from '#/environment/environment';
+import { IConfigRegistry, IConfigService } from '#/config';
+import { IEnvironmentService } from '#/environment';
 import { stubEnvironment } from '../environment/stubs';
-import { IModelCatalogService, IProviderManager } from '#/kosong/kosong';
-import { ILogService } from '#/log/log';
+import { IModelCatalogService, IProviderManager } from '#/kosong';
+import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
 
 import { ConfigRegistry, ConfigService } from '#/config/configService';

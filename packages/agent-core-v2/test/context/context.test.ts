@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IContextService } from '#/context/context';
+import { IContextService } from '#/context';
 import { ContextService } from '#/context/contextService';
-import { IAgentRecords } from '#/records/records';
+import { IAgentRecords } from '#/records';
 
 describe('ContextService', () => {
   let disposables: DisposableStore;

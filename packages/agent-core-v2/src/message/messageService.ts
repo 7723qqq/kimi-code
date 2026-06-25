@@ -7,7 +7,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IContextService } from '#/context/context';
+import { IContextService } from '#/context';
 
 import { type ProtocolMessage, IMessageService } from './message';
 

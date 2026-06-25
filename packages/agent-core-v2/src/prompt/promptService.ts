@@ -5,7 +5,7 @@ import { ErrorCodes, KimiError, makeErrorPayload } from "#/_base/errors";
 import { IContextMemory, USER_PROMPT_ORIGIN, type ContextMessage } from '#/contextMemory';
 import { IEventBus } from '#/eventBus';
 import { ITurnRunner, type Turn } from '#/turn';
-import { IWireRecord } from '#/wireRecord/wireRecord';
+import { IWireRecord } from '#/wireRecord';
 import { IPromptService } from './prompt';
 
 export class PromptService implements IPromptService {

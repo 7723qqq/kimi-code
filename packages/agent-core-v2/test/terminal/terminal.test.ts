@@ -9,11 +9,11 @@ import { LocalKaos } from '@moonshot-ai/kaos';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { ISessionKaosService } from '#/kaos/kaos';
+import { ISessionKaosService } from '#/kaos';
 import { SessionKaosService } from '#/kaos/sessionKaosService';
-import { ILogService } from '#/log/log';
+import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
-import { ITerminalService } from '#/terminal/terminal';
+import { ITerminalService } from '#/terminal';
 import { TerminalService } from '#/terminal/terminalService';
 
 describe('TerminalService', () => {

@@ -12,10 +12,10 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IEnvironmentService } from '#/environment/environment';
-import { IAgentKaos } from '#/kaos/kaos';
-import { ILogService } from '#/log/log';
-import { IAgentRecords } from '#/records/records';
+import { IEnvironmentService } from '#/environment';
+import { IKaosService } from '#/kaos';
+import { ILogService } from '#/log';
+import { IAgentRecords } from '#/records';
 
 import {
   type ConfigChangedEvent,
@@ -108,7 +108,7 @@ export class AgentConfigService implements IAgentConfigService {
   constructor(
     @IConfigService config: IConfigService,
     @IAgentRecords _records: IAgentRecords,
-    @IAgentKaos agentKaos: IAgentKaos,
+    @IKaosService agentKaos: IKaosService,
   ) {
     const section = config.get<AgentSection>('agent');
     this.modelAliasValue = section?.modelAlias;

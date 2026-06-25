@@ -17,13 +17,13 @@ import {
   type BackgroundTaskSettlement,
 } from './task';
 
-import { IContextMemory } from '#/contextMemory/contextMemory';
-import { IEventBus } from '#/eventBus/eventBus';
-import { IExternalHooksService } from '#/externalHooks/externalHooks';
-import { IPromptService } from '#/prompt/prompt';
-import { ITelemetryService } from '#/telemetry/telemetry';
+import { IContextMemory } from '#/contextMemory';
+import { IEventBus } from '#/eventBus';
+import { IExternalHooksService } from '#/externalHooks';
+import { IPromptService } from '#/prompt';
+import { ITelemetryService } from '#/telemetry';
 import type { WireRecord } from '#/wireRecord';
-import { IWireRecord } from '#/wireRecord/wireRecord';
+import { IWireRecord } from '#/wireRecord';
 import {
   IBackgroundService,
   type BackgroundLoadOptions,

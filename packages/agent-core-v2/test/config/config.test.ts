@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IAgentKaos } from '#/kaos/kaos';
+import { IKaosService } from '#/kaos';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IEnvironmentService } from '#/environment/environment';
+import { IEnvironmentService } from '#/environment';
 import { stubEnvironment } from '../environment/stubs';
-import { ILogService } from '#/log/log';
+import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
-import { IAgentRecords } from '#/records/records';
+import { IAgentRecords } from '#/records';
 import { stubAgentRecords } from '../records/stubs';
-import { IAgentConfigService, IConfigRegistry, IConfigService } from '#/config/config';
+import { IAgentConfigService, IConfigRegistry, IConfigService } from '#/config';
 
 import { AgentConfigService, ConfigRegistry, ConfigService } from '#/config/configService';
 
@@ -75,7 +75,7 @@ describe('AgentConfigService', () => {
   let ix: TestInstantiationService;
   let agentSection: Record<string, unknown>;
 
-  const agentKaos: IAgentKaos = {
+  const agentKaos: IKaosService = {
     _serviceBrand: undefined,
     get kaos(): never {
       throw new Error('unused');
@@ -90,7 +90,7 @@ describe('AgentConfigService', () => {
     agentSection = {};
     ix.stub(IConfigService, { get: <T>() => agentSection as T });
     ix.stub(IAgentRecords, stubAgentRecords());
-    ix.stub(IAgentKaos, agentKaos);
+    ix.stub(IKaosService, agentKaos);
     ix.set(IAgentConfigService, new SyncDescriptor(AgentConfigService));
   });
   afterEach(() => disposables.dispose());

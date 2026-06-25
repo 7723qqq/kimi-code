@@ -1,7 +1,8 @@
-import {
-  createHash } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import {
+  createHash
+} from 'node:crypto';
 
 import {
   APIConnectionError,
@@ -19,16 +20,13 @@ import {
   isToolCallPart,
   mergeInPlace,
   type ContentPart,
+  type ToolCall as KosongToolCall,
   type StreamedMessagePart,
   type TokenUsage,
-  type ToolCall as KosongToolCall,
-  } from '@moonshot-ai/kosong';
+} from '@moonshot-ai/kosong';
 
-import { canonicalTelemetryArgs,
-  isPlainRecord } from './canonical-args';
-import { ToolCallDeduplicator } from './tool-dedup';
-import { abortable } from "#/_base/utils/abort";
-import { Disposable,
+import {
+  Disposable,
   IInstantiationService,
 } from "#/_base/di";
 import {
@@ -37,36 +35,42 @@ import {
   toKimiErrorPayload,
   type KimiErrorPayload,
 } from "#/_base/errors";
+import { abortable } from "#/_base/utils/abort";
+import { IContextMemory } from '#/contextMemory';
+import { IContextProjector } from '#/contextProjector';
+import { IContextSizeService } from '#/contextSize';
+import { IEventBus } from '#/eventBus';
+import { IExternalHooksService } from '#/externalHooks';
+import { IFullCompaction } from '#/fullCompaction';
+import { ILLMRequester } from '#/llmRequester';
+import type { IMcpService } from '#/mcp';
+import { IPermissionService } from '#/permission';
+import { IProfileService } from '#/profile';
+import { ITelemetryService } from '#/telemetry';
+import { IToolExecutor } from '#/toolExecutor';
+import { IToolRegistry } from '#/toolRegistry';
+import type { Turn, TurnResult } from '#/turn';
+import { IUsageService } from '#/usage';
+import { IWireRecord } from '#/wireRecord';
+import {
+  canonicalTelemetryArgs,
+  isPlainRecord
+} from './canonical-args';
+import type {
+  LoopEvent,
+  LoopEventDispatcher,
+  LoopRecordedEvent,
+} from './events';
+import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
+import { ILoopService, type LoopRunHooks } from './loop';
 import { runTurn as runLoopTurn } from './run-turn';
+import { ToolCallDeduplicator } from './tool-dedup';
 import type {
   ExecutableTool,
   ExecutableToolResult,
   LoopHooks,
   RunnableToolExecution,
 } from './types';
-import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
-import type {
-  LoopEvent,
-  LoopEventDispatcher,
-  LoopRecordedEvent,
-} from './events';
-import { IContextMemory } from '../contextMemory/contextMemory';
-import { IContextProjector } from '../contextProjector/contextProjector';
-import { IContextSizeService } from '../contextSize/contextSize';
-import { IEventBus } from '../eventBus/eventBus';
-import { IExternalHooksService } from '../externalHooks/externalHooks';
-import { IFullCompaction } from '../fullCompaction/fullCompaction';
-import { ILLMRequester } from '../llmRequester/llmRequester';
-import { IMcpRuntimeService } from '../mcp/mcpRuntime';
-import { IPermissionService } from '../permission/permission';
-import { IProfileService } from '../profile/profile';
-import { ITelemetryService } from '../telemetry/telemetry';
-import { IToolRegistry } from '../toolRegistry/toolRegistry';
-import { IToolExecutor } from '../toolExecutor/toolExecutor';
-import { IUsageService } from '../usage/usage';
-import { IWireRecord } from '../wireRecord/wireRecord';
-import { ILoopService, type LoopRunHooks } from './loop';
-import type { Turn, TurnResult } from '../turn';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
@@ -99,7 +103,7 @@ export class LoopService extends Disposable implements ILoopService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IInstantiationService private readonly instantiation: IInstantiationService,
-    @IMcpRuntimeService private readonly mcpRuntime: IMcpRuntimeService,
+    @IMcpService private readonly mcp: IMcpService,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
   ) {
     super();
@@ -127,7 +131,7 @@ export class LoopService extends Disposable implements ILoopService {
     });
     const loopHooks = this.loopHooks(turn, hooks);
     try {
-      await this.mcpRuntime.waitForInitialLoad(turn.abortController.signal);
+      await this.mcp.waitForInitialLoad(turn.abortController.signal);
       // Preflight the model configuration before any step begins. Legacy reads
       // `config.model` at the top of its step loop, so a missing model fails the
       // turn before `step.begin` ever fires (no step.interrupted, no api_error).

@@ -3,18 +3,18 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IConfigRegistry, IConfigService } from '#/config/config';
+import { IConfigRegistry, IConfigService } from '#/config';
 import { ConfigRegistry, ConfigService } from '#/config/configService';
-import { IEnvironmentService } from '#/environment/environment';
+import { IEnvironmentService } from '#/environment';
 import { stubEnvironment } from '../environment/stubs';
-import { IFlagService } from '#/flag/flag';
+import { IFlagService } from '#/flag';
 import {
   EXPERIMENTAL_SECTION,
   FlagService,
   MASTER_ENV,
 } from '#/flag/flagService';
 import { FlagRegistry } from '#/flag/registry';
-import { ILogService } from '#/log/log';
+import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
 
 describe('FlagRegistry', () => {

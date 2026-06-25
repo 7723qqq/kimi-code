@@ -9,7 +9,7 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { ITurnService } from '#/turn/turn';
+import { ITurnService } from '#/turn';
 
 import { ISessionActivity } from './sessionActivity';
 

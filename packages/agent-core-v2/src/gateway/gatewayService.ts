@@ -17,8 +17,8 @@ import {
 } from '#/_base/di/scope';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IEventService } from '#/event/event';
-import { ITurnService } from '#/turn/turn';
+import { IEventService } from '#/event';
+import { ITurnService } from '#/turn';
 
 import {
   type CreateSessionOptions,

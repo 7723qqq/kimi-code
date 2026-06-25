@@ -10,8 +10,8 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IEventService } from '#/event/event';
-import { ISessionMetaStore } from '#/records/records';
+import { IEventService } from '#/event';
+import { ISessionMetaStore } from '#/records';
 import { ISessionActivity } from '#/session-activity/sessionActivity';
 
 import { type SessionStatus, ISessionService } from './session';

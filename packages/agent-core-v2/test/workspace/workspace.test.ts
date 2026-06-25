@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IKaosFactory } from '#/kaos/kaos';
-import { ILogService } from '#/log/log';
+import { IKaosFactory } from '#/kaos';
+import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
-import { IWorkspaceFsService, IWorkspaceRegistry } from '#/workspace/workspace';
+import { IWorkspaceFsService, IWorkspaceRegistry } from '#/workspace';
 import { WorkspaceFsService, WorkspaceRegistry } from '#/workspace/workspaceService';
 
 describe('WorkspaceRegistry', () => {

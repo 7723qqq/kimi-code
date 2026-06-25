@@ -7,7 +7,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IKaosFactory } from '#/kaos/kaos';
+import { IKaosFactory } from '#/kaos';
 
 import { IFileStore } from './filestore';
 

@@ -5,7 +5,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/agent-lifecycle/agentLifecycleService';
-import { ISessionMetaStore } from '#/records/records';
+import { ISessionMetaStore } from '#/records';
 import { ISessionContext } from '#/session-context/sessionContext';
 
 describe('AgentLifecycleService', () => {

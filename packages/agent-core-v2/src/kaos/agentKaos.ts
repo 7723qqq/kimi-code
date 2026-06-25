@@ -1,5 +1,5 @@
 /**
- * `kaos` domain (L1) — `IAgentKaos` implementation.
+ * `kaos` domain (L1) — `IKaosService` implementation.
  *
  * Exposes the agent's active `Kaos` instance and working directory, and
  * switches the working directory on `chdir`. Bound at Agent scope.
@@ -10,9 +10,9 @@ import type { Kaos } from '@moonshot-ai/kaos';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IAgentKaos, ISessionKaosService } from './kaos';
+import { IKaosService, ISessionKaosService } from './kaos';
 
-export class AgentKaos implements IAgentKaos {
+export class AgentKaos implements IKaosService {
   declare readonly _serviceBrand: undefined;
   private _kaos: Kaos;
 
@@ -36,7 +36,7 @@ export class AgentKaos implements IAgentKaos {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IAgentKaos,
+  IKaosService,
   AgentKaos,
   InstantiationType.Delayed,
   'kaos',

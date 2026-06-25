@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import { IConfigService } from '#/config/config';
+import { IConfigService } from '#/config';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IHookEngine } from '#/hooks/hooks';
+import { IHookEngine } from '#/hooks';
 import { HookEngine } from '#/hooks/hookEngine';
-import { ILogService } from '#/log/log';
+import { ILogService } from '#/log';
 
 describe('HookEngine', () => {
   let disposables: DisposableStore;

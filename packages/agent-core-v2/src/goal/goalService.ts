@@ -8,14 +8,14 @@ import {
 } from "#/_base/di";
 import { ErrorCodes, KimiError } from "#/_base/errors";
 import type { ContextMessage } from '#/contextMemory';
-import { IContextMemory } from '#/contextMemory/contextMemory';
-import { IDynamicInjector } from '#/dynamicInjector/dynamicInjector';
-import { IEventBus } from '#/eventBus/eventBus';
-import { IReplayBuilderService } from '#/replayBuilder/replayBuilder';
+import { IContextMemory } from '#/contextMemory';
+import { IDynamicInjector } from '#/dynamicInjector';
+import { IEventBus } from '#/eventBus';
+import { IReplayBuilderService } from '#/replayBuilder';
 import type { TelemetryProperties } from '#/telemetry';
-import { ITelemetryService } from '#/telemetry/telemetry';
+import { ITelemetryService } from '#/telemetry';
 import type { WireRecord } from '#/wireRecord';
-import { IWireRecord } from '#/wireRecord/wireRecord';
+import { IWireRecord } from '#/wireRecord';
 import {
   IGoalService,
   type GoalReasonInput,

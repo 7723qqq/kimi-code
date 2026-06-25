@@ -12,8 +12,8 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { Kaos } from '@moonshot-ai/kaos';
-import { ISessionKaosService } from '#/kaos/kaos';
-import { ILogService } from '#/log/log';
+import { ISessionKaosService } from '#/kaos';
+import { ILogService } from '#/log';
 
 import {
   IFsGitService,

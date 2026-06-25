@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IFileStore } from '#/filestore/filestore';
+import { IFileStore } from '#/filestore';
 import { FileStore } from '#/filestore/fileStoreService';
-import { IKaosFactory } from '#/kaos/kaos';
+import { IKaosFactory } from '#/kaos';
 
 describe('FileStore', () => {
   let disposables: DisposableStore;

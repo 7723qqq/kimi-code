@@ -9,8 +9,8 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ITelemetryService } from '#/telemetry/telemetry';
-import { ITurnContext } from '#/turn/turn';
+import { ITelemetryService } from '#/telemetry';
+import { ITurnContext } from '#/turn';
 
 import { IToolDedupService } from './tooldedup';
 

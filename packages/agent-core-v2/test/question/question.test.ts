@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IQuestionService } from '#/question/question';
+import { IQuestionService } from '#/question';
 import { QuestionService } from '#/question/questionService';
 
 describe('QuestionService', () => {

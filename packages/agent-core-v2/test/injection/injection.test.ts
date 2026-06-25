@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IContextService } from '#/context/context';
+import { IContextService } from '#/context';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IInjectionQueue, IInjectionService } from '#/injection/injection';
+import { IInjectionQueue, IInjectionService } from '#/injection';
 import { InjectionQueue, InjectionService } from '#/injection/injectionService';
 
 describe('InjectionService', () => {

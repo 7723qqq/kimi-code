@@ -6,7 +6,7 @@ import { createScopedTestHost } from '#/_base/di/test';
 import {
   IEnvironmentService,
   environmentSeed,
-} from '#/environment/environment';
+} from '#/environment';
 import { EnvironmentService } from '#/environment/environmentService';
 
 describe('EnvironmentService (scoped)', () => {

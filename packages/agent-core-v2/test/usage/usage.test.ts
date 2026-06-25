@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentRecords } from '#/records/records';
-import { ITelemetryService } from '#/telemetry/telemetry';
-import { IUsageService } from '#/usage/usage';
+import { IAgentRecords } from '#/records';
+import { ITelemetryService } from '#/telemetry';
+import { IUsageService } from '#/usage';
 import { UsageService } from '#/usage/usageService';
 
 describe('UsageService', () => {

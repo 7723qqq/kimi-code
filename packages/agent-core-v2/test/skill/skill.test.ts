@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IConfigService } from '#/config/config';
-import { ILogService } from '#/log/log';
-import { IAgentRecords } from '#/records/records';
-import { ISkillRegistry, ISkillService } from '#/skill/skill';
-import { ITurnService } from '#/turn/turn';
+import { IConfigService } from '#/config';
+import { ILogService } from '#/log';
+import { IAgentRecords } from '#/records';
+import { ISkillRegistry, ISkillService } from '#/skill';
+import { ITurnService } from '#/turn';
 import { stubTurn } from '../turn/stubs';
 
 import { SkillRegistry, SkillService } from '#/skill/skillService';

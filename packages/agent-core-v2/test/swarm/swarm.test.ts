@@ -4,9 +4,9 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IPermissionService } from '#/permission/permission';
-import { IAgentRecords } from '#/records/records';
-import { ISwarmService } from '#/swarm/swarm';
+import { IPermissionService } from '#/permission';
+import { IAgentRecords } from '#/records';
+import { ISwarmService } from '#/swarm';
 import { SwarmService } from '#/swarm/swarmService';
 
 describe('SwarmService', () => {

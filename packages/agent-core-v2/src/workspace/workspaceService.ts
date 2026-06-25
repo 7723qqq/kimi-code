@@ -10,8 +10,8 @@ import { join } from 'node:path';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IKaosFactory } from '#/kaos/kaos';
-import { ILogService } from '#/log/log';
+import { IKaosFactory } from '#/kaos';
+import { ILogService } from '#/log';
 
 import {
   type WorkspaceInfo,

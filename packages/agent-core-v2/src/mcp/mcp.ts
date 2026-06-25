@@ -4,9 +4,9 @@ import { createDecorator, type IDisposable } from "#/_base/di";
 import type {
   McpConnectionManager,
   McpServerEntry,
-} from '../../../mcp/connection-manager';
-import type { McpOAuthService } from '../../../mcp/oauth';
-import type { MCPClient } from '../../../mcp/types';
+} from './connection-manager';
+import type { McpOAuthService } from './oauth';
+import type { MCPClient } from './types';
 
 export interface McpResolvedServer {
   readonly client: MCPClient;
@@ -14,7 +14,7 @@ export interface McpResolvedServer {
   readonly enabledNames: ReadonlySet<string>;
 }
 
-export interface IMcpRuntimeService {
+export interface IMcpService {
   readonly oauthService: McpOAuthService | undefined;
 
   waitForInitialLoad(signal?: AbortSignal): Promise<void>;
@@ -26,9 +26,9 @@ export interface IMcpRuntimeService {
   onStatusChange(listener: (entry: McpServerEntry) => void): IDisposable;
 }
 
-export interface McpRuntimeServiceOptions {
+export interface McpServiceOptions {
   readonly manager?: McpConnectionManager;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const IMcpRuntimeService = createDecorator<IMcpRuntimeService>('agentMcpRuntimeService');
+export const IMcpService = createDecorator<IMcpService>('agentMcpService');

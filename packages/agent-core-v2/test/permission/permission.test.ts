@@ -3,20 +3,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IApprovalService } from '#/approval/approval';
+import { IApprovalService } from '#/approval';
 import { ApprovalService } from '#/approval/approvalService';
-import { IAgentConfigService } from '#/config/config';
-import { ILogService } from '#/log/log';
+import { IAgentConfigService } from '#/config';
+import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
 import {
   IPermissionPolicyRegistry,
   IPermissionService,
-} from '#/permission/permission';
+} from '#/permission';
 import {
   PermissionPolicyRegistry,
   PermissionService,
 } from '#/permission/permissionService';
-import { IAgentRecords } from '#/records/records';
+import { IAgentRecords } from '#/records';
 import { stubAgentRecords } from '../records/stubs';
 
 describe('PermissionPolicyRegistry', () => {

@@ -1,7 +1,7 @@
 /**
  * `kaos` domain barrel — re-exports the `kaos` contract and its scoped
  * services (`kaosFactory`, `sessionKaosService`, `agentKaos`). Importing this
- * barrel registers the `IKaosFactory`, `ISessionKaosService`, and `IAgentKaos`
+ * barrel registers the `IKaosFactory`, `ISessionKaosService`, and `IKaosService`
  * bindings into the scope registry.
  */
 

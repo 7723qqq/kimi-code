@@ -3,17 +3,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentConfigService } from '#/config/config';
-import { IAgentKaos } from '#/kaos/kaos';
-import { ILLMService } from '#/kosong/kosong';
-import { IPermissionService } from '#/permission/permission';
-import { IAgentRecords } from '#/records/records';
+import { IAgentConfigService } from '#/config';
+import { IKaosService } from '#/kaos';
+import { ILLMService } from '#/kosong';
+import { IPermissionService } from '#/permission';
+import { IAgentRecords } from '#/records';
 import {
   IToolDefinitionRegistry,
   IToolService,
   type ToolCallResult,
   type ToolDefinition,
-} from '#/tool/tool';
+} from '#/tool';
 import { ToolDefinitionRegistry, ToolService } from '#/tool/toolService';
 
 const echoDef: ToolDefinition = {
@@ -47,7 +47,7 @@ describe('ToolService', () => {
     ix.set(IToolDefinitionRegistry, reg);
     ix.stub(IAgentConfigService, {});
     ix.stub(IAgentRecords, {});
-    ix.stub(IAgentKaos, {});
+    ix.stub(IKaosService, {});
     ix.stub(IPermissionService, {});
     ix.stub(ILLMService, {});
     ix.set(IToolService, new SyncDescriptor(ToolService));

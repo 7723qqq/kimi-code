@@ -6,10 +6,10 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IEventService } from '#/event/event';
-import { ISessionMetaStore } from '#/records/records';
+import { IEventService } from '#/event';
+import { ISessionMetaStore } from '#/records';
 import { ISessionActivity } from '#/session-activity/sessionActivity';
-import { ISessionService } from '#/session/session';
+import { ISessionService } from '#/session';
 import { SessionService } from '#/session/sessionService';
 
 const handle: IScopeHandle = {

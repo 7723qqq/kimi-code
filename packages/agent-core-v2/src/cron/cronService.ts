@@ -7,13 +7,13 @@ import {
   toDisposable,
 } from "#/_base/di";
 import type { ContextMessage } from '#/contextMemory';
-import { IEventBus } from '#/eventBus/eventBus';
-import { IPromptService } from '#/prompt/prompt';
-import { ITelemetryService } from '#/telemetry/telemetry';
-import { IToolRegistry } from '#/toolRegistry/toolRegistry';
+import { IEventBus } from '#/eventBus';
+import { IPromptService } from '#/prompt';
+import { ITelemetryService } from '#/telemetry';
+import { IToolRegistry } from '#/toolRegistry';
 import type { Turn } from '#/turn';
-import { ITurnRunner } from '#/turnRunner/turnRunner';
-import { IWireRecord } from '#/wireRecord/wireRecord';
+import { ITurnRunner } from '#/turnRunner';
+import { IWireRecord } from '#/wireRecord';
 import {
   ICronService,
   type CronFireOptions,

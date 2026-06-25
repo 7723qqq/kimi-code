@@ -15,7 +15,7 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { ISessionMetaStore } from '#/records/records';
+import { ISessionMetaStore } from '#/records';
 import { ISessionContext } from '#/session-context/sessionContext';
 
 import { type CreateAgentOptions, IAgentLifecycleService } from './agentLifecycle';

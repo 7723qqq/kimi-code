@@ -10,14 +10,14 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { AgentKaos } from '#/kaos/agentKaos';
-import { IAgentKaos, ISessionKaosService } from '#/kaos/kaos';
+import { IKaosService, ISessionKaosService } from '#/kaos';
 import { SessionKaosService } from '#/kaos/sessionKaosService';
-import { ILogService } from '#/log/log';
+import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';
 import {
   IAgentRecords,
   ISessionMetaStore,
-} from '#/records/records';
+} from '#/records';
 import {
   AgentRecords,
   SessionMetaStore,
@@ -87,7 +87,7 @@ describe('AgentRecords', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
     ix.set(ISessionKaosService, new SyncDescriptor(SessionKaosService));
-    ix.set(IAgentKaos, new SyncDescriptor(AgentKaos));
+    ix.set(IKaosService, new SyncDescriptor(AgentKaos));
     ix.set(IAgentRecords, new SyncDescriptor(AgentRecords));
     const sessionKaos = ix.get(ISessionKaosService);
     sessionKaos.setToolKaos(base.withCwd(dir));

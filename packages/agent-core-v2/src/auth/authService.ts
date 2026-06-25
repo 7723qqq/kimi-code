@@ -9,9 +9,9 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IConfigService } from '#/config/config';
-import { IEnvironmentService } from '#/environment/environment';
-import { ITelemetryService } from '#/telemetry/telemetry';
+import { IConfigService } from '#/config';
+import { IEnvironmentService } from '#/environment';
+import { ITelemetryService } from '#/telemetry';
 
 import { type AuthStatus, IAuthSummaryService, IOAuthService } from './auth';
 

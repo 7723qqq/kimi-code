@@ -15,22 +15,22 @@ import {
 import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/_base/errors";
 import { renderPrompt } from "#/_base/utils/render-prompt";
 import { estimateTokens, estimateTokensForMessages } from "#/_base/utils/tokens";
-import { IContextMemory } from '#/contextMemory/contextMemory';
-import { IContextProjector } from '#/contextProjector/contextProjector';
-import { IContextSizeService } from '#/contextSize/contextSize';
-import { IEventBus } from '#/eventBus/eventBus';
-import { IExternalHooksService } from '#/externalHooks/externalHooks';
-import { ILLMRequester, type LLMEvent } from '#/llmRequester/llmRequester';
+import { IContextMemory } from '#/contextMemory';
+import { IContextProjector } from '#/contextProjector';
+import { IContextSizeService } from '#/contextSize';
+import { IEventBus } from '#/eventBus';
+import { IExternalHooksService } from '#/externalHooks';
+import { ILLMRequester, type LLMEvent } from '#/llmRequester';
 import { isAbortError } from '#/loop/errors';
 import { retryBackoffDelays, sleepForRetry } from '#/loop/retry';
-import { IProfileService } from '#/profile/profile';
-import { IReplayBuilderService } from '#/replayBuilder/replayBuilder';
-import { ITelemetryService } from '#/telemetry/telemetry';
-import { IToolStoreService } from '#/toolStore/toolStore';
-import { ITurnRunner } from '#/turnRunner/turnRunner';
+import { IProfileService } from '#/profile';
+import { IReplayBuilderService } from '#/replayBuilder';
+import { ITelemetryService } from '#/telemetry';
+import { IToolStoreService } from '#/toolStore';
+import { ITurnRunner } from '#/turnRunner';
 import type { ContextMessage } from '#/contextMemory';
-import { IUsageService } from '#/usage/usage';
-import { IWireRecord } from '#/wireRecord/wireRecord';
+import { IUsageService } from '#/usage';
+import { IWireRecord } from '#/wireRecord';
 import {
   TODO_STORE_KEY,
   renderTodoList,
