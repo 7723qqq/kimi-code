@@ -17,6 +17,7 @@ import {
   mergeInPlace,
   type ContentPart,
   type StreamedMessagePart,
+  type TokenUsage,
   type ToolCall as KosongToolCall,
 } from '@moonshot-ai/kosong';
 
@@ -46,7 +47,7 @@ import {
 import type { TelemetryProperties } from '../../../telemetry';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
-import { IContextUsageService } from '../contextUsage/contextUsage';
+import { IContextSizeService } from '../contextSize/contextSize';
 import { IEventBus } from '../eventBus/eventBus';
 import { IExternalHooksService } from '../externalHooks/externalHooks';
 import { IFullCompaction } from '../fullCompaction/fullCompaction';
@@ -81,7 +82,7 @@ export class LoopService extends Disposable implements ILoopService {
   constructor(
     @IContextMemory private readonly context: IContextMemory,
     @IContextProjector private readonly projector: IContextProjector,
-    @IContextUsageService private readonly contextUsage: IContextUsageService,
+    @IContextSizeService private readonly contextSize: IContextSizeService,
     @ILLMRequester private readonly llmRequester: ILLMRequester,
     @IEventBus private readonly events: IEventBus,
     @IToolRegistry private readonly toolRegistry: IToolRegistry,
@@ -136,7 +137,11 @@ export class LoopService extends Disposable implements ILoopService {
             hooks: loopHooks,
             maxSteps: this.profile.config()?.loopControl?.maxStepsPerTurn,
             maxRetryAttempts: this.profile.config()?.loopControl?.maxRetriesPerStep,
-            recordStepUsage: (usage) => {
+            recordStepUsage: (usage, context) => {
+              const tokens = tokenUsageTotal(usage);
+              if (tokens > 0) {
+                this.contextSize.measure(this.measurementLength(context.stepUuid), tokens);
+              }
               this.usage.record(usageModel, usage, 'turn');
             },
           });
@@ -187,10 +192,6 @@ export class LoopService extends Disposable implements ILoopService {
         return;
       }
       case 'step.end': {
-        const openStep = this.openSteps.get(event.uuid);
-        const history = this.context.getHistory();
-        const index = openStep === undefined ? -1 : history.indexOf(openStep.message);
-        this.contextUsage.coverThrough(index === -1 ? history.length : index + 1, event.usage);
         this.openSteps.delete(event.uuid);
         return;
       }
@@ -705,7 +706,7 @@ export class LoopService extends Disposable implements ILoopService {
     if (index < 0) {
       throw new Error(`Open loop step '${stepUuid}' is no longer present in context history`);
     }
-    this.spliceHistory(index, 1, next);
+      this.spliceHistory(index, 1, [next]);
     this.openSteps.set(stepUuid, { message: next, inserted: true });
   }
 
@@ -726,7 +727,7 @@ export class LoopService extends Disposable implements ILoopService {
 
   private appendImmediately(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
-    this.spliceHistory(this.context.getHistory().length, 0, ...messages);
+    this.spliceHistory(this.context.getHistory().length, 0, messages);
   }
 
   private removeMatchedTailMessage(matcher: (message: ContextMessage) => boolean): boolean {
@@ -734,18 +735,18 @@ export class LoopService extends Disposable implements ILoopService {
     const index = history.length - 1;
     const message = history[index];
     if (message === undefined || !matcher(message)) return false;
-    this.spliceHistory(index, 1);
+    this.spliceHistory(index, 1, []);
     return true;
   }
 
   private spliceHistory(
     start: number,
     deleteCount: number,
-    ...messages: ContextMessage[]
+    messages: readonly ContextMessage[],
   ): void {
     this.ownSpliceDepth++;
     try {
-      this.context.spliceHistory(start, deleteCount, ...messages);
+      this.context.spliceHistory(start, deleteCount, messages);
     } finally {
       this.ownSpliceDepth--;
     }
@@ -753,6 +754,14 @@ export class LoopService extends Disposable implements ILoopService {
 
   private resetLiveStateFromHistory(): void {
     this.openSteps.clear();
+  }
+
+  private measurementLength(stepUuid: string): number {
+    const openStep = this.openSteps.get(stepUuid);
+    const history = this.context.getHistory();
+    if (openStep === undefined) return history.length;
+    const index = history.indexOf(openStep.message);
+    return index === -1 ? history.length : index + 1;
   }
 }
 
@@ -885,6 +894,10 @@ function isRecordedLoopEvent(event: LoopEvent): event is LoopRecordedEvent {
     event.type === 'tool.call' ||
     event.type === 'tool.result'
   );
+}
+
+function tokenUsageTotal(usage: TokenUsage): number {
+  return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
 }
 
 function emitStreamDelta(params: LLMChatParams, part: StreamedMessagePart): void {

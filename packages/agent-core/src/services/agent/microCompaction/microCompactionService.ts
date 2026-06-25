@@ -12,7 +12,7 @@ import {
 } from '../../../utils/tokens';
 import type { TelemetryProperties } from '../../../telemetry';
 import { IContextMemory } from '../contextMemory/contextMemory';
-import { IContextUsageService } from '../contextUsage/contextUsage';
+import { IContextSizeService } from '../contextSize/contextSize';
 import { IProfileService } from '../profile/profile';
 import { ITelemetryService } from '../telemetry/telemetry';
 import { ITurnRunner } from '../turnRunner/turnRunner';
@@ -46,7 +46,7 @@ export class MicroCompactionService
   constructor(
     private readonly options: MicroCompactionServiceOptions = {},
     @IContextMemory private readonly context: IContextMemory,
-    @IContextUsageService private readonly contextUsage: IContextUsageService,
+    @IContextSizeService private readonly contextSize: IContextSizeService,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IProfileService private readonly profile: IProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -110,7 +110,7 @@ export class MicroCompactionService
     if (cacheAgeMs < this.config.cacheMissedThresholdMs) return;
 
     const history = this.context.getHistory();
-    if (this.contextUsageRatio() < this.config.minContextUsageRatio) return;
+    if (this.contextSizeRatio() < this.config.minContextUsageRatio) return;
 
     const previousCutoff = this.cutoff;
     const nextCutoff = Math.max(0, history.length - this.config.keepRecentMessages);
@@ -194,7 +194,7 @@ export class MicroCompactionService
   private contextUsageRatio(): number {
     const maxContextTokens = this.options.maxContextTokens?.();
     if (maxContextTokens === undefined || maxContextTokens <= 0) return 1;
-    return this.contextUsage.getStatus().contextTokensWithPending / maxContextTokens;
+    return this.contextSize.getStatus().contextTokensWithPending / maxContextTokens;
   }
 
   private measureEffect(

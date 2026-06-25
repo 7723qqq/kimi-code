@@ -30,7 +30,7 @@ import {
 } from '../../../tools/builtin/state/todo-list';
 import { IContextMemory } from '../contextMemory/contextMemory';
 import { IContextProjector } from '../contextProjector/contextProjector';
-import { IContextUsageService } from '../contextUsage/contextUsage';
+import { IContextSizeService } from '../contextSize/contextSize';
 import { IEventBus } from '../eventBus/eventBus';
 import { IExternalHooksService } from '../externalHooks/externalHooks';
 import { ILLMRequester } from '../llmRequester/llmRequester';
@@ -88,7 +88,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     private readonly options: FullCompactionServiceOptions = {},
     @IContextMemory private readonly context: IContextMemory,
     @IContextProjector private readonly projector: IContextProjector,
-    @IContextUsageService private readonly contextUsage: IContextUsageService,
+    @IContextSizeService private readonly contextSize: IContextSizeService,
     @ILLMRequester private readonly llmRequester: ILLMRequester,
     @IProfileService private readonly profile: IProfileService,
     @IToolStoreService private readonly toolStore: IToolStoreService,
@@ -137,7 +137,6 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     );
     this._register(
       wireRecord.register('full_compaction.complete', (record) => {
-        this.contextUsage.applyCompactionResult(record);
         const summary = compactionSummaryText(this.context.getHistory());
         if (summary === undefined) return;
         this.replayBuilder.patchLast('compaction', {
@@ -412,8 +411,12 @@ export class FullCompactionService extends Disposable implements IFullCompaction
         ...data,
       });
 
-      this.context.spliceHistory(0, compactedCount, createCompactionSummaryMessage(summary));
-      this.contextUsage.applyCompactionResult(result);
+      this.context.spliceHistory(
+        0,
+        compactedCount,
+        [createCompactionSummaryMessage(summary)],
+        result.tokensAfter,
+      );
       return result;
     } catch (error) {
       if (isAbortError(error)) return undefined;
@@ -449,7 +452,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
   }
 
   private tokenCountWithPending(): number {
-    return this.contextUsage.getStatus().contextTokensWithPending;
+    return this.contextSize.getStatus().contextTokensWithPending;
   }
 
   private beginData(input: CompactInput): CompactionBeginData {

@@ -141,7 +141,7 @@ export class SwarmModeService extends Disposable implements ISwarmMode {
         variant,
       },
     };
-    this.context.spliceHistory(this.context.getHistory().length, 0, message);
+    this.context.spliceHistory(this.context.getHistory().length, 0, [message]);
   }
 
   private removeLastSwarmReminder(): boolean {
@@ -150,7 +150,7 @@ export class SwarmModeService extends Disposable implements ISwarmMode {
     const last = history[lastIndex];
     if (last?.origin?.kind !== 'injection') return false;
     if (last.origin.variant !== 'swarm_mode') return false;
-    this.context.spliceHistory(lastIndex, 1);
+    this.context.spliceHistory(lastIndex, 1, []);
     return true;
   }
 }

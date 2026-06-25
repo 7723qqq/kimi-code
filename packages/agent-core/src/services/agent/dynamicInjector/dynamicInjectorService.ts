@@ -92,7 +92,7 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
       const injectedAt = this.context.getHistory().length;
       const message = createInjectionMessage(content, entry.variant);
       this.selfInsertedMessages.set(message, entry);
-      this.context.spliceHistory(injectedAt, 0, message);
+      this.context.spliceHistory(injectedAt, 0, [message]);
       entry.injectedAt = injectedAt;
       entry.resolveHistory = false;
       this.selfInsertedMessages.delete(message);

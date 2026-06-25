@@ -666,12 +666,14 @@ export class BackgroundService extends Disposable implements IBackgroundService 
   private async restoreBackgroundTaskNotification(info: BackgroundTaskInfo): Promise<void> {
     const context = await this.buildBackgroundTaskNotificationContext(info);
     if (context === undefined) return;
-    this.context.spliceHistory(this.context.getHistory().length, 0, {
-      role: 'user',
-      content: [...context.content],
-      toolCalls: [],
-      origin: context.origin,
-    });
+    this.context.spliceHistory(this.context.getHistory().length, 0, [
+      {
+        role: 'user',
+        content: [...context.content],
+        toolCalls: [],
+        origin: context.origin,
+      },
+    ]);
     this.fireNotificationHook(context.notification);
   }
 

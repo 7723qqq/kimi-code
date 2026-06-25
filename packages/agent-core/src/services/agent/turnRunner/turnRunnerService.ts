@@ -234,7 +234,7 @@ export class TurnRunnerService implements ITurnRunner {
 
   private append(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
-    this.context.spliceHistory(this.context.getHistory().length, 0, ...messages);
+    this.context.spliceHistory(this.context.getHistory().length, 0, messages);
   }
 
   private rejectReady(turn: Turn, reason: unknown): void {

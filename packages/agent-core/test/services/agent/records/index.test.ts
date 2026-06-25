@@ -5,7 +5,7 @@ import {
   AGENT_WIRE_PROTOCOL_VERSION,
   createAgentRuntime,
   IContextMemory,
-  IContextUsageService,
+  IContextSizeService,
   IFullCompaction,
   InMemoryWireRecordPersistence,
   IReplayBuilderService,
@@ -330,7 +330,7 @@ describe('AgentRecords persistence metadata', () => {
       ]);
 
       expect(runtime.get(IContextMemory).getHistory()).toHaveLength(1);
-      expect(runtime.get(IContextUsageService).getStatus()).toEqual({
+      expect(runtime.get(IContextSizeService).getStatus()).toEqual({
         contextTokens: 42,
         contextTokensWithPending: 42,
       });

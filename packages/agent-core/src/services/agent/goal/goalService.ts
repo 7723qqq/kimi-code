@@ -513,7 +513,7 @@ export class GoalService extends Disposable implements IGoalService {
       toolCalls: [],
       origin: { kind: 'system_trigger', name },
     };
-    this.context.spliceHistory(this.context.getHistory().length, 0, message);
+    this.context.spliceHistory(this.context.getHistory().length, 0, [message]);
   }
 }
 

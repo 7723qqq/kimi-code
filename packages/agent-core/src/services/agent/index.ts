@@ -128,10 +128,10 @@ export { IContextMemory } from './contextMemory/contextMemory';
 export { ContextMemoryService } from './contextMemory/contextMemoryService';
 
 export {
-  IContextUsageService,
-  type ContextTokenStatus,
-} from './contextUsage/contextUsage';
-export { ContextUsageService } from './contextUsage/contextUsageService';
+  IContextSizeService,
+  type ContextSizeStatus,
+} from './contextSize/contextSize';
+export { ContextSizeService } from './contextSize/contextSizeService';
 
 export {
   IReplayBuilderService,

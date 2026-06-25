@@ -71,7 +71,7 @@ import {
 import { BlobStoreService } from './blobStore/blobStoreService';
 import { IContextMemory } from './contextMemory/contextMemory';
 import { IContextProjector } from './contextProjector/contextProjector';
-import { IContextUsageService } from './contextUsage/contextUsage';
+import { IContextSizeService } from './contextSize/contextSize';
 import { ICronService, type CronOptions } from './cron/cron';
 import { CronService } from './cron/cronService';
 import {
@@ -287,7 +287,7 @@ export class AgentRuntime extends Disposable {
     options?: WireRecordRestoreOptions,
   ): Promise<WireRecordRestoreResult> {
     this.instantiation.invokeFunction((accessor) => {
-      accessor.get(IContextUsageService).getStatus();
+      accessor.get(IContextSizeService).getStatus();
       accessor.get(IUsageService).data();
       // oxlint-disable-next-line no-unused-expressions
       accessor.get(IPermissionModeService).mode;
@@ -1104,7 +1104,7 @@ function activateAgentServices(instantiation: IInstantiationService): void {
     accessor.get(IEventBus);
     accessor.get(IReplayBuilderService);
     accessor.get(IContextMemory);
-    accessor.get(IContextUsageService).getStatus();
+    accessor.get(IContextSizeService).getStatus();
     accessor.get(ITelemetryService);
     accessor.get(IProfileService).data();
     // Force real BackgroundService construction before restore/replay registers its hooks.

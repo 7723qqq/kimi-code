@@ -30,7 +30,7 @@ import {
   IBackgroundService,
   IContextMemory,
   IContextProjector,
-  IContextUsageService,
+  IContextSizeService,
   ICronService,
   IEventBus,
   IPermissionModeService,
@@ -214,7 +214,7 @@ export class AgentTestContext {
 
   readonly profile: IProfileService;
   readonly context: IContextMemory;
-  readonly contextUsage: IContextUsageService;
+  readonly contextSize: IContextSizeService;
   readonly projector: IContextProjector;
   readonly wireRecord: IWireRecord;
   readonly events: IEventBus;
@@ -298,7 +298,7 @@ export class AgentTestContext {
 
     this.profile = this.get(IProfileService);
     this.context = this.get(IContextMemory);
-    this.contextUsage = this.get(IContextUsageService);
+    this.contextSize = this.get(IContextSizeService);
     this.projector = this.get(IContextProjector);
     this.wireRecord = this.get(IWireRecord);
     this.events = this.get(IEventBus);
@@ -367,7 +367,7 @@ export class AgentTestContext {
   contextData(): { readonly history: readonly ContextMessage[]; readonly tokenCount: number } {
     return {
       history: this.context.getHistory(),
-      tokenCount: this.contextUsage.getStatus().contextTokens,
+      tokenCount: this.contextSize.getStatus().contextTokens,
     };
   }
 
@@ -891,7 +891,7 @@ export class AgentTestContext {
 
   private appendMessage(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
-    this.context.spliceHistory(this.context.getHistory().length, 0, ...messages);
+    this.context.spliceHistory(this.context.getHistory().length, 0, messages);
   }
 
   private coverUsage(tokenTotal: number | undefined): void {
@@ -907,7 +907,7 @@ export class AgentTestContext {
     // resume. `endTurn()` then clears the live per-turn aggregate so the live
     // `usage.data()` matches a resumed session, which re-applies the record as a
     // cumulative `session` total with no in-flight turn.
-    this.contextUsage.coverThrough(this.context.getHistory().length, usage);
+    this.contextSize.measure(this.context.getHistory().length, tokenTotal);
     this.usage.record(this.profile.data().modelAlias ?? 'mock-model', usage, 'turn');
     this.usage.endTurn();
   }

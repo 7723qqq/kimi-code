@@ -23,7 +23,7 @@ import type {
 } from '../../../rpc/core-api';
 import { IBackgroundService } from '../background/background';
 import { IContextMemory } from '../contextMemory/contextMemory';
-import { IContextUsageService } from '../contextUsage/contextUsage';
+import { IContextSizeService } from '../contextSize/contextSize';
 import { IFullCompaction } from '../fullCompaction/fullCompaction';
 import { IGoalService } from '../goal/goal';
 import { IPermissionService } from '../permission/permission';
@@ -55,7 +55,7 @@ export class AgentRPCService implements IAgentRPCService {
     @IToolRegistry private readonly toolRegistry: IToolRegistry,
     @IBackgroundService private readonly background: IBackgroundService,
     @IContextMemory private readonly context: IContextMemory,
-    @IContextUsageService private readonly contextUsage: IContextUsageService,
+    @IContextSizeService private readonly contextSize: IContextSizeService,
     @IAgentSkillService private readonly skills: IAgentSkillService,
     @ISubagentHost private readonly subagentHost: ISubagentHost,
     @IUsageService private readonly usage: IUsageService,
@@ -175,7 +175,7 @@ export class AgentRPCService implements IAgentRPCService {
   clearContext(_payload: EmptyPayload): void {
     const history = this.context.getHistory();
     if (history.length === 0) return;
-    this.context.spliceHistory(0, history.length);
+    this.context.spliceHistory(0, history.length, []);
   }
 
   activateSkill(payload: ActivateSkillPayload): void {
@@ -213,7 +213,7 @@ export class AgentRPCService implements IAgentRPCService {
   getContext(_payload: EmptyPayload) {
     return {
       history: this.context.getHistory(),
-      tokenCount: this.contextUsage.getStatus().contextTokens,
+      tokenCount: this.contextSize.getStatus().contextTokens,
     };
   }
 

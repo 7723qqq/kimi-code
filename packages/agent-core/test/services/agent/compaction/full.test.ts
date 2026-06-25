@@ -1247,14 +1247,17 @@ describe('FullCompaction', () => {
       'assistant',
       'user',
     ]);
-    // The projector is what guarantees ordering for the model: while the tool
-    // exchange is open the reminder is deferred (never between a tool call and
-    // its results), so it does not appear in the projection.
+    // The projector guarantees ordering for the model: the open calls are
+    // closed (synthetic results) and the reminder is placed after them, never
+    // between a tool call and its results.
     expect(ctx.project().map((m) => m.role)).toEqual([
       'user',
       'assistant',
       'user',
       'assistant',
+      'tool',
+      'tool',
+      'user',
     ]);
 
     const compacted = ctx.once('full_compaction.complete');
@@ -1263,8 +1266,8 @@ describe('FullCompaction', () => {
     await compacted;
 
     // Compaction preserves the in-flight tool exchange (and the reminder behind
-    // it) in recent; the projection still defers the reminder while the tool
-    // exchange is open.
+    // it) in recent; the projection closes the open calls and keeps the
+    // reminder after them.
     expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
       'assistant',
       'user',
@@ -1275,6 +1278,9 @@ describe('FullCompaction', () => {
       'assistant',
       'user',
       'assistant',
+      'tool',
+      'tool',
+      'user',
     ]);
 
     // Closing the exchange (both results together) lets the projector place the
@@ -1338,7 +1344,8 @@ describe('FullCompaction', () => {
 
     // One tool result has landed but the second is still pending. Raw history
     // keeps insertion order (reminder after the partial exchange); the
-    // projector defers it because the exchange is still open.
+    // projector keeps the real result, synthesizes the open one, and places the
+    // reminder after the closed exchange.
     expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
       'user',
       'assistant',
@@ -1353,6 +1360,8 @@ describe('FullCompaction', () => {
       'user',
       'assistant',
       'tool',
+      'tool',
+      'user',
     ]);
 
     const compacted = ctx.once('full_compaction.complete');
@@ -1372,6 +1381,8 @@ describe('FullCompaction', () => {
       'user',
       'assistant',
       'tool',
+      'tool',
+      'user',
     ]);
 
     await ctx.dispatch({

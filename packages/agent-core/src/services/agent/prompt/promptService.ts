@@ -75,7 +75,7 @@ export class PromptService implements IPromptService {
         break;
       }
 
-      this.context.spliceHistory(index, 1);
+      this.context.spliceHistory(index, 1, []);
       if (isRealUserPrompt(message)) {
         removedUserCount++;
         if (removedUserCount >= count) break;
@@ -103,12 +103,12 @@ export class PromptService implements IPromptService {
     this.steerQueue.length = 0;
     const historyLength = this.context.getHistory().length;
     if (historyLength === 0) return;
-    this.context.spliceHistory(0, historyLength);
+    this.context.spliceHistory(0, historyLength, []);
   }
 
   private append(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
-    this.context.spliceHistory(this.context.getHistory().length, 0, ...messages);
+    this.context.spliceHistory(this.context.getHistory().length, 0, messages);
   }
 
   private observe(turn: Turn): void {

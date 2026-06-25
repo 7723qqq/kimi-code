@@ -653,11 +653,11 @@ describe('MicroCompaction', () => {
     const rawPending = ctx.context.getHistory().slice(-1);
     const projectedPending = ctx.project(rawPending);
     expect(textOf(projectedPending[0])).toBe(DEFAULT_MARKER);
-    expect(ctx.contextUsage.getStatus().contextTokensWithPending).toBe(
-      ctx.contextUsage.getStatus().contextTokens + estimateTokensForMessages(rawPending),
+    expect(ctx.contextSize.getStatus().contextTokensWithPending).toBe(
+      ctx.contextSize.getStatus().contextTokens + estimateTokensForMessages(rawPending),
     );
-    expect(ctx.contextUsage.getStatus().contextTokensWithPending).toBeGreaterThan(
-      ctx.contextUsage.getStatus().contextTokens + estimateTokensForMessages(projectedPending),
+    expect(ctx.contextSize.getStatus().contextTokensWithPending).toBeGreaterThan(
+      ctx.contextSize.getStatus().contextTokens + estimateTokensForMessages(projectedPending),
     );
   });
 
@@ -883,7 +883,7 @@ function appendMicroToolExchange(
   });
 
   if (usage !== undefined) {
-    ctx.contextUsage.coverThrough(ctx.context.getHistory().length, usage);
+    ctx.contextSize.coverThrough(ctx.context.getHistory().length, usage);
   }
 
   ctx.context.spliceHistory(ctx.context.getHistory().length, 0, {

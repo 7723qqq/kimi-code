@@ -11,7 +11,8 @@ declare module '../types' {
     'context.splice': {
       start: number;
       deleteCount: number;
-      messages: ContextMessage[];
+      messages: readonly ContextMessage[];
+      tokens?: number;
     };
   }
 }
@@ -24,6 +25,7 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
       start: number;
       deleteCount: number;
       messages: ContextMessage[];
+      tokens?: number;
     }>(),
   };
 
@@ -57,12 +59,18 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
     return [...this.history];
   }
 
-  spliceHistory(start: number, deleteCount: number, ...messages: ContextMessage[]): void {
+  spliceHistory(
+    start: number,
+    deleteCount: number,
+    messages: readonly ContextMessage[],
+    tokens?: number,
+  ): void {
     const record: WireRecord<'context.splice'> = {
       type: 'context.splice',
       start,
       deleteCount,
       messages,
+      tokens,
     };
     this.wireRecord.append(record);
     this.applySplice(record);
@@ -102,6 +110,7 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
       start: record.start,
       deleteCount: record.deleteCount,
       messages,
+      tokens: record.tokens,
     };
     void this.hooks.onSpliced.run(context);
   }
