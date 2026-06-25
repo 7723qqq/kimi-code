@@ -487,6 +487,7 @@ function forgetSession(sessionId: string): void {
   // That would make hasLoadedMessages() treat the stale empty cache as
   // authoritative and skip the next snapshot fetch for this id.
   enqueueEvent.flush();
+  clearStreaming(sessionId);
   removeSession(sessionId);
   removeSessionMessages(sessionId);
   delete rawState.approvalsBySession[sessionId];
@@ -1063,8 +1064,14 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
     // messagesBySession[sessionId]. The snapshot is authoritative (it already
     // contains everything up to asOfSeq); applying stale queued deltas on top
     // of it would duplicate text / tool output. Flushing here applies them to
-    // the pre-snapshot array, which the snapshot then overwrites.
+    // the pre-snapshot state, which the snapshot then overwrites.
     enqueueEvent.flush();
+    // The snapshot is authoritative for the live streaming text too: any deltas
+    // the flush just landed in the streaming store are superseded by the
+    // snapshot (and the in-flight seed below), so drop them. Without this, a
+    // reconnect or delta-gap resync mid-stream would render stale live chunks
+    // on top of the seeded snapshot.
+    clearStreaming(sessionId);
 
     updateSession(sessionId, (s) => ({
       ...snap.session,
