@@ -1,0 +1,33 @@
+[package]
+name = "kimi-native-tools"
+version = "0.1.0"
+edition = "2021"
+description = "Native Rust tools for Kimi Code — bash, grep, glob, read, write, edit"
+
+[lib]
+crate-type = ["cdylib"]
+name = "kimi_native_tools"
+
+[dependencies]
+napi = { version = "2", features = ["async", "napi8", "serde"] }
+napi-derive = "2"
+regex = "1"
+globset = "0.4"
+ignore = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+encoding_rs = "0.8"
+memchr = "2"
+
+[build-dependencies]
+napi-build = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = "symbols"

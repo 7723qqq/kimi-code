@@ -1,0 +1,10 @@
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\release\deps\globset-9534054ed068af8b.d: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\fnv.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\glob.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\pathutil.rs
+
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\release\deps\libglobset-9534054ed068af8b.rlib: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\fnv.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\glob.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\pathutil.rs
+
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\release\deps\libglobset-9534054ed068af8b.rmeta: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\fnv.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\glob.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\pathutil.rs
+
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\lib.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\fnv.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\glob.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\pathutil.rs:

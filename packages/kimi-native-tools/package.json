@@ -1,0 +1,38 @@
+{
+  "name": "@moonshot-ai/kimi-native-tools",
+  "version": "0.1.0",
+  "description": "Native Rust tools for Kimi Code — bash, grep, glob, read, write, edit",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "kimi-native-tools",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "artifacts": "napi artifacts",
+    "test": "cargo test",
+    "test:js": "node --test test.mjs"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0"
+  },
+  "engines": {
+    "node": ">= 16"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ]
+}

@@ -1,0 +1,10 @@
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\debug\deps\globset-0b15417a17bb3331.d: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\fnv.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\glob.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\pathutil.rs
+
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\debug\deps\libglobset-0b15417a17bb3331.rlib: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\fnv.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\glob.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\pathutil.rs
+
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\debug\deps\libglobset-0b15417a17bb3331.rmeta: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\fnv.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\glob.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\pathutil.rs
+
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\lib.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\fnv.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\glob.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\globset-0.4.18\src\pathutil.rs:

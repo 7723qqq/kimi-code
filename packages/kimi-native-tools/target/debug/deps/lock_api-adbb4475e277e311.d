@@ -1,0 +1,10 @@
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\debug\deps\lock_api-adbb4475e277e311.d: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\mutex.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\remutex.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\rwlock.rs
+
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\debug\deps\liblock_api-adbb4475e277e311.rlib: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\mutex.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\remutex.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\rwlock.rs
+
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\debug\deps\liblock_api-adbb4475e277e311.rmeta: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\mutex.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\remutex.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\rwlock.rs
+
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\lib.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\mutex.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\remutex.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\lock_api-0.4.14\src\rwlock.rs:

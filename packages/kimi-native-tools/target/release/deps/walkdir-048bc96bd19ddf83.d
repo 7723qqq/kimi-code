@@ -1,0 +1,10 @@
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\release\deps\walkdir-048bc96bd19ddf83.d: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\dent.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\error.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\util.rs
+
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\release\deps\libwalkdir-048bc96bd19ddf83.rlib: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\dent.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\error.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\util.rs
+
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\release\deps\libwalkdir-048bc96bd19ddf83.rmeta: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\dent.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\error.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\util.rs
+
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\lib.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\dent.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\error.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\util.rs:
