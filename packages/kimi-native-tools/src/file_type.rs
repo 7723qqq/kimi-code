@@ -125,6 +125,73 @@ pub fn is_readable_text(data: &[u8]) -> bool {
     std::str::from_utf8(data).is_ok()
 }
 
+/// Sensitive-file basenames that grep / read should refuse to surface.
+///
+/// Mirrors `packages/agent-core/src/tools/policies/sensitive.ts` —
+/// keep the two lists in sync. The list is intentionally short to
+/// avoid false positives; exemptions like `.env.example` are handled
+/// explicitly in `is_sensitive_file`.
+const SENSITIVE_BASENAMES: &[&str] = &[".env", "id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
+
+const ENV_EXEMPTIONS: &[&str] = &[".env.example", ".env.sample", ".env.template"];
+const PUBLIC_KEY_BASENAMES: &[&str] = &["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"];
+
+const SENSITIVE_BASENAME_PREFIXES: &[&str] = &["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
+
+const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&str] = &[
+    ".bak", ".backup", ".copy", ".disabled", ".key", ".old", ".orig", ".pem", ".save", ".tmp",
+];
+
+/// Returns true when the supplied path points at a credentials-bearing
+/// file. Matching is case-insensitive and pattern-aware: `.env.local` is
+/// flagged but `.env.example` is exempted, and `id_rsa.bak` is flagged
+/// while `id_rsafoo` is not.
+pub fn is_sensitive_file(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    let basename = normalized.rsplit('/').next().unwrap_or(path);
+    let comparable_name = basename.to_lowercase();
+    let comparable_path = normalized.to_lowercase();
+
+    if ENV_EXEMPTIONS.iter().any(|e| *e == comparable_name) {
+        return false;
+    }
+    if PUBLIC_KEY_BASENAMES.iter().any(|e| *e == comparable_name) {
+        return false;
+    }
+    if SENSITIVE_BASENAMES.iter().any(|e| *e == comparable_name) {
+        return true;
+    }
+    if comparable_name.starts_with(".env.") {
+        return true;
+    }
+
+    for prefix in SENSITIVE_BASENAME_PREFIXES {
+        if comparable_name == *prefix {
+            return true;
+        }
+        if comparable_name.len() > prefix.len() && comparable_name.starts_with(prefix) {
+            let suffix = &comparable_name[prefix.len()..];
+            let next = suffix.chars().next();
+            if next == Some('-') || next == Some('_') {
+                return true;
+            }
+            if next == Some('.') && SENSITIVE_DOT_VARIANT_SUFFIXES.iter().any(|s| *s == suffix) {
+                return true;
+            }
+        }
+    }
+
+    for suffix in [".aws/credentials", ".gcp/credentials"] {
+        if comparable_path.ends_with(&format!("/{}", suffix))
+            || comparable_path.contains(&format!("/{}/", suffix))
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,5 +257,45 @@ mod tests {
         assert!(is_readable_text(b"hello world"));
         assert!(!is_readable_text(b"hello\x00world"));
         assert!(!is_readable_text(&[0xFF, 0xFE]));
+    }
+
+    #[test]
+    fn test_is_sensitive_file_basenames() {
+        assert!(is_sensitive_file("/repo/.env"));
+        assert!(is_sensitive_file("/repo/.env.local"));
+        assert!(is_sensitive_file("/repo/.env.production"));
+        assert!(is_sensitive_file("/home/user/.ssh/id_rsa"));
+        assert!(is_sensitive_file("/home/user/.ssh/id_ed25519"));
+        assert!(is_sensitive_file("/home/user/.aws/credentials"));
+        assert!(is_sensitive_file("/some/path/.gcp/credentials"));
+        assert!(is_sensitive_file("C:\\Users\\foo\\.aws\\credentials"));
+    }
+
+    #[test]
+    fn test_is_sensitive_file_exemptions() {
+        // Public-key files and template envs are intentionally allowed.
+        assert!(!is_sensitive_file("/repo/.env.example"));
+        assert!(!is_sensitive_file("/repo/.env.sample"));
+        assert!(!is_sensitive_file("/repo/.env.template"));
+        assert!(!is_sensitive_file("/home/user/.ssh/id_rsa.pub"));
+        assert!(!is_sensitive_file("/home/user/.ssh/id_ed25519.pub"));
+    }
+
+    #[test]
+    fn test_is_sensitive_file_variants() {
+        // Rename-shielded variants must still be caught.
+        assert!(is_sensitive_file("/secrets/id_rsa.bak"));
+        assert!(is_sensitive_file("/secrets/id_rsa.old"));
+        assert!(is_sensitive_file("/secrets/id_rsa-backup"));
+        assert!(is_sensitive_file("/secrets/id_rsa_disabled"));
+        // Unrelated filenames sharing a prefix are not flagged.
+        assert!(!is_sensitive_file("/code/id_rsafoo.txt"));
+        assert!(!is_sensitive_file("/code/credentials.json"));
+    }
+
+    #[test]
+    fn test_is_sensitive_file_case_insensitive() {
+        assert!(is_sensitive_file("/repo/.ENV"));
+        assert!(is_sensitive_file("/home/User/.SSH/ID_RSA"));
     }
 }

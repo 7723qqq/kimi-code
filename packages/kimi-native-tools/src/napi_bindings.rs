@@ -86,7 +86,7 @@ pub fn native_edit(
 /// @param pattern - Regular expression to search for.
 /// @param path - File or directory to search. Defaults to current directory.
 /// @param glob - Optional glob filter.
-/// @param file_type - Optional file type filter.
+/// @param file_type - Optional file type filter ("ts", "py", "rust", ...).
 /// @param output_mode - "content", "files_with_matches", or "count_matches". Default "files_with_matches".
 /// @param case_insensitive - Case-insensitive search. Default false.
 /// @param line_numbers - Show line numbers in content mode. Default true.
@@ -96,14 +96,16 @@ pub fn native_edit(
 /// @param head_limit - Max output lines. Default 250. 0 = unlimited.
 /// @param offset - Skip first N entries. Default 0.
 /// @param multiline - Enable multiline matching. Default false.
-/// @returns GrepResult with content, error, matchCount, fileCount.
+/// @param include_ignored - Also search files excluded by .gitignore. Default false.
+/// @param timeout_ms - Wall-clock timeout in milliseconds. Default 20000. 0 = unlimited.
+/// @returns GrepResult with content, error, matchCount, fileCount, filteredSensitive, timedOut.
 #[napi]
 #[allow(clippy::too_many_arguments)]
 pub fn native_grep(
     pattern: String,
     path: Option<String>,
     glob: Option<String>,
-    _file_type: Option<String>,
+    file_type: Option<String>,
     output_mode: Option<String>,
     case_insensitive: Option<bool>,
     line_numbers: Option<bool>,
@@ -113,6 +115,8 @@ pub fn native_grep(
     head_limit: Option<u32>,
     offset: Option<u32>,
     multiline: Option<bool>,
+    include_ignored: Option<bool>,
+    timeout_ms: Option<u32>,
 ) -> GrepResult {
     let mode = match output_mode.as_deref() {
         Some("content") => OutputMode::Content,
@@ -123,10 +127,17 @@ pub fn native_grep(
     let effective_before = context.unwrap_or(before_context.unwrap_or(0)) as usize;
     let effective_after = context.unwrap_or(after_context.unwrap_or(0)) as usize;
 
+    let timeout = match timeout_ms {
+        Some(0) => None,
+        Some(ms) => Some(ms as u64),
+        None => Some(grep::DEFAULT_TIMEOUT_MS),
+    };
+
     grep::grep_search(&GrepConfig {
         pattern,
         path,
         glob,
+        file_type,
         output_mode: mode,
         case_insensitive: case_insensitive.unwrap_or(false),
         line_numbers: line_numbers.unwrap_or(true),
@@ -138,6 +149,8 @@ pub fn native_grep(
             .unwrap_or(DEFAULT_HEAD_LIMIT),
         offset: offset.unwrap_or(0) as usize,
         multiline: multiline.unwrap_or(false),
+        include_ignored: include_ignored.unwrap_or(false),
+        timeout_ms: timeout,
     })
 }
 

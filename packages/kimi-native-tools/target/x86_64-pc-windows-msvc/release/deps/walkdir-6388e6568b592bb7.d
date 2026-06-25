@@ -1,0 +1,10 @@
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\x86_64-pc-windows-msvc\release\deps\walkdir-6388e6568b592bb7.d: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\dent.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\error.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\util.rs
+
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\x86_64-pc-windows-msvc\release\deps\libwalkdir-6388e6568b592bb7.rlib: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\dent.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\error.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\util.rs
+
+D:\shujuku\kimi-code\packages\kimi-native-tools\target\x86_64-pc-windows-msvc\release\deps\libwalkdir-6388e6568b592bb7.rmeta: C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\lib.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\dent.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\error.rs C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\util.rs
+
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\lib.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\dent.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\error.rs:
+C:\Users\Administrator\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\walkdir-2.5.0\src\util.rs:

@@ -18,6 +18,7 @@ import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
 import WRITE_DESCRIPTION from './write.md?raw';
+export { WRITE_DESCRIPTION };
 
 /** Mask isolating the file-type bits of a stat mode. */
 const S_IFMT = 0o170000;

@@ -130,11 +130,11 @@ async function disposeProcess(proc: KaosProcess): Promise<void> {
   }
 }
 
-function renderBashDescription(shellName: string): string {
+export function renderBashDescription(shellName: string): string {
   return renderPrompt(bashDescriptionTemplate, { ...SHELL_TIMEOUT_VARS, SHELL_NAME: shellName });
 }
 
-function withoutBackgroundDescription(description: string): string {
+export function withoutBackgroundDescription(description: string): string {
   return description
     .replace(
       /\n\nIf `run_in_background=true`,[\s\S]*?point them to the `\/tasks` command, which opens an interactive panel; it has no subcommands\./,

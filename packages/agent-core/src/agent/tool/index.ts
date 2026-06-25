@@ -13,6 +13,15 @@ import type { MCPClient } from '../../mcp/types';
 import { DEFAULT_AGENT_PROFILES } from '../../profile';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
 import * as b from '../../tools/builtin';
+import { EDIT_DESCRIPTION } from '../../tools/builtin/file/edit';
+import { GLOB_DESCRIPTION, WINDOWS_PATH_HINT } from '../../tools/builtin/file/glob';
+import { GREP_DESCRIPTION } from '../../tools/builtin/file/grep';
+import { READ_DESCRIPTION } from '../../tools/builtin/file/read';
+import { WRITE_DESCRIPTION } from '../../tools/builtin/file/write';
+import {
+  renderBashDescription,
+  withoutBackgroundDescription,
+} from '../../tools/builtin/shell/bash';
 import {
   isNativeToolsEnabled,
   tryLoadNative,
@@ -390,14 +399,19 @@ export class ToolManager {
     // Check if native tools are available and enabled.
     const useNative = isNativeToolsEnabled() && tryLoadNative() !== undefined;
 
-    // Tool descriptions for native tools.
+    // Tool descriptions for native tools — mirror the TypeScript originals.
     const toolDescs = {
-      read: 'Read a text file with line numbers.',
-      write: 'Write content to a file.',
-      edit: 'Edit a file by replacing exact strings.',
-      grep: 'Search for patterns in files.',
-      glob: 'Find files matching a glob pattern.',
-      bash: 'Execute a shell command.',
+      read: READ_DESCRIPTION,
+      write: WRITE_DESCRIPTION,
+      edit: EDIT_DESCRIPTION,
+      grep: GREP_DESCRIPTION,
+      glob:
+        kaos.pathClass() === 'win32'
+          ? GLOB_DESCRIPTION + WINDOWS_PATH_HINT
+          : GLOB_DESCRIPTION,
+      bash: allowBackground
+        ? renderBashDescription(kaos.osEnv.shellName)
+        : withoutBackgroundDescription(renderBashDescription(kaos.osEnv.shellName)),
     };
 
     this.builtinTools = new Map(
