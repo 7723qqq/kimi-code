@@ -30,14 +30,35 @@ export function deferMessagesAroundOpenToolExchanges(
 ): ContextMessage[] {
   const out: ContextMessage[] = [];
   const pendingToolResultIds = new Set<string>();
+  // Calls that have already been answered (by a real or synthetic result). A
+  // second result for the same call is a stale duplicate and is dropped. A
+  // result whose call has not been seen at all is kept — it may be a valid
+  // result whose call sits outside a projected slice (micro-compaction projects
+  // single messages to size them).
+  const answeredToolCallIds = new Set<string>();
   let deferredMessages: ContextMessage[] = [];
+  // Whether an assistant message has been emitted yet. A tool result whose call
+  // was never seen is an orphan and is dropped — but only once we are in a real
+  // projection context (an assistant has appeared). A leading tool result with
+  // no assistant is a bare slice (micro-compaction sizes single messages this
+  // way) and is kept.
+  let sawAssistant = false;
 
   const push = (message: ContextMessage): void => {
     out.push(message);
     if (message.role !== 'assistant') return;
+    sawAssistant = true;
     for (const toolCall of message.toolCalls) {
       pendingToolResultIds.add(toolCall.id);
+      // A fresh call re-opens the id, so a later result is matched to this call
+      // rather than being dropped as a duplicate of an earlier (reused) id.
+      answeredToolCallIds.delete(toolCall.id);
     }
+  };
+
+  const acceptResult = (message: ContextMessage): void => {
+    out.push(message);
+    if (message.toolCallId !== undefined) answeredToolCallIds.add(message.toolCallId);
   };
 
   const flushDeferredMessages = (): void => {
@@ -54,25 +75,33 @@ export function deferMessagesAroundOpenToolExchanges(
   const closeOpenExchange = (): void => {
     for (const toolCallId of pendingToolResultIds) {
       out.push(createInterruptedToolResult(toolCallId));
+      answeredToolCallIds.add(toolCallId);
     }
     pendingToolResultIds.clear();
     flushDeferredMessages();
   };
 
   const visit = (message: ContextMessage): void => {
+    const isToolResult = message.role === 'tool' && message.toolCallId !== undefined;
+    // A second result for an already-answered call is a stale duplicate.
+    if (isToolResult && answeredToolCallIds.has(message.toolCallId!)) return;
+
     if (pendingToolResultIds.size === 0) {
-      push(message);
+      if (isToolResult) {
+        // A result whose call was never seen is an orphan in a real projection,
+        // but a kept message in a bare slice (no assistant yet).
+        if (sawAssistant) return;
+        acceptResult(message);
+      } else {
+        push(message);
+      }
       return;
     }
 
     // A real result for one of the open calls — pull it up right after the call.
-    if (
-      message.role === 'tool' &&
-      message.toolCallId !== undefined &&
-      pendingToolResultIds.has(message.toolCallId)
-    ) {
-      out.push(message);
-      pendingToolResultIds.delete(message.toolCallId);
+    if (isToolResult && pendingToolResultIds.has(message.toolCallId!)) {
+      pendingToolResultIds.delete(message.toolCallId!);
+      acceptResult(message);
       if (pendingToolResultIds.size === 0) flushDeferredMessages();
       return;
     }
@@ -85,8 +114,8 @@ export function deferMessagesAroundOpenToolExchanges(
       return;
     }
 
-    // Everything else (a stray reminder, a result for another call) waits behind
-    // the open exchange and is released once it closes.
+    // Everything else (a stray reminder, a result for an as-yet-unseen call)
+    // waits behind the open exchange and is released once it closes.
     deferredMessages.push(message);
   };
 
