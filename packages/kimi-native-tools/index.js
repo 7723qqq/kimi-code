@@ -237,11 +237,21 @@ function nativeSniffImageDimensions(data) {
 /**
  * Check if a path points to a credentials-bearing file.
  *
+ * Converts the JS string to a Uint16Array (V8's native UTF-16 format) before
+ * calling the Rust binding, avoiding the UTF-16→UTF-8 conversion that a
+ * `String` napi parameter would trigger (~130ns overhead). For ASCII paths,
+ * `charCodeAt` returns the byte value directly — no encoding work at all.
+ *
  * @param {string} path - File path to check.
  * @returns {boolean} True if the file is sensitive (credentials, keys, .env).
  */
 function nativeIsSensitiveFile(path) {
-  return binding.nativeIsSensitiveFile(path);
+  const len = path.length;
+  const buf = new Uint16Array(len);
+  for (let i = 0; i < len; i++) {
+    buf[i] = path.charCodeAt(i);
+  }
+  return binding.nativeIsSensitiveFileU16(buf);
 }
 
 // ============================================================================
