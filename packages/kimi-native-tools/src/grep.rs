@@ -11,11 +11,21 @@ use regex::RegexBuilder;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use crate::file_type::is_sensitive_file;
 
 /// Default head limit for grep output.
 pub const DEFAULT_HEAD_LIMIT: usize = 250;
 /// Maximum stdout bytes before truncation.
 pub const MAX_OUTPUT_BYTES: usize = 512 * 1024;
+/// Default timeout for grep searches (milliseconds). Mirrors the TS tool's
+/// `DEFAULT_TIMEOUT_MS = 20_000` cap so a runaway walk does not stall the agent.
+pub const DEFAULT_TIMEOUT_MS: u64 = 20_000;
+
+/// VCS metadata directories excluded from every grep walk, regardless of
+/// `.gitignore`. Mirrors the TS `VCS_DIRECTORIES_TO_EXCLUDE` list.
+const VCS_DIRECTORIES_TO_EXCLUDE: &[&str] = &[".git", ".svn", ".hg", ".bzr", ".jj", ".sl"];
 
 /// Result of a grep operation.
 #[derive(Debug, Clone)]
@@ -25,6 +35,10 @@ pub struct GrepResult {
     pub error: Option<String>,
     pub match_count: i32,
     pub file_count: i32,
+    /// Sensitive files that matched but were redacted from the output.
+    pub filtered_sensitive: Vec<String>,
+    /// True if the search terminated because the configured timeout fired.
+    pub timed_out: bool,
 }
 
 /// Output mode for grep results.
@@ -40,6 +54,9 @@ pub struct GrepConfig {
     pub pattern: String,
     pub path: Option<String>,
     pub glob: Option<String>,
+    /// Ripgrep-style file type filter (`ts`, `py`, `rust`, ...). Resolved
+    /// against a built-in extension table — see `file_type_to_globs`.
+    pub file_type: Option<String>,
     pub output_mode: OutputMode,
     pub case_insensitive: bool,
     pub line_numbers: bool,
@@ -49,6 +66,11 @@ pub struct GrepConfig {
     pub head_limit: usize,
     pub offset: usize,
     pub multiline: bool,
+    /// Skip files excluded by `.gitignore` and friends. Defaults to false
+    /// (i.e. ignore rules apply) to mirror the TS default.
+    pub include_ignored: bool,
+    /// Hard wall-clock timeout. `None` disables the deadline.
+    pub timeout_ms: Option<u64>,
 }
 
 impl Default for GrepConfig {
@@ -57,6 +79,7 @@ impl Default for GrepConfig {
             pattern: String::new(),
             path: None,
             glob: None,
+            file_type: None,
             output_mode: OutputMode::FilesWithMatches,
             case_insensitive: false,
             line_numbers: true,
@@ -66,6 +89,8 @@ impl Default for GrepConfig {
             head_limit: DEFAULT_HEAD_LIMIT,
             offset: 0,
             multiline: false,
+            include_ignored: false,
+            timeout_ms: Some(DEFAULT_TIMEOUT_MS),
         }
     }
 }
@@ -96,6 +121,8 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                 error: Some(format!("Invalid regex pattern: {}", e)),
                 match_count: 0,
                 file_count: 0,
+                filtered_sensitive: Vec::new(),
+                timed_out: false,
             };
         }
     };
@@ -112,6 +139,8 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
             error: Some(format!("Path does not exist: {}", search_path.display())),
             match_count: 0,
             file_count: 0,
+            filtered_sensitive: Vec::new(),
+            timed_out: false,
         };
     }
 
@@ -121,17 +150,40 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
     }
 
     // Build walker with ignore rules (respects .gitignore, etc.).
+    // `include_ignored=true` mirrors `rg --no-ignore`: disable .gitignore /
+    // .ignore / parent rules entirely, but VCS metadata + sensitive-file
+    // guards stay on because we apply them ourselves below.
     let mut builder = WalkBuilder::new(&search_path);
     builder.hidden(false); // Search hidden files
-    builder.git_ignore(true);
-    builder.git_exclude(true);
+    if config.include_ignored {
+        builder.git_ignore(false);
+        builder.git_exclude(false);
+        builder.git_global(false);
+        builder.ignore(false);
+        builder.parents(false);
+    } else {
+        builder.git_ignore(true);
+        builder.git_exclude(true);
+    }
 
-    // Apply glob filter.
+    // Apply glob filter (user-supplied).
     let glob_filter = config
         .glob
         .as_deref()
         .and_then(|g| globset::GlobBuilder::new(g).build().ok())
         .map(|g| g.compile_matcher());
+
+    // Apply file-type filter (`type=ts` → match `*.ts`, `*.tsx`, etc.).
+    // Mirrors the TS `--type` flag forwarded to ripgrep.
+    let file_type_globs: Vec<globset::GlobMatcher> = config
+        .file_type
+        .as_deref()
+        .map(file_type_to_globs)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|pat| globset::GlobBuilder::new(&pat).build().ok())
+        .map(|g| g.compile_matcher())
+        .collect();
 
     let effective_before = if config.context > 0 {
         config.context
@@ -150,12 +202,38 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
     let mut line_matches: Vec<MatchEntry> = Vec::new();
     let mut total_matches: usize = 0;
     let mut output_bytes: usize = 0;
+    let mut filtered_sensitive: Vec<String> = Vec::new();
+    let mut timed_out = false;
+    let deadline = config
+        .timeout_ms
+        .map(|ms| Instant::now() + Duration::from_millis(ms));
 
-    for entry in builder.build() {
+    'walker: for entry in builder.build() {
+        // Cooperative timeout check at the start of every yielded entry so a
+        // pathologically deep tree cannot block forever.
+        if let Some(d) = deadline {
+            if Instant::now() >= d {
+                timed_out = true;
+                break;
+            }
+        }
+
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
         };
+
+        // Skip VCS metadata directories entirely. `ignore`'s
+        // `git_ignore=true` only honours rules inside the working tree,
+        // so we still need to gate these manually — and they must stay
+        // gated even when `include_ignored=true`.
+        if entry
+            .path()
+            .components()
+            .any(|c| matches!(c.as_os_str().to_str(), Some(name) if VCS_DIRECTORIES_TO_EXCLUDE.contains(&name)))
+        {
+            continue;
+        }
 
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
@@ -163,11 +241,26 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
 
         let path = entry.path();
 
-        // Apply glob filter.
+        // Apply user glob filter.
         if let Some(ref matcher) = glob_filter {
             if !matcher.is_match(path) {
                 continue;
             }
+        }
+
+        // Apply file-type filter when present.
+        if !file_type_globs.is_empty() && !file_type_globs.iter().any(|m| m.is_match(path)) {
+            continue;
+        }
+
+        // Sensitive-file guard. Files matching `.env`, `id_rsa`,
+        // `.aws/credentials`, etc. are *recorded* as redacted (so callers
+        // can surface the filter notice) but their contents never reach
+        // the result content.
+        let path_str = path.to_string_lossy();
+        if is_sensitive_file(&path_str) {
+            filtered_sensitive.push(relativize(path, &search_path));
+            continue;
         }
 
         // Read file content.
@@ -197,6 +290,14 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                 .collect();
 
             for &line_idx in &matched_lines {
+                // Per-line deadline check inside large files.
+                if let Some(d) = deadline {
+                    if Instant::now() >= d {
+                        timed_out = true;
+                        break 'walker;
+                    }
+                }
+
                 // Collect context lines.
                 let start = if effective_before > 0 {
                     line_idx.saturating_sub(effective_before)
@@ -280,10 +381,27 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
         error: None,
         match_count: total_matches as i32,
         file_count: file_matches.len() as i32,
+        filtered_sensitive,
+        timed_out,
     }
 }
 
 fn search_single_file(path: &Path, regex: &regex::Regex, config: &GrepConfig) -> GrepResult {
+    // Sensitive-file guard: a caller pointing grep directly at `.env`
+    // (or similar) should not be able to bypass the redaction the
+    // directory walk applies.
+    let path_str = path.to_string_lossy();
+    if is_sensitive_file(&path_str) {
+        return GrepResult {
+            content: String::new(),
+            error: None,
+            match_count: 0,
+            file_count: 0,
+            filtered_sensitive: vec![path.display().to_string()],
+            timed_out: false,
+        };
+    }
+
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => {
@@ -292,6 +410,8 @@ fn search_single_file(path: &Path, regex: &regex::Regex, config: &GrepConfig) ->
                 error: Some(format!("Failed to read {}: {}", path.display(), e)),
                 match_count: 0,
                 file_count: 0,
+                filtered_sensitive: Vec::new(),
+                timed_out: false,
             };
         }
     };
@@ -359,6 +479,8 @@ fn search_single_file(path: &Path, regex: &regex::Regex, config: &GrepConfig) ->
         error: None,
         match_count: match_count as i32,
         file_count: if match_count > 0 { 1 } else { 0 },
+        filtered_sensitive: Vec::new(),
+        timed_out: false,
     }
 }
 
@@ -375,6 +497,49 @@ fn relativize(path: &Path, base: &Path) -> String {
     path.strip_prefix(base)
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| path.display().to_string())
+}
+
+/// Map a ripgrep-style file type name to a list of glob patterns.
+///
+/// Only the most common languages are covered. Unknown types return an
+/// empty list, which makes the search match nothing — same behaviour as
+/// `rg --type unknown`, which exits with an error. We choose to fall
+/// through silently and rely on the caller's empty result to signal the
+/// mismatch, because the agent loop has no UI to escalate a malformed
+/// type name into an actionable error.
+fn file_type_to_globs(name: &str) -> Vec<String> {
+    let lower = name.to_lowercase();
+    let exts: &[&str] = match lower.as_str() {
+        "ts" => &["ts", "tsx", "cts", "mts"],
+        "tsx" => &["tsx"],
+        "js" => &["js", "jsx", "cjs", "mjs"],
+        "jsx" => &["jsx"],
+        "py" | "python" => &["py", "pyi", "pyx"],
+        "rs" | "rust" => &["rs"],
+        "go" => &["go"],
+        "java" => &["java"],
+        "kt" | "kotlin" => &["kt", "kts"],
+        "rb" | "ruby" => &["rb", "rake", "gemspec"],
+        "c" => &["c", "h"],
+        "cpp" | "cxx" | "c++" => &["cpp", "cxx", "cc", "hpp", "hxx", "hh", "h"],
+        "cs" | "csharp" => &["cs"],
+        "swift" => &["swift"],
+        "php" => &["php", "phtml"],
+        "sh" | "shell" | "bash" => &["sh", "bash", "zsh", "fish"],
+        "md" | "markdown" => &["md", "markdown"],
+        "json" => &["json"],
+        "yaml" | "yml" => &["yaml", "yml"],
+        "toml" => &["toml"],
+        "xml" => &["xml"],
+        "html" => &["html", "htm"],
+        "css" => &["css", "scss", "sass", "less"],
+        "sql" => &["sql"],
+        "lua" => &["lua"],
+        "vue" => &["vue"],
+        "svelte" => &["svelte"],
+        _ => &[],
+    };
+    exts.iter().map(|ext| format!("**/*.{}", ext)).collect()
 }
 
 #[cfg(test)]

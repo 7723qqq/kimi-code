@@ -17,6 +17,11 @@ import { ToolAccesses } from '../../loop/tool-access';
 import { resolvePathAccessPath } from '../../tools/policies/path-access';
 import type { WorkspaceConfig } from '../../tools/support/workspace';
 import { toInputJsonSchema } from '../../tools/support/input-schema';
+import {
+  literalRulePattern,
+  matchesGlobRuleSubject,
+  matchesPathRuleSubject,
+} from '../../tools/support/rule-match';
 
 // Lazy-load the native module to avoid hard dependency.
 let nativeModule: Record<string, unknown> | undefined;
@@ -83,7 +88,13 @@ export class NativeReadTool implements BuiltinTool {
     return {
       accesses: ToolAccesses.readFile(path),
       description: `Reading ${input.path}`,
-      approvalRule: 'auto-approve',
+      approvalRule: literalRulePattern(this.name, path),
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, path, {
+          cwd: this.workspace.workspaceDir,
+          pathClass: this.kaos.pathClass(),
+          homeDir: this.kaos.gethome(),
+        }),
       execute: async () => {
         const result = callNative<{ content: string; lineCount: number; error?: string }>(
           'nativeRead',
@@ -136,7 +147,13 @@ export class NativeWriteTool implements BuiltinTool {
     return {
       accesses: ToolAccesses.writeFile(path),
       description: `Writing ${input.path}`,
-      approvalRule: 'auto-approve',
+      approvalRule: literalRulePattern(this.name, path),
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, path, {
+          cwd: this.workspace.workspaceDir,
+          pathClass: this.kaos.pathClass(),
+          homeDir: this.kaos.gethome(),
+        }),
       execute: async () => {
         const result = callNative<{ bytesWritten: number; error?: string }>(
           'nativeWrite',
@@ -192,7 +209,13 @@ export class NativeEditTool implements BuiltinTool {
     return {
       accesses: ToolAccesses.writeFile(path),
       description: `Editing ${input.path}`,
-      approvalRule: 'auto-approve',
+      approvalRule: literalRulePattern(this.name, path),
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, path, {
+          cwd: this.workspace.workspaceDir,
+          pathClass: this.kaos.pathClass(),
+          homeDir: this.kaos.gethome(),
+        }),
       execute: async () => {
         const result = callNative<{ success: boolean; error?: string; replacements: number }>(
           'nativeEdit',
@@ -207,7 +230,8 @@ export class NativeEditTool implements BuiltinTool {
         if (!result.success) {
           return { isError: true, output: result.error ?? 'Edit failed.' };
         }
-        return { output: `Replaced ${result.replacements} occurrence(s) in ${input.path}` };
+        const word = result.replacements === 1 ? 'occurrence' : 'occurrences';
+        return { output: `Replaced ${result.replacements} ${word} in ${input.path}` };
       },
     };
   }
@@ -221,7 +245,16 @@ const NativeGrepInputSchema = z.object({
   pattern: z.string().describe('Regular expression to search for.'),
   path: z.string().optional().describe('File or directory to search.'),
   glob: z.string().optional().describe('Glob filter.'),
-  output_mode: z.enum(['content', 'files_with_matches', 'count_matches']).optional().describe('Output mode.'),
+  type: z
+    .string()
+    .optional()
+    .describe(
+      'Ripgrep-style file type filter (`ts`, `py`, `rust`, ...). Resolved against a built-in extension table.',
+    ),
+  output_mode: z
+    .enum(['content', 'files_with_matches', 'count_matches'])
+    .optional()
+    .describe('Output mode.'),
   '-i': z.boolean().optional().describe('Case-insensitive search.'),
   '-n': z.boolean().optional().describe('Show line numbers.'),
   '-A': z.number().int().nonnegative().optional().describe('Lines after match.'),
@@ -230,6 +263,12 @@ const NativeGrepInputSchema = z.object({
   head_limit: z.number().int().nonnegative().optional().describe('Max output lines.'),
   offset: z.number().int().nonnegative().optional().describe('Skip first N entries.'),
   multiline: z.boolean().optional().describe('Multiline matching.'),
+  include_ignored: z
+    .boolean()
+    .optional()
+    .describe(
+      'Also search files excluded by .gitignore. Sensitive files (.env, id_rsa, .aws/credentials, ...) stay filtered.',
+    ),
 });
 
 export class NativeGrepTool implements BuiltinTool {
@@ -250,6 +289,7 @@ export class NativeGrepTool implements BuiltinTool {
     pattern: string;
     path?: string;
     glob?: string;
+    type?: string;
     output_mode?: string;
     '-i'?: boolean;
     '-n'?: boolean;
@@ -259,6 +299,7 @@ export class NativeGrepTool implements BuiltinTool {
     head_limit?: number;
     offset?: number;
     multiline?: boolean;
+    include_ignored?: boolean;
   }): ToolExecution {
     let searchPath: string | undefined;
     if (input.path !== undefined) {
@@ -274,32 +315,56 @@ export class NativeGrepTool implements BuiltinTool {
     return {
       accesses,
       description: `Searching ${searchPath ?? 'workspace'}`,
-      approvalRule: 'auto-approve',
+      approvalRule: literalRulePattern(this.name, input.pattern),
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, input.pattern),
       execute: async () => {
-        const result = callNative<{ content: string; error?: string; matchCount: number; fileCount: number }>(
-          'nativeGrep',
-          input.pattern,
-          {
-            path: searchPath,
-            glob: input.glob,
-            outputMode: input.output_mode,
-            caseInsensitive: input['-i'],
-            lineNumbers: input['-n'],
-            afterContext: input['-A'],
-            beforeContext: input['-B'],
-            context: input['-C'],
-            headLimit: input.head_limit,
-            offset: input.offset,
-            multiline: input.multiline,
-          },
-        );
+        const result = callNative<{
+          content: string;
+          error?: string;
+          matchCount: number;
+          fileCount: number;
+          filteredSensitive: string[];
+          timedOut: boolean;
+        }>('nativeGrep', input.pattern, {
+          path: searchPath,
+          glob: input.glob,
+          fileType: input.type,
+          outputMode: input.output_mode,
+          caseInsensitive: input['-i'],
+          lineNumbers: input['-n'],
+          afterContext: input['-A'],
+          beforeContext: input['-B'],
+          context: input['-C'],
+          headLimit: input.head_limit,
+          offset: input.offset,
+          multiline: input.multiline,
+          includeIgnored: input.include_ignored,
+        });
         if (!result) {
           return { isError: true, output: 'Native tools module not available.' };
         }
         if (result.error) {
           return { isError: true, output: result.error };
         }
-        return { output: result.content };
+        // Surface redacted sensitive files and timeout state as a trailing
+        // notice — keeps the result.content payload pure for downstream
+        // parsing while still informing the model that a filter fired.
+        const notices: string[] = [];
+        if (result.filteredSensitive.length > 0) {
+          notices.push(
+            `Filtered ${result.filteredSensitive.length} sensitive file(s): ${result.filteredSensitive.join(', ')}`,
+          );
+        }
+        if (result.timedOut) {
+          notices.push(`Grep timed out; partial results returned.`);
+        }
+        const output =
+          notices.length > 0
+            ? result.content === ''
+              ? notices.join('\n')
+              : `${result.content}\n${notices.join('\n')}`
+            : result.content;
+        return { output };
       },
     };
   }
@@ -343,7 +408,8 @@ export class NativeGlobTool implements BuiltinTool {
     return {
       accesses,
       description: `Globbing ${searchPath}`,
-      approvalRule: 'auto-approve',
+      approvalRule: literalRulePattern(this.name, input.pattern),
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, input.pattern),
       execute: async () => {
         const result = callNative<{ files: string[]; error?: string; truncated: boolean }>(
           'nativeGlob',
@@ -394,7 +460,8 @@ export class NativeBashTool implements BuiltinTool {
 
     return {
       description: `Running ${input.command.slice(0, 60)}`,
-      approvalRule: 'auto-approve',
+      approvalRule: literalRulePattern(this.name, input.command),
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, input.command),
       execute: async () => {
         const result = callNative<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean; error?: string }>(
           'nativeBash',

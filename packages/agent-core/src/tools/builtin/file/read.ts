@@ -225,7 +225,7 @@ function notReadableFileOutput(path: string): string {
   );
 }
 
-const READ_DESCRIPTION = renderPrompt(readDescriptionTemplate, {
+export const READ_DESCRIPTION = renderPrompt(readDescriptionTemplate, {
   MAX_LINES,
   MAX_BYTES_KB: MAX_BYTES / 1024,
   MAX_LINE_LENGTH,

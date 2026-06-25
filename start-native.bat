@@ -5,7 +5,7 @@ REM Usage: double-click or run from cmd/powershell.
 setlocal
 
 REM Enable native Rust tools.
-set KIMI_NATIVE_TOOLS=1
+set KIMI_CODE_EXPERIMENTAL_NATIVE_TOOLS=1
 
 REM Ensure native module is built.
 if not exist "%~dp0packages\kimi-native-tools\kimi_native_tools.win32-x64.node" (

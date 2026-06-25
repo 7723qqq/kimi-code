@@ -44,6 +44,7 @@ import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
 import GLOB_DESCRIPTION from './glob.md?raw';
+export { GLOB_DESCRIPTION };
 
 export const GlobInputSchema = z.object({
   pattern: z.string().describe('Glob pattern to match files/directories.'),

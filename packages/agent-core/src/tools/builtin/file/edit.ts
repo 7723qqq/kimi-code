@@ -20,6 +20,7 @@ import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-m
 import type { WorkspaceConfig } from '../../support/workspace';
 import { materializeModelText, toModelTextView } from './line-endings';
 import EDIT_DESCRIPTION from './edit.md?raw';
+export { EDIT_DESCRIPTION };
 
 // `old_string` must be non-empty: the non-replace_all branch walks
 // occurrences with `content.indexOf("", pos)`, which would loop forever

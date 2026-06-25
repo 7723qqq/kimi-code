@@ -8,14 +8,21 @@ const { existsSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 // Platform-specific native module loading.
-const BINDING_NAME = 'kimi_native_tools';
+const BINDING_NAME = 'kimi-native-tools';
 
 function loadBinding() {
-  // Try the standard napi-rs loading first (platform-specific naming).
+  // Try the newer napi-rs naming first (includes MSVC suffix).
+  try {
+    return require(`./${BINDING_NAME}.${process.platform}-${process.arch}-msvc.node`);
+  } catch {
+    // Fall through to legacy naming.
+  }
+
+  // Try the standard napi-rs loading (platform-specific naming).
   try {
     return require(`./${BINDING_NAME}.${process.platform}-${process.arch}.node`);
   } catch {
-    // Fall through to alternative loading.
+    // Fall through.
   }
 
   // Try universal binding.
@@ -139,7 +146,7 @@ function nativeEdit(path, oldString, newString, options = {}) {
  * @param {object} [options] - Search options.
  * @param {string} [options.path] - File or directory to search.
  * @param {string} [options.glob] - Glob filter.
- * @param {string} [options.fileType] - File type filter.
+ * @param {string} [options.fileType] - File type filter ("ts", "py", "rust", ...).
  * @param {'content'|'files_with_matches'|'count_matches'} [options.outputMode] - Output mode.
  * @param {boolean} [options.caseInsensitive] - Case-insensitive search.
  * @param {boolean} [options.lineNumbers] - Show line numbers.
@@ -149,7 +156,9 @@ function nativeEdit(path, oldString, newString, options = {}) {
  * @param {number} [options.headLimit] - Max output lines. 0 = unlimited.
  * @param {number} [options.offset] - Skip first N entries.
  * @param {boolean} [options.multiline] - Multiline matching.
- * @returns {{ content: string, error?: string, matchCount: number, fileCount: number }}
+ * @param {boolean} [options.includeIgnored] - Search files excluded by .gitignore.
+ * @param {number} [options.timeoutMs] - Wall-clock timeout in ms. 0 = unlimited.
+ * @returns {{ content: string, error?: string, matchCount: number, fileCount: number, filteredSensitive: string[], timedOut: boolean }}
  */
 function nativeGrep(pattern, options = {}) {
   return binding.nativeGrep(
@@ -166,6 +175,8 @@ function nativeGrep(pattern, options = {}) {
     options.headLimit ?? null,
     options.offset ?? null,
     options.multiline ?? null,
+    options.includeIgnored ?? null,
+    options.timeoutMs ?? null,
   );
 }
 

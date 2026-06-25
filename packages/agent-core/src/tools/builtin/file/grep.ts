@@ -37,6 +37,7 @@ import { ToolResultBuilder } from '../../support/result-builder';
 import { isPrematureCloseError } from '../../support/stream';
 import type { WorkspaceConfig } from '../../support/workspace';
 import GREP_DESCRIPTION from './grep.md?raw';
+export { GREP_DESCRIPTION };
 
 export const GrepInputSchema = z.object({
   pattern: z.string().describe('Regular expression to search for.'),

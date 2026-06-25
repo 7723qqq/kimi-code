@@ -54,14 +54,14 @@ pub fn edit_file(path: &str, old_string: &str, new_string: &str, replace_all: bo
             if e.kind() == std::io::ErrorKind::NotFound {
                 return EditResult {
                     success: false,
-                    error: Some(format!("{} does not exist.", path)),
+                    error: Some(format!("\"{}\" does not exist.", path)),
                     replacements: 0,
                 };
             }
             if msg.contains("is a directory") || msg.contains("EISDIR") {
                 return EditResult {
                     success: false,
-                    error: Some(format!("{} is not a file.", path)),
+                    error: Some(format!("\"{}\" is not a file.", path)),
                     replacements: 0,
                 };
             }

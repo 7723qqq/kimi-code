@@ -49,9 +49,9 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
         Ok(meta) => {
             if meta.is_dir() {
                 return ReadResult {
-                    content: format!("{} is not a file.", config.path),
+                    content: String::new(),
                     line_count: 0,
-                    error: None,
+                    error: Some(format!("\"{}\" is not a file.", config.path)),
                 };
             }
             // Check POSIX file type via mode bits (cross-platform).
@@ -61,9 +61,9 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
                 let mode = meta.permissions().mode();
                 if (mode & 0o170000) != 0o100000 {
                     return ReadResult {
-                        content: format!("{} is not a file.", config.path),
+                        content: String::new(),
                         line_count: 0,
-                        error: None,
+                        error: Some(format!("\"{}\" is not a file.", config.path)),
                     };
                 }
             }
@@ -71,9 +71,9 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
         Err(e) => {
             if e.kind() == io::ErrorKind::NotFound {
                 return ReadResult {
-                    content: format!("{} does not exist.", config.path),
+                    content: String::new(),
                     line_count: 0,
-                    error: None,
+                    error: Some(format!("\"{}\" does not exist.", config.path)),
                 };
             }
             return ReadResult {
@@ -99,29 +99,29 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
     match detect_file_type(path, &header) {
         FileKind::Image => {
             return ReadResult {
-                content: format!(
-                    "{} is an image file. Use the ReadMediaTool to read image files.",
-                    config.path
-                ),
+                content: String::new(),
                 line_count: 0,
-                error: None,
+                error: Some(format!(
+                    "\"{}\" is an image file. Use ReadMediaFile to read image or video files.",
+                    config.path
+                )),
             };
         }
         FileKind::Video => {
             return ReadResult {
-                content: format!(
-                    "{} is a video file. Use the ReadMediaTool to read video files.",
-                    config.path
-                ),
+                content: String::new(),
                 line_count: 0,
-                error: None,
+                error: Some(format!(
+                    "\"{}\" is a video file. Use ReadMediaFile to read image or video files.",
+                    config.path
+                )),
             };
         }
         FileKind::Unknown => {
             return ReadResult {
-                content: not_readable_message(&config.path),
+                content: String::new(),
                 line_count: 0,
-                error: None,
+                error: Some(not_readable_message(&config.path)),
             };
         }
         FileKind::Text => {}
@@ -134,9 +134,9 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
             let msg = e.to_string();
             if msg.contains("invalid") && msg.contains("utf") {
                 return ReadResult {
-                    content: not_readable_message(&config.path),
+                    content: String::new(),
                     line_count: 0,
-                    error: None,
+                    error: Some(not_readable_message(&config.path)),
                 };
             }
             return ReadResult {
@@ -150,9 +150,9 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
     // Check for NUL bytes.
     if raw.as_bytes().contains(&0) {
         return ReadResult {
-            content: not_readable_message(&config.path),
+            content: String::new(),
             line_count: 0,
-            error: None,
+            error: Some(not_readable_message(&config.path)),
         };
     }
 
@@ -430,7 +430,7 @@ fn read_header_bytes(path: &Path, n: usize) -> io::Result<Vec<u8>> {
 
 fn not_readable_message(path: &str) -> String {
     format!(
-        "{} is not readable as UTF-8 text. It may be a binary file or use an unsupported encoding.",
+        "\"{}\" is not readable as UTF-8 text. If it is an image or video, use ReadMediaFile. For other binary formats, use Bash or an MCP tool if available.",
         path
     )
 }
@@ -496,7 +496,7 @@ mod tests {
             line_offset: None,
             n_lines: None,
         });
-        assert!(result.content.contains("does not exist"));
+        assert!(result.error.unwrap().contains("does not exist"));
     }
 
     #[test]
@@ -507,7 +507,7 @@ mod tests {
             line_offset: None,
             n_lines: None,
         });
-        assert!(result.content.contains("is not a file"));
+        assert!(result.error.unwrap().contains("is not a file"));
     }
 
     #[test]
@@ -519,7 +519,7 @@ mod tests {
             n_lines: None,
         });
         // Binary files with NUL bytes should be detected.
-        assert!(result.content.contains("not readable") || result.error.is_some());
+        assert!(result.error.unwrap().contains("not readable"));
     }
 
     #[test]
