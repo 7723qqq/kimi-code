@@ -368,4 +368,175 @@ describe('native-tools integration', () => {
     const grepExec = expectRunnable(grep.resolveExecution({ pattern: 'x' }));
     expect(grepExec.approvalRule).not.toBe('auto-approve');
   });
+
+  it('reads a file with CRLF line endings', async () => {
+    writeFileSync(join(tmpDir, 'crlf.txt'), 'line1\r\nline2\r\nline3\r\n');
+
+    const tool = new NativeReadTool(makeKaos(), workspace, 'Read a text file.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_read_crlf',
+      args: { path: join(tmpDir, 'crlf.txt') },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('line1');
+    expect(result.output).toContain('line2');
+    expect(result.output).toContain('line3');
+    expect(result.output).toContain('<system>');
+  });
+
+  it('writes a file in append mode', async () => {
+    writeFileSync(join(tmpDir, 'append.txt'), 'hello ');
+
+    const tool = new NativeWriteTool(makeKaos(), workspace, 'Write a file.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_write_append',
+      args: { path: join(tmpDir, 'append.txt'), content: 'world', mode: 'append' },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('Appended');
+    expect(result.output).toContain('5 bytes');
+  });
+
+  it('edit fails on non-unique match without replace_all', async () => {
+    writeFileSync(join(tmpDir, 'nonunique.txt'), 'aaa aaa aaa');
+
+    const tool = new NativeEditTool(makeKaos(), workspace, 'Edit a file.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_edit_nonunique',
+      args: {
+        path: join(tmpDir, 'nonunique.txt'),
+        old_string: 'aaa',
+        new_string: 'bbb',
+      },
+      signal,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('not unique');
+  });
+
+  it('edit fails on empty old_string', async () => {
+    writeFileSync(join(tmpDir, 'empty.txt'), 'hello');
+
+    const tool = new NativeEditTool(makeKaos(), workspace, 'Edit a file.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_edit_empty',
+      args: {
+        path: join(tmpDir, 'empty.txt'),
+        old_string: '',
+        new_string: 'bbb',
+      },
+      signal,
+    });
+
+    expect(result.isError).toBe(true);
+  });
+
+  it('grep with context lines', async () => {
+    writeFileSync(join(tmpDir, 'context.txt'), 'line1\nline2\nneedle\nline4\nline5');
+
+    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_grep_ctx',
+      args: { pattern: 'needle', path: join(tmpDir, 'context.txt'), output_mode: 'content', '-C': 1 },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('needle');
+    expect(result.output).toContain('line2');
+    expect(result.output).toContain('line4');
+  });
+
+  it('grep with glob filter', async () => {
+    writeFileSync(join(tmpDir, 'match.txt'), 'needle in txt');
+    writeFileSync(join(tmpDir, 'match.log'), 'needle in log');
+
+    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_grep_glob',
+      args: { pattern: 'needle', path: tmpDir, output_mode: 'content', glob: '*.txt' },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('needle in txt');
+    expect(result.output).not.toContain('needle in log');
+  });
+
+  it('glob with brace expansion', async () => {
+    writeFileSync(join(tmpDir, 'file.ts'), '');
+    writeFileSync(join(tmpDir, 'file.tsx'), '');
+    writeFileSync(join(tmpDir, 'file.py'), '');
+
+    const tool = new NativeGlobTool(makeKaos(), workspace, 'Find files.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_glob_brace',
+      args: { pattern: '*.{ts,tsx}', path: tmpDir },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('file.ts');
+    expect(result.output).toContain('file.tsx');
+    expect(result.output).not.toContain('file.py');
+  });
+
+  it('glob with include_dirs=false', async () => {
+    mkdirSync(join(tmpDir, 'subdir'), { recursive: true });
+    writeFileSync(join(tmpDir, 'file.txt'), '');
+
+    const tool = new NativeGlobTool(makeKaos(), workspace, 'Find files.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_glob_no_dirs',
+      args: { pattern: '*', path: tmpDir, include_dirs: false },
+      signal,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('file.txt');
+    expect(result.output).not.toContain('subdir');
+  });
+
+  it('read reports directory as error', async () => {
+    mkdirSync(join(tmpDir, 'dir'), { recursive: true });
+
+    const tool = new NativeReadTool(makeKaos(), workspace, 'Read a text file.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_read_dir',
+      args: { path: join(tmpDir, 'dir') },
+      signal,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('not a file');
+  });
+
+  it('read reports binary file as error', async () => {
+    writeFileSync(join(tmpDir, 'binary.bin'), Buffer.from([0x00, 0x01, 0x02, 0x03]));
+
+    const tool = new NativeReadTool(makeKaos(), workspace, 'Read a text file.');
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_read_bin',
+      args: { path: join(tmpDir, 'binary.bin') },
+      signal,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('not readable');
+  });
 });
