@@ -12,7 +12,6 @@ import { ITelemetryService } from '#/telemetry';
 import { ITurnService } from '#/turn';
 import type { Turn } from '#/turn';
 import { TurnService } from '#/turn/turnService';
-import { IUsageService } from '#/usage';
 import { IWireRecord } from '#/wireRecord';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
@@ -30,7 +29,6 @@ describe('TurnService', () => {
     ix.set(IContextMemory, stubContextMemory());
 
     // No-op collaborators — only the members exercised by TurnService.
-    ix.stub(IUsageService, { beginTurn() {}, endTurn() {} });
     ix.stub(IEventSink, { emit() {}, on: () => ({ dispose() {} }) });
     ix.stub(IExternalHooksService, { triggerInterrupt() {} });
     ix.stub(ITelemetryService, { track() {} });

@@ -4,7 +4,7 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { toKimiErrorPayload, type KimiErrorPayload } from "#/errors";
-import { isUserCancellation, userCancellationReason } from "#/_base/utils/abort";
+import { isUserCancellation } from "#/_base/utils/abort";
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
 import { IContextMemory, USER_PROMPT_ORIGIN } from '#/contextMemory';
 import { IEventSink } from '../eventSink';
@@ -13,7 +13,6 @@ import { OrderedHookSlot } from '#/hooks';
 import { ILoopService } from '#/loop';
 import { IPlanService } from '#/plan';
 import { ITelemetryService } from '#/telemetry';
-import { IUsageService } from '#/usage';
 import { IWireRecord } from '#/wireRecord';
 import type {
   ToolDidExecuteContext,
@@ -55,7 +54,6 @@ export class TurnService implements ITurnService {
 
   constructor(
     @ILoopService private readonly loop: ILoopService,
-    @IUsageService private readonly usage: IUsageService,
     @IEventSink private readonly events: IEventSink,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IContextMemory private readonly context: IContextMemory,
@@ -119,7 +117,6 @@ export class TurnService implements ITurnService {
     this.telemetryModeByTurn.set(turn.id, telemetryMode);
     let result: TurnResult | undefined;
     try {
-      this.usage.beginTurn();
       this.telemetry.track('turn_started', { mode: telemetryMode });
       this.events.emit({ type: 'turn.started', turnId: turn.id, origin });
       const promptHookResult = await this.applyUserPromptHook(turn, origin);
@@ -148,7 +145,6 @@ export class TurnService implements ITurnService {
       if (result !== undefined) {
         this.rejectReady(turn, result);
       }
-      this.usage.endTurn();
       if (this.activeTurn === turn) {
         this.activeTurn = undefined;
       }

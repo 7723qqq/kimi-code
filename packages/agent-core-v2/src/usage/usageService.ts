@@ -3,12 +3,13 @@ import {
   type TokenUsage } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-
+import { Disposable } from '#/_base/di/lifecycle';
 
 import { IEventSink } from '../eventSink';
 import type { UsageRecordScope, UsageStatus } from './usage';
 import { IUsageService } from './usage';
 import { IWireRecord } from '#/wireRecord';
+import { ITurnService } from '#/turn';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -20,25 +21,33 @@ declare module '#/wireRecord' {
   }
 }
 
-export class UsageService implements IUsageService {
+export class UsageService extends Disposable implements IUsageService {
   private readonly byModel: Record<string, TokenUsage> = {};
   private currentTurn: TokenUsage | undefined;
 
   constructor(
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventSink private readonly events: IEventSink,
+    @ITurnService private readonly turnService: ITurnService,
   ) {
-    wireRecord.register('usage.record', (record) => {
-      this.apply(record.model, record.usage, 'session');
-    });
-  }
-
-  beginTurn(): void {
-    this.currentTurn = undefined;
-  }
-
-  endTurn(): void {
-    this.currentTurn = undefined;
+    super();
+    this._register(
+      wireRecord.register('usage.record', (record) => {
+        this.apply(record.model, record.usage, 'session');
+      }),
+    );
+    this._register(
+      turnService.hooks.onLaunched.register('usage-reset-current-turn', (_, next) => {
+        this.currentTurn = undefined;
+        return next();
+      }),
+    );
+    this._register(
+      turnService.hooks.onEnded.register('usage-reset-current-turn', (_, next) => {
+        this.currentTurn = undefined;
+        return next();
+      }),
+    );
   }
 
   record(model: string, usage: TokenUsage, scope: UsageRecordScope = 'session'): void {

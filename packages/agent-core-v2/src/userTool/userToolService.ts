@@ -13,7 +13,6 @@ import { IWireRecord } from '#/wireRecord';
 import {
   IUserToolService,
   type UserToolRegistration,
-  type UserToolServiceOptions,
 } from './userTool';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -33,7 +32,6 @@ export class UserToolService extends Disposable implements IUserToolService {
   private readonly registrations = new Map<string, IDisposable>();
 
   constructor(
-    private readonly options: UserToolServiceOptions = {},
     @IToolRegistry private readonly registry: IToolRegistry,
     @IProfileService private readonly profile: IProfileService,
     @IWireRecord private readonly wireRecord: IWireRecord,
@@ -87,25 +85,11 @@ export class UserToolService extends Disposable implements IUserToolService {
   }
 
   private async executeUserTool(
-    context: ExecutableToolContext,
-    name: string,
-    args: unknown,
+    _context: ExecutableToolContext,
+    _name: string,
+    _args: unknown,
   ): Promise<ToolResult> {
-    const executeUserTool = this.options.executeUserTool;
-    if (executeUserTool === undefined) {
-      return {
-        output: `Tool "${name}" is not connected to a user tool executor.`,
-        isError: true,
-      };
-    }
-    return executeUserTool(
-      {
-        turnId: Number(context.turnId),
-        toolCallId: context.toolCallId,
-        args,
-      },
-      { signal: context.signal },
-    );
+    throw new Error('TODO');
   }
 }
 

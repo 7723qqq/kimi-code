@@ -11,11 +11,8 @@ export interface UsageStatus {
 }
 
 export interface IUsageService {
-  beginTurn(): void;
-  endTurn(): void;
   record(model: string, usage: TokenUsage, scope?: UsageRecordScope): void;
-  data(): UsageStatus;
-  status(): UsageStatus | undefined;
+  status(): UsageStatus;
 }
 
 export const IUsageService = createDecorator<IUsageService>('usageService.agent');
