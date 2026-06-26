@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { IInteractionService } from '#/interaction';
+import { InteractionService } from '#/interaction/interactionService';
 import { IQuestionService } from '#/question';
 import { QuestionService } from '#/question/questionService';
 
@@ -13,6 +15,7 @@ describe('QuestionService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
+    ix.set(IInteractionService, new SyncDescriptor(InteractionService));
     ix.set(IQuestionService, new SyncDescriptor(QuestionService));
   });
   afterEach(() => disposables.dispose());

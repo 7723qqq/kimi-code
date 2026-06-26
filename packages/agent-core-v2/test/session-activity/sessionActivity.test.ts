@@ -6,6 +6,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
+import { IInteractionService, type Interaction, type InteractionKind } from '#/interaction';
 import { ISessionActivity } from '#/session-activity/sessionActivity';
 import { SessionActivity } from '#/session-activity/sessionActivityService';
 import { ITurnService, type Turn } from '#/turn';
@@ -60,6 +61,22 @@ function lifecycle(handles: readonly IScopeHandle[]): IAgentLifecycleService {
   };
 }
 
+function interactions(
+  pending: { approval?: number; question?: number },
+): Partial<IInteractionService> {
+  const items: Interaction[] = [];
+  for (let i = 0; i < (pending.approval ?? 0); i++) {
+    items.push({ id: `a${i}`, kind: 'approval', payload: {}, origin: {} });
+  }
+  for (let i = 0; i < (pending.question ?? 0); i++) {
+    items.push({ id: `q${i}`, kind: 'question', payload: {}, origin: {} });
+  }
+  return {
+    listPending: (kind?: InteractionKind) =>
+      kind === undefined ? items : items.filter((i) => i.kind === kind),
+  };
+}
+
 describe('SessionActivity', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
@@ -68,6 +85,7 @@ describe('SessionActivity', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     ix.set(ISessionActivity, new SyncDescriptor(SessionActivity));
+    ix.stub(IInteractionService, interactions({}));
   });
   afterEach(() => disposables.dispose());
 
@@ -87,5 +105,41 @@ describe('SessionActivity', () => {
       lifecycle([handle('a', false), handle('b', true)]),
     );
     expect(ix.get(ISessionActivity).isIdle()).toBe(false);
+  });
+
+  describe('status', () => {
+    it('idle when nothing is pending and no turn is active', () => {
+      ix.stub(IAgentLifecycleService, lifecycle([handle('a', false)]));
+      expect(ix.get(ISessionActivity).status()).toBe('idle');
+    });
+
+    it('running when an agent has an active turn', () => {
+      ix.stub(IAgentLifecycleService, lifecycle([handle('a', true)]));
+      expect(ix.get(ISessionActivity).status()).toBe('running');
+    });
+
+    it('awaiting_approval when an approval interaction is pending', () => {
+      ix.stub(IAgentLifecycleService, lifecycle([handle('a', false)]));
+      ix.stub(IInteractionService, interactions({ approval: 1 }));
+      expect(ix.get(ISessionActivity).status()).toBe('awaiting_approval');
+    });
+
+    it('awaiting_question when a question interaction is pending', () => {
+      ix.stub(IAgentLifecycleService, lifecycle([handle('a', false)]));
+      ix.stub(IInteractionService, interactions({ question: 1 }));
+      expect(ix.get(ISessionActivity).status()).toBe('awaiting_question');
+    });
+
+    it('approval takes priority over question', () => {
+      ix.stub(IAgentLifecycleService, lifecycle([handle('a', false)]));
+      ix.stub(IInteractionService, interactions({ approval: 1, question: 1 }));
+      expect(ix.get(ISessionActivity).status()).toBe('awaiting_approval');
+    });
+
+    it('question takes priority over running', () => {
+      ix.stub(IAgentLifecycleService, lifecycle([handle('a', true)]));
+      ix.stub(IInteractionService, interactions({ question: 1 }));
+      expect(ix.get(ISessionActivity).status()).toBe('awaiting_question');
+    });
   });
 });

@@ -11,6 +11,7 @@ import type { ScopeSeed } from '#/_base/di/scope';
 import type { ISessionMetaStore } from '#/sessionMetaStore';
 
 export interface ISessionContext {
+  readonly _serviceBrand: undefined;
   readonly sessionId: string;
   readonly meta: ISessionMetaStore;
 }
@@ -25,7 +26,7 @@ export function sessionContextSeed(
   return [
     [
       ISessionContext as ServiceIdentifier<unknown>,
-      { sessionId, meta } satisfies ISessionContext,
+      { _serviceBrand: undefined, sessionId, meta } satisfies ISessionContext,
     ],
   ];
 }

@@ -32,6 +32,7 @@ export * from './background/index';
 import './cron/index';
 
 export * from './agent-lifecycle/index';
+export * from './interaction/index';
 export * from './session-context/index';
 export * from './session-activity/index';
 export * from './session/index';
