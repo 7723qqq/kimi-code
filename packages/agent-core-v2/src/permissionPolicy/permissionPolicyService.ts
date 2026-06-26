@@ -6,7 +6,7 @@ import type { ResolvedToolExecutionHookContext } from '#/loop';
 import type { PathClass } from '#/_base/tools/policies/path-access';
 import {
   type PermissionGitWorkTreeMarker,
-  type PermissionServiceOptions,
+  type PermissionGateOptions,
 } from '#/permission';
 import { AgentSwarmExclusiveDenyPermissionPolicyService } from './policies/agent-swarm-exclusive-deny';
 import { AutoModeApprovePermissionPolicyService } from './policies/auto-mode-approve';
@@ -50,7 +50,7 @@ export class PermissionPolicyService
 {
   declare readonly _serviceBrand: undefined;
 
-  private optionsValue: PermissionServiceOptions = {};
+  private optionsValue: PermissionGateOptions = {};
   private readonly planModeState: PlanModeRuntimeState = {
     isActive: false,
     planFilePath: null,
@@ -84,11 +84,11 @@ export class PermissionPolicyService
     ];
   }
 
-  get options(): PermissionServiceOptions {
+  get options(): PermissionGateOptions {
     return this.optionsValue;
   }
 
-  configure(options: PermissionServiceOptions): void {
+  configure(options: PermissionGateOptions): void {
     this.optionsValue = options;
     this.planModeState.isActive = options.planMode?.isActive ?? false;
     this.planModeState.planFilePath = options.planMode?.planFilePath ?? null;

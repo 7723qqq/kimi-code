@@ -1,5 +1,5 @@
 /**
- * `tooldedup` domain (L4) — `IToolDedupService` implementation.
+ * `toolDedup` domain (L4) — `IToolDedupService` implementation.
  *
  * Owns per-turn same-step suppression and cross-step repeat reminders; reports
  * repeat telemetry through `telemetry`. Bound at Agent scope.
@@ -14,7 +14,7 @@ import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
 import { ITelemetryService } from '#/telemetry/telemetry';
 import { ITurnService } from '#/turn';
 
-import { IToolDedupService, type ToolDedupResult } from './tooldedup';
+import { IToolDedupService, type ToolDedupResult } from './toolDedup';
 
 const REMINDER_TEXT_1 =
   '\n\n<system-reminder>\n' +
@@ -110,15 +110,15 @@ export class ToolDedupService extends Disposable implements IToolDedupService {
     @ITurnService turn: ITurnService,
   ) {
     super();
-    turn.hooks.beforeStep.register('tooldedup', async (_ctx, next) => {
+    turn.hooks.beforeStep.register('toolDedup', async (_ctx, next) => {
       this.beginStep();
       await next();
     });
-    turn.hooks.afterStep.register('tooldedup', async (_ctx, next) => {
+    turn.hooks.afterStep.register('toolDedup', async (_ctx, next) => {
       this.endStep();
       await next();
     });
-    turn.hooks.onWillExecuteTool.register('tooldedup', async (ctx, next) => {
+    turn.hooks.onWillExecuteTool.register('toolDedup', async (ctx, next) => {
       const cached = this.checkSameStep(ctx.toolCall.id, ctx.toolCall.name, ctx.args);
       if (cached !== null) {
         ctx.decision = { syntheticResult: cached };
@@ -126,7 +126,7 @@ export class ToolDedupService extends Disposable implements IToolDedupService {
       }
       await next();
     });
-    turn.hooks.onDidExecuteTool.register('tooldedup', async (ctx, next) => {
+    turn.hooks.onDidExecuteTool.register('toolDedup', async (ctx, next) => {
       ctx.result = await this.finalizeResult(
         ctx.toolCall.id,
         ctx.toolCall.name,
@@ -260,5 +260,5 @@ registerScopedService(
   IToolDedupService,
   ToolDedupService,
   InstantiationType.Delayed,
-  'tooldedup',
+  'toolDedup',
 );

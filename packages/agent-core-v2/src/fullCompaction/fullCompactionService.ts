@@ -353,7 +353,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
         ];
 
         try {
-          attempt = await collectSummary(this.llmRequester.request({ messages, tools: [] }, signal));
+          attempt = await collectSummary(this.llmRequester.request({ messages }, signal));
           break;
         } catch (error) {
           if (

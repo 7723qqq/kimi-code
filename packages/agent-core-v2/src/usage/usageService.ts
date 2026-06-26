@@ -61,7 +61,7 @@ export class UsageService extends Disposable implements IUsageService {
     this.publishChanged();
   }
 
-  data(): UsageStatus {
+  status(): UsageStatus {
     const byModel = this.byModelSnapshot();
     const hasByModel = Object.keys(byModel).length > 0;
     const currentTurn = this.currentTurn;
@@ -70,18 +70,6 @@ export class UsageService extends Disposable implements IUsageService {
       total: hasByModel ? totalUsage(byModel) : undefined,
       currentTurn: currentTurn === undefined ? undefined : copyUsage(currentTurn),
     };
-  }
-
-  status(): UsageStatus | undefined {
-    const status = this.data();
-    if (
-      status.byModel === undefined &&
-      status.total === undefined &&
-      status.currentTurn === undefined
-    ) {
-      return undefined;
-    }
-    return status;
   }
 
   private apply(model: string, usage: TokenUsage, scope: UsageRecordScope): void {

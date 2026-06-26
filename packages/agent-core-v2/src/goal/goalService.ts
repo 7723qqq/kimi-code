@@ -7,11 +7,10 @@ import {
   Disposable,
 } from "#/_base/di";
 import { ErrorCodes, KimiError } from "#/errors";
-import type { ContextMessage } from '#/contextMemory';
-import { IContextMemory } from '#/contextMemory';
 import { IContextInjector } from '../contextInjector';
 import { IEventSink } from '../eventSink';
 import { IReplayBuilderService } from '#/replayBuilder';
+import { ISystemReminderService } from '#/systemReminder';
 import type { TelemetryProperties } from '#/telemetry';
 import { ITelemetryService } from '#/telemetry';
 import type { WireRecord } from '#/wireRecord';
@@ -77,7 +76,7 @@ export class GoalService extends Disposable implements IGoalService {
     private readonly options: GoalServiceOptions = {},
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventSink private readonly events: IEventSink,
-    @IContextMemory private readonly context: IContextMemory,
+    @ISystemReminderService private readonly reminders: ISystemReminderService,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IContextInjector private readonly dynamicInjector: IContextInjector,
@@ -509,13 +508,7 @@ export class GoalService extends Disposable implements IGoalService {
   }
 
   private appendSystemReminder(text: string, name: string): void {
-    const message: ContextMessage = {
-      role: 'user',
-      content: [{ type: 'text', text: `<system-reminder>\n${text}\n</system-reminder>` }],
-      toolCalls: [],
-      origin: { kind: 'system_trigger', name },
-    };
-    this.context.splice(this.context.get().length, 0, [message]);
+    this.reminders.appendSystemReminder(text, { kind: 'system_trigger', name });
   }
 }
 

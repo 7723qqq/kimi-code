@@ -41,7 +41,6 @@ export class ContextSizeService
   constructor(
     @IContextMemory private readonly context: IContextMemory,
     @IEventSink private readonly events: IEventSink,
-    @IProfileService private readonly profile: IProfileService,
     @IWireRecord private readonly wireRecord: IWireRecord,
   ) {
     super();
@@ -127,24 +126,10 @@ export class ContextSizeService
       return;
     }
     this.lastEmitted = status;
-    const maxContextTokens = this.maxContextTokens();
     this.events.emit({
       type: 'agent.status.updated',
       contextTokens: status.contextTokens,
-      maxContextTokens,
-      contextUsage:
-        maxContextTokens !== undefined && maxContextTokens > 0
-          ? status.contextTokensWithPending / maxContextTokens
-          : undefined,
     });
-  }
-
-  private maxContextTokens(): number | undefined {
-    try {
-      return this.profile.getModelCapabilities().max_context_tokens;
-    } catch {
-      return undefined;
-    }
   }
 }
 

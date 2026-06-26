@@ -4,8 +4,8 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { ITelemetryService, type TelemetryProperties } from '#/telemetry/telemetry';
-import { IToolDedupService, type ToolDedupResult } from '#/tooldedup/tooldedup';
-import { ToolDedupService, __testing } from '#/tooldedup/tooldedupService';
+import { IToolDedupService, type ToolDedupResult } from '#/toolDedup/toolDedup';
+import { ToolDedupService, __testing } from '#/toolDedup/toolDedupService';
 import { ITurnService } from '#/turn';
 import { stubTurnWithHooks } from '../turn/stubs';
 

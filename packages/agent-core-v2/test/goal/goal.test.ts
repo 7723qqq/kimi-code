@@ -9,6 +9,8 @@ import { IEventSink } from '../../src/eventSink';
 import { IGoalService } from '#/goal';
 import { GoalService } from '#/goal/goalService';
 import { IReplayBuilderService } from '#/replayBuilder';
+import { ISystemReminderService } from '#/systemReminder';
+import { SystemReminderService } from '#/systemReminder/systemReminderService';
 import { ITelemetryService } from '#/telemetry';
 import { IWireRecord } from '#/wireRecord';
 import {
@@ -30,6 +32,7 @@ describe('GoalService', () => {
     ix.stub(IReplayBuilderService, stubReplayBuilder());
     ix.stub(ITelemetryService, { track: () => {} });
     ix.stub(IContextInjector, { register: () => ({ dispose: () => {} }) });
+    ix.set(ISystemReminderService, new SyncDescriptor(SystemReminderService));
     ix.set(IGoalService, new SyncDescriptor(GoalService, [{}]));
   });
   afterEach(() => disposables.dispose());

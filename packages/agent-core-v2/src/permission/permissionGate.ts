@@ -23,15 +23,15 @@ import { IPermissionRulesService } from '#/permissionRules';
 import { ITelemetryService } from '#/telemetry';
 import { ITurnService } from '#/turn';
 import {
-  IPermissionService,
-  type PermissionServiceOptions,
+  IPermissionGate,
+  type PermissionGateOptions,
 } from './permission';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-export class PermissionService extends Disposable implements IPermissionService {
+export class PermissionGate extends Disposable implements IPermissionGate {
   constructor(
-    private readonly options: PermissionServiceOptions = {},
+    private readonly options: PermissionGateOptions = {},
     @IPermissionModeService private readonly modeService: IPermissionModeService,
     @IPermissionRulesService private readonly rulesService: IPermissionRulesService,
     @IPermissionPolicyService private readonly policyService: IPermissionPolicyService,
@@ -268,8 +268,8 @@ function numericTurnId(turnId: string): number {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IPermissionService,
-  PermissionService,
+  IPermissionGate,
+  PermissionGate,
   InstantiationType.Delayed,
-  'permission',
+  'permissionGate',
 );
