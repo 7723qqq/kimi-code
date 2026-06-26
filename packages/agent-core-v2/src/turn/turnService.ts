@@ -35,7 +35,6 @@ export class TurnService implements ITurnService {
   private activeTurn: Turn | undefined;
   private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
   private readonly readySettled = new WeakSet<Turn>();
-  private readonly currentStepByTurn = new Map<number, number>();
   private readonly interruptedTelemetryTurnIds = new Set<number>();
   private readonly telemetryModeByTurn = new Map<number, 'agent' | 'plan'>();
   private planModeActive = false;
@@ -67,12 +66,6 @@ export class TurnService implements ITurnService {
     this.events.on((event) => {
       if (event.type === 'agent.status.updated' && event.planMode !== undefined) {
         this.planModeActive = event.planMode;
-        return;
-      }
-      if (event.type === 'turn.step.started') {
-        if (typeof event.turnId === 'number' && typeof event.step === 'number') {
-          this.currentStepByTurn.set(event.turnId, event.step);
-        }
         return;
       }
       if (event.type === 'turn.step.interrupted') {
@@ -161,13 +154,12 @@ export class TurnService implements ITurnService {
           this.events.emit({ type: 'error', ...ended.error });
         }
         if (ended.reason !== 'completed') {
-          this.trackTurnInterrupted(turn.id, this.currentStepByTurn.get(turn.id) ?? 0);
+          this.trackTurnInterrupted(turn.id, 0);
         }
       }
       if (result !== undefined) {
         await this.hooks.onEnded.run({ turn, result });
       }
-      this.currentStepByTurn.delete(turn.id);
       this.interruptedTelemetryTurnIds.delete(turn.id);
       this.telemetryModeByTurn.delete(turn.id);
     }
