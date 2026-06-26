@@ -4,7 +4,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IContextMemory } from '#/contextMemory';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../../src/eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { ILoopService } from '#/loop';
 import { IPlanService } from '#/plan';
@@ -31,7 +31,7 @@ describe('TurnService', () => {
 
     // No-op collaborators — only the members exercised by TurnService.
     ix.stub(IUsageService, { beginTurn() {}, endTurn() {} });
-    ix.stub(IEventBus, { emit() {}, on: () => ({ dispose() {} }) });
+    ix.stub(IEventSink, { emit() {}, on: () => ({ dispose() {} }) });
     ix.stub(IExternalHooksService, { triggerInterrupt() {} });
     ix.stub(ITelemetryService, { track() {} });
     // TurnService.telemetryMode() resolves IPlanService via IInstantiationService.

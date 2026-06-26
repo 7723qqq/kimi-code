@@ -1,31 +1,30 @@
 import {
   IInstantiationService,
+  registerSingleton,
+  SyncDescriptor,
 } from "#/_base/di";
-import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { toKimiErrorPayload, type KimiErrorPayload } from "#/errors";
+import type { ContextMessage, PromptOrigin } from '../../../agent/context';
+import { USER_PROMPT_ORIGIN } from '../../../agent/context';
+import { toKimiErrorPayload, type KimiErrorPayload } from "#/_base/errors";
 import { isUserCancellation, userCancellationReason } from "#/_base/utils/abort";
-import type { ContextMessage, PromptOrigin } from '#/contextMemory';
-import { IContextMemory, USER_PROMPT_ORIGIN } from '#/contextMemory';
-import { IEventSink } from '../eventSink';
-import { IExternalHooksService } from '#/externalHooks';
-import { OrderedHookSlot } from '#/hooks';
-import { ILoopService } from '#/loop';
-import { IPlanService } from '#/plan';
-import { ITelemetryService } from '#/telemetry';
-import { IUsageService } from '#/usage';
-import { IWireRecord } from '#/wireRecord';
+import { IContextMemory } from '../contextMemory/contextMemory';
+import { IEventSink } from '../eventSink/eventSink';
+import { IExternalHooksService } from '../externalHooks/externalHooks';
+import { OrderedHookSlot } from '../hooks';
+import { ILoopService } from '../loop/loop';
+import { IPlanService } from '../plan/planMode';
+import { ITelemetryService } from '../telemetry/telemetry';
 import type {
-  ToolDidExecuteContext,
-  ToolWillExecuteContext,
   Turn,
   TurnEndedContext,
   TurnResult,
   TurnStepContext,
-} from './turn';
-import { ITurnService } from './turn';
+} from '../types';
+import { IUsageService } from '../usage/usage';
+import { IWireRecord } from '../wireRecord/wireRecord';
+import { ITurnRunner } from './turnRunner';
 
-declare module '#/wireRecord' {
+declare module '../types' {
   interface WireRecordMap {
     'turn.launch': {
       turnId: number;
@@ -34,8 +33,7 @@ declare module '#/wireRecord' {
   }
 }
 
-export class TurnService implements ITurnService {
-  declare readonly _serviceBrand: undefined;
+export class TurnRunnerService implements ITurnRunner {
   private nextTurnId = 0;
   private activeTurn: Turn | undefined;
   private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
@@ -49,8 +47,6 @@ export class TurnService implements ITurnService {
     onEnded: new OrderedHookSlot<TurnEndedContext>(),
     beforeStep: new OrderedHookSlot<TurnStepContext>(),
     afterStep: new OrderedHookSlot<TurnStepContext>(),
-    onWillExecuteTool: new OrderedHookSlot<ToolWillExecuteContext>(),
-    onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),
   };
 
   constructor(
@@ -72,15 +68,11 @@ export class TurnService implements ITurnService {
     });
     this.events.on((event) => {
       if (event.type === 'turn.step.started') {
-        if (typeof event.turnId === 'number' && typeof event.step === 'number') {
-          this.currentStepByTurn.set(event.turnId, event.step);
-        }
+        this.currentStepByTurn.set(event.turnId, event.step);
         return;
       }
       if (event.type === 'turn.step.interrupted') {
-        if (typeof event.turnId === 'number' && typeof event.step === 'number') {
-          this.trackTurnInterrupted(event.turnId, event.step);
-        }
+        this.trackTurnInterrupted(event.turnId, event.step);
       }
     });
   }
@@ -113,6 +105,13 @@ export class TurnService implements ITurnService {
     return this.activeTurn;
   }
 
+  cancel(turnId?: number, reason?: unknown): void {
+    const turn = this.activeTurn;
+    if (turn === undefined) return;
+    if (turnId !== undefined && turn.id !== turnId) return;
+    turn.abortController.abort(reason ?? userCancellationReason());
+  }
+
   private async runTurn(turn: Turn, origin: PromptOrigin): Promise<TurnResult> {
     const startedAt = Date.now();
     const telemetryMode = this.telemetryMode();
@@ -130,8 +129,6 @@ export class TurnService implements ITurnService {
       result = await this.loop.runTurn(turn, {
         beforeStep: this.hooks.beforeStep,
         afterStep: this.hooks.afterStep,
-        onWillExecuteTool: this.hooks.onWillExecuteTool,
-        onDidExecuteTool: this.hooks.onDidExecuteTool,
       });
       return result;
     } catch (error) {
@@ -324,10 +321,4 @@ function createControlledPromise<T>(): ControlledPromise<T> {
   return { promise, resolve, reject };
 }
 
-registerScopedService(
-  LifecycleScope.Agent,
-  ITurnService,
-  TurnService,
-  InstantiationType.Delayed,
-  'turn',
-);
+registerSingleton(ITurnRunner, new SyncDescriptor(TurnRunnerService, [], true));

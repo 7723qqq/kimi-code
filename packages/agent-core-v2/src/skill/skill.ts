@@ -23,6 +23,5 @@ export interface IAgentSkillService {
   activateFromModel(input: ModelSkillActivationInput): ExecutableToolResult;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IAgentSkillService =
   createDecorator<IAgentSkillService>('agentSkillService');

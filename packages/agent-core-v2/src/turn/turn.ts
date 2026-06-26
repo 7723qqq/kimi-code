@@ -60,7 +60,6 @@ export interface ITurnService {
   readonly _serviceBrand: undefined;
   launch(origin: PromptOrigin): Turn;
   getActiveTurn(): Turn | undefined;
-  cancel(turnId?: number, reason?: unknown): void;
 
   readonly hooks: Hooks<{
     onLaunched: { turn: Turn };
@@ -72,5 +71,4 @@ export interface ITurnService {
   }>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ITurnService = createDecorator<ITurnService>('turnService');

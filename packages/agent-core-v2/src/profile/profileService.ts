@@ -21,7 +21,7 @@ import { isMcpToolName } from '#/mcp/tool-naming';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/profile';
 import type { ResolvedRuntimeProvider } from '#/session/provider-manager';
 
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../eventSink';
 import { IReplayBuilderService } from '#/replayBuilder';
 import { ITelemetryService } from '#/telemetry';
 import type { ToolSource } from '#/toolRegistry';
@@ -59,7 +59,7 @@ export class ProfileService implements IProfileService {
   constructor(
     options: ProfileServiceOptions = {},
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IConfigRegistry configRegistry: IConfigRegistry,

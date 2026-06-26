@@ -86,5 +86,4 @@ export interface IProfileService {
   removeActiveTool(name: string): void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IProfileService = createDecorator<IProfileService>('profileService.agent');

@@ -85,6 +85,5 @@ export interface IBackgroundService {
   ): Promise<ForegroundTaskReleaseReason | undefined>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IBackgroundService =
   createDecorator<IBackgroundService>('agentBackgroundService');

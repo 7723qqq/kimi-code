@@ -4,8 +4,8 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IContextMemory } from '#/contextMemory';
-import { IDynamicInjector } from '#/dynamicInjector';
-import { IEventBus } from '#/eventBus';
+import { IContextInjector } from '../../src/contextInjector';
+import { IEventSink } from '../../src/eventSink';
 import { IKaosService } from '#/kaos';
 import { IPlanService } from '#/plan';
 import { PlanService } from '#/plan/planService';
@@ -35,10 +35,10 @@ describe('PlanService', () => {
     ix.set(IReplayBuilderService, stubReplayBuilder());
 
     // No-op collaborators — only the members exercised by PlanService.
-    ix.stub(IEventBus, { emit() {} });
+    ix.stub(IEventSink, { emit() {} });
     ix.stub(ITelemetryService, { track() {} });
     ix.stub(IToolRegistry, { register: () => ({ dispose() {} }) });
-    ix.stub(IDynamicInjector, { register: () => ({ dispose() {} }) });
+    ix.stub(IContextInjector, { register: () => ({ dispose() {} }) });
     // kaos undefined → filesystem access short-circuits via optional chaining.
     ix.stub(IKaosService, { kaos: undefined });
     // PlanService.currentCwd() reads profile.data().cwd.

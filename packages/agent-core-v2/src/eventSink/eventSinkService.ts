@@ -6,11 +6,11 @@ import {
 } from "#/_base/di";
 import { Emitter } from "#/_base/event";
 
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '.';
 import type { AgentEvent } from '@moonshot-ai/protocol';
 import { IWireRecord } from '#/wireRecord';
 
-export class EventBusService extends Disposable implements IEventBus {
+export class EventSinkService extends Disposable implements IEventSink {
   private readonly onDidEmitEmitter = this._register(new Emitter<AgentEvent>());
 
   constructor(@IWireRecord private readonly wireRecord: IWireRecord) {
@@ -29,8 +29,8 @@ export class EventBusService extends Disposable implements IEventBus {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IEventBus,
-  EventBusService,
+  IEventSink,
+  EventSinkService,
   InstantiationType.Delayed,
-  'eventBus',
+  'eventSink',
 );

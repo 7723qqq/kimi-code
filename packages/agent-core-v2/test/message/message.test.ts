@@ -44,21 +44,21 @@ describe('message history (IContextMemory)', () => {
 
   it('round-trips user/assistant messages with their text content', () => {
     const ctx = ix.get(IContextMemory);
-    ctx.spliceHistory(0, 0, [textMessage('user', 'a')]);
-    ctx.spliceHistory(1, 0, [textMessage('assistant', 'b')]);
+    ctx.splice(0, 0, [textMessage('user', 'a')]);
+    ctx.splice(1, 0, [textMessage('assistant', 'b')]);
 
-    const history = ctx.getHistory();
+    const history = ctx.get();
     expect(history.map((m) => m.role)).toEqual(['user', 'assistant']);
     expect(history.map(textOf)).toEqual(['a', 'b']);
   });
 
   it('returns a defensive copy from getHistory', () => {
     const ctx = ix.get(IContextMemory);
-    ctx.spliceHistory(0, 0, [textMessage('user', 'keep')]);
+    ctx.splice(0, 0, [textMessage('user', 'keep')]);
 
-    const view = ctx.getHistory();
+    const view = ctx.get();
     (view as ContextMessage[]).splice(0, view.length);
 
-    expect(ctx.getHistory().map(textOf)).toEqual(['keep']);
+    expect(ctx.get().map(textOf)).toEqual(['keep']);
   });
 });

@@ -18,6 +18,5 @@ export interface ILLMRequestLogService {
   logRequest(input: LLMRequestLogInput): void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ILLMRequestLogService =
   createDecorator<ILLMRequestLogService>('agentLLMRequestLogService');

@@ -9,8 +9,8 @@ import {
 import { ErrorCodes, KimiError } from "#/errors";
 import type { ContextMessage } from '#/contextMemory';
 import { IContextMemory } from '#/contextMemory';
-import { IDynamicInjector } from '#/dynamicInjector';
-import { IEventBus } from '#/eventBus';
+import { IContextInjector } from '../contextInjector';
+import { IEventSink } from '../eventSink';
 import { IReplayBuilderService } from '#/replayBuilder';
 import type { TelemetryProperties } from '#/telemetry';
 import { ITelemetryService } from '#/telemetry';
@@ -76,11 +76,11 @@ export class GoalService extends Disposable implements IGoalService {
   constructor(
     private readonly options: GoalServiceOptions = {},
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @IContextMemory private readonly context: IContextMemory,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IDynamicInjector private readonly dynamicInjector: IDynamicInjector,
+    @IContextInjector private readonly dynamicInjector: IContextInjector,
   ) {
     super();
     this._register(
@@ -515,7 +515,7 @@ export class GoalService extends Disposable implements IGoalService {
       toolCalls: [],
       origin: { kind: 'system_trigger', name },
     };
-    this.context.spliceHistory(this.context.getHistory().length, 0, [message]);
+    this.context.splice(this.context.get().length, 0, [message]);
   }
 }
 

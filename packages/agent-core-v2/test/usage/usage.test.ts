@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../../src/eventSink';
 import { IUsageService } from '#/usage';
 import { UsageService } from '#/usage/usageService';
 import { IWireRecord } from '#/wireRecord';
@@ -18,7 +18,7 @@ describe('UsageService', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     ix.stub(IWireRecord, stubWireRecord());
-    ix.stub(IEventBus, { emit: () => {}, on: () => toDisposable(() => {}) });
+    ix.stub(IEventSink, { emit: () => {}, on: () => toDisposable(() => {}) });
     ix.set(IUsageService, new SyncDescriptor(UsageService));
   });
   afterEach(() => disposables.dispose());

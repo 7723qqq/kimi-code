@@ -106,7 +106,7 @@ export class MicroCompactionService
     const cacheAgeMs = Date.now() - lastAssistantAt;
     if (cacheAgeMs < this.config.cacheMissedThresholdMs) return;
 
-    const history = this.context.getHistory();
+    const history = this.context.get();
     if (this.contextSizeRatio() < this.config.minContextUsageRatio) return;
 
     const previousCutoff = this.cutoff;
@@ -162,7 +162,7 @@ export class MicroCompactionService
     readonly deleteCount: number;
     readonly messages: readonly ContextMessage[];
   }): void {
-    if (this.context.getHistory().length === 0) {
+    if (this.context.get().length === 0) {
       this._lastAssistantAt = null;
       this.reset();
       return;
@@ -171,7 +171,7 @@ export class MicroCompactionService
     if (context.messages.some(isCompactionSummary)) {
       this.reset();
     } else if (context.deleteCount > 0) {
-      this.reset(this.context.getHistory().length);
+      this.reset(this.context.get().length);
     }
 
     if (context.messages.some(isAssistantCacheAnchor)) {

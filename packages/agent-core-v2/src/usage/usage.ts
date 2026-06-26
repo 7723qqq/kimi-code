@@ -18,5 +18,4 @@ export interface IUsageService {
   status(): UsageStatus | undefined;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IUsageService = createDecorator<IUsageService>('usageService.agent');

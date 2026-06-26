@@ -28,7 +28,6 @@ export interface IReplayBuilderService {
   buildResult(): readonly AgentReplayRecord[];
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IReplayBuilderService = createDecorator<IReplayBuilderService>(
   'agentReplayBuilderService',
 );

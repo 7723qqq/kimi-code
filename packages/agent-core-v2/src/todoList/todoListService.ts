@@ -13,7 +13,7 @@ import {
   todoListStaleReminder,
 } from './todoListReminder';
 import { IContextMemory } from '#/contextMemory';
-import { IDynamicInjector } from '#/dynamicInjector';
+import { IContextInjector } from '../contextInjector';
 import { IProfileService } from '#/profile';
 import { IToolRegistry } from '#/toolRegistry';
 import { IToolStoreService } from '#/toolStore';
@@ -29,7 +29,7 @@ export class TodoListService extends Disposable implements ITodoListService {
     @IProfileService private readonly profile: IProfileService,
     @IToolStoreService private readonly toolStore: IToolStoreService,
     @IToolRegistry toolRegistry: IToolRegistry,
-    @IDynamicInjector dynamicInjector: IDynamicInjector,
+    @IContextInjector dynamicInjector: IContextInjector,
   ) {
     super();
     this._register(toolRegistry.register(new TodoListTool(toolStore)));
@@ -45,7 +45,7 @@ export class TodoListService extends Disposable implements ITodoListService {
   private staleReminder(): string | undefined {
     return todoListStaleReminder({
       active: this.profile.isToolActive(TODO_LIST_TOOL_NAME, 'builtin'),
-      history: this.context.getHistory(),
+      history: this.context.get(),
       todos: this.getTodos(),
     });
   }

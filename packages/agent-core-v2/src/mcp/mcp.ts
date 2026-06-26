@@ -30,5 +30,4 @@ export interface McpServiceOptions {
   readonly manager?: McpConnectionManager;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IMcpService = createDecorator<IMcpService>('agentMcpService');

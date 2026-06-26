@@ -5,7 +5,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../eventSink';
 import type { UsageRecordScope, UsageStatus } from './usage';
 import { IUsageService } from './usage';
 import { IWireRecord } from '#/wireRecord';
@@ -26,7 +26,7 @@ export class UsageService implements IUsageService {
 
   constructor(
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
   ) {
     wireRecord.register('usage.record', (record) => {
       this.apply(record.model, record.usage, 'session');

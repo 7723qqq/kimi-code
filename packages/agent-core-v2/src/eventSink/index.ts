@@ -2,5 +2,5 @@
  * `eventBus` domain barrel - re-exports the eventBus service contract and implementation.
  */
 
-export * from './eventBus';
-export * from './eventBusService';
+export * from './eventSink';
+export * from './eventSinkService';

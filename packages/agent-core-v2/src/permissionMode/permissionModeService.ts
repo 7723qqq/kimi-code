@@ -5,8 +5,8 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IDynamicInjector } from '#/dynamicInjector';
-import { IEventBus } from '#/eventBus';
+import { IContextInjector } from '../contextInjector';
+import { IEventSink } from '../eventSink';
 import { OrderedHookSlot } from '../hooks';
 import { IReplayBuilderService } from '#/replayBuilder';
 import type { WireRecord } from '#/wireRecord';
@@ -36,9 +36,9 @@ export class PermissionModeService extends Disposable implements IPermissionMode
 
   constructor(
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
-    @IDynamicInjector dynamicInjector: IDynamicInjector,
+    @IContextInjector dynamicInjector: IContextInjector,
   ) {
     super();
     this._register(

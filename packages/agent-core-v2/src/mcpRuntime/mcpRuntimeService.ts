@@ -1,21 +1,21 @@
+import type { Tool as KosongTool } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import type { Tool as KosongTool } from '@moonshot-ai/kosong';
 
 import {
   Disposable,
   type IDisposable,
 } from "#/_base/di";
-import { ErrorCodes, makeErrorPayload } from "#/errors";
-import type { ExecutableTool, ExecutableToolResult } from '#/loop';
-import { IEventSink } from '../eventSink';
-import { IToolRegistry } from '#/toolRegistry';
-import { createMcpAuthTool } from './auth-tool';
-import type { McpServerEntry } from './connection-manager';
-import { IMcpService, type McpServiceOptions } from './mcp';
-import { mcpResultToExecutableOutput } from './output';
-import { qualifyMcpToolName } from './tool-naming';
-import type { MCPClient } from './types';
+import { ErrorCodes, makeErrorPayload } from "#/_base/errors";
+import type { ExecutableTool, ExecutableToolResult } from '../../../loop';
+import { createMcpAuthTool } from '../../../mcp/auth-tool';
+import type { McpServerEntry } from '../../../mcp/connection-manager';
+import { mcpResultToExecutableOutput } from '../../../mcp/output';
+import { qualifyMcpToolName } from '../../../mcp/tool-naming';
+import type { MCPClient } from '../../../mcp/types';
+import { IEventSink } from '../eventSink/eventSink';
+import { IToolRegistry } from '../toolRegistry/toolRegistry';
+import { IMcpRuntimeService, type McpRuntimeServiceOptions } from './mcpRuntime';
 
 interface McpToolRegistration {
   readonly disposable: IDisposable;
@@ -30,12 +30,12 @@ interface McpToolCollision {
     | { readonly kind: 'other_server'; readonly serverName: string };
 }
 
-export class McpService extends Disposable implements IMcpService {
+export class McpRuntimeService extends Disposable implements IMcpRuntimeService {
   private readonly mcpTools = new Map<string, McpToolRegistration>();
   private readonly mcpToolsByServer = new Map<string, string[]>();
 
   constructor(
-    private readonly options: McpServiceOptions = {},
+    private readonly options: McpRuntimeServiceOptions = {},
     @IToolRegistry private readonly registry: IToolRegistry,
     @IEventSink private readonly events: IEventSink,
   ) {
@@ -73,7 +73,7 @@ export class McpService extends Disposable implements IMcpService {
     signal?.throwIfAborted();
   }
 
-  onStatusChange(listener: Parameters<IMcpService['onStatusChange']>[0]) {
+  onStatusChange(listener: Parameters<IMcpRuntimeService['onStatusChange']>[0]) {
     const unsubscribe = this.options.manager?.onStatusChange(listener);
     return {
       dispose: unsubscribe ?? (() => undefined),
@@ -286,8 +286,8 @@ function normalizeMcpToolResult(result: {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IMcpService,
-  McpService,
+  IMcpRuntimeService,
+  McpRuntimeService,
   InstantiationType.Delayed,
-  'mcp',
+  'mcpRuntime',
 );

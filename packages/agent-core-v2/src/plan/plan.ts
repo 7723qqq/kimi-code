@@ -34,6 +34,5 @@ declare module '#/wireRecord' {
 
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IPlanService =
   createDecorator<IPlanService>('agentPlanService');

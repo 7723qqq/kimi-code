@@ -42,7 +42,7 @@ import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
 import { IContextMemory, type ContextMessage } from '#/contextMemory';
 import { IContextProjector } from '#/contextProjector';
 import { IContextSizeService } from '#/contextSize';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { IFullCompaction } from '#/fullCompaction';
 import { ILLMRequester } from '#/llmRequester';
@@ -94,7 +94,7 @@ export class LoopService extends Disposable implements ILoopService {
     @IContextProjector private readonly projector: IContextProjector,
     @IContextSizeService private readonly contextSize: IContextSizeService,
     @ILLMRequester private readonly llmRequester: ILLMRequester,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @IToolRegistry private readonly toolRegistry: IToolRegistry,
     @IToolExecutor private readonly toolExecutor: IToolExecutor,
     @IUsageService private readonly usage: IUsageService,
@@ -144,7 +144,7 @@ export class LoopService extends Disposable implements ILoopService {
             turnId: String(turn.id),
             signal: turn.abortController.signal,
             llm,
-            buildMessages: () => [...this.projector.project(this.context.getHistory())],
+            buildMessages: () => [...this.projector.project(this.context.get())],
             dispatchEvent: this.dispatchEvent,
             tools: this.executableTools(),
             hooks: loopHooks,
@@ -160,7 +160,7 @@ export class LoopService extends Disposable implements ILoopService {
                   remainingToolCalls: context.toolCallCount,
                 });
               } else {
-                this.contextSize.measure(this.measurementLength(context.stepUuid), tokens);
+                this.contextSize.measured(this.measurementLength(context.stepUuid), tokens);
               }
             },
           });
@@ -681,7 +681,7 @@ export class LoopService extends Disposable implements ILoopService {
       return;
     }
 
-    const history = this.context.getHistory();
+    const history = this.context.get();
     const index = history.indexOf(message.message);
     if (index < 0) {
       throw new Error(`Open loop step '${stepUuid}' is no longer present in context history`);
@@ -701,11 +701,11 @@ export class LoopService extends Disposable implements ILoopService {
 
   private appendImmediately(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
-    this.spliceHistory(this.context.getHistory().length, 0, messages);
+    this.spliceHistory(this.context.get().length, 0, messages);
   }
 
   private removeMatchedTailMessage(matcher: (message: ContextMessage) => boolean): boolean {
-    const history = this.context.getHistory();
+    const history = this.context.get();
     const index = history.length - 1;
     const message = history[index];
     if (message === undefined || !matcher(message)) return false;
@@ -720,7 +720,7 @@ export class LoopService extends Disposable implements ILoopService {
   ): void {
     this.ownSpliceDepth++;
     try {
-      this.context.spliceHistory(start, deleteCount, messages);
+      this.context.splice(start, deleteCount, messages);
     } finally {
       this.ownSpliceDepth--;
     }
@@ -732,7 +732,7 @@ export class LoopService extends Disposable implements ILoopService {
 
   private measurementLength(stepUuid: string): number {
     const openStep = this.openSteps.get(stepUuid);
-    const history = this.context.getHistory();
+    const history = this.context.get();
     if (openStep === undefined) return history.length;
     const index = history.indexOf(openStep.message);
     return index === -1 ? history.length : index + 1;
@@ -752,7 +752,7 @@ export class LoopService extends Disposable implements ILoopService {
     }
 
     this.pendingMeasurements.delete(stepUuid);
-    this.contextSize.measure(this.measurementLength(stepUuid), pending.tokens);
+    this.contextSize.measured(this.measurementLength(stepUuid), pending.tokens);
   }
 }
 

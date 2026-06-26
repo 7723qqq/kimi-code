@@ -172,7 +172,7 @@ export class LLMRequesterService implements ILLMRequester {
       modelAlias: resolved.modelAlias,
       systemPrompt: overrides.systemPrompt ?? this.profile.getSystemPrompt(),
       tools: [...(overrides.tools ?? this.defaultTools())],
-      messages: [...(overrides.messages ?? this.projector.project(this.context.getHistory()))],
+      messages: [...(overrides.messages ?? this.projector.project(this.context.get()))],
       requestLogFields: overrides.requestLogFields,
       generate: this.options.generate ?? generate,
     };

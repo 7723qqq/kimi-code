@@ -66,5 +66,4 @@ export interface IToolRegistry {
   }>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IToolRegistry = createDecorator<IToolRegistry>('agentToolRegistryService');

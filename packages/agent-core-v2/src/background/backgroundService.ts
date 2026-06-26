@@ -18,7 +18,7 @@ import {
 } from './task';
 
 import { IContextMemory } from '#/contextMemory';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { IPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';
@@ -109,7 +109,7 @@ export class BackgroundService extends Disposable implements IBackgroundService 
 
   constructor(
     options: BackgroundServiceOptions = {},
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IPromptService private readonly prompt: IPromptService,
@@ -667,7 +667,7 @@ export class BackgroundService extends Disposable implements IBackgroundService 
   private async restoreBackgroundTaskNotification(info: BackgroundTaskInfo): Promise<void> {
     const context = await this.buildBackgroundTaskNotificationContext(info);
     if (context === undefined) return;
-    this.context.spliceHistory(this.context.getHistory().length, 0, [
+    this.context.splice(this.context.get().length, 0, [
       {
         role: 'user',
         content: [...context.content],
@@ -744,7 +744,7 @@ export class BackgroundService extends Disposable implements IBackgroundService 
   }
 
   private hasDeliveredNotification(key: string): boolean {
-    return this.context.getHistory().some((message) => {
+    return this.context.get().some((message) => {
       return message.origin?.kind === 'background_task' && notificationKey(message.origin) === key;
     });
   }

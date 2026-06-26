@@ -17,5 +17,4 @@ export interface IToolExecutor {
   ): Promise<ToolResult>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IToolExecutor = createDecorator<IToolExecutor>('toolExecutorService');

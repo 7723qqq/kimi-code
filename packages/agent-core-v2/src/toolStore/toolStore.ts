@@ -23,5 +23,4 @@ export interface IToolStoreService extends ToolStore {
   }>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IToolStoreService = createDecorator<IToolStoreService>('agentToolStoreService');

@@ -18,6 +18,5 @@ export interface IPermissionModeService {
   }>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IPermissionModeService =
   createDecorator<IPermissionModeService>('agentPermissionModeService');

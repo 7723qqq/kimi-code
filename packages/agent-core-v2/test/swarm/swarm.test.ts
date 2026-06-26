@@ -4,7 +4,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IContextMemory } from '#/contextMemory';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../../src/eventSink';
 import { ISubagentHost } from '#/subagentHost';
 import { ISwarmService } from '#/swarm';
 import { SwarmService } from '#/swarm/swarmService';
@@ -24,7 +24,7 @@ describe('SwarmService', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.stub(IContextMemory, stubContextMemory());
     ix.stub(IWireRecord, stubWireRecord());
-    ix.stub(IEventBus, { emit: () => {}, on: () => toDisposable(() => {}) });
+    ix.stub(IEventSink, { emit: () => {}, on: () => toDisposable(() => {}) });
     ix.stub(ITurnService, stubTurnWithHooks());
     ix.stub(IToolRegistry, {});
     ix.stub(ISubagentHost, {});

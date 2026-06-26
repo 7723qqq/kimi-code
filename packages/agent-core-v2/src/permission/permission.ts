@@ -46,6 +46,5 @@ export interface IPermissionService {
   ): Promise<AuthorizeToolExecutionResult | undefined>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IPermissionService =
   createDecorator<IPermissionService>('agentPermissionService');

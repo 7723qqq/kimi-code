@@ -19,6 +19,5 @@ export interface IPermissionPolicyService {
   ): Promise<PermissionPolicyEvaluation | undefined>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IPermissionPolicyService =
   createDecorator<IPermissionPolicyService>('agentPermissionPolicyService');

@@ -98,6 +98,5 @@ export interface IExternalHooksService {
   }): void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IExternalHooksService =
   createDecorator<IExternalHooksService>('agentExternalHooksService');

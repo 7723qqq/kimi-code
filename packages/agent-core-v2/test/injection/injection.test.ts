@@ -4,8 +4,8 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IContextMemory, type ContextMessage } from '#/contextMemory';
-import { IDynamicInjector } from '#/dynamicInjector';
-import { DynamicInjectorService } from '#/dynamicInjector/dynamicInjectorService';
+import { IContextInjector } from '../../src/contextInjector';
+import { ContextInjectorService } from '../../src/contextInjector/contextInjectorService';
 import { ITurnService, type TurnStepContext } from '#/turn';
 import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
 import { stubTurnWithHooks } from '../turn/stubs';
@@ -32,7 +32,7 @@ describe('DynamicInjectorService', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.stub(IContextMemory, stubContextMemory());
     ix.stub(ITurnService, stubTurnWithHooks());
-    ix.set(IDynamicInjector, new SyncDescriptor(DynamicInjectorService));
+    ix.set(IContextInjector, new SyncDescriptor(ContextInjectorService));
     ctx = ix.get(IContextMemory) as StubContextMemory;
   });
   afterEach(() => disposables.dispose());
@@ -47,7 +47,7 @@ describe('DynamicInjectorService', () => {
   }
 
   it('splices a registered provider content into context on a step', async () => {
-    const injector = ix.get(IDynamicInjector);
+    const injector = ix.get(IContextInjector);
     injector.register('reminder', () => 'hello injection');
 
     await runBeforeStep();
@@ -58,7 +58,7 @@ describe('DynamicInjectorService', () => {
   });
 
   it('stops injecting after the registration is disposed', async () => {
-    const injector = ix.get(IDynamicInjector);
+    const injector = ix.get(IContextInjector);
     const registration = injector.register('reminder', () => 'hello injection');
     registration.dispose();
 

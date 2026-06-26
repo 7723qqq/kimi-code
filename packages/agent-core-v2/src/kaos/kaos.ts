@@ -9,7 +9,6 @@ export interface IKaosService {
   chdir(cwd: string): Promise<void>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IKaosService = createDecorator<IKaosService>('agentKaosService');
 
 export type KaosFactoryOptions =
@@ -21,7 +20,6 @@ export interface IKaosFactory {
   create(options: KaosFactoryOptions): Promise<Kaos>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IKaosFactory = createDecorator<IKaosFactory>('kaosFactory');
 
 export interface ISessionKaosService {
@@ -36,6 +34,5 @@ export interface ISessionKaosService {
   removeAdditionalDir(dir: string): void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ISessionKaosService =
   createDecorator<ISessionKaosService>('sessionKaosService');

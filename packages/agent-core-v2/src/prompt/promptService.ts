@@ -3,7 +3,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError, makeErrorPayload } from "#/errors";
 
 import { IContextMemory, USER_PROMPT_ORIGIN, type ContextMessage } from '#/contextMemory';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../eventSink';
 import { ITurnService, type Turn } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 import { IPromptService } from './prompt';
@@ -16,7 +16,7 @@ export class PromptService implements IPromptService {
     @IContextMemory private readonly context: IContextMemory,
     @ITurnService private readonly turnService: ITurnService,
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
   ) {
     turnService.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
       this.flushSteerQueue();
@@ -62,7 +62,7 @@ export class PromptService implements IPromptService {
   undo(count: number): number {
     if (count <= 0) return 0;
 
-    const history = this.context.getHistory();
+    const history = this.context.get();
     let removedUserCount = 0;
     let stoppedAtCompaction = false;
     for (let index = history.length - 1; index >= 0; index--) {
@@ -74,7 +74,7 @@ export class PromptService implements IPromptService {
         break;
       }
 
-      this.context.spliceHistory(index, 1, []);
+      this.context.splice(index, 1, []);
       if (isRealUserPrompt(message)) {
         removedUserCount++;
         if (removedUserCount >= count) break;
@@ -100,14 +100,14 @@ export class PromptService implements IPromptService {
 
   clear(): void {
     this.steerQueue.length = 0;
-    const historyLength = this.context.getHistory().length;
+    const historyLength = this.context.get().length;
     if (historyLength === 0) return;
-    this.context.spliceHistory(0, historyLength, []);
+    this.context.splice(0, historyLength, []);
   }
 
   private append(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
-    this.context.spliceHistory(this.context.getHistory().length, 0, messages);
+    this.context.splice(this.context.get().length, 0, messages);
   }
 
   private observe(turn: Turn): void {

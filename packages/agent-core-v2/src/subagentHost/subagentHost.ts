@@ -53,5 +53,4 @@ export interface ISubagentHost {
 }
 
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ISubagentHost = createDecorator<ISubagentHost>('agentSubagentHostService');

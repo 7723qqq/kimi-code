@@ -5,7 +5,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContextMessage } from '#/contextMemory';
 import { IContextMemory } from '#/contextMemory';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../eventSink';
 import { ISubagentHost } from '#/subagentHost';
 import { IToolRegistry } from '#/toolRegistry';
 import { ITurnService } from '#/turn';
@@ -31,7 +31,7 @@ export class SwarmService extends Disposable implements ISwarmService {
     options: SwarmServiceOptions = {},
     @IContextMemory private readonly context: IContextMemory,
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @ITurnService turnService?: ITurnService,
     @IToolRegistry toolRegistry?: IToolRegistry,
     @ISubagentHost subagentHost?: ISubagentHost,
@@ -140,16 +140,16 @@ export class SwarmService extends Disposable implements ISwarmService {
         variant,
       },
     };
-    this.context.spliceHistory(this.context.getHistory().length, 0, [message]);
+    this.context.splice(this.context.get().length, 0, [message]);
   }
 
   private removeLastSwarmReminder(): boolean {
-    const history = this.context.getHistory();
+    const history = this.context.get();
     const lastIndex = history.length - 1;
     const last = history[lastIndex];
     if (last?.origin?.kind !== 'injection') return false;
     if (last.origin.variant !== 'swarm_mode') return false;
-    this.context.spliceHistory(lastIndex, 1, []);
+    this.context.splice(lastIndex, 1, []);
     return true;
   }
 }

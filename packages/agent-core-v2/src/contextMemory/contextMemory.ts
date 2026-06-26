@@ -4,8 +4,8 @@ import type { Hooks } from '#/hooks';
 import type { ContextMessage } from './types';
 
 export interface IContextMemory {
-  getHistory(): readonly ContextMessage[];
-  spliceHistory(
+  get(): readonly ContextMessage[];
+  splice(
     start: number,
     deleteCount: number,
     messages: readonly ContextMessage[],
@@ -22,5 +22,4 @@ export interface IContextMemory {
   }>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IContextMemory = createDecorator<IContextMemory>('agentContextMemoryService');

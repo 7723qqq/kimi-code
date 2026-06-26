@@ -68,5 +68,4 @@ export interface ICronService extends CronToolManager {
   flushPersist(): Promise<void>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ICronService = createDecorator<ICronService>('agentCronService');

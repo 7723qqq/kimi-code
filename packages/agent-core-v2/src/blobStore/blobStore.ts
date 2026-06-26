@@ -17,7 +17,6 @@ export interface IBlobStoreService {
   isBlobRef(url: string): boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IBlobStoreService = createDecorator<IBlobStoreService>(
   'agentBlobStoreService',
 );

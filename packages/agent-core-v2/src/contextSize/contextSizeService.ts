@@ -6,7 +6,7 @@ import {
 } from "#/_base/utils/tokens";
 import type { ContextMessage } from '#/contextMemory';
 import { IContextMemory } from '#/contextMemory';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../eventSink';
 import { IProfileService } from '#/profile';
 import { IWireRecord, type WireRecord } from '#/wireRecord';
 import {
@@ -40,7 +40,7 @@ export class ContextSizeService
 
   constructor(
     @IContextMemory private readonly context: IContextMemory,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @IProfileService private readonly profile: IProfileService,
     @IWireRecord private readonly wireRecord: IWireRecord,
   ) {
@@ -67,7 +67,7 @@ export class ContextSizeService
     };
   }
 
-  measure(length: number, tokens: number): void {
+  measured(length: number, tokens: number): void {
     const record: WireRecord<'context_size.measured'> = {
       type: 'context_size.measured',
       length,

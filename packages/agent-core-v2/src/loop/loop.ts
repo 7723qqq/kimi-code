@@ -19,5 +19,4 @@ export interface ILoopService {
   runTurn(turn: Turn, hooks?: LoopRunHooks): Promise<TurnResult>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ILoopService = createDecorator<ILoopService>('agentLoopService');

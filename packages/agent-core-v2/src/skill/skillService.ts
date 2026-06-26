@@ -20,7 +20,7 @@ import {
   type SkillCatalog,
   type SkillDefinition,
 } from './types';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../eventSink';
 import { IPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';
 import type { Turn } from '#/turn';
@@ -48,7 +48,7 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
   constructor(
     options: AgentSkillServiceOptions = {},
     @IPromptService private readonly prompt: IPromptService,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {

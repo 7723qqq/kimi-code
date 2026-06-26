@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../../src/eventSink';
 import type { McpConnectionManager, McpServerEntry } from '#/mcp/connection-manager';
 import { IMcpService, McpService } from '#/mcp';
 import { IToolRegistry } from '#/toolRegistry';
@@ -75,7 +75,7 @@ describe('McpService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    ix.stub(IEventBus, { emit: () => {}, on: () => toDisposable(() => {}) });
+    ix.stub(IEventSink, { emit: () => {}, on: () => toDisposable(() => {}) });
     ix.stub(IToolRegistry, {
       register: () => toDisposable(() => {}),
       list: () => [],

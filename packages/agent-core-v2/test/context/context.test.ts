@@ -40,11 +40,11 @@ describe('ContextMemoryService', () => {
 
   it('returns spliced messages in insertion order', () => {
     const ctx = ix.get(IContextMemory);
-    ctx.spliceHistory(0, 0, [textMessage('user', 'hi')]);
-    ctx.spliceHistory(1, 0, [textMessage('assistant', 'hello')]);
+    ctx.splice(0, 0, [textMessage('user', 'hi')]);
+    ctx.splice(1, 0, [textMessage('assistant', 'hello')]);
 
-    expect(ctx.getHistory().map((m) => m.role)).toEqual(['user', 'assistant']);
-    expect(ctx.getHistory().map(textOf)).toEqual(['hi', 'hello']);
+    expect(ctx.get().map((m) => m.role)).toEqual(['user', 'assistant']);
+    expect(ctx.get().map(textOf)).toEqual(['hi', 'hello']);
   });
 
   // NOTE: the legacy `ContextService.tokenUsage()` helper has no equivalent on
@@ -54,15 +54,15 @@ describe('ContextMemoryService', () => {
 
   it('replaces the whole history with a compaction summary', () => {
     const ctx = ix.get(IContextMemory);
-    ctx.spliceHistory(0, 0, [textMessage('user', '1'), textMessage('assistant', '2')]);
+    ctx.splice(0, 0, [textMessage('user', '1'), textMessage('assistant', '2')]);
 
     const summary: ContextMessage = {
       ...textMessage('assistant', 'summary'),
       origin: { kind: 'compaction_summary' },
     };
-    ctx.spliceHistory(0, 2, [summary]);
+    ctx.splice(0, 2, [summary]);
 
-    expect(ctx.getHistory().map(textOf)).toEqual(['summary']);
+    expect(ctx.get().map(textOf)).toEqual(['summary']);
   });
 
   // NOTE: the legacy `ContextService.undo()` snapshot/restore behavior has no
@@ -72,10 +72,10 @@ describe('ContextMemoryService', () => {
 
   it('removes the last message with a deleting splice', () => {
     const ctx = ix.get(IContextMemory);
-    ctx.spliceHistory(0, 0, [textMessage('user', '1'), textMessage('user', '2')]);
+    ctx.splice(0, 0, [textMessage('user', '1'), textMessage('user', '2')]);
 
-    ctx.spliceHistory(1, 1, []);
+    ctx.splice(1, 1, []);
 
-    expect(ctx.getHistory().map(textOf)).toEqual(['1']);
+    expect(ctx.get().map(textOf)).toEqual(['1']);
   });
 });

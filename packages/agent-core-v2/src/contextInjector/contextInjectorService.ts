@@ -9,23 +9,23 @@ import { IContextMemory } from '../contextMemory';
 import { ITurnService } from '../turn';
 import type { ContextMessage } from '#/contextMemory';
 import {
-  IDynamicInjector,
-  type DynamicInjectionOptions,
-  type DynamicInjectionProvider,
-} from './dynamicInjector';
+  IContextInjector,
+  type ContextInjectionOptions,
+  type ContextInjectionProvider,
+} from './contextInjector';
 
-interface DynamicInjectionEntry {
-  readonly cadence: DynamicInjectionOptions['cadence'];
-  readonly provider: DynamicInjectionProvider;
+interface ContextInjectionEntry {
+  readonly cadence: ContextInjectionOptions['cadence'];
+  readonly provider: ContextInjectionProvider;
   readonly variant: string;
   injectedAt: number | null;
   resolveHistory: boolean;
   turnConsumed: boolean;
 }
 
-export class DynamicInjectorService extends Disposable implements IDynamicInjector {
-  private readonly entries = new Set<DynamicInjectionEntry>();
-  private readonly selfInsertedMessages = new WeakMap<ContextMessage, DynamicInjectionEntry>();
+export class ContextInjectorService extends Disposable implements IContextInjector {
+  private readonly entries = new Set<ContextInjectionEntry>();
+  private readonly selfInsertedMessages = new WeakMap<ContextMessage, ContextInjectionEntry>();
 
   constructor(
     @IContextMemory private readonly context: IContextMemory,
@@ -33,13 +33,13 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
   ) {
     super();
     this._register(
-      turnService.hooks.beforeStep.register('dynamic-injector', async (_ctx, next) => {
+      turnService.hooks.beforeStep.register('context-injector', async (_ctx, next) => {
         await next();
         await this.inject();
       }),
     );
     this._register(
-      turnService.hooks.onLaunched.register('dynamic-injector', (_ctx, next) => {
+      turnService.hooks.onLaunched.register('context-injector', (_ctx, next) => {
         for (const entry of this.entries) {
           if (entry.cadence !== 'turn') continue;
           entry.injectedAt = null;
@@ -49,7 +49,7 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
         return next();
       }),
     );
-    context.hooks.onSpliced.register('dynamic-injector', (ctx, next) => {
+    context.hooks.onSpliced.register('context-injector', (ctx, next) => {
       this.handleSplice(ctx);
       return next();
     });
@@ -57,10 +57,10 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
 
   register(
     variant: string,
-    provider: DynamicInjectionProvider,
-    options: DynamicInjectionOptions = {},
+    provider: ContextInjectionProvider,
+    options: ContextInjectionOptions = {},
   ) {
-    const entry: DynamicInjectionEntry = {
+    const entry: ContextInjectionEntry = {
       cadence: options.cadence ?? 'step',
       provider,
       variant,
@@ -76,7 +76,7 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
 
   private async inject(): Promise<void> {
     for (const entry of this.entries) {
-      const history = this.context.getHistory();
+      const history = this.context.get();
       if (entry.resolveHistory) {
         entry.injectedAt ??= findLastInjection(history, entry.variant);
       }
@@ -85,14 +85,14 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
         entry.turnConsumed = true;
       }
       const content = await entry.provider({
-        injectedAt: entry.injectedAt,
+        lastInjectedAt: entry.injectedAt,
       });
       if (!this.entries.has(entry)) continue;
       if (content === undefined || content.trim().length === 0) continue;
-      const injectedAt = this.context.getHistory().length;
+      const injectedAt = this.context.get().length;
       const message = createInjectionMessage(content, entry.variant);
       this.selfInsertedMessages.set(message, entry);
-      this.context.spliceHistory(injectedAt, 0, [message]);
+      this.context.splice(injectedAt, 0, [message]);
       entry.injectedAt = injectedAt;
       entry.resolveHistory = false;
       this.selfInsertedMessages.delete(message);
@@ -100,7 +100,7 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
   }
 
   private handleSplice(splice: ContextSplice): void {
-    const selfInserted = new Map<DynamicInjectionEntry, number>();
+    const selfInserted = new Map<ContextInjectionEntry, number>();
     splice.messages.forEach((message, offset) => {
       const entry = this.selfInsertedMessages.get(message);
       if (entry !== undefined) {
@@ -108,7 +108,7 @@ export class DynamicInjectorService extends Disposable implements IDynamicInject
       }
     });
     const previousLength =
-      this.context.getHistory().length - splice.messages.length + splice.deleteCount;
+      this.context.get().length - splice.messages.length + splice.deleteCount;
 
     for (const entry of this.entries) {
       const ownInsertedAt = selfInserted.get(entry);
@@ -196,8 +196,8 @@ function createInjectionMessage(content: string, variant: string): ContextMessag
 
 registerScopedService(
   LifecycleScope.Agent,
-  IDynamicInjector,
-  DynamicInjectorService,
+  IContextInjector,
+  ContextInjectorService,
   InstantiationType.Delayed,
-  'dynamicInjector',
+  'contextInjector',
 );

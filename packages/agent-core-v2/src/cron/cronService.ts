@@ -7,7 +7,7 @@ import {
   toDisposable,
 } from "#/_base/di";
 import type { ContextMessage } from '#/contextMemory';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../eventSink';
 import { IPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';
 import { IToolRegistry } from '#/toolRegistry';
@@ -82,7 +82,7 @@ export class CronService
   constructor(
     private readonly options: CronOptions = {},
     @IPromptService private readonly prompt: IPromptService,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITurnService private readonly turnService: ITurnService,
     @ITelemetryService private readonly telemetry: ITelemetryService,

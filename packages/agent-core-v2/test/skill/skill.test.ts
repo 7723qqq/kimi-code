@@ -4,7 +4,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/contextMemory';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../../src/eventSink';
 import { IPromptService } from '#/prompt';
 import { IAgentSkillService } from '#/skill';
 import { AgentSkillService } from '#/skill/skillService';
@@ -71,7 +71,7 @@ describe('AgentSkillService', () => {
       undo: () => 0,
       clear: () => {},
     });
-    ix.stub(IEventBus, { emit: () => {}, on: () => ({ dispose: () => {} }) });
+    ix.stub(IEventSink, { emit: () => {}, on: () => ({ dispose: () => {} }) });
     ix.stub(IWireRecord, stubWireRecord());
     ix.stub(ITelemetryService, { track: () => {} });
     ix.set(

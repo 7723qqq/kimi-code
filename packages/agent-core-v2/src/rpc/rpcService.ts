@@ -62,7 +62,7 @@ export class AgentRPCService implements IAgentRPCService {
     @IUsageService private readonly usage: IUsageService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IGoalService private readonly goal: IGoalService,
-  ) {}
+  ) { }
 
   prompt(payload: PromptPayload): void {
     this.promptService.prompt({
@@ -81,11 +81,14 @@ export class AgentRPCService implements IAgentRPCService {
     });
   }
 
-  cancel(payload: CancelPayload): void {
+  cancel({ turnId }: CancelPayload): void {
     if (this.turnService.getActiveTurn() !== undefined) {
       this.telemetry.track('cancel', { from: 'streaming' });
     }
-    this.turnService.cancel(payload.turnId);
+    const turn = this.turnService.getActiveTurn();
+    if (turn === undefined) return;
+    if (turnId !== undefined && turn.id !== turnId) return;
+    turn.abortController.abort();
   }
 
   undoHistory(payload: UndoHistoryPayload): void {
@@ -174,9 +177,9 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   clearContext(_payload: EmptyPayload): void {
-    const history = this.context.getHistory();
+    const history = this.context.get();
     if (history.length === 0) return;
-    this.context.spliceHistory(0, history.length, []);
+    this.context.splice(0, history.length, []);
   }
 
   activateSkill(payload: ActivateSkillPayload): void {
@@ -213,7 +216,7 @@ export class AgentRPCService implements IAgentRPCService {
 
   getContext(_payload: EmptyPayload) {
     return {
-      history: this.context.getHistory(),
+      history: this.context.get(),
       tokenCount: this.contextSize.getStatus().contextTokens,
     };
   }

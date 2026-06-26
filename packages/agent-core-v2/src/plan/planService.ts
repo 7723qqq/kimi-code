@@ -14,8 +14,8 @@ import {
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { generateHeroSlug } from "#/_base/utils/hero-slug";
 import { IContextMemory, type ContextMessage } from '#/contextMemory';
-import { IDynamicInjector } from '#/dynamicInjector';
-import { IEventBus } from '#/eventBus';
+import { IContextInjector } from '../contextInjector';
+import { IEventSink } from '../eventSink';
 import { IKaosService } from '#/kaos';
 import { IProfileService } from '#/profile';
 import { IReplayBuilderService } from '#/replayBuilder';
@@ -52,12 +52,12 @@ export class PlanService extends Disposable implements IPlanService {
   constructor(
     @IContextMemory private readonly context: IContextMemory,
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @IKaosService private readonly kaosService: IKaosService,
     @IProfileService private readonly profile: IProfileService,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @IToolRegistry toolRegistry: IToolRegistry,
-    @IDynamicInjector dynamicInjector: IDynamicInjector,
+    @IContextInjector dynamicInjector: IContextInjector,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
@@ -112,7 +112,7 @@ export class PlanService extends Disposable implements IPlanService {
 
     let wasActive = false;
     this._register(
-      dynamicInjector.register(PLAN_MODE_INJECTION_VARIANT, async ({ injectedAt }) => {
+      dynamicInjector.register(PLAN_MODE_INJECTION_VARIANT, async ({ lastInjectedAt: injectedAt }) => {
         if (!this.isActive) {
           if (!wasActive) return undefined;
           wasActive = false;
@@ -125,7 +125,7 @@ export class PlanService extends Disposable implements IPlanService {
           }
           return this.fullReminder();
         }
-        const variant = planModeReminderVariant(injectedAt, this.context.getHistory());
+        const variant = planModeReminderVariant(injectedAt, this.context.get());
         if (variant === 'full') return this.fullReminder();
         if (variant === 'sparse') return this.sparseReminder();
         return undefined;

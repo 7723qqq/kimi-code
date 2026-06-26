@@ -42,5 +42,4 @@ declare module '#/wireRecord' {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IGoalService = createDecorator<IGoalService>('agentGoalService');

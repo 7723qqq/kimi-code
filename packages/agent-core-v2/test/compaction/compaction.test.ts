@@ -8,7 +8,7 @@ import { IContextMemory, type ContextMessage } from '#/contextMemory';
 import { ContextMemoryService } from '#/contextMemory/contextMemoryService';
 import { IContextProjector } from '#/contextProjector';
 import { IContextSizeService } from '#/contextSize';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../../src/eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { FullCompactionService } from '#/fullCompaction/fullCompactionService';
 import type { CompactionStrategy } from '#/fullCompaction/strategy';
@@ -71,7 +71,7 @@ describe('FullCompactionService', () => {
     ix.stub(IContextProjector, { project: (messages) => [...messages] });
     ix.stub(IContextSizeService, {
       getStatus: () => ({ contextTokens: 0, contextTokensWithPending: 0 }),
-      measure: () => {},
+      measured: () => {},
     });
     ix.stub(ILLMRequester, { request: () => summaryStream('compacted summary') });
     ix.stub(IProfileService, {
@@ -90,7 +90,7 @@ describe('FullCompactionService', () => {
     ix.stub(IToolStoreService, { data: () => ({}), get: () => undefined, set: () => {} });
     ix.stub(ITelemetryService, { track: () => {} });
     ix.stub(IUsageService, { record: () => {} });
-    ix.stub(IEventBus, { emit: () => {}, on: () => toDisposable(() => {}) });
+    ix.stub(IEventSink, { emit: () => {}, on: () => toDisposable(() => {}) });
     ix.stub(IExternalHooksService, {
       triggerPreCompact: () => Promise.resolve(),
       triggerPostCompact: () => {},
@@ -104,7 +104,7 @@ describe('FullCompactionService', () => {
   // container cannot bake into a singleton. See di-testing.md "Exceptions".
   it('replaces history with a compaction summary on overflow', async () => {
     const ctx = ix.get(IContextMemory);
-    ctx.spliceHistory(0, 0, [textMessage('user', 'x'.repeat(100)), textMessage('assistant', 'y')]);
+    ctx.splice(0, 0, [textMessage('user', 'x'.repeat(100)), textMessage('assistant', 'y')]);
 
     const svc = ix.createInstance(FullCompactionService as any, {
       compactionStrategy: forceCompactStrategy(),
@@ -112,7 +112,7 @@ describe('FullCompactionService', () => {
 
     await svc.handleOverflowError(new AbortController().signal, new Error('context overflow'));
 
-    const history = ctx.getHistory();
+    const history = ctx.get();
     expect(history).toHaveLength(1);
     expect(history[0]?.origin).toEqual({ kind: 'compaction_summary' });
     expect(textOf(history[0]!)).toBe('compacted summary');

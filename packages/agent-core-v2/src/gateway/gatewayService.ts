@@ -17,7 +17,7 @@ import {
 } from '#/_base/di/scope';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IEventService } from '#/event';
+import { IEventSink } from '#/eventSink';
 import { ILogService, ISessionLogService } from '#/log';
 import { IPromptService } from '#/prompt';
 import { ITurnService } from '#/turn';
@@ -92,7 +92,8 @@ export class RestGateway implements IRestGateway {
     return Promise.resolve();
   }
   cancel(sessionId: string, agentId: string, reason?: string): Promise<void> {
-    this.agent(sessionId, agentId).accessor.get(ITurnService).cancel(undefined, reason);
+    const activeTurn = this.agent(sessionId, agentId).accessor.get(ITurnService).getActiveTurn();
+    activeTurn?.abortController.abort(reason);
     return Promise.resolve();
   }
   getStatus(sessionId: string): Promise<unknown> {
@@ -116,7 +117,7 @@ export class WSGateway implements IWSGateway {
 
   constructor(
     @IScopeRegistry _scopes: IScopeRegistry,
-    @IEventService _event: IEventService,
+    @IEventSink _event: IEventSink,
   ) {}
 
   connect(connectionId: string): void {
@@ -129,7 +130,7 @@ export class WSGateway implements IWSGateway {
 export class WSBroadcastService extends Disposable implements IWSBroadcastService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IEventService event: IEventService) {
+  constructor(@IEventSink event: IEventSink) {
     super();
     event.subscribe(() => {
     });

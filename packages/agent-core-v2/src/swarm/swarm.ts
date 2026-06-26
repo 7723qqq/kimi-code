@@ -19,5 +19,4 @@ declare module '#/wireRecord' {
 
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ISwarmService = createDecorator<ISwarmService>('agentSwarmService');

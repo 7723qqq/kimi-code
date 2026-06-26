@@ -18,7 +18,7 @@ import { estimateTokens, estimateTokensForMessages } from "#/_base/utils/tokens"
 import { IContextMemory } from '#/contextMemory';
 import { IContextProjector } from '#/contextProjector';
 import { IContextSizeService } from '#/contextSize';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { ILLMRequester, type LLMEvent } from '#/llmRequester';
 import { isAbortError } from '#/loop/errors';
@@ -97,7 +97,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IUsageService private readonly usage: IUsageService,
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventBus private readonly events: IEventBus,
+    @IEventSink private readonly events: IEventSink,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @ITurnService turnService: ITurnService,
@@ -139,7 +139,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     );
     this._register(
       wireRecord.register('full_compaction.complete', (record) => {
-        const summary = compactionSummaryText(this.context.getHistory());
+        const summary = compactionSummaryText(this.context.get());
         if (summary === undefined) return;
         this.replayBuilder.patchLast('compaction', {
           result: {
@@ -167,7 +167,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     }
     if (this.compactionCountInTurn > this.strategy.maxCompactionPerTurn) return false;
 
-    const history = this.context.getHistory();
+    const history = this.context.get();
     const compactedCount = this.strategy.computeCompactCount(history, data.source);
     if (compactedCount === 0) {
       throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'No prefix that can be compacted in current history.');
@@ -294,7 +294,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
 
         if (result.tokensBefore - result.tokensAfter < 1024) break;
         if (!this.strategy.shouldBlock(result.tokensAfter)) break;
-        compactedCount = this.strategy.computeCompactCount(this.context.getHistory(), data.source);
+        compactedCount = this.strategy.computeCompactCount(this.context.get(), data.source);
         if (compactedCount === 0) break;
       }
 
@@ -328,7 +328,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     initialCompactedCount: number,
   ): Promise<CompactionResult | undefined> {
     const startedAt = Date.now();
-    const originalHistory = [...this.context.getHistory()];
+    const originalHistory = [...this.context.get()];
     const tokensBefore = estimateTokensForMessages(originalHistory);
     let retryCount = 0;
 
@@ -386,7 +386,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
         );
       }
 
-      if (!historyUnchanged(this.context.getHistory(), originalHistory)) {
+      if (!historyUnchanged(this.context.get(), originalHistory)) {
         this.cancel();
         return undefined;
       }
@@ -413,7 +413,7 @@ export class FullCompactionService extends Disposable implements IFullCompaction
         ...data,
       });
 
-      this.context.spliceHistory(
+      this.context.splice(
         0,
         compactedCount,
         [createCompactionSummaryMessage(summary)],

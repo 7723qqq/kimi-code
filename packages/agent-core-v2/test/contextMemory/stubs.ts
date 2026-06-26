@@ -75,8 +75,8 @@ export function stubContextMemory(): StubContextMemory {
     get messages() {
       return messages;
     },
-    getHistory: () => [...messages],
-    spliceHistory: (start, deleteCount, inserted, tokens) => {
+    get: () => [...messages],
+    splice: (start, deleteCount, inserted, tokens) => {
       messages.splice(start, deleteCount, ...inserted);
       void hooks.onSpliced.run({
         start,

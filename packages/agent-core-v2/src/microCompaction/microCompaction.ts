@@ -32,6 +32,5 @@ declare module '#/wireRecord' {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IMicroCompactionService =
   createDecorator<IMicroCompactionService>('agentMicroCompactionService');

@@ -7,7 +7,7 @@ import type { ContextMessage } from '#/contextMemory';
 import { ICronService } from '#/cron';
 import { CronService } from '#/cron/cronService';
 import type { ClockSources } from '#/cron/tools/clock';
-import { IEventBus } from '#/eventBus';
+import { IEventSink } from '../../src/eventSink';
 import { IPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';
 import { IToolRegistry } from '#/toolRegistry';
@@ -75,7 +75,7 @@ describe('CronService', () => {
       undo: () => 0,
       clear: () => {},
     });
-    ix.stub(IEventBus, { emit: () => {}, on: () => ({ dispose: () => {} }) });
+    ix.stub(IEventSink, { emit: () => {}, on: () => ({ dispose: () => {} }) });
     ix.stub(IWireRecord, stubWireRecord());
     ix.stub(ITurnService, turnService);
     ix.stub(ITelemetryService, { track: () => {} });

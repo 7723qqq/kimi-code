@@ -9,9 +9,8 @@ export interface IContextSizeService {
   readonly _serviceBrand: undefined;
 
   getStatus(): ContextSizeStatus;
-  measure(length: number, tokens: number): void;
+  measured(length: number, tokens: number): void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IContextSizeService =
   createDecorator<IContextSizeService>('agentContextSizeService');

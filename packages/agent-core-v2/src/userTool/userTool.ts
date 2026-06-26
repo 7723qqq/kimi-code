@@ -25,5 +25,4 @@ export interface IUserToolService {
   unregister(name: string): void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IUserToolService = createDecorator<IUserToolService>('agentUserToolService');

@@ -56,7 +56,6 @@ export const nullTelemetryAppender: ITelemetryAppender = {
   shutdown: () => {},
 };
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ITelemetryService = createDecorator<ITelemetryService>(
   'agentTelemetryService',
 );
