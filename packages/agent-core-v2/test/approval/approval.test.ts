@@ -7,6 +7,8 @@ import { TestInstantiationService } from '#/_base/di/test';
 import type { ApprovalRequest } from '#/approval';
 import { IApprovalService } from '#/approval';
 import { ApprovalService } from '#/approval/approvalService';
+import { IInteractionService } from '#/interaction';
+import { InteractionService } from '#/interaction/interactionService';
 
 const display: ToolInputDisplay = { kind: 'command', command: 'bash' };
 
@@ -21,6 +23,7 @@ describe('ApprovalService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
+    ix.set(IInteractionService, new SyncDescriptor(InteractionService));
     ix.set(IApprovalService, new SyncDescriptor(ApprovalService));
   });
   afterEach(() => disposables.dispose());

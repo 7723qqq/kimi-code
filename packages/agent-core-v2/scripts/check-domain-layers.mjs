@@ -107,6 +107,7 @@ const DOMAIN_LAYER = new Map([
   ['subagentHost', 5],
   // L6 — coordination
   ['agent-lifecycle', 6],
+  ['interaction', 6],
   ['session-context', 6],
   ['session-activity', 6],
   ['session', 6],

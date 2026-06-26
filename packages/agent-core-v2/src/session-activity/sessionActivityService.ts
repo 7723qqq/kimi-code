@@ -1,29 +1,45 @@
 /**
  * `session-activity` domain (L6) — `ISessionActivity` implementation.
  *
- * Derives session idleness by checking each agent's turn; drives agent
- * lifecycle through `agent-lifecycle` and observes turns through `turn`. Bound
- * at Session scope.
+ * Derives the session's lifecycle phase from the pending interactions held by
+ * the `interaction` kernel (awaiting approval / question) and each agent's
+ * active turn (`turn`, reached through `agent-lifecycle` handles). Bound at
+ * Session scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
+import { IInteractionService } from '#/interaction';
 import { ITurnService } from '#/turn';
 
-import { ISessionActivity } from './sessionActivity';
+import { ISessionActivity, type SessionStatus } from './sessionActivity';
 
 export class SessionActivity implements ISessionActivity {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IAgentLifecycleService private readonly agents: IAgentLifecycleService) {}
+  constructor(
+    @IAgentLifecycleService private readonly agents: IAgentLifecycleService,
+    @IInteractionService private readonly interaction: IInteractionService,
+  ) {}
+
+  status(): SessionStatus {
+    if (this.interaction.listPending('approval').length > 0) return 'awaiting_approval';
+    if (this.interaction.listPending('question').length > 0) return 'awaiting_question';
+    if (this.hasActiveTurn()) return 'running';
+    return 'idle';
+  }
 
   isIdle(): boolean {
+    return this.status() === 'idle';
+  }
+
+  private hasActiveTurn(): boolean {
     for (const handle of this.agents.list()) {
       const turn = handle.accessor.get(ITurnService);
-      if (turn.getActiveTurn() !== undefined) return false;
+      if (turn.getActiveTurn() !== undefined) return true;
     }
-    return true;
+    return false;
   }
 }
 
