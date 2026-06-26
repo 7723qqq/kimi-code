@@ -16,6 +16,8 @@ import {
   type ExperimentalFlagConfig,
   type ExperimentalFlagMap,
   type ExperimentalFlagSource,
+  EXPERIMENTAL_SECTION,
+  ExperimentalConfigSchema,
   IFlagService,
 } from './flag';
 import {
@@ -23,11 +25,8 @@ import {
   type FlagId,
   FlagRegistry,
 } from './registry';
-import { ExperimentalConfigSchema } from '#/config/schema';
 
 export const MASTER_ENV = 'KIMI_CODE_EXPERIMENTAL_FLAG';
-
-export const EXPERIMENTAL_SECTION = 'experimental';
 
 const TRUE_BOOLEAN_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const FALSE_BOOLEAN_ENV_VALUES = new Set(['0', 'false', 'no', 'off']);

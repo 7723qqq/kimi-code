@@ -25,6 +25,7 @@ import {
   type ConfigMerge,
   type ConfigSchema,
   type ConfigSection,
+  type ConfigSectionRegisteredEvent,
   type ConfigChangeSource,
   type RegisterSectionOptions,
   type ResolvedConfig,
@@ -32,10 +33,19 @@ import {
   IConfigService,
 } from './config';
 import { deepMerge, describeUnknownError, isPlainObject } from './configPure';
+import { applyEnvModelOverlay, stripEnvForDomain } from './env-model';
+import {
+  applySectionToToml,
+  cloneRecord,
+  describeTomlSyntaxError,
+  transformTomlData,
+} from './toml';
 
 export class ConfigRegistry implements IConfigRegistry {
   declare readonly _serviceBrand: undefined;
   private readonly sections = new Map<string, ConfigSection>();
+  private readonly _onDidRegisterSection = new Emitter<ConfigSectionRegisteredEvent>();
+  readonly onDidRegisterSection: Event<ConfigSectionRegisteredEvent> = this._onDidRegisterSection.event;
 
   registerSection<T>(
     domain: string,
@@ -51,6 +61,7 @@ export class ConfigRegistry implements IConfigRegistry {
       defaultValue: options.defaultValue,
       merge: (options.merge ?? deepMerge) as ConfigMerge<unknown>,
     });
+    this._onDidRegisterSection.fire({ domain });
   }
 
   getSection(domain: string): ConfigSection | undefined {
@@ -82,7 +93,11 @@ export class ConfigService extends Disposable implements IConfigService {
   readonly onDidChange: Event<ConfigChangedEvent> = this._onDidChange.event;
   readonly ready = Promise.resolve();
 
+  /** Snake_case clone of the file; the write base, kept for round-trip. */
+  private rawSnake: ResolvedConfig = {};
+  /** CamelCase, env-free in-memory values (post read-transform). */
   private raw: ResolvedConfig = {};
+  /** Validated effective values with the env overlay applied. */
   private effective: ResolvedConfig = {};
   private readonly diagnosticsList: ConfigDiagnostic[] = [];
 
@@ -92,6 +107,7 @@ export class ConfigService extends Disposable implements IConfigService {
     @ILogService private readonly log: ILogService,
   ) {
     super();
+    this._register(this.registry.onDidRegisterSection((e) => this.revalidateDomain(e.domain)));
     this.loadSync('load');
   }
 
@@ -108,30 +124,23 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   async set(domain: string, patch: unknown): Promise<void> {
-    const currentRaw = this.raw;
-    const base = currentRaw[domain];
+    const base = this.raw[domain];
     const next = this.registry.merge(domain, base, patch);
     const validated = this.registry.validate(domain, next);
-    const nextRaw: ResolvedConfig = {
-      ...currentRaw,
-      [domain]: validated,
-    };
-
-    await mkdir(dirname(this.env.configPath), { recursive: true, mode: 0o700 });
-    await atomicWrite(this.env.configPath, `${stringifyToml(nextRaw)}\n`);
-    this.applyRaw(nextRaw, 'set', [domain]);
+    this.raw[domain] = validated;
+    await this.persist(domain);
+    this.rebuildEffective('set', [domain]);
   }
 
   async replace(domain: string, value: unknown): Promise<void> {
-    const validated = this.registry.validate(domain, value);
-    const nextRaw: ResolvedConfig = {
-      ...this.raw,
-      [domain]: validated,
-    };
-
-    await mkdir(dirname(this.env.configPath), { recursive: true, mode: 0o700 });
-    await atomicWrite(this.env.configPath, `${stringifyToml(nextRaw)}\n`);
-    this.applyRaw(nextRaw, 'set', [domain]);
+    const stripped = stripEnvForDomain(domain, value, this.rawSnake);
+    if (stripped === undefined) {
+      delete this.raw[domain];
+    } else {
+      this.raw[domain] = this.registry.validate(domain, stripped);
+    }
+    await this.persist(domain);
+    this.rebuildEffective('set', [domain]);
   }
 
   reload(): Promise<void> {
@@ -141,9 +150,9 @@ export class ConfigService extends Disposable implements IConfigService {
 
   private loadSync(source: ConfigChangeSource): void {
     this.diagnosticsList.length = 0;
-    let raw: ResolvedConfig = {};
+    let fileData: ResolvedConfig = {};
     try {
-      raw = this.readRawFileSync();
+      fileData = this.readFileData();
     } catch (error) {
       this.diagnosticsList.push({
         severity: 'error',
@@ -151,10 +160,12 @@ export class ConfigService extends Disposable implements IConfigService {
       });
       this.log.warn('config load failed', { error: describeUnknownError(error) });
     }
-    this.applyRaw(raw, source);
+    this.rawSnake = cloneRecord(fileData);
+    this.raw = transformTomlData(fileData);
+    this.rebuildEffective(source);
   }
 
-  private readRawFileSync(): ResolvedConfig {
+  private readFileData(): ResolvedConfig {
     if (!existsSync(this.env.configPath)) {
       return {};
     }
@@ -166,17 +177,26 @@ export class ConfigService extends Disposable implements IConfigService {
       const parsed = parseToml(text);
       return isPlainObject(parsed) ? parsed : {};
     } catch (error) {
-      throw new Error(`Failed to parse ${this.env.configPath}: ${describeUnknownError(error)}`, {
-        cause: error,
-      });
+      throw new Error(
+        `Failed to parse ${this.env.configPath}: ${describeTomlSyntaxError(error)}`,
+        { cause: error },
+      );
     }
   }
 
-  private applyRaw(raw: ResolvedConfig, source: ConfigChangeSource, domains?: readonly string[]): void {
-    const previous = this.raw;
-    this.raw = raw;
-    this.effective = this.buildEffective(raw);
-    const changedDomains = domains ?? [...new Set([...Object.keys(previous), ...Object.keys(raw)])];
+  /**
+   * Recompute `effective` from `raw`: validate each present domain (dropping
+   * invalid ones into diagnostics), fill registered defaults, then apply the
+   * `KIMI_MODEL_*` env overlay (surfacing problems as env warnings).
+   */
+  private rebuildEffective(source: ConfigChangeSource = 'reload', domains?: readonly string[]): void {
+    const previous = this.effective;
+    const next = this.buildEffective(this.raw);
+    this.applyEnvOverlay(next);
+    this.effective = next;
+
+    const changedDomains =
+      domains ?? [...new Set([...Object.keys(previous), ...Object.keys(next)])];
     for (const domain of changedDomains) {
       this._onDidChange.fire({ domain, source });
     }
@@ -201,6 +221,56 @@ export class ConfigService extends Disposable implements IConfigService {
       }
     }
     return effective;
+  }
+
+  private applyEnvOverlay(effective: ResolvedConfig): void {
+    try {
+      applyEnvModelOverlay(effective, process.env, (domain, value) =>
+        this.registry.validate(domain, value),
+      );
+    } catch (error) {
+      this.diagnosticsList.push({
+        severity: 'warning',
+        message: `Ignoring KIMI_MODEL_* environment overrides: ${describeUnknownError(error)}`,
+      });
+    }
+  }
+
+  /**
+   * Re-validate a single domain when its section is registered (possibly after
+   * the initial load). Applies the freshly registered schema / default to the
+   * already-loaded raw value, re-runs the env overlay (which may depend on this
+   * domain), and fires `onDidChange` if the effective value changed. This keeps
+   * validation and defaults correct under lazy, out-of-order registration.
+   */
+  private revalidateDomain(domain: string): void {
+    const section = this.registry.getSection(domain);
+    if (section === undefined) return;
+
+    const before = JSON.stringify(this.effective[domain]);
+    if (this.raw[domain] !== undefined) {
+      try {
+        this.effective[domain] = this.registry.validate(domain, this.raw[domain]);
+      } catch {
+        // Invalid value was already reported as a diagnostic at load time.
+        return;
+      }
+    } else if (section.defaultValue !== undefined && this.effective[domain] === undefined) {
+      this.effective[domain] = section.defaultValue;
+    } else {
+      return;
+    }
+
+    this.applyEnvOverlay(this.effective);
+    if (JSON.stringify(this.effective[domain]) !== before) {
+      this._onDidChange.fire({ domain, source: 'reload' });
+    }
+  }
+
+  private async persist(domain: string): Promise<void> {
+    applySectionToToml(this.rawSnake, domain, this.raw[domain]);
+    await mkdir(dirname(this.env.configPath), { recursive: true, mode: 0o700 });
+    await atomicWrite(this.env.configPath, `${stringifyToml(this.rawSnake)}\n`);
   }
 }
 

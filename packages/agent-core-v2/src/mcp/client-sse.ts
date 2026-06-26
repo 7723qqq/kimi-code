@@ -1,4 +1,4 @@
-import type { McpServerSseConfig } from '#/config/schema';
+import type { McpServerSseConfig } from './config-schema';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { SSEClientTransport, SseError } from '@modelcontextprotocol/sdk/client/sse.js';

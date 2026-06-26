@@ -32,12 +32,18 @@ export interface RegisterSectionOptions<T> {
 export interface IConfigRegistry {
   readonly _serviceBrand: undefined;
 
+  readonly onDidRegisterSection: Event<ConfigSectionRegisteredEvent>;
+
   registerSection<T>(domain: string, schema: ConfigSchema<T>, options?: RegisterSectionOptions<T>): void;
   getSection(domain: string): ConfigSection | undefined;
   listSections(): readonly ConfigSection[];
   validate<T>(domain: string, value: unknown): T;
   merge<T>(domain: string, base: T | undefined, patch: unknown): T;
   defaultValue<T>(domain: string): T | undefined;
+}
+
+export interface ConfigSectionRegisteredEvent {
+  readonly domain: string;
 }
 
 export const IConfigRegistry: ServiceIdentifier<IConfigRegistry> =

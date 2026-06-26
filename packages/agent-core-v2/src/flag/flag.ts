@@ -8,6 +8,8 @@
  * process.
  */
 
+import { z } from 'zod';
+
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 import type { FlagId, FlagRegistry, FlagSurface } from './registry';
@@ -15,6 +17,14 @@ import type { FlagId, FlagRegistry, FlagSurface } from './registry';
 export type ExperimentalFlagMap = Record<string, boolean>;
 
 export type ExperimentalFlagConfig = Partial<Record<FlagId, boolean>>;
+
+/** The `[experimental]` config-section key owned by the flag domain. */
+export const EXPERIMENTAL_SECTION = 'experimental';
+
+/** Schema for the `[experimental]` config section: a loose flag→boolean map. */
+export const ExperimentalConfigSchema = z.record(z.string(), z.boolean());
+
+export type ExperimentalConfig = z.infer<typeof ExperimentalConfigSchema>;
 
 export type ExperimentalFlagSource = 'master-env' | 'env' | 'config' | 'default';
 

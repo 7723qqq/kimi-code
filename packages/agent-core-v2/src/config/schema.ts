@@ -56,13 +56,6 @@ export const ModelAliasSchema = z.object({
 
 export type ModelAlias = z.infer<typeof ModelAliasSchema>;
 
-export const ThinkingConfigSchema = z.object({
-  mode: z.enum(['auto', 'on', 'off']).optional(),
-  effort: z.string().optional(),
-});
-
-export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
-
 export const PermissionModeSchema = z.enum(['yolo', 'manual', 'auto']);
 export const PermissionRuleDecisionSchema = z.enum(['allow', 'deny', 'ask']);
 export const PermissionRuleScopeSchema = z.enum([
@@ -87,16 +80,6 @@ export const PermissionConfigSchema = z.object({
 
 export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
 
-export const LoopControlSchema = z.object({
-  maxStepsPerTurn: z.number().int().min(0).optional(),
-  maxRetriesPerStep: z.number().int().min(0).optional(),
-  maxRalphIterations: z.number().int().min(-1).optional(),
-  reservedContextSize: z.number().int().min(0).optional(),
-  compactionTriggerRatio: z.number().min(0.5).max(0.99).optional(),
-});
-
-export type LoopControl = z.infer<typeof LoopControlSchema>;
-
 export const BackgroundConfigSchema = z.object({
   maxRunningTasks: z.number().int().min(1).optional(),
   keepAliveOnExit: z.boolean().optional(),
@@ -105,9 +88,6 @@ export const BackgroundConfigSchema = z.object({
 });
 
 export type BackgroundConfig = z.infer<typeof BackgroundConfigSchema>;
-
-export const ExperimentalConfigSchema = z.record(z.string(), z.boolean());
-export type ExperimentalConfig = z.infer<typeof ExperimentalConfigSchema>;
 
 export const HookDefSchema = z
   .object({
@@ -136,70 +116,11 @@ export const ServicesConfigSchema = z.object({
 
 export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
 
-const McpServerCommonFields = {
-  enabled: z.boolean().optional(),
-  startupTimeoutMs: z.number().int().min(1).optional(),
-  toolTimeoutMs: z.number().int().min(1).optional(),
-  enabledTools: z.array(z.string()).optional(),
-  disabledTools: z.array(z.string()).optional(),
-} as const;
-
-export const McpServerStdioConfigSchema = z.object({
-  transport: z.literal('stdio'),
-  command: z.string().min(1),
-  args: z.array(z.string()).optional(),
-  env: StringRecordSchema.optional(),
-  cwd: z.string().optional(),
-  executor: z.enum(['local', 'kaos']).optional(),
-  ...McpServerCommonFields,
-});
-
-export type McpServerStdioConfig = z.infer<typeof McpServerStdioConfigSchema>;
-
-export const McpServerHttpConfigSchema = z.object({
-  transport: z.literal('http'),
-  url: z.string().url(),
-  headers: StringRecordSchema.optional(),
-  bearerTokenEnvVar: z.string().min(1).optional(),
-  ...McpServerCommonFields,
-});
-
-export type McpServerHttpConfig = z.infer<typeof McpServerHttpConfigSchema>;
-
-export const McpServerSseConfigSchema = z.object({
-  transport: z.literal('sse'),
-  url: z.string().url(),
-  headers: StringRecordSchema.optional(),
-  bearerTokenEnvVar: z.string().min(1).optional(),
-  ...McpServerCommonFields,
-});
-
-export type McpServerSseConfig = z.infer<typeof McpServerSseConfigSchema>;
-export type McpRemoteServerConfig = McpServerHttpConfig | McpServerSseConfig;
-
-const McpServerConfigDiscriminatedSchema = z.discriminatedUnion('transport', [
-  McpServerStdioConfigSchema,
-  McpServerHttpConfigSchema,
-  McpServerSseConfigSchema,
-]);
-
-export const McpServerConfigSchema = z.preprocess((raw) => {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return raw;
-  const obj = raw as Record<string, unknown>;
-  if ('transport' in obj) return obj;
-  if (typeof obj['command'] === 'string') return { ...obj, transport: 'stdio' };
-  if (typeof obj['url'] === 'string') return { ...obj, transport: 'http' };
-  return obj;
-}, McpServerConfigDiscriminatedSchema);
-
-export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
-
 export const KimiConfigSchema = z.object({
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
   defaultProvider: z.string().optional(),
   defaultModel: z.string().optional(),
   models: z.record(z.string(), ModelAliasSchema).optional(),
-  thinking: ThinkingConfigSchema.optional(),
   planMode: z.boolean().optional(),
   yolo: z.boolean().optional(),
   defaultThinking: z.boolean().optional(),
@@ -210,9 +131,7 @@ export const KimiConfigSchema = z.object({
   services: ServicesConfigSchema.optional(),
   mergeAllAvailableSkills: z.boolean().optional(),
   extraSkillDirs: z.array(z.string()).optional(),
-  loopControl: LoopControlSchema.optional(),
   background: BackgroundConfigSchema.optional(),
-  experimental: ExperimentalConfigSchema.optional(),
   telemetry: z.boolean().optional(),
   raw: z.record(z.string(), z.unknown()).optional(),
 });
@@ -221,9 +140,7 @@ export type KimiConfig = z.infer<typeof KimiConfigSchema>;
 
 const ProviderConfigPatchSchema = ProviderConfigSchema.partial();
 const ModelAliasPatchSchema = ModelAliasSchema.partial();
-const ThinkingConfigPatchSchema = ThinkingConfigSchema.partial();
 const PermissionConfigPatchSchema = PermissionConfigSchema.partial();
-const LoopControlPatchSchema = LoopControlSchema.partial();
 const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
 const MoonshotServiceConfigPatchSchema = MoonshotServiceConfigSchema.partial();
 const ServicesConfigPatchSchema = z.object({
@@ -237,7 +154,6 @@ export const KimiConfigPatchSchema = z
     defaultProvider: z.string().optional(),
     defaultModel: z.string().optional(),
     models: z.record(z.string(), ModelAliasPatchSchema).optional(),
-    thinking: ThinkingConfigPatchSchema.optional(),
     planMode: z.boolean().optional(),
     yolo: z.boolean().optional(),
     defaultThinking: z.boolean().optional(),
@@ -248,9 +164,7 @@ export const KimiConfigPatchSchema = z
     services: ServicesConfigPatchSchema.optional(),
     mergeAllAvailableSkills: z.boolean().optional(),
     extraSkillDirs: z.array(z.string()).optional(),
-    loopControl: LoopControlPatchSchema.optional(),
     background: BackgroundConfigPatchSchema.optional(),
-    experimental: ExperimentalConfigSchema.optional(),
     telemetry: z.boolean().optional(),
   })
   .strict();

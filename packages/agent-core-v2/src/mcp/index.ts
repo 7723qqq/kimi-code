@@ -4,3 +4,4 @@
 
 export * from './mcp';
 export * from './mcpService';
+export * from './config-schema';

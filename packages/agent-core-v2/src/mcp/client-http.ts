@@ -1,4 +1,4 @@
-import type { McpServerHttpConfig } from '#/config/schema';
+import type { McpServerHttpConfig } from './config-schema';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';

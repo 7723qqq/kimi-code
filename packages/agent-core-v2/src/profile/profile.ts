@@ -5,7 +5,7 @@ import type {
 } from '@moonshot-ai/kosong';
 
 import { createDecorator } from "#/_base/di";
-import type { AgentConfigData, KimiConfig } from '#/config';
+import type { AgentConfigData } from '#/config';
 import type { ThinkingEffort } from '#/config/thinking';
 import type { ModelProvider } from '#/session/provider-manager';
 import type { ToolSource } from '../toolRegistry';
@@ -38,7 +38,6 @@ export interface ProfileServiceOptions {
   readonly cwd?: string | (() => string | undefined);
   readonly chdir?: (cwd: string) => void | Promise<void>;
   readonly modelProvider?: ModelProvider;
-  readonly config?: KimiConfig | (() => KimiConfig | undefined);
   readonly initializeBuiltinTools?: () => void;
   readonly emitStatusUpdated?: () => void;
 }
@@ -81,7 +80,6 @@ export interface IProfileService {
   hasModel(): boolean;
   hasProvider(): boolean;
   getSystemPrompt(): string;
-  config(): KimiConfig | undefined;
   getActiveToolNames(): readonly string[] | undefined;
   isToolActive(name: string, source?: ToolSource): boolean;
   addActiveTool(name: string): void;

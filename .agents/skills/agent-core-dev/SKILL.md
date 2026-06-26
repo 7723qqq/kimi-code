@@ -1,6 +1,6 @@
 ---
 name: agent-core-dev
-description: Use when developing in packages/agent-core-v2 (the DI × Scope agent engine) — adding or modifying a domain Service, choosing a LifecycleScope, wiring DI dependencies, splitting a domain across scopes, gating behavior behind an experimental flag, raising coded errors, working on the permission system, writing DI/Scope tests, or porting business logic from agent-core (v1) to v2. Self-contained guide organized by development stage (orient → design → implement → test → verify) plus an align workflow for v1→v2 migration; each file carries the rules, examples, and red lines for its step.
+description: Use when developing in packages/agent-core-v2 (the DI × Scope agent engine) — adding or modifying a domain Service, choosing a LifecycleScope, wiring DI dependencies, splitting a domain across scopes, owning or migrating a config section, gating behavior behind an experimental flag, raising coded errors, working on the permission system, writing DI/Scope tests, or porting business logic from agent-core (v1) to v2. Self-contained guide organized by development stage (orient → design → implement → test → verify) plus an align workflow for v1→v2 migration; each file carries the rules, examples, and red lines for its step.
 ---
 
 # agent-core-dev
@@ -35,6 +35,7 @@ End-to-end procedures that span the stages. Reach for these before reading the s
 - [Stage 2 — Design a service](design.md): pick a scope, split a domain across scopes, choose a calling style (direct call vs event vs hook), and direct dependencies. Decide *where things live and who knows whom* before coding.
 - [Stage 3 — Implement](implement.md): the standard Service recipe and the DI building blocks — interface + identity, constructor injection, scoped registration, `Disposable`, eager vs delayed, `invokeFunction`, `createInstance`, child scopes, and the cycle-refactor playbook.
   - Topic: [Service authoring](service-authoring.md) — file layout, naming, contract vs impl contents, interface style, constructor/field conventions, events, multi-Service domains, comment rules.
+  - Topic: [Config](config.md) — the section-registry model, Core vs Session split, owning a config section, the TOML format, and the env overlay.
   - Topic: [Errors](errors.md) — co-located `XxxError`, the central code registry, wire serialization, boundary translation.
   - Topic: [Flags](flags.md) — `FLAG_DEFINITIONS`, `IFlagService.enabled(id)`, the `[experimental]` config section, resolution precedence.
   - Topic: [Permission](permission.md) — composable chain-of-responsibility kernel, policy registry + composer, `modes`/`agentTypes` metadata, `resolveExecution`/`accesses`.

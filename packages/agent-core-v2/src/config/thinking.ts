@@ -4,16 +4,24 @@
 
 import type { ThinkingEffort } from '@moonshot-ai/kosong';
 
-import type { ThinkingConfig } from './schema';
-
 export type { ThinkingEffort };
+
+/**
+ * Structural shape of the `[thinking]` config section accepted by the thinking
+ * helpers. Kept local to the config domain so it does not reach upward into
+ * `profile` (which owns the authoritative `ThinkingConfigSchema`).
+ */
+export interface ThinkingConfigDefaults {
+  readonly mode?: 'auto' | 'on' | 'off' | undefined;
+  readonly effort?: string | undefined;
+}
 
 const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'high';
 const THINKING_EFFORTS = new Set<ThinkingEffort>(['low', 'medium', 'high', 'xhigh', 'max']);
 
 export interface ResolveThinkingLevelOptions {
   readonly defaultThinking?: boolean | undefined;
-  readonly thinking?: ThinkingConfig | undefined;
+  readonly thinking?: ThinkingConfigDefaults | undefined;
 }
 
 export function resolveThinkingLevel(
@@ -32,7 +40,7 @@ export function resolveThinkingLevel(
 
 export function resolveThinkingEffort(
   requested: string | undefined,
-  defaults: ThinkingConfig | undefined,
+  defaults: ThinkingConfigDefaults | undefined,
 ): ThinkingEffort {
   const configEffort = parseEffort(defaults?.effort) ?? DEFAULT_THINKING_EFFORT;
   const normalized = requested?.trim().toLowerCase();

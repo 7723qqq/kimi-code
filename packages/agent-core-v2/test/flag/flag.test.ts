@@ -7,12 +7,8 @@ import { IConfigRegistry, IConfigService } from '#/config';
 import { ConfigRegistry, ConfigService } from '#/config/configService';
 import { IEnvironmentService } from '#/environment';
 import { stubEnvironment } from '../environment/stubs';
-import { IFlagService } from '#/flag';
-import {
-  EXPERIMENTAL_SECTION,
-  FlagService,
-  MASTER_ENV,
-} from '#/flag/flagService';
+import { EXPERIMENTAL_SECTION, IFlagService } from '#/flag';
+import { FlagService, MASTER_ENV } from '#/flag/flagService';
 import { FlagRegistry } from '#/flag/registry';
 import { ILogService } from '#/log';
 import { stubLog } from '../log/stubs';

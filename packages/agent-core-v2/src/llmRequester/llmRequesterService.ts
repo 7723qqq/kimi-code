@@ -10,7 +10,6 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import type { KimiConfig } from '#/config';
 import type { ModelProvider } from '#/session/provider-manager';
 import {
   applyCompletionBudget,
@@ -27,7 +26,6 @@ import { ILLMRequester } from './llmRequester';
 
 export interface LLMRequesterServiceOptions {
   readonly modelProvider?: ModelProvider;
-  readonly config?: KimiConfig | (() => KimiConfig);
   readonly generate?: typeof generate;
 }
 
@@ -45,10 +43,9 @@ export class LLMRequesterService implements ILLMRequester {
     @IProfileService private readonly profile: IProfileService,
     @ILLMRequestLogService private readonly requestLog: ILLMRequestLogService,
   ) {
-    if (options.modelProvider !== undefined || options.config !== undefined) {
+    if (options.modelProvider !== undefined) {
       this.profile.configure({
         modelProvider: options.modelProvider,
-        config: options.config,
       });
     }
   }

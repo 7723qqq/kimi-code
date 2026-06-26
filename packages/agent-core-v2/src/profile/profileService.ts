@@ -10,12 +10,13 @@ import {
 import picomatch from 'picomatch';
 
 import { ErrorCodes, KimiError } from "#/errors";
+import { IConfigRegistry, IConfigService } from '#/config';
 import { resolveThinkingEffort, type ThinkingEffort } from '#/config/thinking';
-import type { KimiConfig } from '#/config';
 import {
   applyKimiEnvSamplingParams,
   applyKimiEnvThinkingKeep,
 } from '#/config/kimi-env-params';
+import type { LoopControl } from '#/loop/configSection';
 import { isMcpToolName } from '#/mcp/tool-naming';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/profile';
 import type { ResolvedRuntimeProvider } from '#/session/provider-manager';
@@ -33,6 +34,7 @@ import type {
   ProfileUpdateData,
 } from './profile';
 import { IProfileService } from './profile';
+import { THINKING_SECTION, ThinkingConfigSchema, type ThinkingConfig } from './configSection';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -60,7 +62,10 @@ export class ProfileService implements IProfileService {
     @IEventBus private readonly events: IEventBus,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IConfigRegistry configRegistry: IConfigRegistry,
+    @IConfigService private readonly config: IConfigService,
   ) {
+    configRegistry.registerSection(THINKING_SECTION, ThinkingConfigSchema);
     this.configure(options);
     wireRecord.register('config.update', (record) => {
       const { type: _type, time: _time, ...changed } = record;
@@ -77,7 +82,6 @@ export class ProfileService implements IProfileService {
       cwd: options.cwd ?? this.optionsValue.cwd,
       chdir: options.chdir ?? this.optionsValue.chdir,
       modelProvider: options.modelProvider ?? this.optionsValue.modelProvider,
-      config: options.config ?? this.optionsValue.config,
       initializeBuiltinTools:
         options.initializeBuiltinTools ?? this.optionsValue.initializeBuiltinTools,
       emitStatusUpdated: options.emitStatusUpdated ?? this.optionsValue.emitStatusUpdated,
@@ -154,7 +158,7 @@ export class ProfileService implements IProfileService {
     if (resolved === undefined) {
       throw new KimiError(ErrorCodes.MODEL_NOT_CONFIGURED, 'Provider not set');
     }
-    const config = this.config();
+    const loopControl = this.config.get<LoopControl>('loopControl');
     return {
       provider: resolved.provider,
       modelAlias,
@@ -162,8 +166,8 @@ export class ProfileService implements IProfileService {
       maxOutputSize: resolved.maxOutputSize,
       alwaysThinking: resolved.alwaysThinking,
       thinkingLevel: this.thinkingLevel,
-      reservedContextSize: config?.loopControl?.reservedContextSize,
-      compactionTriggerRatio: config?.loopControl?.compactionTriggerRatio,
+      reservedContextSize: loopControl?.reservedContextSize,
+      compactionTriggerRatio: loopControl?.compactionTriggerRatio,
     };
   }
 
@@ -232,7 +236,7 @@ export class ProfileService implements IProfileService {
     if (changed.thinkingLevel !== undefined) {
       this.thinkingLevelValue = resolveThinkingEffort(
         changed.thinkingLevel,
-        this.config()?.thinking,
+        this.config.get<ThinkingConfig>(THINKING_SECTION),
       );
     }
     if (changed.systemPrompt !== undefined) this.systemPrompt = changed.systemPrompt;
@@ -300,7 +304,7 @@ export class ProfileService implements IProfileService {
 
   private get thinkingLevel(): ThinkingEffort {
     if (this.thinkingLevelValue === 'off' && this.alwaysThinkingModel) {
-      return resolveThinkingEffort('on', this.config()?.thinking);
+      return resolveThinkingEffort('on', this.config.get<ThinkingConfig>(THINKING_SECTION));
     }
     return this.thinkingLevelValue;
   }
@@ -321,11 +325,6 @@ export class ProfileService implements IProfileService {
     } catch {
       return undefined;
     }
-  }
-
-  config(): KimiConfig | undefined {
-    const config = this.optionsValue.config;
-    return typeof config === 'function' ? config() : config;
   }
 
   private readConfiguredCwd(): string | undefined {

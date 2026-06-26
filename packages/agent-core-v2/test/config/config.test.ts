@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -111,7 +111,7 @@ describe('ConfigService', () => {
     await svc.set('session', { modelAlias: 'k2' });
     const text = await readFile(join(homeDir, 'config.toml'), 'utf-8');
     expect(text).toContain('[session]');
-    expect(text).toContain('modelAlias = "k2"');
+    expect(text).toContain('model_alias = "k2"');
   });
 
   it('reloads config from disk', async () => {
@@ -136,6 +136,21 @@ describe('ConfigService', () => {
     const svc = ix.get(IConfigService);
     await expect(svc.set('session', { modelAlias: 1 })).rejects.toThrow();
     await expect(readFile(join(homeDir, 'config.toml'), 'utf-8')).rejects.toThrow();
+  });
+
+  it('applies defaults and fires change when a section registers after load', () => {
+    const svc = ix.get(IConfigService);
+    expect(svc.get('session')).toBeUndefined();
+    const fired: string[] = [];
+    disposables.add(svc.onDidChange((e) => fired.push(e.domain)));
+
+    const registry = ix.get(IConfigRegistry);
+    registry.registerSection('session', z.object({ modelAlias: z.string() }), {
+      defaultValue: { modelAlias: 'default' },
+    });
+
+    expect(svc.get('session')).toEqual({ modelAlias: 'default' });
+    expect(fired).toContain('session');
   });
 });
 
@@ -204,5 +219,116 @@ describe('SessionConfigService', () => {
     await view.setModel('k1');
     await view.setThinking('high');
     expect(changed).toEqual(['modelAlias', 'thinkingLevel']);
+  });
+});
+
+describe('ConfigService TOML compatibility', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+  let homeDir: string;
+  let configPath: string;
+  let envSnapshot: NodeJS.ProcessEnv;
+
+  beforeEach(async () => {
+    disposables = new DisposableStore();
+    homeDir = await mkdtemp(join(tmpdir(), 'kimi-config-toml-'));
+    configPath = join(homeDir, 'config.toml');
+    envSnapshot = { ...process.env };
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('KIMI_MODEL_')) delete process.env[key];
+    }
+    ix = createServices(disposables, {
+      base: [registerConfigServices, registerLogServices],
+      additionalServices: (reg) => {
+        reg.defineInstance(IEnvironmentService, stubEnvironment(homeDir));
+        reg.define(IConfigService, ConfigService);
+      },
+    });
+  });
+  afterEach(async () => {
+    process.env = envSnapshot;
+    disposables.dispose();
+    await rm(homeDir, { recursive: true, force: true });
+  });
+
+  async function seedToml(text: string): Promise<void> {
+    await writeFile(configPath, text, 'utf-8');
+  }
+
+  it('reads snake_case provider keys into camelCase', async () => {
+    await seedToml(`
+[providers.acme]
+type = "kimi"
+api_key = "sk-test"
+base_url = "https://example.test"
+custom_headers = { X-Trace = "abc" }
+`);
+    const svc = ix.get(IConfigService);
+    expect(svc.get('providers')).toEqual({
+      acme: {
+        type: 'kimi',
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.test',
+        customHeaders: { 'X-Trace': 'abc' },
+      },
+    });
+  });
+
+  it('migrates loop_control max_steps_per_run to maxStepsPerTurn', async () => {
+    await seedToml(`
+[loop_control]
+max_steps_per_run = 7
+max_retries_per_step = 2
+`);
+    const svc = ix.get(IConfigService);
+    expect(svc.get('loopControl')).toEqual({ maxStepsPerTurn: 7, maxRetriesPerStep: 2 });
+  });
+
+  it('preserves unknown top-level keys across a write (round-trip)', async () => {
+    await seedToml(`
+theme = "dark"
+
+[notifications]
+enabled = true
+`);
+    const svc = ix.get(IConfigService);
+    await svc.set('session', { modelAlias: 'k2' });
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).toContain('theme = "dark"');
+    expect(text).toContain('[notifications]');
+    expect(text).toContain('[session]');
+    expect(text).toContain('model_alias = "k2"');
+  });
+
+  it('writes provider updates back as snake_case', async () => {
+    const svc = ix.get(IConfigService);
+    await svc.set('providers', { acme: { type: 'kimi', apiKey: 'sk-new' } });
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).toContain('[providers.acme]');
+    expect(text).toContain('api_key = "sk-new"');
+    expect(text).not.toContain('apiKey');
+  });
+
+  it('applies KIMI_MODEL_* env overlay in memory but never persists it', async () => {
+    await seedToml(`
+[providers.acme]
+type = "kimi"
+api_key = "sk-disk"
+`);
+    process.env['KIMI_MODEL_NAME'] = 'env-model';
+    process.env['KIMI_MODEL_API_KEY'] = 'sk-env';
+    process.env['KIMI_MODEL_PROVIDER_TYPE'] = 'kimi';
+
+    const svc = ix.get(IConfigService);
+    const providers = svc.get<Record<string, { apiKey?: string }>>('providers');
+    expect(providers['__kimi_env__']?.apiKey).toBe('sk-env');
+    expect(svc.get('defaultModel')).toBe('__kimi_env_model__');
+
+    // A provider write must not flush the env provider or its shell api key.
+    await svc.set('providers', { acme: { type: 'kimi', apiKey: 'sk-disk2' } });
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).not.toContain('__kimi_env__');
+    expect(text).not.toContain('sk-env');
+    expect(text).toContain('api_key = "sk-disk2"');
   });
 });

@@ -1,4 +1,4 @@
-import type { McpRemoteServerConfig, McpServerConfig } from '#/config/schema';
+import type { McpRemoteServerConfig, McpServerConfig } from './config-schema';
 import { ErrorCodes, KimiError } from '#/errors';
 
 export function buildMcpRemoteHeaders(

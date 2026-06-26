@@ -1,4 +1,4 @@
-import type { McpServerConfig } from '#/config/schema';
+import type { McpServerConfig } from './config-schema';
 
 import { loadMcpServers } from './config-loader';
 

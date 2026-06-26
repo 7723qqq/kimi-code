@@ -48,6 +48,7 @@ import { IFullCompaction } from '#/fullCompaction';
 import { ILLMRequester } from '#/llmRequester';
 import { IMcpService } from '#/mcp';
 import { IProfileService } from '#/profile';
+import { IConfigRegistry, IConfigService } from '#/config';
 import { ITelemetryService } from '#/telemetry';
 import { IToolExecutor } from '#/toolExecutor';
 import { IToolRegistry, type ToolResult } from '#/toolRegistry';
@@ -61,6 +62,7 @@ import type {
 } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { ILoopService, type LoopRunHooks } from './loop';
+import { LOOP_CONTROL_SECTION, LoopControlSchema, type LoopControl } from './configSection';
 import { runTurn as runLoopTurn } from './run-turn';
 import type {
   ExecutableTool,
@@ -102,8 +104,11 @@ export class LoopService extends Disposable implements ILoopService {
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IMcpService private readonly mcp: IMcpService,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
+    @IConfigRegistry configRegistry: IConfigRegistry,
+    @IConfigService private readonly config: IConfigService,
   ) {
     super();
+    configRegistry.registerSection(LOOP_CONTROL_SECTION, LoopControlSchema);
     this.context.hooks.onSpliced.register('loop-service-reconcile', async (_event, next) => {
       if (this.ownSpliceDepth === 0) {
         this.resetLiveStateFromHistory();
@@ -143,8 +148,8 @@ export class LoopService extends Disposable implements ILoopService {
             dispatchEvent: this.dispatchEvent,
             tools: this.executableTools(),
             hooks: loopHooks,
-            maxSteps: this.profile.config()?.loopControl?.maxStepsPerTurn,
-            maxRetryAttempts: this.profile.config()?.loopControl?.maxRetriesPerStep,
+            maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
+            maxRetryAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
             recordStepUsage: (usage, context) => {
               this.usage.record(usageModel, usage, 'turn');
               const tokens = tokenUsageTotal(usage);
@@ -635,7 +640,7 @@ export class LoopService extends Disposable implements ILoopService {
             });
             if (
               !hasStepBudgetRemaining(
-                this.profile.config()?.loopControl?.maxStepsPerTurn,
+                this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
                 context.stepNumber,
               )
             ) {
