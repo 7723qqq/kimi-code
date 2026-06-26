@@ -230,11 +230,11 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   getPlan(_payload: EmptyPayload) {
-    return this.planMode.data();
+    return this.planMode.status();
   }
 
   getUsage(_payload: EmptyPayload) {
-    return this.usage.data();
+    return this.usage.status();
   }
 
   getTools(_payload: EmptyPayload) {

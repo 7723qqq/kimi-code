@@ -85,6 +85,7 @@ const DOMAIN_LAYER = new Map([
   ['usage', 4],
   ['toolDedup', 4],
   ['contextMemory', 4],
+  ['contextInjector', 4],
   ['systemReminder', 4],
   ['contextProjector', 4],
   ['contextSize', 4],

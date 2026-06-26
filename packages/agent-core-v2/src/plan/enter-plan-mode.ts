@@ -35,7 +35,8 @@ export class EnterPlanModeTool implements BuiltinTool<EnterPlanModeInput> {
       approvalRule: this.name,
       execute: async () => {
         // Guard: already in plan mode
-        if (this.planMode.isActive) {
+        const before = await this.planMode.status();
+        if (before !== null) {
           return {
             isError: true,
             output: 'Plan mode is already active. Use ExitPlanMode when the plan is ready.',
@@ -50,7 +51,8 @@ export class EnterPlanModeTool implements BuiltinTool<EnterPlanModeInput> {
         }
 
         this.telemetry.track('plan_enter_resolved', { outcome: 'auto_approved' });
-        return { output: enteredPlanModeMessage(this.planMode.planFilePath) };
+        const after = await this.planMode.status();
+        return { output: enteredPlanModeMessage(after?.path ?? null) };
       },
     };
   }

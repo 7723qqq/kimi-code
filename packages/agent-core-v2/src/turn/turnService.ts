@@ -1,6 +1,3 @@
-import {
-  IInstantiationService,
-} from "#/_base/di";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { toKimiErrorPayload, type KimiErrorPayload } from "#/errors";
@@ -11,7 +8,6 @@ import { IEventSink } from '../eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { OrderedHookSlot } from '#/hooks';
 import { ILoopService } from '#/loop';
-import { IPlanService } from '#/plan';
 import { ITelemetryService } from '#/telemetry';
 import { IWireRecord } from '#/wireRecord';
 import type {
@@ -42,6 +38,7 @@ export class TurnService implements ITurnService {
   private readonly currentStepByTurn = new Map<number, number>();
   private readonly interruptedTelemetryTurnIds = new Set<number>();
   private readonly telemetryModeByTurn = new Map<number, 'agent' | 'plan'>();
+  private planModeActive = false;
 
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
@@ -58,7 +55,6 @@ export class TurnService implements ITurnService {
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IContextMemory private readonly context: IContextMemory,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
-    @IInstantiationService private readonly instantiation: IInstantiationService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     wireRecord.register('turn.launch', (record) => {
@@ -69,6 +65,10 @@ export class TurnService implements ITurnService {
       this.resolveReady(ctx.turn);
     });
     this.events.on((event) => {
+      if (event.type === 'agent.status.updated' && event.planMode !== undefined) {
+        this.planModeActive = event.planMode;
+        return;
+      }
       if (event.type === 'turn.step.started') {
         if (typeof event.turnId === 'number' && typeof event.step === 'number') {
           this.currentStepByTurn.set(event.turnId, event.step);
@@ -252,10 +252,7 @@ export class TurnService implements ITurnService {
   }
 
   private telemetryMode(): 'agent' | 'plan' {
-    const planMode = this.instantiation.invokeFunction((accessor) =>
-      accessor.get(IPlanService),
-    );
-    return planMode.isActive ? 'plan' : 'agent';
+    return this.planModeActive ? 'plan' : 'agent';
   }
 }
 

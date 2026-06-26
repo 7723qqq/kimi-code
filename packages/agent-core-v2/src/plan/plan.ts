@@ -10,13 +10,11 @@ export type PlanFilePath = string | null;
 
 export interface IPlanService {
   readonly _serviceBrand: undefined;
-  readonly isActive: boolean;
-  readonly planFilePath: PlanFilePath;
   enter(id?: string, createFile?: boolean): Promise<void>;
   cancel(id?: string): void;
   clear(): Promise<void>;
   exit(id?: string): void;
-  data(): Promise<PlanData>;
+  status(): Promise<PlanData>;
 }
 
 declare module '#/wireRecord' {

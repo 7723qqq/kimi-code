@@ -52,27 +52,25 @@ describe('PlanService', () => {
   it('enter activates plan mode and cancel deactivates it', async () => {
     const plan = ix.get(IPlanService);
 
-    expect(plan.isActive).toBe(false);
-    expect(plan.planFilePath).toBeNull();
+    expect(await plan.status()).toBeNull();
 
     await plan.enter();
-    expect(plan.isActive).toBe(true);
-    expect(plan.planFilePath).not.toBeNull();
+    const active = await plan.status();
+    expect(active).not.toBeNull();
+    expect(active?.path).not.toBeNull();
 
     plan.cancel();
-    expect(plan.isActive).toBe(false);
-    expect(plan.planFilePath).toBeNull();
+    expect(await plan.status()).toBeNull();
   });
 
   it('exit deactivates plan mode', async () => {
     const plan = ix.get(IPlanService);
 
     await plan.enter();
-    expect(plan.isActive).toBe(true);
+    expect(await plan.status()).not.toBeNull();
 
     plan.exit();
-    expect(plan.isActive).toBe(false);
-    expect(plan.planFilePath).toBeNull();
+    expect(await plan.status()).toBeNull();
   });
 
   it('enter throws when plan mode is already active', async () => {

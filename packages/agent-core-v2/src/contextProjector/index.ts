@@ -4,4 +4,3 @@
 
 export * from './contextProjector';
 export * from './contextProjectorService';
-export * from './microCompactingProjector';

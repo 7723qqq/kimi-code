@@ -7,6 +7,9 @@ import { IEventSink } from '../../src/eventSink';
 import type { McpConnectionManager, McpServerEntry } from '#/mcp/connection-manager';
 import { IMcpService, McpService } from '#/mcp';
 import { IToolRegistry } from '#/toolRegistry';
+import { ITurnService } from '#/turn';
+
+import { stubTurnWithHooks } from '../turn/stubs';
 
 /**
  * Minimal stand-in for {@link McpConnectionManager}. `McpService` delegates
@@ -81,6 +84,7 @@ describe('McpService', () => {
       list: () => [],
       resolve: () => undefined,
     });
+    ix.stub(ITurnService, stubTurnWithHooks());
   });
   afterEach(() => disposables.dispose());
 

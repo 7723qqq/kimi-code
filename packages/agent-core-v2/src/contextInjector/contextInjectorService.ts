@@ -6,6 +6,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import { IContextMemory } from '../contextMemory';
+import { ISystemReminderService } from '../systemReminder';
 import { ITurnService } from '../turn';
 import type { ContextMessage } from '#/contextMemory';
 import {
@@ -30,6 +31,7 @@ export class ContextInjectorService extends Disposable implements IContextInject
   constructor(
     @IContextMemory private readonly context: IContextMemory,
     @ITurnService turnService: ITurnService,
+    @ISystemReminderService private readonly reminders: ISystemReminderService,
   ) {
     super();
     this._register(
@@ -89,11 +91,12 @@ export class ContextInjectorService extends Disposable implements IContextInject
       });
       if (!this.entries.has(entry)) continue;
       if (content === undefined || content.trim().length === 0) continue;
-      const injectedAt = this.context.get().length;
-      const message = createInjectionMessage(content, entry.variant);
+      const message = this.reminders.appendSystemReminder(content, {
+        kind: 'injection',
+        variant: entry.variant,
+      });
       this.selfInsertedMessages.set(message, entry);
-      this.context.splice(injectedAt, 0, [message]);
-      entry.injectedAt = injectedAt;
+      entry.injectedAt = this.context.get().length - 1;
       entry.resolveHistory = false;
       this.selfInsertedMessages.delete(message);
     }
@@ -178,20 +181,6 @@ function findLastInjection(
     }
   }
   return null;
-}
-
-function createInjectionMessage(content: string, variant: string): ContextMessage {
-  return {
-    role: 'user',
-    content: [
-      {
-        type: 'text',
-        text: `<system-reminder>\n${content.trim()}\n</system-reminder>`,
-      },
-    ],
-    toolCalls: [],
-    origin: { kind: 'injection', variant },
-  };
 }
 
 registerScopedService(

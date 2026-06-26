@@ -7,7 +7,6 @@ import { IContextMemory } from '#/contextMemory';
 import { IEventSink } from '../../src/eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { ILoopService } from '#/loop';
-import { IPlanService } from '#/plan';
 import { ITelemetryService } from '#/telemetry';
 import { ITurnService } from '#/turn';
 import type { Turn } from '#/turn';
@@ -32,8 +31,6 @@ describe('TurnService', () => {
     ix.stub(IEventSink, { emit() {}, on: () => ({ dispose() {} }) });
     ix.stub(IExternalHooksService, { triggerInterrupt() {} });
     ix.stub(ITelemetryService, { track() {} });
-    // TurnService.telemetryMode() resolves IPlanService via IInstantiationService.
-    ix.stub(IPlanService, { isActive: false });
 
     // Default loop completes immediately; the cancel test overrides this below.
     ix.set(ILoopService, { runTurn: async () => ({ reason: 'completed' }) });

@@ -29,7 +29,7 @@ export interface ToolDedupErrorResult {
 
 export type ToolDedupResult = ToolDedupSuccessResult | ToolDedupErrorResult;
 
-export interface IToolDedupService {
+export interface IToolDedupe {
   readonly _serviceBrand: undefined;
   readonly currentStreak: number;
   beginStep(): void;
@@ -43,5 +43,5 @@ export interface IToolDedupService {
   ): Promise<ToolDedupResult>;
 }
 
-export const IToolDedupService: ServiceIdentifier<IToolDedupService> =
-  createDecorator<IToolDedupService>('toolDedupService');
+export const IToolDedupe: ServiceIdentifier<IToolDedupe> =
+  createDecorator<IToolDedupe>('toolDedupe');

@@ -46,7 +46,6 @@ import { IEventSink } from '../eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { IFullCompaction } from '#/fullCompaction';
 import { ILLMRequester } from '#/llmRequester';
-import { IMcpService } from '#/mcp';
 import { IProfileService } from '#/profile';
 import { IConfigRegistry, IConfigService } from '#/config';
 import { ITelemetryService } from '#/telemetry';
@@ -102,7 +101,6 @@ export class LoopService extends Disposable implements ILoopService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IInstantiationService private readonly instantiation: IInstantiationService,
-    @IMcpService private readonly mcp: IMcpService,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
@@ -133,7 +131,6 @@ export class LoopService extends Disposable implements ILoopService {
     });
     const loopHooks = this.loopHooks(turn, hooks);
     try {
-      await this.mcp.waitForInitialLoad(turn.abortController.signal);
       // Preflight the model configuration before any step begins. Legacy reads
       // `config.model` at the top of its step loop, so a missing model fails the
       // turn before `step.begin` ever fires (no step.interrupted, no api_error).

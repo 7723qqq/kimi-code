@@ -86,6 +86,7 @@ export class CronService
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITurnService private readonly turnService: ITurnService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IToolRegistry private readonly toolRegistry: IToolRegistry,
   ) {
     super();
     this.enabled = options.isSubagent !== true;
@@ -149,9 +150,9 @@ export class CronService
       });
 
       if (options.registerTools !== false) {
-        this._register(toolRegistry.register(new CronCreateTool(this)));
-        this._register(toolRegistry.register(new CronListTool(this)));
-        this._register(toolRegistry.register(new CronDeleteTool(this)));
+        this._register(this.toolRegistry.register(new CronCreateTool(this)));
+        this._register(this.toolRegistry.register(new CronListTool(this)));
+        this._register(this.toolRegistry.register(new CronDeleteTool(this)));
       }
 
       if (options.autoStart !== false) {

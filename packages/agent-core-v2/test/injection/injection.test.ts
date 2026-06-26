@@ -6,6 +6,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { IContextMemory, type ContextMessage } from '#/contextMemory';
 import { IContextInjector } from '../../src/contextInjector';
 import { ContextInjectorService } from '../../src/contextInjector/contextInjectorService';
+import { ISystemReminderService, SystemReminderService } from '#/systemReminder';
 import { ITurnService, type TurnStepContext } from '#/turn';
 import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
 import { stubTurnWithHooks } from '../turn/stubs';
@@ -32,6 +33,7 @@ describe('DynamicInjectorService', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.stub(IContextMemory, stubContextMemory());
     ix.stub(ITurnService, stubTurnWithHooks());
+    ix.stub(ISystemReminderService, new SystemReminderService(ix.get(IContextMemory)));
     ix.set(IContextInjector, new SyncDescriptor(ContextInjectorService));
     ctx = ix.get(IContextMemory) as StubContextMemory;
   });

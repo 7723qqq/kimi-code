@@ -17,7 +17,7 @@ export class SystemReminderService extends Disposable implements ISystemReminder
     super();
   }
 
-  appendSystemReminder(content: string, origin: PromptOrigin): void {
+  appendSystemReminder(content: string, origin: PromptOrigin): ContextMessage {
     const message: ContextMessage = {
       role: 'user',
       content: [
@@ -30,6 +30,7 @@ export class SystemReminderService extends Disposable implements ISystemReminder
       origin,
     };
     this.context.splice(this.context.get().length, 0, [message]);
+    return message;
   }
 
   removeLastReminder(filter: (message: ContextMessage) => boolean): boolean {

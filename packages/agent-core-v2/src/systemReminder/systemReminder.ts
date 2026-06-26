@@ -7,8 +7,9 @@ export interface ISystemReminderService {
 
   /**
    * Append a `<system-reminder>` message to the end of the context memory.
+   * Returns the created message.
    */
-  appendSystemReminder(content: string, origin: PromptOrigin): void;
+  appendSystemReminder(content: string, origin: PromptOrigin): ContextMessage;
 
   /**
    * Remove the last context message if it passes the supplied filter.

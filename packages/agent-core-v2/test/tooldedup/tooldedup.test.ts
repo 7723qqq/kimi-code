@@ -4,8 +4,8 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { ITelemetryService, type TelemetryProperties } from '#/telemetry/telemetry';
-import { IToolDedupService, type ToolDedupResult } from '#/toolDedup/toolDedup';
-import { ToolDedupService, __testing } from '#/toolDedup/toolDedupService';
+import { IToolDedupe, type ToolDedupResult } from '#/toolDedup/toolDedupe';
+import { ToolDedupeService, __testing } from '#/toolDedup/toolDedupeService';
 import { ITurnService } from '#/turn';
 import { stubTurnWithHooks } from '../turn/stubs';
 
@@ -25,7 +25,7 @@ function errResult(text: string): ToolDedupResult {
 }
 
 async function runOriginal(
-  deduper: IToolDedupService,
+  deduper: IToolDedupe,
   callId: string,
   tool: string,
   args: unknown,
@@ -36,7 +36,7 @@ async function runOriginal(
   return deduper.finalizeResult(callId, tool, args, result);
 }
 
-describe('ToolDedupService', () => {
+describe('ToolDedupeService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let events: RecordedTelemetryEvent[];
@@ -51,13 +51,13 @@ describe('ToolDedupService', () => {
       },
     });
     ix.stub(ITurnService, stubTurnWithHooks());
-    ix.set(IToolDedupService, new SyncDescriptor(ToolDedupService));
+    ix.set(IToolDedupe, new SyncDescriptor(ToolDedupeService));
   });
 
   afterEach(() => disposables.dispose());
 
   it('resolves same-step duplicate calls to the original result', async () => {
-    const deduper = ix.get(IToolDedupService);
+    const deduper = ix.get(IToolDedupe);
     deduper.beginStep();
     const originalCached = deduper.checkSameStep('c1', 'Read', { path: '/a' });
     const duplicateCached = deduper.checkSameStep('c2', 'Read', { path: '/a' });
@@ -71,7 +71,7 @@ describe('ToolDedupService', () => {
   });
 
   it('uses canonical argument keys for same-step dedupe', async () => {
-    const deduper = ix.get(IToolDedupService);
+    const deduper = ix.get(IToolDedupe);
     deduper.beginStep();
     await runOriginal(deduper, 'c1', 'Read', { a: 1, b: 2 }, okResult('SAME'));
     const cached = deduper.checkSameStep('c2', 'Read', { b: 2, a: 1 });
@@ -81,7 +81,7 @@ describe('ToolDedupService', () => {
   });
 
   it('injects a reminder at the third consecutive cross-step repeat', async () => {
-    const deduper = ix.get(IToolDedupService);
+    const deduper = ix.get(IToolDedupe);
     let last: ToolDedupResult | undefined;
     for (let i = 0; i < 3; i += 1) {
       deduper.beginStep();
@@ -94,7 +94,7 @@ describe('ToolDedupService', () => {
   });
 
   it('does not treat same-step spam alone as cross-step repetition', async () => {
-    const deduper = ix.get(IToolDedupService);
+    const deduper = ix.get(IToolDedupe);
     deduper.beginStep();
     expect(deduper.checkSameStep('orig', 'Read', { p: 1 })).toBeNull();
     for (let i = 0; i < 7; i += 1) {
@@ -105,7 +105,7 @@ describe('ToolDedupService', () => {
   });
 
   it('force-stops at the twelfth consecutive repeat without changing error state', async () => {
-    const deduper = ix.get(IToolDedupService);
+    const deduper = ix.get(IToolDedupe);
     let success: ToolDedupResult | undefined;
     for (let i = 0; i < 12; i += 1) {
       deduper.beginStep();
@@ -123,7 +123,7 @@ describe('ToolDedupService', () => {
   });
 
   it('appends reminders to trailing text content parts', async () => {
-    const deduper = ix.get(IToolDedupService);
+    const deduper = ix.get(IToolDedupe);
     for (let i = 0; i < 2; i += 1) {
       deduper.beginStep();
       await runOriginal(deduper, `p${String(i)}`, 'Tool', {}, okResult('R'));
@@ -142,7 +142,7 @@ describe('ToolDedupService', () => {
   });
 
   it('emits repeat telemetry with tiered actions', async () => {
-    const deduper = ix.get(IToolDedupService);
+    const deduper = ix.get(IToolDedupe);
     for (let i = 0; i < 5; i += 1) {
       deduper.beginStep();
       await runOriginal(deduper, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));

@@ -113,7 +113,7 @@ export class PlanService extends Disposable implements IPlanService {
     let wasActive = false;
     this._register(
       dynamicInjector.register(PLAN_MODE_INJECTION_VARIANT, async ({ lastInjectedAt: injectedAt }) => {
-        if (!this.isActive) {
+        if (!this._active) {
           if (!wasActive) return undefined;
           wasActive = false;
           return PLAN_MODE_EXIT_REMINDER;
@@ -131,14 +131,6 @@ export class PlanService extends Disposable implements IPlanService {
         return undefined;
       }),
     );
-  }
-
-  get isActive(): boolean {
-    return this._active;
-  }
-
-  get planFilePath(): PlanFilePath {
-    return this._planFilePath;
   }
 
   private createPlanId(): string {
@@ -206,7 +198,7 @@ export class PlanService extends Disposable implements IPlanService {
     this.emitChanged();
   }
 
-  async data(): Promise<PlanData> {
+  async status(): Promise<PlanData> {
     if (this.planId === null || this._planFilePath === null) return null;
     const kaos = this.kaosService.kaos;
     if (kaos === undefined) return null;
@@ -251,7 +243,7 @@ export class PlanService extends Disposable implements IPlanService {
     if (!this._active) return undefined;
     let data: PlanData;
     try {
-      data = await this.data();
+      data = await this.status();
     } catch {
       return undefined;
     }
@@ -301,7 +293,7 @@ export class PlanService extends Disposable implements IPlanService {
   private async resolvePlan(): Promise<ResolvePlanResult> {
     let data: PlanData;
     try {
-      data = await this.data();
+      data = await this.status();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to read plan file.';
       return {
@@ -349,7 +341,7 @@ export class PlanService extends Disposable implements IPlanService {
 
   private async hasCurrentPlanContent(): Promise<boolean> {
     try {
-      const data = await this.data();
+      const data = await this.status();
       return data !== null && data.content.trim().length > 0;
     } catch {
       return false;

@@ -1,5 +1,5 @@
 /**
- * `toolDedup` domain (L4) — `IToolDedupService` implementation.
+ * `toolDedup` domain (L4) — `IToolDedupe` implementation.
  *
  * Owns per-turn same-step suppression and cross-step repeat reminders; reports
  * repeat telemetry through `telemetry`. Bound at Agent scope.
@@ -14,7 +14,7 @@ import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
 import { ITelemetryService } from '#/telemetry/telemetry';
 import { ITurnService } from '#/turn';
 
-import { IToolDedupService, type ToolDedupResult } from './toolDedup';
+import { IToolDedupe, type ToolDedupResult } from './toolDedupe';
 
 const REMINDER_TEXT_1 =
   '\n\n<system-reminder>\n' +
@@ -95,7 +95,7 @@ function forceStopResult(result: ToolDedupResult, reminderText: string): ToolDed
 
 const DEDUP_PLACEHOLDER_RESULT: ToolDedupResult = { output: '' };
 
-export class ToolDedupService extends Disposable implements IToolDedupService {
+export class ToolDedupeService extends Disposable implements IToolDedupe {
   declare readonly _serviceBrand: undefined;
   private readonly stepDeferreds = new Map<string, Deferred<ToolDedupResult>>();
   private stepCalls: string[] = [];
@@ -257,8 +257,8 @@ export const __testing = {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IToolDedupService,
-  ToolDedupService,
+  IToolDedupe,
+  ToolDedupeService,
   InstantiationType.Delayed,
   'toolDedup',
 );
