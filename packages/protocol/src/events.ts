@@ -223,6 +223,10 @@ export type KimiErrorCode =
   | 'request.work_dir_required'
   | 'request.prompt_input_empty'
   | 'shell.git_bash_not_found'
+  | 'workspace.not_found'
+  | 'fs.path_not_found'
+  | 'fs.permission_denied'
+  | 'validation.failed'
   | 'not_implemented'
   | 'internal';
 
@@ -850,6 +854,10 @@ export const kimiErrorCodeSchema = z.enum([
   'request.work_dir_required',
   'request.prompt_input_empty',
   'shell.git_bash_not_found',
+  'workspace.not_found',
+  'fs.path_not_found',
+  'fs.permission_denied',
+  'validation.failed',
   'not_implemented',
   'internal',
 ]) satisfies z.ZodType<KimiErrorCode>;

@@ -23,7 +23,6 @@ package "Core scope (process-wide)" #EAF3FB {
   rectangle "<b>telemetry</b>\n<size:9><i>Core</i></size>\n  ITelemetryService" as telemetry #D6EAF8
   rectangle "<b>event</b>\n<size:9><i>Core</i></size>\n  IEventService" as event #D6EAF8
   rectangle "<b>gateway</b>\n<size:9><i>Core</i></size>\n  IScopeRegistry\n  IRestGateway\n  IWSGateway\n  IWSBroadcastService" as gateway #D6EAF8
-  rectangle "<b>workspace</b>\n<size:9><i>Core</i></size>\n  IWorkspaceRegistry\n  IWorkspaceFsService" as workspace #D6EAF8
   rectangle "<b>filestore</b>\n<size:9><i>Core</i></size>\n  IFileStore" as filestore #D6EAF8
   rectangle "<b>auth</b>\n<size:9><i>Core</i></size>\n  IOAuthService\n  IAuthSummaryService" as auth #D6EAF8
   rectangle "<b>provider</b>\n<size:9><i>Core</i></size>\n  IProviderService" as provider #D6EAF8
@@ -88,6 +87,7 @@ package "Multi-scope" #F5EEF8 {
   rectangle "<b>records</b>\n<size:9><i>Multi</i></size>\n  ISessionStore(C)\n  ISessionMetaStore(S)\n  IAgentRecords(A)" as records #E8DAEF
   rectangle "<b>tool</b>\n<size:9><i>Multi</i></size>\n  IToolDefinitionRegistry(C)\n  IToolService(A)" as tool #E8DAEF
   rectangle "<b>kaos</b>\n<size:9><i>Multi</i></size>\n  IKaosFactory(C)\n  ISessionKaosService(S)\n  IKaosService / IAgentKaos(A)" as kaos #E8DAEF
+  rectangle "<b>workspace</b>\n<size:9><i>Multi</i></size>\n  IWorkspaceRegistry(C)\n  IWorkspaceFsService(C)\n  ISessionWorkspaceService(S)" as workspace #E8DAEF
 }
 
 package "WIP (contract only)" #FBFCFC {
@@ -98,8 +98,11 @@ package "WIP (contract only)" #FBFCFC {
 
 ' ---- DI injection (solid) ----
 gateway --> event #34495E
-workspace --> kaos #34495E
+workspace --> environment #34495E
+workspace --> event #34495E
+workspace --> records #34495E
 workspace --> log #34495E
+workspace --> kaos #34495E
 filestore --> kaos #34495E
 auth --> provider #34495E
 auth --> environment #34495E

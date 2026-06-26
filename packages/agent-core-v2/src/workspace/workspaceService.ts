@@ -1,5 +1,5 @@
 /**
- * `workspace` domain (cross-cutting) — `IWorkspaceService` implementation.
+ * `workspace` domain (cross-cutting) — `ISessionWorkspaceService` implementation.
  *
  * Turns the raw `Kaos` environments and additional roots owned by
  * `ISessionKaosService` into workspace-relative path operations. Bound at
@@ -22,9 +22,9 @@ import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 import { ISessionKaosService } from '#/kaos/kaos';
 import { ILogService } from '#/log/log';
 
-import { IWorkspaceService } from './workspace';
+import { ISessionWorkspaceService } from './workspace';
 
-export class WorkspaceService extends Disposable implements IWorkspaceService {
+export class SessionWorkspaceService extends Disposable implements ISessionWorkspaceService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
@@ -80,8 +80,8 @@ export class WorkspaceService extends Disposable implements IWorkspaceService {
 
 registerScopedService(
   LifecycleScope.Session,
-  IWorkspaceService,
-  WorkspaceService,
+  ISessionWorkspaceService,
+  SessionWorkspaceService,
   InstantiationType.Delayed,
   'workspace',
 );

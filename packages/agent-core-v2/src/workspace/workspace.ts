@@ -7,7 +7,7 @@
  * instance per session — so consumers never thread a `workspaceId` around.
  *
  * This is the semantic layer above `kaos`: `ISessionKaosService` owns the raw
- * `Kaos` environments and additional roots, while `IWorkspaceService` turns
+ * `Kaos` environments and additional roots, while `ISessionWorkspaceService` turns
  * them into workspace-relative path operations. Dependency direction is
  * `workspace → kaos`, never the reverse (see `docs/service-design.md` §5).
  */
@@ -16,7 +16,7 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import type { PathAccessOperation } from '#/_base/tools/policies/path-access';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 
-export interface IWorkspaceService {
+export interface ISessionWorkspaceService {
   readonly _serviceBrand: undefined;
 
   /** Primary workspace directory (absolute). Reflects the session kaos cwd. */
@@ -49,5 +49,5 @@ export interface IWorkspaceService {
   removeAdditionalDir(dir: string): void;
 }
 
-export const IWorkspaceService: ServiceIdentifier<IWorkspaceService> =
-  createDecorator<IWorkspaceService>('workspaceService');
+export const ISessionWorkspaceService: ServiceIdentifier<ISessionWorkspaceService> =
+  createDecorator<ISessionWorkspaceService>('sessionWorkspaceService');

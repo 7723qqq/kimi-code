@@ -138,6 +138,7 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  *  - `cron>session-context` : cron needs sessionId.
  *  - `cron>session-activity`: cron scheduler gates on session idle.
  *  - `session>event`        : session facade publishes status events.
+ *  - `workspace>event`      : workspace registry publishes workspace lifecycle events.
  *
  * Post-rebase-v2 restructuring introduced broad cross-domain type sharing
  * between L3 (registries/capabilities) and L4 (agent behaviour). The L3
@@ -156,6 +157,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'cron>session-context',
   'cron>session-activity',
   'session>event',
+  'workspace>event',
   'wireRecord>hooks',
   // L3/L4 type-sharing introduced by the rebase-v2 restructuring.
   'config>externalHooks',
@@ -173,6 +175,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'permissionPolicy>profile',
   'permissionRules>loop',
   'permissionRules>replayBuilder',
+  'plugin>mcp',
   'profile>mcp',
   'profile>session',
   'replayBuilder>background',

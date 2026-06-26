@@ -3,6 +3,8 @@
  */
 
 import { createHash } from 'node:crypto';
+import { promises as fsp } from 'node:fs';
+import { join } from 'node:path';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -30,11 +32,43 @@ export class SessionStore implements ISessionStore {
     return `${sessionsRoot}/${encodeWorkDirKey(workDir)}/${sessionId}`;
   }
 
-  read(_sessionId: string): Promise<unknown> {
-    throw new Error('TODO: SessionStore.read');
+  workspaceIdFor(workDir: string): string {
+    return encodeWorkDirKey(workDir);
   }
-  write(_sessionId: string, _data: unknown): Promise<void> {
-    throw new Error('TODO: SessionStore.write');
+
+  async countActiveSessions(sessionsRoot: string, workDir: string): Promise<number> {
+    const dir = join(sessionsRoot, encodeWorkDirKey(workDir));
+    let dirents;
+    try {
+      dirents = await fsp.readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return 0;
+      throw err;
+    }
+    let count = 0;
+    for (const d of dirents) {
+      if (!d.isDirectory()) continue;
+      if (await isSessionArchived(join(dir, d.name))) continue;
+      count += 1;
+    }
+    return count;
+  }
+}
+
+async function isSessionArchived(sessionDir: string): Promise<boolean> {
+  try {
+    const raw = await fsp.readFile(join(sessionDir, 'state.json'), 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    return (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      (parsed as { archived?: boolean }).archived === true
+    );
+  } catch {
+    // Treat unreadable/missing state.json as non-archived so the directory still
+    // counts as a session (matches the session store's own loading behavior).
+    return false;
   }
 }
 
