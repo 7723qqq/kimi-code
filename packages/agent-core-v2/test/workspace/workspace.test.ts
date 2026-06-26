@@ -11,8 +11,8 @@ import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { PathSecurityError } from '#/_base/tools/policies/path-access';
 import { ISessionKaosService } from '#/kaos/kaos';
 import { ILogService } from '#/log/log';
-import { IWorkspaceService } from '#/workspace/workspace';
-import { WorkspaceService } from '#/workspace/workspaceService';
+import { ISessionWorkspaceService } from '#/workspace/workspace';
+import { SessionWorkspaceService } from '#/workspace/workspaceService';
 
 import { stubLog } from '../log/stubs';
 
@@ -47,22 +47,22 @@ function stubSessionKaos(cwd: string, initialAdditional: readonly string[] = [])
   };
 }
 
-describe('WorkspaceService', () => {
+describe('SessionWorkspaceService', () => {
   beforeEach(() => {
     _clearScopedRegistryForTests();
     registerScopedService(
       LifecycleScope.Session,
-      IWorkspaceService,
-      WorkspaceService,
+      ISessionWorkspaceService,
+      SessionWorkspaceService,
       InstantiationType.Delayed,
       'workspace',
     );
   });
 
-  function build(sessionKaos: ISessionKaosService): IWorkspaceService {
+  function build(sessionKaos: ISessionKaosService): ISessionWorkspaceService {
     const host = createScopedTestHost([stubPair(ILogService, stubLog())]);
     const session = host.child(LifecycleScope.Session, 's1', [stubPair(ISessionKaosService, sessionKaos)]);
-    return session.accessor.get(IWorkspaceService);
+    return session.accessor.get(ISessionWorkspaceService);
   }
 
   it('reflects the session kaos cwd and additional dirs', () => {
