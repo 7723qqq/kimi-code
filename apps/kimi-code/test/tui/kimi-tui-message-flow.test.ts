@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import {
   deleteAllKittyImages,
@@ -42,6 +42,11 @@ vi.mock('#/tui/commands/prompts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
   return { ...actual, promptFeedbackInput: vi.fn() };
 });
+
+// /feedback falls back to opening GitHub Issues in a browser when not signed in
+// or when submission fails — stub it out so the test suite never spawns a
+// browser window.
+vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
 
 const ESC = String.fromCodePoint(0x1b);
 const BEL = String.fromCodePoint(0x07);
@@ -3253,7 +3258,9 @@ command = "vim"
     confirm.handleInput('\r');
 
     await vi.waitFor(() => {
-      expect(session.installPlugin).toHaveBeenCalledWith('/tmp/proj-a/plugins/kimi-datasource');
+      expect(session.installPlugin).toHaveBeenCalledWith(
+        resolve('/tmp/proj-a', './plugins/kimi-datasource'),
+      );
     });
   });
 
