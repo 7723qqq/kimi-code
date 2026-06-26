@@ -29,7 +29,6 @@ import { ITelemetryService } from '#/telemetry';
 import { IToolStoreService } from '#/toolStore';
 import { ITurnService } from '#/turn';
 import type { ContextMessage } from '#/contextMemory';
-import { IUsageService } from '#/usage';
 import { IWireRecord } from '#/wireRecord';
 import {
   TODO_STORE_KEY,
@@ -95,7 +94,6 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     @IProfileService private readonly profile: IProfileService,
     @IToolStoreService private readonly toolStore: IToolStoreService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IUsageService private readonly usage: IUsageService,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventSink private readonly events: IEventSink,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
@@ -376,13 +374,6 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       if (attempt === undefined) {
         throw new APIEmptyResponseError(
           'The compaction response did not contain a usable summary.',
-        );
-      }
-
-      if (attempt.usage !== null) {
-        this.usage.record(
-          attempt.model ?? this.profile.resolveModelContext().modelAlias,
-          attempt.usage,
         );
       }
 

@@ -15,7 +15,6 @@ import {
   APITimeoutError,
   createToolMessage,
   emptyUsage,
-  inputTotal,
   isContentPart,
   isContextOverflowStatusError,
   isRetryableGenerateError,
@@ -52,7 +51,6 @@ import { ITelemetryService } from '#/telemetry';
 import { IToolExecutor } from '#/toolExecutor';
 import { IToolRegistry, type ToolResult } from '#/toolRegistry';
 import type { Turn, TurnResult } from '#/turn';
-import { IUsageService } from '#/usage';
 import { IWireRecord } from '#/wireRecord';
 import type {
   LoopEvent,
@@ -96,7 +94,6 @@ export class LoopService extends Disposable implements ILoopService {
     @IEventSink private readonly events: IEventSink,
     @IToolRegistry private readonly toolRegistry: IToolRegistry,
     @IToolExecutor private readonly toolExecutor: IToolExecutor,
-    @IUsageService private readonly usage: IUsageService,
     @IProfileService private readonly profile: IProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IWireRecord private readonly wireRecord: IWireRecord,
@@ -123,12 +120,9 @@ export class LoopService extends Disposable implements ILoopService {
   }
 
   async runTurn(turn: Turn, hooks: LoopRunHooks | undefined): Promise<TurnResult> {
-    let usageModel = this.profile.data().modelAlias ?? 'unknown';
     const startedAt = Date.now();
     this.protocolTurnId = turn.id;
-    const llm = this.createLLM((model) => {
-      usageModel = model ?? this.profile.data().modelAlias ?? 'unknown';
-    });
+    const llm = this.createLLM(turn.id);
     const loopHooks = this.loopHooks(turn, hooks);
     try {
       // Preflight the model configuration before any step begins. Legacy reads
@@ -148,7 +142,6 @@ export class LoopService extends Disposable implements ILoopService {
             maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
             maxRetryAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
             recordStepUsage: (usage, context) => {
-              this.usage.record(usageModel, usage, 'turn');
               const tokens = tokenUsageTotal(usage);
               if (tokens <= 0) return;
               if (context.toolCallCount > 0) {
@@ -463,10 +456,6 @@ export class LoopService extends Disposable implements ILoopService {
     if (classification.statusCode !== undefined) {
       properties['status_code'] = classification.statusCode;
     }
-    const currentTurnUsage = this.usage.data().currentTurn;
-    if (currentTurnUsage !== undefined) {
-      properties['input_tokens'] = inputTotal(currentTurnUsage);
-    }
     this.telemetry.track('api_error', properties);
   }
 
@@ -482,18 +471,18 @@ export class LoopService extends Disposable implements ILoopService {
     return false;
   }
 
-  private createLLM(onUsageModel: (model: string | undefined) => void): LLM {
+  private createLLM(turnId: number): LLM {
     return {
       systemPrompt: this.profile.getSystemPrompt(),
       modelName: this.profile.data().modelAlias ?? 'unknown',
       isRetryableError: (error: unknown) => isRetryableGenerateError(error),
-      chat: async (params) => this.chat(params, onUsageModel),
+      chat: async (params) => this.chat(params, turnId),
     };
   }
 
   private async chat(
     params: LLMChatParams,
-    onUsageModel: (model: string | undefined) => void,
+    turnId: number,
   ): Promise<LLMChatResponse> {
     const collector = new LLMEventCollector();
     const toolCallDeltas = new ToolCallDeltaEmitter(params);
@@ -507,6 +496,7 @@ export class LoopService extends Disposable implements ILoopService {
         tools: params.tools,
         systemPrompt: this.profile.getSystemPrompt(),
         requestLogFields: params.requestLogFields,
+        usageContext: { type: 'turn', turnId },
       },
       params.signal,
     );
@@ -521,7 +511,6 @@ export class LoopService extends Disposable implements ILoopService {
           continue;
         case 'usage':
           usage = event.usage;
-          onUsageModel(event.model);
           continue;
         case 'finish':
           providerFinishReason = event.providerFinishReason;

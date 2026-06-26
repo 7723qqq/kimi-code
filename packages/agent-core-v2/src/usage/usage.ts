@@ -2,7 +2,10 @@ import type { TokenUsage } from '@moonshot-ai/kosong';
 
 import { createDecorator } from "#/_base/di";
 
-export type UsageRecordScope = 'session' | 'turn';
+export interface UsageRecordContext {
+  readonly type: 'turn';
+  readonly turnId: number;
+}
 
 export interface UsageStatus {
   readonly byModel?: Record<string, TokenUsage>;
@@ -11,7 +14,7 @@ export interface UsageStatus {
 }
 
 export interface IUsageService {
-  record(model: string, usage: TokenUsage, scope?: UsageRecordScope): void;
+  record(model: string, usage: TokenUsage, context?: UsageRecordContext): void;
   status(): UsageStatus;
 }
 

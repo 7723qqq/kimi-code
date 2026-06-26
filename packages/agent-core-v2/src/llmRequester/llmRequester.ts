@@ -1,6 +1,7 @@
 import { createDecorator } from "#/_base/di";
 import type { FinishReason, Message, StreamedMessagePart, TokenUsage, Tool } from "@moonshot-ai/kosong";
 import type { LLMRequestLogFields } from '#/loop';
+import type { UsageRecordContext } from '#/usage';
 
 
 export interface LLMRequestOverrides {
@@ -8,6 +9,7 @@ export interface LLMRequestOverrides {
   tools?: readonly Tool[];
   systemPrompt?: string;
   requestLogFields?: LLMRequestLogFields;
+  usageContext?: UsageRecordContext;
 }
 
 export type LLMEvent =

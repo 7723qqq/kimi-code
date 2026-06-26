@@ -21,6 +21,7 @@ import { IContextProjector } from '#/contextProjector';
 import { IToolRegistry } from '#/toolRegistry';
 import type { LLMEvent, LLMRequestOverrides } from '.';
 import { ILLMRequestLogService } from '#/llmRequestLog';
+import { IUsageService } from '#/usage';
 import { AsyncEventQueue } from './asyncEventQueue';
 import { ILLMRequester } from './llmRequester';
 
@@ -42,6 +43,7 @@ export class LLMRequesterService implements ILLMRequester {
     @IToolRegistry private readonly tools: IToolRegistry,
     @IProfileService private readonly profile: IProfileService,
     @ILLMRequestLogService private readonly requestLog: ILLMRequestLogService,
+    @IUsageService private readonly usage: IUsageService,
   ) {
     if (options.modelProvider !== undefined) {
       this.profile.configure({
@@ -128,11 +130,14 @@ export class LLMRequesterService implements ILLMRequester {
           queue.push({ type: 'part', part });
         }
       }
+      const usage = result.usage ?? emptyUsage();
+      const usageModel = request.modelAlias ?? request.provider.modelName;
       queue.push({
         type: 'usage',
-        usage: result.usage ?? emptyUsage(),
-        model: request.modelAlias ?? request.provider.modelName,
+        usage,
+        model: usageModel,
       });
+      this.usage.record(usageModel, usage, request.usageContext);
       queue.push({
         type: 'finish',
         providerFinishReason: result.finishReason ?? undefined,
@@ -174,6 +179,7 @@ export class LLMRequesterService implements ILLMRequester {
       tools: [...(overrides.tools ?? this.defaultTools())],
       messages: [...(overrides.messages ?? this.projector.project(this.context.get()))],
       requestLogFields: overrides.requestLogFields,
+      usageContext: overrides.usageContext,
       generate: this.options.generate ?? generate,
     };
   }
@@ -201,6 +207,7 @@ interface ResolvedLLMRequest {
   readonly tools: readonly KosongTool[];
   readonly messages: Message[];
   readonly requestLogFields: LLMRequestOverrides['requestLogFields'];
+  readonly usageContext: LLMRequestOverrides['usageContext'];
   readonly generate: typeof generate;
 }
 

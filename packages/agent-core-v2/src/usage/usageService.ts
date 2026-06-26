@@ -6,58 +6,45 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Disposable } from '#/_base/di/lifecycle';
 
 import { IEventSink } from '../eventSink';
-import type { UsageRecordScope, UsageStatus } from './usage';
+import type { UsageRecordContext, UsageStatus } from './usage';
 import { IUsageService } from './usage';
 import { IWireRecord } from '#/wireRecord';
-import { ITurnService } from '#/turn';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
     'usage.record': {
       model: string;
       usage: TokenUsage;
-      usageScope?: UsageRecordScope;
+      context?: UsageRecordContext;
     };
   }
 }
 
 export class UsageService extends Disposable implements IUsageService {
   private readonly byModel: Record<string, TokenUsage> = {};
+  private currentTurnId: number | undefined;
   private currentTurn: TokenUsage | undefined;
 
   constructor(
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventSink private readonly events: IEventSink,
-    @ITurnService private readonly turnService: ITurnService,
   ) {
     super();
     this._register(
       wireRecord.register('usage.record', (record) => {
-        this.apply(record.model, record.usage, 'session');
-      }),
-    );
-    this._register(
-      turnService.hooks.onLaunched.register('usage-reset-current-turn', (_, next) => {
-        this.currentTurn = undefined;
-        return next();
-      }),
-    );
-    this._register(
-      turnService.hooks.onEnded.register('usage-reset-current-turn', (_, next) => {
-        this.currentTurn = undefined;
-        return next();
+        this.apply(record.model, record.usage, record.context);
       }),
     );
   }
 
-  record(model: string, usage: TokenUsage, scope: UsageRecordScope = 'session'): void {
+  record(model: string, usage: TokenUsage, context?: UsageRecordContext): void {
     this.wireRecord.append({
       type: 'usage.record',
       model,
       usage,
-      usageScope: scope,
+      context,
     });
-    this.apply(model, usage, scope);
+    this.apply(model, usage, context);
     this.publishChanged();
   }
 
@@ -72,13 +59,18 @@ export class UsageService extends Disposable implements IUsageService {
     };
   }
 
-  private apply(model: string, usage: TokenUsage, scope: UsageRecordScope): void {
+  private apply(model: string, usage: TokenUsage, context: UsageRecordContext | undefined): void {
     const current = this.byModel[model];
     this.byModel[model] = current === undefined ? copyUsage(usage) : addUsage(current, usage);
 
-    if (scope === 'turn') {
-      this.currentTurn =
-        this.currentTurn === undefined ? copyUsage(usage) : addUsage(this.currentTurn, usage);
+    if (context?.type === 'turn') {
+      if (this.currentTurnId !== context.turnId) {
+        this.currentTurnId = context.turnId;
+        this.currentTurn = copyUsage(usage);
+      } else {
+        this.currentTurn =
+          this.currentTurn === undefined ? copyUsage(usage) : addUsage(this.currentTurn, usage);
+      }
     }
   }
 
