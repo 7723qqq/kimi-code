@@ -2,9 +2,9 @@
  * `telemetry` domain (L1) — `ITelemetryService` implementation.
  *
  * Merges bound context into each tracked event and fans it out to the
- * registered `TelemetryClient` sinks; owns the sink set, the enabled flag,
- * and the bound context, but no enrichment or transport of its own. Bound at
- * Core scope; has no cross-domain collaborators.
+ * registered `ITelemetryAppender` destinations; owns the appender set, the
+ * enabled flag, and the bound context, but no enrichment or transport of its
+ * own. Bound at Core scope; has no cross-domain collaborators.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -14,8 +14,8 @@ import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 
 import {
   ITelemetryService,
-  noopTelemetryClient,
-  type TelemetryClient,
+  type ITelemetryAppender,
+  nullTelemetryAppender,
   type TelemetryContextPatch,
   type TelemetryProperties,
   type TelemetryServiceOptions,
@@ -24,12 +24,12 @@ import {
 export class TelemetryService implements ITelemetryService {
   declare readonly _serviceBrand: undefined;
 
-  private sinks: TelemetryClient[];
+  private appenders: ITelemetryAppender[];
   private context: TelemetryProperties;
   private enabled = true;
 
   constructor(options: TelemetryServiceOptions = {}) {
-    this.sinks = resolveSinks(options);
+    this.appenders = resolveAppenders(options);
     this.context = {
       ...options.context,
       ...definedContext({
@@ -45,9 +45,9 @@ export class TelemetryService implements ITelemetryService {
       return;
     }
     const merged = { ...this.context, ...properties };
-    for (const sink of this.sinks) {
+    for (const appender of this.appenders) {
       try {
-        sink.track(event, merged);
+        appender.track(event, merged);
       } catch (err) {
         onUnexpectedError(err);
       }
@@ -56,7 +56,7 @@ export class TelemetryService implements ITelemetryService {
 
   withContext(patch: TelemetryContextPatch): ITelemetryService {
     const child = new TelemetryService({
-      clients: this.sinks.map((sink) => sink.withContext?.(patch) ?? sink),
+      appenders: this.appenders.map((appender) => appender.withContext?.(patch) ?? appender),
       context: { ...this.context, ...patch },
     });
     child.enabled = this.enabled;
@@ -65,22 +65,22 @@ export class TelemetryService implements ITelemetryService {
 
   setContext(patch: TelemetryContextPatch): void {
     this.context = { ...this.context, ...patch };
-    for (const sink of this.sinks) {
-      sink.setContext?.(patch);
+    for (const appender of this.appenders) {
+      appender.setContext?.(patch);
     }
   }
 
-  addSink(client: TelemetryClient): IDisposable {
-    this.sinks.push(client);
-    return toDisposable(() => this.removeSink(client));
+  addAppender(appender: ITelemetryAppender): IDisposable {
+    this.appenders.push(appender);
+    return toDisposable(() => this.removeAppender(appender));
   }
 
-  removeSink(client: TelemetryClient): void {
-    this.sinks = this.sinks.filter((sink) => sink !== client);
+  removeAppender(appender: ITelemetryAppender): void {
+    this.appenders = this.appenders.filter((a) => a !== appender);
   }
 
-  setDelegate(client: TelemetryClient): void {
-    this.sinks = [client];
+  setAppender(appender: ITelemetryAppender): void {
+    this.appenders = [appender];
   }
 
   setEnabled(enabled: boolean): void {
@@ -89,16 +89,16 @@ export class TelemetryService implements ITelemetryService {
 
   async flush(): Promise<void> {
     await Promise.all(
-      this.sinks.map((sink) =>
-        Promise.resolve(sink.flush?.()).catch(onUnexpectedError),
+      this.appenders.map((appender) =>
+        Promise.resolve(appender.flush?.()).catch(onUnexpectedError),
       ),
     );
   }
 
   async shutdown(): Promise<void> {
     await Promise.all(
-      this.sinks.map((sink) =>
-        Promise.resolve(sink.shutdown?.()).catch(onUnexpectedError),
+      this.appenders.map((appender) =>
+        Promise.resolve(appender.shutdown?.()).catch(onUnexpectedError),
       ),
     );
   }
@@ -112,11 +112,11 @@ registerScopedService(
   'telemetry',
 );
 
-function resolveSinks(options: TelemetryServiceOptions): TelemetryClient[] {
-  if (options.clients !== undefined) {
-    return options.clients.length > 0 ? [...options.clients] : [noopTelemetryClient];
+function resolveAppenders(options: TelemetryServiceOptions): ITelemetryAppender[] {
+  if (options.appenders !== undefined) {
+    return options.appenders.length > 0 ? [...options.appenders] : [nullTelemetryAppender];
   }
-  return [options.client ?? noopTelemetryClient];
+  return [options.appender ?? nullTelemetryAppender];
 }
 
 function definedContext(input: TelemetryProperties): TelemetryProperties {

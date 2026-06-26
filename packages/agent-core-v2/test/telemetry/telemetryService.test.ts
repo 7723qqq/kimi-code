@@ -8,13 +8,13 @@ import {
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
 import {
-  type TelemetryClient,
+  type ITelemetryAppender,
   type TelemetryProperties,
   ITelemetryService,
   TelemetryService,
 } from '#/telemetry/index';
 
-class CapturingClient implements TelemetryClient {
+class CapturingAppender implements ITelemetryAppender {
   readonly events: { event: string; properties?: TelemetryProperties }[] = [];
   flushCalls = 0;
   shutdownCalls = 0;
@@ -36,23 +36,23 @@ describe('TelemetryService (unit)', () => {
   });
 
   it('merges bound context into tracked properties', () => {
-    const client = new CapturingClient();
+    const appender = new CapturingAppender();
     const svc = new TelemetryService({ sessionId: 's1' });
-    svc.setDelegate(client);
+    svc.setAppender(appender);
     svc.track('turn.start', { agentId: 'main' });
-    expect(client.events[0]).toEqual({
+    expect(appender.events[0]).toEqual({
       event: 'turn.start',
       properties: { sessionId: 's1', agentId: 'main' },
     });
   });
 
-  it('withContext merges context and shares the delegate', () => {
-    const client = new CapturingClient();
+  it('withContext merges context and shares the appender', () => {
+    const appender = new CapturingAppender();
     const root = new TelemetryService({ sessionId: 's1' });
-    root.setDelegate(client);
+    root.setAppender(appender);
     const child = root.withContext({ agentId: 'main', turnId: 't1' });
     child.track('tool.call', { name: 'bash' });
-    expect(client.events[0]?.properties).toEqual({
+    expect(appender.events[0]?.properties).toEqual({
       sessionId: 's1',
       agentId: 'main',
       turnId: 't1',
@@ -61,27 +61,27 @@ describe('TelemetryService (unit)', () => {
   });
 
   it('per-call properties override bound context on key collision', () => {
-    const client = new CapturingClient();
+    const appender = new CapturingAppender();
     const svc = new TelemetryService({ sessionId: 's1' });
-    svc.setDelegate(client);
+    svc.setAppender(appender);
     svc.track('evt', { sessionId: 'override' });
-    expect(client.events[0]?.properties?.['sessionId']).toBe('override');
+    expect(appender.events[0]?.properties?.['sessionId']).toBe('override');
   });
 
-  it('fans out to every sink passed via clients', () => {
-    const a = new CapturingClient();
-    const b = new CapturingClient();
-    const svc = new TelemetryService({ clients: [a, b] });
+  it('fans out to every appender passed via appenders', () => {
+    const a = new CapturingAppender();
+    const b = new CapturingAppender();
+    const svc = new TelemetryService({ appenders: [a, b] });
     svc.track('evt', { x: 1 });
     expect(a.events).toEqual([{ event: 'evt', properties: { x: 1 } }]);
     expect(b.events).toEqual([{ event: 'evt', properties: { x: 1 } }]);
   });
 
-  it('addSink registers a sink and its disposable removes it', () => {
-    const a = new CapturingClient();
-    const b = new CapturingClient();
-    const svc = new TelemetryService({ client: a });
-    const disposable = svc.addSink(b);
+  it('addAppender registers an appender and its disposable removes it', () => {
+    const a = new CapturingAppender();
+    const b = new CapturingAppender();
+    const svc = new TelemetryService({ appender: a });
+    const disposable = svc.addAppender(b);
     svc.track('first');
     expect(a.events).toHaveLength(1);
     expect(b.events).toHaveLength(1);
@@ -91,57 +91,57 @@ describe('TelemetryService (unit)', () => {
     expect(b.events).toHaveLength(1);
   });
 
-  it('removeSink stops delivery to that sink', () => {
-    const a = new CapturingClient();
-    const b = new CapturingClient();
-    const svc = new TelemetryService({ clients: [a, b] });
-    svc.removeSink(a);
+  it('removeAppender stops delivery to that appender', () => {
+    const a = new CapturingAppender();
+    const b = new CapturingAppender();
+    const svc = new TelemetryService({ appenders: [a, b] });
+    svc.removeAppender(a);
     svc.track('evt');
     expect(a.events).toHaveLength(0);
     expect(b.events).toHaveLength(1);
   });
 
   it('setEnabled(false) drops track; setEnabled(true) resumes', () => {
-    const client = new CapturingClient();
-    const svc = new TelemetryService({ client });
+    const appender = new CapturingAppender();
+    const svc = new TelemetryService({ appender });
     svc.setEnabled(false);
     svc.track('dropped');
-    expect(client.events).toHaveLength(0);
+    expect(appender.events).toHaveLength(0);
     svc.setEnabled(true);
     svc.track('sent');
-    expect(client.events).toEqual([{ event: 'sent', properties: {} }]);
+    expect(appender.events).toEqual([{ event: 'sent', properties: {} }]);
   });
 
   it('withContext child inherits enabled state at creation', () => {
-    const client = new CapturingClient();
-    const root = new TelemetryService({ client });
+    const appender = new CapturingAppender();
+    const root = new TelemetryService({ appender });
     root.setEnabled(false);
     const child = root.withContext({ turnId: 't1' });
     child.track('dropped');
-    expect(client.events).toHaveLength(0);
+    expect(appender.events).toHaveLength(0);
   });
 
-  it('flush fans out to every sink', async () => {
-    const a = new CapturingClient();
-    const b = new CapturingClient();
-    const svc = new TelemetryService({ clients: [a, b] });
+  it('flush fans out to every appender', async () => {
+    const a = new CapturingAppender();
+    const b = new CapturingAppender();
+    const svc = new TelemetryService({ appenders: [a, b] });
     await svc.flush();
     expect(a.flushCalls).toBe(1);
     expect(b.flushCalls).toBe(1);
   });
 
-  it('shutdown fans out to every sink', async () => {
-    const a = new CapturingClient();
-    const b = new CapturingClient();
-    const svc = new TelemetryService({ clients: [a, b] });
+  it('shutdown fans out to every appender', async () => {
+    const a = new CapturingAppender();
+    const b = new CapturingAppender();
+    const svc = new TelemetryService({ appenders: [a, b] });
     await svc.shutdown();
     expect(a.shutdownCalls).toBe(1);
     expect(b.shutdownCalls).toBe(1);
   });
 
-  it('flush is a no-op for sinks without flush', async () => {
-    const minimal: TelemetryClient = { track() {} };
-    const svc = new TelemetryService({ client: minimal });
+  it('flush is a no-op for appenders without flush', async () => {
+    const minimal: ITelemetryAppender = { track() {} };
+    const svc = new TelemetryService({ appender: minimal });
     await expect(svc.flush()).resolves.toBeUndefined();
     await expect(svc.shutdown()).resolves.toBeUndefined();
   });
@@ -151,40 +151,40 @@ describe('TelemetryService (error isolation)', () => {
   beforeEach(() => setUnexpectedErrorHandler(() => {}));
   afterEach(() => resetUnexpectedErrorHandler());
 
-  it('a throwing sink does not prevent delivery to other sinks', () => {
-    const bad: TelemetryClient = {
+  it('a throwing appender does not prevent delivery to other appenders', () => {
+    const bad: ITelemetryAppender = {
       track() {
         throw new Error('boom');
       },
     };
-    const good = new CapturingClient();
-    const svc = new TelemetryService({ clients: [bad, good] });
+    const good = new CapturingAppender();
+    const svc = new TelemetryService({ appenders: [bad, good] });
     expect(() => svc.track('evt')).not.toThrow();
     expect(good.events).toEqual([{ event: 'evt', properties: {} }]);
   });
 
-  it('flush tolerates a rejecting sink and still flushes the rest', async () => {
-    const bad: TelemetryClient = {
+  it('flush tolerates a rejecting appender and still flushes the rest', async () => {
+    const bad: ITelemetryAppender = {
       track() {},
       async flush() {
         throw new Error('boom');
       },
     };
-    const good = new CapturingClient();
-    const svc = new TelemetryService({ clients: [bad, good] });
+    const good = new CapturingAppender();
+    const svc = new TelemetryService({ appenders: [bad, good] });
     await expect(svc.flush()).resolves.toBeUndefined();
     expect(good.flushCalls).toBe(1);
   });
 
-  it('shutdown tolerates a rejecting sink and still shuts down the rest', async () => {
-    const bad: TelemetryClient = {
+  it('shutdown tolerates a rejecting appender and still shuts down the rest', async () => {
+    const bad: ITelemetryAppender = {
       track() {},
       async shutdown() {
         throw new Error('boom');
       },
     };
-    const good = new CapturingClient();
-    const svc = new TelemetryService({ clients: [bad, good] });
+    const good = new CapturingAppender();
+    const svc = new TelemetryService({ appenders: [bad, good] });
     await expect(svc.shutdown()).resolves.toBeUndefined();
     expect(good.shutdownCalls).toBe(1);
   });

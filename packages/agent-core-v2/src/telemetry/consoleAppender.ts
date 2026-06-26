@@ -1,12 +1,12 @@
 /**
- * `telemetry` domain (L1) — `ConsoleSink`, a `TelemetryClient` that echoes
- * events to a log function for development and debugging. Core-scoped; has no
- * cross-domain collaborators.
+ * `telemetry` domain (L1) — `ConsoleAppender`, an `ITelemetryAppender` that
+ * echoes events to a log function for development and debugging. Core-scoped;
+ * has no cross-domain collaborators.
  */
 
-import type { TelemetryClient, TelemetryProperties } from './telemetry';
+import type { ITelemetryAppender, TelemetryProperties } from './telemetry';
 
-export interface ConsoleSinkOptions {
+export interface ConsoleAppenderOptions {
   readonly prefix?: string;
   readonly pretty?: boolean;
   readonly log?: (message: string) => void;
@@ -14,12 +14,12 @@ export interface ConsoleSinkOptions {
 
 const DEFAULT_PREFIX = '[telemetry]';
 
-export class ConsoleSink implements TelemetryClient {
+export class ConsoleAppender implements ITelemetryAppender {
   private readonly prefix: string;
   private readonly pretty: boolean;
   private readonly log: (message: string) => void;
 
-  constructor(options: ConsoleSinkOptions = {}) {
+  constructor(options: ConsoleAppenderOptions = {}) {
     this.prefix = options.prefix ?? DEFAULT_PREFIX;
     this.pretty = options.pretty ?? false;
     this.log = options.log ?? defaultLog;

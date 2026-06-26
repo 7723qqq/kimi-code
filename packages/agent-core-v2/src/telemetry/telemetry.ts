@@ -1,12 +1,12 @@
 /**
- * `telemetry` domain (L1) — `ITelemetryService` contract and sink types.
+ * `telemetry` domain (L1) — `ITelemetryService` contract and appender types.
  *
  * Layer-1 root service: merges bound context into tracked events and fans
- * them out to one or more `TelemetryClient` sinks. Core-scoped — stateless
- * beyond its sink set and bound context; enrichment, batching, and transport
- * are owned by the sinks, not by this layer. Defines the `TelemetryClient`
- * sink contract, the `ITelemetryService` facade, the service options, and the
- * no-op sink.
+ * them out to one or more `ITelemetryAppender` destinations. Core-scoped —
+ * stateless beyond its appender set and bound context; enrichment, batching,
+ * and transport are owned by the appenders, not by this layer. Defines the
+ * `ITelemetryAppender` contract, the `ITelemetryService` facade, the service
+ * options, and the null appender.
  */
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -18,17 +18,17 @@ export type TelemetryProperties = Readonly<Record<string, TelemetryPropertyValue
 
 export type TelemetryContextPatch = TelemetryProperties;
 
-export interface TelemetryClient {
+export interface ITelemetryAppender {
   track(event: string, properties?: TelemetryProperties): void;
-  withContext?(patch: TelemetryContextPatch): TelemetryClient;
+  withContext?(patch: TelemetryContextPatch): ITelemetryAppender;
   setContext?(patch: TelemetryContextPatch): void;
   flush?(): Promise<void> | void;
   shutdown?(): Promise<void> | void;
 }
 
 export interface TelemetryServiceOptions {
-  readonly client?: TelemetryClient;
-  readonly clients?: readonly TelemetryClient[];
+  readonly appender?: ITelemetryAppender;
+  readonly appenders?: readonly ITelemetryAppender[];
   readonly context?: TelemetryProperties;
   readonly sessionId?: string;
   readonly agentId?: string;
@@ -40,17 +40,17 @@ export interface ITelemetryService {
   track(event: string, properties?: TelemetryProperties): void;
   withContext(patch: TelemetryContextPatch): ITelemetryService;
   setContext(patch: TelemetryContextPatch): void;
-  addSink(client: TelemetryClient): IDisposable;
-  removeSink(client: TelemetryClient): void;
-  setDelegate(client: TelemetryClient): void;
+  addAppender(appender: ITelemetryAppender): IDisposable;
+  removeAppender(appender: ITelemetryAppender): void;
+  setAppender(appender: ITelemetryAppender): void;
   setEnabled(enabled: boolean): void;
   flush(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
-export const noopTelemetryClient: TelemetryClient = {
+export const nullTelemetryAppender: ITelemetryAppender = {
   track: () => {},
-  withContext: () => noopTelemetryClient,
+  withContext: () => nullTelemetryAppender,
   setContext: () => {},
   flush: () => {},
   shutdown: () => {},

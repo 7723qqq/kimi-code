@@ -1,14 +1,14 @@
 /**
- * `telemetry` domain (L1) — `CloudSink`, a `TelemetryClient` that batches
- * events, enriches them with common context, and posts them to the telemetry
- * endpoint through `CloudTransport`. Core-scoped; has no cross-domain
+ * `telemetry` domain (L1) — `CloudAppender`, an `ITelemetryAppender` that
+ * batches events, enriches them with common context, and posts them to the
+ * telemetry endpoint through `CloudTransport`. Core-scoped; has no cross-domain
  * collaborators and is independent of `@moonshot-ai/kimi-telemetry`.
  */
 
 import { randomUUID } from 'node:crypto';
 import { arch, platform, release } from 'node:os';
 
-import type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from './telemetry';
+import type { ITelemetryAppender, TelemetryContextPatch, TelemetryProperties } from './telemetry';
 import {
   type CloudContext,
   type CloudPrimitive,
@@ -18,7 +18,7 @@ import {
   isCloudPrimitive,
 } from './cloudTransport';
 
-export interface CloudSinkOptions {
+export interface CloudAppenderOptions {
   readonly homeDir: string;
   readonly deviceId: string;
   readonly sessionId?: string;
@@ -44,7 +44,7 @@ export interface CloudSinkOptions {
 const DEFAULT_FLUSH_THRESHOLD = 50;
 const DEFAULT_FLUSH_INTERVAL_MS = 30_000;
 
-export class CloudSink implements TelemetryClient {
+export class CloudAppender implements ITelemetryAppender {
   private readonly transport: CloudTransport;
   private readonly context: CloudContext;
   private readonly flushThreshold: number;
@@ -54,7 +54,7 @@ export class CloudSink implements TelemetryClient {
   private buffer: EnrichedCloudEvent[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(options: CloudSinkOptions) {
+  constructor(options: CloudAppenderOptions) {
     this.deviceId = options.deviceId;
     this.sessionId = options.sessionId ?? null;
     this.flushThreshold = options.flushThreshold ?? DEFAULT_FLUSH_THRESHOLD;
@@ -142,7 +142,7 @@ function sanitizeProperties(input?: TelemetryProperties): CloudProperties {
   return out;
 }
 
-function buildContext(options: CloudSinkOptions): CloudContext {
+function buildContext(options: CloudAppenderOptions): CloudContext {
   const env = options.env ?? process.env;
   const context: CloudContext = {
     app_name: options.appName,

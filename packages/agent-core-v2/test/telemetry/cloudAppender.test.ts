@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { CloudSink, type CloudSinkOptions } from '#/telemetry/cloudSink';
+import { CloudAppender, type CloudAppenderOptions } from '#/telemetry/cloudAppender';
 
 interface CapturedRequest {
   readonly url: string;
@@ -37,7 +37,7 @@ function statusResponse(status: number): Response {
   return new Response(null, { status });
 }
 
-function baseOptions(overrides: Partial<CloudSinkOptions> = {}): CloudSinkOptions {
+function baseOptions(overrides: Partial<CloudAppenderOptions> = {}): CloudAppenderOptions {
   return {
     homeDir: overrides.homeDir ?? '',
     deviceId: overrides.deviceId ?? 'dev',
@@ -49,11 +49,11 @@ function baseOptions(overrides: Partial<CloudSinkOptions> = {}): CloudSinkOption
   };
 }
 
-describe('CloudSink', () => {
+describe('CloudAppender', () => {
   let homeDir: string;
 
   beforeEach(() => {
-    homeDir = mkdtempSync(join(tmpdir(), 'cloud-sink-'));
+    homeDir = mkdtempSync(join(tmpdir(), 'cloud-appender-'));
   });
 
   afterEach(() => {
@@ -62,7 +62,7 @@ describe('CloudSink', () => {
 
   it('sends a flattened, prefixed payload with user_id and context', async () => {
     const requests: CapturedRequest[] = [];
-    const sink = new CloudSink(
+    const appender = new CloudAppender(
       baseOptions({
         homeDir,
         deviceId: 'dev123',
@@ -74,8 +74,8 @@ describe('CloudSink', () => {
       }),
     );
 
-    sink.track('tool.call', { name: 'bash', count: 2 });
-    await sink.flush();
+    appender.track('tool.call', { name: 'bash', count: 2 });
+    await appender.flush();
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe('https://telemetry-logs.kimi.com/v1/event');
@@ -94,7 +94,7 @@ describe('CloudSink', () => {
 
   it('sends Authorization header when a token is provided', async () => {
     const requests: CapturedRequest[] = [];
-    const sink = new CloudSink(
+    const appender = new CloudAppender(
       baseOptions({
         homeDir,
         getAccessToken: () => 'tok123',
@@ -105,15 +105,15 @@ describe('CloudSink', () => {
       }),
     );
 
-    sink.track('evt');
-    await sink.flush();
+    appender.track('evt');
+    await appender.flush();
 
     expect(requests[0]?.headers['Authorization']).toBe('Bearer tok123');
   });
 
   it('auto-flushes when the buffer reaches the threshold', async () => {
     let sends = 0;
-    const sink = new CloudSink(
+    const appender = new CloudAppender(
       baseOptions({
         homeDir,
         flushThreshold: 3,
@@ -124,17 +124,17 @@ describe('CloudSink', () => {
       }),
     );
 
-    sink.track('e1');
-    sink.track('e2');
+    appender.track('e1');
+    appender.track('e2');
     expect(sends).toBe(0);
-    sink.track('e3');
+    appender.track('e3');
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(sends).toBe(1);
   });
 
   it('shutdown flushes the remaining buffered events', async () => {
     let sends = 0;
-    const sink = new CloudSink(
+    const appender = new CloudAppender(
       baseOptions({
         homeDir,
         fetchImpl: makeFetch(() => {
@@ -144,14 +144,14 @@ describe('CloudSink', () => {
       }),
     );
 
-    sink.track('e1');
-    await sink.shutdown();
+    appender.track('e1');
+    await appender.shutdown();
     expect(sends).toBe(1);
   });
 
   it('retries on 5xx and saves to disk after exhausting backoffs', async () => {
     let attempts = 0;
-    const sink = new CloudSink(
+    const appender = new CloudAppender(
       baseOptions({
         homeDir,
         fetchImpl: makeFetch(() => {
@@ -161,8 +161,8 @@ describe('CloudSink', () => {
       }),
     );
 
-    sink.track('evt');
-    await sink.flush();
+    appender.track('evt');
+    await appender.flush();
 
     expect(attempts).toBe(4);
     const files = readdirSync(join(homeDir, 'telemetry')).filter((f) => f.startsWith('failed_'));
@@ -171,7 +171,7 @@ describe('CloudSink', () => {
 
   it('retries a 401 once without the Authorization header', async () => {
     const seenAuths: (string | undefined)[] = [];
-    const sink = new CloudSink(
+    const appender = new CloudAppender(
       baseOptions({
         homeDir,
         getAccessToken: () => 'tok',
@@ -185,29 +185,29 @@ describe('CloudSink', () => {
       }),
     );
 
-    sink.track('evt');
-    await sink.flush();
+    appender.track('evt');
+    await appender.flush();
 
     expect(seenAuths).toEqual(['Bearer tok', undefined]);
   });
 
   it('retryDiskEvents resends saved events and removes the file on success', async () => {
     let shouldFail = true;
-    const sink = new CloudSink(
+    const appender = new CloudAppender(
       baseOptions({
         homeDir,
         fetchImpl: makeFetch(() => (shouldFail ? statusResponse(500) : okResponse())),
       }),
     );
 
-    sink.track('evt');
-    await sink.flush();
+    appender.track('evt');
+    await appender.flush();
     expect(
       readdirSync(join(homeDir, 'telemetry')).filter((f) => f.startsWith('failed_')),
     ).toHaveLength(1);
 
     shouldFail = false;
-    await sink.retryDiskEvents();
+    await appender.retryDiskEvents();
     expect(
       readdirSync(join(homeDir, 'telemetry')).filter((f) => f.startsWith('failed_')),
     ).toHaveLength(0);

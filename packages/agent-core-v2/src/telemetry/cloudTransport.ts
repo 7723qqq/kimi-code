@@ -1,6 +1,6 @@
 /**
  * `telemetry` domain (L1) — `CloudTransport`, the HTTP transport behind
- * `CloudSink`. Posts enriched events to the telemetry endpoint with Bearer
+ * `CloudAppender`. Posts enriched events to the telemetry endpoint with Bearer
  * auth, retry, and on-disk fallback for failed events. Core-scoped; has no
  * cross-domain collaborators and is independent of `@moonshot-ai/kimi-telemetry`.
  */

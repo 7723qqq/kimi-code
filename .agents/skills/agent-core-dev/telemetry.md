@@ -1,0 +1,92 @@
+# Topic — Telemetry
+
+Telemetry infrastructure for agent-core-v2: how business services emit events, how context propagates, and how events reach a destination through appenders.
+
+Telemetry is a **layer-1 root** domain (alongside `log`): pure `Core` scope, stateless, no business-domain dependencies. It is a thin facade — enrichment, batching, and transport belong to the appenders, not to this layer.
+
+## Where things live
+
+- `src/telemetry/telemetry.ts`: contract — `ITelemetryService` (facade), `ITelemetryAppender` (destination), `TelemetryProperties`, `nullTelemetryAppender`, and `TelemetryServiceOptions`.
+- `src/telemetry/telemetryService.ts`: `TelemetryService` impl + `registerScopedService(LifecycleScope.Core, …)`.
+- `src/telemetry/consoleAppender.ts`: `ConsoleAppender` — echoes events to a log function (dev / debug).
+- `src/telemetry/cloudAppender.ts`: `CloudAppender` — batches + enriches + posts to the telemetry endpoint.
+- `src/telemetry/cloudTransport.ts`: `CloudTransport` — HTTP transport behind `CloudAppender`.
+- `src/telemetry/index.ts`: barrel.
+
+## Emitting events (business services)
+
+Inject `ITelemetryService` and call `track`:
+
+```ts
+import { ITelemetryService } from '#/telemetry';
+
+constructor(@ITelemetryService private readonly telemetry: ITelemetryService) {}
+
+this.telemetry.track('cron_fired', { task_id: taskId, latency_ms: 12 });
+```
+
+`TelemetryService.track` merges the bound context into the properties and fans the event out to every registered appender. A single throwing appender is isolated via `onUnexpectedError` and never blocks the rest.
+
+### Context (sessionId / agentId / turnId)
+
+The service carries a bound context (`sessionId` / `agentId` / `turnId`) that is merged into every event. Bind it at construction or derive a scoped view:
+
+```ts
+const child = telemetry.withContext({ agentId: 'main', turnId: 't1' });
+child.track('tool.call', { name: 'bash' });   // carries sessionId + agentId + turnId
+```
+
+`withContext(patch)` returns a new service sharing the same appenders; per-call properties override bound context on key collision. `setContext(patch)` mutates the bound context in place and propagates to appenders that implement `setContext`.
+
+## Appenders (destinations)
+
+An appender is the destination an event is fanned out to. It is **not a DI Service** — it is a plain object implementing `ITelemetryAppender`, held by `TelemetryService`.
+
+```ts
+export interface ITelemetryAppender {
+  track(event: string, properties?: TelemetryProperties): void;
+  withContext?(patch: TelemetryContextPatch): ITelemetryAppender;
+  setContext?(patch: TelemetryContextPatch): void;
+  flush?(): Promise<void> | void;
+  shutdown?(): Promise<void> | void;
+}
+```
+
+Built-in appenders:
+
+- `ConsoleAppender` — `[telemetry] <event> <json>` to a log function (default `console.log`); options `prefix` / `pretty` / `log`.
+- `CloudAppender` — batches events, enriches with common context (`app_name` / `version` / `platform` / …), and posts to `https://telemetry-logs.kimi.com/v1/event` through `CloudTransport` (Bearer auth, retry, on-disk fallback). Options: `homeDir` / `deviceId` / `sessionId?` / `appName` / `version` / `uiMode?` / `model?` / `getAccessToken?` / `endpoint?` / `flushThreshold?` / `flushIntervalMs?`.
+
+### Registering appenders (bootstrap)
+
+Appenders are added after the Core scope exists, by resolving the service and calling `addAppender`:
+
+```ts
+const core = createCoreScope();
+const telemetry = core.accessor.get(ITelemetryService);
+
+telemetry.addAppender(new ConsoleAppender({ prefix: '[dev]' }));   // dev echo
+telemetry.addAppender(new CloudAppender({                          // production
+  homeDir, deviceId, sessionId,
+  appName: 'kimi-code', version, uiMode: 'shell', model,
+  getAccessToken: () => auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME),
+}));
+```
+
+`addAppender` returns an `IDisposable` that removes the appender when disposed. `setAppender(appender)` resets to a single appender (mainly for tests). `removeAppender(appender)` drops one.
+
+> There is no production bootstrap wired yet — `TelemetryService` defaults to `[nullTelemetryAppender]`, so `track(...)` is a no-op until `addAppender` is called at startup.
+
+## Lifecycle
+
+- `setEnabled(false)` drops `track` (service-level switch); `setEnabled(true)` resumes. `flush` / `shutdown` are unaffected by the switch.
+- `flush()` / `shutdown()` fan out to all appenders concurrently; a single rejecting appender is swallowed. Await `shutdown()` before process exit so buffered events (e.g. in `CloudAppender`) are sent.
+
+## Red lines (this topic)
+
+- Business services depend only on `ITelemetryService` — never import an appender class.
+- Telemetry is layer-1 root: do not inject any business-domain service into it, and do not move it off `Core`.
+- Appenders are plain `ITelemetryAppender` objects, not DI Services — register them with `addAppender`, never via `registerScopedService`.
+- `track` is fire-and-forget and must not throw; appender `track` must be synchronous — buffer and send asynchronously via `flush` / `shutdown`.
+- Await `telemetry.shutdown()` before process exit when a buffering appender is registered.
+- Keep event names stable; properties must be JSON-serializable primitives (non-primitives are dropped by `CloudAppender`).
