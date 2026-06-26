@@ -135,18 +135,17 @@ const session = accessor.get(ISessionService);   // 类型是 ISessionService
 
 ## 场景 3：你的服务不是全局一份
 
-> 你要做的：每个会话一份、每个 agent 一份、或每轮对话一份。参考 [`turn`](../src/turn/turn.ts)、[`session`](../src/session/session.ts)。
+> 你要做的：每个会话一份、或每个 agent 一份。参考 [`session`](../src/session/session.ts)、[`turn`](../src/turn/turn.ts)。
 
-这一步引入：**`LifecycleScope` 四层生命周期** 与 **父子 scope 的可见性**。
+这一步引入：**`LifecycleScope` 三层生命周期** 与 **父子 scope 的可见性**。
 
-### 3.1 四层，按寿命从长到短
+### 3.1 三层，按寿命从长到短
 
 ```ts
 export enum LifecycleScope {
   Core = 0,    // 进程级，全局一份
   Session = 1, // 一次会话
   Agent = 2,   // 一个 agent
-  Turn = 3,    // 一轮对话
 }
 ```
 
@@ -166,14 +165,13 @@ Scope 是一棵树，`kind` 必须沿父子方向**严格递增**：
 Core (0)
  └── Session (1)
       └── Agent (2)
-           └── Turn (3)
 ```
 
 解析服务时，容器先看自己这一层，没有就**递归问父 scope**。所以一条铁律：
 
 > **短寿命的服务可以注入长寿命的服务，反过来不行。**
 
-- ✅ Turn 服务注入 Session / Core 服务（往上找，找得到）。
+- ✅ Agent 服务注入 Session / Core 服务（往上找，找得到）。
 - ❌ Core 服务注入 Session 服务（Core 创建时 Session 还不存在，且父不会往下找）。
 
 这条规则由树的结构强制保证，不靠纪律维持。
@@ -319,7 +317,7 @@ A 创建中要 B，B 创建中又要 A——容器会抛 `CyclicDependencyError`
 
 ### 9.2 为什么不允许
 
-- scope 分层让正常依赖天然是 DAG（Turn → Agent → Session → Core 向上找），一个环几乎总是设计味道。
+- scope 分层让正常依赖天然是 DAG（Agent → Session → Core 向上找），一个环几乎总是设计味道。
 - 靠「让环刚好能跑」会把构造顺序变成隐式约定，难调试、难排错。
 
 所以 v2 的立场是：**依赖图必须是无环的。**

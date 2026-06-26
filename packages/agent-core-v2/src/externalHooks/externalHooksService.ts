@@ -13,6 +13,8 @@ import {
 } from './user-prompt';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { isPlainRecord } from '#/_base/utils/canonical-args';
+import { ITurnService } from '#/turn';
 
 function fireAndForget(
   engine: ExternalHooksServiceOptions['hookEngine'],
@@ -31,7 +33,38 @@ function fireAndForget(
 export class ExternalHooksService implements IExternalHooksService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(private readonly options: ExternalHooksServiceOptions = {}) { }
+  constructor(
+    private readonly options: ExternalHooksServiceOptions = {},
+    @ITurnService turn: ITurnService,
+  ) {
+    turn.hooks.onWillExecuteTool.register('externalHooks', async (ctx, next) => {
+      const reason = await this.triggerPreToolUse(
+        {
+          toolCallId: ctx.toolCall.id,
+          toolName: ctx.toolCall.name,
+          toolInput: isPlainRecord(ctx.args) ? ctx.args : {},
+        },
+        ctx.signal,
+      );
+      if (reason !== undefined) {
+        ctx.decision = { block: true, reason };
+        return;
+      }
+      await next();
+    });
+    turn.hooks.onDidExecuteTool.register('externalHooks', async (ctx, next) => {
+      await this.triggerPostToolUse(
+        {
+          toolCallId: ctx.toolCall.id,
+          toolName: ctx.toolCall.name,
+          toolInput: isPlainRecord(ctx.args) ? ctx.args : {},
+          result: ctx.result,
+        },
+        ctx.signal,
+      );
+      await next();
+    });
+  }
 
   async triggerPreToolUse(
     payload: Parameters<IExternalHooksService['triggerPreToolUse']>[0],

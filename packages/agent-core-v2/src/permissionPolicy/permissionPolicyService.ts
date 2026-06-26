@@ -23,7 +23,6 @@ import {
 } from './policies/path-utils';
 import { PlanModeGuardDenyPermissionPolicyService } from './policies/plan-mode-guard-deny';
 import { PlanModeToolApprovePermissionPolicyService } from './policies/plan-mode-tool-approve';
-import { PreToolCallHookPermissionPolicyService } from './policies/pre-tool-call-hook';
 import type { PermissionPolicyRuntime } from './policies/runtime';
 import { SensitiveFileAccessAskPermissionPolicyService } from './policies/sensitive-file-access-ask';
 import { SessionApprovalHistoryPermissionPolicyService } from './policies/session-approval-history';
@@ -64,7 +63,6 @@ export class PermissionPolicyService
   ) {
     super();
     this.policies = [
-      this.instantiation.createInstance(PreToolCallHookPermissionPolicyService),
       new AgentSwarmExclusiveDenyPermissionPolicyService(),
       this.instantiation.createInstance(AutoModeAskUserQuestionDenyPermissionPolicyService),
       new PlanModeGuardDenyPermissionPolicyService(this),

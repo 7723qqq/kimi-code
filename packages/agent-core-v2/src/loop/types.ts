@@ -13,6 +13,8 @@
 import type { ContentPart, Message, TokenUsage, Tool, ToolCall } from '@moonshot-ai/kosong';
 
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
+import type { HookSlot } from '#/hooks';
+import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/turn';
 import type { ToolAccesses } from './tool-access';
 import type { LLM } from './llm';
 
@@ -175,10 +177,6 @@ export interface PrepareToolExecutionResult extends AuthorizeToolExecutionResult
   readonly updatedArgs?: unknown;
 }
 
-export interface FinalizeToolResultContext extends ToolExecutionHookContext {
-  readonly result: ExecutableToolResult;
-}
-
 export interface LoopAfterStepContext extends LoopStepHookContext {
   readonly usage: TokenUsage;
   readonly stopReason: LoopStepStopReason;
@@ -221,18 +219,6 @@ export type BeforeStepHook = (ctx: LoopStepHookContext) => Promise<BeforeStepRes
 
 export type AfterStepHook = (ctx: LoopAfterStepContext) => Promise<AfterStepResult | void>;
 
-export type PrepareToolExecutionHook = (
-  ctx: ToolExecutionHookContext,
-) => Promise<PrepareToolExecutionResult | undefined>;
-
-export type AuthorizeToolExecutionHook = (
-  ctx: ResolvedToolExecutionHookContext,
-) => Promise<AuthorizeToolExecutionResult | undefined>;
-
-export type FinalizeToolResultHook = (
-  ctx: FinalizeToolResultContext,
-) => Promise<ExecutableToolResult | undefined>;
-
 export type ShouldContinueAfterStopHook = (
   ctx: LoopStoppedStepContext,
 ) => Promise<ShouldContinueAfterStopResult | undefined>;
@@ -240,18 +226,15 @@ export type ShouldContinueAfterStopHook = (
 /**
  * Groups every awaited phase hook.
  *
- * Hooks can affect control flow at deterministic transcript points. Event
- * listeners observe output and cannot change turn behavior.
- *
- * Tool hooks run serially in provider tool-call order before the matching
- * durable event is recorded, so preparation and finalization decisions are
- * resolved at stable transcript points.
+ * Step hooks (`beforeStep` / `afterStep`) and tool-execution gates
+ * (`onWillExecuteTool` / `onDidExecuteTool`) are owned by `turn` and forwarded
+ * here so the loop can run them at deterministic transcript points.
+ * `shouldContinueAfterStop` is loop-local convergence control.
  */
 export interface LoopHooks {
   beforeStep?: BeforeStepHook | undefined;
   afterStep?: AfterStepHook | undefined;
-  prepareToolExecution?: PrepareToolExecutionHook | undefined;
-  authorizeToolExecution?: AuthorizeToolExecutionHook | undefined;
-  finalizeToolResult?: FinalizeToolResultHook | undefined;
+  readonly onWillExecuteTool?: HookSlot<ToolWillExecuteContext> | undefined;
+  readonly onDidExecuteTool?: HookSlot<ToolDidExecuteContext> | undefined;
   shouldContinueAfterStop?: ShouldContinueAfterStopHook | undefined;
 }

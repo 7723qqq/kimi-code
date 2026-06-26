@@ -1,6 +1,5 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import {
-  getScopedServiceDescriptors,
   LifecycleScope,
   registerScopedService,
 } from '#/_base/di/scope';
@@ -31,9 +30,7 @@ import {
 
 import {
   Disposable,
-  DisposableStore,
   IInstantiationService,
-  ServiceCollection,
 } from "#/_base/di";
 import {
   ErrorCodes,
@@ -41,11 +38,7 @@ import {
   toKimiErrorPayload,
   type KimiErrorPayload,
 } from "#/errors";
-import { abortable } from "#/_base/utils/abort";
-import {
-  canonicalTelemetryArgs,
-  isPlainRecord
-} from '#/_base/utils/canonical-args';
+import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
 import { IContextMemory, type ContextMessage } from '#/contextMemory';
 import { IContextProjector } from '#/contextProjector';
 import { IContextSizeService } from '#/contextSize';
@@ -54,11 +47,9 @@ import { IExternalHooksService } from '#/externalHooks';
 import { IFullCompaction } from '#/fullCompaction';
 import { ILLMRequester } from '#/llmRequester';
 import { IMcpService } from '#/mcp';
-import { IPermissionService } from '#/permission';
 import { IProfileService } from '#/profile';
 import { ITelemetryService } from '#/telemetry';
 import { IToolExecutor } from '#/toolExecutor';
-import { IToolDedupService } from '#/tooldedup/tooldedup';
 import { IToolRegistry, type ToolResult } from '#/toolRegistry';
 import type { Turn, TurnResult } from '#/turn';
 import { IUsageService } from '#/usage';
@@ -85,11 +76,6 @@ const TOOL_EMPTY_ERROR_STATUS =
 const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
 type ToolTelemetryEvent = 'tool_call' | 'tool_call_dedup_detected' | 'tool_call_repeat';
 type TelemetryProperties = Record<string, unknown>;
-
-interface TurnScopedService<T> {
-  readonly service: T;
-  dispose(): void;
-}
 
 export class LoopService extends Disposable implements ILoopService {
   private readonly openSteps = new Map<string, OpenStep>();
@@ -140,8 +126,7 @@ export class LoopService extends Disposable implements ILoopService {
     const llm = this.createLLM((model) => {
       usageModel = model ?? this.profile.data().modelAlias ?? 'unknown';
     });
-    const turnDeduper = this.createTurnDeduper();
-    const loopHooks = this.loopHooks(turn, hooks, turnDeduper.service);
+    const loopHooks = this.loopHooks(turn, hooks);
     try {
       await this.mcp.waitForInitialLoad(turn.abortController.signal);
       // Preflight the model configuration before any step begins. Legacy reads
@@ -207,7 +192,6 @@ export class LoopService extends Disposable implements ILoopService {
       this.stepToolCallKeys.clear();
       this.stepFailureByTurn.delete(turn.id);
       this.pendingMeasurements.clear();
-      turnDeduper.dispose();
     }
   }
 
@@ -613,75 +597,24 @@ export class LoopService extends Disposable implements ILoopService {
     };
   }
 
-  private createTurnDeduper(): TurnScopedService<IToolDedupService> {
-    const store = new DisposableStore();
-    const collection = new ServiceCollection();
-    for (const entry of getScopedServiceDescriptors(LifecycleScope.Turn)) {
-      collection.set(entry.id, entry.descriptor);
-    }
-    const child = this.instantiation.createChild(collection, store);
-    const service = child.invokeFunction((accessor) => accessor.get(IToolDedupService));
-    return {
-      service,
-      dispose: () => store.dispose(),
-    };
-  }
-
-  private loopHooks(
-    turn: Turn,
-    hooks: LoopRunHooks | undefined,
-    deduper: IToolDedupService,
-  ): LoopHooks {
+  private loopHooks(turn: Turn, hooks: LoopRunHooks | undefined): LoopHooks {
     let continueAfterStop = false;
     let stopHookContinuationUsed = false;
     return {
       beforeStep: async () => {
-        deduper.beginStep();
         await hooks?.beforeStep.run({ turn, continueTurn: false });
         return undefined;
       },
       afterStep: async (context) => {
         const turnContext = { turn, continueTurn: false };
         await hooks?.afterStep.run(turnContext);
-        deduper.endStep();
         if (context.stopReason !== 'tool_use' && turnContext.continueTurn) {
           continueAfterStop = true;
         }
         return undefined;
       },
-      prepareToolExecution: async (context) => {
-        const cached = deduper.checkSameStep(
-          context.toolCall.id,
-          context.toolCall.name,
-          context.args,
-        );
-        return cached === null ? undefined : { syntheticResult: cached };
-      },
-      authorizeToolExecution: (context) =>
-        // The approval broker resolves out-of-band and is not signal-aware, so a
-        // cancel that lands while we wait for approval would otherwise hang the
-        // turn. Race it against the abort signal: on cancel this rejects with the
-        // abort reason, the loop sees signal.aborted and settles the tool call as
-        // a user interruption (matching legacy behavior).
-        abortable(this.permission().authorize(context), context.signal),
-      finalizeToolResult: async (context) => {
-        const result: ExecutableToolResult = await deduper.finalizeResult(
-          context.toolCall.id,
-          context.toolCall.name,
-          context.args,
-          context.result,
-        );
-        await this.externalHooks.triggerPostToolUse(
-          {
-            toolCallId: context.toolCall.id,
-            toolName: context.toolCall.name,
-            toolInput: toolInputRecord(context.args),
-            result,
-          },
-          context.signal,
-        );
-        return result;
-      },
+      onWillExecuteTool: hooks?.onWillExecuteTool,
+      onDidExecuteTool: hooks?.onDidExecuteTool,
       shouldContinueAfterStop: async (context) => {
         const shouldContinue = continueAfterStop;
         continueAfterStop = false;
@@ -759,12 +692,6 @@ export class LoopService extends Disposable implements ILoopService {
       role: 'tool',
       isError: result.isError,
     });
-  }
-
-  private permission(): IPermissionService {
-    return this.instantiation.invokeFunction((accessor) =>
-      accessor.get(IPermissionService),
-    );
   }
 
   private appendImmediately(...messages: ContextMessage[]): void {
@@ -1027,10 +954,6 @@ function telemetryToolErrorType(result: ToolTelemetryResult): string {
 
 function toolResultText(result: ToolTelemetryResult): string {
   return toolOutputText(result.output);
-}
-
-function toolInputRecord(args: unknown): Record<string, unknown> {
-  return isPlainRecord(args) ? args : {};
 }
 
 function toolOutputText(output: ExecutableToolResult['output']): string {

@@ -2,7 +2,7 @@
  * `tooldedup` domain (L4) — `IToolDedupService` implementation.
  *
  * Owns per-turn same-step suppression and cross-step repeat reminders; reports
- * repeat telemetry through `telemetry`. Bound at Turn scope.
+ * repeat telemetry through `telemetry`. Bound at Agent scope.
  */
 
 import type { ContentPart } from '@moonshot-ai/kosong';
@@ -12,6 +12,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
 import { ITelemetryService } from '#/telemetry/telemetry';
+import { ITurnService } from '#/turn';
 
 import { IToolDedupService, type ToolDedupResult } from './tooldedup';
 
@@ -104,8 +105,39 @@ export class ToolDedupService extends Disposable implements IToolDedupService {
   private consecutiveKey: string | null = null;
   private consecutiveCount = 0;
 
-  constructor(@ITelemetryService private readonly telemetry: ITelemetryService) {
+  constructor(
+    @ITelemetryService private readonly telemetry: ITelemetryService,
+    @ITurnService turn: ITurnService,
+  ) {
     super();
+    turn.hooks.beforeStep.register('tooldedup', async (_ctx, next) => {
+      this.beginStep();
+      await next();
+    });
+    turn.hooks.afterStep.register('tooldedup', async (_ctx, next) => {
+      this.endStep();
+      await next();
+    });
+    turn.hooks.onWillExecuteTool.register('tooldedup', async (ctx, next) => {
+      const cached = this.checkSameStep(ctx.toolCall.id, ctx.toolCall.name, ctx.args);
+      if (cached !== null) {
+        ctx.decision = { syntheticResult: cached };
+        return;
+      }
+      await next();
+    });
+    turn.hooks.onDidExecuteTool.register('tooldedup', async (ctx, next) => {
+      ctx.result = await this.finalizeResult(
+        ctx.toolCall.id,
+        ctx.toolCall.name,
+        ctx.args,
+        ctx.result,
+      );
+      if (ctx.result.stopTurn === true) {
+        ctx.stopTurn = true;
+      }
+      await next();
+    });
   }
 
   beginStep(): void {
@@ -224,7 +256,7 @@ export const __testing = {
 };
 
 registerScopedService(
-  LifecycleScope.Turn,
+  LifecycleScope.Agent,
   IToolDedupService,
   ToolDedupService,
   InstantiationType.Delayed,

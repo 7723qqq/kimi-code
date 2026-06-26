@@ -16,6 +16,7 @@ import { IPermissionPolicyService } from '#/permissionPolicy';
 import type { PermissionRule } from '#/permissionRules';
 import { IPermissionRulesService } from '#/permissionRules';
 import { ITelemetryService } from '#/telemetry/telemetry';
+import { ITurnService } from '#/turn';
 import type { ToolCall } from '@moonshot-ai/kosong';
 
 import {
@@ -24,6 +25,7 @@ import {
   stubPermissionPolicyService,
   stubPermissionRulesService,
 } from './stubs';
+import { stubTurnWithHooks } from '../turn/stubs';
 
 function makeContext(toolName: string): ResolvedToolExecutionHookContext {
   const toolCall: ToolCall = {
@@ -75,6 +77,7 @@ describe('PermissionService', () => {
         });
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
         reg.defineInstance(IApprovalService, stubApprovalService(() => approvalResponse));
+        reg.defineInstance(ITurnService, stubTurnWithHooks());
       },
     });
   });

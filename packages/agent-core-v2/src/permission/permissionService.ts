@@ -21,6 +21,7 @@ import {
 } from '#/permissionPolicy';
 import { IPermissionRulesService } from '#/permissionRules';
 import { ITelemetryService } from '#/telemetry';
+import { ITurnService } from '#/turn';
 import {
   IPermissionService,
   type PermissionServiceOptions,
@@ -37,12 +38,23 @@ export class PermissionService extends Disposable implements IPermissionService 
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @ITurnService turn: ITurnService,
   ) {
     super();
     this.policyService.configure(options);
     if (options.initialMode !== undefined) {
       this.modeService.setMode(options.initialMode);
     }
+    turn.hooks.onWillExecuteTool.register('permission', async (ctx, next) => {
+      const result = await this.authorize(ctx);
+      if (result !== undefined) {
+        ctx.decision = result;
+      }
+      if (result?.block === true || result?.syntheticResult !== undefined) {
+        return;
+      }
+      await next();
+    });
   }
 
   data(): PermissionData {

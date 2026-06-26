@@ -2,7 +2,7 @@
  * `tooldedup` domain (L4) — per-turn tool-call deduplication.
  *
  * Defines the public contract for same-step suppression and cross-step repeat
- * reminders. Turn-scoped — one instance per turn.
+ * reminders. Agent-scoped — one instance per agent.
  */
 
 import type { ContentPart } from '@moonshot-ai/kosong';

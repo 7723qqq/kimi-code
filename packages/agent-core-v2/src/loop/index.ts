@@ -28,13 +28,9 @@ export type {
   ExecutableToolContext,
   ToolExecutionHookContext,
   ResolvedToolExecutionHookContext,
-  PrepareToolExecutionHook,
-  AuthorizeToolExecutionHook,
   AuthorizeToolExecutionResult,
   PrepareToolExecutionResult,
   ExecutableToolResult,
-  FinalizeToolResultContext,
-  FinalizeToolResultHook,
   ToolUpdate,
   TurnResult,
 } from './types';

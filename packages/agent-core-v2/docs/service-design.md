@@ -37,14 +37,13 @@ Every principle below derives from two root questions:
 
 **First principle: Scope = the identity + lifetime of the owned state.**
 
-`Core` / `Session` / `Agent` / `Turn` are four tiers of identity + lifetime:
+`Core` / `Session` / `Agent` are three tiers of identity + lifetime:
 
 | Scope | State identity (keyed by) | Lifetime |
 |---|---|---|
 | `Core` | none (single global instance) | the process |
 | `Session` | `sessionId` | one session |
 | `Agent` | `agentId` | one agent |
-| `Turn` | `turnId` | one turn |
 
 ### Decision tree
 
@@ -58,7 +57,6 @@ Every principle below derives from two root questions:
 - one global instance → **`Core`**
 - one per session → **`Session`**
 - one per agent → **`Agent`**
-- one per turn → **`Turn`**
 - a mix (a global registry *and* per-instance state) → **do not put it in one Service;
   split it** (see §3 Multi-Scope).
 

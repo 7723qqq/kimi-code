@@ -44,6 +44,8 @@ function makeHooks(): ITurnService['hooks'] {
     'onEnded',
     'beforeStep',
     'afterStep',
+    'onWillExecuteTool',
+    'onDidExecuteTool',
   ]) as ITurnService['hooks'];
 }
 
@@ -53,6 +55,7 @@ export function stubTurn(options: StubTurnOptions = {}): StubTurn {
   let activeTurn: Turn | undefined;
   let nextId = typeof options.currentId === 'number' ? options.currentId : 0;
   return {
+    _serviceBrand: undefined,
     hooks: makeHooks(),
     launch(origin) {
       launches.push(origin);
@@ -81,6 +84,7 @@ export function stubTurn(options: StubTurnOptions = {}): StubTurn {
 export function stubTurnWithHooks(): ITurnService {
   const turn = makeTurn(0);
   return {
+    _serviceBrand: undefined,
     hooks: makeHooks(),
     launch: () => turn,
     getActiveTurn: () => undefined,

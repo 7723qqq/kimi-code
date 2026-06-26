@@ -6,6 +6,8 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { ITelemetryService, type TelemetryProperties } from '#/telemetry/telemetry';
 import { IToolDedupService, type ToolDedupResult } from '#/tooldedup/tooldedup';
 import { ToolDedupService, __testing } from '#/tooldedup/tooldedupService';
+import { ITurnService } from '#/turn';
+import { stubTurnWithHooks } from '../turn/stubs';
 
 interface RecordedTelemetryEvent {
   readonly event: string;
@@ -48,6 +50,7 @@ describe('ToolDedupService', () => {
         events.push({ event, properties });
       },
     });
+    ix.stub(ITurnService, stubTurnWithHooks());
     ix.set(IToolDedupService, new SyncDescriptor(ToolDedupService));
   });
 

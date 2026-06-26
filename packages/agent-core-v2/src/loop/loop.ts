@@ -1,14 +1,18 @@
 import { createDecorator } from "#/_base/di";
-
-import type { Turn, TurnResult, TurnStepContext } from '#/turn';
-
-export interface LoopRunHook<TContext> {
-  run(context: TContext): Promise<void>;
-}
+import type { HookSlot } from '#/hooks';
+import type {
+  ToolDidExecuteContext,
+  ToolWillExecuteContext,
+  Turn,
+  TurnResult,
+  TurnStepContext,
+} from '#/turn';
 
 export interface LoopRunHooks {
-  readonly beforeStep: LoopRunHook<TurnStepContext>;
-  readonly afterStep: LoopRunHook<TurnStepContext>;
+  readonly beforeStep: HookSlot<TurnStepContext>;
+  readonly afterStep: HookSlot<TurnStepContext>;
+  readonly onWillExecuteTool: HookSlot<ToolWillExecuteContext>;
+  readonly onDidExecuteTool: HookSlot<ToolDidExecuteContext>;
 }
 
 export interface ILoopService {

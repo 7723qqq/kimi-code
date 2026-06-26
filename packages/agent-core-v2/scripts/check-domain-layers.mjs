@@ -165,6 +165,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'loop>mcp',
   'permission>externalHooks',
   'permission>loop',
+  'permission>turn',
   'permissionMode>dynamicInjector',
   'permissionMode>replayBuilder',
   'permissionPolicy>externalHooks',

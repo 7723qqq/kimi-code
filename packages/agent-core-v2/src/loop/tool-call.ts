@@ -31,15 +31,14 @@ import type { LLM, LLMChatResponse } from './llm';
 import { ToolAccesses } from './tool-access';
 import { ToolScheduler, type ToolCallTask } from './tool-scheduler';
 import type {
-  AuthorizeToolExecutionResult,
   ExecutableTool,
   LoopHooks,
   ToolCall,
-  PrepareToolExecutionResult,
   ExecutableToolResult,
   RunnableToolExecution,
   ToolExecution,
 } from './types';
+import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/turn';
 
 const GRACE_TIMEOUT_MS = 2_000;
 const TOOL_OUTPUT_EMPTY = 'Tool output is empty.';
@@ -93,12 +92,6 @@ interface RejectedToolCall {
   readonly args: unknown;
   readonly output: string;
 }
-
-type PrepareToolExecutionDecision =
-  | { readonly kind: 'allowed'; readonly args: unknown; readonly metadata?: unknown }
-  | { readonly kind: 'synthetic'; readonly args: unknown; readonly result: ExecutableToolResult }
-  | { readonly kind: 'blocked'; readonly args: unknown; readonly output: string }
-  | { readonly kind: 'hookFailed'; readonly args: unknown; readonly output: string };
 
 interface PendingToolResult {
   readonly toolCall: ToolCall;
@@ -267,23 +260,15 @@ async function prepareToolCall(
 
   if (call.kind === 'rejected') return settleError(call.args, call.output);
 
-  const decision = await runPrepareToolExecutionHook(step, call);
-  if (decision.kind === 'blocked' || decision.kind === 'hookFailed') {
-    return settleError(decision.args, decision.output);
-  }
-  if (decision.kind === 'synthetic') {
-    return settleSynthetic(decision.args, decision.result);
-  }
-
-  const validationError = validateExecutableToolArgs(call.tool, decision.args);
+  const validationError = validateExecutableToolArgs(call.tool, call.args);
   if (validationError !== null) {
     return settleError(
-      decision.args,
-      `Invalid args for tool "${call.toolName}" after prepareToolExecution hook: ${validationError}`,
+      call.args,
+      `Invalid args for tool "${call.toolName}": ${validationError}`,
     );
   }
 
-  const effectiveArgs = decision.args;
+  const effectiveArgs = call.args;
   let execution: ToolExecution;
   try {
     execution = await call.tool.resolveExecution(effectiveArgs);
@@ -312,22 +297,38 @@ async function prepareToolCall(
     return settleSynthetic(effectiveArgs, execution, displayFields);
   }
 
-  const authorization = await runAuthorizeToolExecutionHook(step, call, effectiveArgs, execution);
-  if (step.signal.aborted) return settleAborted();
+  const willCtx: ToolWillExecuteContext = {
+    turnId: step.turnId,
+    stepNumber: step.currentStep,
+    signal: step.signal,
+    llm: step.llm,
+    toolCall: call.toolCall,
+    toolCalls: step.toolCalls,
+    tool: call.tool,
+    args: effectiveArgs,
+    execution,
+  };
+  const onWillExecuteTool = step.hooks?.onWillExecuteTool;
+  if (onWillExecuteTool !== undefined) {
+    await onWillExecuteTool.run(willCtx);
+  }
 
-  if (authorization?.block === true) {
+  const decision = willCtx.decision;
+  if (decision?.block === true) {
     return settleError(
       effectiveArgs,
-      authorization.reason ?? `Tool call "${call.toolName}" was blocked`,
+      decision.reason ?? `Tool call "${call.toolName}" was blocked`,
       displayFields,
     );
   }
 
-  if (authorization?.syntheticResult !== undefined) {
-    return settleSynthetic(effectiveArgs, authorization.syntheticResult, displayFields);
+  if (decision?.syntheticResult !== undefined) {
+    return settleSynthetic(effectiveArgs, decision.syntheticResult, displayFields);
   }
 
-  const executionMetadata = authorization?.executionMetadata ?? decision.metadata;
+  if (step.signal.aborted) return settleAborted();
+
+  const executionMetadata = decision?.executionMetadata;
   await dispatchToolCall(step, call, effectiveArgs, displayFields);
   return {
     task: {
@@ -354,101 +355,6 @@ function makeResolvedToolCallTask(result: PendingToolResult): ToolCallTask<Pendi
     accesses: ToolAccesses.none(),
     start: async () => ({ result: Promise.resolve(result) }),
   };
-}
-
-/**
- * Run `prepareToolExecution` in provider order before recording `tool.call`.
- * Hook decisions can block a call or replace args before execution starts.
- */
-async function runPrepareToolExecutionHook(
-  step: ToolCallBatchContext,
-  call: RunnableToolCall,
-): Promise<PrepareToolExecutionDecision> {
-  const { hooks, signal, turnId, currentStep, llm } = step;
-  const { toolCall, args } = call;
-
-  if (hooks?.prepareToolExecution === undefined) {
-    return { kind: 'allowed', args };
-  }
-
-  let hookResult: PrepareToolExecutionResult | undefined;
-  try {
-    hookResult = await hooks.prepareToolExecution({
-      toolCall,
-      toolCalls: step.toolCalls,
-      tool: call.tool,
-      args,
-      turnId,
-      stepNumber: currentStep,
-      signal,
-      llm,
-    });
-  } catch (error) {
-    // If the turn is cancelled while an abort-aware hook is awaited, report the
-    // call as aborted instead of treating it as a hook failure.
-    if (isAbortError(error) || signal.aborted) {
-      return {
-        kind: 'hookFailed',
-        args,
-        output: `Tool "${call.toolName}" was aborted during prepareToolExecution hook`,
-      };
-    }
-    return {
-      kind: 'hookFailed',
-      args,
-      output: `prepareToolExecution hook failed for "${call.toolName}": ${errorMessage(error)}`,
-    };
-  }
-
-  const effectiveArgs = hookResult?.updatedArgs ?? args;
-  if (hookResult?.block === true) {
-    return {
-      kind: 'blocked',
-      args: effectiveArgs,
-      output: hookResult.reason ?? `Tool call "${call.toolName}" was blocked`,
-    };
-  }
-
-  if (hookResult?.syntheticResult !== undefined) {
-    return { kind: 'synthetic', args: effectiveArgs, result: hookResult.syntheticResult };
-  }
-
-  return { kind: 'allowed', args: effectiveArgs, metadata: hookResult?.executionMetadata };
-}
-
-async function runAuthorizeToolExecutionHook(
-  step: ToolCallBatchContext,
-  call: RunnableToolCall,
-  args: unknown,
-  execution: RunnableToolExecution,
-): Promise<AuthorizeToolExecutionResult | undefined> {
-  const { hooks, signal, turnId, currentStep, llm } = step;
-  if (hooks?.authorizeToolExecution === undefined) return undefined;
-
-  try {
-    return await hooks.authorizeToolExecution({
-      toolCall: call.toolCall,
-      toolCalls: step.toolCalls,
-      tool: call.tool,
-      args,
-      execution,
-      turnId,
-      stepNumber: currentStep,
-      signal,
-      llm,
-    });
-  } catch (error) {
-    if (isAbortError(error) || signal.aborted) {
-      return {
-        block: true,
-        reason: `Tool "${call.toolName}" was aborted during authorizeToolExecution hook`,
-      };
-    }
-    return {
-      block: true,
-      reason: `authorizeToolExecution hook failed for "${call.toolName}": ${errorMessage(error)}`,
-    };
-  }
 }
 
 function toolCallDisplayFieldsFromExecution(
@@ -504,50 +410,51 @@ async function finalizePendingToolResult(
   pendingResult: PendingToolResult,
 ): Promise<PendingToolResult> {
   const { hooks, signal, turnId, currentStep, llm } = step;
-  if (hooks?.finalizeToolResult === undefined) {
-    return { ...pendingResult, result: normalizeToolResult(pendingResult.result) };
+  const didCtx: ToolDidExecuteContext = {
+    turnId,
+    stepNumber: currentStep,
+    signal,
+    llm,
+    toolCall: pendingResult.toolCall,
+    toolCalls: step.toolCalls,
+    args: pendingResult.args,
+    result: pendingResult.result,
+  };
+
+  if (hooks?.onDidExecuteTool !== undefined) {
+    try {
+      await hooks.onDidExecuteTool.run(didCtx);
+    } catch (error) {
+      // This is the redaction/truncation boundary. If it fails, do not persist
+      // the raw tool output; write an error result instead.
+      const aborted = isAbortError(error) || signal.aborted;
+      if (!aborted) {
+        step.log?.warn('onDidExecuteTool hook failed', {
+          toolName: pendingResult.toolName,
+          toolCallId: pendingResult.toolCall.id,
+          error,
+        });
+      }
+      const output = aborted
+        ? `Tool "${pendingResult.toolName}" aborted during onDidExecuteTool hook.`
+        : `onDidExecuteTool hook failed for "${pendingResult.toolName}": ${errorMessage(error)}`;
+      return {
+        ...pendingResult,
+        stopTurn: pendingResult.stopTurn,
+        result: { output, isError: true },
+      };
+    }
   }
 
-  try {
-    const finalizedResult = await hooks.finalizeToolResult({
-      toolCall: pendingResult.toolCall,
-      toolCalls: step.toolCalls,
-      args: pendingResult.args,
-      result: pendingResult.result,
-      turnId,
-      stepNumber: currentStep,
-      signal,
-      llm,
-    });
-    const effectiveResult = coerceToolResult(
-      finalizedResult ?? pendingResult.result,
-      pendingResult.toolName,
-    );
-    return {
-      ...pendingResult,
-      stopTurn: pendingResult.stopTurn === true || toolResultStopsTurn(effectiveResult),
-      result: normalizeToolResult(effectiveResult),
-    };
-  } catch (error) {
-    // This is the redaction/truncation boundary. If it fails, do not persist
-    // the raw tool output; write an error result instead.
-    const aborted = isAbortError(error) || signal.aborted;
-    if (!aborted) {
-      step.log?.warn('finalizeToolResult hook failed', {
-        toolName: pendingResult.toolName,
-        toolCallId: pendingResult.toolCall.id,
-        error,
-      });
-    }
-    const output = aborted
-      ? `Tool "${pendingResult.toolName}" aborted during finalizeToolResult hook.`
-      : `finalizeToolResult hook failed for "${pendingResult.toolName}": ${errorMessage(error)}`;
-    return {
-      ...pendingResult,
-      stopTurn: pendingResult.stopTurn,
-      result: { output, isError: true },
-    };
-  }
+  const effectiveResult = coerceToolResult(didCtx.result, pendingResult.toolName);
+  return {
+    ...pendingResult,
+    stopTurn:
+      pendingResult.stopTurn === true ||
+      didCtx.stopTurn === true ||
+      toolResultStopsTurn(effectiveResult),
+    result: normalizeToolResult(effectiveResult),
+  };
 }
 
 async function executeTool(

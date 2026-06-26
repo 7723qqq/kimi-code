@@ -1,7 +1,12 @@
 import { createDecorator } from "#/_base/di";
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
 import type { Hooks } from '#/hooks';
-
+import type {
+  AuthorizeToolExecutionResult,
+  ExecutableToolResult,
+  ResolvedToolExecutionHookContext,
+  ToolExecutionHookContext,
+} from '#/loop';
 
 export interface TurnResult {
   readonly reason: 'completed' | 'cancelled' | 'failed' | 'filtered';
@@ -32,8 +37,27 @@ export interface TurnEndedContext {
   readonly result: TurnResult;
 }
 
+/**
+ * Context for `onWillExecuteTool` — the tool-execution gate that runs after a
+ * tool's execution has been resolved but before it starts. Handlers participate
+ * in order; any handler may veto by writing `decision` and skipping `next()`.
+ */
+export interface ToolWillExecuteContext extends ResolvedToolExecutionHookContext {
+  decision?: AuthorizeToolExecutionResult;
+}
+
+/**
+ * Context for `onDidExecuteTool` — runs after a tool finishes. Handlers may
+ * rewrite `result` (e.g. append reminders) and may set `stopTurn` to request
+ * that the turn stop after this batch.
+ */
+export interface ToolDidExecuteContext extends ToolExecutionHookContext {
+  result: ExecutableToolResult;
+  stopTurn?: boolean;
+}
 
 export interface ITurnService {
+  readonly _serviceBrand: undefined;
   launch(origin: PromptOrigin): Turn;
   getActiveTurn(): Turn | undefined;
   cancel(turnId?: number, reason?: unknown): void;
@@ -43,6 +67,8 @@ export interface ITurnService {
     onEnded: TurnEndedContext;
     beforeStep: TurnStepContext;
     afterStep: TurnStepContext;
+    onWillExecuteTool: ToolWillExecuteContext;
+    onDidExecuteTool: ToolDidExecuteContext;
   }>;
 }
 

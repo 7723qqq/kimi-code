@@ -9,7 +9,6 @@ legend right
   <back:#D6EAF8>      </back> Core (process-wide, L0)
   <back:#D5F5E3>      </back> Session (per session, L1)
   <back:#FDEBD0>      </back> Agent (per agent, L2)
-  <back:#FADBD8>      </back> Turn (per turn, L3)
   <back:#E8DAEF>      </back> Multi-scope (spans layers)
   <back:#F4F6F7>      </back> WIP: contract only
   == Edges ==
@@ -80,10 +79,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>turn</b>\n<size:9><i>Agent</i></size>\n  ITurnService\n  ITurnEvents\n  ILoopRunner(T)\n  IToolCallExecutor(T)" as turn #FDEBD0
   rectangle "<b>plan</b>\n<size:9><i>Agent</i></size>\n  IPlanService" as plan #FDEBD0
   rectangle "<b>blobStore</b>\n<size:9><i>Agent</i></size>\n  IBlobStoreService" as blobStore #FDEBD0
-}
-
-package "Turn scope (per turn)" #FDEDEC {
-  rectangle "<b>tooldedup</b>\n<size:9><i>Turn</i></size>\n  IToolDedupService" as tooldedup #FADBD8
+  rectangle "<b>tooldedup</b>\n<size:9><i>Agent</i></size>\n  IToolDedupService" as tooldedup #FDEBD0
 }
 
 package "Multi-scope" #F5EEF8 {
@@ -181,6 +177,7 @@ permission --> permissionRules #34495E
 permission --> permissionPolicy #34495E
 permission --> externalHooks #34495E
 permission --> telemetry #34495E
+permission --> turn #34495E
 cron --> prompt #34495E
 cron --> eventBus #34495E
 cron --> wireRecord #34495E
@@ -283,11 +280,12 @@ plan --> toolRegistry #34495E
 plan --> dynamicInjector #34495E
 plan --> telemetry #34495E
 tooldedup --> telemetry #34495E
+tooldedup --> turn #34495E
+externalHooks --> turn #34495E
 
 ' ---- event-driven (dashed) ----
 gateway ..> event #16A085 : subscribe
 flag ..> config #16A085 : onDidChange
-agent_lifecycle ..> turn #16A085 : onWillExecuteTool
 permissionMode ..> wireRecord #16A085 : permission.set_mode
 userTool ..> wireRecord #16A085 : tools.register_/unregister_user_tool
 profile ..> wireRecord #16A085 : config.update / tools.set_active_tools

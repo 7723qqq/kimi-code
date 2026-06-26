@@ -16,6 +16,8 @@ import { ITelemetryService } from '#/telemetry';
 import { IUsageService } from '#/usage';
 import { IWireRecord } from '#/wireRecord';
 import type {
+  ToolDidExecuteContext,
+  ToolWillExecuteContext,
   Turn,
   TurnEndedContext,
   TurnResult,
@@ -33,6 +35,7 @@ declare module '#/wireRecord' {
 }
 
 export class TurnService implements ITurnService {
+  declare readonly _serviceBrand: undefined;
   private nextTurnId = 0;
   private activeTurn: Turn | undefined;
   private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
@@ -46,6 +49,8 @@ export class TurnService implements ITurnService {
     onEnded: new OrderedHookSlot<TurnEndedContext>(),
     beforeStep: new OrderedHookSlot<TurnStepContext>(),
     afterStep: new OrderedHookSlot<TurnStepContext>(),
+    onWillExecuteTool: new OrderedHookSlot<ToolWillExecuteContext>(),
+    onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),
   };
 
   constructor(
@@ -132,6 +137,8 @@ export class TurnService implements ITurnService {
       result = await this.loop.runTurn(turn, {
         beforeStep: this.hooks.beforeStep,
         afterStep: this.hooks.afterStep,
+        onWillExecuteTool: this.hooks.onWillExecuteTool,
+        onDidExecuteTool: this.hooks.onDidExecuteTool,
       });
       return result;
     } catch (error) {
