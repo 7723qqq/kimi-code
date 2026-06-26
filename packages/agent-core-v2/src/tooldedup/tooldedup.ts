@@ -1,5 +1,5 @@
 /**
- * `tooldedup` domain (L4) — per-turn tool-call deduplication.
+ * `toolDedup` domain (L4) — per-turn tool-call deduplication.
  *
  * Defines the public contract for same-step suppression and cross-step repeat
  * reminders. Agent-scoped — one instance per agent.

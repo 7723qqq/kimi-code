@@ -5,7 +5,7 @@ import { IContextMemory } from '#/contextMemory';
 import { IContextSizeService } from '#/contextSize';
 import { IFullCompaction } from '#/fullCompaction';
 import { IGoalService } from '#/goal';
-import { IPermissionService } from '#/permission/permission';
+import { IPermissionGate } from '#/permission/permission';
 import { IPermissionModeService } from '#/permissionMode/permissionMode';
 import { IPlanService } from '../plan';
 import { IProfileService } from '#/profile';
@@ -48,7 +48,7 @@ export class AgentRPCService implements IAgentRPCService {
     @ITurnService private readonly turnService: ITurnService,
     @IProfileService private readonly profile: IProfileService,
     @IPermissionModeService private readonly permissionMode: IPermissionModeService,
-    @IPermissionService private readonly permission: IPermissionService,
+    @IPermissionGate private readonly permission: IPermissionGate,
     @IPlanService private readonly planMode: IPlanService,
     @ISwarmService private readonly swarmMode: ISwarmService,
     @IFullCompaction private readonly fullCompaction: IFullCompaction,

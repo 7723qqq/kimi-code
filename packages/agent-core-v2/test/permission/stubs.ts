@@ -1,5 +1,5 @@
 /**
- * `permission` test stubs — shared doubles for `PermissionService`
+ * `permission` test stubs — shared doubles for `PermissionGate`
  * collaborators (`IPermissionModeService`, `IPermissionRulesService`,
  * `IPermissionPolicyService`, `IApprovalService`).
  *

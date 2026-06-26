@@ -50,6 +50,7 @@ export * from './auth/index';
 // Ported agent services. These keep the current service boundaries during the migration.
 export * from './blobStore/index';
 export * from './contextMemory/index';
+export * from './systemReminder/index';
 export * from './contextProjector/index';
 export * from './contextSize/index';
 export * from './contextInjector/index';

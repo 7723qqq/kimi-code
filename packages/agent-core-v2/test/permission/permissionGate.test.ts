@@ -8,8 +8,8 @@ import { IApprovalService } from '#/approval/approval';
 import { IExternalHooksService } from '#/externalHooks';
 import type { LLM } from '#/loop/llm';
 import type { ResolvedToolExecutionHookContext } from '#/loop';
-import { IPermissionService, PermissionService } from '#/permission';
-import type { PermissionServiceOptions } from '#/permission';
+import { IPermissionGate, PermissionGate } from '#/permission';
+import type { PermissionGateOptions } from '#/permission';
 import { IPermissionModeService } from '#/permissionMode';
 import type { PermissionMode, PermissionPolicyEvaluation } from '#/permissionPolicy';
 import { IPermissionPolicyService } from '#/permissionPolicy';
@@ -49,7 +49,7 @@ function makeContext(toolName: string): ResolvedToolExecutionHookContext {
   };
 }
 
-describe('PermissionService', () => {
+describe('PermissionGate', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let mode: PermissionMode;
@@ -83,11 +83,11 @@ describe('PermissionService', () => {
   });
   afterEach(() => disposables.dispose());
 
-  // NOTE: PermissionService is built via createInstance (not get) because its
+  // NOTE: PermissionGate is built via createInstance (not get) because its
   // first constructor parameter, `options`, is a static argument the container
   // cannot bake into a singleton. See di-testing.md "Exceptions".
-  function make(options: PermissionServiceOptions = {}): IPermissionService {
-    return ix.createInstance(PermissionService, options);
+  function make(options: PermissionGateOptions = {}): IPermissionGate {
+    return ix.createInstance(PermissionGate, options);
   }
 
   it('returns undefined when no policy evaluates', async () => {

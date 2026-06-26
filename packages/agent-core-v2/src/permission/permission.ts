@@ -24,7 +24,7 @@ export interface PermissionGitWorkTreeMarker {
   readonly controlDirPath: string;
 }
 
-export interface PermissionServiceOptions {
+export interface PermissionGateOptions {
   readonly sessionId?: string;
   readonly agentId?: string;
   readonly agentType?: 'main' | 'sub';
@@ -39,12 +39,12 @@ export interface PermissionServiceOptions {
   readonly initialMode?: PermissionMode;
 }
 
-export interface IPermissionService {
+export interface IPermissionGate {
   data(): PermissionData;
   authorize(
     context: ResolvedToolExecutionHookContext,
   ): Promise<AuthorizeToolExecutionResult | undefined>;
 }
 
-export const IPermissionService =
-  createDecorator<IPermissionService>('agentPermissionService');
+export const IPermissionGate =
+  createDecorator<IPermissionGate>('agentPermissionGate');

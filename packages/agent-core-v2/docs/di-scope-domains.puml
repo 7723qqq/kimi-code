@@ -52,7 +52,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>rpc</b>\n<size:9><i>Agent</i></size>\n  IAgentRPCService" as rpc #FDEBD0
   rectangle "<b>contextMemory</b>\n<size:9><i>Agent</i></size>\n  IContextMemory" as contextMemory #FDEBD0
   rectangle "<b>toolExecutor</b>\n<size:9><i>Agent</i></size>\n  IToolExecutor" as toolExecutor #FDEBD0
-  rectangle "<b>permission</b>\n<size:9><i>Agent</i></size>\n  IPermissionService" as permission #FDEBD0
+  rectangle "<b>permission</b>\n<size:9><i>Agent</i></size>\n  IPermissionGate" as permission #FDEBD0
   rectangle "<b>cron</b>\n<size:9><i>Agent</i></size>\n  ICronService" as cron #FDEBD0
   rectangle "<b>llmRequester</b>\n<size:9><i>Agent</i></size>\n  ILLMRequester" as llmRequester #FDEBD0
   rectangle "<b>fullCompaction</b>\n<size:9><i>Agent</i></size>\n  IFullCompaction" as fullCompaction #FDEBD0
@@ -78,7 +78,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>turn</b>\n<size:9><i>Agent</i></size>\n  ITurnService\n  ITurnEvents\n  ILoopRunner(T)\n  IToolCallExecutor(T)" as turn #FDEBD0
   rectangle "<b>plan</b>\n<size:9><i>Agent</i></size>\n  IPlanService" as plan #FDEBD0
   rectangle "<b>blobStore</b>\n<size:9><i>Agent</i></size>\n  IBlobStoreService" as blobStore #FDEBD0
-  rectangle "<b>tooldedup</b>\n<size:9><i>Agent</i></size>\n  IToolDedupService" as tooldedup #FDEBD0
+  rectangle "<b>toolDedup</b>\n<size:9><i>Agent</i></size>\n  IToolDedupService" as toolDedup #FDEBD0
 }
 
 package "Multi-scope" #F5EEF8 {
@@ -282,8 +282,8 @@ plan --> replayBuilder #34495E
 plan --> toolRegistry #34495E
 plan --> dynamicInjector #34495E
 plan --> telemetry #34495E
-tooldedup --> telemetry #34495E
-tooldedup --> turn #34495E
+toolDedup --> telemetry #34495E
+toolDedup --> turn #34495E
 externalHooks --> turn #34495E
 
 ' ---- event-driven (dashed) ----

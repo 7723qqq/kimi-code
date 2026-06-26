@@ -1,8 +1,8 @@
 /**
- * `permission` domain barrel - re-exports the permission contract
- * (`permission`) and its scoped service (`permissionService`). Importing this
+ * `permission` domain barrel - re-exports the permission gate contract
+ * (`permission`) and its scoped service (`permissionGate`). Importing this
  * barrel registers the permission bindings into the scope registry.
  */
 
 export * from './permission';
-export * from './permissionService';
+export * from './permissionGate';

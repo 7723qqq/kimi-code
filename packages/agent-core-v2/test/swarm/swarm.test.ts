@@ -6,6 +6,8 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { IContextMemory } from '#/contextMemory';
 import { IEventSink } from '../../src/eventSink';
 import { ISubagentHost } from '#/subagentHost';
+import { ISystemReminderService } from '#/systemReminder';
+import { SystemReminderService } from '#/systemReminder/systemReminderService';
 import { ISwarmService } from '#/swarm';
 import { SwarmService } from '#/swarm/swarmService';
 import { IToolRegistry } from '#/toolRegistry';
@@ -28,6 +30,7 @@ describe('SwarmService', () => {
     ix.stub(ITurnService, stubTurnWithHooks());
     ix.stub(IToolRegistry, {});
     ix.stub(ISubagentHost, {});
+    ix.set(ISystemReminderService, new SyncDescriptor(SystemReminderService));
     ix.set(ISwarmService, new SyncDescriptor(SwarmService));
   });
   afterEach(() => disposables.dispose());

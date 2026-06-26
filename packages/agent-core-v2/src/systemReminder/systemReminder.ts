@@ -1,0 +1,20 @@
+import { createDecorator } from "#/_base/di";
+
+import type { ContextMessage, PromptOrigin } from '#/contextMemory';
+
+export interface ISystemReminderService {
+  readonly _serviceBrand: undefined;
+
+  /**
+   * Append a `<system-reminder>` message to the end of the context memory.
+   */
+  appendSystemReminder(content: string, origin: PromptOrigin): void;
+
+  /**
+   * Remove the last context message if it passes the supplied filter.
+   * Returns `true` when a message was removed.
+   */
+  removeLastReminder(filter: (message: ContextMessage) => boolean): boolean;
+}
+
+export const ISystemReminderService = createDecorator<ISystemReminderService>('agentSystemReminderService');

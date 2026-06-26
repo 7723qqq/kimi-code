@@ -1,11 +1,11 @@
 import type { PathClass } from '#/_base/tools/policies/path-access';
 import type {
   PermissionGitWorkTreeMarker,
-  PermissionServiceOptions,
+  PermissionGateOptions,
 } from '../../permission/permission';
 
 export interface PermissionPolicyRuntime {
-  readonly options: PermissionServiceOptions;
+  readonly options: PermissionGateOptions;
   planModeActive(): boolean;
   planFilePath(): string | null;
   swarmModeIsActive(): boolean;
