@@ -17,6 +17,7 @@
  * which the agent-execution-environment abstraction does not expose.
  */
 
+import { createReadStream } from 'node:fs';
 import { mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
 import { dirname, join } from 'pathe';
 
@@ -44,6 +45,18 @@ export class FileStorageService implements IStorageService {
       return await readFile(this.path(scope, key));
     } catch (error) {
       if (isEnoent(error)) return undefined;
+      throw error;
+    }
+  }
+
+  async *readStream(scope: string, key: string): AsyncIterable<Uint8Array> {
+    const stream = createReadStream(this.path(scope, key));
+    try {
+      for await (const chunk of stream) {
+        yield chunk as Uint8Array;
+      }
+    } catch (error) {
+      if (isEnoent(error)) return;
       throw error;
     }
   }

@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IRecordStore, IStorageService, RecordCorruptedError } from '#/storage';
+import { AppendLogCorruptedError, IAppendLogStorage, IAppendLogStore, IStorageService } from '#/storage';
+import { AppendLogStore } from '#/storage/appendLogStore';
 import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
-import { RecordStore } from '#/storage/recordStore';
 
 const enc = new TextEncoder();
 
@@ -16,19 +16,35 @@ interface Rec {
 const SCOPE = 'agents/main';
 const KEY = 'wire.jsonl';
 
-describe('RecordStore', () => {
+function chunkedStorage(chunks: Uint8Array[]): IStorageService {
+  return {
+    _serviceBrand: undefined,
+    read: async () => undefined,
+    readStream: async function* () {
+      for (const c of chunks) yield c;
+    },
+    write: async () => {},
+    append: async () => {},
+    list: async () => [],
+    delete: async () => {},
+    flush: async () => {},
+    close: async () => {},
+  };
+}
+
+describe('AppendLogStore', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let storage: InMemoryStorageService;
-  let record: IRecordStore;
+  let record: IAppendLogStore;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     storage = new InMemoryStorageService();
-    ix.stub(IStorageService, storage);
-    ix.set(IRecordStore, new SyncDescriptor(RecordStore));
-    record = ix.get(IRecordStore);
+    ix.stub(IAppendLogStorage, storage);
+    ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+    record = ix.get(IAppendLogStore);
   });
 
   afterEach(() => disposables.dispose());
@@ -91,10 +107,43 @@ describe('RecordStore', () => {
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }]);
   });
 
-  it('throws RecordCorruptedError on a corrupted middle line', async () => {
+  it('throws AppendLogCorruptedError on a corrupted middle line', async () => {
     const raw = `${JSON.stringify({ n: 1 })}\nGARBAGE\n${JSON.stringify({ n: 3 })}\n`;
     await storage.append(SCOPE, KEY, enc.encode(raw));
 
-    await expect(collect<Rec>(SCOPE, KEY)).rejects.toBeInstanceOf(RecordCorruptedError);
+    await expect(collect<Rec>(SCOPE, KEY)).rejects.toBeInstanceOf(AppendLogCorruptedError);
+  });
+
+  it('reads across chunk boundaries (stream read splits lines)', async () => {
+    const full = `${JSON.stringify({ n: 1 })}\n${JSON.stringify({ n: 2 })}\n${JSON.stringify({ n: 3 })}\n`;
+    const bytes = enc.encode(full);
+    // Split into chunks that cut through the middle of lines.
+    const chunks = [bytes.slice(0, 7), bytes.slice(7, 23), bytes.slice(23)];
+    const localIx = disposables.add(new TestInstantiationService());
+    localIx.stub(IAppendLogStorage, chunkedStorage(chunks));
+    localIx.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+    const log = localIx.get(IAppendLogStore);
+
+    const out: Rec[] = [];
+    for await (const r of log.read<Rec>(SCOPE, KEY)) out.push(r);
+    expect(out).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
+  });
+
+  it('reads across chunk boundaries with multi-byte UTF-8 split', async () => {
+    const full = `${JSON.stringify({ n: 1, s: '中文' })}\n${JSON.stringify({ n: 2, s: '日本語' })}\n`;
+    const bytes = enc.encode(full);
+    // Split at every byte to maximally stress multi-byte decode across chunks.
+    const chunks = Array.from(bytes, (b) => new Uint8Array([b]));
+    const localIx = disposables.add(new TestInstantiationService());
+    localIx.stub(IAppendLogStorage, chunkedStorage(chunks));
+    localIx.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+    const log = localIx.get(IAppendLogStore);
+
+    const out: Array<Rec & { s?: string }> = [];
+    for await (const r of log.read<Rec & { s?: string }>(SCOPE, KEY)) out.push(r);
+    expect(out).toEqual([
+      { n: 1, s: '中文' },
+      { n: 2, s: '日本語' },
+    ]);
   });
 });

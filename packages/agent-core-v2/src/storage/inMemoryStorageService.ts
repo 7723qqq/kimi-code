@@ -16,6 +16,8 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import {
+  IAppendLogStorage,
+  IAtomicDocumentStorage,
   IStorageService,
   type StorageAppendOptions,
   type StorageWriteOptions,
@@ -28,6 +30,11 @@ export class InMemoryStorageService implements IStorageService {
 
   async read(scope: string, key: string): Promise<Uint8Array | undefined> {
     return this.scopes.get(scope)?.get(key);
+  }
+
+  async *readStream(scope: string, key: string): AsyncIterable<Uint8Array> {
+    const data = this.scopes.get(scope)?.get(key);
+    if (data !== undefined) yield data;
   }
 
   async write(
@@ -85,6 +92,22 @@ export class InMemoryStorageService implements IStorageService {
 registerScopedService(
   LifecycleScope.Session,
   IStorageService,
+  InMemoryStorageService,
+  InstantiationType.Delayed,
+  'storage',
+);
+
+registerScopedService(
+  LifecycleScope.Session,
+  IAppendLogStorage,
+  InMemoryStorageService,
+  InstantiationType.Delayed,
+  'storage',
+);
+
+registerScopedService(
+  LifecycleScope.Session,
+  IAtomicDocumentStorage,
   InMemoryStorageService,
   InstantiationType.Delayed,
   'storage',

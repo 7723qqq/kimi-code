@@ -29,6 +29,13 @@ export interface IHostFileSystem {
   writeText(path: string, data: string): Promise<void>;
   readBytes(path: string): Promise<Uint8Array>;
   writeBytes(path: string, data: Uint8Array): Promise<void>;
+  /**
+   * Create a file exclusively with `data`. Returns `true` when the file was
+   * created, `false` when it already existed (EEXIST) — the existing content is
+   * left untouched. Used by content-addressed stores where a collision means
+   * the same bytes are already present.
+   */
+  createExclusive(path: string, data: Uint8Array): Promise<boolean>;
   stat(path: string): Promise<HostFileStat>;
   readdir(path: string): Promise<readonly HostDirEntry[]>;
   mkdir(path: string, options?: { readonly recursive?: boolean }): Promise<void>;

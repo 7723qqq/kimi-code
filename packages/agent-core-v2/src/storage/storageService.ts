@@ -16,7 +16,7 @@
  *
  * The service is intentionally byte-oriented and scope/key-addressed: it knows
  * nothing about JSON, records, configs, versions or framing. Those concerns
- * live in the typed facades above it (`IRecordStore`, `IConfigStore`).
+ * live in the typed facades above it (`IAppendLogStore`, `IAtomicDocumentStore`).
  *
  * `scope`/`key` are trusted internal path segments for the file implementation
  * (e.g. scope `"agents/main"`, key `"wire.jsonl"`); they are not user input.
@@ -48,6 +48,13 @@ export interface IStorageService {
   /** Read the whole value, or `undefined` when the key does not exist. */
   read(scope: string, key: string): Promise<Uint8Array | undefined>;
 
+  /**
+   * Stream the bytes of `(scope, key)` as chunks. Yields nothing when the key
+   * does not exist. Implementations may back this with a real stream (file) or
+   * a single chunk (memory / DB).
+   */
+  readStream(scope: string, key: string): AsyncIterable<Uint8Array>;
+
   /** Atomically replace the whole value. */
   write(scope: string, key: string, data: Uint8Array, options?: StorageWriteOptions): Promise<void>;
 
@@ -69,3 +76,21 @@ export interface IStorageService {
 
 export const IStorageService: ServiceIdentifier<IStorageService> =
   createDecorator<IStorageService>('storageService');
+
+/**
+ * Token for the byte-storage backend dedicated to the append-log access
+ * pattern. Shares the `IStorageService` interface; the distinct token lets the
+ * composition root bind it to a different backend (e.g. Postgres) than the
+ * atomic-document backend.
+ */
+export const IAppendLogStorage: ServiceIdentifier<IStorageService> =
+  createDecorator<IStorageService>('appendLogStorage');
+
+/**
+ * Token for the byte-storage backend dedicated to the atomic-document access
+ * pattern. Shares the `IStorageService` interface; the distinct token lets the
+ * composition root bind it to a different backend (e.g. Redis) than the
+ * append-log backend.
+ */
+export const IAtomicDocumentStorage: ServiceIdentifier<IStorageService> =
+  createDecorator<IStorageService>('atomicDocumentStorage');

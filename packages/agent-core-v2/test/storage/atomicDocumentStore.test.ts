@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IConfigStore, IStorageService } from '#/storage';
-import { ConfigStore } from '#/storage/configStore';
+import { IAtomicDocumentStorage, IAtomicDocumentStore } from '#/storage';
+import { AtomicDocumentStore } from '#/storage/atomicDocumentStore';
 import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
 
 interface State {
@@ -12,19 +12,19 @@ interface State {
   readonly count?: number;
 }
 
-describe('ConfigStore', () => {
+describe('AtomicDocumentStore', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let storage: InMemoryStorageService;
-  let config: IConfigStore;
+  let config: IAtomicDocumentStore;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     storage = new InMemoryStorageService();
-    ix.stub(IStorageService, storage);
-    ix.set(IConfigStore, new SyncDescriptor(ConfigStore));
-    config = ix.get(IConfigStore);
+    ix.stub(IAtomicDocumentStorage, storage);
+    ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
+    config = ix.get(IAtomicDocumentStore);
   });
 
   afterEach(() => disposables.dispose());

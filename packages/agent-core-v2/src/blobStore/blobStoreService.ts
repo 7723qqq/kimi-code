@@ -1,12 +1,10 @@
 import {
   createHash } from 'node:crypto';
-import { mkdir,
-  open,
-  readFile } from 'node:fs/promises';
 import { join } from 'pathe';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IHostFileSystem } from '#/hostFs';
 
 import {
   BLOBREF_PROTOCOL,
@@ -27,7 +25,10 @@ export class BlobStoreService implements IBlobStoreService {
   private readonly cacheSizes = new Map<string, number>();
   private currentCacheSize = 0;
 
-  constructor(options: BlobStoreServiceOptions = {}) {
+  constructor(
+    options: BlobStoreServiceOptions = {},
+    @IHostFileSystem private readonly hostFs: IHostFileSystem,
+  ) {
     this.blobsDir = options.blobsDir;
     this.threshold = options.threshold ?? DEFAULT_THRESHOLD;
     this.maxCacheSize = options.maxCacheSize ?? DEFAULT_MAX_CACHE_SIZE;
@@ -121,11 +122,11 @@ export class BlobStoreService implements IBlobStoreService {
     }
     if (this.blobsDir === undefined) return undefined;
 
-    const payload = await readFile(join(this.blobsDir, hash)).catch(() => undefined);
+    const payload = await this.hostFs.readBytes(join(this.blobsDir, hash)).catch(() => undefined);
     if (payload !== undefined) {
-      this.setCache(hash, payload);
+      this.setCache(hash, Buffer.from(payload));
     }
-    return payload;
+    return payload !== undefined ? Buffer.from(payload) : undefined;
   }
 
   private async maybeOffloadString(value: string): Promise<string> {
@@ -145,22 +146,11 @@ export class BlobStoreService implements IBlobStoreService {
     const blobsDir = this.blobsDir;
     if (blobsDir === undefined) return `data:${mimeType};base64,${base64Payload}`;
 
-    await mkdir(blobsDir, { recursive: true, mode: 0o700 });
+    await this.hostFs.mkdir(blobsDir, { recursive: true });
     const hash = createHash('sha256').update(base64Payload, 'utf8').digest('hex');
     const blobPath = join(blobsDir, hash);
     const binary = Buffer.from(base64Payload, 'base64');
-    try {
-      const fh = await open(blobPath, 'wx');
-      try {
-        await fh.writeFile(binary);
-        await fh.sync();
-      } finally {
-        await fh.close();
-      }
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'EEXIST') throw error;
-    }
+    await this.hostFs.createExclusive(blobPath, binary);
     this.setCache(hash, binary);
     return `${BLOBREF_PROTOCOL}${mimeType};${hash}`;
   }

@@ -6,7 +6,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/log';
 import { ISessionMetaStore } from '#/sessionMetaStore';
 import { SessionMetaStore } from '#/sessionMetaStore/sessionMetaStoreService';
-import { ConfigStore, IConfigStore, IStorageService, InMemoryStorageService } from '#/storage';
+import { AtomicDocumentStore, IAtomicDocumentStorage, IAtomicDocumentStore, InMemoryStorageService } from '#/storage';
 
 import { stubLog } from '../log/stubs';
 
@@ -18,8 +18,8 @@ describe('SessionMetaStore', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.set(IStorageService, new SyncDescriptor(InMemoryStorageService));
-    ix.set(IConfigStore, new SyncDescriptor(ConfigStore));
+    ix.set(IAtomicDocumentStorage, new SyncDescriptor(InMemoryStorageService));
+    ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
     ix.set(ISessionMetaStore, new SyncDescriptor(SessionMetaStore));
   });
 

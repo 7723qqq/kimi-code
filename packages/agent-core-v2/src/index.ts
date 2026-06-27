@@ -12,7 +12,7 @@ export * from './environment/index';
 export * from './hostFs/index';
 export * from './kosong/index';
 
-export * from './sessionStore/index';
+export * from './sessionIndex/index';
 export * from './sessionMetaStore/index';
 export * from './config/index';
 

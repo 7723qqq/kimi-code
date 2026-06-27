@@ -5,7 +5,7 @@
  * `node:fs/promises`. Bound at Core scope.
  */
 
-import { readFile, readdir, stat, mkdir, rm, writeFile } from 'node:fs/promises';
+import { open, readFile, readdir, stat, mkdir, rm, writeFile } from 'node:fs/promises';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -30,6 +30,22 @@ export class HostFileSystem implements IHostFileSystem {
 
   async writeBytes(path: string, data: Uint8Array): Promise<void> {
     await writeFile(path, data);
+  }
+
+  async createExclusive(path: string, data: Uint8Array): Promise<boolean> {
+    try {
+      const fh = await open(path, 'wx');
+      try {
+        await fh.writeFile(data);
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+      throw error;
+    }
   }
 
   async stat(path: string): Promise<HostFileStat> {

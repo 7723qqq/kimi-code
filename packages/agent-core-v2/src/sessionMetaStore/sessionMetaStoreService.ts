@@ -1,15 +1,16 @@
 /**
  * `sessionMetaStore` domain (L2) — `ISessionMetaStore` implementation.
  *
- * Persists session metadata as a single atomic document through the program
- * side `storage` (`IConfigStore`). Bound at Session scope.
+ * Persists session metadata as a single atomic document through the
+ * `storage` access-pattern store (`IAtomicDocumentStore`). Bound at Session
+ * scope.
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/log';
-import { IConfigStore } from '#/storage';
+import { IAtomicDocumentStore } from '#/storage';
 
 import { ISessionMetaStore } from './sessionMetaStore';
 
@@ -21,7 +22,7 @@ export class SessionMetaStore extends Disposable implements ISessionMetaStore {
   private readonly key: string;
 
   constructor(
-    @IConfigStore private readonly configStore: IConfigStore,
+    @IAtomicDocumentStore private readonly documentStore: IAtomicDocumentStore,
     @ILogService _log: ILogService,
     key: string = 'state.json',
   ) {
@@ -31,7 +32,7 @@ export class SessionMetaStore extends Disposable implements ISessionMetaStore {
 
   async read(): Promise<Record<string, unknown>> {
     this.data =
-      (await this.configStore.get<Record<string, unknown>>(SCOPE, this.key)) ?? {};
+      (await this.documentStore.get<Record<string, unknown>>(SCOPE, this.key)) ?? {};
     return this.data;
   }
 
@@ -41,7 +42,7 @@ export class SessionMetaStore extends Disposable implements ISessionMetaStore {
   }
 
   async flush(): Promise<void> {
-    await this.configStore.set(SCOPE, this.key, this.data);
+    await this.documentStore.set(SCOPE, this.key, this.data);
   }
 }
 

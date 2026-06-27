@@ -1,10 +1,11 @@
 /**
  * `IQueryStore` — the indexed, queryable read-model facade.
  *
- * A peer of `IRecordStore` and `IConfigStore`. Where `IRecordStore` is the
- * authoritative append-only write model and `IConfigStore` holds atomic
- * documents, `IQueryStore` serves fast, indexed, paginated reads over a
- * *derived* dataset — typically materialized from a record log by a projector.
+ * A peer of `IAppendLogStore` and `IAtomicDocumentStore`. Where
+ * `IAppendLogStore` is the authoritative append-only write model and
+ * `IAtomicDocumentStore` holds atomic documents, `IQueryStore` serves fast,
+ * indexed, paginated reads over a *derived* dataset — typically materialized
+ * from an append log by a projector.
  *
  * This file intentionally ships the interface only. A concrete implementation
  * (e.g. backed by `minidb`) and the projector that feeds it are a follow-up;

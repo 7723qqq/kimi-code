@@ -1,8 +1,10 @@
 /**
- * `sessionStore` domain (L2) — `ISessionStore` implementation.
+ * `sessionIndex` domain (L2) — `FileSessionIndex` implementation.
  *
- * Enumerates session directories on the real local disk through the program
- * side `hostFs` primitives. Bound at Core scope.
+ * Enumerates session directories on the local filesystem through the program
+ * side `hostFs` primitives. This is the local-deployment backend of
+ * `ISessionIndex`; a server deployment would substitute a database-backed
+ * `DbSessionIndex`. Bound at Core scope.
  */
 
 import { createHash } from 'node:crypto';
@@ -13,7 +15,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { slugifyWorkDirName } from '#/_base/utils/workdir-slug';
 import { IHostFileSystem } from '#/hostFs';
 
-import { ISessionStore } from './sessionStore';
+import { ISessionIndex } from './sessionIndex';
 
 const WORKDIR_KEY_PREFIX = 'wd_';
 const HASH_LENGTH = 12;
@@ -26,7 +28,7 @@ export function encodeWorkDirKey(workDir: string): string {
   return `${WORKDIR_KEY_PREFIX}${slug}_${hash}`;
 }
 
-export class SessionStore implements ISessionStore {
+export class FileSessionIndex implements ISessionIndex {
   declare readonly _serviceBrand: undefined;
 
   constructor(@IHostFileSystem private readonly hostFs: IHostFileSystem) {}
@@ -39,7 +41,7 @@ export class SessionStore implements ISessionStore {
     return encodeWorkDirKey(workDir);
   }
 
-  async countActiveSessions(sessionsRoot: string, workDir: string): Promise<number> {
+  async countActive(sessionsRoot: string, workDir: string): Promise<number> {
     const dir = join(sessionsRoot, encodeWorkDirKey(workDir));
     let entries;
     try {
@@ -74,8 +76,8 @@ export class SessionStore implements ISessionStore {
 
 registerScopedService(
   LifecycleScope.Core,
-  ISessionStore,
-  SessionStore,
+  ISessionIndex,
+  FileSessionIndex,
   InstantiationType.Delayed,
-  'records',
+  'sessionIndex',
 );

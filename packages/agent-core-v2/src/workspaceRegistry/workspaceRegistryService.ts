@@ -2,7 +2,7 @@
  * `workspaceRegistry` domain (L1) — `IWorkspaceRegistry` implementation.
  *
  * In-memory skeleton of the known-workspaces catalog; persistence through
- * `IConfigStore` will replace the map in a later phase. Bound at Core scope.
+ * `IAtomicDocumentStore` will replace the map in a later phase. Bound at Core scope.
  */
 
 import { createHash } from 'node:crypto';

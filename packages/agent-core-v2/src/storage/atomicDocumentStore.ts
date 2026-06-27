@@ -1,27 +1,29 @@
 /**
- * `IConfigStore` / `ConfigStore` — the typed atomic-document service.
+ * `IAtomicDocumentStore` / `AtomicDocumentStore` — the atomic-document
+ * access-pattern store.
  *
  * Sits on top of `IStorageService` and stores one typed JSON value per
- * `(scope, key)`, replaced atomically on every write. This is the `Config`
- * access pattern: `state.json`, `upcoming-goals.json`, per-id cron/background
- * records, etc.
+ * `(scope, key)`, replaced atomically on every write. This is the atomic-
+ * document access pattern: `state.json`, `upcoming-goals.json`, per-id
+ * cron/background records, etc.
  *
- * It is a DI service: domains inject `IConfigStore` and call `get/set` with
- * the scope they own — they do not construct stores themselves. JSON
- * (de)serialization and atomic replacement are centralized here so domains
- * do not reimplement them.
+ * It is a DI service: any domain that needs an atomic document injects
+ * `IAtomicDocumentStore` and calls `get/set` with the scope it owns — it does
+ * not construct stores itself. JSON (de)serialization and atomic replacement
+ * are centralized here so domains do not reimplement them.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { InstantiationType } from '#/_base/di/extensions';
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IStorageService } from './storageService';
+import { IAtomicDocumentStorage, IStorageService } from './storageService';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-export interface IConfigStore {
+export interface IAtomicDocumentStore {
   readonly _serviceBrand: undefined;
 
   /** Read the value at `(scope, key)`, or `undefined` when absent. */
@@ -35,15 +37,24 @@ export interface IConfigStore {
 
   /** List the keys under `scope`, optionally filtered by `prefix`. */
   list(scope: string, prefix?: string): Promise<readonly string[]>;
+
+  /**
+   * Acquire a disposable handle for `(scope, key)`. Register it with your
+   * `Disposable`; when you are disposed, the handle is released. The shared
+   * store itself is not disposed. Atomic documents are durable on write, so
+   * the handle currently releases no resources; it exists for interface
+   * symmetry with `IAppendLogStore`.
+   */
+  acquire(scope: string, key: string): IDisposable;
 }
 
-export const IConfigStore: ServiceIdentifier<IConfigStore> =
-  createDecorator<IConfigStore>('configStore');
+export const IAtomicDocumentStore: ServiceIdentifier<IAtomicDocumentStore> =
+  createDecorator<IAtomicDocumentStore>('atomicDocumentStore');
 
-export class ConfigStore implements IConfigStore {
+export class AtomicDocumentStore implements IAtomicDocumentStore {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IStorageService private readonly storage: IStorageService) {}
+  constructor(@IAtomicDocumentStorage private readonly storage: IStorageService) {}
 
   async get<T>(scope: string, key: string): Promise<T | undefined> {
     const bytes = await this.storage.read(scope, key);
@@ -63,12 +74,16 @@ export class ConfigStore implements IConfigStore {
   async list(scope: string, prefix?: string): Promise<readonly string[]> {
     return this.storage.list(scope, prefix);
   }
+
+  acquire(scope: string, key: string): IDisposable {
+    return toDisposable(() => {});
+  }
 }
 
 registerScopedService(
   LifecycleScope.Session,
-  IConfigStore,
-  ConfigStore,
+  IAtomicDocumentStore,
+  AtomicDocumentStore,
   InstantiationType.Delayed,
   'storage',
 );
