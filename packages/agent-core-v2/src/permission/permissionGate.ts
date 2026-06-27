@@ -21,7 +21,7 @@ import {
 } from '#/permissionPolicy';
 import { IPermissionRulesService } from '#/permissionRules';
 import { ITelemetryService } from '#/telemetry';
-import { ITurnService } from '#/turn';
+import { IToolExecutor } from '#/toolExecutor';
 import {
   IPermissionGate,
   type PermissionGateOptions,
@@ -38,14 +38,14 @@ export class PermissionGate extends Disposable implements IPermissionGate {
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @ITurnService turn: ITurnService,
+    @IToolExecutor toolExecutor: IToolExecutor,
   ) {
     super();
     this.policyService.configure(options);
     if (options.initialMode !== undefined) {
       this.modeService.setMode(options.initialMode);
     }
-    turn.hooks.onWillExecuteTool.register('permission', async (ctx, next) => {
+    toolExecutor.hooks.onWillExecuteTool.register('permission', async (ctx, next) => {
       const result = await this.authorize(ctx);
       if (result !== undefined) {
         ctx.decision = result;

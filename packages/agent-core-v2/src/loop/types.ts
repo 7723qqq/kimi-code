@@ -13,8 +13,7 @@
 import type { ContentPart, Message, TokenUsage, Tool, ToolCall } from '@moonshot-ai/kosong';
 
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-import type { HookSlot } from '#/hooks';
-import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/turn';
+
 import type { ToolAccesses } from './tool-access';
 import type { LLM } from './llm';
 
@@ -155,7 +154,9 @@ export interface LoopStepHookContext {
   readonly llm: LLM;
 }
 
-export interface ToolExecutionHookContext extends LoopStepHookContext {
+export interface ToolExecutionHookContext {
+  readonly turnId: string;
+  readonly signal: AbortSignal;
   readonly toolCall: ToolCall;
   readonly toolCalls: readonly ToolCall[];
   readonly tool?: ExecutableTool | undefined;
@@ -224,17 +225,14 @@ export type ShouldContinueAfterStopHook = (
 ) => Promise<ShouldContinueAfterStopResult | undefined>;
 
 /**
- * Groups every awaited phase hook.
+ * Groups every awaited phase hook forwarded from the turn layer.
  *
- * Step hooks (`beforeStep` / `afterStep`) and tool-execution gates
- * (`onWillExecuteTool` / `onDidExecuteTool`) are owned by `turn` and forwarded
- * here so the loop can run them at deterministic transcript points.
+ * Tool-execution gates (`onWillExecuteTool` / `onDidExecuteTool`) are owned by
+ * `IToolExecutor` and run by it at the right transcript points.
  * `shouldContinueAfterStop` is loop-local convergence control.
  */
 export interface LoopHooks {
   beforeStep?: BeforeStepHook | undefined;
   afterStep?: AfterStepHook | undefined;
-  readonly onWillExecuteTool?: HookSlot<ToolWillExecuteContext> | undefined;
-  readonly onDidExecuteTool?: HookSlot<ToolDidExecuteContext> | undefined;
   shouldContinueAfterStop?: ShouldContinueAfterStopHook | undefined;
 }

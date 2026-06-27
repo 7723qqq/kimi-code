@@ -9,7 +9,7 @@ import {
 import { ErrorCodes, makeErrorPayload } from "#/errors";
 import type { ExecutableTool, ExecutableToolResult } from '#/loop';
 import { IEventSink } from '../eventSink';
-import { ITurnService } from '#/turn';
+import { IToolExecutor } from '#/toolExecutor';
 import { IToolRegistry } from '#/toolRegistry';
 import { createMcpAuthTool } from './auth-tool';
 import type { McpServerEntry } from './connection-manager';
@@ -39,12 +39,12 @@ export class McpService extends Disposable implements IMcpService {
     private readonly options: McpServiceOptions = {},
     @IToolRegistry private readonly registry: IToolRegistry,
     @IEventSink private readonly events: IEventSink,
-    @ITurnService turnService: ITurnService,
+    @IToolExecutor toolExecutor: IToolExecutor,
   ) {
     super();
     this.attachMcpTools();
     this._register(
-      turnService.hooks.onWillExecuteTool.register(
+      toolExecutor.hooks.onWillExecuteTool.register(
         'mcp-wait-for-initial-load',
         async (ctx, next) => {
           await this.waitForInitialLoad(ctx.signal);

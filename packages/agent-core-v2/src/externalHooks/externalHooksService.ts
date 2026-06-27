@@ -14,7 +14,7 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
-import { ITurnService } from '#/turn';
+import { IToolExecutor } from '#/toolExecutor';
 
 function fireAndForget(
   engine: ExternalHooksServiceOptions['hookEngine'],
@@ -35,9 +35,9 @@ export class ExternalHooksService implements IExternalHooksService {
 
   constructor(
     private readonly options: ExternalHooksServiceOptions = {},
-    @ITurnService turn: ITurnService,
+    @IToolExecutor toolExecutor: IToolExecutor,
   ) {
-    turn.hooks.onWillExecuteTool.register('externalHooks', async (ctx, next) => {
+    toolExecutor.hooks.onWillExecuteTool.register('externalHooks', async (ctx, next) => {
       const reason = await this.triggerPreToolUse(
         {
           toolCallId: ctx.toolCall.id,
@@ -52,7 +52,7 @@ export class ExternalHooksService implements IExternalHooksService {
       }
       await next();
     });
-    turn.hooks.onDidExecuteTool.register('externalHooks', async (ctx, next) => {
+    toolExecutor.hooks.onDidExecuteTool.register('externalHooks', async (ctx, next) => {
       await this.triggerPostToolUse(
         {
           toolCallId: ctx.toolCall.id,

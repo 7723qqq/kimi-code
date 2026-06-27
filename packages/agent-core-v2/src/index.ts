@@ -26,7 +26,7 @@ export * from './plan/index';
 export * from './goal/index';
 export * from './swarm/index';
 export * from './usage/index';
-export * from './tooldedup/index';
+export * from './toolDedup/index';
 
 export * from './background/index';
 import './cron/index';
@@ -36,7 +36,7 @@ export * from './session-context/index';
 export * from './session-activity/index';
 export * from './session/index';
 
-export * from './event/index';
+export * from './eventSink/index';
 import './approval/index';
 export * from './question/index';
 export * from './gateway/index';
