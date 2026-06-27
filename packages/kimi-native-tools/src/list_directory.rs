@@ -24,18 +24,10 @@ pub struct ListDirectoryResult {
 }
 
 /// Configuration for list_directory.
+#[derive(Default)]
 pub struct ListDirectoryConfig {
     pub path: Option<String>,
     pub collapse_hidden_dirs: bool,
-}
-
-impl Default for ListDirectoryConfig {
-    fn default() -> Self {
-        Self {
-            path: None,
-            collapse_hidden_dirs: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

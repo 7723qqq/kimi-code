@@ -21,7 +21,7 @@
 /// SIMD-friendly — the compiler auto-vectorizes the byte comparisons.
 /// It also matches the JS `for (const char of text)` semantics, which
 /// iterates Unicode code points.
-
+///
 /// Estimate token count from a single text string.
 pub fn estimate_tokens(text: &str) -> usize {
     let mut ascii = 0usize;
@@ -33,7 +33,7 @@ pub fn estimate_tokens(text: &str) -> usize {
             non_ascii += 1;
         }
     }
-    (ascii + 3) / 4 + non_ascii
+    (ascii.div_ceil(4)) + non_ascii
 }
 
 /// Estimate token count across multiple text strings (batch mode).

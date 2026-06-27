@@ -94,17 +94,70 @@ export interface NativeBashResult {
   error?: string;
 }
 
+export interface GrepStructuredMatch {
+  line: number;
+  col: number;
+  text: string;
+  before: string[];
+  after: string[];
+}
+
+export interface GrepStructuredFileHit {
+  path: string;
+  matches: GrepStructuredMatch[];
+}
+
+export interface GrepStructuredResult {
+  files: GrepStructuredFileHit[];
+  files_scanned: number;
+  truncated: boolean;
+  error?: string;
+}
+
+export interface CompactionMessageMeta {
+  role: string;
+  tool_calls_count: number;
+  tokens: number;
+}
+
+export interface CompactionConfigMeta {
+  max_size: number;
+  max_recent_messages: number;
+  max_recent_user_messages: number;
+  max_recent_size_ratio: number;
+  min_overflow_reduction_ratio: number;
+}
+
 export declare function nativeRead(path: string, options?: NativeReadOptions): NativeReadResult;
 export declare function nativeWrite(path: string, content: string, options?: NativeWriteOptions): NativeWriteResult;
 export declare function nativeEdit(path: string, oldString: string, newString: string, options?: NativeEditOptions): NativeEditResult;
-export declare function nativeGrep(pattern: string, options?: NativeGrepOptions): NativeGrepResult;
+export declare function nativeGrep(pattern: string, options?: NativeGrepOptions): Promise<NativeGrepResult>;
 export declare function nativeGlob(pattern: string, options?: NativeGlobOptions): NativeGlobResult;
+export declare function nativeGlobMatchesAny(globs: string[], path: string): boolean;
 export declare function nativeListDirectory(options?: NativeListDirectoryOptions): NativeListDirectoryResult;
 export declare function nativeSniffImageDimensions(data: Buffer | Uint8Array): NativeSniffImageDimensionsResult | null;
 export declare function nativeIsSensitiveFile(path: string): boolean;
 export declare function nativeEstimateTokens(text: string): number;
 export declare function nativeEstimateTokensBatch(texts: string[]): number;
-export declare function nativeBash(command: string, options?: NativeBashOptions): NativeBashResult;
+export declare function nativeBash(command: string, options?: NativeBashOptions): Promise<NativeBashResult>;
+export declare function nativeComputeCompactCount(messages: CompactionMessageMeta[], config: CompactionConfigMeta, isManual: boolean): number;
+export declare function nativeReduceCompactOnOverflow(messages: CompactionMessageMeta[], config: CompactionConfigMeta): number;
+export declare function nativeResolveCompactionMaxCompletionTokens(maxContextTokens: number, maxOutputSize: number | null): number | null;
+export declare const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS: number;
+export declare function nativeGrepStructured(
+  pattern: string,
+  path: string,
+  literal: boolean,
+  caseInsensitive: boolean,
+  includeGlobs: string[],
+  excludeGlobs: string[],
+  contextLines: number,
+  maxFiles: number,
+  maxMatchesPerFile: number,
+  maxTotalMatches: number,
+  timeoutMs: number,
+  followGitignore: boolean,
+): Promise<GrepStructuredResult>;
 
 export declare const READ_MAX_LINES: number;
 export declare const READ_MAX_LINE_LENGTH: number;

@@ -3,6 +3,7 @@
  */
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
+import { ErrorCodes, KimiError } from '../../errors';
 import { Emitter } from '../../base/common/event';
 import type {
   Event,
@@ -317,7 +318,7 @@ export class PromptService
   // --- IPromptService --------------------------------------------------------
 
   async list(sid: string): Promise<PromptListResponse> {
-    await this._requireSession(sid);
+    await this._resumeSession(sid);
     const key = promptKey(sid, MAIN_AGENT_ID);
     const active = this._active.get(key);
     return {
@@ -332,8 +333,7 @@ export class PromptService
   }
 
   async submit(sid: string, body: PromptSubmission): Promise<PromptSubmitResult> {
-    await this._requireSession(sid);
-    await this.core.rpc.resumeSession({ sessionId: sid });
+    await this._resumeSession(sid);
 
     // Readiness gate. Throws AuthProvisioningRequired /
     // AuthTokenMissing / AuthModelNotResolved before we mint a prompt_id and
@@ -360,14 +360,13 @@ export class PromptService
   }
 
   async startBtw(sid: string): Promise<string> {
-    await this._requireSession(sid);
-    await this.core.rpc.resumeSession({ sessionId: sid });
+    await this._resumeSession(sid);
     await this.auth.ensureReady();
     return this.core.rpc.startBtw({ sessionId: sid, agentId: MAIN_AGENT_ID });
   }
 
   async steer(sid: string, promptIds: readonly string[]): Promise<PromptSteerResult> {
-    await this._requireSession(sid);
+    await this._resumeSession(sid);
     if (promptIds.length === 0) {
       throw new PromptNotFoundError(sid, '');
     }
@@ -493,7 +492,7 @@ export class PromptService
   }
 
   async abort(sid: string, pid: string): Promise<PromptAbortResult> {
-    await this._requireSession(sid);
+    await this._resumeSession(sid);
     const key = promptKey(sid, MAIN_AGENT_ID);
     const state = this._active.get(key);
     if (state !== undefined && state.promptId === pid) {
@@ -535,7 +534,7 @@ export class PromptService
   }
 
   async abortBySession(sid: string): Promise<PromptAbortResult> {
-    await this._requireSession(sid);
+    await this._resumeSession(sid);
     const state = this._active.get(promptKey(sid, MAIN_AGENT_ID));
     if (state !== undefined && !state.completed && !state.aborted) {
       // Normal prompt path: let abort() handle turnId mapping and event synthesis.
@@ -578,7 +577,7 @@ export class PromptService
     promptId?: string,
   ): Promise<void> {
     if (!hasAnyAgentStateField(patch)) return;
-    await this._requireSession(sid);
+    await this._resumeSession(sid);
     await this._ensureAgentStateBootstrapped(sid);
     await this._applyAgentStateInternal(sid, patch, source, promptId ?? '');
   }
@@ -983,10 +982,32 @@ export class PromptService
     });
   }
 
+  /**
+   * Validate that a session exists without loading it. Cheaper than
+   * `_resumeSession` because `listSessions` can be filtered by `sessionId`
+   * server-side (no full session hydration).
+   */
   private async _requireSession(sid: string): Promise<void> {
     const matches = await this.core.rpc.listSessions({ sessionId: sid });
     if (matches.length === 0) {
       throw new SessionNotFoundError(sid);
+    }
+  }
+
+  /**
+   * Resume a session and translate a not-found `KimiError` from the RPC layer
+   * into `SessionNotFoundError` so route error handlers keep matching by class
+   * identity. Used by callers that need the session loaded, not merely
+   * validated; see `_requireSession` for the existence-only fast path.
+   */
+  private async _resumeSession(sid: string): Promise<void> {
+    try {
+      await this.core.rpc.resumeSession({ sessionId: sid });
+    } catch (err) {
+      if (err instanceof KimiError && err.code === ErrorCodes.SESSION_NOT_FOUND) {
+        throw new SessionNotFoundError(sid);
+      }
+      throw err;
     }
   }
 

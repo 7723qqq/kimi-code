@@ -3,9 +3,10 @@
 /// This module defines the `#[napi]` functions that TypeScript calls.
 /// Each function wraps the corresponding Rust implementation.
 use crate::bash::{self, BashConfig, BashResult, DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S};
+use crate::compaction::{self, CompactionConfigMeta, CompactionMessageMeta};
 use crate::edit::{self, EditResult};
 use crate::glob::{self, GlobConfig, GlobResult, MAX_MATCHES};
-use crate::grep::{self, GrepConfig, GrepResult, OutputMode, DEFAULT_HEAD_LIMIT};
+use crate::grep::{self, GrepConfig, GrepResult, GrepStructuredConfig, GrepStructuredResult, OutputMode, DEFAULT_HEAD_LIMIT};
 use crate::list_directory::{self, ListDirectoryConfig, ListDirectoryResult};
 use crate::read::{self, ReadConfig, ReadResult, MAX_BYTES, MAX_LINE_LENGTH, MAX_LINES};
 use crate::write::{self, WriteMode, WriteResult};
@@ -85,6 +86,9 @@ pub fn native_edit(
 
 /// Search for a pattern in files.
 ///
+/// Async: runs the directory walk on tokio's blocking thread pool so the
+/// Node event loop stays responsive during large searches.
+///
 /// @param pattern - Regular expression to search for.
 /// @param path - File or directory to search. Defaults to current directory.
 /// @param glob - Optional glob filter.
@@ -103,7 +107,7 @@ pub fn native_edit(
 /// @returns GrepResult with content, error, matchCount, fileCount, filteredSensitive, timedOut.
 #[napi]
 #[allow(clippy::too_many_arguments)]
-pub fn native_grep(
+pub async fn native_grep(
     pattern: String,
     path: Option<String>,
     glob: Option<String>,
@@ -119,7 +123,7 @@ pub fn native_grep(
     multiline: Option<bool>,
     include_ignored: Option<bool>,
     timeout_ms: Option<u32>,
-) -> GrepResult {
+) -> Result<GrepResult, napi::Error> {
     let mode = match output_mode.as_deref() {
         Some("content") => OutputMode::Content,
         Some("count_matches") => OutputMode::CountMatches,
@@ -135,7 +139,7 @@ pub fn native_grep(
         None => Some(grep::DEFAULT_TIMEOUT_MS),
     };
 
-    grep::grep_search(&GrepConfig {
+    let config = GrepConfig {
         pattern,
         path,
         glob,
@@ -153,7 +157,69 @@ pub fn native_grep(
         multiline: multiline.unwrap_or(false),
         include_ignored: include_ignored.unwrap_or(false),
         timeout_ms: timeout,
-    })
+    };
+
+    tokio::task::spawn_blocking(move || grep::grep_search(&config))
+        .await
+        .map_err(|e| napi::Error::from_reason(format!("grep task failed: {}", e)))
+}
+
+/// Structured grep — returns typed match data instead of formatted strings.
+///
+/// Async: runs the directory walk on tokio's blocking thread pool so the
+/// Node event loop stays responsive during large searches.
+///
+/// Used by fsSearchService when rg is not available on PATH. Walks the
+/// directory tree, applies include/exclude globs, reads each file, and
+/// collects matches with context lines.
+///
+/// @param pattern - Pattern to search for.
+/// @param path - Directory to search in.
+/// @param literal - If true, treat pattern as literal (not regex).
+/// @param case_insensitive - Case-insensitive search.
+/// @param include_globs - Only scan files matching these globs.
+/// @param exclude_globs - Skip files matching these globs.
+/// @param context_lines - Number of context lines before/after each match.
+/// @param max_files - Max files to scan.
+/// @param max_matches_per_file - Max matches per file.
+/// @param max_total_matches - Max total matches across all files.
+/// @param timeout_ms - Timeout in milliseconds.
+/// @param follow_gitignore - Whether to respect .gitignore rules.
+/// @returns GrepStructuredResult with files, matches, and metadata.
+#[allow(clippy::too_many_arguments)]
+#[napi]
+pub async fn native_grep_structured(
+    pattern: String,
+    path: String,
+    literal: bool,
+    case_insensitive: bool,
+    include_globs: Vec<String>,
+    exclude_globs: Vec<String>,
+    context_lines: u32,
+    max_files: u32,
+    max_matches_per_file: u32,
+    max_total_matches: u32,
+    timeout_ms: u32,
+    follow_gitignore: bool,
+) -> Result<GrepStructuredResult, napi::Error> {
+    let config = GrepStructuredConfig {
+        pattern,
+        path,
+        literal,
+        case_insensitive,
+        include_globs: if include_globs.is_empty() { None } else { Some(include_globs) },
+        exclude_globs: if exclude_globs.is_empty() { None } else { Some(exclude_globs) },
+        context_lines,
+        max_files,
+        max_matches_per_file,
+        max_total_matches,
+        timeout_ms,
+        follow_gitignore,
+    };
+
+    tokio::task::spawn_blocking(move || grep::grep_search_structured(&config))
+        .await
+        .map_err(|e| napi::Error::from_reason(format!("grep_structured task failed: {}", e)))
 }
 
 // ============================================================================
@@ -179,11 +245,28 @@ pub fn native_glob(
     })
 }
 
+/// Check if a path matches any of the given glob patterns.
+///
+/// Uses `globset::GlobSet` to batch-compile all patterns and test the path
+/// in a single `is_match` call. Matching is case-sensitive (consistent with
+/// `globToRegExp` in the TS fallback).
+///
+/// @param globs - Array of glob patterns.
+/// @param path - Relative path to test.
+/// @returns True if the path matches at least one pattern.
+#[napi]
+pub fn native_glob_matches_any(globs: Vec<String>, path: String) -> bool {
+    glob::glob_matches_any(&globs, &path)
+}
+
 // ============================================================================
 // Bash tool
 // ============================================================================
 
 /// Execute a shell command.
+///
+/// Async: runs the subprocess on tokio's blocking thread pool so the Node
+/// event loop stays responsive while a long-running command is awaited.
 ///
 /// @param command - The command to execute.
 /// @param cwd - Working directory. Defaults to process cwd.
@@ -191,12 +274,12 @@ pub fn native_glob(
 /// @param env - Environment variables as array of [key, value] pairs.
 /// @returns BashResult with exitCode, stdout, stderr, timedOut, error.
 #[napi]
-pub fn native_bash(
+pub async fn native_bash(
     command: String,
     cwd: Option<String>,
     timeout: Option<u32>,
     env: Option<Vec<Vec<String>>>,
-) -> BashResult {
+) -> Result<BashResult, napi::Error> {
     let env_pairs = env.map(|pairs| {
         pairs
             .into_iter()
@@ -210,12 +293,16 @@ pub fn native_bash(
             .collect()
     });
 
-    bash::bash_exec(&BashConfig {
+    let config = BashConfig {
         command,
         cwd,
         timeout: timeout.map(|t| t as u64),
         env: env_pairs,
-    })
+    };
+
+    tokio::task::spawn_blocking(move || bash::bash_exec(&config))
+        .await
+        .map_err(|e| napi::Error::from_reason(format!("bash task failed: {}", e)))
 }
 
 // ============================================================================
@@ -310,6 +397,45 @@ pub fn native_is_sensitive_file_bytes(path: Uint8Array) -> bool {
 // ============================================================================
 
 use crate::tokens;
+
+// ============================================================================
+// Compaction strategy
+// ============================================================================
+
+/// Decide how many leading messages to compact.
+///
+/// Returns N where `messages[0..N]` is compacted and `messages[N..]` is
+/// preserved. 0 means no compaction possible (no valid split point).
+///
+/// @param messages - Lightweight message metadata (role, tool_calls_count, tokens).
+/// @param config - Compaction algorithm knobs.
+/// @param is_manual - Whether this is a manual (user-requested) compaction.
+/// @returns Number of messages to compact (0 = no compaction possible).
+#[napi]
+pub fn native_compute_compact_count(
+    messages: Vec<CompactionMessageMeta>,
+    config: CompactionConfigMeta,
+    is_manual: bool,
+) -> u32 {
+    compaction::compute_compact_count(&messages, &config, is_manual)
+}
+
+/// Find a split point when the LLM throws a context overflow error.
+///
+/// Walks backward from the tail accumulating tokens until the reduced
+/// size reaches `min_overflow_reduction_ratio * max_size`, returning the
+/// first valid split point that satisfies the threshold.
+///
+/// @param messages - Lightweight message metadata.
+/// @param config - Compaction algorithm knobs.
+/// @returns Split index (number of messages to keep in the tail).
+#[napi]
+pub fn native_reduce_compact_on_overflow(
+    messages: Vec<CompactionMessageMeta>,
+    config: CompactionConfigMeta,
+) -> u32 {
+    compaction::reduce_compact_on_overflow(&messages, &config)
+}
 
 /// Estimate token count from text using a character-based heuristic.
 ///

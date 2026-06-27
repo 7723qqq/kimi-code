@@ -117,15 +117,6 @@ fn is_video_magic(header: &[u8]) -> bool {
     false
 }
 
-/// Returns true if the content appears to be readable UTF-8 text.
-#[allow(dead_code)]
-pub fn is_readable_text(data: &[u8]) -> bool {
-    if data.contains(&0) {
-        return false;
-    }
-    std::str::from_utf8(data).is_ok()
-}
-
 /// Sensitive-file basenames that grep / read should refuse to surface.
 ///
 /// Mirrors `packages/agent-core/src/tools/policies/sensitive.ts` —
@@ -273,7 +264,7 @@ pub fn is_sensitive_file(path: &str) -> bool {
             if next == Some('-') || next == Some('_') {
                 return true;
             }
-            if next == Some('.') && SENSITIVE_DOT_VARIANT_SUFFIXES.iter().any(|s| *s == suffix) {
+            if next == Some('.') && SENSITIVE_DOT_VARIANT_SUFFIXES.iter().any(|s| s == &suffix) {
                 return true;
             }
         }
@@ -482,13 +473,6 @@ mod tests {
             detect_file_type(&PathBuf::from("photo.png"), b"not a png"),
             FileKind::Image
         );
-    }
-
-    #[test]
-    fn test_is_readable_text() {
-        assert!(is_readable_text(b"hello world"));
-        assert!(!is_readable_text(b"hello\x00world"));
-        assert!(!is_readable_text(&[0xFF, 0xFE]));
     }
 
     #[test]
