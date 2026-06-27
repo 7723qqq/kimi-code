@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ErrorCodes, KimiError } from '#/errors';
 import { validateConfig, type KimiConfig } from '#/config/schema';
-import { ProviderManager } from '#/session/provider-manager';
+import { ProviderManager } from '#/kosong';
 
 function makeConfig(overrides: Partial<KimiConfig> = {}): KimiConfig {
   return validateConfig({

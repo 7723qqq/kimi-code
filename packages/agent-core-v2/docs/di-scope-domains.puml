@@ -83,7 +83,7 @@ package "Agent scope (per agent)" #FDF5E6 {
 
 package "Multi-scope" #F5EEF8 {
   rectangle "<b>config</b>\n<size:9><i>Multi</i></size>\n  IConfigRegistry(C)\n  IConfigService(C)\n  ISessionConfigService(S)" as config #E8DAEF
-  rectangle "<b>kosong</b>\n<size:9><i>Multi</i></size>\n  IModelCatalogService(C)\n  IProviderManager(S)\n  ILLMService(A)" as kosong #E8DAEF
+  rectangle "<b>kosong</b>\n<size:9><i>Multi</i></size>\n  IProtocolHandlerRegistry(C)\n  IProviderManager(S, seed)" as kosong #E8DAEF
   rectangle "<b>records</b>\n<size:9><i>Multi</i></size>\n  ISessionStore(C)\n  ISessionMetaStore(S)\n  IAgentRecords(A)" as records #E8DAEF
   rectangle "<b>tool</b>\n<size:9><i>Multi</i></size>\n  IToolDefinitionRegistry(C)\n  IToolService(A)" as tool #E8DAEF
   rectangle "<b>kaos</b>\n<size:9><i>Multi</i></size>\n  IKaosFactory(C)\n  ISessionKaosService(S)\n  IKaosService / IAgentKaos(A)" as kaos #E8DAEF
@@ -115,7 +115,6 @@ config --> log #34495E
 config --> records #34495E
 config --> kaos #34495E
 kosong --> config #34495E
-kosong --> environment #34495E
 records --> kaos #34495E
 records --> log #34495E
 tool --> config #34495E
@@ -155,6 +154,8 @@ profile --> wireRecord #34495E
 profile --> eventBus #34495E
 profile --> replayBuilder #34495E
 profile --> telemetry #34495E
+profile --> config #34495E
+profile --> kosong #34495E
 rpc --> prompt #34495E
 rpc --> turn #34495E
 rpc --> profile #34495E
@@ -192,6 +193,7 @@ llmRequester --> contextProjector #34495E
 llmRequester --> toolRegistry #34495E
 llmRequester --> profile #34495E
 llmRequester --> llmRequestLog #34495E
+llmRequester --> kosong #34495E
 fullCompaction --> contextMemory #34495E
 fullCompaction --> contextProjector #34495E
 fullCompaction --> contextSize #34495E

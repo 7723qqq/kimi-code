@@ -1,5 +1,11 @@
 /**
- * `session` domain (L6) — runtime model-provider resolution.
+ * `kosong` domain (L1) — `IProviderManager` contract and runtime implementation.
+ *
+ * Resolves the active model alias into a runtime kosong `ProviderConfig` plus
+ * optional OAuth request authorization, reading provider / model configuration
+ * through `config`. A host-built instance is installed into a Session scope via
+ * `providerManagerSeed`; `IProfileService` / `ILLMRequester` consume it through
+ * DI. Bound at Session scope.
  */
 
 import type {
@@ -13,8 +19,10 @@ import {
   UNKNOWN_CAPABILITY,
 } from '@moonshot-ai/kosong';
 
-import { ErrorCodes, isKimiError, KimiError } from '#/errors';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { ScopeSeed } from '#/_base/di/scope';
 import type { KimiConfig, ModelAlias, OAuthRef, ProviderConfig } from '#/config';
+import { ErrorCodes, isKimiError, KimiError } from '#/errors';
 
 export interface BearerTokenProvider {
   getAccessToken(options?: { readonly force?: boolean }): Promise<string>;
@@ -48,13 +56,22 @@ type AuthorizedRequest = <T>(
   request: (auth: ProviderRequestAuth) => Promise<T>,
 ) => Promise<T>;
 
-export interface ModelProvider {
+export interface IProviderManager {
+  readonly _serviceBrand: undefined;
   readonly defaultModel?: string;
   resolveProviderConfig(model: string): ResolvedRuntimeProvider;
   resolveAuth?(model: string, options?: { readonly log?: RequestLogger }): AuthorizedRequest | undefined;
 }
 
-export class SingleModelProvider implements ModelProvider {
+export const IProviderManager: ServiceIdentifier<IProviderManager> =
+  createDecorator<IProviderManager>('providerManager');
+
+export function providerManagerSeed(providerManager: IProviderManager): ScopeSeed {
+  return [[IProviderManager as ServiceIdentifier<unknown>, providerManager]];
+}
+
+export class SingleModelProvider implements IProviderManager {
+  declare readonly _serviceBrand: undefined;
   constructor(
     private readonly providerConfig: KosongProviderConfig,
     private readonly modelCapabilities: ModelCapability = UNKNOWN_CAPABILITY,
@@ -79,7 +96,8 @@ export class SingleModelProvider implements ModelProvider {
   }
 }
 
-export class ProviderManager implements ModelProvider {
+export class ProviderManager implements IProviderManager {
+  declare readonly _serviceBrand: undefined;
   constructor(private readonly options: ProviderManagerOptions) {}
 
   get defaultModel(): string | undefined {

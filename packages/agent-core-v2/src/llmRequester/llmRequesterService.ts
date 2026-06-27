@@ -1,3 +1,13 @@
+/**
+ * `llmRequester` domain (L3) — `ILLMRequester` implementation.
+ *
+ * Assembles one LLM request from `profile` (provider / system prompt),
+ * `contextMemory` + `contextProjector` (history), and `toolRegistry` (tools),
+ * resolves request authorization through `kosong` `IProviderManager`, drives
+ * kosong `generate()`, and logs each request through `llmRequestLog`. Bound at
+ * Agent scope.
+ */
+
 import {
   emptyUsage,
   generate,
@@ -10,7 +20,7 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import type { ModelProvider } from '#/session/provider-manager';
+import { IProviderManager } from '#/kosong';
 import {
   applyCompletionBudget,
   resolveCompletionBudget,
@@ -26,7 +36,6 @@ import { AsyncEventQueue } from './asyncEventQueue';
 import { ILLMRequester } from './llmRequester';
 
 export interface LLMRequesterServiceOptions {
-  readonly modelProvider?: ModelProvider;
   readonly generate?: typeof generate;
 }
 
@@ -44,13 +53,8 @@ export class LLMRequesterService implements ILLMRequester {
     @IProfileService private readonly profile: IProfileService,
     @ILLMRequestLogService private readonly requestLog: ILLMRequestLogService,
     @IUsageService private readonly usage: IUsageService,
-  ) {
-    if (options.modelProvider !== undefined) {
-      this.profile.configure({
-        modelProvider: options.modelProvider,
-      });
-    }
-  }
+    @IProviderManager private readonly providerManager: IProviderManager,
+  ) {}
 
   request(
     overrides: LLMRequestOverrides = {},
@@ -185,7 +189,7 @@ export class LLMRequesterService implements ILLMRequester {
   }
 
   private resolveAuth(modelAlias: string) {
-    return this.options.modelProvider?.resolveAuth?.(modelAlias);
+    return this.providerManager.resolveAuth?.(modelAlias);
   }
 
   private defaultTools(): readonly KosongTool[] {

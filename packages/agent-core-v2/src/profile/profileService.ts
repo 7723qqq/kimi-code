@@ -1,7 +1,17 @@
+/**
+ * `profile` domain (L3) — `IProfileService` implementation.
+ *
+ * Owns the active agent's model alias, thinking level, system prompt, and
+ * active-tool set; resolves the runtime provider through `kosong`
+ * `IProviderManager`, builds the protocol adapter through `kosong`
+ * `IProtocolHandlerRegistry`, applies completion budget through
+ * `completion-budget`, persists profile changes through `wireRecord`, and
+ * emits status through `eventBus`. Bound at Agent scope.
+ */
+
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import {
-  createProvider,
   UNKNOWN_CAPABILITY,
   type ChatProvider,
   type ModelCapability,
@@ -17,9 +27,9 @@ import {
   applyKimiEnvThinkingKeep,
 } from '#/config/kimi-env-params';
 import type { LoopControl } from '#/loop/configSection';
+import { IProtocolHandlerRegistry, IProviderManager, type ResolvedRuntimeProvider } from '#/kosong';
 import { isMcpToolName } from '#/mcp/tool-naming';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/profile';
-import type { ResolvedRuntimeProvider } from '#/session/provider-manager';
 
 import { IEventSink } from '../eventSink';
 import { IReplayBuilderService } from '#/replayBuilder';
@@ -64,6 +74,8 @@ export class ProfileService implements IProfileService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
+    @IProviderManager private readonly providerManager: IProviderManager,
+    @IProtocolHandlerRegistry private readonly protocolHandlers: IProtocolHandlerRegistry,
   ) {
     configRegistry.registerSection(THINKING_SECTION, ThinkingConfigSchema);
     this.configure(options);
@@ -81,7 +93,6 @@ export class ProfileService implements IProfileService {
     this.optionsValue = {
       cwd: options.cwd ?? this.optionsValue.cwd,
       chdir: options.chdir ?? this.optionsValue.chdir,
-      modelProvider: options.modelProvider ?? this.optionsValue.modelProvider,
       initializeBuiltinTools:
         options.initializeBuiltinTools ?? this.optionsValue.initializeBuiltinTools,
       emitStatusUpdated: options.emitStatusUpdated ?? this.optionsValue.emitStatusUpdated,
@@ -90,7 +101,7 @@ export class ProfileService implements IProfileService {
       this.cwdValue = this.readConfiguredCwd();
     }
     if (this.modelAliasValue === undefined) {
-      this.modelAliasValue = this.optionsValue.modelProvider?.defaultModel;
+      this.modelAliasValue = this.providerManager.defaultModel;
     }
   }
 
@@ -106,14 +117,14 @@ export class ProfileService implements IProfileService {
   }
 
   setModel(model: string): ProfileSetModelResult {
-    const resolved = this.optionsValue.modelProvider?.resolveProviderConfig(model);
+    const resolved = this.providerManager.resolveProviderConfig(model);
     if (this.modelAlias !== model) {
       this.update({ modelAlias: model });
       this.telemetry.track('model_switch', { model });
     }
     return {
       model,
-      providerName: resolved?.providerName,
+      providerName: resolved.providerName,
     };
   }
 
@@ -154,7 +165,7 @@ export class ProfileService implements IProfileService {
 
   resolveModelContext(): ProfileModelContext {
     const modelAlias = this.model;
-    const resolved = this.optionsValue.modelProvider?.resolveProviderConfig(modelAlias);
+    const resolved = this.providerManager.resolveProviderConfig(modelAlias);
     if (resolved === undefined) {
       throw new KimiError(ErrorCodes.MODEL_NOT_CONFIGURED, 'Provider not set');
     }
@@ -172,7 +183,7 @@ export class ProfileService implements IProfileService {
   }
 
   getProvider(): ChatProvider {
-    const provider = createProvider(this.providerConfig).withThinking(this.thinkingLevel);
+    const provider = this.protocolHandlers.create(this.providerConfig).withThinking(this.thinkingLevel);
     return applyKimiEnvThinkingKeep(applyKimiEnvSamplingParams(provider), this.thinkingLevel);
   }
 
@@ -291,7 +302,7 @@ export class ProfileService implements IProfileService {
   }
 
   private get modelAlias(): string | undefined {
-    return this.modelAliasValue ?? this.optionsValue.modelProvider?.defaultModel;
+    return this.modelAliasValue ?? this.providerManager.defaultModel;
   }
 
   private get providerConfig(): ProviderConfig {
@@ -316,7 +327,7 @@ export class ProfileService implements IProfileService {
   private get resolvedProviderConfig(): ResolvedRuntimeProvider | undefined {
     const modelAlias = this.modelAlias;
     if (modelAlias === undefined) return undefined;
-    return this.optionsValue.modelProvider?.resolveProviderConfig(modelAlias);
+    return this.providerManager.resolveProviderConfig(modelAlias);
   }
 
   private tryResolvedProviderConfig(): ResolvedRuntimeProvider | undefined {

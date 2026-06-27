@@ -72,7 +72,7 @@ Canonical splits in the codebase:
 
 - **`records`** — `ISessionStore` (`Core`) + `ISessionMetaStore` (`Session`) + `IAgentRecords` (`Agent`).
 - **`config`** — `IConfigRegistry` / `IConfigService` (`Core`) + `ISessionConfigService` (`Session`).
-- **`kosong`** — `IModelCatalogService` (`Core`) + `IProviderManager` (`Session`) + `ILLMService` (`Agent`).
+- **`kosong`** — `IProtocolHandlerRegistry` (`Core`) + `IProviderManager` (`Session`). Generation is driven by `ILLMRequester` (`Agent`) in the `llmRequester` domain.
 - **`tool`** — `IToolDefinitionRegistry` (`Core`) + `IToolService` (`Agent`).
 
 Split when the domain genuinely has both a global view and per-instance state. Do **not** split when state lives at only one lifetime (e.g. purely `Core` like `log`; purely `Agent` like `prompt`). Do not pre-split for symmetry.
