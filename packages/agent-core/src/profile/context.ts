@@ -5,6 +5,7 @@ import type { Kaos } from '@moonshot-ai/kaos';
 import { normalizeAdditionalDirs } from '../config';
 import { listDirectory } from '../tools/support/list-directory';
 import { nativeListDirectory } from '../tools/builtin/native-tools';
+import { S_IFMT, S_IFREG } from '../tools/support/path-utils';
 import type { SystemPromptContext } from './types';
 
 // Soft budget for the combined AGENTS.md content injected into the system
@@ -14,8 +15,6 @@ import type { SystemPromptContext } from './types';
 // longer truncates content; it only surfaces a user-visible warning so the user
 // can trim oversized instruction files.
 const AGENTS_MD_RECOMMENDED_MAX_BYTES = 32 * 1024;
-const S_IFMT = 0o170000;
-const S_IFREG = 0o100000;
 
 export interface PreparedSystemPromptContext
   extends Pick<SystemPromptContext, 'cwdListing' | 'agentsMd' | 'additionalDirsInfo'> {

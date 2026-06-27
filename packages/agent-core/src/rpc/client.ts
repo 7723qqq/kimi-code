@@ -1,3 +1,4 @@
+import { flags } from '../flags';
 import type { PromisableMethods, Promisify } from '#/utils/types';
 import { createControlledPromise, objectMap } from '@antfu/utils';
 
@@ -35,12 +36,22 @@ export function createRPC<Left extends Record<string, any>, Right extends Record
   const left = createControlledPromise<PromisableMethods<Left>>();
   const right = createControlledPromise<PromisableMethods<Right>>();
 
+  // Read once per createRPC() call: env-driven flags rarely change at runtime, and reading at
+  // factory time keeps the hot path branch-free while still respecting test-time env overrides
+  // that happen before any RPC is created.
+  const useMicrotask = flags.enabled('rpc_microtask');
+
   function simulateNetwork<T>(data: T): Promise<T> {
     return new Promise((resolve) => {
-      setTimeout(() => {
+      const run = (): void => {
         const serialized = JSON.stringify(data);
         resolve(serialized === undefined ? (undefined as T) : JSON.parse(serialized));
-      }, 0);
+      };
+      if (useMicrotask) {
+        queueMicrotask(run);
+      } else {
+        setTimeout(run, 0);
+      }
     });
   }
 

@@ -42,6 +42,7 @@ import { isWithinDirectory, resolvePathAccessPath } from '../../policies/path-ac
 import type { PathClass } from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
+import { relativizeIfUnder, S_IFDIR, S_IFMT } from '../../support/path-utils';
 import type { WorkspaceConfig } from '../../support/workspace';
 import GLOB_DESCRIPTION from './glob.md?raw';
 export { GLOB_DESCRIPTION };
@@ -92,10 +93,6 @@ export const WINDOWS_PATH_HINT =
   '(e.g. `C:\\Users\\foo`) and POSIX-style paths (e.g. `/c/Users/foo`). Matched paths are ' +
   'returned in Windows backslash form; convert them to forward slashes before ' +
   'using them in a Bash command.';
-
-// POSIX mode bits — same constants used by KaosPath.isDir (packages/kaos/src/path.ts:199).
-const S_IFMT = 0o170000;
-const S_IFDIR = 0o040000;
 
 /**
  * Tool-level description shown to the LLM at tool declaration time.
@@ -293,24 +290,6 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     }
   }
 
-}
-
-/**
- * If `candidate` is under `base`, return the portion after `base/`.
- * Otherwise return `candidate` unchanged (absolute). Both arguments
- * should be canonical absolute paths.
- */
-function relativizeIfUnder(candidate: string, base: string, pathClass: PathClass): string {
-  const normCandidate = normalize(candidate);
-  const normBase = normalize(base);
-  const comparableCandidate = pathClass === 'win32' ? normCandidate.toLowerCase() : normCandidate;
-  const comparableBase = pathClass === 'win32' ? normBase.toLowerCase() : normBase;
-  if (comparableCandidate === comparableBase) return '.';
-  const prefix = comparableBase.endsWith('/') ? comparableBase : comparableBase + '/';
-  if (comparableCandidate.startsWith(prefix)) {
-    return normCandidate.slice(prefix.length);
-  }
-  return normCandidate;
 }
 
 /**

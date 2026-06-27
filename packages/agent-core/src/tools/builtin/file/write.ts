@@ -16,14 +16,10 @@ import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { resolvePathAccessPath } from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
+import { S_IFDIR, S_IFMT } from '../../support/path-utils';
 import type { WorkspaceConfig } from '../../support/workspace';
 import WRITE_DESCRIPTION from './write.md?raw';
 export { WRITE_DESCRIPTION };
-
-/** Mask isolating the file-type bits of a stat mode. */
-const S_IFMT = 0o170000;
-/** File-type bits of a directory. */
-const S_IFDIR = 0o040000;
 
 export const WriteInputSchema = z.object({
   path: z

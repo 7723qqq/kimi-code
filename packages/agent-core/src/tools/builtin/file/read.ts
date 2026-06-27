@@ -9,6 +9,7 @@ import { resolvePathAccessPath } from '../../policies/path-access';
 import { MEDIA_SNIFF_BYTES, detectFileType } from '../../support/file-type';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
+import { S_IFMT, S_IFREG } from '../../support/path-utils';
 import type { WorkspaceConfig } from '../../support/workspace';
 import { makeCarriageReturnsVisible, type LineEndingStyle } from './line-endings';
 import readDescriptionTemplate from './read.md?raw';
@@ -16,8 +17,6 @@ import readDescriptionTemplate from './read.md?raw';
 export const MAX_LINES: number = 1000;
 export const MAX_LINE_LENGTH: number = 2000;
 export const MAX_BYTES: number = 100 * 1024;
-const S_IFMT = 0o170000;
-const S_IFREG = 0o100000;
 
 const PositiveLineOffsetSchema = z.number().int().min(1);
 const TailLineOffsetSchema = z.number().int().min(-MAX_LINES).max(-1);

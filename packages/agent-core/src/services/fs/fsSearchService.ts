@@ -21,6 +21,52 @@ import { ISessionService } from '../session/session';
 import { ILogService } from '../logger/logger';
 import { IFsSearchService, FsGrepTimeoutError } from './fsSearch';
 
+// ── Native module loading (lazy, with TS fallback) ──────────────────────────
+
+let nativeFsSearch: {
+  nativeGlobMatchesAny?: (globs: string[], path: string) => boolean;
+  nativeGrepStructured?: (
+    pattern: string,
+    path: string,
+    literal: boolean,
+    caseInsensitive: boolean,
+    includeGlobs: string[],
+    excludeGlobs: string[],
+    contextLines: number,
+    maxFiles: number,
+    maxMatchesPerFile: number,
+    maxTotalMatches: number,
+    timeoutMs: number,
+    followGitignore: boolean,
+  ) => Promise<{
+    files: Array<{
+      path: string;
+      matches: Array<{
+        line: number;
+        col: number;
+        text: string;
+        before: string[];
+        after: string[];
+      }>;
+    }>;
+    filesScanned: number;
+    truncated: boolean;
+    error?: string;
+  }>;
+} | null | undefined;
+
+function getNativeFsSearch() {
+  if (nativeFsSearch === null) return undefined;
+  if (nativeFsSearch !== undefined) return nativeFsSearch;
+  try {
+    nativeFsSearch = require('@moonshot-ai/kimi-native-tools');
+    return nativeFsSearch;
+  } catch {
+    nativeFsSearch = null;
+    return undefined;
+  }
+}
+
 const SEARCH_HARD_CAP = 500;
 
 const GREP_TIMEOUT_MS = 30_000;
@@ -107,7 +153,9 @@ export class FsSearchService
       abortController.abort();
     }, GREP_TIMEOUT_MS);
 
+    const mod = getNativeFsSearch();
     try {
+      // Tier 1: ripgrep binary (fastest)
       const rg = await this.probeRg();
       if (rg !== null) {
         const out = await this.grepWithRg(
@@ -119,6 +167,20 @@ export class FsSearchService
         );
         return out;
       }
+
+      // Tier 2: native Rust grep
+      if (mod?.nativeGrepStructured) {
+        const out = await this.grepWithNative(
+          realCwd,
+          req,
+          abortController.signal,
+          startedAt,
+          mod,
+        );
+        return out;
+      }
+
+      // Tier 3: pure-Node fallback
       const out = await this.grepWithNode(
         realCwd,
         req,
@@ -328,6 +390,63 @@ export class FsSearchService
     };
   }
 
+  protected async grepWithNative(
+    cwd: string,
+    req: FsGrepRequest,
+    signal: AbortSignal,
+    startedAt: number,
+    mod: NonNullable<ReturnType<typeof getNativeFsSearch>>,
+  ): Promise<FsGrepResponse> {
+    if (signal.aborted) {
+      throw new FsGrepTimeoutError(Date.now() - startedAt);
+    }
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed >= GREP_TIMEOUT_MS) {
+      throw new FsGrepTimeoutError(elapsed);
+    }
+
+    const timeoutMs = GREP_TIMEOUT_MS - elapsed;
+    const result = await mod.nativeGrepStructured!(
+      req.pattern,
+      cwd,
+      !req.regex,
+      !req.case_sensitive,
+      req.include_globs ?? [],
+      req.exclude_globs ?? [],
+      req.context_lines,
+      req.max_files,
+      req.max_matches_per_file,
+      req.max_total_matches,
+      Math.max(0, timeoutMs),
+      req.follow_gitignore !== false,
+    );
+
+    if (result.error) {
+      // rg was already probed and not available, so fall straight to Node.
+      this.logger.warn(
+        `native grep failed: ${result.error} — falling back to pure-Node implementation.`,
+      );
+      return this.grepWithNode(cwd, req, signal, startedAt);
+    }
+
+    return {
+      files: result.files.map((f) => ({
+        path: f.path,
+        matches: f.matches.map((m) => ({
+          line: m.line,
+          col: m.col,
+          text: m.text,
+          before: m.before,
+          after: m.after,
+        })),
+      })),
+      files_scanned: result.filesScanned,
+      truncated: result.truncated,
+      elapsed_ms: Date.now() - startedAt,
+    };
+  }
+
   protected async grepWithNode(
     cwd: string,
     req: FsGrepRequest,
@@ -523,6 +642,14 @@ function computeMatchPositions(
 }
 
 function matchesAnyGlob(rel: string, globs: readonly string[]): boolean {
+  const mod = getNativeFsSearch();
+  if (mod?.nativeGlobMatchesAny) {
+    return mod.nativeGlobMatchesAny(globs as string[], rel);
+  }
+  return tsMatchesAnyGlob(rel, globs);
+}
+
+function tsMatchesAnyGlob(rel: string, globs: readonly string[]): boolean {
   for (const g of globs) {
     if (globToRegExp(g).test(rel)) return true;
   }
