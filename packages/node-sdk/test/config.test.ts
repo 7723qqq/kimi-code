@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join } from 'pathe';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -343,9 +343,13 @@ micro_compaction = false
       configValue: false,
       env: 'KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION',
     });
-    expect(features).toEqual([
-      expect.objectContaining({ id: 'micro_compaction', enabled: false }),
-    ]);
+    expect(features).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'micro_compaction', enabled: false }),
+        expect.objectContaining({ id: 'native_tools' }),
+        expect.objectContaining({ id: 'rpc_microtask' }),
+      ]),
+    );
   });
 
   it('can create the default config scaffold without selecting a model', async () => {

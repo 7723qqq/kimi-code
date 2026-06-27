@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join } from 'pathe';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
