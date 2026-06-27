@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve } from 'pathe';
 import * as zlib from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';

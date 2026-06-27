@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join } from 'pathe';
 
 import type { Kaos } from '@moonshot-ai/kaos';
 import { createKimiHarness, KimiHarness } from '#/index';

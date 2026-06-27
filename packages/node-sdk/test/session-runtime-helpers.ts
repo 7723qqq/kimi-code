@@ -1,6 +1,6 @@
 import { readFile, rm, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, normalize } from 'pathe';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import type { Event } from '#/index';
@@ -17,7 +17,9 @@ export interface AgentSessionWireRecord {
 }
 
 export async function makeTempDir(tempDirs: string[], prefix: string): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), prefix));
+  // mkdtemp returns the OS-native path; normalize it to forward slashes so it
+  // matches the pathe-style paths the SDK returns on every host.
+  const dir = normalize(await mkdtemp(join(tmpdir(), prefix)));
   tempDirs.push(dir);
   return dir;
 }

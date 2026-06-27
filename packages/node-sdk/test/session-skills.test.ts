@@ -1,5 +1,5 @@
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, normalize } from 'pathe';
 
 import type * as KosongModule from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
@@ -172,7 +172,7 @@ describe('Session skills', () => {
       expect(state['isCustomTitle']).toBe(false);
       expect(state['lastPrompt']).toBe('/review src/app.ts');
 
-      const skillDir = await realpath(join(workDir, '.kimi-code', 'skills', 'review'));
+      const skillDir = await realpath(join(workDir, '.kimi-code', 'skills', 'review')).then(normalize);
       await expect(
         waitForAgentWireEvent(
           homeDir,
