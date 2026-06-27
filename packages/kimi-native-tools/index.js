@@ -201,6 +201,20 @@ function nativeGlob(pattern, options = {}) {
   );
 }
 
+/**
+ * Check if a path matches any of the given glob patterns.
+ *
+ * Uses `globset::GlobSet` to batch-compile all patterns and test the path
+ * in a single `is_match` call. Case-insensitive matching.
+ *
+ * @param {string[]} globs - Array of glob patterns.
+ * @param {string} path - Relative path to test.
+ * @returns {boolean} True if the path matches at least one pattern.
+ */
+function nativeGlobMatchesAny(globs, path) {
+  return binding.nativeGlobMatchesAny(globs, path);
+}
+
 // ============================================================================
 // List Directory tool
 // ============================================================================
@@ -303,6 +317,105 @@ function nativeBash(command, options = {}) {
 }
 
 // ============================================================================
+// Compaction strategy
+// ============================================================================
+
+/**
+ * Decide how many leading messages to compact.
+ *
+ * @param {Array<{role: string, toolCallsCount: number, tokens: number}>} messages - Message metadata.
+ * @param {{maxSize: number, maxRecentMessages: number, maxRecentUserMessages: number, maxRecentSizeRatio: number, minOverflowReductionRatio: number}} config - Compaction config.
+ * @param {boolean} isManual - Whether this is a manual (user-requested) compaction.
+ * @returns {number} Number of messages to compact (0 = no compaction possible).
+ */
+function nativeComputeCompactCount(messages, config, isManual) {
+  return binding.nativeComputeCompactCount(messages, config, isManual);
+}
+
+/**
+ * Find a split point when the LLM throws a context overflow error.
+ *
+ * @param {Array<{role: string, toolCallsCount: number, tokens: number}>} messages - Message metadata.
+ * @param {{maxSize: number, maxRecentMessages: number, maxRecentUserMessages: number, maxRecentSizeRatio: number, minOverflowReductionRatio: number}} config - Compaction config.
+ * @returns {number} Split index (number of messages to keep in the tail).
+ */
+function nativeReduceCompactOnOverflow(messages, config) {
+  return binding.nativeReduceCompactOnOverflow(messages, config);
+}
+
+/**
+ * Resolve the effective `maxOutputSize` for a compaction call.
+ *
+ * Mirrors `defaultCompactionCap` in `compaction/full.ts`:
+ * 1. If `maxOutputSize` is set and positive, the caller wins.
+ * 2. Otherwise, when `maxContextTokens > 0`, use the lesser of
+ *    `maxContextTokens` and `DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS` (128k).
+ * 3. When the context window is unknown, return `null`.
+ *
+ * @param {number} maxContextTokens - The model's known max context tokens (0 = unknown).
+ * @param {number | null} maxOutputSize - Caller-provided override, or `null` for default.
+ * @returns {number | null} The effective cap, or `null` if unset.
+ */
+function nativeResolveCompactionMaxCompletionTokens(maxContextTokens, maxOutputSize) {
+  return binding.nativeResolveCompactionMaxCompletionTokens(maxContextTokens, maxOutputSize);
+}
+
+// ============================================================================
+// Structured grep
+// ============================================================================
+
+/**
+ * Structured grep — returns typed match data instead of formatted strings.
+ *
+ * Used by fsSearchService when rg is not available on PATH. Walks the
+ * directory tree, applies include/exclude globs, reads each file, and
+ * collects matches with context lines.
+ *
+ * @param {string} pattern - Pattern to search for.
+ * @param {string} path - Directory to search in.
+ * @param {boolean} literal - If true, treat pattern as literal (not regex).
+ * @param {boolean} caseInsensitive - Case-insensitive search.
+ * @param {string[]} includeGlobs - Only scan files matching these globs.
+ * @param {string[]} excludeGlobs - Skip files matching these globs.
+ * @param {number} contextLines - Number of context lines before/after each match.
+ * @param {number} maxFiles - Max files to scan.
+ * @param {number} maxMatchesPerFile - Max matches per file.
+ * @param {number} maxTotalMatches - Max total matches across all files.
+ * @param {number} timeoutMs - Timeout in milliseconds.
+ * @param {boolean} followGitignore - Whether to respect .gitignore rules.
+ * @returns {{ files: Array<{path: string, matches: Array<{line: number, col: number, text: string, before: string[], after: string[]}>}>, filesScanned: number, truncated: boolean, error?: string }}
+ */
+function nativeGrepStructured(
+  pattern,
+  path,
+  literal,
+  caseInsensitive,
+  includeGlobs,
+  excludeGlobs,
+  contextLines,
+  maxFiles,
+  maxMatchesPerFile,
+  maxTotalMatches,
+  timeoutMs,
+  followGitignore,
+) {
+  return binding.nativeGrepStructured(
+    pattern,
+    path,
+    literal,
+    caseInsensitive,
+    includeGlobs ?? [],
+    excludeGlobs ?? [],
+    contextLines,
+    maxFiles,
+    maxMatchesPerFile,
+    maxTotalMatches,
+    timeoutMs,
+    followGitignore,
+  );
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -313,12 +426,21 @@ module.exports = {
   nativeEdit,
   nativeGrep,
   nativeGlob,
+  nativeGlobMatchesAny,
   nativeListDirectory,
   nativeSniffImageDimensions,
   nativeIsSensitiveFile,
   nativeEstimateTokens,
   nativeEstimateTokensBatch,
   nativeBash,
+
+  // Compaction
+  nativeComputeCompactCount,
+  nativeReduceCompactOnOverflow,
+  nativeResolveCompactionMaxCompletionTokens,
+
+  // Structured grep
+  nativeGrepStructured,
 
   // Constants
   READ_MAX_LINES,

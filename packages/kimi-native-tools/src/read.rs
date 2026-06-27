@@ -294,13 +294,7 @@ fn scan_and_read_forward(
         // Track line endings.
         let stripped_for_scan = line.strip_suffix("\r\n").or_else(|| line.strip_suffix('\n')).unwrap_or(&line);
         for ch in stripped_for_scan.bytes() {
-            if ch == b'\r' {
-                flags.feed(ch);
-            } else if ch == b'\n' {
-                flags.feed(ch);
-            } else {
-                flags.feed(ch);
-            }
+            flags.feed(ch);
         }
         // Correct CRLF detection: if line ends with \r\n, mark as CRLF.
         if line.ends_with("\r\n") {
@@ -545,6 +539,7 @@ fn finish_output(rendered: &[String], message: &str) -> String {
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finish_message(
     rendered_count: usize,
     start_line: usize,
