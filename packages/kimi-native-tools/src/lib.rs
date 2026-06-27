@@ -1,6 +1,7 @@
 #![deny(clippy::all)]
 
 mod bash;
+mod compaction;
 mod edit;
 mod file_type;
 mod glob;
