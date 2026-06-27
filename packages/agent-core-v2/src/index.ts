@@ -9,10 +9,10 @@ export * from './errors';
 export * from './log/index';
 export * from './telemetry/index';
 export * from './environment/index';
-export * from './kaos/index';
+export * from './hostFs/index';
 export * from './kosong/index';
 
-export * from './sessionStore/index';
+export * from './sessionIndex/index';
 export * from './sessionMetaStore/index';
 export * from './config/index';
 
@@ -32,6 +32,7 @@ export * from './background/index';
 import './cron/index';
 
 export * from './agent-lifecycle/index';
+export * from './interaction/index';
 export * from './session-context/index';
 export * from './session-activity/index';
 export * from './session/index';
@@ -41,10 +42,12 @@ import './approval/index';
 export * from './question/index';
 export * from './gateway/index';
 
-export * from './terminal/index';
-export * from './fs/index';
-export * from './workspace/index';
-export * from './filestore/index';
+export * from './workspaceContext/index';
+export * from './workspaceRegistry/index';
+export * from './hostFolderBrowser/index';
+export * from './agentFs/index';
+export * from './process/index';
+export * from './storage/index';
 export * from './auth/index';
 
 // Ported agent services. These keep the current service boundaries during the migration.

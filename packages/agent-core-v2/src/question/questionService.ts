@@ -1,38 +1,37 @@
 /**
  * `question` domain (L7) — `IQuestionService` implementation.
  *
- * Brokers ask-user requests and resolves their answers. Bound at Session scope.
+ * Typed facade over the `interaction` kernel for ask-user requests; owns no
+ * pending state of its own (the kernel holds it). Bound at Session scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IInteractionService } from '#/interaction';
 
 import { type QuestionRequest, IQuestionService } from './question';
 
-interface Pending {
-  readonly req: QuestionRequest;
-  readonly resolve: (answer: string) => void;
-}
-
 export class QuestionService implements IQuestionService {
   declare readonly _serviceBrand: undefined;
-  private readonly pending = new Map<string, Pending>();
+
+  constructor(@IInteractionService private readonly interaction: IInteractionService) {}
 
   request(req: QuestionRequest): Promise<string> {
-    return new Promise<string>((resolve) => {
-      this.pending.set(req.id, { req, resolve });
+    return this.interaction.request<QuestionRequest, string>({
+      id: req.id,
+      kind: 'question',
+      payload: req,
     });
   }
 
   answer(id: string, answer: string): void {
-    const entry = this.pending.get(id);
-    if (entry === undefined) return;
-    this.pending.delete(id);
-    entry.resolve(answer);
+    this.interaction.respond(id, answer);
   }
 
   listPending(): readonly QuestionRequest[] {
-    return [...this.pending.values()].map((p) => p.req);
+    return this.interaction
+      .listPending('question')
+      .map((i) => i.payload as QuestionRequest);
   }
 }
 

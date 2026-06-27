@@ -1,12 +1,13 @@
 /**
  * `approval` domain (L7) — `IApprovalService` implementation.
  *
- * Owns the pending-approval set and resolves requests when a decision arrives.
- * Bound at Session scope.
+ * Typed facade over the `interaction` kernel for approval requests; owns no
+ * pending state of its own (the kernel holds it). Bound at Session scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IInteractionService } from '#/interaction';
 
 import {
   type ApprovalRequest,
@@ -14,30 +15,28 @@ import {
   IApprovalService,
 } from './approval';
 
-interface Pending {
-  readonly req: ApprovalRequest;
-  readonly resolve: (decision: ApprovalResponse) => void;
-}
-
 export class ApprovalService implements IApprovalService {
   declare readonly _serviceBrand: undefined;
-  private readonly pending = new Map<string, Pending>();
+
+  constructor(@IInteractionService private readonly interaction: IInteractionService) {}
 
   request(req: ApprovalRequest): Promise<ApprovalResponse> {
-    return new Promise<ApprovalResponse>((resolve) => {
-      this.pending.set(requestId(req), { req, resolve });
+    return this.interaction.request<ApprovalRequest, ApprovalResponse>({
+      id: requestId(req),
+      kind: 'approval',
+      payload: req,
+      origin: { agentId: req.agentId, turnId: req.turnId },
     });
   }
 
   decide(id: string, response: ApprovalResponse): void {
-    const entry = this.pending.get(id);
-    if (entry === undefined) return;
-    this.pending.delete(id);
-    entry.resolve(response);
+    this.interaction.respond(id, response);
   }
 
   listPending(): readonly ApprovalRequest[] {
-    return [...this.pending.values()].map((p) => p.req);
+    return this.interaction
+      .listPending('approval')
+      .map((i) => i.payload as ApprovalRequest);
   }
 }
 

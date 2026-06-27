@@ -19,14 +19,6 @@ export interface WireRecordMetadata {
 
 export type PersistedWireRecord = WireRecord | WireRecordMetadata | WireMigrationRecord;
 
-export interface WireRecordPersistence {
-  read(): AsyncIterable<PersistedWireRecord>;
-  append(input: PersistedWireRecord): void;
-  rewrite(records: readonly PersistedWireRecord[]): void;
-  flush(): Promise<void>;
-  close(): Promise<void>;
-}
-
 export interface WireRecordRestoringContext {
   readonly time?: number;
 }
@@ -46,7 +38,6 @@ export interface WireRecordRestoreResult {
 
 export interface WireRecordServiceOptions {
   readonly homedir?: string;
-  readonly persistence?: WireRecordPersistence;
   readonly blobStore?: IBlobStoreService;
   readonly onPersistenceError?: (
     error: unknown,

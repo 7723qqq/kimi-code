@@ -1,0 +1,164 @@
+# Stage 2 — Design a service
+
+Decide *where things live and who knows whom* before writing code. Every rule here derives from two questions:
+
+1. **What is the identity of the state it owns?** → decides the **Scope**.
+2. **Who owns the decision, and who needs the result?** → decides the **calling style** and **dependency direction**.
+
+## 1. What a Service is
+
+A Service = a bundle of **state** + a set of **behaviors**, bound to a **lifetime**.
+
+- **Behavior** is almost free — the same logic runs anywhere, so it does not by itself decide a scope.
+- **State** pins a Service to a scope. State has an **identity** (what it is keyed by) and a **lifetime** (when it is born, when it dies).
+- **Dependencies / calling style** answer a different question: who controls whom, and who knows whom.
+
+## 2. Choosing a scope
+
+> Scope = the identity + lifetime of the owned state.
+
+| Scope | State identity (keyed by) | Lifetime |
+|---|---|---|
+| `Core` | none (single global instance) | the process |
+| `Session` | `sessionId` | one session |
+| `Agent` | `agentId` | one agent |
+| `Turn` | `turnId` | one turn |
+
+### Decision tree
+
+**Q1. Does it own mutable state?**
+
+- No (pure behavior) → jump to Q3.
+- Yes → Q2.
+
+**Q2. What is the identity of that state?**
+
+- one global instance → **`Core`**
+- one per session → **`Session`**
+- one per agent → **`Agent`**
+- one per turn → **`Turn`**
+- a mix (a global registry *and* per-instance state) → **split it** (see §3).
+
+**Q3 (stateless). What is the shortest-lived dependency it must inject?**
+
+A stateless Service is pulled *down* by its shortest-lived dependency: if it injects an `Agent`-scoped Service, it cannot be `Core`. Among the scopes that still satisfy every dependency, **default to the longest-lived one** (usually `Core`) to maximize reuse. Push it down only when it must inject a shorter-lived Service, or when you want to limit its visibility.
+
+### The core anti-pattern (a litmus test)
+
+> **Do not store per-session state in a `Map<sessionId, …>` inside a `Core` Service.**
+
+This is the tell-tale sign of "should have been `Session`-scoped but was parked at `Core`". Consequences: nobody cleans the entry up when the session ends (leak); every consumer threads `sessionId` around (loss of type safety); it cannot inject `Session`/`Agent`-scoped collaborators.
+
+### One-sentence self-check
+
+> "When this scope is disposed, should this state disappear with it?"
+>
+> - Yes → the scope is right.
+> - It must outlive the scope → too short; move up one tier.
+> - It should be one-per-unit but is shared → too long; move down one tier.
+
+## 3. Multi-Scope splitting
+
+> One Service owns state at exactly one identity / lifetime. If a domain owns state at several lifetimes, split it along those boundaries — one Service per lifetime.
+
+The standard split is "global registry / factory" + "per-instance":
+
+| Tier | Role | Naming tends to |
+|---|---|---|
+| `Core` | global registry / catalog / factory — knows "all of them" and how to create one | `XxxStore` / `XxxRegistry` / `XxxCatalog` |
+| `Session` / `Agent` | one instance — only the state of "this one" | `XxxService` / `ISessionXxx` / `IAgentXxx` |
+
+Canonical splits in the codebase:
+
+- **`records`** — `ISessionStore` (`Core`) + `ISessionMetaStore` (`Session`) + `IAgentRecords` (`Agent`).
+- **`config`** — `IConfigRegistry` / `IConfigService` (`Core`) + `ISessionConfigService` (`Session`).
+- **`kosong`** — `IProtocolHandlerRegistry` (`Core`) + `IProviderManager` (`Session`). Generation is driven by `ILLMRequester` (`Agent`) in the `llmRequester` domain.
+- **`tool`** — `IToolDefinitionRegistry` (`Core`) + `IToolService` (`Agent`).
+
+Split when the domain genuinely has both a global view and per-instance state. Do **not** split when state lives at only one lifetime (e.g. purely `Core` like `log`; purely `Agent` like `prompt`). Do not pre-split for symmetry.
+
+After the split, the `Core` Service usually plays the **factory**; most consumers inject the **per-instance** Service. Inject the `Core` factory only when you genuinely need cross-instance management.
+
+## 4. Choosing a calling style
+
+Three mechanisms answer three different questions:
+
+| Mechanism | Nature | Coupling | Returns a value? | Consumers |
+|---|---|---|---|---|
+| **Direct call** | command: A tells B to do | A → B | yes | one (known) |
+| **Event** | fact: A announces "X happened" | both depend only on the bus | no | zero / one / many (unknown) |
+| **Hook** (`onWill` / `onDid`, `OrderedHookSlot`) | participation: observers step into an operation, in order | both depend only on the bus | can observe / veto | many, but ordered |
+
+### Decision tree
+
+**Q1. Does A need a return value from B?** → Yes: **direct call**. Events cannot return a value (request/reply over events is an anti-pattern).
+
+**Q2. Is B's reaction part of A's responsibility, or B's own concern?**
+
+- A's responsibility *includes* B's behavior (A orchestrates B) → **direct call**. E.g. `session` drives `agent-lifecycle`; `loop` drives `llmRequester` / `toolExecutor`.
+- B's reaction is B's own concern, A merely states a fact → **event**. E.g. `flag` reacts to `config.onDidChange`.
+
+**Q3. How many consumers?**
+
+- exactly one, known → **direct call**.
+- zero / one / many, producer should not know → **event**.
+
+**Q4. Would a direct A→B call create a cycle or violate scope direction?** → A *consequence check*, not a primary reason. Decide by Q1–Q3 first; do not turn a genuine direct call into an event just to break a cycle.
+
+**Q5. Is this fact part of the durable record / replay / cross-agent projection?** → Yes: **emit it on the wire** (`wireRecord`). State changes that must be recorded, replayed, or synchronized across agents are projected onto the wire, not handled by a direct call alone (`permission.set_mode`, `goal.create/update/clear`, `plan_mode.enter/exit`). The wire is the *durable record*, not the live notification channel.
+
+### One-sentence rule
+
+> "I am telling you to do this, and I may need the result" → **direct call.**
+> "I am announcing that something happened; react if you care" → **event.**
+> "I am announcing something, and you may step in, in order, possibly to veto" → **hook.**
+
+## 5. Dependency direction
+
+Two layers are involved:
+
+- **Scope direction**: short-lived → long-lived, **enforced by the container** (see orient.md).
+- **Domain direction**: which domain may depend on which — **a matter of judgment**, not enforced by the container.
+
+> **A depends on B iff A needs B's data or behavior to do its own job.**
+
+Add one anti-rot heuristic to keep the graph from collapsing into a clique:
+
+> **Do not let a more foundational / more-reused Service come to know a more specific / more-upstream one.**
+
+Once a foundational component knows about an upstream scenario, it can no longer be reused by other scenarios and will almost always create a cycle.
+
+### The natural layers of this repo
+
+Lower is depended on by higher, never the reverse:
+
+1. **Root** (depend on no business domain): `_base`, `log`, `environment`, `event`, `telemetry`, `kaos`.
+2. **Data / state**: `records`, `filestore`, `workspace`, `blobStore`, `config`.
+3. **Capabilities**: `tool`, `permission`, `prompt`, `contextMemory`, `kosong`, `skill`, …
+4. **Orchestrators**: `session`, `agent-lifecycle`, `loop`, `turn`, `swarm`.
+5. **Edge**: `gateway`, `rpc`.
+
+Red lines:
+
+- Layer 1 (root) **never** depends on any business domain.
+- Business logic does **not** depend on layer 5 (edge) — business code should not know REST / WebSocket exist.
+- A cycle means knowledge was placed backwards: extract a third, more foundational Service, or invert the "notification" half into an event.
+
+> Capability → orchestrator (e.g. `prompt → turn`) is allowed and present in this repo; the real red line is *inverted reuse* — a foundational / lower Service depending on a specific / upper one.
+
+## 6. New-Service checklist
+
+1. **What does it remember, and what is the state's identity?** → pick the scope (§2).
+2. **What is the shortest-lived dependency it must inject?** → the scope cannot be longer than that.
+3. **Does it own state at both a global and a per-instance lifetime?** → if yes, split Multi-Scope (§3).
+4. **For each collaborator: am I commanding it, notifying it, or letting it participate?** → pick the calling style (§4).
+5. **Does each dependency arrow make a more foundational thing know a more specific thing?** → if yes, invert it (§5).
+
+## Red lines (this stage)
+
+- No `Map<sessionId, …>` at `Core` to fake per-session state.
+- Scope follows state identity; stateless Services are pulled down by their shortest-lived dependency, otherwise default to `Core`.
+- Do not pre-split a domain that has state at only one lifetime.
+- Need a result / I orchestrate → direct call; stating a fact → event; ordered participation / may veto → hook.
+- Foundational layers never know upstream ones; business code never depends on the edge layer.
+- A cycle means knowledge is placed backwards — refactor, do not route around it.

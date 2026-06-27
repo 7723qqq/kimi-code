@@ -7,7 +7,6 @@ import type {
 import { createDecorator } from "#/_base/di";
 import type { AgentConfigData } from '#/config';
 import type { ThinkingEffort } from '#/config/thinking';
-import type { ModelProvider } from '#/session/provider-manager';
 import type { ToolSource } from '../toolRegistry';
 
 export interface SystemPromptContext {
@@ -37,7 +36,6 @@ export type ProfileUpdateData = Partial<{
 export interface ProfileServiceOptions {
   readonly cwd?: string | (() => string | undefined);
   readonly chdir?: (cwd: string) => void | Promise<void>;
-  readonly modelProvider?: ModelProvider;
   readonly initializeBuiltinTools?: () => void;
   readonly emitStatusUpdated?: () => void;
 }

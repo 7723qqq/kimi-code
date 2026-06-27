@@ -4,6 +4,8 @@ import {
   join
 } from 'pathe';
 
+import { createHash } from 'node:crypto';
+
 import {
   Disposable,
   toDisposable,
@@ -12,6 +14,7 @@ import {
   IBlobStoreService,
   type BlobStoreServiceOptions,
 } from '#/blobStore';
+import { IAppendLogStore } from '#/storage';
 import { BlobStoreService } from '../blobStore/blobStoreService';
 import { OrderedHookSlot } from '../hooks';
 import type { WireRecord, WireRecordMap } from '../wireRecord';
@@ -23,13 +26,11 @@ import {
   type WireMigration,
   type WireMigrationRecord,
 } from './migration';
-import { FileSystemWireRecordPersistence } from './persistence';
 import {
   IWireRecord,
   type PersistedWireRecord,
   type WireRecordBlobSelector,
   type WireRecordMetadata,
-  type WireRecordPersistence,
   type WireRecordRegisterOptions,
   type WireRecordRestoredContext,
   type WireRecordRestoreOptions,
@@ -47,7 +48,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
     keyof WireRecordMap,
     BlobSelector<keyof WireRecordMap>[]
   >();
-  private readonly persistence: WireRecordPersistence | undefined;
+  private readonly persistKey: string | undefined;
   private readonly blobStore: IBlobStoreService | undefined;
   private _restoring: { time?: number } | null = null;
   private _postRestoring = false;
@@ -60,19 +61,14 @@ export class WireRecordService extends Disposable implements IWireRecord {
   constructor(
     private readonly options: WireRecordServiceOptions = {},
     @IBlobStoreService injectedBlobStore?: IBlobStoreService,
+    @IAppendLogStore private readonly log?: IAppendLogStore,
   ) {
     super();
     this.blobStore = this.resolveBlobStore(options, injectedBlobStore);
-    this.persistence =
-      options.persistence ??
-      (options.homedir === undefined
-        ? undefined
-        : new FileSystemWireRecordPersistence(join(options.homedir, 'wire.jsonl'), {
-            beforeWrite: (record) => this.preparePersistentRecord(record),
-            onError: (error) => {
-              this.reportPersistenceError(error);
-            },
-          }));
+    this.persistKey = options.homedir === undefined ? undefined : hashKey(options.homedir);
+    if (this.log !== undefined && this.persistKey !== undefined) {
+      this._register(this.log.acquire('wire', this.persistKey));
+    }
   }
 
   get restoring() {
@@ -119,7 +115,11 @@ export class WireRecordService extends Disposable implements IWireRecord {
     options: WireRecordRestoreOptions = {},
   ): Promise<WireRecordRestoreResult> {
     const fromPersistence = records === undefined;
-    const source = records ?? this.persistence?.read();
+    const source =
+      records ??
+      (this.log !== undefined && this.persistKey !== undefined
+        ? this.log.read<PersistedWireRecord>('wire', this.persistKey)
+        : undefined);
     if (source === undefined) {
       await this.runResumeEndedHooks();
       return {};
@@ -129,7 +129,8 @@ export class WireRecordService extends Disposable implements IWireRecord {
       fromPersistence && (options.rewriteMigratedRecords ?? true);
     const restoredRecords: PersistedWireRecord[] | undefined =
       rewriteMigratedRecords ? [] : undefined;
-    const requireMetadata = fromPersistence && this.persistence !== undefined;
+    const requireMetadata =
+      fromPersistence && this.log !== undefined && this.persistKey !== undefined;
     let migrations: readonly WireMigration[] = [];
     let shouldRewrite = false;
     let completed = true;
@@ -181,9 +182,15 @@ export class WireRecordService extends Disposable implements IWireRecord {
       }
     }
 
-    if (completed && shouldRewrite && restoredRecords !== undefined) {
-      this.persistence?.rewrite(restoredRecords);
-      await this.persistence?.flush();
+    if (
+      completed &&
+      shouldRewrite &&
+      restoredRecords !== undefined &&
+      this.log !== undefined &&
+      this.persistKey !== undefined
+    ) {
+      this.log.rewrite('wire', this.persistKey, restoredRecords);
+      await this.log.flush();
     }
     if (completed) {
       await this.runResumeEndedHooks();
@@ -192,40 +199,35 @@ export class WireRecordService extends Disposable implements IWireRecord {
   }
 
   async flush(): Promise<void> {
-    await this.persistence?.flush();
+    await this.log?.flush();
   }
 
   async close(): Promise<void> {
-    await this.persistence?.close();
+    await this.log?.close();
   }
 
   private appendPersistent(record: PersistedWireRecord): void {
-    if (this.persistence === undefined) return;
+    if (this.log === undefined || this.persistKey === undefined) return;
     if (!this.metadataInitialized && record.type !== 'metadata') {
       const metadata: WireRecordMetadata = {
         type: 'metadata',
         protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
         created_at: Date.now(),
       };
-      try {
-        this.persistence.append(metadata);
-        this.metadataInitialized = true;
-      } catch (error) {
-        this.reportPersistenceError(error, metadata);
-        // oxlint-disable-next-line typescript-eslint/only-throw-error
-        throw error;
-      }
+      this.log.append('wire', this.persistKey, metadata, {
+        onError: (error) => this.reportPersistenceError(error, metadata),
+      });
+      this.metadataInitialized = true;
     }
     if (record.type === 'metadata') {
       this.metadataInitialized = true;
     }
-    try {
-      this.persistence.append(record);
-    } catch (error) {
-      this.reportPersistenceError(error, record);
-      // oxlint-disable-next-line typescript-eslint/only-throw-error
-      throw error;
-    }
+    void this.preparePersistentRecord(record).then((prepared) => {
+      if (this.log === undefined || this.persistKey === undefined) return;
+      this.log.append('wire', this.persistKey, prepared, {
+        onError: (error) => this.reportPersistenceError(error, prepared),
+      });
+    });
   }
 
   private async restoreRecord(record: WireRecord): Promise<boolean> {
@@ -353,4 +355,8 @@ registerScopedService(
 
 function isWireRecordMetadata(record: PersistedWireRecord): record is WireRecordMetadata {
   return record.type === 'metadata' && typeof record['protocol_version'] === 'string';
+}
+
+function hashKey(homedir: string): string {
+  return createHash('sha256').update(homedir).digest('hex').slice(0, 16);
 }

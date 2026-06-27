@@ -33,6 +33,17 @@ Barrel (`src/session/index.ts`):
  */
 ```
 
+## Persistence
+
+Business domains **do not implement persistence themselves** — they depend on a Service that owns the access pattern. Business code expresses *what* to store or fetch, never *how*.
+
+- Append-log → `IAppendLogStore`
+- Atomic document → `IAtomicDocumentStore`
+- Blob → `IBlobStore`
+- Domain-specific query → a dedicated Store (e.g. `ISessionIndex`)
+
+Business code must not `import 'node:fs'`, write SQL, hand-roll append-logs / atomic writes, or hold file handles. Generic Stores are named by **access pattern** (`IAppendLogStore`, `IAtomicDocumentStore`); only domain-unique Stores are named after the domain (`ISessionIndex`). See `.agents/skills/agent-core-dev/persistence.md` for the full layering rules and decision tree.
+
 ## Docs
 
 Per-domain references live in `docs/`.

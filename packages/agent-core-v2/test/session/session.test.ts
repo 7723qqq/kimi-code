@@ -7,6 +7,7 @@ import { type IScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
 import { IEventService } from '#/event';
+import { ISessionContext } from '#/session-context';
 import { ISessionMetaStore } from '#/sessionMetaStore';
 import { ISessionActivity } from '#/session-activity/sessionActivity';
 import { ISessionService } from '#/session';
@@ -25,6 +26,7 @@ describe('SessionService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
+    ix.stub(ISessionContext, { sessionId: 's1', meta: {} as ISessionMetaStore });
     ix.stub(ISessionMetaStore, {});
     ix.stub(IEventService, {});
     ix.set(ISessionService, new SyncDescriptor(SessionService));
@@ -44,7 +46,11 @@ describe('SessionService', () => {
       list: () => [handle],
       remove: () => Promise.resolve(),
     });
-    ix.stub(ISessionActivity, { _serviceBrand: undefined, isIdle: () => idle });
+    ix.stub(ISessionActivity, {
+      _serviceBrand: undefined,
+      isIdle: () => idle,
+      status: () => (idle ? 'idle' : 'running'),
+    });
     return ix.createInstance(SessionService);
   }
 
@@ -55,5 +61,40 @@ describe('SessionService', () => {
 
   it('agents delegates to lifecycle', () => {
     expect(make(true).agents()).toEqual([handle]);
+  });
+
+  it('archive persists the flag, removes agents, and publishes the event', async () => {
+    const writes: Record<string, unknown>[] = [];
+    const removed: string[] = [];
+    const published: { type: string; payload: unknown }[] = [];
+    ix.stub(ISessionMetaStore, {
+      write: (patch: Record<string, unknown>) => {
+        writes.push(patch);
+        return Promise.resolve();
+      },
+    });
+    ix.stub(IAgentLifecycleService, {
+      _serviceBrand: undefined,
+      create: () => Promise.resolve(handle),
+      createMain: () => Promise.resolve(handle),
+      getHandle: () => handle,
+      list: () => [handle],
+      remove: (id: string) => {
+        removed.push(id);
+        return Promise.resolve();
+      },
+    });
+    ix.stub(ISessionActivity, { _serviceBrand: undefined, isIdle: () => true });
+    ix.stub(IEventService, {
+      publish: (event: { type: string; payload: unknown }) => published.push(event),
+    });
+
+    await ix.createInstance(SessionService).archive();
+
+    expect(writes).toEqual([{ archived: true }]);
+    expect(removed).toEqual(['main']);
+    expect(published).toEqual([
+      { type: 'event.session.archived', payload: { sessionId: 's1' } },
+    ]);
   });
 });
