@@ -1,6 +1,6 @@
 /**
  * `auth` domain tests — covers the `OAuthService` device-code orchestration
- * and its dependency on the `providers` config section, using a fake
+ * and its dependency on the `provider` domain, using a fake
  * `KimiOAuthToolkit` so no real network or token storage is exercised.
  */
 
@@ -13,10 +13,9 @@ import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IAuthSummaryService, IOAuthService } from '#/auth/auth';
 import { AuthSummaryService, OAuthService } from '#/auth/authService';
-import { PROVIDERS_SECTION, type ProvidersSection } from '#/auth/oauthSchemas';
-import { IConfigService } from '#/config/config';
+import { ILogService } from '#/log/log';
+import { IProviderService, type ProviderConfig } from '#/provider/provider';
 
-import { registerConfigServices } from '../config/stubs';
 import { registerEnvironmentServices } from '../environment/stubs';
 import { registerTelemetryServices } from '../telemetry/stubs';
 
@@ -44,8 +43,9 @@ interface FakeToolkit {
 describe('OAuthService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let providers: ProvidersSection;
+  let providers: Record<string, ProviderConfig>;
   let toolkit: FakeToolkit;
+  let providerSet: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -57,14 +57,17 @@ describe('OAuthService', () => {
       },
       [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' },
     };
+    providerSet = vi.fn().mockResolvedValue(undefined);
     ix = createServices(disposables, {
-      base: [registerConfigServices, registerEnvironmentServices, registerTelemetryServices],
+      base: [registerEnvironmentServices, registerTelemetryServices],
       additionalServices: (reg) => {
-        reg.definePartialInstance(IConfigService, {
-          get: ((domain: string) =>
-            domain === PROVIDERS_SECTION ? providers : undefined) as IConfigService['get'],
-          onDidChange: (() => ({ dispose: () => {} })) as IConfigService['onDidChange'],
+        reg.definePartialInstance(IProviderService, {
+          get: ((name: string) => providers[name]) as IProviderService['get'],
+          list: (() => providers) as IProviderService['list'],
+          set: providerSet as unknown as IProviderService['set'],
+          onDidChange: (() => ({ dispose: () => {} })) as IProviderService['onDidChange'],
         });
+        reg.definePartialInstance(ILogService, { warn: vi.fn() });
       },
     });
     toolkit = {
@@ -105,6 +108,26 @@ describe('OAuthService', () => {
     expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated');
   });
 
+  it('provisions the managed provider through the provider service after login', async () => {
+    toolkit.login.mockImplementation(async (_provider, options) => {
+      options.onDeviceCode(deviceAuth);
+      return { providerName: OAUTH_PROVIDER, ok: true };
+    });
+    const svc = createService();
+    await svc.startLogin(OAUTH_PROVIDER);
+    await flush();
+
+    expect(providerSet).toHaveBeenCalledWith(
+      OAUTH_PROVIDER,
+      expect.objectContaining({
+        type: 'kimi',
+        baseUrl: 'https://api.example.com',
+        apiKey: '',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      }),
+    );
+  });
+
   it('startLogin rejects with AUTH_LOGIN_REQUIRED when provider has no oauth config', async () => {
     const svc = createService();
     await expect(svc.startLogin(NON_OAUTH_PROVIDER)).rejects.toThrow(KimiError);
@@ -140,10 +163,10 @@ describe('OAuthService', () => {
 
     const result = await svc.logout(OAUTH_PROVIDER);
     expect(result).toEqual({ logged_out: true, provider: OAUTH_PROVIDER });
-    expect(toolkit.logout).toHaveBeenCalledWith(
-      OAUTH_PROVIDER,
-      { storage: 'file', key: 'oauth/kimi-code' },
-    );
+    expect(toolkit.logout).toHaveBeenCalledWith(OAUTH_PROVIDER, {
+      storage: 'file',
+      key: 'oauth/kimi-code',
+    });
   });
 
   it('status reports loggedIn based on the cached access token', async () => {
@@ -171,7 +194,7 @@ describe('OAuthService', () => {
 describe('AuthSummaryService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let providers: ProvidersSection;
+  let providers: Record<string, ProviderConfig>;
   let oauthStatus: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -186,9 +209,8 @@ describe('AuthSummaryService', () => {
     oauthStatus = vi.fn();
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.definePartialInstance(IConfigService, {
-          get: ((domain: string) =>
-            domain === PROVIDERS_SECTION ? providers : undefined) as IConfigService['get'],
+        reg.definePartialInstance(IProviderService, {
+          list: (() => providers) as IProviderService['list'],
         });
         reg.definePartialInstance(IOAuthService, {
           status: oauthStatus as unknown as IOAuthService['status'],
