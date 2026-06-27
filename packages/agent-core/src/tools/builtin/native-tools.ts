@@ -48,7 +48,9 @@ export function tryLoadNative(): Record<string, unknown> | undefined {
   return getNativeModule();
 }
 
-function callNative<T>(fnName: string, ...args: unknown[]): T | undefined {
+const NATIVE_UNAVAILABLE = 'Native tools module not available.';
+
+async function callNative<T>(fnName: string, ...args: unknown[]): Promise<T | undefined> {
   const mod = getNativeModule();
   if (!mod) return undefined;
   const fn = mod[fnName];
@@ -104,13 +106,13 @@ export class NativeReadTool implements BuiltinTool {
           homeDir: this.kaos.gethome(),
         }),
       execute: async () => {
-        const result = callNative<{ content: string; lineCount: number; error?: string }>(
+        const result = await callNative<{ content: string; lineCount: number; error?: string }>(
           'nativeRead',
           path,
           { lineOffset: input.line_offset, nLines: input.n_lines },
         );
         if (!result) {
-          return { isError: true, output: 'Native tools module not available.' };
+          return { isError: true, output: NATIVE_UNAVAILABLE };
         }
         if (result.error) {
           return { isError: true, output: result.error };
@@ -163,14 +165,14 @@ export class NativeWriteTool implements BuiltinTool {
           homeDir: this.kaos.gethome(),
         }),
       execute: async () => {
-        const result = callNative<{ bytesWritten: number; error?: string }>(
+        const result = await callNative<{ bytesWritten: number; error?: string }>(
           'nativeWrite',
           path,
           input.content,
           { mode: input.mode },
         );
         if (!result) {
-          return { isError: true, output: 'Native tools module not available.' };
+          return { isError: true, output: NATIVE_UNAVAILABLE };
         }
         if (result.error) {
           return { isError: true, output: result.error };
@@ -225,7 +227,7 @@ export class NativeEditTool implements BuiltinTool {
           homeDir: this.kaos.gethome(),
         }),
       execute: async () => {
-        const result = callNative<{ success: boolean; error?: string; replacements: number }>(
+        const result = await callNative<{ success: boolean; error?: string; replacements: number }>(
           'nativeEdit',
           path,
           input.old_string,
@@ -233,7 +235,7 @@ export class NativeEditTool implements BuiltinTool {
           { replaceAll: input.replace_all },
         );
         if (!result) {
-          return { isError: true, output: 'Native tools module not available.' };
+          return { isError: true, output: NATIVE_UNAVAILABLE };
         }
         if (!result.success) {
           return { isError: true, output: result.error ?? 'Edit failed.' };
@@ -326,7 +328,7 @@ export class NativeGrepTool implements BuiltinTool {
       approvalRule: literalRulePattern(this.name, input.pattern),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, input.pattern),
       execute: async () => {
-        const result = callNative<{
+        const result = await callNative<{
           content: string;
           error?: string;
           matchCount: number;
@@ -349,7 +351,7 @@ export class NativeGrepTool implements BuiltinTool {
           includeIgnored: input.include_ignored,
         });
         if (!result) {
-          return { isError: true, output: 'Native tools module not available.' };
+          return { isError: true, output: NATIVE_UNAVAILABLE };
         }
         if (result.error) {
           return { isError: true, output: result.error };
@@ -420,13 +422,13 @@ export class NativeGlobTool implements BuiltinTool {
       approvalRule: literalRulePattern(this.name, input.pattern),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, input.pattern),
       execute: async () => {
-        const result = callNative<{ files: string[]; error?: string; truncated: boolean }>(
+        const result = await callNative<{ files: string[]; error?: string; truncated: boolean }>(
           'nativeGlob',
           input.pattern,
           { path: searchPath, includeDirs: input.include_dirs },
         );
         if (!result) {
-          return { isError: true, output: 'Native tools module not available.' };
+          return { isError: true, output: NATIVE_UNAVAILABLE };
         }
         if (result.error) {
           return { isError: true, output: result.error };
@@ -471,7 +473,7 @@ export class NativeBashTool extends BashTool {
     return {
       ...parentExecution,
       execute: async () => {
-        const result = callNative<{
+        const result = await callNative<{
           exitCode: number;
           stdout: string;
           stderr: string;
@@ -482,7 +484,7 @@ export class NativeBashTool extends BashTool {
           timeout: args.timeout,
         });
         if (!result) {
-          return { isError: true, output: 'Native tools module not available.' };
+          return { isError: true, output: NATIVE_UNAVAILABLE };
         }
         if (result.error) {
           return { isError: true, output: result.error };

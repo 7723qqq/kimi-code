@@ -28,6 +28,14 @@ export const FLAG_DEFINITIONS = [
     default: true,
     surface: 'core',
   },
+  {
+    id: 'rpc_microtask',
+    title: 'RPC microtask scheduling',
+    description: 'Use queueMicrotask instead of setTimeout(0) for in-process RPC simulation, reducing per-call latency.',
+    env: 'KIMI_CODE_EXPERIMENTAL_RPC_MICROTASK',
+    default: false,
+    surface: 'core',
+  },
 ] as const satisfies readonly FlagDefinitionInput[];
 
 /** Literal union of registered flag ids. */

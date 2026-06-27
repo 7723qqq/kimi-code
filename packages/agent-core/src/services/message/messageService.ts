@@ -117,16 +117,19 @@ export class MessageService extends Disposable implements IMessageService {
   }
 
   /**
-   * Confirms the session exists and returns its summary (for the timestamp
-   * base). Throws `SessionNotFoundError` (→ 40401) on miss.
+   * Resume a session and return its summary (for the timestamp base).
+   * Any `resumeSession` failure is mapped to `SessionNotFoundError`
+   * (wire-compat 40401): a corrupted state.json, missing session dir, or
+   * unknown id all surface as the same error code to API consumers.
+   * Replaces the prior `listSessions` + `resumeSession` pair, avoiding a
+   * redundant `listSessions` round-trip.
    */
-  private async _requireSession(sid: string): Promise<SessionSummary> {
-    const all = await this.core.rpc.listSessions({});
-    const summary = all.find((s) => s.id === sid);
-    if (summary === undefined) {
+  private async _resumeSession(sid: string): Promise<SessionSummary> {
+    try {
+      return await this.core.rpc.resumeSession({ sessionId: sid });
+    } catch {
       throw new SessionNotFoundError(sid);
     }
-    return summary;
   }
 
   /**
@@ -135,7 +138,7 @@ export class MessageService extends Disposable implements IMessageService {
    * strictly increasing so cursor consumers keep a stable total order.
    */
   private async _getProtocolMessages(sid: string): Promise<Message[]> {
-    const summary = await this._requireSession(sid);
+    const summary = await this._resumeSession(sid);
     const entries = await this._getTranscriptEntries(sid, summary);
     let previousMs = Number.NEGATIVE_INFINITY;
     return entries.map((entry, idx) => {
@@ -156,7 +159,6 @@ export class MessageService extends Disposable implements IMessageService {
     sid: string,
     summary: SessionSummary,
   ): Promise<readonly TranscriptEntry[]> {
-    await this._resumeSession(sid);
     const transcript = await this._readTranscriptCached(sid, summary.sessionDir);
     const context = await this.core.rpc.getContext({
       sessionId: sid,
@@ -172,14 +174,6 @@ export class MessageService extends Disposable implements IMessageService {
       .slice(transcript.foldedLength)
       .map((message) => ({ message }));
     return [...transcript.entries, ...liveTail];
-  }
-
-  private async _resumeSession(sid: string): Promise<void> {
-    try {
-      await this.core.rpc.resumeSession({ sessionId: sid });
-    } catch {
-      throw new SessionNotFoundError(sid);
-    }
   }
 
   /**

@@ -35,6 +35,7 @@ import { ensureRgPath, rgUnavailableMessage } from '../../support/rg-locator';
 import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
 import { ToolResultBuilder } from '../../support/result-builder';
 import { isPrematureCloseError } from '../../support/stream';
+import { relativizeIfUnder } from '../../support/path-utils';
 import type { WorkspaceConfig } from '../../support/workspace';
 import GREP_DESCRIPTION from './grep.md?raw';
 export { GREP_DESCRIPTION };
@@ -761,24 +762,6 @@ function formatDisplayLine(
     return relativizeIfUnder(filePath, workspaceDir, pathClass) + text.slice(filePath.length);
   }
   return text;
-}
-
-/**
- * If `candidate` is under `base`, return the portion after `base/`.
- * Otherwise return `candidate` unchanged. Both arguments should be
- * canonical absolute paths in the active backend path class.
- */
-function relativizeIfUnder(candidate: string, base: string, pathClass: PathClass): string {
-  const normCandidate = normalize(candidate);
-  const normBase = normalize(base);
-  const comparableCandidate = pathClass === 'win32' ? normCandidate.toLowerCase() : normCandidate;
-  const comparableBase = pathClass === 'win32' ? normBase.toLowerCase() : normBase;
-  if (comparableCandidate === comparableBase) return '.';
-  const prefix = comparableBase.endsWith('/') ? comparableBase : comparableBase + '/';
-  if (comparableCandidate.startsWith(prefix)) {
-    return normCandidate.slice(prefix.length);
-  }
-  return normCandidate;
 }
 
 function omitIncompleteTrailingRecord(text: string, mode: GrepMode): string {

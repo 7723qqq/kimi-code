@@ -4,9 +4,7 @@ import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { z } from 'zod';
 
 import { ErrorCodes, KimiError } from '#/errors';
-
-const S_IFMT = 0o170000;
-const S_IFDIR = 0o040000;
+import { S_IFDIR, S_IFMT } from '../tools/support/path-utils';
 
 const WorkspaceLocalTomlSchema = z.object({
   workspace: z

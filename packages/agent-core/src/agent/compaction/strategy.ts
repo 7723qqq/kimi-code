@@ -2,6 +2,57 @@ import type { Message } from "@moonshot-ai/kosong";
 import { estimateTokensForMessage } from "../../utils/tokens";
 import type { CompactionSource } from "./types";
 
+interface CompactionMessageMeta {
+  role: string;
+  toolCallsCount: number;
+  tokens: number;
+}
+
+interface CompactionConfigMeta {
+  maxSize: number;
+  maxRecentMessages: number;
+  maxRecentUserMessages: number;
+  maxRecentSizeRatio: number;
+  minOverflowReductionRatio: number;
+}
+
+// ── Native module loading (lazy, with TS fallback) ──────────────────────────
+
+let nativeCompaction: {
+  nativeComputeCompactCount?: (messages: CompactionMessageMeta[], config: CompactionConfigMeta, isManual: boolean) => number;
+  nativeReduceCompactOnOverflow?: (messages: CompactionMessageMeta[], config: CompactionConfigMeta) => number;
+} | null | undefined;
+
+function getNativeCompaction() {
+  if (nativeCompaction === null) return undefined;
+  if (nativeCompaction !== undefined) return nativeCompaction;
+  try {
+    nativeCompaction = require('@moonshot-ai/kimi-native-tools');
+    return nativeCompaction;
+  } catch {
+    nativeCompaction = null;
+    return undefined;
+  }
+}
+
+function toCompactionMeta(messages: readonly Message[]): CompactionMessageMeta[] {
+  return messages.map((m) => ({
+    role: m.role,
+    toolCallsCount: m.toolCalls.length,
+    tokens: estimateTokensForMessage(m),
+  }));
+}
+
+function toCompactionConfig(maxSize: number, config: CompactionConfig): CompactionConfigMeta {
+  return {
+    maxSize,
+    maxRecentMessages: Number.isFinite(config.maxRecentMessages) ? config.maxRecentMessages : 0xFFFFFFFF,
+    maxRecentUserMessages: Number.isFinite(config.maxRecentUserMessages) ? config.maxRecentUserMessages : 0xFFFFFFFF,
+    maxRecentSizeRatio: config.maxRecentSizeRatio,
+    minOverflowReductionRatio: config.minOverflowReductionRatio,
+  };
+}
+
 export interface CompactionConfig {
   triggerRatio: number;
   blockRatio: number;
@@ -65,6 +116,16 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   }
 
   computeCompactCount(messages: readonly Message[], source: CompactionSource): number {
+    const mod = getNativeCompaction();
+    if (mod?.nativeComputeCompactCount) {
+      const meta = toCompactionMeta(messages);
+      const cfg = toCompactionConfig(this.maxSize, this.config);
+      return mod.nativeComputeCompactCount(meta, cfg, source === 'manual');
+    }
+    return this.tsComputeCompactCount(messages, source);
+  }
+
+  private tsComputeCompactCount(messages: readonly Message[], source: CompactionSource): number {
     // Return value: N messages to be compacted (0 means no compaction possible)
     // LLM Input: messages.slice(0, N) + [user:instruction]
     // Preserved recent messages: messages.slice(N)
@@ -119,6 +180,16 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   }
 
   reduceCompactOnOverflow(messages: readonly Message[]): number {
+    const mod = getNativeCompaction();
+    if (mod?.nativeReduceCompactOnOverflow) {
+      const meta = toCompactionMeta(messages);
+      const cfg = toCompactionConfig(this.maxSize, this.config);
+      return mod.nativeReduceCompactOnOverflow(meta, cfg);
+    }
+    return this.tsReduceCompactOnOverflow(messages);
+  }
+
+  private tsReduceCompactOnOverflow(messages: readonly Message[]): number {
     const minReducedSize = Math.max(
       1,
       Math.ceil(this.maxSize * this.config.minOverflowReductionRatio),

@@ -54,17 +54,20 @@ export class SkillService extends Disposable implements ISkillService {
   }
 
   /**
-   * Validate the session exists, then make sure it is loaded into the active
-   * session map (idempotent when already loaded) so the SessionAPI dispatch
-   * below cannot miss after a daemon restart. Same pattern as
-   * `PromptService.submit` / `SessionService.undo`.
+   * Resume a session, translating a not-found `KimiError` from the RPC layer
+   * into `SessionNotFoundError` so route error handlers keep matching by class
+   * identity. Replaces the prior `listSessions` + `resumeSession` pair,
+   * avoiding a redundant `listSessions` round-trip.
    */
   private async _requireLoadedSession(sessionId: string): Promise<void> {
-    const all = await this.core.rpc.listSessions({});
-    if (!all.some((s) => s.id === sessionId)) {
-      throw new SessionNotFoundError(sessionId);
+    try {
+      await this.core.rpc.resumeSession({ sessionId });
+    } catch (err) {
+      if (err instanceof KimiError && err.code === ErrorCodes.SESSION_NOT_FOUND) {
+        throw new SessionNotFoundError(sessionId);
+      }
+      throw err;
     }
-    await this.core.rpc.resumeSession({ sessionId });
   }
 }
 

@@ -1166,12 +1166,15 @@ async function resumeSessionResult(
   for (const [agentId, entry] of session.agents) {
     if (!(entry instanceof Agent)) continue;
     const agent = entry;
-    const config = await api.getConfig({ agentId });
-    const context = await api.getContext({ agentId });
-    const permission = await api.getPermission({ agentId });
-    const plan = await api.getPlan({ agentId });
-    const swarmMode = await api.getSwarmMode({ agentId });
-    const usage = await api.getUsage({ agentId });
+    const [config, context, permission, plan, swarmMode, usage, tools] = await Promise.all([
+      api.getConfig({ agentId }),
+      api.getContext({ agentId }),
+      api.getPermission({ agentId }),
+      api.getPlan({ agentId }),
+      api.getSwarmMode({ agentId }),
+      api.getUsage({ agentId }),
+      api.getTools({ agentId }),
+    ]);
     agents[agentId] = {
       type: agent.type,
       config,
@@ -1181,7 +1184,7 @@ async function resumeSessionResult(
       plan,
       swarmMode,
       usage,
-      tools: await api.getTools({ agentId }),
+      tools,
       toolStore: agent.tools.storeData(),
       background: agent.background.list(false),
     };
