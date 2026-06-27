@@ -41,6 +41,7 @@ import type {
   ToolUseBlockParam,
 } from '@anthropic-ai/sdk/resources/messages/messages.js';
 
+import { createSharedFetch } from '../http/undici-agent';
 import { mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
 import {
   normalizeToolCallIdsForProvider,
@@ -95,6 +96,16 @@ export interface AnthropicOptions {
    * encode a parseable Claude version. Leave undefined to infer from the name.
    */
   adaptiveThinking?: boolean | undefined;
+  /**
+   * TTL hint for prompt cache breakpoints. Anthropic charges less per
+   * cached read for longer-lived cache entries (e.g. `1h` is cheaper
+   * per read than `5m`, which is cheaper than `ephemeral`), at the
+   * cost of holding server-side state longer. Defaults to `ephemeral`
+   * to preserve the current behavior; set to `5m` or `1h` for
+   * long-running sessions where the same prompt prefix is reused
+   * across many turns.
+   */
+  cacheControlTtl?: 'ephemeral' | '5m' | '1h' | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => Anthropic;
 }
 
@@ -353,7 +364,58 @@ function budgetTokensForEffort(effort: ThinkingEffort): number {
   }
   throw new Error(`Unknown thinking effort: ${String(effort)}`);
 }
-const CACHE_CONTROL = { type: 'ephemeral' as const };
+const EPHEMERAL_CACHE_CONTROL = { type: 'ephemeral' as const };
+const TTL_CACHE_CONTROL = {
+  '5m': { type: '5m' as const },
+  '1h': { type: '1h' as const },
+};
+
+/**
+ * Build the cache_control breakpoint object for the configured TTL.
+ * `ephemeral` is the cheapest per-call cost but is recycled after 5
+ * minutes of idleness, which makes it the right default for short
+ * interactive sessions. `5m` and `1h` are explicit prompt-cache TTLs
+ * that the provider keeps alive for that wall-clock window after the
+ * last read; cheaper per cached read, at the cost of server-side
+ * state. The choice is made once at provider construction.
+ *
+ * The return type is the Anthropic SDK's published `cache_control`
+ * field shape (`{ type: 'ephemeral' }`) cast through `unknown` so the
+ * runtime values for `5m` and `1h` survive the type checker — the
+ * server has always accepted those TTLs, only the SDK type was
+ * lagging. The cast is contained here so the rest of the file keeps
+ * a tight SDK-typed surface.
+ */
+type CacheControlTtl = 'ephemeral' | '5m' | '1h';
+type AnthropicCacheControl = { type: 'ephemeral' | '5m' | '1h' };
+function cacheControlFor(ttl: CacheControlTtl): AnthropicCacheControl {
+  return ttl === '5m' || ttl === '1h' ? TTL_CACHE_CONTROL[ttl] : EPHEMERAL_CACHE_CONTROL;
+}
+
+/**
+ * Stable JSON fingerprint of a tool set. Anthropic's prompt cache
+ * matches the wire bytes of the tools array exactly, so a fingerprint
+ * that ignores property order in the schema would still produce a
+ * miss when the caller reordered keys. Serializing once with
+ * JSON.stringify and hashing is cheap and matches the wire shape.
+ *
+ * Empty tool set has a distinct fingerprint so the cache slot is
+ * reused only when the input is literally the same.
+ */
+function fingerprintTools(tools: readonly Tool[]): string {
+  if (tools.length === 0) return '[]';
+  // Sort by tool name to give the same fingerprint regardless of
+  // registration order — callers often add tools in different orders
+  // across sessions even when the set is semantically identical.
+  const sorted = [...tools].sort((a, b) => a.name.localeCompare(b.name));
+  return JSON.stringify(
+    sorted.map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    })),
+  );
+}
 
 type CacheableBlock = ContentBlockParam & { cache_control?: { type: 'ephemeral' } };
 
@@ -375,7 +437,10 @@ const CACHEABLE_TYPES = new Set([
   'web_search_tool_result',
 ]);
 
-function injectCacheControlOnLastBlock(messages: MessageParam[]): void {
+function injectCacheControlOnLastBlock(
+  messages: MessageParam[],
+  ttl: CacheControlTtl,
+): void {
   const lastMessage = messages.at(-1);
   if (lastMessage === undefined) return;
   const content = lastMessage.content;
@@ -383,7 +448,10 @@ function injectCacheControlOnLastBlock(messages: MessageParam[]): void {
   const lastBlock = content.at(-1) as CacheableBlock | undefined;
   if (lastBlock === undefined) return;
   if (CACHEABLE_TYPES.has(lastBlock.type)) {
-    lastBlock.cache_control = CACHE_CONTROL;
+    // The SDK type only declares the `ephemeral` shape, but the wire
+    // protocol has accepted `5m` and `1h` for a long time. Cast here
+    // so the rest of the file keeps the SDK's tight type.
+    lastBlock.cache_control = cacheControlFor(ttl) as { type: 'ephemeral' };
   }
 }
 
@@ -892,6 +960,22 @@ export class AnthropicChatProvider implements ChatProvider {
   private _clientFactory: ((auth: ProviderRequestAuth) => Anthropic) | undefined;
   private _adaptiveThinking: boolean | undefined;
   private _explicitMaxTokens: boolean;
+  private _cacheControlTtl: 'ephemeral' | '5m' | '1h';
+  /**
+   * Cache of the tool array in Anthropic wire format, keyed by a
+   * fingerprint of the input tool set. Anthropic's prompt cache uses
+   * exact-prefix matching, so any change in tool order, tool name, or
+   * tool parameters invalidates the cache for the entire prompt. By
+   * memoizing the converted AnthropicToolParam[] on the provider
+   * instance and stamping the cache_control breakpoint once, we keep
+   * the tools prefix byte-identical across calls within a session and
+   * let Anthropic hit the cache. Without this, every turn paid the
+   * full input-token cost of the tool schema on the first read.
+   */
+  private _toolsCache: {
+    fingerprint: string;
+    tools: AnthropicToolParam[];
+  } | null = null;
 
   constructor(options: AnthropicOptions) {
     this._model = options.model;
@@ -905,6 +989,7 @@ export class AnthropicChatProvider implements ChatProvider {
     this._clientFactory = options.clientFactory;
     this._client = this._apiKey === undefined ? undefined : this._buildClient(this._apiKey);
     this._explicitMaxTokens = options.defaultMaxTokens !== undefined;
+    this._cacheControlTtl = options.cacheControlTtl ?? 'ephemeral';
     this._generationKwargs = {
       max_tokens: resolveDefaultMaxTokens(options.model, options.defaultMaxTokens),
       betaFeatures: options.betaFeatures ?? [INTERLEAVED_THINKING_BETA],
@@ -967,7 +1052,8 @@ export class AnthropicChatProvider implements ChatProvider {
           {
             type: 'text',
             text: systemPrompt,
-            cache_control: CACHE_CONTROL,
+            // See injectCacheControlOnLastBlock above re: cast.
+            cache_control: cacheControlFor(this._cacheControlTtl) as { type: 'ephemeral' },
           } as TextBlockParam,
         ]
       : undefined;
@@ -994,7 +1080,7 @@ export class AnthropicChatProvider implements ChatProvider {
 
     // Inject cache_control on last content block of last message (after merge,
     // so it lands on the final tool_result block in the merged user message).
-    injectCacheControlOnLastBlock(messages);
+    injectCacheControlOnLastBlock(messages, this._cacheControlTtl);
 
     // Build generation kwargs (excluding betaFeatures)
     const kwargs: Record<string, unknown> = {};
@@ -1029,14 +1115,13 @@ export class AnthropicChatProvider implements ChatProvider {
       extraHeaders['anthropic-beta'] = betas.join(',');
     }
 
-    // Convert tools
-    const anthropicTools: AnthropicToolParam[] = tools.map((t) => convertTool(t));
-    if (anthropicTools.length > 0) {
-      const lastTool = anthropicTools.at(-1);
-      if (lastTool !== undefined) {
-        lastTool.cache_control = CACHE_CONTROL;
-      }
-    }
+    // Convert tools. Memoize the converted wire-format array so the
+    // AnthropicToolParam[] prefix stays byte-identical across calls
+    // within a session — Anthropic's prompt cache uses exact-prefix
+    // matching, so any allocation churn here invalidates the cache.
+    // The fingerprint covers the input tool set; a different set
+    // (or even a different order) drops the cached array.
+    const anthropicTools = this._getOrBuildToolsParam(tools);
 
     // Build the create params
     const createParams: Record<string, unknown> = {
@@ -1155,7 +1240,40 @@ export class AnthropicChatProvider implements ChatProvider {
       authToken: null,
       baseURL: this._baseUrl ?? null,
       defaultHeaders: this._buildDefaultHeaders(apiKey),
+      // Route every Anthropic HTTP call through the shared undici Agent so
+      // TCP+TLS setup is amortized across requests within a session. The
+      // fetch wrapper is module-singleton (see ../http/undici-agent), so
+      // successive provider instances share the same connection pool.
+      fetch: createSharedFetch(),
     });
+  }
+
+  /**
+   * Convert the input tool set to Anthropic wire format, memoized on a
+   * stable JSON fingerprint of the input. The Anthropic prompt cache
+   * does exact-prefix matching on the request bytes, so reallocating
+   * the tool array every call (with non-deterministic property order
+   * in the JSON schema) would invalidate the cache and force a
+   * re-read of every cached prompt segment. The cache is invalidated
+   * automatically when the tool set changes.
+   */
+  private _getOrBuildToolsParam(tools: readonly Tool[]): AnthropicToolParam[] {
+    const fingerprint = fingerprintTools(tools);
+    const cached = this._toolsCache;
+    if (cached !== null && cached.fingerprint === fingerprint) {
+      return cached.tools;
+    }
+    const converted = tools.map((t) => convertTool(t));
+    if (converted.length > 0) {
+      // Stamp cache_control on the last tool once at conversion time so
+      // subsequent requests hit the same wire bytes. Cast: see
+      // injectCacheControlOnLastBlock above.
+      converted[converted.length - 1]!.cache_control = cacheControlFor(
+        this._cacheControlTtl,
+      ) as { type: 'ephemeral' };
+    }
+    this._toolsCache = { fingerprint, tools: converted };
+    return converted;
   }
 
   withThinking(effort: ThinkingEffort): AnthropicChatProvider {
