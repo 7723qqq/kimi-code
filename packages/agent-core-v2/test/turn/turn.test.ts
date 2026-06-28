@@ -84,7 +84,7 @@ describe('TurnService', () => {
     const turn = svc.launch({ kind: 'retry' });
     expect(svc.getActiveTurn()).toBe(turn);
 
-    svc.cancel();
+    turn.abortController.abort(new Error('cancelled'));
     const result = await turn.result;
     expect(result.reason).toBe('cancelled');
     expect(svc.getActiveTurn()).toBeUndefined();

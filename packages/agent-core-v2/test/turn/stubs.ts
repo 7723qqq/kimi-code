@@ -8,6 +8,7 @@
 import { createHooks } from '#/hooks';
 import type { PromptOrigin } from '#/contextMemory';
 import type { ITurnService, Turn } from '#/turn';
+import type { IToolExecutor } from '#/toolExecutor';
 
 export interface StubTurnOptions {
   /** When set, `getActiveTurn()` returns a synthetic active turn. */
@@ -44,8 +45,6 @@ function makeHooks(): ITurnService['hooks'] {
     'onEnded',
     'beforeStep',
     'afterStep',
-    'onWillExecuteTool',
-    'onDidExecuteTool',
   ]) as ITurnService['hooks'];
 }
 
@@ -65,9 +64,6 @@ export function stubTurn(options: StubTurnOptions = {}): StubTurn {
     getActiveTurn() {
       return options.hasActiveTurn ? activeTurn : undefined;
     },
-    cancel() {
-      activeTurn = undefined;
-    },
     prompts: [],
     steered: [],
     launches,
@@ -78,8 +74,7 @@ export function stubTurn(options: StubTurnOptions = {}): StubTurn {
  * An `ITurnService` stub backed by real `OrderedHookSlot`s. Use when the system
  * under test registers turn-lifecycle hooks (`onLaunched` / `beforeStep` /
  * `afterStep`) in its constructor, or when a test needs to drive those hooks
- * directly. `launch` returns a minimal {@link Turn}; `getActiveTurn` /
- * `cancel` are no-ops.
+ * directly. `launch` returns a minimal {@link Turn}; `getActiveTurn` is a no-op.
  */
 export function stubTurnWithHooks(): ITurnService {
   const turn = makeTurn(0);
@@ -88,6 +83,22 @@ export function stubTurnWithHooks(): ITurnService {
     hooks: makeHooks(),
     launch: () => turn,
     getActiveTurn: () => undefined,
-    cancel: () => {},
+  };
+}
+
+/**
+ * An `IToolExecutor` stub whose tool-execution hooks (`onWillExecuteTool` /
+ * `onDidExecuteTool`) are real `OrderedHookSlot`s, so services that register
+ * gate hooks in their constructor (PermissionGate, McpService, …) can be built
+ * in tests. `execute` resolves to an empty batch by default.
+ */
+export function stubToolExecutor(): IToolExecutor {
+  return {
+    _serviceBrand: undefined,
+    execute: async () => [],
+    hooks: createHooks([
+      'onWillExecuteTool',
+      'onDidExecuteTool',
+    ]) as IToolExecutor['hooks'],
   };
 }

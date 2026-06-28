@@ -148,6 +148,7 @@ export class LoopService extends Disposable implements ILoopService {
             dispatchEvent: this.dispatchEvent,
             tools: this.executableTools(),
             hooks: loopHooks,
+            toolExecutor: this.toolExecutor,
             maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
             maxRetryAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
             recordStepUsage: (usage, context) => {
@@ -553,48 +554,8 @@ export class LoopService extends Disposable implements ILoopService {
       .filter((tool) => this.profile.isToolActive(tool.name, tool.source))
       .flatMap((toolInfo) => {
         const tool = this.toolRegistry.resolve(toolInfo.name);
-        return tool === undefined ? [] : [this.executableTool(tool)];
+        return tool === undefined ? [] : [tool];
       });
-  }
-
-  private executableTool(tool: ExecutableTool): ExecutableTool {
-    return {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-      resolveExecution: async (args) => {
-        const execution = await tool.resolveExecution(args);
-        if (execution.isError === true) return execution;
-        return this.wrapToolExecution(tool.name, args, execution);
-      },
-    };
-  }
-
-  private wrapToolExecution(
-    toolName: string,
-    args: unknown,
-    execution: RunnableToolExecution,
-  ): RunnableToolExecution {
-    return {
-      ...execution,
-      execute: async (context) =>
-        toExecutableToolResult(
-          await this.toolExecutor.execute(
-            {
-              id: context.toolCallId,
-              name: toolName,
-              arguments: args,
-            },
-            execution,
-            {
-              signal: context.signal,
-              turnId: context.turnId,
-              metadata: context.metadata,
-              onUpdate: context.onUpdate,
-            },
-          ),
-        ),
-    };
   }
 
   private loopHooks(turn: Turn, hooks: LoopRunHooks | undefined): LoopHooks {
@@ -613,8 +574,6 @@ export class LoopService extends Disposable implements ILoopService {
         }
         return undefined;
       },
-      onWillExecuteTool: hooks?.onWillExecuteTool,
-      onDidExecuteTool: hooks?.onDidExecuteTool,
       shouldContinueAfterStop: async (context) => {
         const shouldContinue = continueAfterStop;
         continueAfterStop = false;

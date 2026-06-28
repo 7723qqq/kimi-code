@@ -7,7 +7,7 @@
  *   - drained results are handed back in provider order
  *
  * Validation, hooks, event construction, and result finalization stay in
- * `tool-call.ts`.
+ * `toolExecutorService.ts`.
  */
 
 import { ToolAccesses } from '#/tool';

@@ -39,7 +39,7 @@ export * from './session-context/index';
 export * from './session-activity/index';
 export * from './session/index';
 
-export * from './event/index';
+export * from './eventSink/index';
 import './approval/index';
 export * from './question/index';
 export * from './gateway/index';

@@ -82,6 +82,7 @@ describe('ToolExecutorService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
+    ix.set(IToolRegistry, new SyncDescriptor(ToolRegistryService));
     ix.set(IToolExecutor, new SyncDescriptor(ToolExecutorService));
   });
   afterEach(() => disposables.dispose());
@@ -91,35 +92,41 @@ describe('ToolExecutorService', () => {
   }
 
   it('executes a tool and returns its normalized output', async () => {
+    ix.get(IToolRegistry).register(echoTool);
     const executor = ix.get(IToolExecutor);
-    const execution = await echoTool.resolveExecution({ msg: 'hi' });
-    const result = await executor.execute(call('echo', { msg: 'hi' }), execution);
+    const [result] = await executor.execute([call('echo', { msg: 'hi' })]);
     expect(result).toMatchObject({ output: '{"msg":"hi"}' });
-    expect(result.isError).toBeUndefined();
+    expect(result?.isError).toBeUndefined();
   });
 
   it('returns an error result when execution rejects', async () => {
-    const executor = ix.get(IToolExecutor);
-    const execution: ToolExecution = {
-      approvalRule: 'boom(*)',
-      execute: () => Promise.reject(new Error('kaboom')),
+    const boomTool: ExecutableTool = {
+      name: 'boom',
+      description: 'rejects',
+      parameters: {},
+      resolveExecution: () => ({
+        approvalRule: 'boom(*)',
+        execute: () => Promise.reject(new Error('kaboom')),
+      }),
     };
-    const result = await executor.execute(call('boom', {}), execution);
-    expect(result).toEqual({
+    ix.get(IToolRegistry).register(boomTool);
+    const executor = ix.get(IToolExecutor);
+    const [result] = await executor.execute([call('boom', {})]);
+    expect(result).toMatchObject({
       output: 'Tool "boom" failed: kaboom',
       isError: true,
     });
   });
 
   it('returns an aborted result when the signal is already aborted', async () => {
+    ix.get(IToolRegistry).register(echoTool);
     const executor = ix.get(IToolExecutor);
     const controller = new AbortController();
     controller.abort();
-    const execution = await echoTool.resolveExecution({});
-    const result = await executor.execute(call('echo', {}), execution, {
+    const [result] = await executor.execute([call('echo', {})], {
       signal: controller.signal,
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       output: 'Tool "echo" was aborted',
       isError: true,
     });
