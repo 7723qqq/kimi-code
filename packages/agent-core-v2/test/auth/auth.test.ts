@@ -16,7 +16,7 @@ import { AuthSummaryService, OAuthService } from '#/auth/authService';
 import { ILogService } from '#/log/log';
 import { IProviderService, type ProviderConfig } from '#/provider/provider';
 
-import { registerEnvironmentServices } from '../environment/stubs';
+import { registerBootstrapServices } from '../bootstrap/stubs';
 import { registerTelemetryServices } from '../telemetry/stubs';
 
 const OAUTH_PROVIDER = 'managed:kimi-code';
@@ -59,7 +59,7 @@ describe('OAuthService', () => {
     };
     providerSet = vi.fn().mockResolvedValue(undefined);
     ix = createServices(disposables, {
-      base: [registerEnvironmentServices, registerTelemetryServices],
+      base: [registerBootstrapServices, registerTelemetryServices],
       additionalServices: (reg) => {
         reg.definePartialInstance(IProviderService, {
           get: ((name: string) => providers[name]) as IProviderService['get'],

@@ -6,6 +6,7 @@
 export * from './abort';
 export * from './canonical-args';
 export * from './completion-budget';
+export * from './env';
 export * from './fs';
 export * from './hero-slug';
 export * from './per-id-json-store';

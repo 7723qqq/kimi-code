@@ -6,8 +6,4 @@
 
 export * from './config';
 export * from './configService';
-export * from './kimi-env-params';
-export * from './path';
-export * from './schema';
-export * from './sessionConfigService';
 export * from './thinking';

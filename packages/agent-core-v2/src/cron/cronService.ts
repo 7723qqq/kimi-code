@@ -8,6 +8,7 @@ import {
 } from "#/_base/di";
 import type { ContextMessage } from '#/contextMemory';
 import { IEventSink } from '../eventSink';
+import { IConfigRegistry, IConfigService } from '#/config';
 import { IPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';
 import { IToolRegistry } from '#/toolRegistry';
@@ -24,6 +25,13 @@ import {
   type CronPersistence,
   type CronTaskInit,
 } from './cron';
+import {
+  CRON_SECTION,
+  type CronConfig,
+  cronEnvBindings,
+  DEFAULT_CRON_CONFIG,
+  stripCronEnv,
+} from './configSection';
 import {
   resolveClockSources,
   SYSTEM_CLOCKS,
@@ -73,6 +81,7 @@ export class CronService
   readonly clocks: ClockSources;
 
   private readonly enabled: boolean;
+  private cronConfig: CronConfig;
   private readonly scheduler: CronScheduler | undefined;
   private readonly persistStore: CronPersistence | undefined;
   private readonly persistQueues = new Map<string, Promise<void>>();
@@ -87,12 +96,27 @@ export class CronService
     @ITurnService private readonly turnService: ITurnService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IToolRegistry private readonly toolRegistry: IToolRegistry,
+    @IConfigRegistry configRegistry: IConfigRegistry,
+    @IConfigService private readonly config: IConfigService,
   ) {
     super();
     this.enabled = options.isSubagent !== true;
+    configRegistry.registerSection(CRON_SECTION, { parse: (v) => v as CronConfig }, {
+      defaultValue: DEFAULT_CRON_CONFIG,
+      env: cronEnvBindings,
+      stripEnv: stripCronEnv,
+    });
+    this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
+    this._register(
+      this.config.onDidChange((e) => {
+        if (e.domain === CRON_SECTION) {
+          this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
+        }
+      }),
+    );
     this.clocks =
       options.clocks ??
-      resolveClockSources(process.env['KIMI_CRON_CLOCK']) ??
+      resolveClockSources(this.cronConfig.clock, this.cronConfig.debug) ??
       SYSTEM_CLOCKS;
     this.persistStore =
       this.enabled
@@ -133,7 +157,7 @@ export class CronService
         clocks: this.clocks,
         source: () => this.store.list(),
         isIdle: () => this.turnService.getActiveTurn() === undefined,
-        isKilled: () => process.env['KIMI_DISABLE_CRON'] === '1',
+        isKilled: () => this.cronConfig.disabled,
         onFire: (task, ctx) => {
           this.handleFire(task, ctx);
         },
@@ -144,13 +168,15 @@ export class CronService
           this.advanceCursor(id, lastFiredAt);
         },
         pollIntervalMs:
-          process.env['KIMI_CRON_MANUAL_TICK'] === '1'
+          this.cronConfig.manualTick
             ? null
             : options.pollIntervalMs,
+        debug: this.cronConfig.debug,
+        noJitter: this.cronConfig.noJitter,
       });
 
       if (options.registerTools !== false) {
-        this._register(this.toolRegistry.register(new CronCreateTool(this)));
+        this._register(this.toolRegistry.register(new CronCreateTool(this, this.cronConfig.disabled)));
         this._register(this.toolRegistry.register(new CronListTool(this)));
         this._register(this.toolRegistry.register(new CronDeleteTool(this)));
       }
@@ -368,7 +394,7 @@ export class CronService
   }
 
   private isStaleAt(task: CronTask, now: number): boolean {
-    if (process.env['KIMI_CRON_NO_STALE'] === '1') return false;
+    if (this.cronConfig.noStale) return false;
     if (task.recurring === false) return false;
     const age = now - task.createdAt;
     return Number.isFinite(age) && age >= STALE_THRESHOLD_MS;
@@ -393,13 +419,13 @@ export class CronService
 
   private bindSigusr1(): void {
     if (process.platform === 'win32') return;
-    if (process.env['KIMI_CRON_MANUAL_TICK'] !== '1') return;
+    if (!this.cronConfig.manualTick) return;
     if (this.sigusr1Handler !== null) return;
     const handler: NodeJS.SignalsListener = () => {
       try {
         this.tick();
       } catch (error) {
-        if (process.env['KIMI_CRON_DEBUG'] === '1') {
+        if (this.cronConfig.debug) {
           const msg = error instanceof Error ? error.message : String(error);
           process.stderr.write(`[cron/service] SIGUSR1 tick threw: ${msg}\n`);
         }

@@ -6,17 +6,18 @@
  */
 
 import type { ServiceRegistration } from '#/_base/di/test';
-import { IConfigRegistry, IConfigService, ISessionConfigService } from '#/config/config';
+import { IConfigRegistry, IConfigService } from '#/config/config';
 import { ConfigRegistry } from '#/config/configService';
+import { IAtomicTomlDocumentStore, TomlAtomicDocumentStore } from '#/storage';
 
 /**
- * Register the default config collaborators: a real `ConfigRegistry` plus empty
- * `IConfigService` / `ISessionConfigService` placeholders. Tests exercising the
- * real `ConfigService` / `SessionConfigService` should override the placeholder
- * via `additionalServices`.
+ * Register the default config collaborators: a real `ConfigRegistry` plus an
+ * empty `IConfigService` placeholder, and the real TOML atomic-document store
+ * (so tests exercising the real `ConfigService` only need to supply an
+ * `IStorageService` backend and override the `IConfigService` placeholder).
  */
 export function registerConfigServices(reg: ServiceRegistration): void {
   reg.defineInstance(IConfigRegistry, new ConfigRegistry());
   reg.definePartialInstance(IConfigService, {});
-  reg.definePartialInstance(ISessionConfigService, {});
+  reg.define(IAtomicTomlDocumentStore, TomlAtomicDocumentStore);
 }

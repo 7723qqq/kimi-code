@@ -1,16 +1,15 @@
 /**
  * `config` domain (L2) — thinking-level normalization helpers.
+ *
+ * Owns a local structural `ThinkingConfigDefaults` type so `config` does not
+ * reach upward into `profile`, which owns the authoritative
+ * `ThinkingConfigSchema`.
  */
 
 import type { ThinkingEffort } from '@moonshot-ai/kosong';
 
 export type { ThinkingEffort };
 
-/**
- * Structural shape of the `[thinking]` config section accepted by the thinking
- * helpers. Kept local to the config domain so it does not reach upward into
- * `profile` (which owns the authoritative `ThinkingConfigSchema`).
- */
 export interface ThinkingConfigDefaults {
   readonly mode?: 'auto' | 'on' | 'off' | undefined;
   readonly effort?: string | undefined;

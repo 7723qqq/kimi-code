@@ -119,13 +119,16 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
     CronCreateInputSchema,
   );
 
-  constructor(private readonly manager: CronToolManager) {}
+  constructor(
+    private readonly manager: CronToolManager,
+    private readonly disabled: boolean = false,
+  ) {}
 
   resolveExecution(args: CronCreateInput): ToolExecution {
     // 1. Global killswitch — checked first so a flipped env stops all
     //    further work, including the cron parse which can throw on
     //    legitimately-malformed input.
-    if (process.env['KIMI_DISABLE_CRON'] === '1') {
+    if (this.disabled) {
       return {
         isError: true,
         output: 'Cron scheduling is disabled (KIMI_DISABLE_CRON=1).',

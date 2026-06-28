@@ -18,6 +18,7 @@ import {
 } from './task';
 
 import { IContextMemory } from '#/contextMemory';
+import { IConfigRegistry } from '#/config';
 import { IEventSink } from '../eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { IPromptService } from '#/prompt';
@@ -36,6 +37,7 @@ import {
   type ForegroundTaskReleaseReason,
   type RegisterBackgroundTaskOptions,
 } from './background';
+import { BACKGROUND_SECTION, BackgroundConfigSchema } from './configSection';
 
 interface ForegroundRelease {
   readonly promise: Promise<ForegroundTaskReleaseReason>;
@@ -115,8 +117,10 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     @IPromptService private readonly prompt: IPromptService,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @IContextMemory private readonly context: IContextMemory,
+    @IConfigRegistry configRegistry: IConfigRegistry,
   ) {
     super();
+    configRegistry.registerSection(BACKGROUND_SECTION, BackgroundConfigSchema);
     this.persistence = options.persistence;
     this.maxRunningTasks = options.maxRunningTasks;
     this._register(

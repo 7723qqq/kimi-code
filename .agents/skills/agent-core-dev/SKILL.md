@@ -63,3 +63,4 @@ Invariants that hold across every stage. Each is expanded in the stage file note
 9. Throw coded errors; register codes centrally; branch on `code` across the wire, never `instanceof`. (errors.md)
 10. Gate unreleased behavior behind a `FLAG_DEFINITIONS` flag; no ad-hoc env toggles. (flags.md)
 11. Tests resolve the SUT by interface; shared stubs live under `test/`, never `src/`. (test.md)
+12. Config is the preference registry: only preferences that are persistable, schema'd, and user/operator-facing go in `IConfigService`. Domain-specific config (including env-only operational toggles) goes through `registerSection` + `envOverlay`. Facts → `IBootstrapService` (kept domain-agnostic — never add cron/flags/model state); session state → Session scope; constants → code. Business domains never call `IBootstrapService.getEnv()` directly. (config.md)

@@ -8,7 +8,7 @@ export * from './errors';
 
 export * from './log/index';
 export * from './telemetry/index';
-export * from './environment/index';
+export * from './bootstrap/index';
 export * from './hostFs/index';
 export * from './kosong/index';
 

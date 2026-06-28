@@ -1,51 +1,127 @@
 /**
  * `config` domain (L2) — `IConfigRegistry` and `IConfigService` implementations.
  *
- * Owns the section registry and the global config file state; reads config
- * paths through `environment` and logs through `log`. Bound at Core scope.
+ * Owns the section registry and the layered global config state: resolves a
+ * value by precedence across defaults, the user config file, and per-run memory
+ * overrides (highest, never persisted), and persists writes only for the `User`
+ * target. Maintains four layered views of a domain — `rawSnake` (snake_case
+ * write base, kept for lossless round-trip), `raw` (camelCase, env-free),
+ * `effective` (validated, env overlay applied), and `memory` (per-run overrides)
+ * — plus a `delivered` snapshot per domain used as the diff base for
+ * `onDidSectionChange`. Reads config paths and the environment overlay through
+ * `bootstrap`, persists the TOML document through the `storage` TOML
+ * atomic-document store (reloading when the document changes on disk), and logs
+ * through `log`. Late section / overlay registration re-validates the
+ * already-loaded raw value and re-runs overlays. Bound at Core scope.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
-import { dirname } from 'pathe';
+import { basename } from 'pathe';
 
-import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
-
-import { Disposable } from '#/_base/di/lifecycle';
-import { Emitter, type Event } from '#/_base/event';
 import { InstantiationType } from '#/_base/di/extensions';
+import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { atomicWrite } from '#/_base/utils/fs';
-import { IEnvironmentService } from '#/environment';
+import { Emitter, type Event } from '#/_base/event';
+import { IBootstrapService } from '#/bootstrap';
 import { ILogService } from '#/log';
+import { IAtomicTomlDocumentStore, type IAtomicDocumentStore } from '#/storage';
 
 import {
+  type AnyEnvBindings,
   type ConfigChangedEvent,
   type ConfigDiagnostic,
+  type ConfigSectionChangedEvent,
+  type ConfigEffectiveOverlay,
+  type ConfigInspectValue,
   type ConfigMerge,
+  type ConfigOverlayRegisteredEvent,
   type ConfigSchema,
   type ConfigSection,
   type ConfigSectionRegisteredEvent,
   type ConfigChangeSource,
+  type EnvBinding,
   type RegisterSectionOptions,
   type ResolvedConfig,
+  ConfigScope,
+  ConfigTarget,
   IConfigRegistry,
   IConfigService,
 } from './config';
-import { deepMerge, describeUnknownError, isPlainObject } from './configPure';
-import { applyEnvModelOverlay, stripEnvForDomain } from './env-model';
+import { deepEqual, deepMerge, describeUnknownError, isPlainObject } from './configPure';
 import {
   applySectionToToml,
+  camelToSnake,
   cloneRecord,
   describeTomlSyntaxError,
+  TomlError,
   transformTomlData,
 } from './toml';
+
+// Empty scope resolves to `<homeDir>/<configKey>` (join skips empty segments),
+// preserving the historical `<homeDir>/config.toml` location.
+const CONFIG_SCOPE = '';
+
+type GetEnv = (name: string) => string | undefined;
+
+function isEnvBinding(value: unknown): value is EnvBinding {
+  return typeof value === 'string' || (isPlainObject(value) && 'env' in value);
+}
+
+function resolveBinding(binding: EnvBinding, getEnv: GetEnv, existing: unknown): unknown {
+  const envName = typeof binding === 'string' ? binding : binding.env;
+  const raw = getEnv(envName);
+  if (raw !== undefined) {
+    return typeof binding === 'string' ? raw : binding.parse ? binding.parse(raw) : raw;
+  }
+  if (typeof binding === 'object' && binding.default !== undefined && existing === undefined) {
+    return binding.default;
+  }
+  return existing;
+}
+
+function applyEnvBindings(
+  target: Record<string, unknown>,
+  bindings: AnyEnvBindings,
+  getEnv: GetEnv,
+): void {
+  for (const [key, binding] of Object.entries(bindings)) {
+    if (isEnvBinding(binding)) {
+      const resolved = resolveBinding(binding, getEnv, target[key]);
+      if (resolved !== undefined) target[key] = resolved;
+    } else if (binding !== undefined) {
+      let child: Record<string, unknown>;
+      if (isPlainObject(target[key])) {
+        child = target[key];
+      } else {
+        child = {};
+        target[key] = child;
+      }
+      applyEnvBindings(child, binding as AnyEnvBindings, getEnv);
+      if (Object.keys(child).length === 0) {
+        delete target[key];
+      }
+    }
+  }
+}
+
+function applySectionEnv(base: unknown, env: AnyEnvBindings, getEnv: GetEnv): unknown {
+  if (isEnvBinding(env)) {
+    return resolveBinding(env, getEnv, base);
+  }
+  const target: Record<string, unknown> = isPlainObject(base) ? { ...base } : {};
+  applyEnvBindings(target, env, getEnv);
+  return target;
+}
 
 export class ConfigRegistry implements IConfigRegistry {
   declare readonly _serviceBrand: undefined;
   private readonly sections = new Map<string, ConfigSection>();
+  private readonly overlays: ConfigEffectiveOverlay[] = [];
   private readonly _onDidRegisterSection = new Emitter<ConfigSectionRegisteredEvent>();
-  readonly onDidRegisterSection: Event<ConfigSectionRegisteredEvent> = this._onDidRegisterSection.event;
+  readonly onDidRegisterSection: Event<ConfigSectionRegisteredEvent> =
+    this._onDidRegisterSection.event;
+  private readonly _onDidRegisterOverlay = new Emitter<ConfigOverlayRegisteredEvent>();
+  readonly onDidRegisterOverlay: Event<ConfigOverlayRegisteredEvent> =
+    this._onDidRegisterOverlay.event;
 
   registerSection<T>(
     domain: string,
@@ -60,6 +136,11 @@ export class ConfigRegistry implements IConfigRegistry {
       schema: schema as ConfigSchema<unknown>,
       defaultValue: options.defaultValue,
       merge: (options.merge ?? deepMerge) as ConfigMerge<unknown>,
+      scope: options.scope ?? ConfigScope.Core,
+      env: options.env as ConfigSection['env'],
+      stripEnv: options.stripEnv as ConfigSection['stripEnv'],
+      fromToml: options.fromToml,
+      toToml: options.toToml,
     });
     this._onDidRegisterSection.fire({ domain });
   }
@@ -70,6 +151,15 @@ export class ConfigRegistry implements IConfigRegistry {
 
   listSections(): readonly ConfigSection[] {
     return [...this.sections.values()];
+  }
+
+  registerEffectiveOverlay(overlay: ConfigEffectiveOverlay): void {
+    this.overlays.push(overlay);
+    this._onDidRegisterOverlay.fire({ overlay });
+  }
+
+  listEffectiveOverlays(): readonly ConfigEffectiveOverlay[] {
+    return [...this.overlays];
   }
 
   validate<T>(domain: string, value: unknown): T {
@@ -91,49 +181,107 @@ export class ConfigService extends Disposable implements IConfigService {
   declare readonly _serviceBrand: undefined;
   private readonly _onDidChange = this._register(new Emitter<ConfigChangedEvent>());
   readonly onDidChange: Event<ConfigChangedEvent> = this._onDidChange.event;
-  readonly ready = Promise.resolve();
+  private readonly _onDidSectionChange = this._register(new Emitter<ConfigSectionChangedEvent>());
+  readonly onDidSectionChange: Event<ConfigSectionChangedEvent> = this._onDidSectionChange.event;
+  readonly ready: Promise<void>;
 
-  /** Snake_case clone of the file; the write base, kept for round-trip. */
   private rawSnake: ResolvedConfig = {};
-  /** CamelCase, env-free in-memory values (post read-transform). */
   private raw: ResolvedConfig = {};
-  /** Validated effective values with the env overlay applied. */
   private effective: ResolvedConfig = {};
+  private memory: ResolvedConfig = {};
+  private delivered: ResolvedConfig = {};
   private readonly diagnosticsList: ConfigDiagnostic[] = [];
+  private readonly configKey: string;
 
   constructor(
     @IConfigRegistry private readonly registry: IConfigRegistry,
-    @IEnvironmentService private readonly env: IEnvironmentService,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ILogService private readonly log: ILogService,
+    @IAtomicTomlDocumentStore private readonly documentStore: IAtomicDocumentStore,
   ) {
     super();
+    this.configKey = basename(this.bootstrap.configPath);
     this._register(this.registry.onDidRegisterSection((e) => this.revalidateDomain(e.domain)));
-    this.loadSync('load');
+    this._register(this.registry.onDidRegisterOverlay(() => this.reapplyOverlays()));
+    this.ready = this.load('load');
+    this._register(
+      this.documentStore.watch(CONFIG_SCOPE, this.configKey)(() => {
+        void this.reload();
+      }),
+    );
   }
 
   get<T = unknown>(domain: string): T {
+    if (Object.prototype.hasOwnProperty.call(this.memory, domain)) {
+      return this.memory[domain] as T;
+    }
     return this.effective[domain] as T;
   }
 
+  inspect<T = unknown>(domain: string): ConfigInspectValue<T> {
+    const memoryValue = this.memory[domain] as T | undefined;
+    return {
+      value: this.get<T>(domain),
+      defaultValue: this.registry.defaultValue<T>(domain),
+      userValue: this.raw[domain] as T | undefined,
+      memoryValue,
+    };
+  }
+
   getAll(): ResolvedConfig {
-    return { ...this.effective };
+    return { ...this.effective, ...this.memory };
   }
 
   diagnostics(): readonly ConfigDiagnostic[] {
     return [...this.diagnosticsList];
   }
 
-  async set(domain: string, patch: unknown): Promise<void> {
+  async set(
+    domain: string,
+    patch: unknown,
+    target: ConfigTarget = ConfigTarget.User,
+  ): Promise<void> {
+    await this.ready;
+    if (target === ConfigTarget.Memory) {
+      const next = this.registry.merge(domain, this.memory[domain], patch);
+      const validated = this.registry.validate(domain, next);
+      if (validated === undefined) {
+        delete this.memory[domain];
+      } else {
+        this.memory[domain] = validated;
+      }
+      this.commit('set', [domain]);
+      return;
+    }
     const base = this.raw[domain];
     const next = this.registry.merge(domain, base, patch);
     const validated = this.registry.validate(domain, next);
-    this.raw[domain] = validated;
+    const stripped = this.stripEnv(domain, validated);
+    if (stripped === undefined) {
+      delete this.raw[domain];
+    } else {
+      this.raw[domain] = stripped;
+    }
     await this.persist(domain);
     this.rebuildEffective('set', [domain]);
   }
 
-  async replace(domain: string, value: unknown): Promise<void> {
-    const stripped = stripEnvForDomain(domain, value, this.rawSnake);
+  async replace(
+    domain: string,
+    value: unknown,
+    target: ConfigTarget = ConfigTarget.User,
+  ): Promise<void> {
+    await this.ready;
+    if (target === ConfigTarget.Memory) {
+      if (value === undefined) {
+        delete this.memory[domain];
+      } else {
+        this.memory[domain] = this.registry.validate(domain, value);
+      }
+      this.commit('set', [domain]);
+      return;
+    }
+    const stripped = this.stripEnv(domain, value);
     if (stripped === undefined) {
       delete this.raw[domain];
     } else {
@@ -143,62 +291,79 @@ export class ConfigService extends Disposable implements IConfigService {
     this.rebuildEffective('set', [domain]);
   }
 
-  reload(): Promise<void> {
-    this.loadSync('reload');
-    return Promise.resolve();
+  private stripEnv(domain: string, value: unknown): unknown {
+    let result = value;
+    const section = this.registry.getSection(domain);
+    if (section?.stripEnv !== undefined) {
+      result = section.stripEnv(result, this.rawSnake[domain]);
+    }
+    if (result === undefined) return result;
+    for (const overlay of this.registry.listEffectiveOverlays()) {
+      if (overlay.strip === undefined) continue;
+      result = overlay.strip(domain, result, this.rawSnake);
+      if (result === undefined) return result;
+    }
+    return result;
   }
 
-  private loadSync(source: ConfigChangeSource): void {
+  async reload(): Promise<void> {
+    await this.ready;
+    await this.load('reload');
+  }
+
+  private async load(source: ConfigChangeSource): Promise<void> {
     this.diagnosticsList.length = 0;
     let fileData: ResolvedConfig = {};
     try {
-      fileData = this.readFileData();
+      const data = await this.documentStore.get<ResolvedConfig>(CONFIG_SCOPE, this.configKey);
+      fileData = data !== undefined && isPlainObject(data) ? data : {};
     } catch (error) {
-      this.diagnosticsList.push({
-        severity: 'error',
-        message: describeUnknownError(error),
-      });
+      const message =
+        error instanceof TomlError
+          ? `Failed to parse ${this.bootstrap.configPath}: ${describeTomlSyntaxError(error)}`
+          : describeUnknownError(error);
+      this.diagnosticsList.push({ severity: 'error', message });
       this.log.warn('config load failed', { error: describeUnknownError(error) });
     }
-    this.rawSnake = cloneRecord(fileData);
-    this.raw = transformTomlData(fileData);
+    const nextRawSnake = cloneRecord(fileData);
+    if (source !== 'load' && JSON.stringify(nextRawSnake) === JSON.stringify(this.rawSnake)) {
+      return;
+    }
+    this.rawSnake = nextRawSnake;
+    this.raw = transformTomlData(fileData, this.registry);
     this.rebuildEffective(source);
   }
 
-  private readFileData(): ResolvedConfig {
-    if (!existsSync(this.env.configPath)) {
-      return {};
-    }
-    const text = readFileSync(this.env.configPath, 'utf-8');
-    if (text.trim().length === 0) {
-      return {};
-    }
-    try {
-      const parsed = parseToml(text);
-      return isPlainObject(parsed) ? parsed : {};
-    } catch (error) {
-      throw new Error(
-        `Failed to parse ${this.env.configPath}: ${describeTomlSyntaxError(error)}`,
-        { cause: error },
-      );
-    }
-  }
-
-  /**
-   * Recompute `effective` from `raw`: validate each present domain (dropping
-   * invalid ones into diagnostics), fill registered defaults, then apply the
-   * `KIMI_MODEL_*` env overlay (surfacing problems as env warnings).
-   */
-  private rebuildEffective(source: ConfigChangeSource = 'reload', domains?: readonly string[]): void {
+  private rebuildEffective(
+    source: ConfigChangeSource = 'reload',
+    domains?: readonly string[],
+  ): void {
     const previous = this.effective;
     const next = this.buildEffective(this.raw);
     this.applyEnvOverlay(next);
     this.effective = next;
 
-    const changedDomains =
-      domains ?? [...new Set([...Object.keys(previous), ...Object.keys(next)])];
-    for (const domain of changedDomains) {
-      this._onDidChange.fire({ domain, source });
+    const changedDomains = domains ?? [
+      ...new Set([...Object.keys(previous), ...Object.keys(next)]),
+    ];
+    this.commit(source, changedDomains);
+  }
+
+  private deliveredValue(domain: string): unknown {
+    return Object.prototype.hasOwnProperty.call(this.memory, domain)
+      ? this.memory[domain]
+      : this.effective[domain];
+  }
+
+  private commit(source: ConfigChangeSource, domains: readonly string[]): void {
+    for (const domain of domains) {
+      const previousValue = this.delivered[domain];
+      const value = this.deliveredValue(domain);
+      this._onDidChange.fire({ domain, source, value, previousValue });
+      if (!deepEqual(value, previousValue)) {
+        this._onDidSectionChange.fire({ domain, source, value, previousValue });
+      }
+      this.delivered[domain] = value;
     }
   }
 
@@ -220,34 +385,61 @@ export class ConfigService extends Disposable implements IConfigService {
         effective[section.domain] = section.defaultValue;
       }
     }
+    const getEnv = (name: string): string | undefined => this.bootstrap.getEnv(name);
+    for (const section of this.registry.listSections()) {
+      if (section.env === undefined) continue;
+      try {
+        const base = effective[section.domain];
+        const next = applySectionEnv(base, section.env, getEnv);
+        effective[section.domain] = this.registry.validate(section.domain, next);
+      } catch (error) {
+        this.diagnosticsList.push({
+          domain: section.domain,
+          severity: 'warning',
+          message: `Ignoring env overlay for '${section.domain}': ${describeUnknownError(error)}`,
+        });
+      }
+    }
     return effective;
   }
 
   private applyEnvOverlay(effective: ResolvedConfig): void {
-    try {
-      applyEnvModelOverlay(effective, process.env, (domain, value) =>
-        this.registry.validate(domain, value),
-      );
-    } catch (error) {
-      this.diagnosticsList.push({
-        severity: 'warning',
-        message: `Ignoring KIMI_MODEL_* environment overrides: ${describeUnknownError(error)}`,
-      });
+    const getEnv = (name: string): string | undefined => this.bootstrap.getEnv(name);
+    const validate = (domain: string, value: unknown): unknown =>
+      this.registry.validate(domain, value);
+    for (const overlay of this.registry.listEffectiveOverlays()) {
+      try {
+        overlay.apply(effective, getEnv, validate);
+      } catch (error) {
+        this.diagnosticsList.push({
+          severity: 'warning',
+          message: `Ignoring config environment overlay: ${describeUnknownError(error)}`,
+        });
+      }
     }
   }
 
-  /**
-   * Re-validate a single domain when its section is registered (possibly after
-   * the initial load). Applies the freshly registered schema / default to the
-   * already-loaded raw value, re-runs the env overlay (which may depend on this
-   * domain), and fires `onDidChange` if the effective value changed. This keeps
-   * validation and defaults correct under lazy, out-of-order registration.
-   */
+  private reapplyOverlays(): void {
+    const before = this.effective;
+    const next = this.buildEffective(this.raw);
+    this.applyEnvOverlay(next);
+    this.effective = next;
+    this.commit('reload', [...new Set([...Object.keys(before), ...Object.keys(next)])]);
+  }
+
   private revalidateDomain(domain: string): void {
     const section = this.registry.getSection(domain);
     if (section === undefined) return;
 
-    const before = JSON.stringify(this.effective[domain]);
+    // A late-registered section's `raw` was produced by the generic transform;
+    // re-apply its custom `fromToml` against the preserved snake_case value.
+    if (section.fromToml !== undefined) {
+      const rawSnakeValue = this.rawSnake[camelToSnake(domain)];
+      if (rawSnakeValue !== undefined) {
+        this.raw[domain] = section.fromToml(rawSnakeValue);
+      }
+    }
+
     if (this.raw[domain] !== undefined) {
       try {
         this.effective[domain] = this.registry.validate(domain, this.raw[domain]);
@@ -262,17 +454,39 @@ export class ConfigService extends Disposable implements IConfigService {
     }
 
     this.applyEnvOverlay(this.effective);
-    if (JSON.stringify(this.effective[domain]) !== before) {
-      this._onDidChange.fire({ domain, source: 'reload' });
+    if (section.env !== undefined) {
+      const getEnv = (name: string): string | undefined => this.bootstrap.getEnv(name);
+      try {
+        const next = applySectionEnv(this.effective[domain], section.env, getEnv);
+        this.effective[domain] = this.registry.validate(domain, next);
+      } catch (error) {
+        this.diagnosticsList.push({
+          domain,
+          severity: 'warning',
+          message: `Ignoring env overlay for '${domain}': ${describeUnknownError(error)}`,
+        });
+      }
     }
+    this.commit('reload', [domain]);
   }
 
   private async persist(domain: string): Promise<void> {
-    applySectionToToml(this.rawSnake, domain, this.raw[domain]);
-    await mkdir(dirname(this.env.configPath), { recursive: true, mode: 0o700 });
-    await atomicWrite(this.env.configPath, `${stringifyToml(this.rawSnake)}\n`);
+    applySectionToToml(this.rawSnake, domain, this.raw[domain], this.registry);
+    await this.documentStore.set(CONFIG_SCOPE, this.configKey, this.rawSnake);
   }
 }
 
-registerScopedService(LifecycleScope.Core, IConfigRegistry, ConfigRegistry, InstantiationType.Delayed, 'config');
-registerScopedService(LifecycleScope.Core, IConfigService, ConfigService, InstantiationType.Delayed, 'config');
+registerScopedService(
+  LifecycleScope.Core,
+  IConfigRegistry,
+  ConfigRegistry,
+  InstantiationType.Delayed,
+  'config',
+);
+registerScopedService(
+  LifecycleScope.Core,
+  IConfigService,
+  ConfigService,
+  InstantiationType.Delayed,
+  'config',
+);

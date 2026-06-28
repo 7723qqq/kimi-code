@@ -41,7 +41,7 @@ const DOMAIN_LAYER = new Map([
   // L1 — abstraction bridges & low-level capabilities
   ['log', 1],
   ['telemetry', 1],
-  ['environment', 1],
+  ['bootstrap', 1],
   ['hostFs', 1],
   ['workspaceContext', 1],
   ['kosong', 1],
@@ -152,6 +152,7 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  */
 const ALLOWED_EXCEPTIONS = new Set([
   'kosong>config',
+  'kosong>provider',
   'permission>approval',
   'skill>turn',
   'turn>agent-lifecycle',
@@ -163,8 +164,6 @@ const ALLOWED_EXCEPTIONS = new Set([
   'session>event',
   'wireRecord>hooks',
   // L3/L4 type-sharing introduced by the rebase-v2 restructuring.
-  'config>externalHooks',
-  'config>permissionRules',
   'contextMemory>background',
   'llmRequester>session',
   'loop>mcp',

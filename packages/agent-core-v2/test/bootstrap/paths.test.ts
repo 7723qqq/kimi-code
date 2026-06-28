@@ -4,13 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-  ensureKimiHome,
-  resolveConfigPath,
-  resolveKimiHome,
-} from '#/config/path';
+import { ensureKimiHome, resolveConfigPath, resolveKimiHome } from '#/bootstrap';
 
-describe('config/path', () => {
+describe('bootstrap path helpers', () => {
   describe('resolveKimiHome', () => {
     it('uses explicit homeDir when provided', () => {
       expect(resolveKimiHome('/tmp/kimi')).toBe('/tmp/kimi');

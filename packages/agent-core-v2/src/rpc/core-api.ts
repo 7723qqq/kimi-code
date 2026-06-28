@@ -1,4 +1,4 @@
-import type { AgentConfigData } from '#/config';
+import type { AgentConfigData } from '#/profile';
 import type { AgentContextData } from '#/contextMemory';
 import type { BackgroundTaskInfo } from '#/background';
 import type {
@@ -14,7 +14,7 @@ import type { PermissionData, PermissionMode } from '#/permissionPolicy';
 import type { PlanData } from '#/plan';
 import type { SwarmModeTrigger } from '#/swarm';
 import type { ToolInfo } from '#/toolRegistry';
-import type { KimiConfig, KimiConfigPatch } from '#/config';
+import type { ResolvedConfig } from '#/config';
 import type { McpServerConfig } from '#/mcp';
 import type { ExperimentalFeatureState } from '#/flag';
 import type { ResumeSessionResult } from '#/replayBuilder/types';
@@ -30,8 +30,6 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: 
 export type JsonObject = { readonly [key: string]: JsonValue };
 
 export type Unsubscribe = () => void;
-
-export type { KimiConfig, KimiConfigPatch };
 
 export type TextPromptPart = Extract<ContentPart, { type: 'text' }>;
 export type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'video_url' }>;
@@ -331,7 +329,7 @@ export interface ConfigDiagnostics {
   readonly warnings: readonly string[];
 }
 
-export type SetKimiConfigPayload = KimiConfigPatch;
+export type SetKimiConfigPayload = ResolvedConfig;
 
 export interface RemoveKimiProviderPayload {
   readonly providerId: string;
@@ -397,10 +395,10 @@ type SessionAPIWithId = WithSessionId<SessionAPI>;
 export interface CoreAPI extends SessionAPIWithId {
   getCoreInfo: (payload: EmptyPayload) => CoreInfo;
   getExperimentalFeatures: (payload: EmptyPayload) => readonly ExperimentalFeatureState[];
-  getKimiConfig: (payload: GetKimiConfigPayload) => KimiConfig;
+  getKimiConfig: (payload: GetKimiConfigPayload) => ResolvedConfig;
   getConfigDiagnostics: (payload: EmptyPayload) => ConfigDiagnostics;
-  setKimiConfig: (payload: SetKimiConfigPayload) => KimiConfig;
-  removeKimiProvider: (payload: RemoveKimiProviderPayload) => KimiConfig;
+  setKimiConfig: (payload: SetKimiConfigPayload) => ResolvedConfig;
+  removeKimiProvider: (payload: RemoveKimiProviderPayload) => ResolvedConfig;
   createSession: (payload: CreateSessionPayload) => SessionSummary;
   closeSession: (payload: CloseSessionPayload) => void;
   archiveSession: (payload: ArchiveSessionPayload) => void;

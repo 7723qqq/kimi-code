@@ -3,17 +3,30 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { IBootstrapService } from '#/bootstrap';
+import { IConfigRegistry, IConfigService } from '#/config';
+import { ConfigRegistry, ConfigService } from '#/config/configService';
 import type { ContextMessage } from '#/contextMemory';
 import { ICronService } from '#/cron';
 import { CronService } from '#/cron/cronService';
 import type { ClockSources } from '#/cron/tools/clock';
-import { IEventSink } from '../../src/eventSink';
+import { ILogService } from '#/log';
 import { IPromptService } from '#/prompt';
+import {
+  InMemoryStorageService,
+  IStorageService,
+  IAtomicTomlDocumentStore,
+  TomlAtomicDocumentStore,
+} from '#/storage';
 import { ITelemetryService } from '#/telemetry';
 import { IToolRegistry } from '#/toolRegistry';
 import { ITurnService, type Turn } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
+
+import { IEventSink } from '../../src/eventSink';
+import { stubBootstrap } from '../bootstrap/stubs';
 import { stubWireRecord } from '../contextMemory/stubs';
+import { stubLog } from '../log/stubs';
 import { stubTurn } from '../turn/stubs';
 
 const FAR_FUTURE_MS = 10 * 366 * 24 * 60 * 60 * 1000;
@@ -28,9 +41,7 @@ function fakeTurn(): Turn {
 }
 
 function textOf(message: ContextMessage): string {
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('');
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
 // NOTE: the legacy `CronFireCoordinator` (which steered the main agent on fire
@@ -80,11 +91,15 @@ describe('CronService', () => {
     ix.stub(ITurnService, turnService);
     ix.stub(ITelemetryService, { track: () => {} });
     ix.stub(IToolRegistry, { register: () => ({ dispose: () => {} }) });
+    ix.stub(IBootstrapService, stubBootstrap());
+    ix.stub(ILogService, stubLog());
+    ix.stub(IStorageService, new InMemoryStorageService());
+    ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
+    ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
+    ix.set(IConfigService, new SyncDescriptor(ConfigService));
     ix.set(
       ICronService,
-      new SyncDescriptor(CronService, [
-        { autoStart: false, registerTools: false, clocks },
-      ]),
+      new SyncDescriptor(CronService, [{ autoStart: false, registerTools: false, clocks }]),
     );
   });
   afterEach(() => disposables.dispose());

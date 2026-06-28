@@ -85,6 +85,43 @@ function storageServiceSuite(
       expect(await service.read('s', 'k')).toBeUndefined();
       await expect(service.delete('s', 'k')).resolves.toBeUndefined();
     });
+
+    it('watch fires when a watched key is written', async ({ skip }) => {
+      if (service.watch === undefined) skip();
+      const fired = new Promise<void>((resolve) => {
+        const sub = service.watch!('s', 'k')(() => {
+          sub.dispose();
+          resolve();
+        });
+      });
+      await service.write('s', 'k', enc.encode('v'));
+      await fired;
+    });
+
+    it('watch does not fire for an unrelated key', async ({ skip }) => {
+      if (service.watch === undefined) skip();
+      let count = 0;
+      const sub = service.watch!('s', 'k')(() => {
+        count++;
+      });
+      await service.write('s', 'other', enc.encode('v'));
+      await new Promise((r) => setTimeout(r, 300));
+      sub.dispose();
+      expect(count).toBe(0);
+    });
+
+    it('watch fires when a watched key is deleted', async ({ skip }) => {
+      if (service.watch === undefined) skip();
+      await service.write('s', 'k', enc.encode('x'));
+      const fired = new Promise<void>((resolve) => {
+        const sub = service.watch!('s', 'k')(() => {
+          sub.dispose();
+          resolve();
+        });
+      });
+      await service.delete('s', 'k');
+      await fired;
+    });
   });
 }
 

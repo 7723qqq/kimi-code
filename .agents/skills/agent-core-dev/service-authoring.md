@@ -13,7 +13,7 @@ One folder per domain, **kebab-case**: `session/`, `session-activity/`, `context
 └── index.ts             ← barrel: re-exports contract + impl (+ helpers)
 ```
 
-A domain may have more than one impl file when its Services live at different scopes or carry independent responsibilities (e.g. `configService.ts` for the Core `IConfigService`, `sessionConfigService.ts` for the Session `ISessionConfigService`). See [Multi-Service domains](#multi-service-domains).
+A domain may have more than one impl file when its Services live at different scopes or carry independent responsibilities (e.g. `logService.ts` for the Core `ILogService`, `sessionLogService.ts` for the Session `ISessionLogService`). See [Multi-Service domains](#multi-service-domains).
 
 The package entry `src/index.ts` re-exports each domain barrel so that importing the package runs every registration side effect.
 
@@ -230,7 +230,7 @@ Inject `@IEventService` and `publish(...)`; `subscribe(...)` returns an `IDispos
 A domain may define several Services. How to organize them:
 
 - **Same scope, tightly coupled** → one contract file, possibly one impl file with several classes and several `registerScopedService(...)` calls (e.g. `logService.ts` registers both `ILogWriterService` and `ILogService`).
-- **Different scopes** → separate impl files named after the Service (`configService.ts` for Core `IConfigService`, `sessionConfigService.ts` for Session `ISessionConfigService`); one shared contract file (`config.ts`).
+- **Different scopes** → separate impl files named after the Service (`logService.ts` for Core `ILogService`, `sessionLogService.ts` for Session `ISessionLogService`); one shared contract file (`log.ts`).
 - **Split by responsibility** — even within one scope, prefer a separate impl file when a class is large or independently testable.
 
 The contract file still holds **all** of the domain's interfaces and decorators in one place so consumers import the domain's surface from `./<domain>`.

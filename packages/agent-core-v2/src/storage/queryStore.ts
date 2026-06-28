@@ -22,7 +22,6 @@ export type SortDir = 'asc' | 'desc';
 
 export interface Page<T> {
   readonly items: readonly T[];
-  /** Opaque token for the next page, or `undefined` when exhausted. */
   readonly nextCursor?: string;
 }
 
@@ -38,7 +37,6 @@ export interface ComparisonOp {
   readonly $exists?: boolean;
 }
 
-/** A field mapped to a scalar (shorthand for `$eq`) or a set of operators. */
 export type QueryFilter = {
   readonly [field: string]: unknown | ComparisonOp;
 };
@@ -54,7 +52,6 @@ export interface IQuery<T> {
 export interface ValueIndexDef {
   readonly kind: 'value';
   readonly name: string;
-  /** Dot/bracket path into the value, e.g. `"model"` or `"meta.user"`. */
   readonly field: string;
   readonly unique?: boolean;
 }
@@ -69,7 +66,6 @@ export interface CompoundIndexDef {
 export interface TextIndexDef {
   readonly kind: 'text';
   readonly name: string;
-  /** Fields to tokenize; empty/omitted means the whole value. */
   readonly fields?: readonly string[];
 }
 
@@ -79,7 +75,6 @@ export type WriteOp =
   | { readonly kind: 'put'; readonly collection: string; readonly key: string; readonly value: unknown }
   | { readonly kind: 'delete'; readonly collection: string; readonly key: string };
 
-/** Position a projector has reached in its source log. */
 export interface Checkpoint {
   readonly seq: number;
 }
@@ -87,26 +82,20 @@ export interface Checkpoint {
 export interface IQueryStore {
   readonly _serviceBrand: undefined;
 
-  /** Upsert a value (projector write path). */
   put<T>(collection: string, key: string, value: T): Promise<void>;
 
-  /** Apply several writes atomically. */
   batch(ops: readonly WriteOp[]): Promise<void>;
 
   delete(collection: string, key: string): Promise<void>;
 
   get<T>(collection: string, key: string): Promise<T | undefined>;
 
-  /** Start a query against a collection (read path). */
   query<T>(collection: string): IQuery<T>;
 
-  /** Declare an index. Idempotent — re-declaring an existing index is a no-op. */
   ensureIndex(collection: string, def: IndexDef): Promise<void>;
 
-  /** Read how far a projector has indexed a given source log. */
   getCheckpoint(source: string): Promise<Checkpoint | undefined>;
 
-  /** Persist a projector's progress for a given source log. */
   setCheckpoint(source: string, checkpoint: Checkpoint): Promise<void>;
 
   close(): Promise<void>;

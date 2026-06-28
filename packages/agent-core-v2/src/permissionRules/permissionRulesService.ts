@@ -6,6 +6,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import { OrderedHookSlot } from '../hooks';
+import { IConfigRegistry } from '#/config';
 import { IReplayBuilderService } from '#/replayBuilder';
 import { IWireRecord } from '#/wireRecord';
 import {
@@ -14,6 +15,12 @@ import {
   type PermissionRule,
   type PermissionRulesServiceOptions,
 } from './permissionRules';
+import {
+  PERMISSION_SECTION,
+  PermissionConfigSchema,
+  permissionFromToml,
+  permissionToToml,
+} from './configSection';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -41,8 +48,13 @@ export class PermissionRulesService extends Disposable implements IPermissionRul
     options: PermissionRulesServiceOptions = {},
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
+    @IConfigRegistry configRegistry: IConfigRegistry,
   ) {
     super();
+    configRegistry.registerSection(PERMISSION_SECTION, PermissionConfigSchema, {
+      fromToml: permissionFromToml,
+      toToml: permissionToToml,
+    });
     this.localRules = [...(options.initialRules ?? [])];
     this.parent = options.parent;
     this._register(

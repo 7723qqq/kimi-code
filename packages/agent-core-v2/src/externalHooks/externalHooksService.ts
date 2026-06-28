@@ -1,4 +1,5 @@
 import { toKimiErrorPayload } from "#/errors";
+import { IConfigRegistry } from '#/config';
 import {
   IExternalHooksService,
   type ExternalHooksServiceOptions,
@@ -7,6 +8,7 @@ import {
   type PermissionResultHookPayload,
   type UserPromptHookDecision,
 } from './externalHooks';
+import { HOOKS_SECTION, HooksConfigSchema, hooksFromToml, hooksToToml } from './configSection';
 import {
   renderUserPromptHookBlockResult,
   renderUserPromptHookResult,
@@ -36,7 +38,12 @@ export class ExternalHooksService implements IExternalHooksService {
   constructor(
     private readonly options: ExternalHooksServiceOptions = {},
     @ITurnService turn: ITurnService,
+    @IConfigRegistry configRegistry: IConfigRegistry,
   ) {
+    configRegistry.registerSection(HOOKS_SECTION, HooksConfigSchema, {
+      fromToml: hooksFromToml,
+      toToml: hooksToToml,
+    });
     turn.hooks.onWillExecuteTool.register('externalHooks', async (ctx, next) => {
       const reason = await this.triggerPreToolUse(
         {

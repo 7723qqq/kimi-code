@@ -15,6 +15,14 @@ import { createProvider } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IConfigRegistry } from '#/config';
+
+import {
+  MODELS_SECTION,
+  ModelsSectionSchema,
+  modelsFromToml,
+  modelsToToml,
+} from './configSection';
 
 export type ProtocolHandlerFactory = (config: ProviderConfig) => ChatProvider;
 
@@ -30,6 +38,13 @@ export const IProtocolHandlerRegistry: ServiceIdentifier<IProtocolHandlerRegistr
 export class ProtocolHandlerRegistry implements IProtocolHandlerRegistry {
   declare readonly _serviceBrand: undefined;
   private readonly overrides = new Map<ProviderType, ProtocolHandlerFactory>();
+
+  constructor(@IConfigRegistry configRegistry: IConfigRegistry) {
+    configRegistry.registerSection(MODELS_SECTION, ModelsSectionSchema, {
+      fromToml: modelsFromToml,
+      toToml: modelsToToml,
+    });
+  }
 
   create(config: ProviderConfig): ChatProvider {
     const factory = this.overrides.get(config.type);

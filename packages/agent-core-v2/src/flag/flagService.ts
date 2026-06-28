@@ -1,14 +1,17 @@
 /**
  * `flag` domain (L3) — `IFlagService` implementation.
  *
- * Resolves experimental flags from environment, the `[experimental]` config
- * section, and defaults; reads and watches config through `config`. Bound at
- * Core scope.
+ * Resolves experimental flags from the environment (read through `bootstrap`),
+ * the `[experimental]` config section, and defaults; reads flag definitions
+ * from `flagRegistry`, and reads/watches config through `config`. Bound at Core
+ * scope.
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { parseBooleanEnv } from '#/_base/utils';
+import { IBootstrapService } from '#/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/config';
 
 import {
@@ -18,43 +21,31 @@ import {
   type ExperimentalFlagSource,
   EXPERIMENTAL_SECTION,
   ExperimentalConfigSchema,
+  experimentalFromToml,
+  experimentalToToml,
   IFlagService,
 } from './flag';
-import {
-  type FlagDefinitionInput,
-  type FlagId,
-  FlagRegistry,
-} from './registry';
+import { type FlagDefinitionInput, type FlagId, IFlagRegistry } from './flagRegistry';
 
 export const MASTER_ENV = 'KIMI_CODE_EXPERIMENTAL_FLAG';
 
-const TRUE_BOOLEAN_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
-const FALSE_BOOLEAN_ENV_VALUES = new Set(['0', 'false', 'no', 'off']);
-
-function parseBooleanEnv(value: string | undefined): boolean | undefined {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === undefined || normalized.length === 0) return undefined;
-  if (TRUE_BOOLEAN_ENV_VALUES.has(normalized)) return true;
-  if (FALSE_BOOLEAN_ENV_VALUES.has(normalized)) return false;
-  return undefined;
-}
-
 export class FlagService extends Disposable implements IFlagService {
   declare readonly _serviceBrand: undefined;
-  readonly registry: FlagRegistry;
-  private readonly env: Readonly<Record<string, string | undefined>>;
+  readonly registry: IFlagRegistry;
   private configOverrides: ExperimentalFlagConfig;
 
   constructor(
-    env: Readonly<Record<string, string | undefined>> = process.env,
-    registry: FlagRegistry = new FlagRegistry(),
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IConfigRegistry private readonly configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
+    @IFlagRegistry registry: IFlagRegistry,
   ) {
     super();
-    this.env = env;
     this.registry = registry;
-    configRegistry.registerSection(EXPERIMENTAL_SECTION, ExperimentalConfigSchema);
+    configRegistry.registerSection(EXPERIMENTAL_SECTION, ExperimentalConfigSchema, {
+      fromToml: experimentalFromToml,
+      toToml: experimentalToToml,
+    });
     this.configOverrides = this.readConfig();
     this._register(
       this.config.onDidChange((e) => {
@@ -80,11 +71,11 @@ export class FlagService extends Disposable implements IFlagService {
   explain(id: FlagId): ExperimentalFeatureState | undefined {
     const def = this.registry.get(id);
     if (def === undefined) return undefined;
-    const configValue = this.configOverrides[def.id as FlagId];
-    if (parseBooleanEnv(this.env[MASTER_ENV]) === true) {
+    const configValue = this.configOverrides[def.id];
+    if (parseBooleanEnv(this.bootstrap.getEnv(MASTER_ENV)) === true) {
       return this.state(def, true, 'master-env', configValue);
     }
-    const override = parseBooleanEnv(this.env[def.env]);
+    const override = parseBooleanEnv(this.bootstrap.getEnv(def.env));
     if (override !== undefined) return this.state(def, override, 'env', configValue);
     if (configValue !== undefined) return this.state(def, configValue, 'config', configValue);
     return this.state(def, def.default, 'default', undefined);
@@ -92,21 +83,21 @@ export class FlagService extends Disposable implements IFlagService {
 
   snapshot(): ExperimentalFlagMap {
     return Object.fromEntries(
-      this.registry.list().map((def) => [def.id, this.enabled(def.id as FlagId)]),
+      this.registry.list().map((def) => [def.id, this.enabled(def.id)]),
     );
   }
 
   enabledIds(): readonly FlagId[] {
     return this.registry
       .list()
-      .filter((def) => this.enabled(def.id as FlagId))
-      .map((def) => def.id as FlagId);
+      .filter((def) => this.enabled(def.id))
+      .map((def) => def.id);
   }
 
   explainAll(): readonly ExperimentalFeatureState[] {
     return this.registry
       .list()
-      .map((def) => this.explain(def.id as FlagId))
+      .map((def) => this.explain(def.id))
       .filter((state): state is ExperimentalFeatureState => state !== undefined);
   }
 
@@ -117,7 +108,7 @@ export class FlagService extends Disposable implements IFlagService {
     configValue: boolean | undefined,
   ): ExperimentalFeatureState {
     return {
-      id: def.id as FlagId,
+      id: def.id,
       title: def.title,
       description: def.description,
       surface: def.surface,

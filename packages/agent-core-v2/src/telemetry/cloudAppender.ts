@@ -38,7 +38,7 @@ export interface CloudAppenderOptions {
   readonly requestTimeoutMs?: number;
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly now?: () => number;
-  readonly env?: NodeJS.ProcessEnv;
+  readonly env: NodeJS.ProcessEnv;
 }
 
 const DEFAULT_FLUSH_THRESHOLD = 50;
@@ -143,7 +143,7 @@ function sanitizeProperties(input?: TelemetryProperties): CloudProperties {
 }
 
 function buildContext(options: CloudAppenderOptions): CloudContext {
-  const env = options.env ?? process.env;
+  const env = options.env;
   const context: CloudContext = {
     app_name: options.appName,
     version: options.version,

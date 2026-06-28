@@ -19,6 +19,13 @@ import {
   PROVIDERS_SECTION,
   ProvidersSectionSchema,
 } from './provider';
+import {
+  providersEnvBindings,
+  providersFromToml,
+  providersToToml,
+  stripProvidersEnv,
+} from './configSection';
+import { kimiModelEnvOverlay } from './envOverlay';
 
 export class ProviderService extends Disposable implements IProviderService {
   declare readonly _serviceBrand: undefined;
@@ -30,7 +37,14 @@ export class ProviderService extends Disposable implements IProviderService {
     @IConfigService private readonly config: IConfigService,
   ) {
     super();
-    registry.registerSection(PROVIDERS_SECTION, ProvidersSectionSchema, { defaultValue: {} });
+    registry.registerSection(PROVIDERS_SECTION, ProvidersSectionSchema, {
+      defaultValue: {},
+      env: providersEnvBindings,
+      stripEnv: stripProvidersEnv,
+      fromToml: providersFromToml,
+      toToml: providersToToml,
+    });
+    registry.registerEffectiveOverlay(kimiModelEnvOverlay);
     this._register(
       config.onDidChange((e) => {
         if (e.domain === PROVIDERS_SECTION) {

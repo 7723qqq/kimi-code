@@ -6,5 +6,6 @@
  */
 
 export * from './errors';
+export * from './kimiModelOverrides';
 export * from './protocolHandlerRegistry';
 export * from './providerManager';

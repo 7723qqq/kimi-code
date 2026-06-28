@@ -3,60 +3,90 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { IBootstrapService } from '#/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/config';
 import { ConfigRegistry, ConfigService } from '#/config/configService';
-import { IEnvironmentService } from '#/environment';
-import { stubEnvironment } from '../environment/stubs';
-import { EXPERIMENTAL_SECTION, IFlagService } from '#/flag';
+import {
+  EXPERIMENTAL_SECTION,
+  type FlagDefinitionInput,
+  IFlagRegistry,
+  IFlagService,
+} from '#/flag';
+import { FlagRegistryService } from '#/flag/flagRegistryService';
 import { FlagService, MASTER_ENV } from '#/flag/flagService';
-import { FlagRegistry } from '#/flag/registry';
 import { ILogService } from '#/log';
+import {
+  InMemoryStorageService,
+  IStorageService,
+  IAtomicTomlDocumentStore,
+  TomlAtomicDocumentStore,
+} from '#/storage';
+
+import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../log/stubs';
 
-describe('FlagRegistry', () => {
-  it('lists registered definitions and resolves by id', () => {
-    const reg = new FlagRegistry();
+const microCompactionFlag: FlagDefinitionInput = {
+  id: 'micro_compaction',
+  title: 'Micro compaction',
+  description:
+    'Trim older large tool results from context while keeping recent conversation intact.',
+  env: 'KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION',
+  default: true,
+  surface: 'core',
+};
+
+describe('FlagRegistryService', () => {
+  it('registers and resolves by id', () => {
+    const reg = new FlagRegistryService();
+    reg.register(microCompactionFlag);
     expect(reg.list().map((d) => d.id)).toEqual(['micro_compaction']);
     expect(reg.get('micro_compaction')?.env).toBe('KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION');
   });
 
   it('returns undefined for an unknown id', () => {
-    const reg = new FlagRegistry();
-    // @ts-expect-error -- unknown id is not part of the FlagId union
+    const reg = new FlagRegistryService();
     expect(reg.get('does_not_exist')).toBeUndefined();
+  });
+
+  it('throws on a duplicate id', () => {
+    const reg = new FlagRegistryService();
+    reg.register(microCompactionFlag);
+    expect(() => reg.register(microCompactionFlag)).toThrow();
+  });
+
+  it('unregisters when the returned disposable is disposed', () => {
+    const reg = new FlagRegistryService();
+    const handle = reg.register(microCompactionFlag);
+    handle.dispose();
+    expect(reg.get('micro_compaction')).toBeUndefined();
   });
 });
 
 describe('FlagService', () => {
   let disposables: DisposableStore;
-  let ix: TestInstantiationService;
+  let homeDir: string;
 
   beforeEach(() => {
     disposables = new DisposableStore();
-    ix = disposables.add(new TestInstantiationService());
-    // Isolate the config file per test: ConfigService reads/writes
-    // env.configPath, so a shared path leaks [experimental] overrides across
-    // tests (and runs) and shadows the registry default.
-    ix.stub(
-      IEnvironmentService,
-      stubEnvironment(
-        `/tmp/kimi-code-flag-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      ),
-    );
-    ix.stub(ILogService, stubLog());
-    ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
-    ix.set(IConfigService, new SyncDescriptor(ConfigService));
-    ix.set(IFlagService, new SyncDescriptor(FlagService));
+    homeDir = `/tmp/kimi-code-flag-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   });
   afterEach(() => disposables.dispose());
 
   function makeFlags(env: Readonly<Record<string, string | undefined>> = {}) {
+    const ix = disposables.add(new TestInstantiationService());
+    ix.stub(IBootstrapService, stubBootstrap(homeDir, env));
+    ix.stub(ILogService, stubLog());
+    ix.stub(IStorageService, new InMemoryStorageService());
+    ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
+    ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
+    ix.set(IConfigService, new SyncDescriptor(ConfigService));
+    ix.set(IFlagRegistry, new SyncDescriptor(FlagRegistryService));
+    ix.set(IFlagService, new SyncDescriptor(FlagService));
+    ix.get(IFlagRegistry).register(microCompactionFlag);
     return {
       registry: ix.get(IConfigRegistry),
       config: ix.get(IConfigService),
-      flags: Object.keys(env).length
-        ? ix.createInstance(FlagService, env, undefined as never)
-        : ix.get(IFlagService),
+      flags: ix.get(IFlagService),
     };
   }
 
@@ -74,6 +104,12 @@ describe('FlagService', () => {
     expect(state?.enabled).toBe(true);
     expect(state?.source).toBe('default');
     expect(flags.enabled('micro_compaction')).toBe(true);
+  });
+
+  it('returns undefined for an unregistered flag', () => {
+    const { flags } = makeFlags();
+    expect(flags.explain('does_not_exist')).toBeUndefined();
+    expect(flags.enabled('does_not_exist')).toBe(false);
   });
 
   it('applies config overrides above the default', async () => {

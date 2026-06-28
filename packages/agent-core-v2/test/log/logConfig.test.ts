@@ -57,8 +57,8 @@ describe('resolveLoggingConfig', () => {
     expect(cfg.globalFiles).toBe(DEFAULT_GLOBAL_FILES);
   });
 
-  it('falls back to process.env when env is omitted', () => {
-    const cfg = resolveLoggingConfig({ homeDir: '/h' });
+  it('resolves the log path regardless of env', () => {
+    const cfg = resolveLoggingConfig({ homeDir: '/h', env: {} });
     expect(cfg.globalLogPath).toBe('/h/logs/kimi-code.log');
   });
 });

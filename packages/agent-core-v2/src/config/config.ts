@@ -1,11 +1,13 @@
 /**
- * `config` domain (L2) — configuration registry, global config service, and
- * session-level runtime config service.
+ * `config` domain (L2) — configuration registry and layered global config service.
  *
  * Defines the config service identifiers and section models: the
- * `IConfigRegistry` for section schemas, the Core-scoped `IConfigService` used
- * to read and mutate global config, and the Session-scoped
- * `ISessionConfigService` for the active session's runtime config.
+ * `IConfigRegistry` for section schemas, and the Core-scoped `IConfigService`
+ * that resolves a value by precedence across layers (defaults → user config →
+ * per-run memory overrides) and writes through a `ConfigTarget`. Owners react
+ * to edits through two change events — `onDidChange` (a domain was touched) and
+ * `onDidSectionChange` (the delivered value actually changed, deep-diffed) —
+ * each carrying the delivered `value` and `previousValue`.
  */
 
 import type { Event } from '#/_base/event';
@@ -17,26 +19,74 @@ export interface ConfigSchema<T> {
 
 export type ConfigMerge<T> = (base: T | undefined, patch: unknown) => T;
 
+export type EnvBinding =
+  | string
+  | {
+      readonly env: string;
+      readonly parse?: (raw: string) => unknown;
+      readonly default?: unknown;
+    };
+
+export type EnvBindings<T> = EnvBinding | { [K in keyof T]?: EnvBinding | EnvBindings<T[K]> };
+
+export type AnyEnvBindings = EnvBinding | { readonly [key: string]: EnvBinding | AnyEnvBindings };
+
+export function envBindings<T>(_schema: ConfigSchema<T>, bindings: EnvBindings<T>): EnvBindings<T> {
+  return bindings;
+}
+
+export type ConfigStripEnv<T> = (value: T, rawSnake?: unknown) => T | undefined;
+
+export type ConfigFromToml = (rawSnake: unknown) => unknown;
+
+export type ConfigToToml = (value: unknown, rawSnake: unknown) => unknown;
+
 export interface ConfigSection<T = unknown> {
   readonly domain: string;
   readonly schema?: ConfigSchema<T>;
   readonly defaultValue?: T;
   readonly merge: ConfigMerge<T>;
+  readonly scope: ConfigScope;
+  readonly env?: AnyEnvBindings;
+  readonly stripEnv?: ConfigStripEnv<T>;
+  readonly fromToml?: ConfigFromToml;
+  readonly toToml?: ConfigToToml;
 }
 
 export interface RegisterSectionOptions<T> {
   readonly defaultValue?: T;
   readonly merge?: ConfigMerge<T>;
+  readonly scope?: ConfigScope;
+  readonly env?: EnvBindings<T>;
+  readonly stripEnv?: ConfigStripEnv<T>;
+  readonly fromToml?: ConfigFromToml;
+  readonly toToml?: ConfigToToml;
+}
+
+export interface ConfigEffectiveOverlay {
+  apply(
+    effective: Record<string, unknown>,
+    getEnv: (name: string) => string | undefined,
+    validate: (domain: string, value: unknown) => unknown,
+  ): readonly string[];
+  strip?(
+    domain: string,
+    value: unknown,
+    rawSnake: Record<string, unknown>,
+  ): unknown;
 }
 
 export interface IConfigRegistry {
   readonly _serviceBrand: undefined;
 
   readonly onDidRegisterSection: Event<ConfigSectionRegisteredEvent>;
+  readonly onDidRegisterOverlay: Event<ConfigOverlayRegisteredEvent>;
 
   registerSection<T>(domain: string, schema: ConfigSchema<T>, options?: RegisterSectionOptions<T>): void;
   getSection(domain: string): ConfigSection | undefined;
   listSections(): readonly ConfigSection[];
+  registerEffectiveOverlay(overlay: ConfigEffectiveOverlay): void;
+  listEffectiveOverlays(): readonly ConfigEffectiveOverlay[];
   validate<T>(domain: string, value: unknown): T;
   merge<T>(domain: string, base: T | undefined, patch: unknown): T;
   defaultValue<T>(domain: string): T | undefined;
@@ -44,6 +94,10 @@ export interface IConfigRegistry {
 
 export interface ConfigSectionRegisteredEvent {
   readonly domain: string;
+}
+
+export interface ConfigOverlayRegisteredEvent {
+  readonly overlay: ConfigEffectiveOverlay;
 }
 
 export const IConfigRegistry: ServiceIdentifier<IConfigRegistry> =
@@ -54,6 +108,15 @@ export type ConfigChangeSource = 'load' | 'reload' | 'set';
 export interface ConfigChangedEvent {
   readonly domain: string;
   readonly source: ConfigChangeSource;
+  readonly value: unknown;
+  readonly previousValue: unknown;
+}
+
+export interface ConfigSectionChangedEvent {
+  readonly domain: string;
+  readonly source: ConfigChangeSource;
+  readonly value: unknown;
+  readonly previousValue: unknown;
 }
 
 export interface ConfigDiagnostic {
@@ -64,51 +127,38 @@ export interface ConfigDiagnostic {
 
 export type ResolvedConfig = Record<string, unknown>;
 
+export enum ConfigScope {
+  Core = 'core',
+  Session = 'session',
+  Project = 'project',
+}
+
+export enum ConfigTarget {
+  User = 'user',
+  Memory = 'memory',
+}
+
+export interface ConfigInspectValue<T = unknown> {
+  readonly value: T | undefined;
+  readonly defaultValue: T | undefined;
+  readonly userValue: T | undefined;
+  readonly memoryValue: T | undefined;
+}
+
 export interface IConfigService {
   readonly _serviceBrand: undefined;
   readonly ready: Promise<void>;
   readonly onDidChange: Event<ConfigChangedEvent>;
+  readonly onDidSectionChange: Event<ConfigSectionChangedEvent>;
 
   get<T = unknown>(domain: string): T;
+  inspect<T = unknown>(domain: string): ConfigInspectValue<T>;
   getAll(): ResolvedConfig;
-  set(domain: string, patch: unknown): Promise<void>;
-  replace(domain: string, value: unknown): Promise<void>;
+  set(domain: string, patch: unknown, target?: ConfigTarget): Promise<void>;
+  replace(domain: string, value: unknown, target?: ConfigTarget): Promise<void>;
   reload(): Promise<void>;
   diagnostics(): readonly ConfigDiagnostic[];
 }
 
 export const IConfigService: ServiceIdentifier<IConfigService> =
   createDecorator<IConfigService>('configService');
-
-export interface SessionConfigSection {
-  readonly modelAlias?: string;
-  readonly thinkingLevel?: string;
-  readonly systemPrompt?: string;
-  readonly provider?: string;
-}
-
-export type SessionConfigPatch = Partial<
-  Pick<SessionConfigSection, 'modelAlias' | 'thinkingLevel' | 'systemPrompt'>
->;
-
-export interface SessionConfigChangedEvent {
-  readonly changed: readonly (keyof SessionConfigSection)[];
-}
-
-export interface ISessionConfigService {
-  readonly _serviceBrand: undefined;
-  readonly ready: Promise<void>;
-  readonly onDidChange: Event<SessionConfigChangedEvent>;
-
-  readonly modelAlias: string | undefined;
-  readonly thinkingLevel: string | undefined;
-  readonly systemPrompt: string | undefined;
-  readonly provider: string | undefined;
-
-  update(patch: SessionConfigPatch): Promise<void>;
-  setModel(alias: string): Promise<void>;
-  setThinking(level: string): Promise<void>;
-}
-
-export const ISessionConfigService: ServiceIdentifier<ISessionConfigService> =
-  createDecorator<ISessionConfigService>('sessionConfigService');

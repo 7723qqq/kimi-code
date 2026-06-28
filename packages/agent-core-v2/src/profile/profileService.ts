@@ -22,10 +22,7 @@ import picomatch from 'picomatch';
 import { ErrorCodes, KimiError } from "#/errors";
 import { IConfigRegistry, IConfigService } from '#/config';
 import { resolveThinkingEffort, type ThinkingEffort } from '#/config/thinking';
-import {
-  applyKimiEnvSamplingParams,
-  applyKimiEnvThinkingKeep,
-} from '#/config/kimi-env-params';
+import { applyKimiModelOverrides, type KimiModelOverrides } from '#/kosong';
 import type { LoopControl } from '#/loop/configSection';
 import { IProtocolHandlerRegistry, IProviderManager, type ResolvedRuntimeProvider } from '#/kosong';
 import { isMcpToolName } from '#/mcp/tool-naming';
@@ -44,7 +41,14 @@ import type {
   ProfileUpdateData,
 } from './profile';
 import { IProfileService } from './profile';
-import { THINKING_SECTION, ThinkingConfigSchema, type ThinkingConfig } from './configSection';
+import {
+  DEFAULT_THINKING_SECTION,
+  defaultThinkingEnvBindings,
+  THINKING_SECTION,
+  ThinkingConfigSchema,
+  type ThinkingConfig,
+  thinkingEnvBindings,
+} from './configSection';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -77,7 +81,12 @@ export class ProfileService implements IProfileService {
     @IProviderManager private readonly providerManager: IProviderManager,
     @IProtocolHandlerRegistry private readonly protocolHandlers: IProtocolHandlerRegistry,
   ) {
-    configRegistry.registerSection(THINKING_SECTION, ThinkingConfigSchema);
+    configRegistry.registerSection(THINKING_SECTION, ThinkingConfigSchema, {
+      env: thinkingEnvBindings,
+    });
+    configRegistry.registerSection(DEFAULT_THINKING_SECTION, { parse: (v) => v as boolean }, {
+      env: defaultThinkingEnvBindings,
+    });
     this.configure(options);
     wireRecord.register('config.update', (record) => {
       const { type: _type, time: _time, ...changed } = record;
@@ -184,7 +193,8 @@ export class ProfileService implements IProfileService {
 
   getProvider(): ChatProvider {
     const provider = this.protocolHandlers.create(this.providerConfig).withThinking(this.thinkingLevel);
-    return applyKimiEnvThinkingKeep(applyKimiEnvSamplingParams(provider), this.thinkingLevel);
+    const overrides = this.config.get<KimiModelOverrides>('modelOverrides');
+    return applyKimiModelOverrides(provider, overrides, this.thinkingLevel);
   }
 
   get provider(): ChatProvider {

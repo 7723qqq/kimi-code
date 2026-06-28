@@ -36,36 +36,22 @@ export class AppendLogCorruptedError extends Error {
 }
 
 export interface AppendLogOptions {
-  /** Called when a background flush fails. */
   readonly onError?: (error: unknown) => void;
 }
 
 export interface IAppendLogStore {
   readonly _serviceBrand: undefined;
 
-  /** Buffer a record for the next durable append. Resolves immediately. */
   append<R>(scope: string, key: string, record: R, options?: AppendLogOptions): void;
 
-  /**
-   * Replay the log in order. Flushes pending appends first. A torn final line
-   * (crash mid-flush) is dropped; any other corruption throws.
-   */
   read<R>(scope: string, key: string): AsyncIterable<R>;
 
-  /** Atomically replace the whole log with `records` (used after migration). */
   rewrite<R>(scope: string, key: string, records: readonly R[]): Promise<void>;
 
-  /** Durable-write every buffered record across all logs. */
   flush(): Promise<void>;
 
-  /** Flush and release resources. */
   close(): Promise<void>;
 
-  /**
-   * Acquire a disposable handle for `(scope, key)`. Register it with your
-   * `Disposable` (via `this._register(...)`); when you are disposed, pending
-   * appends for that log are flushed. The shared store itself is not disposed.
-   */
   acquire(scope: string, key: string): IDisposable;
 }
 
@@ -139,7 +125,6 @@ export class AppendLogStore implements IAppendLogStore {
   }
 
   async rewrite<R>(scope: string, key: string, records: readonly R[]): Promise<void> {
-    // Persist anything already buffered, then atomically replace the log.
     await this.flushLog(scope, key);
     await this.storage.write(scope, key, encodeBatch(records), { atomic: true });
   }
@@ -172,10 +157,6 @@ export class AppendLogStore implements IAppendLogStore {
     return state;
   }
 
-  /**
-   * Defer the drain to the next microtask so records appended within the same
-   * synchronous block accumulate into a single durable `IStorageService.append`.
-   */
   private scheduleFlush(scope: string, key: string, state: LogState): void {
     if (state.flushScheduled || state.flushPromise !== undefined) return;
     state.flushScheduled = true;
@@ -226,7 +207,7 @@ function encodeBatch(records: readonly unknown[]): Uint8Array {
 }
 
 registerScopedService(
-  LifecycleScope.Session,
+  LifecycleScope.Core,
   IAppendLogStore,
   AppendLogStore,
   InstantiationType.Delayed,

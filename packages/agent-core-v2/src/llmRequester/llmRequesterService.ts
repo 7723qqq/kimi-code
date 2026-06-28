@@ -25,6 +25,8 @@ import {
   applyCompletionBudget,
   resolveCompletionBudget,
 } from "#/_base/utils/completion-budget";
+import { IConfigService } from '#/config';
+import type { KimiModelOverrides } from '#/kosong';
 import { IProfileService } from '#/profile';
 import { IContextMemory } from '#/contextMemory';
 import { IContextProjector } from '#/contextProjector';
@@ -54,6 +56,7 @@ export class LLMRequesterService implements ILLMRequester {
     @ILLMRequestLogService private readonly requestLog: ILLMRequestLogService,
     @IUsageService private readonly usage: IUsageService,
     @IProviderManager private readonly providerManager: IProviderManager,
+    @IConfigService private readonly config: IConfigService,
   ) {}
 
   request(
@@ -172,6 +175,7 @@ export class LLMRequesterService implements ILLMRequester {
       budget: resolveCompletionBudget({
         maxOutputSize: resolved.maxOutputSize,
         reservedContextSize: resolved.reservedContextSize,
+        maxCompletionTokensCap: this.config.get<KimiModelOverrides>('modelOverrides')?.maxCompletionTokens,
       }),
       capability: resolved.modelCapabilities,
     });

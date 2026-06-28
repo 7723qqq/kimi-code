@@ -3,8 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAtomicDocumentStorage, IAtomicDocumentStore } from '#/storage';
-import { AtomicDocumentStore } from '#/storage/atomicDocumentStore';
+import {
+  IAtomicDocumentStorage,
+  IAtomicDocumentStore,
+  IAtomicTomlDocumentStore,
+  IStorageService,
+} from '#/storage';
+import { AtomicDocumentStore, TomlAtomicDocumentStore } from '#/storage/atomicDocumentStore';
 import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
 
 interface State {
@@ -77,5 +82,67 @@ describe('AtomicDocumentStore', () => {
     await config.set<State>('session', 'state.json', { title: 'x' });
     const raw = new TextDecoder().decode(await storage.read('session', 'state.json'));
     expect(JSON.parse(raw)).toEqual({ title: 'x' });
+  });
+
+  it('watch fires when the document is set', async () => {
+    const fired = new Promise<void>((resolve) => {
+      const sub = config.watch('session', 'state.json')(() => {
+        sub.dispose();
+        resolve();
+      });
+    });
+    await config.set<State>('session', 'state.json', { title: 'x' });
+    await fired;
+  });
+});
+
+describe('TomlAtomicDocumentStore', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+  let storage: InMemoryStorageService;
+  let config: IAtomicDocumentStore;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    ix = disposables.add(new TestInstantiationService());
+    storage = new InMemoryStorageService();
+    ix.stub(IStorageService, storage);
+    ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
+    config = ix.get(IAtomicTomlDocumentStore);
+  });
+
+  afterEach(() => disposables.dispose());
+
+  it('get returns undefined for a missing key', async () => {
+    expect(await config.get('session', 'config.toml')).toBeUndefined();
+  });
+
+  it('set + get round-trips a value as TOML', async () => {
+    await config.set<State>('session', 'config.toml', { title: 'hello', count: 1 });
+    expect(await config.get<State>('session', 'config.toml')).toEqual({ title: 'hello', count: 1 });
+  });
+
+  it('set atomically replaces the previous value', async () => {
+    await config.set<State>('session', 'config.toml', { title: 'old' });
+    await config.set<State>('session', 'config.toml', { title: 'new', count: 2 });
+    expect(await config.get<State>('session', 'config.toml')).toEqual({ title: 'new', count: 2 });
+  });
+
+  it('value is persisted as TOML through the underlying IStorageService', async () => {
+    await config.set<State>('session', 'config.toml', { title: 'x' });
+    const raw = new TextDecoder().decode(await storage.read('session', 'config.toml'));
+    expect(raw).toContain('title = "x"');
+    expect(() => JSON.parse(raw)).toThrow();
+  });
+
+  it('watch fires when the document is set', async () => {
+    const fired = new Promise<void>((resolve) => {
+      const sub = config.watch('session', 'config.toml')(() => {
+        sub.dispose();
+        resolve();
+      });
+    });
+    await config.set<State>('session', 'config.toml', { title: 'x' });
+    await fired;
   });
 });

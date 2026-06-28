@@ -109,6 +109,12 @@ export interface CronSchedulerOptions {
    * timer.
    */
   readonly pollIntervalMs?: number | null;
+
+  /** Optional. When true, emit scheduler debug traces to stderr. */
+  readonly debug?: boolean;
+
+  /** Optional. When true, disable anti-herd jitter on fire times. */
+  readonly noJitter?: boolean;
 }
 
 export interface CronScheduler {
@@ -165,6 +171,8 @@ export function createCronScheduler(opts: CronSchedulerOptions): CronScheduler {
     removeOneShot,
     onAdvanceCursor,
     pollIntervalMs,
+    debug,
+    noJitter,
   } = opts;
 
   // Cached parsed cron expressions. Keyed by the raw expression
@@ -203,7 +211,7 @@ export function createCronScheduler(opts: CronSchedulerOptions): CronScheduler {
   }
 
   function debugLog(message: string): void {
-    if (process.env['KIMI_CRON_DEBUG'] === '1') {
+    if (debug) {
       process.stderr.write(`[cron/scheduler] ${message}\n`);
     }
   }
@@ -221,9 +229,9 @@ export function createCronScheduler(opts: CronSchedulerOptions): CronScheduler {
     const ideal = computeNextCronRun(parsed, baseMs);
     if (ideal === null) return null;
     if (task.recurring === false) {
-      return oneShotJitteredNextCronRunMs(task, ideal);
+      return oneShotJitteredNextCronRunMs(task, ideal, undefined, noJitter);
     }
-    return jitteredNextCronRunMs(task, parsed, ideal);
+    return jitteredNextCronRunMs(task, parsed, ideal, undefined, noJitter);
   }
 
   /**
@@ -265,8 +273,8 @@ export function createCronScheduler(opts: CronSchedulerOptions): CronScheduler {
       // `lastSeenAt` past it and the next tick can never re-pick it.
       const jitteredNext =
         task.recurring === false
-          ? oneShotJitteredNextCronRunMs(task, next)
-          : jitteredNextCronRunMs(task, parsed, next);
+          ? oneShotJitteredNextCronRunMs(task, next, undefined, noJitter)
+          : jitteredNextCronRunMs(task, parsed, next, undefined, noJitter);
       if (jitteredNext > nowMs) break;
       count++;
       cursor = next;

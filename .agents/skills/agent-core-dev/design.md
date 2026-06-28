@@ -71,7 +71,7 @@ The standard split is "global registry / factory" + "per-instance":
 Canonical splits in the codebase:
 
 - **`records`** — `ISessionStore` (`Core`) + `ISessionMetaStore` (`Session`) + `IAgentRecords` (`Agent`).
-- **`config`** — `IConfigRegistry` / `IConfigService` (`Core`) + `ISessionConfigService` (`Session`).
+- **`config`** — `IConfigRegistry` / `IConfigService` (`Core`).
 - **`kosong`** — `IProtocolHandlerRegistry` (`Core`) + `IProviderManager` (`Session`). Generation is driven by `ILLMRequester` (`Agent`) in the `llmRequester` domain.
 - **`tool`** — `IToolDefinitionRegistry` (`Core`) + `IToolService` (`Agent`).
 

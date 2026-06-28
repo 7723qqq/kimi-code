@@ -29,6 +29,7 @@ package "Core scope (process-wide)" #EAF3FB {
   rectangle "<b>auth</b>\n<size:9><i>Core</i></size>\n  IOAuthService\n  IAuthSummaryService" as auth #D6EAF8
   rectangle "<b>provider</b>\n<size:9><i>Core</i></size>\n  IProviderService" as provider #D6EAF8
   rectangle "<b>flag</b>\n<size:9><i>Core</i></size>\n  IFlagService" as flag #D6EAF8
+  rectangle "<b>config</b>\n<size:9><i>Core</i></size>\n  IConfigRegistry\n  IConfigService" as config #D6EAF8
 }
 
 package "Session scope (per session)" #EAFAF1 {
@@ -85,7 +86,6 @@ package "Agent scope (per agent)" #FDF5E6 {
 }
 
 package "Multi-scope" #F5EEF8 {
-  rectangle "<b>config</b>\n<size:9><i>Multi</i></size>\n  IConfigRegistry(C)\n  IConfigService(C)\n  ISessionConfigService(S)" as config #E8DAEF
   rectangle "<b>kosong</b>\n<size:9><i>Multi</i></size>\n  IProtocolHandlerRegistry(C)\n  IProviderManager(S, seed)" as kosong #E8DAEF
   rectangle "<b>records</b>\n<size:9><i>Multi</i></size>\n  ISessionStore(C)\n  ISessionMetaStore(S)\n  IAgentRecords(A)" as records #E8DAEF
   rectangle "<b>tool</b>\n<size:9><i>Multi</i></size>\n  IToolDefinitionRegistry(C)\n  IToolService(A)" as tool #E8DAEF
@@ -201,6 +201,7 @@ fullCompaction --> externalHooks #34495E
 fullCompaction --> turnRunner #34495E
 permissionRules --> wireRecord #34495E
 permissionRules --> replayBuilder #34495E
+permissionRules --> config #34495E
 skill --> prompt #34495E
 skill --> eventBus #34495E
 skill --> wireRecord #34495E
@@ -229,6 +230,7 @@ background --> telemetry #34495E
 background --> prompt #34495E
 background --> externalHooks #34495E
 background --> contextMemory #34495E
+background --> config #34495E
 toolStore --> wireRecord #34495E
 wireRecord --> blobStore #34495E
 eventBus --> wireRecord #34495E
@@ -279,6 +281,7 @@ plan --> telemetry #34495E
 toolDedup --> telemetry #34495E
 toolDedup --> turn #34495E
 externalHooks --> turn #34495E
+externalHooks --> config #34495E
 
 ' ---- event-driven (dashed) ----
 gateway ..> event #16A085 : subscribe

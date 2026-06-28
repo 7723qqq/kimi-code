@@ -1,13 +1,16 @@
 /**
- * `loop` domain (L4) — `loopControl` config-section schema.
+ * `loop` domain (L4) — `loopControl` config-section schema and TOML transforms.
  *
  * Owns the `[loop_control]` configuration section (step / retry / context-size
  * limits) consumed by `LoopService` (step + retry budgets) and `ProfileService`
- * (context sizing). Registered into `IConfigRegistry` by `LoopService` on
- * construction.
+ * (context sizing), plus the snake_case ↔ camelCase TOML transforms (including
+ * the legacy `max_steps_per_run` → `maxStepsPerTurn` rename). Registered into
+ * `IConfigRegistry` by `LoopService` on construction.
  */
 
 import { z } from 'zod';
+
+import { plainObjectToToml, transformPlainObject } from '#/config/toml';
 
 export const LOOP_CONTROL_SECTION = 'loopControl';
 
@@ -20,3 +23,20 @@ export const LoopControlSchema = z.object({
 });
 
 export type LoopControl = z.infer<typeof LoopControlSchema>;
+
+/** Read transform: camelCase keys and fold legacy `max_steps_per_run` into `maxStepsPerTurn`. */
+export const loopControlFromToml = (rawSnake: unknown): unknown => {
+  if (rawSnake === null || typeof rawSnake !== 'object' || Array.isArray(rawSnake)) return rawSnake;
+  const out = transformPlainObject(rawSnake as Record<string, unknown>);
+  if (out['maxStepsPerTurn'] === undefined && out['maxStepsPerRun'] !== undefined) {
+    out['maxStepsPerTurn'] = out['maxStepsPerRun'];
+  }
+  delete out['maxStepsPerRun'];
+  return out;
+};
+
+/** Write transform: plain camelCase → snake_case key mapping. */
+export const loopControlToToml = (value: unknown, rawSnake: unknown): unknown => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+  return plainObjectToToml(value as Record<string, unknown>, rawSnake);
+};

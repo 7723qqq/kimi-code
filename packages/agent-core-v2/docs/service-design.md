@@ -115,8 +115,7 @@ This pattern recurs throughout the codebase and confirms the rule:
 - **`records`** — `ISessionStore` (`Core`, index of all sessions) + `ISessionMetaStore`
   (`Session`, this session's metadata) + `IAgentRecords` (`Agent`, this agent's record
   stream).
-- **`config`** — `IConfigRegistry` / `IConfigService` (`Core`, global config) +
-  `ISessionConfigService` (`Session`, this session's runtime config).
+- **`config`** — `IConfigRegistry` / `IConfigService` (`Core`, global config).
 - **`kosong`** — `IProtocolHandlerRegistry` (`Core`, protocol adapters keyed by provider
   type) + `IProviderManager` (`Session`, resolves the active model into a provider config).
   Generation itself is driven by `ILLMRequester` (`Agent`) in the `llmRequester` domain.

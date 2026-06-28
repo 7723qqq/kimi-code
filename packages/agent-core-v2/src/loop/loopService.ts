@@ -59,7 +59,13 @@ import type {
 } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { ILoopService, type LoopRunHooks } from './loop';
-import { LOOP_CONTROL_SECTION, LoopControlSchema, type LoopControl } from './configSection';
+import {
+  LOOP_CONTROL_SECTION,
+  LoopControlSchema,
+  loopControlFromToml,
+  loopControlToToml,
+  type LoopControl,
+} from './configSection';
 import { runTurn as runLoopTurn } from './run-turn';
 import type {
   ExecutableTool,
@@ -103,7 +109,10 @@ export class LoopService extends Disposable implements ILoopService {
     @IConfigService private readonly config: IConfigService,
   ) {
     super();
-    configRegistry.registerSection(LOOP_CONTROL_SECTION, LoopControlSchema);
+    configRegistry.registerSection(LOOP_CONTROL_SECTION, LoopControlSchema, {
+      fromToml: loopControlFromToml,
+      toToml: loopControlToToml,
+    });
     this.context.hooks.onSpliced.register('loop-service-reconcile', async (_event, next) => {
       if (this.ownSpliceDepth === 0) {
         this.resetLiveStateFromHistory();

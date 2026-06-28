@@ -35,7 +35,7 @@ export const ILogOptions: ServiceIdentifier<ILogOptions> =
 
 export interface ResolveLoggingInput {
   readonly homeDir: string;
-  readonly env?: NodeJS.ProcessEnv;
+  readonly env: NodeJS.ProcessEnv;
 }
 
 export function resolveGlobalLogPath(homeDir: string): string {
@@ -47,7 +47,7 @@ export function resolveSessionLogPath(sessionDir: string): string {
 }
 
 export function resolveLoggingConfig(input: ResolveLoggingInput): LoggingConfig {
-  const env = input.env ?? process.env;
+  const env = input.env;
   return {
     level: parseLevel(env['KIMI_LOG_LEVEL']) ?? DEFAULT_LOG_LEVEL,
     globalLogPath: resolveGlobalLogPath(input.homeDir),

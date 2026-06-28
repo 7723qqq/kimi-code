@@ -21,8 +21,11 @@ import {
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ScopeSeed } from '#/_base/di/scope';
-import type { KimiConfig, ModelAlias, OAuthRef, ProviderConfig } from '#/config';
+import type { IConfigService } from '#/config';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
+import type { OAuthRef, ProviderConfig } from '#/provider';
+
+import type { ModelAlias } from './configSection';
 
 export interface BearerTokenProvider {
   getAccessToken(options?: { readonly force?: boolean }): Promise<string>;
@@ -42,7 +45,7 @@ export interface ResolvedRuntimeProvider {
 }
 
 export interface ProviderManagerOptions {
-  readonly config: KimiConfig | (() => KimiConfig);
+  readonly config: IConfigService;
   readonly kimiRequestHeaders?: Record<string, string>;
   readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver;
   readonly promptCacheKey?: string;
@@ -101,16 +104,23 @@ export class ProviderManager implements IProviderManager {
   constructor(private readonly options: ProviderManagerOptions) {}
 
   get defaultModel(): string | undefined {
-    return this.config.defaultModel;
+    return this.options.config.get<string>('defaultModel');
   }
 
-  private get config(): KimiConfig {
-    const { config } = this.options;
-    return typeof config === 'function' ? config() : config;
+  private get models(): Record<string, ModelAlias> {
+    return this.options.config.get<Record<string, ModelAlias>>('models') ?? {};
+  }
+
+  private get providers(): Record<string, ProviderConfig> {
+    return this.options.config.get<Record<string, ProviderConfig>>('providers') ?? {};
+  }
+
+  private get defaultProvider(): string | undefined {
+    return this.options.config.get<string>('defaultProvider');
   }
 
   resolveProviderConfig(model: string): ResolvedRuntimeProvider {
-    const alias = this.config.models?.[model];
+    const alias = this.models[model];
     if (alias === undefined) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
@@ -118,7 +128,7 @@ export class ProviderManager implements IProviderManager {
       );
     }
 
-    const providerName = alias.provider ?? this.config.defaultProvider;
+    const providerName = alias.provider ?? this.defaultProvider;
     if (providerName === undefined) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
@@ -126,7 +136,7 @@ export class ProviderManager implements IProviderManager {
       );
     }
 
-    const providerConfig = this.config.providers[providerName];
+    const providerConfig = this.providers[providerName];
     if (providerConfig === undefined) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
@@ -167,7 +177,7 @@ export class ProviderManager implements IProviderManager {
     options?: { readonly log?: RequestLogger },
   ): AuthorizedRequest | undefined {
     const { providerName } = this.resolveProviderConfig(model);
-    const providerConfig = this.config.providers[providerName];
+    const providerConfig = this.providers[providerName];
     if (providerConfig?.oauth === undefined) return undefined;
 
     if (providerApiKey(providerConfig) !== undefined) {

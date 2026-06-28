@@ -81,7 +81,7 @@ export const SYSTEM_CLOCKS: ClockSources = {
  * debug-log on stderr). This is deliberate — bricking the agent on a
  * typoed bench env var would be worse than running with system time.
  */
-export function resolveClockSources(spec?: string): ClockSources {
+export function resolveClockSources(spec?: string, debug = false): ClockSources {
   if (spec === undefined || spec === '' || spec === 'system') {
     return SYSTEM_CLOCKS;
   }
@@ -89,7 +89,7 @@ export function resolveClockSources(spec?: string): ClockSources {
   if (spec.startsWith('file:')) {
     const filePath = spec.slice('file:'.length);
     if (filePath === '') {
-      debugInvalidSpec(spec, 'empty file path');
+      debugInvalidSpec(spec, 'empty file path', debug);
       return SYSTEM_CLOCKS;
     }
     return {
@@ -98,7 +98,7 @@ export function resolveClockSources(spec?: string): ClockSources {
     };
   }
 
-  debugInvalidSpec(spec, 'unrecognised scheme');
+  debugInvalidSpec(spec, 'unrecognised scheme', debug);
   return SYSTEM_CLOCKS;
 }
 
@@ -135,12 +135,12 @@ function readFileWall(filePath: string): number {
   return parsed;
 }
 
-function debugInvalidSpec(spec: string, reason: string): void {
+function debugInvalidSpec(spec: string, reason: string, debug: boolean): void {
   // We do not pull in a logger here — `clock.ts` is the lowest layer of
   // the cron module and must stay dependency-free so it can be imported
   // from anywhere (including lint rules, type files). A stderr write
   // gated on KIMI_CRON_DEBUG is enough — production is silent.
-  if (process.env['KIMI_CRON_DEBUG'] === '1') {
+  if (debug) {
     process.stderr.write(
       `[cron/clock] invalid KIMI_CRON_CLOCK spec ${JSON.stringify(spec)}: ${reason} — falling back to system clock\n`,
     );

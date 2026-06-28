@@ -4,7 +4,7 @@
  *
  * Owns the device-code OAuth flows and the auth readiness view; reads and
  * writes provider configuration through `provider`, locates token storage
- * through `environment`, reports through `telemetry`, logs through `log`, and
+ * through `bootstrap`, reports through `telemetry`, logs through `log`, and
  * delegates token storage, refresh, and the device-code protocol to
  * `@moonshot-ai/kimi-code-oauth`. Bound at Core scope.
  */
@@ -32,7 +32,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IEnvironmentService } from '#/environment/environment';
+import { IBootstrapService } from '#/bootstrap';
 import { ILogService } from '#/log/log';
 import { IProviderService, type OAuthRef } from '#/provider/provider';
 import { ITelemetryService } from '#/telemetry/telemetry';
@@ -62,12 +62,12 @@ export class OAuthService extends Disposable implements IOAuthService {
   constructor(
     toolkit: KimiOAuthToolkit | undefined = undefined,
     @IProviderService private readonly providerService: IProviderService,
-    @IEnvironmentService env: IEnvironmentService,
+    @IBootstrapService bootstrap: IBootstrapService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ILogService private readonly log: ILogService,
   ) {
     super();
-    this.toolkit = toolkit ?? new KimiOAuthToolkit({ homeDir: env.homeDir });
+    this.toolkit = toolkit ?? new KimiOAuthToolkit({ homeDir: bootstrap.homeDir });
     this._register(providerService.onDidChange(() => this.invalidateFlows()));
   }
 

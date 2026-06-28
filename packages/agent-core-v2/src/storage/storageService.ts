@@ -17,80 +17,52 @@
  * The service is intentionally byte-oriented and scope/key-addressed: it knows
  * nothing about JSON, records, configs, versions or framing. Those concerns
  * live in the typed facades above it (`IAppendLogStore`, `IAtomicDocumentStore`).
+ * Two additional tokens, `IAppendLogStorage` and `IAtomicDocumentStorage`, share
+ * the `IStorageService` interface so the composition root can route the
+ * append-log and atomic-document access patterns to different backends.
  *
  * `scope`/`key` are trusted internal path segments for the file implementation
  * (e.g. scope `"agents/main"`, key `"wire.jsonl"`); they are not user input.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { Event } from '#/_base/event';
 
 export interface StorageWriteOptions {
-  /**
-   * Replace atomically so readers never observe a half-written value. The file
-   * implementation always writes atomically; the option is reserved for
-   * implementations where atomicity is opt-in. Defaults to `true`.
-   */
   readonly atomic?: boolean;
 }
 
 export interface StorageAppendOptions {
-  /**
-   * When `true` (default) the append is fsync'd before the call resolves so
-   * the bytes are durable across a crash. Set to `false` only for rebuildable
-   * data (caches/indexes) where throughput matters more than durability.
-   */
   readonly durable?: boolean;
 }
 
 export interface IStorageService {
   readonly _serviceBrand: undefined;
 
-  /** Read the whole value, or `undefined` when the key does not exist. */
   read(scope: string, key: string): Promise<Uint8Array | undefined>;
 
-  /**
-   * Stream the bytes of `(scope, key)` as chunks. Yields nothing when the key
-   * does not exist. Implementations may back this with a real stream (file) or
-   * a single chunk (memory / DB).
-   */
   readStream(scope: string, key: string): AsyncIterable<Uint8Array>;
 
-  /** Atomically replace the whole value. */
   write(scope: string, key: string, data: Uint8Array, options?: StorageWriteOptions): Promise<void>;
 
-  /** Durable byte extension (ordered). */
   append(scope: string, key: string, data: Uint8Array, options?: StorageAppendOptions): Promise<void>;
 
-  /** List the keys under `scope`, optionally filtered by `prefix`. */
   list(scope: string, prefix?: string): Promise<readonly string[]>;
 
-  /** Delete a key. Missing keys are not an error. */
   delete(scope: string, key: string): Promise<void>;
 
-  /** Flush any buffered writes to the durable medium. */
+  watch?(scope: string, key: string): Event<void>;
+
   flush(): Promise<void>;
 
-  /** Release implementation resources (file handles, timers, connections). */
   close(): Promise<void>;
 }
 
 export const IStorageService: ServiceIdentifier<IStorageService> =
   createDecorator<IStorageService>('storageService');
 
-/**
- * Token for the byte-storage backend dedicated to the append-log access
- * pattern. Shares the `IStorageService` interface; the distinct token lets the
- * composition root bind it to a different backend (e.g. Postgres) than the
- * atomic-document backend.
- */
 export const IAppendLogStorage: ServiceIdentifier<IStorageService> =
   createDecorator<IStorageService>('appendLogStorage');
 
-/**
- * Token for the byte-storage backend dedicated to the atomic-document access
- * pattern. Shares the `IStorageService` interface; the distinct token lets the
- * composition root bind it to a different backend (e.g. Redis) than the
- * append-log backend.
- */
 export const IAtomicDocumentStorage: ServiceIdentifier<IStorageService> =
   createDecorator<IStorageService>('atomicDocumentStorage');

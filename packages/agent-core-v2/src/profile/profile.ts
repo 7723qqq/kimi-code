@@ -5,9 +5,31 @@ import type {
 } from '@moonshot-ai/kosong';
 
 import { createDecorator } from "#/_base/di";
-import type { AgentConfigData } from '#/config';
 import type { ThinkingEffort } from '#/config/thinking';
 import type { ToolSource } from '../toolRegistry';
+
+/**
+ * Data required to configure an agent: provider, model, capabilities, profile,
+ * thinking level, system prompt, and working directory. Owned by `profile`
+ * (which assembles it); consumed by `replayBuilder` and `rpc` as a wire DTO.
+ */
+export interface AgentConfigData {
+  cwd: string;
+  provider?: ProviderConfig;
+  modelAlias?: string;
+  modelCapabilities: ModelCapability;
+  profileName?: string;
+  thinkingLevel: string;
+  systemPrompt: string;
+}
+
+export type AgentConfigUpdateData = Partial<{
+  cwd: string;
+  modelAlias: string;
+  profileName: string;
+  thinkingLevel: string;
+  systemPrompt: string;
+}>;
 
 export interface SystemPromptContext {
   readonly cwd?: string;

@@ -75,8 +75,8 @@ function fractionFromId(id: string): number {
   return unsigned / 0x1_0000_0000;
 }
 
-function jitterDisabledByEnv(): boolean {
-  return process.env['KIMI_CRON_NO_JITTER'] === '1';
+function jitterDisabled(noJitter: boolean | undefined): boolean {
+  return noJitter === true;
 }
 
 /**
@@ -95,8 +95,9 @@ export function jitteredNextCronRunMs(
   parsed: ParsedCronExpression,
   idealMs: number,
   config: JitterConfig = DEFAULT_CRON_JITTER_CONFIG,
+  noJitter?: boolean,
 ): number {
-  if (jitterDisabledByEnv()) {
+  if (jitterDisabled(noJitter)) {
     return idealMs;
   }
   const nextNext = computeNextCronRun(parsed, idealMs);
@@ -137,8 +138,9 @@ export function oneShotJitteredNextCronRunMs(
   task: { id: string; createdAt?: number | undefined },
   idealMs: number,
   config: JitterConfig = DEFAULT_CRON_JITTER_CONFIG,
+  noJitter?: boolean,
 ): number {
-  if (jitterDisabledByEnv()) {
+  if (jitterDisabled(noJitter)) {
     return idealMs;
   }
   // `idealMs % MS_PER_MINUTE === 0` is a UTC minute-boundary check.

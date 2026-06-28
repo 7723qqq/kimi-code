@@ -1,6 +1,6 @@
 import type { BackgroundTaskInfo } from '#/background';
 import type { CompactionResult } from '#/fullCompaction';
-import type { AgentConfigData, AgentConfigUpdateData } from '#/config';
+import type { AgentConfigData, AgentConfigUpdateData } from '#/profile';
 import type { AgentContextData, ContextMessage } from '#/contextMemory';
 import type { GoalChange, GoalSnapshot } from '#/goal';
 import type { PermissionApprovalResultRecord } from '#/permissionRules';

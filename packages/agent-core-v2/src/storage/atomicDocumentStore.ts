@@ -1,70 +1,92 @@
 /**
- * `IAtomicDocumentStore` / `AtomicDocumentStore` — the atomic-document
- * access-pattern store.
+ * `storage` domain (L1) — `IAtomicDocumentStore` contract and its JSON/TOML
+ * implementations.
  *
- * Sits on top of `IStorageService` and stores one typed JSON value per
- * `(scope, key)`, replaced atomically on every write. This is the atomic-
- * document access pattern: `state.json`, `upcoming-goals.json`, per-id
- * cron/background records, etc.
- *
- * It is a DI service: any domain that needs an atomic document injects
- * `IAtomicDocumentStore` and calls `get/set` with the scope it owns — it does
- * not construct stores itself. JSON (de)serialization and atomic replacement
- * are centralized here so domains do not reimplement them.
+ * The atomic-document access-pattern store: one typed value per `(scope,
+ * key)`, replaced atomically on every write. Serialization is delegated to a
+ * `DocumentCodec` so the same access pattern serves different on-disk formats:
+ * `jsonDocumentCodec` backs the default `AtomicDocumentStore` (cron/background/
+ * session metadata) and `tomlDocumentCodec` backs `TomlAtomicDocumentStore`
+ * (the `config` document). Reads and writes bytes through `IStorageService`
+ * (the config document) or `IAtomicDocumentStorage` (everyone else). Bound at
+ * Core scope.
  */
 
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
+
 import { InstantiationType } from '#/_base/di/extensions';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { Event } from '#/_base/event';
 
 import { IAtomicDocumentStorage, IStorageService } from './storageService';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+export interface DocumentCodec {
+  encode(value: unknown): Uint8Array;
+  decode(bytes: Uint8Array): unknown;
+}
+
+export const jsonDocumentCodec: DocumentCodec = {
+  encode(value: unknown): Uint8Array {
+    return textEncoder.encode(JSON.stringify(value));
+  },
+  decode(bytes: Uint8Array): unknown {
+    return JSON.parse(textDecoder.decode(bytes));
+  },
+};
+
+export const tomlDocumentCodec: DocumentCodec = {
+  encode(value: unknown): Uint8Array {
+    return textEncoder.encode(`${stringifyToml(value as Record<string, unknown>)}\n`);
+  },
+  decode(bytes: Uint8Array): unknown {
+    const text = textDecoder.decode(bytes);
+    if (text.trim().length === 0) return {};
+    return parseToml(text);
+  },
+};
+
 export interface IAtomicDocumentStore {
   readonly _serviceBrand: undefined;
 
-  /** Read the value at `(scope, key)`, or `undefined` when absent. */
   get<T>(scope: string, key: string): Promise<T | undefined>;
 
-  /** Atomically replace the value at `(scope, key)`. */
   set<T>(scope: string, key: string, value: T): Promise<void>;
 
-  /** Delete `(scope, key)`. Missing keys are not an error. */
   delete(scope: string, key: string): Promise<void>;
 
-  /** List the keys under `scope`, optionally filtered by `prefix`. */
   list(scope: string, prefix?: string): Promise<readonly string[]>;
 
-  /**
-   * Acquire a disposable handle for `(scope, key)`. Register it with your
-   * `Disposable`; when you are disposed, the handle is released. The shared
-   * store itself is not disposed. Atomic documents are durable on write, so
-   * the handle currently releases no resources; it exists for interface
-   * symmetry with `IAppendLogStore`.
-   */
+  watch(scope: string, key: string): Event<void>;
+
   acquire(scope: string, key: string): IDisposable;
 }
 
 export const IAtomicDocumentStore: ServiceIdentifier<IAtomicDocumentStore> =
   createDecorator<IAtomicDocumentStore>('atomicDocumentStore');
 
-export class AtomicDocumentStore implements IAtomicDocumentStore {
+export const IAtomicTomlDocumentStore: ServiceIdentifier<IAtomicDocumentStore> =
+  createDecorator<IAtomicDocumentStore>('atomicTomlDocumentStore');
+
+class AtomicDocumentStoreBase implements IAtomicDocumentStore {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IAtomicDocumentStorage private readonly storage: IStorageService) {}
+  constructor(
+    private readonly storage: IStorageService,
+    private readonly codec: DocumentCodec,
+  ) {}
 
   async get<T>(scope: string, key: string): Promise<T | undefined> {
     const bytes = await this.storage.read(scope, key);
-    return bytes === undefined ? undefined : (JSON.parse(textDecoder.decode(bytes)) as T);
+    return bytes === undefined ? undefined : (this.codec.decode(bytes) as T);
   }
 
   async set<T>(scope: string, key: string, value: T): Promise<void> {
-    await this.storage.write(scope, key, textEncoder.encode(JSON.stringify(value)), {
-      atomic: true,
-    });
+    await this.storage.write(scope, key, this.codec.encode(value), { atomic: true });
   }
 
   async delete(scope: string, key: string): Promise<void> {
@@ -75,15 +97,39 @@ export class AtomicDocumentStore implements IAtomicDocumentStore {
     return this.storage.list(scope, prefix);
   }
 
-  acquire(scope: string, key: string): IDisposable {
+  watch(scope: string, key: string): Event<void> {
+    return this.storage.watch?.(scope, key) ?? (Event.None as Event<void>);
+  }
+
+  acquire(_scope: string, _key: string): IDisposable {
     return toDisposable(() => {});
   }
 }
 
+export class AtomicDocumentStore extends AtomicDocumentStoreBase {
+  constructor(@IAtomicDocumentStorage storage: IStorageService) {
+    super(storage, jsonDocumentCodec);
+  }
+}
+
+export class TomlAtomicDocumentStore extends AtomicDocumentStoreBase {
+  constructor(@IStorageService storage: IStorageService) {
+    super(storage, tomlDocumentCodec);
+  }
+}
+
 registerScopedService(
-  LifecycleScope.Session,
+  LifecycleScope.Core,
   IAtomicDocumentStore,
   AtomicDocumentStore,
+  InstantiationType.Delayed,
+  'storage',
+);
+
+registerScopedService(
+  LifecycleScope.Core,
+  IAtomicTomlDocumentStore,
+  TomlAtomicDocumentStore,
   InstantiationType.Delayed,
   'storage',
 );

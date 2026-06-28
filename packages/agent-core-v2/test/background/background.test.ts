@@ -5,6 +5,7 @@ import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IBackgroundService, type BackgroundTask } from '#/background';
 import { BackgroundService } from '#/background/backgroundService';
+import { IConfigRegistry } from '#/config';
 import { IContextMemory } from '#/contextMemory';
 import { IEventSink } from '../../src/eventSink';
 import { IExternalHooksService } from '#/externalHooks';
@@ -37,6 +38,7 @@ describe('BackgroundService', () => {
     ix.stub(ITelemetryService, { track: () => {} });
     ix.stub(IPromptService, { steer: () => undefined });
     ix.stub(IExternalHooksService, { triggerNotification: () => {} });
+    ix.stub(IConfigRegistry, { registerSection: () => {} });
     ix.set(IBackgroundService, new SyncDescriptor(BackgroundService));
   });
   afterEach(() => disposables.dispose());

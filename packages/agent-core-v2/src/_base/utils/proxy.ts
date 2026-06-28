@@ -58,7 +58,7 @@ function resolveHttpProxyUrls(env: Env): { httpProxy?: string; httpsProxy?: stri
   };
 }
 
-export function resolveSocksProxy(env: Env = process.env): SocksProxyConfig | undefined {
+export function resolveSocksProxy(env: Env): SocksProxyConfig | undefined {
   const candidates = [
     firstNonBlank(env, ['all_proxy', 'ALL_PROXY']),
     firstNonBlank(env, ['https_proxy', 'HTTPS_PROXY']),
@@ -86,11 +86,11 @@ export function resolveSocksProxy(env: Env = process.env): SocksProxyConfig | un
   return undefined;
 }
 
-export function isProxyConfigured(env: Env = process.env): boolean {
+export function isProxyConfigured(env: Env): boolean {
   return hasHttpProxy(env) || resolveSocksProxy(env) !== undefined;
 }
 
-export function resolveNoProxy(env: Env = process.env): string {
+export function resolveNoProxy(env: Env): string {
   const raw = [env['no_proxy'], env['NO_PROXY']].find((value) => (value?.trim() ?? '').length > 0) ?? '';
   const hosts = raw
     .split(',')
@@ -185,7 +185,7 @@ const defaultMakeSocksAgent: ProxyAgentFactories['makeSocksAgent'] = ({ proxy, n
 };
 
 export function createProxyDispatcher(
-  env: Env = process.env,
+  env: Env,
   factories: Partial<ProxyAgentFactories> = {},
 ): Dispatcher | undefined {
   const { makeHttpAgent = defaultMakeHttpAgent, makeSocksAgent = defaultMakeSocksAgent } = factories;
@@ -221,7 +221,7 @@ const defaultInstallProxyDeps: InstallProxyDeps = {
 };
 
 export function installGlobalProxyDispatcher(
-  env: Env = process.env,
+  env: Env,
   deps: InstallProxyDeps = defaultInstallProxyDeps,
 ): boolean {
   const dispatcher = deps.createProxyDispatcher(env);
@@ -230,7 +230,7 @@ export function installGlobalProxyDispatcher(
   return true;
 }
 
-export function proxyEnvForChild(env: Env = process.env): Record<string, string> {
+export function proxyEnvForChild(env: Env): Record<string, string> {
   if (!hasHttpProxy(env)) return {};
   const noProxy = resolveNoProxy(env);
   const result: Record<string, string> = {
