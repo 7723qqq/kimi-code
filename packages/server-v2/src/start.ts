@@ -12,6 +12,7 @@ import {
   FileStorageService,
   IAppendLogStorage,
   IAtomicDocumentStorage,
+  IBlobStorage,
   logSeed,
   resolveConfigPath,
   resolveKimiHome,
@@ -61,6 +62,7 @@ function durableStorageSeeds(homeDir: string): ScopeSeed {
   return [
     [IAtomicDocumentStorage as ServiceIdentifier<unknown>, new FileStorageService(homeDir)],
     [IAppendLogStorage as ServiceIdentifier<unknown>, new FileStorageService(homeDir)],
+    [IBlobStorage as ServiceIdentifier<unknown>, new FileStorageService(homeDir)],
   ];
 }
 
@@ -71,9 +73,9 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   // route that creates a session (e.g. POST /sessions) would otherwise fail to
   // instantiate the Session scope. Resolve it from env + homeDir like the CLI.
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
-  // `IAtomicDocumentStorage` / `IAppendLogStorage` default to in-memory; seed
-  // file-backed stores rooted at homeDir so session metadata (and later wire
-  // records) persist to disk where `FileSessionIndex` reads them.
+  // `IAtomicDocumentStorage` / `IAppendLogStorage` / `IBlobStorage` default to
+  // in-memory; seed file-backed stores rooted at homeDir so session metadata,
+  // wire records, and blobs persist to disk where `FileSessionIndex` reads them.
   const { core } = bootstrap({ homeDir, configPath }, [
     ...logSeed(logging),
     ...durableStorageSeeds(homeDir),

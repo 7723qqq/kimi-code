@@ -25,6 +25,7 @@ import { Emitter, type Event } from '#/_base/event';
 import {
   IAppendLogStorage,
   IAtomicDocumentStorage,
+  IBlobStorage,
   IStorageService,
   type StorageAppendOptions,
   type StorageWriteOptions,
@@ -163,6 +164,14 @@ registerScopedService(
 registerScopedService(
   LifecycleScope.Core,
   IAtomicDocumentStorage,
+  InMemoryStorageService,
+  InstantiationType.Delayed,
+  'storage',
+);
+
+registerScopedService(
+  LifecycleScope.Core,
+  IBlobStorage,
   InMemoryStorageService,
   InstantiationType.Delayed,
   'storage',

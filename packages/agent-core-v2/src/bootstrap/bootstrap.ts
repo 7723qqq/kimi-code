@@ -21,7 +21,7 @@ import type { Environment } from '@moonshot-ai/kaos';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { createCoreScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
-import { FileStorageService, IStorageService } from '#/storage';
+import { FileStorageService, IBlobStorage, IStorageService } from '#/storage';
 
 export interface IBootstrapOptions {
   readonly homeDir: string;
@@ -102,7 +102,10 @@ export function bootstrap(input: BootstrapInput = {}, extraSeeds: ScopeSeed = []
 }
 
 function storageSeed(options: IBootstrapOptions): ScopeSeed {
-  return [[IStorageService as ServiceIdentifier<unknown>, new FileStorageService(options.homeDir)]];
+  return [
+    [IStorageService as ServiceIdentifier<unknown>, new FileStorageService(options.homeDir)],
+    [IBlobStorage as ServiceIdentifier<unknown>, new FileStorageService(options.homeDir)],
+  ];
 }
 
 export function resolveKimiHome(
