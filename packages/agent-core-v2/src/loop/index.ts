@@ -21,26 +21,13 @@ export type {
   ShouldContinueAfterStopHook,
   ShouldContinueAfterStopResult,
   LoopMessageBuilder,
-  ExecutableTool,
-  ToolExecution,
-  RunnableToolExecution,
   ToolCall,
-  ExecutableToolContext,
   ToolExecutionHookContext,
   ResolvedToolExecutionHookContext,
   AuthorizeToolExecutionResult,
   PrepareToolExecutionResult,
-  ExecutableToolResult,
-  ToolUpdate,
   TurnResult,
 } from './types';
-
-export { ToolAccesses } from './tool-access';
-export type {
-  ToolFileAccess,
-  ToolFileAccessOperation,
-  ToolResourceAccess,
-} from './tool-access';
 
 export type {
   CreateLoopEventDispatcherInput,

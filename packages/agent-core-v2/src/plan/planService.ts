@@ -23,14 +23,14 @@ import { ITelemetryService } from '#/telemetry';
 import { IToolRegistry } from '#/toolRegistry';
 import { IWireRecord } from '#/wireRecord';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-import type { ExecutableToolResult } from '../loop';
-import { EnterPlanModeInputSchema } from './enter-plan-mode';
-import ENTER_PLAN_MODE_DESCRIPTION from './enter-plan-mode.md?raw';
+import type { ExecutableToolResult } from '#/tool';
+import { EnterPlanModeInputSchema } from './tools/enter-plan-mode';
+import ENTER_PLAN_MODE_DESCRIPTION from './tools/enter-plan-mode.md?raw';
 import {
   ExitPlanModeInputSchema,
   type ExitPlanModeInput,
-} from './exit-plan-mode';
-import EXIT_PLAN_MODE_DESCRIPTION from './exit-plan-mode.md?raw';
+} from './tools/exit-plan-mode';
+import EXIT_PLAN_MODE_DESCRIPTION from './tools/exit-plan-mode.md?raw';
 import {
   IPlanService,
   type PlanData,

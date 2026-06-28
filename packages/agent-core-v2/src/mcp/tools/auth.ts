@@ -30,14 +30,14 @@ import {
   type ExecutableTool,
   type ExecutableToolContext,
   type ExecutableToolResult,
-} from '../loop';
-import { toInputJsonSchema } from '../_base/tools/support/input-schema';
+} from '#/tool';
+import { toInputJsonSchema } from '../../_base/tools/support/input-schema';
 import {
   MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
   type McpOAuthAuthorizationUrlUpdateData,
 } from '@moonshot-ai/protocol';
-import { AlreadyAuthorizedError, type McpOAuthService } from './oauth';
-import { qualifyMcpToolName } from './tool-naming';
+import { AlreadyAuthorizedError, type McpOAuthService } from '../oauth';
+import { qualifyMcpToolName } from '../tool-naming';
 
 const DEFAULT_AUTH_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 

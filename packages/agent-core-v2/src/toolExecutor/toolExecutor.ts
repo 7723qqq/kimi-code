@@ -1,5 +1,5 @@
 import { createDecorator } from "#/_base/di";
-import type { ToolExecution, ToolUpdate } from '#/loop';
+import type { ToolExecution, ToolUpdate } from '#/tool';
 import type { ToolCall, ToolResult } from '#/toolRegistry';
 
 export interface ToolExecutorOptions {

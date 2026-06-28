@@ -28,15 +28,17 @@ import { isUserCancellation } from '#/_base/utils/abort';
 import { errorMessage, isAbortError } from './errors';
 import type { LoopEventDispatcher, LoopToolCallEvent } from './events';
 import type { LLM, LLMChatResponse } from './llm';
-import { ToolAccesses } from './tool-access';
+import { ToolAccesses } from '#/tool';
 import { ToolScheduler, type ToolCallTask } from './tool-scheduler';
 import type {
   ExecutableTool,
-  LoopHooks,
-  ToolCall,
   ExecutableToolResult,
   RunnableToolExecution,
   ToolExecution,
+} from '#/tool';
+import type {
+  LoopHooks,
+  ToolCall,
 } from './types';
 import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/turn';
 

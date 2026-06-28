@@ -34,7 +34,7 @@ import {
   TODO_STORE_KEY,
   renderTodoList,
   type TodoItem,
-} from '#/todoList/todo-list';
+} from '#/todoList/tools/todo-list';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
 import {
   IFullCompaction,

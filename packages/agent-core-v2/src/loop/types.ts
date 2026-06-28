@@ -10,12 +10,11 @@
  * `exactOptionalPropertyTypes: true`.
  */
 
-import type { ContentPart, Message, TokenUsage, Tool, ToolCall } from '@moonshot-ai/kosong';
+import type { Message, TokenUsage, ToolCall } from '@moonshot-ai/kosong';
 
-import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import type { HookSlot } from '#/hooks';
+import type { ExecutableTool, ExecutableToolResult, RunnableToolExecution } from '#/tool';
 import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/turn';
-import type { ToolAccesses } from './tool-access';
 import type { LLM } from './llm';
 
 export type { ToolCall };
@@ -59,88 +58,6 @@ export interface TurnResult {
   stopReason: LoopTurnStopReason;
   steps: number;
   usage: TokenUsage;
-}
-
-export type ExecutableToolOutput = string | ContentPart[];
-
-export interface ExecutableToolSuccessResult {
-  readonly output: ExecutableToolOutput;
-  readonly isError?: false | undefined;
-  /**
-   * Internal loop-control hint. Tool result events strip this field before
-   * persistence; it only tells the current turn whether another model step or
-   * later tool calls in the same batch are allowed.
-   */
-  readonly stopTurn?: boolean | undefined;
-  /**
-   * Optional human-readable side channel for tool-result metadata that
-   * should not contaminate the data stream the model sees (e.g. a
-   * "Task snapshot retrieved." brief for TaskOutput). Distinct from
-   * `output`: callers rendering tool results decide whether to surface
-   * this to the user.
-   */
-  readonly message?: string | undefined;
-  /**
-   * True when the tool has already returned a partial result because it
-   * truncated, paged, or otherwise dropped original output. Later generic
-   * budgeting must not treat the visible output as complete source text.
-   */
-  readonly truncated?: boolean | undefined;
-}
-
-export interface ExecutableToolErrorResult {
-  readonly output: ExecutableToolOutput;
-  readonly isError: true;
-  /** See {@link ExecutableToolSuccessResult.message}. */
-  readonly message?: string | undefined;
-  /** See {@link ExecutableToolSuccessResult.stopTurn}. */
-  readonly stopTurn?: boolean | undefined;
-  /** See {@link ExecutableToolSuccessResult.truncated}. */
-  readonly truncated?: boolean | undefined;
-}
-
-export type ExecutableToolResult = ExecutableToolSuccessResult | ExecutableToolErrorResult;
-
-export interface ToolUpdate {
-  kind: 'stdout' | 'stderr' | 'progress' | 'status' | 'custom';
-  text?: string | undefined;
-  percent?: number | undefined;
-  /** Vendor-defined event identifier when `kind === 'custom'`. */
-  customKind?: string | undefined;
-  /** Opaque payload paired with `customKind`. */
-  customData?: unknown;
-}
-
-/**
- * Per-call context passed to tool implementations.
- */
-export interface ExecutableToolContext {
-  readonly turnId: string;
-  readonly toolCallId: string;
-  readonly metadata?: unknown;
-  readonly signal: AbortSignal;
-  readonly onUpdate?: ((update: ToolUpdate) => void) | undefined;
-}
-
-export interface RunnableToolExecution {
-  readonly isError?: false | undefined;
-  readonly accesses?: ToolAccesses | undefined;
-  readonly display?: ToolInputDisplay | undefined;
-  readonly description?: string;
-  /**
-   * Stops scheduling later tool calls in the same provider batch. Use this only
-   * for tools whose successful action changes turn lifecycle state.
-   */
-  readonly stopBatchAfterThis?: boolean | undefined;
-  readonly approvalRule: string;
-  readonly matchesRule?: ((ruleArgs: string) => boolean) | undefined;
-  readonly execute: (ctx: ExecutableToolContext) => Promise<ExecutableToolResult>;
-}
-
-export type ToolExecution = RunnableToolExecution | ExecutableToolErrorResult;
-
-export interface ExecutableTool<Input = unknown> extends Tool {
-  resolveExecution(input: Input): ToolExecution | Promise<ToolExecution>;
 }
 
 /**

@@ -16,7 +16,7 @@
 import { z } from 'zod';
 
 import type { BuiltinTool } from '#/toolRegistry';
-import type { ToolExecution } from '#/loop';
+import type { ToolExecution } from '#/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { ToolStore } from '#/toolStore';
 import DESCRIPTION from './todo-list.md?raw';

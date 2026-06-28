@@ -1,9 +1,9 @@
 import { createDecorator } from "#/_base/di";
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
 import type { Hooks } from '#/hooks';
+import type { ExecutableToolResult } from '#/tool';
 import type {
   AuthorizeToolExecutionResult,
-  ExecutableToolResult,
   ResolvedToolExecutionHookContext,
   ToolExecutionHookContext,
 } from '#/loop';

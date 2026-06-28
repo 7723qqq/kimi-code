@@ -7,14 +7,13 @@ import {
   type IDisposable,
 } from "#/_base/di";
 import { ErrorCodes, makeErrorPayload } from "#/errors";
-import type { ExecutableTool, ExecutableToolResult } from '#/loop';
 import { IEventSink } from '../eventSink';
 import { ITurnService } from '#/turn';
 import { IToolRegistry } from '#/toolRegistry';
-import { createMcpAuthTool } from './auth-tool';
+import { createMcpAuthTool } from './tools/auth';
+import { createMcpTool } from './tools/mcp';
 import type { McpServerEntry } from './connection-manager';
 import { IMcpService, type McpServiceOptions } from './mcp';
-import { mcpResultToExecutableOutput } from './output';
 import { qualifyMcpToolName } from './tool-naming';
 import type { MCPClient } from './types';
 
@@ -216,7 +215,7 @@ export class McpService extends Disposable implements IMcpService {
       }
       seenInThisCall.set(qualified, tool.name);
       const disposable = this._register(
-        this.registry.register(this.createMcpTool(qualified, tool, client), {
+        this.registry.register(createMcpTool(qualified, tool, client), {
           source: 'mcp',
         }),
       );
@@ -237,29 +236,6 @@ export class McpService extends Disposable implements IMcpService {
     }
     this.mcpToolsByServer.delete(serverName);
     return true;
-  }
-
-  private createMcpTool(
-    qualifiedName: string,
-    tool: KosongTool,
-    client: MCPClient,
-  ): ExecutableTool {
-    return {
-      name: qualifiedName,
-      description: tool.description,
-      parameters: tool.parameters,
-      resolveExecution: (args) => ({
-        approvalRule: qualifiedName,
-        execute: async (context) => {
-          const result = await client.callTool(
-            tool.name,
-            (args ?? {}) as Record<string, unknown>,
-            context.signal,
-          );
-          return normalizeMcpToolResult(mcpResultToExecutableOutput(result, qualifiedName));
-        },
-      }),
-    };
   }
 
   private emitMcpToolCollisions(
@@ -285,14 +261,6 @@ export class McpService extends Disposable implements IMcpService {
       ),
     });
   }
-}
-
-function normalizeMcpToolResult(result: {
-  readonly output: ExecutableToolResult['output'];
-  readonly isError: boolean;
-}): ExecutableToolResult {
-  if (result.isError) return { output: result.output, isError: true };
-  return { output: result.output };
 }
 
 registerScopedService(
