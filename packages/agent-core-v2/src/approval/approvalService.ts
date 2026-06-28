@@ -29,6 +29,17 @@ export class ApprovalService implements IApprovalService {
     });
   }
 
+  enqueue(req: ApprovalRequest): ApprovalRequest & { readonly id: string } {
+    const id = requestId(req);
+    this.interaction.enqueue<ApprovalRequest>({
+      id,
+      kind: 'approval',
+      payload: req,
+      origin: { agentId: req.agentId, turnId: req.turnId },
+    });
+    return { ...req, id };
+  }
+
   decide(id: string, response: ApprovalResponse): void {
     this.interaction.respond(id, response);
   }

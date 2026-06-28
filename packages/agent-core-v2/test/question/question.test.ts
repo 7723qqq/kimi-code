@@ -166,6 +166,15 @@ describe('Agent question', () => {
     );
     expect(requestQuestionArgs(ctx, 'call_unsupported')).toBeUndefined();
   });
+
+  it('enqueue parks a question without blocking', () => {
+    const svc = ix.get(IQuestionService);
+    const enqueued = svc.enqueue({ id: 'q1', prompt: 'name?' });
+    expect(enqueued).toEqual({ id: 'q1', prompt: 'name?' });
+    expect(svc.listPending()).toEqual([{ id: 'q1', prompt: 'name?' }]);
+    svc.answer('q1', 'kimi');
+    expect(svc.listPending()).toEqual([]);
+  });
 });
 
 function askQuestionCall(id: string): ToolCall {

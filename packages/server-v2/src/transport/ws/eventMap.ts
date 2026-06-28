@@ -4,13 +4,16 @@
  * binds `event` → an `Event` subscription that yields an `IDisposable`.
  *
  * Only the high-value streams are exposed for now:
- *   Core  `events`  — process-wide `DomainEvent` bus (`IEventService`)
- *   Agent `events`  — per-agent `AgentEvent` stream (`IEventSink`)
+ *   Core    `events`                — process-wide `DomainEvent` bus (`IEventService`)
+ *   Session `interactions`          — pending human-in-the-loop requests (`IInteractionService.onDidChange`)
+ *   Session `interactions:resolved` — request resolutions (`IInteractionService.onDidResolve`)
+ *   Agent   `events`                — per-agent `AgentEvent` stream (`IEventSink`)
  */
 
 import {
   IEventService,
   IEventSink,
+  IInteractionService,
   type DomainEvent,
   type IDisposable,
   type IScopeHandle,
@@ -33,9 +36,25 @@ export const eventMap: Record<ScopeKind, Record<string, EventSource>> = {
     },
   },
   session: {
-    // Future: `metadata` (ISessionMetadata.onDidChange), `interactions`
-    // (IInteractionService.onDidChange). These carry no payload today, so they
-    // are not exposed until there is a concrete consumer.
+    // Pushes the full pending interaction set whenever it changes. Payload is
+    // the current `Interaction[]` (derived from `listPending`), so a client can
+    // render a pending approval/question without a follow-up `call`. Resync is
+    // out of band: `call interactions:listPending` before `listen`.
+    interactions: {
+      subscribe: (scope, listener) => {
+        const interaction = scope.accessor.get(IInteractionService);
+        return interaction.onDidChange(() => listener(interaction.listPending()));
+      },
+    },
+    // Pushes `{ id, response }` whenever a pending request is responded to.
+    // Paired with `interactions:request` (the non-blocking enqueue): a headless
+    // caller posts a request, then matches the resolution here by `id`.
+    'interactions:resolved': {
+      subscribe: (scope, listener) => {
+        const interaction = scope.accessor.get(IInteractionService);
+        return interaction.onDidResolve((resolution) => listener(resolution));
+      },
+    },
   },
   agent: {
     events: {

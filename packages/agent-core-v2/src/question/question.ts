@@ -16,6 +16,12 @@ export interface QuestionRequest {
 export interface IQuestionService {
   readonly _serviceBrand: undefined;
   request(req: QuestionRequest): Promise<string>;
+  /**
+   * Post a question without blocking on the answer. Returns the request (its
+   * `id` is required, so it is already known); the answer is delivered through
+   * the interaction `onDidResolve` stream.
+   */
+  enqueue(req: QuestionRequest): QuestionRequest;
   answer(id: string, answer: string): void;
   listPending(): readonly QuestionRequest[];
 }

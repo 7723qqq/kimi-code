@@ -80,6 +80,7 @@ export function stubApprovalService(
   return {
     _serviceBrand: undefined,
     request: () => Promise.resolve(next()),
+    enqueue: (req) => ({ ...req, id: req.id ?? req.toolCallId ?? 'stub' }),
     decide: () => {},
     listPending: () => [],
   };

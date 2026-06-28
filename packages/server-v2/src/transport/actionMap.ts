@@ -117,9 +117,11 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'session:archive': { service: ISessionService, method: 'archive' },
 
     'approvals:listPending': { service: IApprovalService, method: 'listPending', readonly: true },
+    'approvals:request': { service: IApprovalService, method: 'enqueue' },
     'approvals:decide': { service: IApprovalService, method: 'decide' },
 
     'questions:listPending': { service: IQuestionService, method: 'listPending', readonly: true },
+    'questions:ask': { service: IQuestionService, method: 'enqueue' },
     'questions:answer': { service: IQuestionService, method: 'answer' },
 
     'interactions:listPending': {
@@ -127,6 +129,7 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
       method: 'listPending',
       readonly: true,
     },
+    'interactions:request': { service: IInteractionService, method: 'enqueue' },
     'interactions:respond': { service: IInteractionService, method: 'respond' },
 
     'workspace:resolve': { service: IWorkspaceContext, method: 'resolve', readonly: true },

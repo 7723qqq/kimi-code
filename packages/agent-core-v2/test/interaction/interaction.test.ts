@@ -62,4 +62,42 @@ describe('InteractionService', () => {
     const svc = ix.get(IInteractionService);
     expect(() => svc.respond('nope', 'x')).not.toThrow();
   });
+
+  it('enqueue parks a request and returns it without blocking', () => {
+    const svc = ix.get(IInteractionService);
+    const interaction = svc.enqueue({ id: 'e1', kind: 'approval', payload: { tool: 'bash' } });
+    expect(interaction).toMatchObject({
+      id: 'e1',
+      kind: 'approval',
+      payload: { tool: 'bash' },
+    });
+    expect(svc.listPending()).toHaveLength(1);
+  });
+
+  it('enqueue generates an id when none is provided', () => {
+    const svc = ix.get(IInteractionService);
+    const interaction = svc.enqueue({ kind: 'question', payload: {} });
+    expect(interaction.id).toMatch(/^interaction-/);
+    expect(svc.listPending()[0]!.id).toBe(interaction.id);
+  });
+
+  it('onDidResolve fires with the id and response when responded to', () => {
+    const svc = ix.get(IInteractionService);
+    const seen: { id: string; response: unknown }[] = [];
+    disposables.add(svc.onDidResolve((r) => seen.push(r)));
+
+    svc.enqueue({ id: 'e1', kind: 'approval', payload: {} });
+    svc.respond('e1', { decision: 'approved' });
+
+    expect(seen).toEqual([{ id: 'e1', response: { decision: 'approved' } }]);
+    expect(svc.listPending()).toHaveLength(0);
+  });
+
+  it('onDidResolve does not fire for an unknown id', () => {
+    const svc = ix.get(IInteractionService);
+    let count = 0;
+    disposables.add(svc.onDidResolve(() => count++));
+    svc.respond('nope', 'x');
+    expect(count).toBe(0);
+  });
 });
