@@ -6,10 +6,11 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { IEventSink } from '../../src/eventSink';
 import type { McpConnectionManager, McpServerEntry } from '#/mcp/connection-manager';
 import { IMcpService, McpService } from '#/mcp';
+import { IToolExecutor } from '#/toolExecutor';
 import { IToolRegistry } from '#/toolRegistry';
 import { ITurnService } from '#/turn';
 
-import { stubTurnWithHooks } from '../turn/stubs';
+import { stubTurnWithHooks, stubToolExecutor } from '../turn/stubs';
 
 /**
  * Minimal stand-in for {@link McpConnectionManager}. `McpService` delegates
@@ -85,6 +86,7 @@ describe('McpService', () => {
       resolve: () => undefined,
     });
     ix.stub(ITurnService, stubTurnWithHooks());
+    ix.stub(IToolExecutor, stubToolExecutor());
   });
   afterEach(() => disposables.dispose());
 
@@ -99,8 +101,6 @@ describe('McpService', () => {
     const svc = ix.createInstance(
       McpService,
       { manager: manager as unknown as McpConnectionManager },
-      undefined as never,
-      undefined as never,
     );
     disposables.add(svc);
 

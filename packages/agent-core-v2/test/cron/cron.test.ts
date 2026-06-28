@@ -71,9 +71,6 @@ describe('CronService', () => {
     const turnService: ITurnService = {
       ...stubTurn(),
       getActiveTurn: () => activeTurn,
-      cancel: () => {
-        activeTurn = undefined;
-      },
     };
 
     ix.stub(IPromptService, {

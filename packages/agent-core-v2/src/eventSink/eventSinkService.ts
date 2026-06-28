@@ -11,6 +11,7 @@ import type { AgentEvent } from '@moonshot-ai/protocol';
 import { IWireRecord } from '#/wireRecord';
 
 export class EventSinkService extends Disposable implements IEventSink {
+  declare readonly _serviceBrand: undefined;
   private readonly onDidEmitEmitter = this._register(new Emitter<AgentEvent>());
 
   constructor(@IWireRecord private readonly wireRecord: IWireRecord) {

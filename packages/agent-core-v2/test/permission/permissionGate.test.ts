@@ -16,6 +16,7 @@ import { IPermissionPolicyService } from '#/permissionPolicy';
 import type { PermissionRule } from '#/permissionRules';
 import { IPermissionRulesService } from '#/permissionRules';
 import { ITelemetryService } from '#/telemetry/telemetry';
+import { IToolExecutor } from '#/toolExecutor';
 import { ITurnService } from '#/turn';
 import type { ToolCall } from '@moonshot-ai/kosong';
 
@@ -25,7 +26,7 @@ import {
   stubPermissionPolicyService,
   stubPermissionRulesService,
 } from './stubs';
-import { stubTurnWithHooks } from '../turn/stubs';
+import { stubTurnWithHooks, stubToolExecutor } from '../turn/stubs';
 
 function makeContext(toolName: string): ResolvedToolExecutionHookContext {
   const toolCall: ToolCall = {
@@ -36,9 +37,7 @@ function makeContext(toolName: string): ResolvedToolExecutionHookContext {
   };
   return {
     turnId: '1',
-    stepNumber: 1,
     signal: new AbortController().signal,
-    llm: {} as LLM,
     toolCall,
     toolCalls: [toolCall],
     args: {},
@@ -78,6 +77,7 @@ describe('PermissionGate', () => {
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
         reg.defineInstance(IApprovalService, stubApprovalService(() => approvalResponse));
         reg.defineInstance(ITurnService, stubTurnWithHooks());
+        reg.defineInstance(IToolExecutor, stubToolExecutor());
       },
     });
   });

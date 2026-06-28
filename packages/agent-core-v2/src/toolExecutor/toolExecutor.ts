@@ -1,20 +1,27 @@
 import { createDecorator } from "#/_base/di";
-import type { ToolExecution, ToolUpdate } from '#/tool';
+import type { ToolUpdate } from '#/tool';
+import type { LoopEventDispatcher } from '#/loop/events';
 import type { ToolCall, ToolResult } from '#/toolRegistry';
+import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/turn';
+import type { OrderedHookSlot } from '#/hooks';
 
-export interface ToolExecutorOptions {
+export interface ToolExecutorExecuteOptions {
   readonly signal?: AbortSignal;
   readonly turnId?: string;
-  readonly metadata?: unknown;
-  readonly onUpdate?: (update: ToolUpdate) => void;
+  readonly stepNumber?: number;
+  readonly dispatchEvent?: LoopEventDispatcher | undefined;
+  readonly onProgress?: ((toolCallId: string, update: ToolUpdate) => void) | undefined;
 }
 
 export interface IToolExecutor {
-  execute(
-    call: ToolCall,
-    execution: ToolExecution,
-    options?: ToolExecutorOptions,
-  ): Promise<ToolResult>;
+  readonly _serviceBrand: undefined;
+
+  execute(calls: ToolCall[], options?: ToolExecutorExecuteOptions): Promise<ToolResult[]>;
+
+  readonly hooks: {
+    readonly onWillExecuteTool: OrderedHookSlot<ToolWillExecuteContext>;
+    readonly onDidExecuteTool: OrderedHookSlot<ToolDidExecuteContext>;
+  };
 }
 
 export const IToolExecutor = createDecorator<IToolExecutor>('toolExecutorService');

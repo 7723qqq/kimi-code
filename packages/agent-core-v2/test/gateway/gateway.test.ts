@@ -39,13 +39,13 @@ describe('RestGateway', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let promptCalls: ContextMessage[];
-  let cancelCalls: Array<{ turnId?: number; reason?: unknown }>;
+  let turnService: ITurnService;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     promptCalls = [];
-    cancelCalls = [];
+    turnService = stubTurn({ hasActiveTurn: true });
 
     const promptService: IPromptService = {
       prompt: (message) => {
@@ -56,12 +56,6 @@ describe('RestGateway', () => {
       retry: () => undefined,
       undo: () => 0,
       clear: () => {},
-    };
-    const turnService: ITurnService = {
-      ...stubTurn(),
-      cancel: (turnId, reason) => {
-        cancelCalls.push({ turnId, reason });
-      },
     };
 
     const agentHandle: IScopeHandle = {
@@ -109,10 +103,12 @@ describe('RestGateway', () => {
     expect(promptCalls[0]!.origin).toMatchObject({ kind: 'user' });
   });
 
-  it('routes cancel to the agent turn service', async () => {
+  it('aborts the active turn signal on cancel', async () => {
     const gw = ix.get(IRestGateway);
+    const turn = turnService.launch({ kind: 'user' });
     await gw.cancel('s1', 'main', 'bye');
 
-    expect(cancelCalls).toEqual([{ turnId: undefined, reason: 'bye' }]);
+    expect(turn.abortController.signal.aborted).toBe(true);
+    expect(turn.abortController.signal.reason).toBe('bye');
   });
 });

@@ -15,6 +15,7 @@ interface ToolEntry {
 }
 
 export class ToolRegistryService extends Disposable implements IToolRegistry {
+  declare readonly _serviceBrand: undefined;
   private readonly tools = new Map<string, ToolEntry>();
 
   readonly hooks = {

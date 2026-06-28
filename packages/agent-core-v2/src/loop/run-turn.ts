@@ -17,6 +17,7 @@ import {
   isMaxStepsExceededError,
 } from './errors';
 import type { LoopInterruptReason, LoopEventDispatcher, LoopTurnInterruptedEvent } from './events';
+import type { IToolExecutor } from '#/toolExecutor';
 import type { LLM } from './llm';
 import { executeLoopStep } from './turn-step';
 import type { ExecutableTool } from '#/tool';
@@ -41,6 +42,7 @@ export interface RunTurnInput {
   readonly log?: Logger | undefined;
   readonly maxSteps?: number | undefined;
   readonly maxRetryAttempts?: number;
+  readonly toolExecutor: IToolExecutor;
   readonly recordStepUsage?:
     | ((
         usage: TokenUsage,
@@ -61,6 +63,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
     log,
     maxSteps,
     maxRetryAttempts,
+    toolExecutor,
     recordStepUsage: hostRecordStepUsage,
   } = input;
   let usage: TokenUsage = emptyUsage();
@@ -97,6 +100,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
         log,
         currentStep: steps,
         maxRetryAttempts,
+        toolExecutor,
         recordUsage: recordStepUsage,
       });
       activeStep = undefined;

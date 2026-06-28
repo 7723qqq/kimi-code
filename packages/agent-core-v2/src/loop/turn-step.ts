@@ -12,10 +12,10 @@ import { randomUUID } from 'node:crypto';
 import type { TokenUsage } from '@moonshot-ai/kosong';
 import type { ILogger as Logger } from '#/log';
 
+import type { IToolExecutor } from '#/toolExecutor';
 import type { LoopEventDispatcher } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { chatWithRetry } from './retry';
-import { runToolCallBatch, type ToolCallStepContext } from './tool-call';
 import type { ExecutableTool } from '#/tool';
 import type {
   LoopHooks,
@@ -41,6 +41,7 @@ export interface ExecuteLoopStepDeps {
   readonly log?: Logger | undefined;
   readonly currentStep: number;
   readonly maxRetryAttempts?: number;
+  readonly toolExecutor: IToolExecutor;
   readonly recordUsage: (
     usage: TokenUsage,
     context: RecordStepUsageContext,
@@ -62,6 +63,7 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     log,
     currentStep,
     maxRetryAttempts,
+    toolExecutor,
     recordUsage,
   } = deps;
 
@@ -83,18 +85,6 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
   signal.throwIfAborted();
 
   const stepUuid = randomUUID();
-
-  const step: ToolCallStepContext = {
-    tools,
-    hooks,
-    log,
-    dispatchEvent,
-    llm,
-    signal,
-    turnId,
-    currentStep,
-    stepUuid,
-  };
 
   await dispatchEvent({
     type: 'step.begin',
@@ -141,8 +131,18 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
   let effectiveStopReason: LoopStepStopReason =
     stopTurnAfterUsage && stopReason === 'tool_use' ? 'end_turn' : stopReason;
   if (effectiveStopReason === 'tool_use') {
-    const toolBatch = await runToolCallBatch(step, response);
-    if (toolBatch.stopTurn) effectiveStopReason = 'end_turn';
+    const toolResults = await toolExecutor.execute(response.toolCalls, {
+      signal,
+      turnId,
+      stepNumber: currentStep,
+      dispatchEvent,
+      onProgress: (toolCallId, update) => {
+        void dispatchEvent({ type: 'tool.progress', toolCallId, update });
+      },
+    });
+    if (toolResults.some((r) => r.stopTurn === true)) {
+      effectiveStopReason = 'end_turn';
+    }
   }
 
   // When a tool batch runs, it drains paired `tool.result` events even when

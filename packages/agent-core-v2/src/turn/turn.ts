@@ -4,8 +4,8 @@ import type { Hooks } from '#/hooks';
 import type { ExecutableToolResult } from '#/tool';
 import type {
   AuthorizeToolExecutionResult,
-  ResolvedToolExecutionHookContext,
   ToolExecutionHookContext,
+  ResolvedToolExecutionHookContext,
 } from '#/loop';
 
 export interface TurnResult {
@@ -66,8 +66,6 @@ export interface ITurnService {
     onEnded: TurnEndedContext;
     beforeStep: TurnStepContext;
     afterStep: TurnStepContext;
-    onWillExecuteTool: ToolWillExecuteContext;
-    onDidExecuteTool: ToolDidExecuteContext;
   }>;
 }
 

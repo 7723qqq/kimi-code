@@ -5,15 +5,14 @@
  * repeat telemetry through `telemetry`. Bound at Agent scope.
  */
 
-import type { ContentPart } from '@moonshot-ai/kosong';
-
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
 import { ITelemetryService } from '#/telemetry/telemetry';
+import { IToolExecutor } from '#/toolExecutor';
 import { ITurnService } from '#/turn';
-
+import type { ContentPart } from '@moonshot-ai/kosong';
 import { IToolDedupe, type ToolDedupResult } from './toolDedupe';
 
 const REMINDER_TEXT_1 =
@@ -108,6 +107,7 @@ export class ToolDedupeService extends Disposable implements IToolDedupe {
   constructor(
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ITurnService turn: ITurnService,
+    @IToolExecutor toolExecutor: IToolExecutor,
   ) {
     super();
     turn.hooks.beforeStep.register('toolDedup', async (_ctx, next) => {
@@ -118,7 +118,7 @@ export class ToolDedupeService extends Disposable implements IToolDedupe {
       this.endStep();
       await next();
     });
-    turn.hooks.onWillExecuteTool.register('toolDedup', async (ctx, next) => {
+    toolExecutor.hooks.onWillExecuteTool.register('toolDedup', async (ctx, next) => {
       const cached = this.checkSameStep(ctx.toolCall.id, ctx.toolCall.name, ctx.args);
       if (cached !== null) {
         ctx.decision = { syntheticResult: cached };
@@ -126,7 +126,7 @@ export class ToolDedupeService extends Disposable implements IToolDedupe {
       }
       await next();
     });
-    turn.hooks.onDidExecuteTool.register('toolDedup', async (ctx, next) => {
+    toolExecutor.hooks.onDidExecuteTool.register('toolDedup', async (ctx, next) => {
       ctx.result = await this.finalizeResult(
         ctx.toolCall.id,
         ctx.toolCall.name,
