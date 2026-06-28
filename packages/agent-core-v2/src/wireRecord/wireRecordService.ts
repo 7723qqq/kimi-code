@@ -14,6 +14,7 @@ import {
   IBlobStoreService,
   type BlobStoreServiceOptions,
 } from '#/blobStore';
+import { IHostFileSystem } from '#/hostFs';
 import { IAppendLogStore } from '#/storage';
 import { BlobStoreService } from '../blobStore/blobStoreService';
 import { OrderedHookSlot } from '../hooks';
@@ -62,6 +63,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
     private readonly options: WireRecordServiceOptions = {},
     @IBlobStoreService injectedBlobStore?: IBlobStoreService,
     @IAppendLogStore private readonly log?: IAppendLogStore,
+    @IHostFileSystem private readonly hostFs?: IHostFileSystem,
   ) {
     super();
     this.blobStore = this.resolveBlobStore(options, injectedBlobStore);
@@ -328,12 +330,12 @@ export class WireRecordService extends Disposable implements IWireRecord {
     injectedBlobStore: IBlobStoreService | undefined,
   ): IBlobStoreService | undefined {
     if (options.blobStore !== undefined) return options.blobStore;
-    if (options.homedir === undefined) return injectedBlobStore;
+    if (options.homedir === undefined || this.hostFs === undefined) return injectedBlobStore;
 
     const blobOptions: BlobStoreServiceOptions = {
       blobsDir: join(options.homedir, 'blobs'),
     };
-    return new BlobStoreService(blobOptions);
+    return new BlobStoreService(blobOptions, this.hostFs);
   }
 }
 

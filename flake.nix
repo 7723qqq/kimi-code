@@ -66,6 +66,7 @@
         ./packages/agent-core
         ./packages/agent-core-v2
         ./packages/server
+        ./packages/server-v2
         ./packages/server-e2e
         ./packages/kaos
         ./packages/kimi-migration-legacy
@@ -89,6 +90,7 @@
         "@moonshot-ai/agent-core"
         "@moonshot-ai/agent-core-v2"
         "@moonshot-ai/server"
+        "@moonshot-ai/server-v2"
         "@moonshot-ai/server-e2e"
         "@moonshot-ai/kaos"
         "@moonshot-ai/kosong"

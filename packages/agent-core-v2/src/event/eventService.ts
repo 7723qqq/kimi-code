@@ -1,0 +1,35 @@
+/**
+ * `event` domain (L0) — `IEventService` implementation.
+ *
+ * Delivers published events to subscribers through the `_base/event` `Emitter`
+ * primitive. Bound at Core scope.
+ */
+
+import { Disposable, type IDisposable } from '#/_base/di';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { Emitter } from '#/_base/event';
+
+import { type DomainEvent, IEventService } from './event';
+
+export class EventService extends Disposable implements IEventService {
+  declare readonly _serviceBrand: undefined;
+
+  private readonly emitter = this._register(new Emitter<DomainEvent>());
+
+  publish(event: DomainEvent): void {
+    this.emitter.fire(event);
+  }
+
+  subscribe(handler: (event: DomainEvent) => void): IDisposable {
+    return this.emitter.event(handler);
+  }
+}
+
+registerScopedService(
+  LifecycleScope.Core,
+  IEventService,
+  EventService,
+  InstantiationType.Delayed,
+  'event',
+);

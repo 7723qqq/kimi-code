@@ -96,8 +96,10 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
 
   constructor(@IEventSink event: IEventSink) {
     super();
-    event.subscribe(() => {
-    });
+    this._register(
+      event.on(() => {
+      }),
+    );
   }
 }
 

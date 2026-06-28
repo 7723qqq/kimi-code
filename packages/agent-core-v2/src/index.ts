@@ -15,6 +15,7 @@ export * from './kosong/index';
 export * from './sessionIndex/index';
 export * from './sessionMetaStore/index';
 export * from './config/index';
+export * from './provider/index';
 
 import './skill/index';
 export * from './permission/index';
