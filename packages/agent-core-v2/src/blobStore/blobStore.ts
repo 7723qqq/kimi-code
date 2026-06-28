@@ -6,7 +6,11 @@ export const BLOBREF_PROTOCOL = 'blobref:';
 export const MISSING_MEDIA_PLACEHOLDER = '[media missing]';
 
 export interface BlobStoreServiceOptions {
-  readonly blobsDir?: string;
+  /**
+   * Storage scope used to namespace blob keys in the `IBlobStorage` backend.
+   * Defaults to `'blobs'`.
+   */
+  readonly storageScope?: string;
   readonly threshold?: number;
   readonly maxCacheSize?: number;
 }

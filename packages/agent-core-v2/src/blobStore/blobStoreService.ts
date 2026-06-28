@@ -1,10 +1,8 @@
-import {
-  createHash } from 'node:crypto';
-import { join } from 'pathe';
+import { createHash } from 'node:crypto';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IHostFileSystem } from '#/hostFs';
+import { IBlobStorage, type IStorageService } from '#/storage';
 
 import {
   BLOBREF_PROTOCOL,
@@ -15,10 +13,11 @@ import {
 
 const DEFAULT_THRESHOLD = 4096;
 const DEFAULT_MAX_CACHE_SIZE = 50 * 1024 * 1024;
+const DEFAULT_STORAGE_SCOPE = 'blobs';
 const DATA_URI_HEADER_RE = /^data:([^;]+);base64,/;
 
 export class BlobStoreService implements IBlobStoreService {
-  private readonly blobsDir: string | undefined;
+  private readonly storageScope: string;
   private readonly threshold: number;
   private readonly maxCacheSize: number;
   private readonly cache = new Map<string, Buffer>();
@@ -26,10 +25,10 @@ export class BlobStoreService implements IBlobStoreService {
   private currentCacheSize = 0;
 
   constructor(
+    @IBlobStorage private readonly storage: IStorageService,
     options: BlobStoreServiceOptions = {},
-    @IHostFileSystem private readonly hostFs: IHostFileSystem,
   ) {
-    this.blobsDir = options.blobsDir;
+    this.storageScope = options.storageScope ?? DEFAULT_STORAGE_SCOPE;
     this.threshold = options.threshold ?? DEFAULT_THRESHOLD;
     this.maxCacheSize = options.maxCacheSize ?? DEFAULT_MAX_CACHE_SIZE;
   }
@@ -39,8 +38,6 @@ export class BlobStoreService implements IBlobStoreService {
   }
 
   async offloadParts(parts: readonly ContentPart[]): Promise<readonly ContentPart[]> {
-    if (this.blobsDir === undefined) return parts;
-
     let changed = false;
     const out: ContentPart[] = [];
     for (const part of parts) {
@@ -52,8 +49,6 @@ export class BlobStoreService implements IBlobStoreService {
   }
 
   async rehydrateParts(parts: readonly ContentPart[]): Promise<readonly ContentPart[]> {
-    if (this.blobsDir === undefined) return parts;
-
     let changed = false;
     const out: ContentPart[] = [];
     for (const part of parts) {
@@ -120,9 +115,8 @@ export class BlobStoreService implements IBlobStoreService {
       this.cache.set(hash, cached);
       return cached;
     }
-    if (this.blobsDir === undefined) return undefined;
 
-    const payload = await this.hostFs.readBytes(join(this.blobsDir, hash)).catch(() => undefined);
+    const payload = await this.storage.read(this.storageScope, hash).catch(() => undefined);
     if (payload !== undefined) {
       this.setCache(hash, Buffer.from(payload));
     }
@@ -143,14 +137,9 @@ export class BlobStoreService implements IBlobStoreService {
   }
 
   private async writeBlob(mimeType: string, base64Payload: string): Promise<string> {
-    const blobsDir = this.blobsDir;
-    if (blobsDir === undefined) return `data:${mimeType};base64,${base64Payload}`;
-
-    await this.hostFs.mkdir(blobsDir, { recursive: true });
     const hash = createHash('sha256').update(base64Payload, 'utf8').digest('hex');
-    const blobPath = join(blobsDir, hash);
     const binary = Buffer.from(base64Payload, 'base64');
-    await this.hostFs.createExclusive(blobPath, binary);
+    await this.storage.write(this.storageScope, hash, binary, { atomic: true });
     this.setCache(hash, binary);
     return `${BLOBREF_PROTOCOL}${mimeType};${hash}`;
   }
