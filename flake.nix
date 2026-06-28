@@ -71,6 +71,7 @@
         ./packages/kimi-migration-legacy
         ./packages/kosong
         ./packages/migration-legacy
+        ./packages/minidb
         ./packages/node-sdk
         ./packages/oauth
         ./packages/protocol
@@ -91,6 +92,7 @@
         "@moonshot-ai/server-e2e"
         "@moonshot-ai/kaos"
         "@moonshot-ai/kosong"
+        "@moonshot-ai/minidb"
         "@moonshot-ai/migration-legacy"
         "@moonshot-ai/kimi-code-sdk"
         "@moonshot-ai/kimi-code-oauth"
