@@ -114,6 +114,7 @@ const DOMAIN_LAYER = new Map([
   ['session-metadata', 6],
   ['session-activity', 6],
   ['session', 6],
+  ['terminal', 6],
   // L7 — boundary
   ['event', 7],
   ['approval', 7],

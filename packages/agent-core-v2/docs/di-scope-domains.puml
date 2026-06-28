@@ -43,6 +43,7 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>session-activity</b>\n<size:9><i>Session</i></size>\n  ISessionActivity" as session_activity #D5F5E3
   rectangle "<b>subagentHost</b>\n<size:9><i>Session</i></size>\n  ISubagentHost" as subagentHost #D5F5E3
   rectangle "<b>process</b>\n<size:9><i>Session</i></size>\n  IProcessRunner\n  IProcessBackend" as process #D5F5E3
+  rectangle "<b>terminal</b>\n<size:9><i>Session</i></size>\n  ITerminalService\n  ITerminalBackend" as terminal #D5F5E3
   rectangle "<b>agent-lifecycle</b>\n<size:9><i>Session</i></size>\n  IAgentLifecycleService" as agent_lifecycle #D5F5E3
   rectangle "<b>session-context</b>\n<size:9><i>Session</i></size>\n  ISessionContext (seed)" as session_context #D5F5E3
 }
@@ -107,6 +108,8 @@ sessionIndex --> bootstrap #34495E
 agentFs --> workspaceContext #34495E
 agentFs --> hostFs #34495E
 process --> workspaceContext #34495E
+terminal --> workspaceContext #34495E
+terminal --> session_context #34495E
 hostFolderBrowser --> hostFs #34495E
 auth --> provider #34495E
 auth --> environment #34495E
