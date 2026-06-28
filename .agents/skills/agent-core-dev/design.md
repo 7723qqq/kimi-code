@@ -113,6 +113,19 @@ Three mechanisms answer three different questions:
 > "I am announcing that something happened; react if you care" → **event.**
 > "I am announcing something, and you may step in, in order, possibly to veto" → **hook.**
 
+### As extension points (open-closed)
+
+The three mechanisms above are also where a domain accepts new behavior without being edited. When adding a scenario would otherwise require changing this domain's `if/else`, expose the right extension point instead:
+
+| Need | Extension point | Typical scope |
+|---|---|---|
+| Register a new implementation / definition | a **registry / catalog** the domain queries | `Core` |
+| React to a fact the domain announces | an **event** on the bus | the announcing scope |
+| Step into an operation in order / veto | a **hook** (`onWill`/`onDid`, `OrderedHookSlot`) | the owning scope |
+| Swap a backend (File ↔ DB ↔ S3) | a **Store / Storage token** at the byte layer (see persistence.md) | `Core` (composition root) |
+
+Closed-for-modification means: the domain's own file is not where new scenarios branch. If a new scenario forces an edit here, an extension point is missing or misplaced.
+
 ## 5. Dependency direction
 
 Two layers are involved:
@@ -154,6 +167,57 @@ Red lines:
 4. **For each collaborator: am I commanding it, notifying it, or letting it participate?** → pick the calling style (§4).
 5. **Does each dependency arrow make a more foundational thing know a more specific thing?** → if yes, invert it (§5).
 
+## 7. Render the placement tree
+
+After the checklist, render the result as a plaintext tree — the deliverable reviewers read. Keep it in the design doc or PR description.
+
+```text
+domain: `<name>`
+├─ serves (upward — who injects me)
+│   └─ <ConsumerDomain>  @<Scope>   — <what they use me for>
+├─ exposes (interfaces I provide, by scope)
+│   ├─ Core     : <IXxxRegistry>   — <role>
+│   ├─ Session  : <ISessionXxx>    — <role>
+│   ├─ Agent    : <IAgentXxx>      — <role>
+│   └─ Turn     : —                — (none)
+└─ depends (downward — what I inject)
+    └─ <DepDomain>  @<Scope>   direct/event/hook  — <what for>
+```
+
+Conventions:
+
+- List **only real interfaces**; write `—` for a scope with no exposed interface. Most domains are single-scope — do not invent symmetry.
+- On `depends`, tag each arrow with its calling style: `direct`, `event`, or `hook`.
+- On `serves`, a consumer is upstream of you. If you cannot name one business consumer, the domain may be dead or mis-scoped; a `serves` list that names only edge consumers (`gateway`/`rpc`) usually means the interface leaks internals.
+
+Worked example — `session`:
+
+```text
+domain: `session`
+├─ serves (upward — who injects me)
+│   ├─ loop / turn        @Turn     — drives the agent within a session
+│   └─ gateway / rpc      @Edge     — projects session state onto the wire
+├─ exposes (interfaces I provide, by scope)
+│   ├─ Core     : —                    — (no global session state here)
+│   ├─ Session  : ISessionService      — this session's operations + child-agent set
+│   ├─ Agent    : —                    — (per-agent state lives in agent-lifecycle)
+│   └─ Turn     : —                    — (no per-turn session state)
+└─ depends (downward — what I inject)
+    ├─ session-context    @Session  direct  — reads its own identity
+    ├─ agent-lifecycle    @Agent    direct  — drives child-agent lifecycle
+    ├─ sessionMetaStore   @Session  direct  — persists session metadata
+    ├─ session-activity   @Session  direct  — records activity
+    └─ event              @Core     direct  — broadcasts session-level facts
+```
+
+How the three lenses shaped it:
+
+- **Scope (§2)** → state is keyed by `sessionId`, so it is Session-scoped; it orchestrates `agent-lifecycle` (direct) and announces on `event`.
+- **Dependency direction (§5)** → `session` is injected by `loop`/`turn` and projected by the edge; it never imports them. Every downward arrow lands on a peer or a more foundational Service.
+- **Extension points (§4)** → new per-session behavior plugs in via `session-activity` or `agent-lifecycle` hooks; new transports stay at the edge. Neither edits `session`.
+
+For a multi-scope split, the `exposes` block fills more than one scope — see the `records` pattern in §3.
+
 ## Red lines (this stage)
 
 - No `Map<sessionId, …>` at `Core` to fake per-session state.
@@ -162,3 +226,5 @@ Red lines:
 - Need a result / I orchestrate → direct call; stating a fact → event; ordered participation / may veto → hook.
 - Foundational layers never know upstream ones; business code never depends on the edge layer.
 - A cycle means knowledge is placed backwards — refactor, do not route around it.
+- Render the placement tree with real interfaces only — never pad an empty scope for symmetry.
+- A `serves` list with no business consumer (or only edge consumers) signals a dead or leaking interface.

@@ -1,7 +1,7 @@
 import {
   TODO_LIST_TOOL_NAME,
   type TodoItem,
-} from './todo-list';
+} from './tools/todo-list';
 import type { ContextMessage } from '#/contextMemory';
 
 export const TODO_LIST_REMINDER_VARIANT = 'todo_list_reminder';

@@ -6,7 +6,7 @@ import type {
   ExecutableTool,
   ExecutableToolContext,
   ExecutableToolResult,
-} from '#/loop';
+} from '#/tool';
 import { IProfileService } from '#/profile';
 import { IToolRegistry, type ToolResult } from '#/toolRegistry';
 import { IWireRecord } from '#/wireRecord';

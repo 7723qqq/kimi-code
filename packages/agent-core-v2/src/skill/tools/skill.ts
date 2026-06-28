@@ -14,12 +14,12 @@
 import { z } from 'zod';
 
 import type { BuiltinTool } from '#/toolRegistry';
-import type { ExecutableToolResult, ToolExecution } from '#/loop';
-import type { IAgentSkillService } from './skill';
+import type { ExecutableToolResult, ToolExecution } from '#/tool';
+import type { IAgentSkillService } from '../skill';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
-import skillDescriptionTemplate from './skill-tool.md?raw';
+import skillDescriptionTemplate from './skill.md?raw';
 
 export const MAX_SKILL_QUERY_DEPTH = 3;
 

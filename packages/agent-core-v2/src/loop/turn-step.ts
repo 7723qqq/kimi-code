@@ -16,8 +16,8 @@ import type { LoopEventDispatcher } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { chatWithRetry } from './retry';
 import { runToolCallBatch, type ToolCallStepContext } from './tool-call';
+import type { ExecutableTool } from '#/tool';
 import type {
-  ExecutableTool,
   LoopHooks,
   LoopMessageBuilder,
   LoopStepStopReason,

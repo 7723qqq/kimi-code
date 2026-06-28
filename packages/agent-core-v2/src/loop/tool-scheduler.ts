@@ -10,7 +10,7 @@
  * `tool-call.ts`.
  */
 
-import { ToolAccesses } from './tool-access';
+import { ToolAccesses } from '#/tool';
 
 // Scheduler
 

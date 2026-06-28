@@ -19,8 +19,8 @@ import {
 import type { LoopInterruptReason, LoopEventDispatcher, LoopTurnInterruptedEvent } from './events';
 import type { LLM } from './llm';
 import { executeLoopStep } from './turn-step';
+import type { ExecutableTool } from '#/tool';
 import type {
-  ExecutableTool,
   LoopHooks,
   LoopMessageBuilder,
   RecordStepUsageResult,

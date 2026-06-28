@@ -1,5 +1,5 @@
 import { createDecorator, type IDisposable } from "#/_base/di";
-import type { ExecutableTool, ExecutableToolContext } from '#/loop';
+import type { ExecutableTool, ExecutableToolContext } from '#/tool';
 import type {
   ContentPart,
   ToolCall as KosongToolCall

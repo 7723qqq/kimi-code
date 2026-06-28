@@ -70,9 +70,9 @@ import { runTurn as runLoopTurn } from './run-turn';
 import type {
   ExecutableTool,
   ExecutableToolResult,
-  LoopHooks,
   RunnableToolExecution,
-} from './types';
+} from '#/tool';
+import type { LoopHooks } from './types';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';

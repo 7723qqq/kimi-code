@@ -11,7 +11,7 @@ import { ITurnService } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 import SWARM_MODE_ENTER_REMINDER from './enter-reminder.md?raw';
 import SWARM_MODE_EXIT_REMINDER from './exit-reminder.md?raw';
-import { AgentSwarmTool } from './agent-swarm';
+import { AgentSwarmTool } from './tools/agent-swarm';
 import {
   ISwarmService,
   type SwarmModeTrigger,

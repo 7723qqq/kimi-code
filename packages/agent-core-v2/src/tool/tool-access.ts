@@ -1,3 +1,12 @@
+/**
+ * `tool` domain (L3) — tool resource-access declarations.
+ *
+ * Defines `ToolAccesses`, the declarations tools emit from `resolveExecution`
+ * so the host scheduler can run non-conflicting calls concurrently. `all` is
+ * operation-less and globally exclusive. Pure contract plus the `ToolAccesses`
+ * namespace; no scoped service.
+ */
+
 export type ToolFileAccessOperation = 'read' | 'write' | 'readwrite' | 'search';
 
 export interface ToolFileAccess {
@@ -8,11 +17,6 @@ export interface ToolFileAccess {
 }
 
 export interface ToolResourceAccessAll {
-  /**
-   * Arbitrary side effects or resources that cannot be represented as a
-   * file access. This is intentionally operation-less and globally
-   * exclusive for concurrency.
-   */
   readonly kind: 'all';
 }
 

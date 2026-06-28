@@ -75,6 +75,7 @@ export * from './replayBuilder/index';
 export * from './rpc/index';
 export * from './subagentHost/index';
 export * from './todoList/index';
+export * from './tool/index';
 export * from './toolExecutor/index';
 import './toolRegistry/index';
 export * from './toolStore/index';

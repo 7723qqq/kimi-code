@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import type { ExecutableTool, ToolExecution } from '#/loop';
+import type { ExecutableTool, ToolExecution } from '#/tool';
 import { IToolExecutor, ToolExecutorService } from '#/toolExecutor';
 import type { ToolCall } from '#/toolRegistry';
 import { IToolRegistry, ToolRegistryService } from '#/toolRegistry';

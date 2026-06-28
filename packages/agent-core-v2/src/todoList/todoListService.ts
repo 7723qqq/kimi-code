@@ -7,7 +7,7 @@ import {
   TodoListTool,
   readTodoItems,
   type TodoItem,
-} from './todo-list';
+} from './tools/todo-list';
 import {
   TODO_LIST_REMINDER_VARIANT,
   todoListStaleReminder,

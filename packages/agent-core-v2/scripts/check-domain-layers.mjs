@@ -146,11 +146,12 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  *  - `session>event`        : session facade publishes status events.
  *  - `workspace>event`      : workspace registry publishes workspace lifecycle events.
  *
- * Post-rebase-v2 restructuring introduced broad cross-domain type sharing
- * between L3 (registries/capabilities) and L4 (agent behaviour). The L3
- * domains below import `loop`/`turn` types (tool-execution contexts, tool
- * results, etc.) and a few L4 collaborators; these are real dependencies
- * surfaced for review rather than layering violations to fix here.
+ * Post-rebase-v2 restructuring introduced cross-domain type sharing between
+ * L3 (registries/capabilities) and L4 (agent behaviour). The tool contract
+ * (`ExecutableTool` / `ToolExecution` / results) now lives in `tool` (L3); the
+ * remaining L3→L4 imports are `loop`/`turn` tool-execution hook contexts and a
+ * `loop` error helper — real dependencies surfaced for review rather than
+ * layering violations to fix here.
  */
 const ALLOWED_EXCEPTIONS = new Set([
   'kosong>config',
@@ -165,7 +166,8 @@ const ALLOWED_EXCEPTIONS = new Set([
   'cron>session-activity',
   'session>event',
   'wireRecord>hooks',
-  // L3/L4 type-sharing introduced by the rebase-v2 restructuring.
+  // L3/L4 type-sharing: tool contract now lives in `tool`; remaining upward
+  // imports are loop/turn hook contexts and a loop error helper.
   'contextMemory>background',
   'llmRequester>session',
   'loop>mcp',
@@ -177,7 +179,6 @@ const ALLOWED_EXCEPTIONS = new Set([
   'permissionPolicy>externalHooks',
   'permissionPolicy>loop',
   'permissionPolicy>profile',
-  'permissionRules>loop',
   'permissionRules>replayBuilder',
   'plugin>mcp',
   'profile>mcp',
@@ -186,15 +187,13 @@ const ALLOWED_EXCEPTIONS = new Set([
   'replayBuilder>rpc',
   'replayBuilder>session',
   'skill>contextMemory',
-  'skill>loop',
   'skill>prompt',
   'swarm>subagentHost',
   'toolExecutor>loop',
-  'toolRegistry>loop',
-  'userTool>loop',
   'userTool>profile',
   'wireRecord>contextMemory',
   'wireRecord>loop',
+  'wireRecord>tool',
 ]);
 
 // Matches: import ... from 'x' | export ... from 'x' | import('x') | require('x')

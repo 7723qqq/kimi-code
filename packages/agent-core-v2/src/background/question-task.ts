@@ -1,4 +1,4 @@
-import type { ExecutableToolOutput, ExecutableToolResult } from '#/loop/types';
+import type { ExecutableToolOutput, ExecutableToolResult } from '#/tool';
 import type {
   BackgroundTask,
   BackgroundTaskInfoBase,
