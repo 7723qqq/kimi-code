@@ -172,15 +172,16 @@ Red lines:
 After the checklist, render the result as a plaintext tree — the deliverable reviewers read. Keep it in the design doc or PR description.
 
 ```text
-domain: `<name>`
-├─ serves (upward — who injects me)
-│   └─ <ConsumerDomain>  @<Scope>   — <what they use me for>
+domain: `<name>`   (owning scope: <Scope>)
+├─ serves (who uses me)              tag = HOW they reach me
+│   ├─ (inject)   <ConsumerDomain>   @<Scope>   — <what they use me for>
+│   └─ (accessor) <ConsumerDomain>   @<Scope>   — <what they use me for>
 ├─ exposes (interfaces I provide, by scope)
 │   ├─ Core     : <IXxxRegistry>   — <role>
 │   ├─ Session  : <ISessionXxx>    — <role>
 │   ├─ Agent    : <IAgentXxx>      — <role>
 │   └─ Turn     : —                — (none)
-└─ depends (downward — what I inject)
+└─ depends (what I inject)           tag = calling style
     └─ <DepDomain>  @<Scope>   direct/event/hook  — <what for>
 ```
 
@@ -188,32 +189,72 @@ Conventions:
 
 - List **only real interfaces**; write `—` for a scope with no exposed interface. Most domains are single-scope — do not invent symmetry.
 - On `depends`, tag each arrow with its calling style: `direct`, `event`, or `hook`.
-- On `serves`, a consumer is upstream of you. If you cannot name one business consumer, the domain may be dead or mis-scoped; a `serves` list that names only edge consumers (`gateway`/`rpc`) usually means the interface leaks internals.
+- On `serves`, tag each consumer with its **access mechanism**, grouped `inject` first then `accessor`:
+  - `inject` — a descendant or peer scope DI-injects me. Resolved by the container; lifetime-safe.
+  - `accessor` — an ancestor or edge scope borrows me through `IScopeHandle.accessor.get(...)`. Valid only while this scope lives; never cache the result; must run before the child scope is disposed. See the cross-scope borrow diagram below.
+- An empty `(inject)` group with a non-empty `(accessor)` group is a signal: the interface is currently an edge / lifecycle command surface — check it is not leaking internals.
+- A consumer is upstream of you. If you cannot name one business consumer, the domain may be dead or mis-scoped.
+
+### Cross-scope borrow diagram
+
+When a domain has `accessor` consumers, draw the reverse-direction borrow next to the tree so it is never mistaken for injection:
+
+```text
+Core scope
+  <AncestorService> ──holds──► IScopeHandle(<id>)
+                                      │
+                                      │  accessor.get(<IMyService>)
+                                      │   └── resolve runs inside the child scope
+                                      ▼
+                                <Child> scope (<id>)
+                                  <MyService>  ← the interface lives here
+```
+
+Read it as:
+
+- `──holds──►` = the ancestor owns a handle to the child scope (it stores the key, not the service). DI allows this.
+- `accessor.get(...)` = a **runtime borrow**, not a dependency edge. It must cross an `IScopeHandle`, run on demand, never be cached, and finish before the child scope is disposed.
 
 Worked example — `session`:
 
 ```text
-domain: `session`
-├─ serves (upward — who injects me)
-│   ├─ loop / turn        @Turn     — drives the agent within a session
-│   └─ gateway / rpc      @Edge     — projects session state onto the wire
+domain: `session`   (owning scope: Session)
+├─ serves (who uses me)
+│   ├─ (inject)   — (none yet)
+│   └─ (accessor)
+│       ├─ session-lifecycle  @Core        — archive() before disposing the child scope
+│       └─ gateway / rpc      @Core(edge)  — session-level commands (archive, rename…)
 ├─ exposes (interfaces I provide, by scope)
 │   ├─ Core     : —                    — (no global session state here)
 │   ├─ Session  : ISessionService      — this session's operations + child-agent set
 │   ├─ Agent    : —                    — (per-agent state lives in agent-lifecycle)
 │   └─ Turn     : —                    — (no per-turn session state)
-└─ depends (downward — what I inject)
+└─ depends (what I inject)
     ├─ session-context    @Session  direct  — reads its own identity
-    ├─ agent-lifecycle    @Agent    direct  — drives child-agent lifecycle
+    ├─ agent-lifecycle    @Session  direct  — drives child-agent lifecycle
     ├─ sessionMetaStore   @Session  direct  — persists session metadata
     ├─ session-activity   @Session  direct  — records activity
     └─ event              @Core     direct  — broadcasts session-level facts
 ```
 
+Cross-scope borrow for `session`:
+
+```text
+Core scope
+  SessionLifecycleService ──holds──┐
+  GatewayService ───────────holds──┼──► IScopeHandle(sessionId)
+                                        │
+                                        │  accessor.get(ISessionService)
+                                        │   └── resolve runs inside the Session scope
+                                        ▼
+                                  Session scope (sessionId)
+                                    SessionService  ← ISessionService lives here
+```
+
 How the three lenses shaped it:
 
 - **Scope (§2)** → state is keyed by `sessionId`, so it is Session-scoped; it orchestrates `agent-lifecycle` (direct) and announces on `event`.
-- **Dependency direction (§5)** → `session` is injected by `loop`/`turn` and projected by the edge; it never imports them. Every downward arrow lands on a peer or a more foundational Service.
+- **Dependency direction (§5)** → `session` is consumed by `session-lifecycle` and projected by the edge, both via `accessor` borrows; it never imports them. Every downward arrow lands on a peer or a more foundational Service.
 - **Extension points (§4)** → new per-session behavior plugs in via `session-activity` or `agent-lifecycle` hooks; new transports stay at the edge. Neither edits `session`.
 
 For a multi-scope split, the `exposes` block fills more than one scope — see the `records` pattern in §3.
@@ -227,4 +268,6 @@ For a multi-scope split, the `exposes` block fills more than one scope — see t
 - Foundational layers never know upstream ones; business code never depends on the edge layer.
 - A cycle means knowledge is placed backwards — refactor, do not route around it.
 - Render the placement tree with real interfaces only — never pad an empty scope for symmetry.
+- Tag `serves` consumers with `inject` / `accessor`; an empty `inject` group is a signal to check the interface is not leaking internals.
+- An `accessor` consumer is a runtime borrow across a scope boundary, not DI injection — never cache the result and finish before the child scope disposes.
 - A `serves` list with no business consumer (or only edge consumers) signals a dead or leaking interface.
