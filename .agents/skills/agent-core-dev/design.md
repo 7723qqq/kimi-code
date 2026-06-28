@@ -159,6 +159,8 @@ Red lines:
 
 > Capability → orchestrator (e.g. `prompt → turn`) is allowed and present in this repo; the real red line is *inverted reuse* — a foundational / lower Service depending on a specific / upper one.
 
+> When a Service is meant to be reached over the wire (`/api/v2`, WS), see [edge-exposure.md](edge-exposure.md) for the per-scope `resource:action` map, which Services may be exposed directly vs wrapped in a facade, and how events stream.
+
 ## 6. New-Service checklist
 
 1. **What does it remember, and what is the state's identity?** → pick the scope (§2).

@@ -14,6 +14,7 @@ import { okEnvelope } from '../envelope';
 import { registerAuthRoute } from './auth';
 import { registerMetaRoute } from './meta';
 import { registerOAuthRoutes } from './oauth';
+import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
 
 interface ApiV1AppHost {
@@ -27,10 +28,7 @@ interface ApiV1RouteHost {
   get(
     path: string,
     options: { schema?: Record<string, unknown> },
-    handler: (
-      req: { id: string },
-      reply: { send(payload: unknown): unknown },
-    ) => unknown,
+    handler: (req: { id: string }, reply: { send(payload: unknown): unknown }) => unknown,
   ): unknown;
 }
 
@@ -45,43 +43,54 @@ export async function registerApiV1Routes(
   core: Scope,
   opts: RegisterApiV1RoutesOptions,
 ): Promise<void> {
-  await app.register(async (apiV1) => {
-    registerHealthRoute(apiV1);
+  await app.register(
+    async (apiV1) => {
+      registerHealthRoute(apiV1);
 
-    registerMetaRoute(apiV1, {
-      serverVersion: opts.serverVersion,
-      serverId: ulid(),
-      startedAt: new Date().toISOString(),
-    });
+      registerMetaRoute(apiV1, {
+        serverVersion: opts.serverVersion,
+        serverId: ulid(),
+        startedAt: new Date().toISOString(),
+      });
 
-    registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], core);
-    registerOAuthRoutes(apiV1 as unknown as Parameters<typeof registerOAuthRoutes>[0], core);
-    registerShutdownRoutes(apiV1 as unknown as Parameters<typeof registerShutdownRoutes>[0], {
-      onShutdown: opts.onShutdown,
-    });
-  }, { prefix: '/api/v1' });
+      registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], core);
+      registerOAuthRoutes(apiV1 as unknown as Parameters<typeof registerOAuthRoutes>[0], core);
+      registerSessionsRoutes(
+        apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0],
+        core,
+      );
+      registerShutdownRoutes(apiV1 as unknown as Parameters<typeof registerShutdownRoutes>[0], {
+        onShutdown: opts.onShutdown,
+      });
+    },
+    { prefix: '/api/v1' },
+  );
 }
 
 function registerHealthRoute(apiV1: ApiV1RouteHost): void {
-  apiV1.get('/healthz', {
-    schema: {
-      description: 'Health check',
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            code: { type: 'number' },
-            msg: { type: 'string' },
-            data: {
-              type: 'object',
-              properties: { ok: { type: 'boolean' } },
+  apiV1.get(
+    '/healthz',
+    {
+      schema: {
+        description: 'Health check',
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              code: { type: 'number' },
+              msg: { type: 'string' },
+              data: {
+                type: 'object',
+                properties: { ok: { type: 'boolean' } },
+              },
+              request_id: { type: 'string' },
             },
-            request_id: { type: 'string' },
           },
         },
       },
     },
-  }, async (req, reply) => {
-    return reply.send(okEnvelope({ ok: true }, req.id));
-  });
+    async (req, reply) => {
+      return reply.send(okEnvelope({ ok: true }, req.id));
+    },
+  );
 }
