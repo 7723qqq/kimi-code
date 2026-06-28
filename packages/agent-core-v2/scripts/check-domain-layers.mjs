@@ -59,6 +59,7 @@ const DOMAIN_LAYER = new Map([
   ['auth', 2],
   ['provider', 2],
   ['sessionMetaStore', 2],
+  ['sessionIndex', 2],
   ['sessionStore', 2],
   ['eventBus', 2],
   // L3 — registries & capabilities
@@ -108,6 +109,7 @@ const DOMAIN_LAYER = new Map([
   ['subagentHost', 5],
   // L6 — coordination
   ['agent-lifecycle', 6],
+  ['session-lifecycle', 6],
   ['interaction', 6],
   ['session-context', 6],
   ['session-activity', 6],

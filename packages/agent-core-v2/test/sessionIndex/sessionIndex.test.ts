@@ -7,67 +7,94 @@ import { join } from 'node:path';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { IBootstrapService } from '#/bootstrap';
 import { HostFileSystem, IHostFileSystem } from '#/hostFs';
 import { ISessionIndex } from '#/sessionIndex/sessionIndex';
-import { FileSessionIndex, encodeWorkDirKey } from '#/sessionIndex/sessionIndexService';
+import { FileSessionIndex } from '#/sessionIndex/sessionIndexService';
 
-describe('encodeWorkDirKey', () => {
-  it('is deterministic and path-sensitive', () => {
-    const a = encodeWorkDirKey('/home/user/repo');
-    const b = encodeWorkDirKey('/home/user/repo');
-    const c = encodeWorkDirKey('/home/user/other');
-    expect(a).toBe(b);
-    expect(a).not.toBe(c);
-    expect(a.startsWith('wd_')).toBe(true);
-  });
-});
+const WORK_DIR = '/home/user/repo';
 
-describe('FileSessionIndex workspace helpers', () => {
-  let sessionsRoot: string;
+describe('FileSessionIndex', () => {
+  let sessionsDir: string;
+  let workspaceId: string;
   let disposeHost: (() => void) | undefined;
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
     registerScopedService(LifecycleScope.Core, ISessionIndex, FileSessionIndex, InstantiationType.Delayed, 'sessionIndex');
-    sessionsRoot = await fsp.mkdtemp(join(os.tmpdir(), 'ws-sessions-'));
+    sessionsDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-sessions-'));
+    workspaceId = encodeWorkDirKey(WORK_DIR);
   });
 
   afterEach(async () => {
     disposeHost?.();
     disposeHost = undefined;
-    await fsp.rm(sessionsRoot, { recursive: true, force: true });
+    await fsp.rm(sessionsDir, { recursive: true, force: true });
   });
 
   function build(): ISessionIndex {
-    const host = createScopedTestHost([stubPair(IHostFileSystem, new HostFileSystem())]);
+    const host = createScopedTestHost([
+      stubPair(IHostFileSystem, new HostFileSystem()),
+      stubPair(IBootstrapService, { sessionsDir } as IBootstrapService),
+    ]);
     disposeHost = () => host.dispose();
     return host.core.accessor.get(ISessionIndex);
   }
 
-  it('workspaceIdFor matches encodeWorkDirKey', () => {
+  async function seedSession(
+    sessionId: string,
+    meta: Record<string, unknown>,
+    wsId: string = workspaceId,
+  ): Promise<void> {
+    const dir = join(sessionsDir, wsId, sessionId, 'session-meta');
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(join(dir, 'state.json'), JSON.stringify(meta));
+  }
+
+  async function seedEmpty(sessionId: string, wsId: string = workspaceId): Promise<void> {
+    await fsp.mkdir(join(sessionsDir, wsId, sessionId), { recursive: true });
+  }
+
+  it('list returns non-archived sessions by default', async () => {
+    await seedSession('active', { createdAt: 1, updatedAt: 2 });
+    await seedSession('archived', { archived: true });
+    await seedEmpty('no-state');
+
     const store = build();
-    const workDir = '/home/user/repo';
-    expect(store.workspaceIdFor(workDir)).toBe(encodeWorkDirKey(workDir));
+    const page = await store.list({ workspaceId });
+    expect(page.items.map((s) => s.id).toSorted()).toEqual(['active']);
+    expect(page.items[0]?.workspaceId).toBe(workspaceId);
+    expect(page.items[0]?.archived).toBe(false);
   });
 
-  it('countActive counts non-archived session dirs', async () => {
+  it('list includes archived when requested', async () => {
+    await seedSession('active', {});
+    await seedSession('archived', { archived: true });
+
     const store = build();
-    const workDir = '/home/user/repo';
-    const wsDir = join(sessionsRoot, encodeWorkDirKey(workDir));
-
-    await fsp.mkdir(join(wsDir, 'active'), { recursive: true });
-    await fsp.writeFile(join(wsDir, 'active', 'state.json'), '{}');
-
-    await fsp.mkdir(join(wsDir, 'archived'), { recursive: true });
-    await fsp.writeFile(join(wsDir, 'archived', 'state.json'), JSON.stringify({ archived: true }));
-
-    await fsp.mkdir(join(wsDir, 'no-state'), { recursive: true });
-
-    expect(await store.countActive(sessionsRoot, workDir)).toBe(2);
+    const page = await store.list({ workspaceId, includeArchived: true });
+    expect(page.items.map((s) => s.id).toSorted()).toEqual(['active', 'archived']);
   });
 
-  it('countActive returns 0 when the work dir has no sessions yet', async () => {
+  it('get fetches a session by id across workspaces', async () => {
+    await seedSession('active', { title: 'hello' });
+
     const store = build();
-    expect(await store.countActive(sessionsRoot, '/home/user/never-created')).toBe(0);
+    const summary = await store.get('active');
+    expect(summary?.id).toBe('active');
+    expect(summary?.title).toBe('hello');
+    expect(await store.get('missing')).toBeUndefined();
+  });
+
+  it('countActive counts non-archived sessions', async () => {
+    await seedSession('a', {});
+    await seedSession('b', {});
+    await seedSession('archived', { archived: true });
+    await seedEmpty('no-state');
+
+    const store = build();
+    expect(await store.countActive(workspaceId)).toBe(2);
+    expect(await store.countActive('wd_unknown')).toBe(0);
   });
 });

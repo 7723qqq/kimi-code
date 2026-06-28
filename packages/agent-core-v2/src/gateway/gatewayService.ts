@@ -1,71 +1,35 @@
 /**
- * `gateway` domain (L7) — `IScopeRegistry` / `IRestGateway` / `IWSGateway` /
- * `IWSBroadcastService` implementation.
+ * `gateway` domain (L7) — `IRestGateway` / `IWSGateway` / `IWSBroadcastService`
+ * implementation.
  *
- * Owns the session scope registry and the REST/WS entry points; resolves agents
- * through `agent-lifecycle`, drives turns through `turn`, flushes logs through
- * `log`, and subscribes to broadcasts through `event`. Bound at Core scope.
+ * Owns the REST/WS entry points; resolves sessions through `session-lifecycle`,
+ * agents through `agent-lifecycle`, drives turns through `turn`, flushes logs
+ * through `log`, and subscribes to broadcasts through `event`. Bound at Core
+ * scope.
  */
 
-import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
-import {
-  createScopedChildHandle,
-  type IScopeHandle,
-  LifecycleScope,
-  registerScopedService,
-} from '#/_base/di/scope';
-import { IInstantiationService } from '#/_base/di/instantiation';
+import { type IScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { Disposable } from '#/_base/di/lifecycle';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
 import { IEventSink } from '#/eventSink';
 import { ILogService, ISessionLogService } from '#/log';
 import { IPromptService } from '#/prompt';
+import { ISessionLifecycleService } from '#/session-lifecycle';
 import { ITurnService } from '#/turn';
 
-import {
-  type CreateSessionOptions,
-  IRestGateway,
-  IScopeRegistry,
-  IWSBroadcastService,
-  IWSGateway,
-} from './gateway';
-
-export class ScopeRegistry implements IScopeRegistry {
-  declare readonly _serviceBrand: undefined;
-  private readonly sessions = new Map<string, IScopeHandle>();
-
-  constructor(@IInstantiationService private readonly instantiation: IInstantiationService) {}
-
-  createSession(opts: CreateSessionOptions): Promise<IScopeHandle> {
-    const handle = createScopedChildHandle(
-      this.instantiation,
-      LifecycleScope.Session,
-      opts.sessionId,
-    );
-    this.sessions.set(opts.sessionId, handle);
-    return Promise.resolve(handle);
-  }
-
-  get(sessionId: string): IScopeHandle | undefined {
-    return this.sessions.get(sessionId);
-  }
-
-  close(sessionId: string): Promise<void> {
-    this.sessions.delete(sessionId);
-    return Promise.resolve();
-  }
-}
+import { IRestGateway, IWSBroadcastService, IWSGateway } from './gateway';
 
 export class RestGateway implements IRestGateway {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IScopeRegistry private readonly scopes: IScopeRegistry,
+    @ISessionLifecycleService private readonly sessions: ISessionLifecycleService,
     @ILogService private readonly log: ILogService,
   ) {}
 
   private agent(sessionId: string, agentId: string): IScopeHandle {
-    const session = this.scopes.get(sessionId);
+    const session = this.sessions.get(sessionId);
     if (session === undefined) throw new Error(`unknown session '${sessionId}'`);
     const agents = session.accessor.get(IAgentLifecycleService);
     const agent = agents.getHandle(agentId);
@@ -97,11 +61,11 @@ export class RestGateway implements IRestGateway {
     return Promise.resolve();
   }
   getStatus(sessionId: string): Promise<unknown> {
-    return Promise.resolve(this.scopes.get(sessionId) !== undefined);
+    return Promise.resolve(this.sessions.get(sessionId) !== undefined);
   }
 
   async flushLogs(sessionId: string): Promise<void> {
-    const session = this.scopes.get(sessionId);
+    const session = this.sessions.get(sessionId);
     if (session === undefined) return;
     await session.accessor.get(ISessionLogService).flush();
   }
@@ -116,7 +80,7 @@ export class WSGateway implements IWSGateway {
   private readonly connections = new Set<string>();
 
   constructor(
-    @IScopeRegistry _scopes: IScopeRegistry,
+    @ISessionLifecycleService _sessions: ISessionLifecycleService,
     @IEventSink _event: IEventSink,
   ) {}
 
@@ -137,7 +101,6 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
   }
 }
 
-registerScopedService(LifecycleScope.Core, IScopeRegistry, ScopeRegistry, InstantiationType.Delayed, 'gateway');
 registerScopedService(LifecycleScope.Core, IRestGateway, RestGateway, InstantiationType.Delayed, 'gateway');
 registerScopedService(LifecycleScope.Core, IWSGateway, WSGateway, InstantiationType.Delayed, 'gateway');
 registerScopedService(LifecycleScope.Core, IWSBroadcastService, WSBroadcastService, InstantiationType.Delayed, 'gateway');

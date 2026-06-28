@@ -7,10 +7,11 @@ import { type IScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
 import type { ContextMessage } from '#/contextMemory';
-import { IRestGateway, IScopeRegistry } from '#/gateway';
-import { RestGateway, ScopeRegistry } from '#/gateway/gatewayService';
+import { IRestGateway } from '#/gateway';
+import { RestGateway } from '#/gateway/gatewayService';
 import { ILogService } from '#/log';
 import { IPromptService } from '#/prompt';
+import { ISessionLifecycleService } from '#/session-lifecycle';
 import { ITurnService } from '#/turn';
 import { stubLog } from '../log/stubs';
 import { stubTurn } from '../turn/stubs';
@@ -33,27 +34,6 @@ function makeAccessor(
     },
   };
 }
-
-describe('ScopeRegistry', () => {
-  let disposables: DisposableStore;
-  let ix: TestInstantiationService;
-
-  beforeEach(() => {
-    disposables = new DisposableStore();
-    ix = disposables.add(new TestInstantiationService());
-    ix.set(IScopeRegistry, new SyncDescriptor(ScopeRegistry));
-  });
-  afterEach(() => disposables.dispose());
-
-  it('createSession / get / close', async () => {
-    const reg = ix.get(IScopeRegistry);
-    const h = await reg.createSession({ sessionId: 's1', workDir: '/tmp' });
-    expect(h.id).toBe('s1');
-    expect(reg.get('s1')).toBe(h);
-    await reg.close('s1');
-    expect(reg.get('s1')).toBeUndefined();
-  });
-});
 
 describe('RestGateway', () => {
   let disposables: DisposableStore;
@@ -106,10 +86,12 @@ describe('RestGateway', () => {
       accessor: makeAccessor([[IAgentLifecycleService, agents]]),
     };
 
-    ix.stub(IScopeRegistry, {
+    ix.stub(ISessionLifecycleService, {
       _serviceBrand: undefined,
-      createSession: () => Promise.resolve(sessionHandle),
+      create: () => Promise.resolve(sessionHandle),
       get: (id) => (id === 's1' ? sessionHandle : undefined),
+      list: () => [sessionHandle],
+      getWorkspaceId: () => undefined,
       close: () => Promise.resolve(),
     });
     ix.stub(ILogService, stubLog());

@@ -5,10 +5,9 @@
  * `IAtomicDocumentStore` will replace the map in a later phase. Bound at Core scope.
  */
 
-import { createHash } from 'node:crypto';
-
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 
 import { IWorkspaceRegistry, type Workspace } from './workspaceRegistry';
 
@@ -25,7 +24,7 @@ export class WorkspaceRegistryService implements IWorkspaceRegistry {
   }
 
   createOrTouch(root: string, name?: string): Promise<Workspace> {
-    const id = createHash('sha256').update(root).digest('hex').slice(0, 12);
+    const id = encodeWorkDirKey(root);
     const existing = this.workspaces.get(id);
     if (existing !== undefined) return Promise.resolve(existing);
     const ws: Workspace = { id, root, name: name ?? root.split('/').pop() ?? root };

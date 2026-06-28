@@ -1,76 +1,127 @@
 /**
  * `sessionIndex` domain (L2) — `FileSessionIndex` implementation.
  *
- * Enumerates session directories on the local filesystem through the program
- * side `hostFs` primitives. This is the local-deployment backend of
- * `ISessionIndex`; a server deployment would substitute a database-backed
- * `DbSessionIndex`. Bound at Core scope.
+ * Reads the persisted session set from the local filesystem through the
+ * program side `hostFs` primitives, rooted at the `sessionsDir` path layout
+ * fact from `bootstrap`. The directory tree
+ * `<sessionsDir>/<workspaceId>/<sessionId>/session-meta/state.json` is the
+ * index: each session's `state.json` is read to build its summary. This is the
+ * local-deployment backend of `ISessionIndex`; a server deployment would
+ * substitute a database-backed `DbSessionIndex`. Bound at Core scope.
  */
 
-import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { slugifyWorkDirName } from '#/_base/utils/workdir-slug';
+import { IBootstrapService } from '#/bootstrap';
 import { IHostFileSystem } from '#/hostFs';
+import type { Page } from '#/storage';
 
-import { ISessionIndex } from './sessionIndex';
+import { ISessionIndex, type SessionListQuery, type SessionSummary } from './sessionIndex';
 
-const WORKDIR_KEY_PREFIX = 'wd_';
-const HASH_LENGTH = 12;
-
-export function encodeWorkDirKey(workDir: string): string {
-  const normalized = workDir.replace(/\\/g, '/').replace(/\/+$/, '');
-  const base = normalized.split('/').pop() ?? normalized;
-  const slug = slugifyWorkDirName(base);
-  const hash = createHash('sha256').update(normalized).digest('hex').slice(0, HASH_LENGTH);
-  return `${WORKDIR_KEY_PREFIX}${slug}_${hash}`;
-}
+const META_SCOPE = 'session-meta';
+const META_KEY = 'state.json';
 
 export class FileSessionIndex implements ISessionIndex {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IHostFileSystem private readonly hostFs: IHostFileSystem) {}
+  constructor(
+    @IHostFileSystem private readonly hostFs: IHostFileSystem,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
+  ) {}
 
-  sessionDir(sessionsRoot: string, workDir: string, sessionId: string): string {
-    return `${sessionsRoot}/${encodeWorkDirKey(workDir)}/${sessionId}`;
-  }
-
-  workspaceIdFor(workDir: string): string {
-    return encodeWorkDirKey(workDir);
-  }
-
-  async countActive(sessionsRoot: string, workDir: string): Promise<number> {
-    const dir = join(sessionsRoot, encodeWorkDirKey(workDir));
-    let entries;
-    try {
-      entries = await this.hostFs.readdir(dir);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 0;
-      throw err;
+  async list(query: SessionListQuery): Promise<Page<SessionSummary>> {
+    const workspaceIds =
+      query.workspaceId !== undefined ? [query.workspaceId] : await this.listWorkspaceIds();
+    const items: SessionSummary[] = [];
+    for (const workspaceId of workspaceIds) {
+      for (const sessionId of await this.listSessionIds(workspaceId)) {
+        const summary = await this.readSummary(workspaceId, sessionId);
+        if (summary === undefined) continue;
+        if (summary.archived && query.includeArchived !== true) continue;
+        items.push(summary);
+      }
     }
+    items.sort((a, b) => b.updatedAt - a.updatedAt);
+    return { items: query.limit !== undefined ? items.slice(0, query.limit) : items };
+  }
+
+  async get(id: string): Promise<SessionSummary | undefined> {
+    for (const workspaceId of await this.listWorkspaceIds()) {
+      if (!(await this.hasSession(workspaceId, id))) continue;
+      const summary = await this.readSummary(workspaceId, id);
+      if (summary !== undefined) return summary;
+    }
+    return undefined;
+  }
+
+  async countActive(workspaceId: string): Promise<number> {
     let count = 0;
-    for (const entry of entries) {
-      if (!entry.isDirectory) continue;
-      if (await this.isSessionArchived(join(dir, entry.name))) continue;
-      count += 1;
+    for (const sessionId of await this.listSessionIds(workspaceId)) {
+      const summary = await this.readSummary(workspaceId, sessionId);
+      if (summary !== undefined && !summary.archived) count += 1;
     }
     return count;
   }
 
-  private async isSessionArchived(sessionDir: string): Promise<boolean> {
+  private get sessionsDir(): string {
+    return this.bootstrap.sessionsDir;
+  }
+
+  private async listWorkspaceIds(): Promise<readonly string[]> {
+    let entries;
     try {
-      const raw = await this.hostFs.readText(join(sessionDir, 'state.json'));
-      const parsed = JSON.parse(raw) as unknown;
-      return (
-        typeof parsed === 'object' &&
-        parsed !== null &&
-        (parsed as { archived?: boolean }).archived === true
-      );
-    } catch {
-      return false;
+      entries = await this.hostFs.readdir(this.sessionsDir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw err;
     }
+    return entries.filter((entry) => entry.isDirectory).map((entry) => entry.name);
+  }
+
+  private async listSessionIds(workspaceId: string): Promise<readonly string[]> {
+    let entries;
+    try {
+      entries = await this.hostFs.readdir(join(this.sessionsDir, workspaceId));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw err;
+    }
+    return entries.filter((entry) => entry.isDirectory).map((entry) => entry.name);
+  }
+
+  private async hasSession(workspaceId: string, sessionId: string): Promise<boolean> {
+    const ids = await this.listSessionIds(workspaceId);
+    return ids.includes(sessionId);
+  }
+
+  private async readSummary(
+    workspaceId: string,
+    sessionId: string,
+  ): Promise<SessionSummary | undefined> {
+    const metaPath = join(this.sessionsDir, workspaceId, sessionId, META_SCOPE, META_KEY);
+    let raw: string;
+    try {
+      raw = await this.hostFs.readText(metaPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw err;
+    }
+    let meta: Record<string, unknown>;
+    try {
+      meta = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+    return {
+      id: sessionId,
+      workspaceId,
+      title: typeof meta['title'] === 'string' ? meta['title'] : undefined,
+      createdAt: typeof meta['createdAt'] === 'number' ? meta['createdAt'] : 0,
+      updatedAt: typeof meta['updatedAt'] === 'number' ? meta['updatedAt'] : 0,
+      archived: meta['archived'] === true,
+    };
   }
 }
 

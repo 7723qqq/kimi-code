@@ -1,29 +1,13 @@
 /**
- * `gateway` domain (L7) — scope registry and REST/WS gateways.
+ * `gateway` domain (L7) — REST/WS gateways.
  *
- * Defines the public contracts of the gateway layer: the `IScopeRegistry` used
- * to create and look up sessions, plus the `IRestGateway` / `IWSGateway` /
- * `IWSBroadcastService` entry points. Core-scoped — shared across the
- * application.
+ * Defines the public contracts of the gateway layer: the `IRestGateway` /
+ * `IWSGateway` / `IWSBroadcastService` entry points. Session scope creation is
+ * owned by `session-lifecycle`; the gateway resolves sessions through it.
+ * Core-scoped — shared across the application.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { IScopeHandle } from '#/_base/di/scope';
-
-export interface CreateSessionOptions {
-  readonly sessionId: string;
-  readonly workDir: string;
-}
-
-export interface IScopeRegistry {
-  readonly _serviceBrand: undefined;
-  createSession(opts: CreateSessionOptions): Promise<IScopeHandle>;
-  get(sessionId: string): IScopeHandle | undefined;
-  close(sessionId: string): Promise<void>;
-}
-
-export const IScopeRegistry: ServiceIdentifier<IScopeRegistry> =
-  createDecorator<IScopeRegistry>('scopeRegistry');
 
 export interface IRestGateway {
   readonly _serviceBrand: undefined;
