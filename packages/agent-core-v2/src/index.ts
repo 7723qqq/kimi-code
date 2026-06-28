@@ -12,8 +12,8 @@ export * from './bootstrap/index';
 export * from './hostFs/index';
 export * from './kosong/index';
 
-export * from './sessionIndex/index';
-export * from './sessionMetaStore/index';
+export * from './session-index/index';
+export * from './session-metadata/index';
 export * from './config/index';
 export * from './provider/index';
 

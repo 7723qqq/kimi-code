@@ -2,10 +2,13 @@
  * `session-lifecycle` domain (L6) — `ISessionLifecycleService` implementation.
  *
  * Owns the process-wide registry of open Session child scopes, creating them
- * through the DI scope tree. Bound at Core scope. Persisting the session
- * record and rooting its per-session storage are wired by the composition
- * root; querying the persisted set is the `sessionIndex` read model.
+ * through the DI scope tree and seeding each with its identity and storage
+ * addressing. Materializes the session's initial metadata on creation by
+ * resolving `session-metadata`. Bound at Core scope. Persisted sessions are
+ * the `session-index` read model.
  */
+
+import { join, relative } from 'pathe';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { IInstantiationService } from '#/_base/di/instantiation';
@@ -15,23 +18,49 @@ import {
   LifecycleScope,
   registerScopedService,
 } from '#/_base/di/scope';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { IBootstrapService } from '#/bootstrap';
+import { NotImplementedError } from '#/errors';
+import { sessionLogSeed } from '#/log';
+import { ISessionService } from '#/session';
+import { type ISessionContext, sessionContextSeed } from '#/session-context';
+import { ISessionMetadata } from '#/session-metadata';
 
-import { type CreateSessionOptions, ISessionLifecycleService } from './sessionLifecycle';
+import {
+  type CreateSessionOptions,
+  type ForkSessionOptions,
+  ISessionLifecycleService,
+} from './sessionLifecycle';
 
 export class SessionLifecycleService implements ISessionLifecycleService {
   declare readonly _serviceBrand: undefined;
   private readonly sessions = new Map<string, IScopeHandle>();
 
-  constructor(@IInstantiationService private readonly instantiation: IInstantiationService) {}
+  constructor(
+    @IInstantiationService private readonly instantiation: IInstantiationService,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
+  ) {}
 
-  create(opts: CreateSessionOptions): Promise<IScopeHandle> {
+  async create(opts: CreateSessionOptions): Promise<IScopeHandle> {
+    const workspaceId = encodeWorkDirKey(opts.workDir);
+    const sessionDir = join(this.bootstrap.sessionsDir, workspaceId, opts.sessionId);
+    const metaScope = join(relative(this.bootstrap.homeDir, sessionDir), 'session-meta');
+    const ctx: ISessionContext = {
+      _serviceBrand: undefined,
+      sessionId: opts.sessionId,
+      workspaceId,
+      sessionDir,
+      metaScope,
+    };
     const handle = createScopedChildHandle(
       this.instantiation,
       LifecycleScope.Session,
       opts.sessionId,
+      { extra: [...sessionContextSeed(ctx), ...sessionLogSeed(opts.sessionId, sessionDir)] },
     );
     this.sessions.set(opts.sessionId, handle);
-    return Promise.resolve(handle);
+    await handle.accessor.get(ISessionMetadata).ready;
+    return handle;
   }
 
   get(sessionId: string): IScopeHandle | undefined {
@@ -42,9 +71,23 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     return [...this.sessions.values()];
   }
 
-  close(sessionId: string): Promise<void> {
+  async close(sessionId: string): Promise<void> {
+    const handle = this.sessions.get(sessionId);
+    if (handle === undefined) return;
     this.sessions.delete(sessionId);
-    return Promise.resolve();
+    handle.dispose();
+  }
+
+  async archive(sessionId: string): Promise<void> {
+    const handle = this.sessions.get(sessionId);
+    if (handle === undefined) return;
+    await handle.accessor.get(ISessionService).archive();
+    this.sessions.delete(sessionId);
+    handle.dispose();
+  }
+
+  fork(_opts: ForkSessionOptions): Promise<IScopeHandle> {
+    throw new NotImplementedError('SessionLifecycleService.fork');
   }
 }
 

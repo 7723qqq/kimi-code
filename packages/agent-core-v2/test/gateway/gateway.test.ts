@@ -71,6 +71,7 @@ describe('RestGateway', () => {
         [IPromptService, promptService],
         [ITurnService, turnService],
       ]),
+      dispose: () => {},
     };
     const agents: IAgentLifecycleService = {
       _serviceBrand: undefined,
@@ -84,6 +85,7 @@ describe('RestGateway', () => {
       id: 's1',
       kind: LifecycleScope.Session,
       accessor: makeAccessor([[IAgentLifecycleService, agents]]),
+      dispose: () => {},
     };
 
     ix.stub(ISessionLifecycleService, {
@@ -91,7 +93,6 @@ describe('RestGateway', () => {
       create: () => Promise.resolve(sessionHandle),
       get: (id) => (id === 's1' ? sessionHandle : undefined),
       list: () => [sessionHandle],
-      getWorkspaceId: () => undefined,
       close: () => Promise.resolve(),
     });
     ix.stub(ILogService, stubLog());

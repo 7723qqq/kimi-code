@@ -1,32 +1,26 @@
 /**
- * `session-context` domain (L6) — seeded per-session context token.
+ * `session-context` domain (L6) — seeded per-session facts.
  *
- * Defines the `ISessionContext` contract carrying the session id and the session
- * `meta` store, and the `sessionContextSeed` helper that seeds it into a Session
- * scope.
+ * Defines the `ISessionContext` carrying the session's identity and storage
+ * addressing (`sessionId`, `workspaceId`, `sessionDir`, `metaScope`), seeded
+ * into the Session scope by `session-lifecycle` when the session is created.
+ * Pure facts — no store, no IO. Session-scoped.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ScopeSeed } from '#/_base/di/scope';
-import type { ISessionMetaStore } from '#/sessionMetaStore';
 
 export interface ISessionContext {
   readonly _serviceBrand: undefined;
   readonly sessionId: string;
-  readonly meta: ISessionMetaStore;
+  readonly workspaceId: string;
+  readonly sessionDir: string;
+  readonly metaScope: string;
 }
 
 export const ISessionContext: ServiceIdentifier<ISessionContext> =
   createDecorator<ISessionContext>('sessionContext');
 
-export function sessionContextSeed(
-  sessionId: string,
-  meta: ISessionMetaStore,
-): ScopeSeed {
-  return [
-    [
-      ISessionContext as ServiceIdentifier<unknown>,
-      { _serviceBrand: undefined, sessionId, meta } satisfies ISessionContext,
-    ],
-  ];
+export function sessionContextSeed(ctx: ISessionContext): ScopeSeed {
+  return [[ISessionContext as ServiceIdentifier<unknown>, ctx]];
 }

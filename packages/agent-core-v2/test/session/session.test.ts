@@ -7,17 +7,27 @@ import { type IScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
 import { IEventService } from '#/event';
-import { ISessionContext } from '#/session-context';
-import { ISessionMetaStore } from '#/sessionMetaStore';
-import { ISessionActivity } from '#/session-activity/sessionActivity';
 import { ISessionService } from '#/session';
 import { SessionService } from '#/session/sessionService';
+import { ISessionContext } from '#/session-context';
+import { ISessionMetadata } from '#/session-metadata';
 
 const handle: IScopeHandle = {
   id: 'main',
   kind: LifecycleScope.Agent,
   accessor: { get: () => ({}) } as unknown as ServicesAccessor,
+  dispose: () => {},
 };
+
+function makeContext(): ISessionContext {
+  return {
+    _serviceBrand: undefined,
+    sessionId: 's1',
+    workspaceId: 'wd_test',
+    sessionDir: '/tmp/sessions/wd_test/s1',
+    metaScope: 'sessions/wd_test/s1/session-meta',
+  };
+}
 
 describe('SessionService', () => {
   let disposables: DisposableStore;
@@ -26,50 +36,26 @@ describe('SessionService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    ix.stub(ISessionContext, { sessionId: 's1', meta: {} as ISessionMetaStore });
-    ix.stub(ISessionMetaStore, {});
-    ix.stub(IEventService, {});
+    ix.stub(ISessionContext, makeContext());
     ix.set(ISessionService, new SyncDescriptor(SessionService));
   });
   afterEach(() => disposables.dispose());
 
-  // NOTE: SessionService is built via createInstance (not get) because
-  // "status reflects activity" needs two instances with different
-  // ISessionActivity stubs within the same test — a singleton-per-container
-  // cannot produce both. See di-testing.md "Exceptions".
-  function make(idle: boolean): ISessionService {
-    ix.stub(IAgentLifecycleService, {
-      _serviceBrand: undefined,
-      create: () => Promise.resolve(handle),
-      createMain: () => Promise.resolve(handle),
-      getHandle: () => handle,
-      list: () => [handle],
-      remove: () => Promise.resolve(),
-    });
-    ix.stub(ISessionActivity, {
-      _serviceBrand: undefined,
-      isIdle: () => idle,
-      status: () => (idle ? 'idle' : 'running'),
-    });
-    return ix.createInstance(SessionService);
-  }
-
-  it('status reflects activity', () => {
-    expect(make(true).status()).toBe('idle');
-    expect(make(false).status()).toBe('running');
-  });
-
-  it('agents delegates to lifecycle', () => {
-    expect(make(true).agents()).toEqual([handle]);
-  });
-
-  it('archive persists the flag, removes agents, and publishes the event', async () => {
-    const writes: Record<string, unknown>[] = [];
+  it('archive sets the flag, removes agents, and publishes the event', async () => {
+    let archived: boolean | undefined;
     const removed: string[] = [];
     const published: { type: string; payload: unknown }[] = [];
-    ix.stub(ISessionMetaStore, {
-      write: (patch: Record<string, unknown>) => {
-        writes.push(patch);
+
+    ix.stub(ISessionMetadata, {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      onDidChange: () => ({ dispose: () => {} }),
+      read: () =>
+        Promise.resolve({ id: 's1', createdAt: 0, updatedAt: 0, archived: false }),
+      update: () => Promise.resolve(),
+      setTitle: () => Promise.resolve(),
+      setArchived: (value: boolean) => {
+        archived = value;
         return Promise.resolve();
       },
     });
@@ -84,14 +70,13 @@ describe('SessionService', () => {
         return Promise.resolve();
       },
     });
-    ix.stub(ISessionActivity, { _serviceBrand: undefined, isIdle: () => true });
     ix.stub(IEventService, {
       publish: (event: { type: string; payload: unknown }) => published.push(event),
     });
 
     await ix.createInstance(SessionService).archive();
 
-    expect(writes).toEqual([{ archived: true }]);
+    expect(archived).toBe(true);
     expect(removed).toEqual(['main']);
     expect(published).toEqual([
       { type: 'event.session.archived', payload: { sessionId: 's1' } },

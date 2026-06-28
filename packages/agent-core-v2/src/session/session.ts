@@ -1,35 +1,17 @@
 /**
- * `session` domain (L6) — session facade.
+ * `session` domain (L6) — session command service.
  *
- * Defines the public contract of a session: the `ISessionService` used by upper
- * layers to query status, manage child agents (`fork` / `listChildren`), and
- * run session operations (`compact` / `undo` / `archive`). The `SessionStatus`
- * model lives in `session-activity` and is re-exported here for convenience.
- * Session-scoped — one instance per session. The agent loop itself is driven
- * by `agent-lifecycle` and `turn`, not here.
+ * Defines the public contract for session-level commands: `ISessionService`
+ * runs operations that mutate session-level state and coordinate across the
+ * session's sub-services (e.g. `archive`). Read views live on their own
+ * services (`session-activity`, `agent-lifecycle`, `session-metadata`); this
+ * facade owns only commands. Session-scoped — one instance per session.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { IScopeHandle } from '#/_base/di/scope';
-import type { SessionStatus } from '#/session-activity';
-
-export type { SessionStatus };
-
-export interface SessionMeta {
-  readonly id: string;
-  readonly title?: string;
-  readonly agents?: readonly string[];
-  readonly [key: string]: unknown;
-}
 
 export interface ISessionService {
   readonly _serviceBrand: undefined;
-  status(): SessionStatus;
-  agents(): readonly IScopeHandle[];
-  fork(): Promise<IScopeHandle>;
-  listChildren(): readonly IScopeHandle[];
-  compact(): Promise<void>;
-  undo(): Promise<void>;
   archive(): Promise<void>;
 }
 

@@ -1,22 +1,20 @@
 /**
  * `agent-lifecycle` domain (L6) — `IAgentLifecycleService` implementation.
  *
- * Creates and tracks the session's agents as child scopes; reads session
- * metadata through `sessionMetaStore` and session context through
- * `session-context`. Bound at Session scope.
+ * Creates and tracks the session's agents as child scopes. Bound at Session
+ * scope. Removing an agent disposes its scope; surviving agents are disposed
+ * with the session.
  */
 
-import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
+import { IInstantiationService } from '#/_base/di/instantiation';
+import { Disposable } from '#/_base/di/lifecycle';
 import {
   createScopedChildHandle,
   type IScopeHandle,
   LifecycleScope,
   registerScopedService,
 } from '#/_base/di/scope';
-import { IInstantiationService } from '#/_base/di/instantiation';
-import { ISessionMetaStore } from '#/sessionMetaStore';
-import { ISessionContext } from '#/session-context/sessionContext';
 
 import { type CreateAgentOptions, IAgentLifecycleService } from './agentLifecycle';
 
@@ -26,11 +24,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   declare readonly _serviceBrand: undefined;
   private readonly handles = new Map<string, IScopeHandle>();
 
-  constructor(
-    @ISessionContext _ctx: ISessionContext,
-    @ISessionMetaStore _meta: ISessionMetaStore,
-    @IInstantiationService private readonly instantiation: IInstantiationService,
-  ) {
+  constructor(@IInstantiationService private readonly instantiation: IInstantiationService) {
     super();
   }
 
@@ -58,7 +52,10 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   }
 
   remove(agentId: string): Promise<void> {
+    const handle = this.handles.get(agentId);
+    if (handle === undefined) return Promise.resolve();
     this.handles.delete(agentId);
+    handle.dispose();
     return Promise.resolve();
   }
 }

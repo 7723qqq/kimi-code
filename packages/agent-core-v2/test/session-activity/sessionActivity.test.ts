@@ -47,6 +47,7 @@ function handle(id: string, active: boolean): IScopeHandle {
     id,
     kind: LifecycleScope.Agent,
     accessor: makeAccessor(turn),
+    dispose: () => {},
   };
 }
 

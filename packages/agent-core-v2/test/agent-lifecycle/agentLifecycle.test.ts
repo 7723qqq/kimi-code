@@ -5,8 +5,6 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/agent-lifecycle/agentLifecycleService';
-import { ISessionMetaStore } from '#/sessionMetaStore';
-import { ISessionContext } from '#/session-context/sessionContext';
 
 describe('AgentLifecycleService', () => {
   let disposables: DisposableStore;
@@ -15,8 +13,6 @@ describe('AgentLifecycleService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    ix.stub(ISessionContext, {});
-    ix.stub(ISessionMetaStore, {});
     ix.set(IAgentLifecycleService, new SyncDescriptor(AgentLifecycleService));
   });
   afterEach(() => disposables.dispose());

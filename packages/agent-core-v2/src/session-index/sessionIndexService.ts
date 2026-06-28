@@ -1,5 +1,5 @@
 /**
- * `sessionIndex` domain (L2) — `FileSessionIndex` implementation.
+ * `session-index` domain (L2) — `FileSessionIndex` implementation.
  *
  * Reads the persisted session set from the local filesystem through the
  * program side `hostFs` primitives, rooted at the `sessionsDir` path layout
@@ -130,5 +130,5 @@ registerScopedService(
   ISessionIndex,
   FileSessionIndex,
   InstantiationType.Delayed,
-  'sessionIndex',
+  'session-index',
 );

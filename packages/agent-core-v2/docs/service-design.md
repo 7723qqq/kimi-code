@@ -112,9 +112,9 @@ job well.
 
 This pattern recurs throughout the codebase and confirms the rule:
 
-- **`records`** — `ISessionStore` (`Core`, index of all sessions) + `ISessionMetaStore`
-  (`Session`, this session's metadata) + `IAgentRecords` (`Agent`, this agent's record
-  stream).
+- **`records`** — `ISessionIndex` (`Core`, read model of all persisted sessions) +
+  `ISessionMetadata` (`Session`, this session's metadata) + `IWireRecord` (`Agent`, this
+  agent's record stream).
 - **`config`** — `IConfigRegistry` / `IConfigService` (`Core`, global config).
 - **`kosong`** — `IProtocolHandlerRegistry` (`Core`, protocol adapters keyed by provider
   type) + `IProviderManager` (`Session`, resolves the active model into a provider config).

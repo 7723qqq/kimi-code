@@ -67,6 +67,7 @@ export interface IScopeHandle {
   readonly id: string;
   readonly kind: LifecycleScope;
   readonly accessor: ServicesAccessor;
+  dispose(): void;
 }
 
 function buildCollection(kind: LifecycleScope, extra?: ScopeSeed): ServiceCollection {
@@ -96,7 +97,7 @@ export function createScopedChildHandle(
     get: <T>(serviceId: ServiceIdentifier<T>): T =>
       child.invokeFunction((a) => a.get(serviceId)),
   };
-  return { id, kind, accessor };
+  return { id, kind, accessor, dispose: () => child.dispose() };
 }
 
 export class Scope implements IDisposable {
@@ -149,7 +150,7 @@ export class Scope implements IDisposable {
   }
 
   toHandle(): IScopeHandle {
-    return { id: this.id, kind: this.kind, accessor: this.accessor };
+    return { id: this.id, kind: this.kind, accessor: this.accessor, dispose: () => this.dispose() };
   }
 
   dispose(): void {

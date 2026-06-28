@@ -58,8 +58,7 @@ const DOMAIN_LAYER = new Map([
   ['hostFolderBrowser', 2],
   ['auth', 2],
   ['provider', 2],
-  ['sessionMetaStore', 2],
-  ['sessionIndex', 2],
+  ['session-index', 2],
   ['sessionStore', 2],
   ['eventBus', 2],
   // L3 — registries & capabilities
@@ -112,6 +111,7 @@ const DOMAIN_LAYER = new Map([
   ['session-lifecycle', 6],
   ['interaction', 6],
   ['session-context', 6],
+  ['session-metadata', 6],
   ['session-activity', 6],
   ['session', 6],
   // L7 — boundary
@@ -185,7 +185,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'profile>session',
   'replayBuilder>background',
   'replayBuilder>rpc',
-  'replayBuilder>session',
+  'replayBuilder>session-metadata',
   'skill>contextMemory',
   'skill>prompt',
   'swarm>subagentHost',

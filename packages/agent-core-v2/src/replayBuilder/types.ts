@@ -9,7 +9,7 @@ import type { PlanData } from '#/plan';
 import type { ToolInfo } from '#/toolRegistry';
 import type { SessionSummary } from '#/rpc/core-api';
 import type { UsageStatus } from '@moonshot-ai/protocol';
-import type { SessionMeta } from '#/session';
+import type { SessionMeta } from '#/session-metadata';
 
 type AgentType = 'main' | 'sub';
 

@@ -10,8 +10,8 @@ import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/bootstrap';
 import { HostFileSystem, IHostFileSystem } from '#/hostFs';
-import { ISessionIndex } from '#/sessionIndex/sessionIndex';
-import { FileSessionIndex } from '#/sessionIndex/sessionIndexService';
+import { ISessionIndex } from '#/session-index/sessionIndex';
+import { FileSessionIndex } from '#/session-index/sessionIndexService';
 
 const WORK_DIR = '/home/user/repo';
 
@@ -22,7 +22,7 @@ describe('FileSessionIndex', () => {
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.Core, ISessionIndex, FileSessionIndex, InstantiationType.Delayed, 'sessionIndex');
+    registerScopedService(LifecycleScope.Core, ISessionIndex, FileSessionIndex, InstantiationType.Delayed, 'session-index');
     sessionsDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-sessions-'));
     workspaceId = encodeWorkDirKey(WORK_DIR);
   });
