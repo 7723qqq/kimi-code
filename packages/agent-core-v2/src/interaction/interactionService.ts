@@ -16,6 +16,7 @@ import {
   type InteractionKind,
   type InteractionOrigin,
   type InteractionRequest,
+  type InteractionResolution,
   IInteractionService,
 } from './interaction';
 
@@ -30,21 +31,18 @@ export class InteractionService extends Disposable implements IInteractionServic
   private readonly pending = new Map<string, Pending>();
   private readonly _onDidChange = this._register(new Emitter<void>());
   readonly onDidChange: Event<void> = this._onDidChange.event;
+  private readonly _onDidResolve = this._register(new Emitter<InteractionResolution>());
+  readonly onDidResolve: Event<InteractionResolution> = this._onDidResolve.event;
   private nextId = 0;
 
   request<TPayload, TResponse>(req: InteractionRequest<TPayload>): Promise<TResponse> {
-    const id = req.id ?? this.generateId();
-    const origin: InteractionOrigin = req.origin ?? {};
     return new Promise<TResponse>((resolve) => {
-      const interaction: Interaction<TPayload> = {
-        id,
-        kind: req.kind,
-        payload: req.payload,
-        origin,
-      };
-      this.pending.set(id, { interaction, resolve: resolve as (response: unknown) => void });
-      this._onDidChange.fire();
+      this.park(req, resolve as (response: unknown) => void);
     });
+  }
+
+  enqueue<TPayload>(req: InteractionRequest<TPayload>): Interaction {
+    return this.park(req, () => {});
   }
 
   respond(id: string, response: unknown): void {
@@ -53,11 +51,29 @@ export class InteractionService extends Disposable implements IInteractionServic
     this.pending.delete(id);
     entry.resolve(response);
     this._onDidChange.fire();
+    this._onDidResolve.fire({ id, response });
   }
 
   listPending(kind?: InteractionKind): readonly Interaction[] {
     const all = [...this.pending.values()].map((p) => p.interaction);
     return kind === undefined ? all : all.filter((i) => i.kind === kind);
+  }
+
+  private park<TPayload>(
+    req: InteractionRequest<TPayload>,
+    resolve: (response: unknown) => void,
+  ): Interaction {
+    const id = req.id ?? this.generateId();
+    const origin: InteractionOrigin = req.origin ?? {};
+    const interaction: Interaction<TPayload> = {
+      id,
+      kind: req.kind,
+      payload: req.payload,
+      origin,
+    };
+    this.pending.set(id, { interaction, resolve });
+    this._onDidChange.fire();
+    return interaction;
   }
 
   private generateId(): string {

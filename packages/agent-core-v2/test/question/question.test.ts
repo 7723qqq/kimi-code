@@ -28,4 +28,13 @@ describe('QuestionService', () => {
     await expect(p).resolves.toBe('kimi');
     expect(svc.listPending()).toEqual([]);
   });
+
+  it('enqueue parks a question without blocking', () => {
+    const svc = ix.get(IQuestionService);
+    const enqueued = svc.enqueue({ id: 'q1', prompt: 'name?' });
+    expect(enqueued).toEqual({ id: 'q1', prompt: 'name?' });
+    expect(svc.listPending()).toEqual([{ id: 'q1', prompt: 'name?' }]);
+    svc.answer('q1', 'kimi');
+    expect(svc.listPending()).toEqual([]);
+  });
 });
