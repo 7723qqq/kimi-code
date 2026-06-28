@@ -224,6 +224,7 @@ export type KimiErrorCode =
   | 'request.prompt_input_empty'
   | 'shell.git_bash_not_found'
   | 'workspace.not_found'
+  | 'terminal.not_found'
   | 'fs.path_not_found'
   | 'fs.permission_denied'
   | 'validation.failed'
@@ -855,6 +856,7 @@ export const kimiErrorCodeSchema = z.enum([
   'request.prompt_input_empty',
   'shell.git_bash_not_found',
   'workspace.not_found',
+  'terminal.not_found',
   'fs.path_not_found',
   'fs.permission_denied',
   'validation.failed',

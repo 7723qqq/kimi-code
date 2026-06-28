@@ -51,6 +51,7 @@ export * from './workspaceRegistry/index';
 export * from './hostFolderBrowser/index';
 export * from './agentFs/index';
 export * from './process/index';
+export * from './terminal/index';
 export * from './storage/index';
 export * from './auth/index';
 

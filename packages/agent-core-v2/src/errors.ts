@@ -22,6 +22,7 @@ import { ProfileErrors } from '#/profile/errors';
 import { PromptErrors } from '#/prompt/errors';
 import { SessionErrors } from '#/session/errors';
 import { SkillErrors } from '#/skill/errors';
+import { TerminalErrors } from '#/terminal/errors';
 import { TurnErrors } from '#/turn/errors';
 import { WireRecordErrors } from '#/wireRecord/errors';
 
@@ -40,6 +41,7 @@ export { ProfileErrors } from '#/profile/errors';
 export { PromptErrors } from '#/prompt/errors';
 export { SessionErrors } from '#/session/errors';
 export { SkillErrors } from '#/skill/errors';
+export { TerminalErrors } from '#/terminal/errors';
 export { TurnErrors } from '#/turn/errors';
 export { WireRecordErrors } from '#/wireRecord/errors';
 
@@ -59,6 +61,7 @@ export const ErrorCodes = {
   ...PromptErrors.codes,
   ...SessionErrors.codes,
   ...SkillErrors.codes,
+  ...TerminalErrors.codes,
   ...TurnErrors.codes,
   ...WireRecordErrors.codes,
 } as const;
