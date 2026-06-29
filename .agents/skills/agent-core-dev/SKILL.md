@@ -33,7 +33,9 @@ End-to-end procedures that span the stages. Reach for these before reading the s
 
 - [Stage 1 — Orient](orient.md): the DI black box (identity / dependencies / lifetime), the four `LifecycleScope` tiers and visibility, and the file-header comment convention. Read before touching business code.
 - [Stage 2 — Design a service](design.md): pick a scope, split a domain across scopes, choose a calling style (direct call vs event vs hook), and direct dependencies. Decide *where things live and who knows whom* before coding.
+  - Topic: [Domain boundaries vs Scope](domain-boundaries.md) — keep `session` / `agent` / `turn` from becoming god objects; data-ownership test and their split conclusions.
   - Topic: [Persistence layering](persistence.md) — the three-layer `Store → Storage → backend` model, naming Stores by access pattern, and which layer business code should depend on.
+  - Topic: [Edge exposure — `resource:action` + WS events](edge-exposure.md) — which Services are exposed over `/api/v2` (per-scope action map) and which events stream over WS; what to wrap in a facade.
 - [Stage 3 — Implement](implement.md): the standard Service recipe and the DI building blocks — interface + identity, constructor injection, scoped registration, `Disposable`, eager vs delayed, `invokeFunction`, `createInstance`, child scopes, and the cycle-refactor playbook.
   - Topic: [Service authoring](service-authoring.md) — file layout, naming, contract vs impl contents, interface style, constructor/field conventions, events, multi-Service domains, comment rules.
   - Topic: [Config](config.md) — the section-registry model, Core vs Session split, owning a config section, the TOML format, and the env overlay.

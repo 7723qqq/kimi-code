@@ -1,10 +1,7 @@
-import {
-  createHash } from 'node:crypto';
-import { join } from 'pathe';
+import { createHash } from 'node:crypto';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IBootstrapService } from '#/bootstrap';
 import { IHostFileSystem } from '#/hostFs';
 
 import {
@@ -15,19 +12,17 @@ import {
 
 const DEFAULT_THRESHOLD = 4096;
 const DEFAULT_MAX_CACHE_SIZE = 50 * 1024 * 1024;
+const DEFAULT_STORAGE_SCOPE = 'blobs';
 const DATA_URI_HEADER_RE = /^data:([^;]+);base64,/;
 
 export class BlobStoreService implements IBlobStoreService {
-  private readonly blobsDir: string;
   private readonly cache = new Map<string, Buffer>();
   private readonly cacheSizes = new Map<string, number>();
   private currentCacheSize = 0;
 
   constructor(
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
-    @IBootstrapService bootstrap: IBootstrapService,
   ) {
-    this.blobsDir = bootstrap.blobsDir;
   }
 
   protected get threshold(): number {
@@ -121,7 +116,7 @@ export class BlobStoreService implements IBlobStoreService {
       return cached;
     }
 
-    const payload = await this.hostFs.readBytes(join(this.blobsDir, hash)).catch(() => undefined);
+    const payload = await this.storage.read(this.storageScope, hash).catch(() => undefined);
     if (payload !== undefined) {
       this.setCache(hash, Buffer.from(payload));
     }
@@ -142,11 +137,9 @@ export class BlobStoreService implements IBlobStoreService {
   }
 
   private async writeBlob(mimeType: string, base64Payload: string): Promise<string> {
-    await this.hostFs.mkdir(this.blobsDir, { recursive: true });
     const hash = createHash('sha256').update(base64Payload, 'utf8').digest('hex');
-    const blobPath = join(this.blobsDir, hash);
     const binary = Buffer.from(base64Payload, 'base64');
-    await this.hostFs.createExclusive(blobPath, binary);
+    await this.storage.write(this.storageScope, hash, binary, { atomic: true });
     this.setCache(hash, binary);
     return `${BLOBREF_PROTOCOL}${mimeType};${hash}`;
   }

@@ -24,6 +24,15 @@ export class QuestionService implements IQuestionService {
     });
   }
 
+  enqueue(req: QuestionRequest): QuestionRequest {
+    this.interaction.enqueue<QuestionRequest>({
+      id: req.id,
+      kind: 'question',
+      payload: req,
+    });
+    return req;
+  }
+
   answer(id: string, answer: string): void {
     this.interaction.respond(id, answer);
   }

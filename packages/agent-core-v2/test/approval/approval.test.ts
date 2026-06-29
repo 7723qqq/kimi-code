@@ -42,4 +42,13 @@ describe('ApprovalService', () => {
     const svc = ix.get(IApprovalService);
     expect(() => svc.decide('missing', { decision: 'rejected' })).not.toThrow();
   });
+
+  it('enqueue parks a request and returns it with its id without blocking', () => {
+    const svc = ix.get(IApprovalService);
+    const enqueued = svc.enqueue(makeRequest('r1'));
+    expect(enqueued).toEqual({ ...makeRequest('r1'), id: 'r1' });
+    expect(svc.listPending()).toEqual([makeRequest('r1')]);
+    svc.decide('r1', { decision: 'approved' });
+    expect(svc.listPending()).toEqual([]);
+  });
 });

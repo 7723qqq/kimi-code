@@ -1,37 +1,28 @@
 /**
- * Cron task persistence.
+ * `cron` domain (L5) — per-id atomic-document persistence for cron tasks.
  *
- * Thin wrapper over `createPerIdJsonStore` that pins the on-disk layout
- * (`<sessionDir>/cron/<task_id>.json`), the cron-id shape (8 lowercase
- * hex chars — same shape `SessionCronStore` generates), and a shape
- * guard for `CronTask`.
- *
- * No `PersistedCronTask` type: a `CronTask` is already pure plain data,
- * so the on-disk record is the in-memory record verbatim. Optional
- * `recurring` is honoured: an absent field round-trips as `undefined`,
- * which the rest of the cron stack treats as "recurring" by convention.
- *
- * The store is crash-safe (atomic write under the hood) and silently
- * ignores stray files, corrupt JSON, and records that fail the shape
- * guard — the cron stack would rather lose a malformed task than refuse
- * to boot.
+ * Backs cron task records (`<homeDir>/cron/<id>.json`) through the `storage`
+ * access-pattern store (`IAtomicDocumentStore`) under the `cron` scope, so
+ * the domain never touches the filesystem. Pins the cron-id shape (8
+ * lowercase hex chars — the same shape `SessionCronStore` generates, doubling
+ * as the path-traversal guard) and a shape guard for `CronTask`. A `CronTask`
+ * is already pure plain data, so the on-disk record is the in-memory record
+ * verbatim (an absent `recurring` round-trips as `undefined`). `list()`
+ * silently drops stray files, corrupt JSON, and records that fail the shape
+ * guard — the cron stack would rather lose a malformed task than refuse to
+ * boot. Not scope-bound; constructed via {@link createCronPersistStore}.
  */
 
-import { createPerIdJsonStore, type PerIdJsonStore } from '#/_base/utils/per-id-json-store';
+import type { IAtomicDocumentStore } from '#/storage';
+
+import type { CronPersistence } from '../cron';
 import type { CronTask } from './types';
 
-/**
- * On-disk id shape. Mirrors the regex `SessionCronStore` uses when
- * generating ids and doubles as the path-traversal guard inside the
- * generic per-id store.
- */
 export const CRON_ID_REGEX: RegExp = /^[0-9a-f]{8}$/;
 
-/**
- * Cheap shape guard. Run on every parsed JSON value before it is
- * surfaced from `list()` / `read()`; failing values are silently
- * dropped.
- */
+const CRON_SCOPE = 'cron';
+const JSON_SUFFIX = '.json';
+
 export function isValidCronTask(obj: unknown): obj is CronTask {
   if (typeof obj !== 'object' || obj === null) return false;
   const o = obj as Record<string, unknown>;
@@ -49,16 +40,33 @@ export function isValidCronTask(obj: unknown): obj is CronTask {
   return true;
 }
 
-/**
- * Construct a per-id JSON store for cron tasks under `sessionDir`. The
- * store is stateless — callers can create it on demand.
- */
-export function createCronPersistStore(sessionDir: string): PerIdJsonStore<CronTask> {
-  return createPerIdJsonStore<CronTask>({
-    rootDir: sessionDir,
-    subdir: 'cron',
-    idRegex: CRON_ID_REGEX,
-    isValid: isValidCronTask,
-    entityName: 'cron job id',
-  });
+function cronKey(id: string): string {
+  if (!CRON_ID_REGEX.test(id)) {
+    throw new Error(`Invalid cron job id: "${id}"`);
+  }
+  return `${id}${JSON_SUFFIX}`;
+}
+
+export function createCronPersistStore(store: IAtomicDocumentStore): CronPersistence {
+  return {
+    async write(id, task) {
+      await store.set(CRON_SCOPE, cronKey(id), task);
+    },
+    async remove(id) {
+      await store.delete(CRON_SCOPE, cronKey(id));
+    },
+    async list() {
+      const keys = await store.list(CRON_SCOPE);
+      const tasks: CronTask[] = [];
+      for (const key of keys) {
+        if (!key.endsWith(JSON_SUFFIX)) continue;
+        const id = key.slice(0, -JSON_SUFFIX.length);
+        if (!CRON_ID_REGEX.test(id)) continue;
+        const value = await store.get<CronTask>(CRON_SCOPE, key);
+        if (value === undefined || !isValidCronTask(value)) continue;
+        tasks.push(value);
+      }
+      return tasks;
+    },
+  };
 }

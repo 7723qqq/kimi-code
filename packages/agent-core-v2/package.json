@@ -49,6 +49,7 @@
   "scripts": {
     "build": "tsdown",
     "test": "vitest run",
+    "example": "vitest run --config vitest.examples.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint:domain": "node scripts/check-domain-layers.mjs",
     "clean": "rm -rf dist"

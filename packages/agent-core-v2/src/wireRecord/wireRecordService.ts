@@ -1,22 +1,13 @@
-import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import {
-  join
-} from 'pathe';
-
 import { createHash } from 'node:crypto';
 
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import {
   Disposable,
   toDisposable,
 } from "#/_base/di";
-import {
-  IBlobStoreService,
-  type BlobStoreServiceOptions,
-} from '#/blobStore';
-import { IHostFileSystem } from '#/hostFs';
+import { IBlobStoreService } from '#/blobStore';
 import { IAppendLogStore } from '#/storage';
-import { BlobStoreService } from '../blobStore/blobStoreService';
 import { OrderedHookSlot } from '../hooks';
 import type { WireRecord, WireRecordMap } from '../wireRecord';
 import {
@@ -63,10 +54,9 @@ export class WireRecordService extends Disposable implements IWireRecord {
     private readonly options: WireRecordServiceOptions = {},
     @IBlobStoreService injectedBlobStore?: IBlobStoreService,
     @IAppendLogStore private readonly log?: IAppendLogStore,
-    @IHostFileSystem private readonly hostFs?: IHostFileSystem,
   ) {
     super();
-    this.blobStore = this.resolveBlobStore(options, injectedBlobStore);
+    this.blobStore = options.blobStore ?? injectedBlobStore;
     this.persistKey = options.homedir === undefined ? undefined : hashKey(options.homedir);
     if (this.log !== undefined && this.persistKey !== undefined) {
       this._register(this.log.acquire('wire', this.persistKey));
@@ -323,19 +313,6 @@ export class WireRecordService extends Disposable implements IWireRecord {
       }
     }
     return current;
-  }
-
-  private resolveBlobStore(
-    options: WireRecordServiceOptions,
-    injectedBlobStore: IBlobStoreService | undefined,
-  ): IBlobStoreService | undefined {
-    if (options.blobStore !== undefined) return options.blobStore;
-    if (options.homedir === undefined || this.hostFs === undefined) return injectedBlobStore;
-
-    const blobOptions: BlobStoreServiceOptions = {
-      blobsDir: join(options.homedir, 'blobs'),
-    };
-    return new BlobStoreService(blobOptions, this.hostFs);
   }
 }
 

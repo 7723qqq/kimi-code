@@ -7,9 +7,10 @@
  * layout (`homeDir`, `configPath`, …). `resolveBootstrapOptions` is the single
  * place that reads `process.env` / `os.homedir()` / invocation input to resolve
  * the snapshot; everything downstream reads from `IBootstrapService` instead of
- * touching `process` directly. Bound at Core scope. Also seeds the Core
- * `IStorageService` with a `FileStorageService` rooted at `homeDir` so config
- * (and any other Core byte storage) persists to disk.
+ * touching `process` directly. Bound at Core scope. Also seeds the Core storage
+ * roles (`IStorageService`, `IAppendLogStorage`, `IAtomicDocumentStorage`,
+ * `IBlobStorage`) with a `FileStorageService` rooted at `homeDir` so the byte
+ * layer (and every Store above it) persists to disk.
  */
 
 import { mkdirSync } from 'node:fs';
@@ -21,7 +22,13 @@ import type { Environment } from '@moonshot-ai/kaos';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { createCoreScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
-import { FileStorageService, IStorageService } from '#/storage';
+import {
+  FileStorageService,
+  IAppendLogStorage,
+  IAtomicDocumentStorage,
+  IBlobStorage,
+  IStorageService,
+} from '#/storage';
 
 export interface IBootstrapOptions {
   readonly homeDir: string;
@@ -102,7 +109,13 @@ export function bootstrap(input: BootstrapInput = {}, extraSeeds: ScopeSeed = []
 }
 
 function storageSeed(options: IBootstrapOptions): ScopeSeed {
-  return [[IStorageService as ServiceIdentifier<unknown>, new FileStorageService(options.homeDir)]];
+  const fileStorage = new FileStorageService(options.homeDir);
+  return [
+    [IStorageService as ServiceIdentifier<unknown>, fileStorage],
+    [IAppendLogStorage as ServiceIdentifier<unknown>, fileStorage],
+    [IAtomicDocumentStorage as ServiceIdentifier<unknown>, fileStorage],
+    [IBlobStorage as ServiceIdentifier<unknown>, fileStorage],
+  ];
 }
 
 export function resolveKimiHome(

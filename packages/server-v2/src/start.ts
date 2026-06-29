@@ -7,17 +7,32 @@
  * Core-scoped services through `core.accessor.get(IXxx)`.
  */
 
-import { bootstrap, resolveConfigPath, resolveKimiHome, type Scope } from '@moonshot-ai/agent-core-v2';
+import {
+  bootstrap,
+  FileStorageService,
+  IAppendLogStorage,
+  IAtomicDocumentStorage,
+  IBlobStorage,
+  logSeed,
+  resolveConfigPath,
+  resolveKimiHome,
+  resolveLoggingConfig,
+  type Scope,
+  type ScopeSeed,
+  type ServiceIdentifier,
+} from '@moonshot-ai/agent-core-v2';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { installErrorHandler } from './error-handler';
-import { registerApiV1Routes } from './routes/registerApiV1Routes';
 import { resolveRequestId } from './request-id';
+import { registerApiV1Routes } from './routes/registerApiV1Routes';
 import {
   createServerLogger,
   type ServerLogger,
   type ServerLogLevel,
 } from './services/pinoLoggerService';
+import { registerRpcRoutes } from './transport/registerRpcRoutes';
+import { registerWs } from './transport/ws/registerWs';
 import { getServerVersion } from './version';
 
 export interface ServerStartOptions {
@@ -28,6 +43,8 @@ export interface ServerStartOptions {
   readonly logLevel?: ServerLogLevel;
   readonly logger?: ServerLogger;
   readonly debugEndpoints?: boolean;
+  /** When set, require `Authorization: Bearer <rpcToken>` on `/api/v2`. */
+  readonly rpcToken?: string;
 }
 
 export interface RunningServer {
@@ -41,10 +58,28 @@ export interface RunningServer {
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 58627;
 
+function durableStorageSeeds(homeDir: string): ScopeSeed {
+  return [
+    [IAtomicDocumentStorage as ServiceIdentifier<unknown>, new FileStorageService(homeDir)],
+    [IAppendLogStorage as ServiceIdentifier<unknown>, new FileStorageService(homeDir)],
+    [IBlobStorage as ServiceIdentifier<unknown>, new FileStorageService(homeDir)],
+  ];
+}
+
 export async function startServer(opts: ServerStartOptions = {}): Promise<RunningServer> {
   const homeDir = resolveKimiHome(opts.homeDir);
   const configPath = resolveConfigPath({ homeDir, configPath: opts.configPath });
-  const { core } = bootstrap({ homeDir, configPath });
+  // `ILogOptions` (logSeed) is required by the Session-scoped log writer; any
+  // route that creates a session (e.g. POST /sessions) would otherwise fail to
+  // instantiate the Session scope. Resolve it from env + homeDir like the CLI.
+  const logging = resolveLoggingConfig({ homeDir, env: process.env });
+  // `IAtomicDocumentStorage` / `IAppendLogStorage` / `IBlobStorage` default to
+  // in-memory; seed file-backed stores rooted at homeDir so session metadata,
+  // wire records, and blobs persist to disk where `FileSessionIndex` reads them.
+  const { core } = bootstrap({ homeDir, configPath }, [
+    ...logSeed(logging),
+    ...durableStorageSeeds(homeDir),
+  ]);
 
   const logger = opts.logger ?? createServerLogger({ level: opts.logLevel ?? 'info' });
 
@@ -71,6 +106,9 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
       void close();
     },
   });
+
+  registerRpcRoutes(app, core, { token: opts.rpcToken });
+  registerWs(app, core, { token: opts.rpcToken });
 
   const host = opts.host ?? DEFAULT_HOST;
   const port = opts.port ?? DEFAULT_PORT;

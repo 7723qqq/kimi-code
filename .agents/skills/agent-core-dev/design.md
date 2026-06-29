@@ -57,6 +57,12 @@ This is the tell-tale sign of "should have been `Session`-scoped but was parked 
 > - It must outlive the scope → too short; move up one tier.
 > - It should be one-per-unit but is shared → too long; move down one tier.
 
+## Scope is not a domain
+
+Scope answers **lifetime and visibility**. Domain answers **responsibility and data ownership**. A Service registered at `Session` or `Agent` scope is not automatically part of the `session` or `agent` domain, and an entity Service must not be named `I{Scope}EntityService` just because its data is scoped that way.
+
+Use the data-ownership test and the `session` / `agent` / `turn` split conclusions in [domain-boundaries.md](domain-boundaries.md) before naming a Service or adding `I{Domain}EntityService`.
+
 ## 3. Multi-Scope splitting
 
 > One Service owns state at exactly one identity / lifetime. If a domain owns state at several lifetimes, split it along those boundaries — one Service per lifetime.
@@ -158,6 +164,8 @@ Red lines:
 - A cycle means knowledge was placed backwards: extract a third, more foundational Service, or invert the "notification" half into an event.
 
 > Capability → orchestrator (e.g. `prompt → turn`) is allowed and present in this repo; the real red line is *inverted reuse* — a foundational / lower Service depending on a specific / upper one.
+
+> When a Service is meant to be reached over the wire (`/api/v2`, WS), see [edge-exposure.md](edge-exposure.md) for the per-scope `resource:action` map, which Services may be exposed directly vs wrapped in a facade, and how events stream.
 
 ## 6. New-Service checklist
 
@@ -261,6 +269,8 @@ For a multi-scope split, the `exposes` block fills more than one scope — see t
 
 ## Red lines (this stage)
 
+- Scope is not a domain; ownership follows write authority and invariants, not read consumption.
+- Do not create `I{Scope}EntityService` bundles (`IAgentEntityService`, `ISessionEntityService`, `ITurnEntityService`) that re-merge multiple domains.
 - No `Map<sessionId, …>` at `Core` to fake per-session state.
 - Scope follows state identity; stateless Services are pulled down by their shortest-lived dependency, otherwise default to `Core`.
 - Do not pre-split a domain that has state at only one lifetime.

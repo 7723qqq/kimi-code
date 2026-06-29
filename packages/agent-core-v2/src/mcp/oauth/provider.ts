@@ -1,18 +1,19 @@
 /**
- * `OAuthClientProvider` implementation backed by per-MCP-server JSON files.
+ * `mcp` domain (L5) — `McpOAuthClientProvider`, the `OAuthClientProvider`
+ * backed by the MCP OAuth credential store (`McpOAuthStore` over
+ * `IAtomicDocumentStore`).
  *
- * One provider instance per server/resource identity. The provider:
- *  - Persists OAuth tokens, the registered DCR client info, and discovery
- *    state under `<KIMI_CODE_HOME>/credentials/mcp/<key>-*.json`
- *    (mode 0600; default home is `~/.kimi-code`).
- *  - Captures the authorization URL when the SDK calls
- *    `redirectToAuthorization` — the {@link McpOAuthService} reads that field
- *    after the first `auth()` call returns `'REDIRECT'`.
- *  - Keeps the PKCE verifier and OAuth `state` in-memory (one flow per
- *    provider at a time; callers serialize via the service).
- *
- * The provider does **not** open browsers or run servers. The service is the
- * orchestrator; the provider is the persistence + flow-state shim.
+ * One provider instance per server/resource identity. It persists OAuth
+ * tokens, the registered DCR client info, and discovery state under
+ * `<homeDir>/credentials/mcp/<key>-*.json` via the store; captures the
+ * authorization URL when the SDK calls `redirectToAuthorization` (the
+ * orchestrator reads it after `auth()` returns `'REDIRECT'`); and keeps the
+ * PKCE verifier and OAuth `state` in-memory. Persisted values are mirrored
+ * into in-memory caches loaded eagerly on construction (`ready`) so the
+ * SDK's synchronous `redirectUrl` / `clientMetadata` getters read without
+ * blocking, while the data methods `await ready` before reading or writing.
+ * The provider does not open browsers or run servers — the service
+ * orchestrates, the provider is the persistence + flow-state shim.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -28,57 +29,64 @@ import type {
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 
-import { JsonFileStore, canonicalMcpOAuthResource, mcpOAuthStoreKey } from './store';
+import { canonicalMcpOAuthResource, mcpOAuthStoreKey, type McpOAuthStore } from './store';
 
 const TOKENS_SUFFIX = '-tokens.json';
 const CLIENT_SUFFIX = '-client.json';
 const DISCOVERY_SUFFIX = '-discovery.json';
-// Used only when the SDK probes auth during normal transport startup and no
-// callback listener is active. Interactive login overrides it with a real URL.
 const PASSIVE_REDIRECT_URI = 'http://127.0.0.1:3118/callback';
 
 export interface McpOAuthProviderOptions {
-  /** Friendly name of the MCP server; used in DCR `client_name`. */
   readonly serverName: string;
-  /** Canonical resource identity used to isolate credentials for this server entry. */
   readonly serverUrl: string | URL;
-  /** JSON store used for persistence. Tests inject an in-memory dir. */
-  readonly store: JsonFileStore;
-  /** Identifier embedded in DCR `client_name` ("kimi-code (server)"). */
+  readonly store: McpOAuthStore;
   readonly clientLabel?: string;
 }
 
 export class McpOAuthClientProvider implements OAuthClientProvider {
   readonly storeKey: string;
   readonly serverUrl: string;
-  private readonly store: JsonFileStore;
+  readonly ready: Promise<void>;
+  private readonly store: McpOAuthStore;
   private readonly clientLabel: string;
   private _redirectUrl: URL | undefined;
   private _codeVerifier: string | undefined;
   private _state: string | undefined;
   private _lastAuthorizationUrl: URL | undefined;
 
+  private clientCache: OAuthClientInformationMixed | undefined;
+  private tokensCache: OAuthTokens | undefined;
+  private discoveryCache: OAuthDiscoveryState | undefined;
+
   constructor(options: McpOAuthProviderOptions) {
     this.serverUrl = canonicalMcpOAuthResource(options.serverUrl);
     this.storeKey = mcpOAuthStoreKey(options.serverName, this.serverUrl);
     this.store = options.store;
     this.clientLabel = options.clientLabel ?? `kimi-code (${options.serverName})`;
+    this.ready = this.load();
   }
 
-  // ── flow-scoped state, set by McpOAuthService before invoking auth() ────
+  private async load(): Promise<void> {
+    const [client, tokens, discovery] = await Promise.all([
+      this.store.read<OAuthClientInformationFull>(`${this.storeKey}${CLIENT_SUFFIX}`),
+      this.store.read<OAuthTokens>(`${this.storeKey}${TOKENS_SUFFIX}`),
+      this.store.read<OAuthDiscoveryState>(`${this.storeKey}${DISCOVERY_SUFFIX}`),
+    ]);
+    this.clientCache = client;
+    this.tokensCache = tokens;
+    this.discoveryCache = discovery;
+  }
 
   setRedirectUrl(url: URL): void {
     this._redirectUrl = url;
   }
 
-  /** URL captured from the most recent `redirectToAuthorization` call. */
   takeAuthorizationUrl(): URL | undefined {
     const url = this._lastAuthorizationUrl;
     this._lastAuthorizationUrl = undefined;
     return url;
   }
 
-  /** OAuth `state` value generated for the most recent flow, for callback verification. */
   expectedState(): string | undefined {
     return this._state;
   }
@@ -89,8 +97,6 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     this._state = undefined;
     this._lastAuthorizationUrl = undefined;
   }
-
-  // ── OAuthClientProvider ─────────────────────────────────────────────────
 
   get redirectUrl(): string | URL {
     return this.effectiveRedirectUri();
@@ -111,26 +117,27 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     return this._state;
   }
 
-  clientInformation(): OAuthClientInformationMixed | undefined {
-    return this.store.read<OAuthClientInformationFull>(`${this.storeKey}${CLIENT_SUFFIX}`);
+  async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
+    await this.ready;
+    return this.clientCache;
   }
 
-  saveClientInformation(info: OAuthClientInformationMixed): void {
-    this.store.write(`${this.storeKey}${CLIENT_SUFFIX}`, info);
+  async saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {
+    this.clientCache = info;
+    await this.store.write(`${this.storeKey}${CLIENT_SUFFIX}`, info);
   }
 
-  tokens(): OAuthTokens | undefined {
-    return this.store.read<OAuthTokens>(`${this.storeKey}${TOKENS_SUFFIX}`);
+  async tokens(): Promise<OAuthTokens | undefined> {
+    await this.ready;
+    return this.tokensCache;
   }
 
-  saveTokens(tokens: OAuthTokens): void {
-    this.store.write(`${this.storeKey}${TOKENS_SUFFIX}`, tokens);
+  async saveTokens(tokens: OAuthTokens): Promise<void> {
+    this.tokensCache = tokens;
+    await this.store.write(`${this.storeKey}${TOKENS_SUFFIX}`, tokens);
   }
 
   redirectToAuthorization(url: URL): void {
-    // Capture the URL for the orchestrator instead of actually opening a
-    // browser. The synthetic authenticate tool surfaces it to the model so
-    // the user can complete the flow on their own schedule.
     this._lastAuthorizationUrl = url;
   }
 
@@ -145,27 +152,34 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     return this._codeVerifier;
   }
 
-  saveDiscoveryState(state: OAuthDiscoveryState): void {
-    this.store.write(`${this.storeKey}${DISCOVERY_SUFFIX}`, state);
+  async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
+    this.discoveryCache = state;
+    await this.store.write(`${this.storeKey}${DISCOVERY_SUFFIX}`, state);
   }
 
-  discoveryState(): OAuthDiscoveryState | undefined {
-    return this.store.read<OAuthDiscoveryState>(`${this.storeKey}${DISCOVERY_SUFFIX}`);
+  async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
+    await this.ready;
+    return this.discoveryCache;
   }
 
-  invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
+  async invalidateCredentials(
+    scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery',
+  ): Promise<void> {
     if (scope === 'verifier') {
       this._codeVerifier = undefined;
       return;
     }
     if (scope === 'tokens' || scope === 'all') {
-      this.store.remove(`${this.storeKey}${TOKENS_SUFFIX}`);
+      this.tokensCache = undefined;
+      await this.store.remove(`${this.storeKey}${TOKENS_SUFFIX}`);
     }
     if (scope === 'client' || scope === 'all') {
-      this.store.remove(`${this.storeKey}${CLIENT_SUFFIX}`);
+      this.clientCache = undefined;
+      await this.store.remove(`${this.storeKey}${CLIENT_SUFFIX}`);
     }
     if (scope === 'discovery' || scope === 'all') {
-      this.store.remove(`${this.storeKey}${DISCOVERY_SUFFIX}`);
+      this.discoveryCache = undefined;
+      await this.store.remove(`${this.storeKey}${DISCOVERY_SUFFIX}`);
     }
     if (scope === 'all') {
       this._codeVerifier = undefined;
@@ -176,7 +190,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     if (this._redirectUrl !== undefined) {
       return this._redirectUrl.toString();
     }
-    const registered = registeredRedirectUri(this.clientInformation());
+    const registered = registeredRedirectUri(this.clientCache);
     return registered ?? PASSIVE_REDIRECT_URI;
   }
 }

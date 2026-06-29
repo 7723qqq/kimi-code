@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { FileStorageService } from '#/storage';
 import { CloudAppender, type CloudAppenderOptions } from '#/telemetry/cloudAppender';
 
 interface CapturedRequest {
@@ -37,15 +38,18 @@ function statusResponse(status: number): Response {
   return new Response(null, { status });
 }
 
-function baseOptions(overrides: Partial<CloudAppenderOptions> = {}): CloudAppenderOptions {
+function baseOptions(
+  overrides: Partial<CloudAppenderOptions> & { homeDir?: string } = {},
+): CloudAppenderOptions {
+  const { homeDir: dir = '', storage, ...rest } = overrides;
   return {
-    homeDir: overrides.homeDir ?? '',
-    deviceId: overrides.deviceId ?? 'dev',
-    appName: overrides.appName ?? 'test-app',
-    version: overrides.version ?? '1.0.0',
-    env: overrides.env ?? {},
-    sleep: overrides.sleep ?? (async () => {}),
-    ...overrides,
+    storage: storage ?? new FileStorageService(dir),
+    deviceId: 'dev',
+    appName: 'test-app',
+    version: '1.0.0',
+    env: {},
+    sleep: async () => {},
+    ...rest,
   };
 }
 

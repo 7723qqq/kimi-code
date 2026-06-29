@@ -2,6 +2,12 @@
 
 > New agent engine built on the DI Scope architecture — work-in-progress port of `packages/agent-core`. Design: `plan/PLAN.md`. Porting status: `GAP_ANALYSIS.md`.
 
+## Examples
+
+`examples/` holds runnable **domain-slice scenarios**: each `examples/<name>.example.ts` is a vitest test that exercises one subset of domains end-to-end, so a single file teaches a single capability. Each example builds its **own** container (the `createServices` flat harness for Core-scope slices, or `bootstrap` + child scopes for tree-spanning slices), runs its slice's services for real, and stubs the collaborators outside the slice — so examples never need the full engine, and different examples stub different subsets. Tree-spanning examples redirect `KIMI_CODE_HOME` to a single `.vitest-results/kimi-code-{timestamp}/` per run (set once in `examples/_globalSetup.ts` and shared across every file in the invocation) and seed a file-backed `IAtomicDocumentStorage`, so persisted state is written to disk for inspection.
+
+Run one from the repo root with `pnpm dev:core-example <name>` (a filename filter; omit `<name>` to run them all). Examples use their own vitest project (`agent-core-v2-examples`, via `vitest.examples.config.ts`), so they are separate from the real `test/` suite and their console output is shown per scenario. Add a new example by adding an `examples/<name>.example.ts` that imports only its slice's domains.
+
 ## Comment conventions
 
 - **Header only, external role only.** Comments live solely in the top-of-file `/** */` block — never beside functions, methods, or statements. Say what the module exposes and the responsibility it owns; the code is the source of truth for how it works, so do not narrate implementation steps, enumerate every export, or note porting / skeleton status.
@@ -16,10 +22,9 @@ Impl (`src/session/sessionService.ts`):
 /**
  * `session` domain (L6) — `ISessionService` implementation.
  *
- * Owns the session's child-agent set and session-level operations; drives
- * agent lifecycle through `agent-lifecycle`, broadcasts through `event`,
- * persists session metadata through `records`, and records activity through
- * `session-activity`. Bound at Session scope.
+ * Runs session-level commands; reads its identity through `session-context`,
+ * mutates metadata through `session-metadata`, drives agent teardown through
+ * `agent-lifecycle`, and broadcasts through `event`. Bound at Session scope.
  */
 ```
 

@@ -66,3 +66,15 @@ export const IAppendLogStorage: ServiceIdentifier<IStorageService> =
 
 export const IAtomicDocumentStorage: ServiceIdentifier<IStorageService> =
   createDecorator<IStorageService>('atomicDocumentStorage');
+
+/**
+ * `IBlobStorage` — role token for the blob-store backend.
+ *
+ * Like `IAppendLogStorage` and `IAtomicDocumentStorage`, this is the same
+ * `IStorageService` interface under a distinct identity so the composition root
+ * can route large, content-addressed blob objects to a dedicated backend
+ * (e.g., S3 in a server-only deployment) while other storage roles use a
+ * different backend.
+ */
+export const IBlobStorage: ServiceIdentifier<IStorageService> =
+  createDecorator<IStorageService>('blobStorage');

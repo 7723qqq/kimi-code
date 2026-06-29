@@ -1,3 +1,14 @@
+/**
+ * `mcp` domain (L5) — `McpConnectionManager`, the per-session MCP server
+ * connection orchestrator.
+ *
+ * Owns the configured MCP servers and their runtime clients: connects
+ * (stdio / SSE / HTTP), discovers and registers tools, attaches the OAuth
+ * provider through `mcp/oauth` when tokens are present, flips failing
+ * servers into `needs-auth` on 401, and reconnects after authentication.
+ * Emits server status changes to subscribers. Constructed by `McpService`.
+ */
+
 import { ErrorCodes, KimiError } from '#/errors';
 import type { McpServerConfig } from './config-schema';
 import type { ILogger as Logger } from '#/log';
@@ -265,7 +276,7 @@ export class McpConnectionManager {
 
     let client: RuntimeMcpClient | undefined;
     try {
-      const startupClient = this.createClient(entry.config, entry.name);
+      const startupClient = await this.createClient(entry.config, entry.name);
       client = startupClient;
       entry.client = startupClient;
       const tools = await withTimeout(
@@ -334,7 +345,7 @@ export class McpConnectionManager {
     return entry.attemptId;
   }
 
-  private createClient(config: McpServerConfig, name: string): RuntimeMcpClient {
+  private async createClient(config: McpServerConfig, name: string): Promise<RuntimeMcpClient> {
     const toolCallTimeoutMs = config.toolTimeoutMs;
     if (config.transport === 'stdio') {
       return new StdioMcpClient(config, { toolCallTimeoutMs });
@@ -343,20 +354,20 @@ export class McpConnectionManager {
       return new SseMcpClient(config, {
         toolCallTimeoutMs,
         envLookup: this.options.envLookup,
-        oauthProvider: this.resolveOAuthProvider(config, name),
+        oauthProvider: await this.resolveOAuthProvider(config, name),
       });
     }
     return new HttpMcpClient(config, {
       toolCallTimeoutMs,
       envLookup: this.options.envLookup,
-      oauthProvider: this.resolveOAuthProvider(config, name),
+      oauthProvider: await this.resolveOAuthProvider(config, name),
     });
   }
 
-  private resolveOAuthProvider(
+  private async resolveOAuthProvider(
     config: McpServerConfig,
     name: string,
-  ): ReturnType<McpOAuthService['getProvider']> | undefined {
+  ): Promise<ReturnType<McpOAuthService['getProvider']> | undefined> {
     const oauthService = this.oauthService;
     if (oauthService === undefined) return undefined;
     if (!isRemoteMcpConfig(config)) return undefined;
@@ -365,7 +376,7 @@ export class McpConnectionManager {
     // the transport should propagate a clean 401 so we can flip the entry
     // into `needs-auth` rather than getting tangled in the SDK's auth()
     // flow (which would try DCR before we have an active redirect URL).
-    if (!oauthService.hasTokens(name, config.url)) return undefined;
+    if (!(await oauthService.hasTokens(name, config.url))) return undefined;
     return oauthService.getProvider(name, config.url);
   }
 

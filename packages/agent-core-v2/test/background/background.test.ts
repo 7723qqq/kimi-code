@@ -10,6 +10,8 @@ import { IContextMemory } from '#/contextMemory';
 import { IEventSink } from '#/eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { IPromptService } from '#/prompt';
+import { ISessionContext } from '#/session-context';
+import { IAtomicDocumentStore, IStorageService } from '#/storage';
 import { ITelemetryService } from '#/telemetry';
 import { IWireRecord } from '#/wireRecord';
 
@@ -39,7 +41,29 @@ describe('BackgroundService', () => {
     ix.stub(IPromptService, { steer: () => undefined });
     ix.stub(IExternalHooksService, { triggerNotification: () => {} });
     ix.stub(IConfigRegistry, { registerSection: () => {} });
-    ix.set(IBackgroundService, new SyncDescriptor(BackgroundService, [{}]));
+    ix.stub(ISessionContext, {
+      sessionId: 'test-session',
+      workspaceId: 'test-ws',
+      sessionDir: '/tmp/test-session',
+      metaScope: 'sessions/test-ws/test-session/session-meta',
+    });
+    ix.stub(IAtomicDocumentStore, {
+      get: async () => undefined,
+      set: async () => {},
+      delete: async () => {},
+      list: async () => [],
+    });
+    ix.stub(IStorageService, {
+      read: async () => undefined,
+      readStream: async function* () {},
+      write: async () => {},
+      append: async () => {},
+      list: async () => [],
+      delete: async () => {},
+      flush: async () => {},
+      close: async () => {},
+    });
+    ix.set(IBackgroundService, new SyncDescriptor(BackgroundService));
   });
   afterEach(() => disposables.dispose());
 

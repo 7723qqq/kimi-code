@@ -2,6 +2,8 @@
 
 How business code persists data in `agent-core-v2`: the three-layer model (`Store → Storage → backend`), the naming rules for each layer, and how to decide which layer a domain should depend on. Read this before adding any persistence to a domain.
 
+A domain `I{Domain}EntityService` is a business facade over these layers, not a replacement for them. Before naming or bundling EntityServices by `session` / `agent` / `turn`, read [domain-boundaries.md](domain-boundaries.md).
+
 ## The three-layer model
 
 Persistence is split into three layers, each hiding one kind of change:

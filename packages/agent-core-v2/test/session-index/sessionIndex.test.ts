@@ -9,13 +9,19 @@ import { LifecycleScope, _clearScopedRegistryForTests, registerScopedService } f
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/bootstrap';
-import { HostFileSystem, IHostFileSystem } from '#/hostFs';
 import { ISessionIndex } from '#/session-index/sessionIndex';
 import { FileSessionIndex } from '#/session-index/sessionIndexService';
+import {
+  AtomicDocumentStore,
+  FileStorageService,
+  IAtomicDocumentStore,
+  IStorageService,
+} from '#/storage';
 
 const WORK_DIR = '/home/user/repo';
 
 describe('FileSessionIndex', () => {
+  let homeDir: string;
   let sessionsDir: string;
   let workspaceId: string;
   let disposeHost: (() => void) | undefined;
@@ -23,20 +29,23 @@ describe('FileSessionIndex', () => {
   beforeEach(async () => {
     _clearScopedRegistryForTests();
     registerScopedService(LifecycleScope.Core, ISessionIndex, FileSessionIndex, InstantiationType.Delayed, 'session-index');
-    sessionsDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-sessions-'));
+    homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-sessions-'));
+    sessionsDir = join(homeDir, 'sessions');
     workspaceId = encodeWorkDirKey(WORK_DIR);
   });
 
   afterEach(async () => {
     disposeHost?.();
     disposeHost = undefined;
-    await fsp.rm(sessionsDir, { recursive: true, force: true });
+    await fsp.rm(homeDir, { recursive: true, force: true });
   });
 
   function build(): ISessionIndex {
+    const fileStorage = new FileStorageService(homeDir);
     const host = createScopedTestHost([
-      stubPair(IHostFileSystem, new HostFileSystem()),
-      stubPair(IBootstrapService, { sessionsDir } as IBootstrapService),
+      stubPair(IStorageService, fileStorage),
+      stubPair(IAtomicDocumentStore, new AtomicDocumentStore(fileStorage)),
+      stubPair(IBootstrapService, { homeDir, sessionsDir } as IBootstrapService),
     ]);
     disposeHost = () => host.dispose();
     return host.core.accessor.get(ISessionIndex);

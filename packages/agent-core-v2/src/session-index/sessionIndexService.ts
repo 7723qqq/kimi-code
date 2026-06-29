@@ -1,22 +1,22 @@
 /**
  * `session-index` domain (L2) — `FileSessionIndex` implementation.
  *
- * Reads the persisted session set from the local filesystem through the
- * program side `hostFs` primitives, rooted at the `sessionsDir` path layout
- * fact from `bootstrap`. The directory tree
- * `<sessionsDir>/<workspaceId>/<sessionId>/session-meta/state.json` is the
- * index: each session's `state.json` is read to build its summary. This is the
- * local-deployment backend of `ISessionIndex`; a server deployment would
- * substitute a database-backed `DbSessionIndex`. Bound at Core scope.
+ * Reads the persisted session set through the `storage` access-pattern stores,
+ * rooted at the `sessionsDir` path layout fact from `bootstrap`. The directory
+ * tree `<sessionsDir>/<workspaceId>/<sessionId>/session-meta/state.json` is the
+ * index: workspace and session ids are enumerated via `IStorageService.list`,
+ * and each session's `state.json` is read via `IAtomicDocumentStore` to build
+ * its summary. This is the local-deployment backend of `ISessionIndex`; a
+ * server deployment would substitute a database-backed `DbSessionIndex`. Bound
+ * at Core scope.
  */
 
-import { join } from 'node:path';
+import { relative } from 'pathe';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IBootstrapService } from '#/bootstrap';
-import { IHostFileSystem } from '#/hostFs';
-import type { Page } from '#/storage';
+import { IAtomicDocumentStore, IStorageService, type Page } from '#/storage';
 
 import { ISessionIndex, type SessionListQuery, type SessionSummary } from './sessionIndex';
 
@@ -27,8 +27,9 @@ export class FileSessionIndex implements ISessionIndex {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IStorageService private readonly storage: IStorageService,
+    @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
   ) {}
 
   async list(query: SessionListQuery): Promise<Page<SessionSummary>> {
@@ -65,30 +66,24 @@ export class FileSessionIndex implements ISessionIndex {
     return count;
   }
 
-  private get sessionsDir(): string {
-    return this.bootstrap.sessionsDir;
+  private get sessionsScope(): string {
+    return relative(this.bootstrap.homeDir, this.bootstrap.sessionsDir);
   }
 
   private async listWorkspaceIds(): Promise<readonly string[]> {
-    let entries;
     try {
-      entries = await this.hostFs.readdir(this.sessionsDir);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      throw err;
+      return await this.storage.list(this.sessionsScope);
+    } catch {
+      return [];
     }
-    return entries.filter((entry) => entry.isDirectory).map((entry) => entry.name);
   }
 
   private async listSessionIds(workspaceId: string): Promise<readonly string[]> {
-    let entries;
     try {
-      entries = await this.hostFs.readdir(join(this.sessionsDir, workspaceId));
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      throw err;
+      return await this.storage.list(`${this.sessionsScope}/${workspaceId}`);
+    } catch {
+      return [];
     }
-    return entries.filter((entry) => entry.isDirectory).map((entry) => entry.name);
   }
 
   private async hasSession(workspaceId: string, sessionId: string): Promise<boolean> {
@@ -100,20 +95,14 @@ export class FileSessionIndex implements ISessionIndex {
     workspaceId: string,
     sessionId: string,
   ): Promise<SessionSummary | undefined> {
-    const metaPath = join(this.sessionsDir, workspaceId, sessionId, META_SCOPE, META_KEY);
-    let raw: string;
+    const scope = `${this.sessionsScope}/${workspaceId}/${sessionId}/${META_SCOPE}`;
+    let meta: Record<string, unknown> | undefined;
     try {
-      raw = await this.hostFs.readText(metaPath);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-      throw err;
-    }
-    let meta: Record<string, unknown>;
-    try {
-      meta = JSON.parse(raw) as Record<string, unknown>;
+      meta = await this.docs.get<Record<string, unknown>>(scope, META_KEY);
     } catch {
       return undefined;
     }
+    if (meta === undefined) return undefined;
     return {
       id: sessionId,
       workspaceId,

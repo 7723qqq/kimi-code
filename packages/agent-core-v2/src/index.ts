@@ -10,6 +10,7 @@ export * from './log/index';
 export * from './telemetry/index';
 export * from './bootstrap/index';
 export * from './hostFs/index';
+export { IEventService, type DomainEvent } from './event/index';
 export * from './kosong/index';
 
 export * from './session-index/index';
@@ -41,6 +42,7 @@ export * from './session/index';
 
 export * from './eventSink/index';
 import './approval/index';
+export { IApprovalService } from './approval/index';
 export * from './question/index';
 export * from './gateway/index';
 
@@ -49,6 +51,7 @@ export * from './workspaceRegistry/index';
 export * from './hostFolderBrowser/index';
 export * from './agentFs/index';
 export * from './process/index';
+export * from './terminal/index';
 export * from './storage/index';
 export * from './auth/index';
 
@@ -79,6 +82,7 @@ export * from './todoList/index';
 export * from './tool/index';
 export * from './toolExecutor/index';
 import './toolRegistry/index';
+export { IToolRegistry } from './toolRegistry/index';
 export * from './toolStore/index';
 export * from './userTool/index';
 export * from './wireRecord/index';
