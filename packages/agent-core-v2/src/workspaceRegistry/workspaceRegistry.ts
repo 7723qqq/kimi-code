@@ -13,6 +13,14 @@ export interface Workspace {
   readonly id: string;
   readonly root: string;
   readonly name: string;
+  /** Epoch ms when the workspace was first registered in this process. */
+  readonly createdAt: number;
+  /** Epoch ms of the most recent `createOrTouch` (open) for this workspace. */
+  readonly lastOpenedAt: number;
+}
+
+export interface WorkspaceUpdate {
+  readonly name?: string;
 }
 
 export interface IWorkspaceRegistry {
@@ -21,6 +29,7 @@ export interface IWorkspaceRegistry {
   list(): Promise<readonly Workspace[]>;
   get(id: string): Promise<Workspace | undefined>;
   createOrTouch(root: string, name?: string): Promise<Workspace>;
+  update(id: string, patch: WorkspaceUpdate): Promise<Workspace | undefined>;
   delete(id: string): Promise<void>;
 }
 
