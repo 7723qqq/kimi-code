@@ -1,9 +1,6 @@
 import { createDecorator, type IDisposable } from "#/_base/di";
-import type { ExecutableTool, ExecutableToolContext } from '#/tool';
-import type {
-  ContentPart,
-  ToolCall as KosongToolCall
-} from '@moonshot-ai/kosong';
+import type { ExecutableTool } from '#/tool';
+import type { ContentPart } from '@moonshot-ai/kosong';
 
 import type { Hooks } from '../hooks';
 import type { ToolInputDisplay } from "@moonshot-ai/protocol";
@@ -18,13 +15,6 @@ export interface ToolDefinition {
   readonly info?: Record<string, unknown>;
 }
 
-export interface ToolCall {
-  readonly id: string;
-  readonly name: string;
-  readonly arguments: unknown;
-  readonly raw?: KosongToolCall;
-}
-
 export type ToolOutput = string | ContentPart[];
 
 export interface ToolResult {
@@ -36,11 +26,6 @@ export interface ToolResult {
   readonly approvalRule?: string;
   readonly stopTurn?: boolean;
   readonly stopBatchAfterThis?: boolean;
-}
-
-export interface ToolExecutionContext extends ExecutableToolContext {
-  readonly call: ToolCall;
-  readonly args: unknown;
 }
 
 export interface ToolInfo extends ToolDefinition {
