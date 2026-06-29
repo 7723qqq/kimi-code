@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IPromptService, type ContextMessage } from '../../../../src/services/agent';
+import { IPromptService, type ContextMessage } from '#/index';
 import { testAgent } from '../harness';
 
 const WALL_ANCHOR = 1_700_000_000_000;

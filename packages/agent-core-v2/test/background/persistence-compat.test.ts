@@ -2,12 +2,11 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  BackgroundTaskPersistence,
-  LegacyBackgroundManager,
-} from '../../../../src/services/agent/background/background';
+import { BackgroundTaskPersistence } from '#/background';
+import { testAgent } from '../harness';
+import type { BackgroundServiceTestManager } from './stubs';
 
 let sessionDir: string;
 
@@ -101,14 +100,8 @@ describe('BackgroundTaskPersistence legacy compatibility', () => {
     });
 
     const persistence = new BackgroundTaskPersistence(sessionDir);
-    const agent = {
-      emitEvent: vi.fn(),
-      telemetry: { track: vi.fn() },
-      context: { appendUserMessage: vi.fn() },
-      turn: { steer: vi.fn() },
-      hooks: undefined,
-    };
-    const manager = new LegacyBackgroundManager(agent as never, persistence);
+    const ctx = testAgent({ background: { persistence } });
+    const manager = ctx.background as BackgroundServiceTestManager;
 
     await manager.loadFromDisk();
     await manager.reconcile();

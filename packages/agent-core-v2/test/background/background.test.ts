@@ -7,7 +7,7 @@ import { IBackgroundService, type BackgroundTask } from '#/background';
 import { BackgroundService } from '#/background/backgroundService';
 import { IConfigRegistry } from '#/config';
 import { IContextMemory } from '#/contextMemory';
-import { IEventSink } from '../../src/eventSink';
+import { IEventSink } from '#/eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { IPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';
@@ -39,7 +39,7 @@ describe('BackgroundService', () => {
     ix.stub(IPromptService, { steer: () => undefined });
     ix.stub(IExternalHooksService, { triggerNotification: () => {} });
     ix.stub(IConfigRegistry, { registerSection: () => {} });
-    ix.set(IBackgroundService, new SyncDescriptor(BackgroundService));
+    ix.set(IBackgroundService, new SyncDescriptor(BackgroundService, [{}]));
   });
   afterEach(() => disposables.dispose());
 

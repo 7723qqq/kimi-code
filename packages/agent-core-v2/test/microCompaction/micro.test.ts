@@ -1,16 +1,21 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { FLAG_DEFINITIONS, FlagResolver, MASTER_ENV } from '../../../../src/flags';
-import { estimateTokensForMessages } from '../../../../src/utils/tokens';
-import { recordingTelemetry, type TelemetryRecord } from '../../../fixtures/telemetry';
-import { testAgent, type TestAgentContext } from '../harness';
+import { estimateTokensForMessages } from '#/_base/utils/tokens';
+import { IFlagService } from '#/flag';
+import { MASTER_ENV } from '#/flag/flagService';
+import { microCompactionFlag } from '#/microCompaction/flag';
+import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
+import {
+  InMemoryWireRecordPersistence,
+  testAgent,
+  type TestAgentContext,
+} from '../harness';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   IMicroCompactionService,
-  InMemoryWireRecordPersistence,
   type PersistedWireRecord,
-} from '../../../../src/services/agent';
+} from '#/index';
 
 const CATALOGUED_PROVIDER = {
   type: 'kimi',
@@ -37,7 +42,12 @@ describe('MicroCompaction', () => {
   });
 
   it('defaults the micro_compaction flag on', () => {
-    expect(new FlagResolver({}, FLAG_DEFINITIONS).enabled('micro_compaction')).toBe(true);
+    vi.unstubAllEnvs();
+    vi.stubEnv(MASTER_ENV, '0');
+
+    const ctx = testAgent();
+
+    expect(ctx.get(IFlagService).enabled('micro_compaction')).toBe(true);
   });
 
   it('truncates old tool results after cache miss', () => {
@@ -998,11 +1008,7 @@ function hasMarker(messages: readonly { role: string; content?: readonly { type:
 }
 
 function getMicroCompactionFlagEnv(): string {
-  const flag = FLAG_DEFINITIONS.find((definition) => definition.id === 'micro_compaction');
-  if (flag === undefined) {
-    throw new Error('Missing micro_compaction flag definition.');
-  }
-  return flag.env;
+  return microCompactionFlag.env;
 }
 
 function singleTelemetryEvent(

@@ -17,14 +17,11 @@ import {
   type IBackgroundService,
   ProcessBackgroundTask,
   type BackgroundTaskInfo,
-} from '../../../../src/services/agent/background/background';
-import type { SessionSubagentHost, SubagentHandle } from '../../../../src/session/subagent-host';
-import { isUserCancellation, userCancellationReason } from '../../../../src/utils/abort';
+} from '#/background';
+import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
+import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { testAgent, type TestAgentContext } from '../harness';
-
-type BackgroundServiceTestManager = IBackgroundService & {
-  loadFromDisk(): Promise<void>;
-};
+import type { BackgroundServiceTestManager } from './stubs';
 
 interface BackgroundServiceFixture {
   ctx: TestAgentContext;

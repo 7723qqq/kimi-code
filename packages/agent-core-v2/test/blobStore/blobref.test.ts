@@ -13,10 +13,11 @@ import {
   BLOBREF_PROTOCOL,
   IBlobStoreService,
   MISSING_MEDIA_PLACEHOLDER,
-  type BlobStoreServiceOptions,
 } from '#/blobStore';
 import { BlobStoreService } from '#/blobStore/blobStoreService';
+import { IBootstrapService } from '#/bootstrap';
 import { HostFileSystem, IHostFileSystem } from '#/hostFs';
+import { stubBootstrap } from '../bootstrap/stubs';
 
 const cleanups: string[] = [];
 const disposables: DisposableStore[] = [];
@@ -50,43 +51,45 @@ function imageUrlObject(part: ContentPart): { url: string } {
   return (part as unknown as { imageUrl: { url: string } }).imageUrl;
 }
 
-async function makeBlobsDir(): Promise<string> {
-  const blobsDir = join(tmpdir(), `blobref-test-${randomBytes(6).toString('hex')}`);
-  await mkdir(blobsDir, { recursive: true });
-  cleanups.push(blobsDir);
-  return blobsDir;
+async function makeHomeDir(): Promise<{ homeDir: string; blobsDir: string }> {
+  const homeDir = join(tmpdir(), `blobref-test-${randomBytes(6).toString('hex')}`);
+  await mkdir(homeDir, { recursive: true });
+  cleanups.push(homeDir);
+  return { homeDir, blobsDir: join(homeDir, 'blobs') };
 }
 
 function createStore(
-  blobsDir: string,
-  options: Omit<BlobStoreServiceOptions, 'blobsDir'> = {},
+  homeDir: string,
+  ctor: typeof BlobStoreService = BlobStoreService,
 ): IBlobStoreService {
   const disposable = new DisposableStore();
   disposables.push(disposable);
 
   const ix = disposable.add(new TestInstantiationService());
   ix.stub(IHostFileSystem, new HostFileSystem());
-  ix.set(
-    IBlobStoreService,
-    new SyncDescriptor(BlobStoreService, [
-      {
-        blobsDir,
-        threshold: options.threshold ?? 4096,
-        maxCacheSize: options.maxCacheSize,
-      },
-    ]),
-  );
+  ix.stub(IBootstrapService, stubBootstrap(homeDir));
+  ix.set(IBlobStoreService, new SyncDescriptor(ctor));
   return ix.get(IBlobStoreService);
 }
 
-async function makeStore(
-  options: Omit<BlobStoreServiceOptions, 'blobsDir'> = {},
-): Promise<{ store: IBlobStoreService; blobsDir: string }> {
-  const blobsDir = await makeBlobsDir();
+async function makeStore(): Promise<{ store: IBlobStoreService; blobsDir: string }> {
+  const { homeDir, blobsDir } = await makeHomeDir();
   return {
-    store: createStore(blobsDir, options),
+    store: createStore(homeDir),
     blobsDir,
   };
+}
+
+class TwoBlobCacheStoreService extends BlobStoreService {
+  protected override get maxCacheSize(): number {
+    return 8_000;
+  }
+}
+
+class OneBlobCacheStoreService extends BlobStoreService {
+  protected override get maxCacheSize(): number {
+    return 4_000;
+  }
 }
 
 describe('blobref', () => {
@@ -219,9 +222,9 @@ describe('blobref', () => {
   });
 
   it('rehydrates from read cache after first disk read', async () => {
-    const blobsDir = await makeBlobsDir();
-    const writer = createStore(blobsDir);
-    const reader = createStore(blobsDir);
+    const { homeDir, blobsDir } = await makeHomeDir();
+    const writer = createStore(homeDir);
+    const reader = createStore(homeDir);
     const payload = 'F'.repeat(5000);
     const dataUri = `data:image/png;base64,${payload}`;
 
@@ -240,10 +243,11 @@ describe('blobref', () => {
   });
 
   it('evicts least-recently-used entries when cache size limit is exceeded', async () => {
-    const { store, blobsDir } = await makeStore({ maxCacheSize: 8, threshold: 1 });
-    const payloadA = 'A'.repeat(4);
-    const payloadB = 'B'.repeat(4);
-    const payloadC = 'C'.repeat(4);
+    const { homeDir, blobsDir } = await makeHomeDir();
+    const store = createStore(homeDir, TwoBlobCacheStoreService);
+    const payloadA = 'A'.repeat(5000);
+    const payloadB = 'B'.repeat(5000);
+    const payloadC = 'C'.repeat(5000);
 
     const offloadedA = await store.offloadParts([imagePart(`data:image/png;base64,${payloadA}`)]);
     const offloadedB = await store.offloadParts([imagePart(`data:image/png;base64,${payloadB}`)]);
@@ -271,9 +275,10 @@ describe('blobref', () => {
   });
 
   it('skips caching a blob larger than the entire cache cap', async () => {
-    const { store, blobsDir } = await makeStore({ maxCacheSize: 8, threshold: 1 });
-    const small = 'S'.repeat(4);
-    const large = 'L'.repeat(16);
+    const { homeDir, blobsDir } = await makeHomeDir();
+    const store = createStore(homeDir, OneBlobCacheStoreService);
+    const small = 'S'.repeat(5000);
+    const large = 'L'.repeat(10000);
 
     const offloadedSmall = await store.offloadParts([imagePart(`data:image/png;base64,${small}`)]);
     const offloadedLarge = await store.offloadParts([imagePart(`data:image/png;base64,${large}`)]);

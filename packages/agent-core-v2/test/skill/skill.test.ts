@@ -2,46 +2,26 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { TestInstantiationService } from '#/_base/di/test';
+import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/contextMemory';
-import { IEventSink } from '../../src/eventSink';
+import { IEventSink } from '#/eventSink';
 import { IPromptService } from '#/prompt';
-import { IAgentSkillService } from '#/skill';
+import { IAgentSkillService, SessionSkillRegistry } from '#/skill';
 import { AgentSkillService } from '#/skill/skillService';
-import type { SkillCatalog, SkillDefinition } from '#/skill/types';
 import { ITelemetryService } from '#/telemetry';
 import type { Turn } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 import { stubWireRecord } from '../contextMemory/stubs';
+import { stubSkill } from './stubs';
 
-// NOTE: the legacy `SkillRegistry` / `ISkillRegistry` and `SkillService` /
-// `ISkillService` (whose `activate(name)` pushed onto `ITurnService.prompts`)
-// no longer exist in HEAD. Skill activation is now owned by `AgentSkillService`
-// (`IAgentSkillService`), which resolves the skill from an injected
-// `SkillCatalog` and delivers it through `IPromptService.prompt`. The registry
-// suite has no HEAD equivalent and was dropped; the activation cases below
-// assert on the prompt delivery instead of the removed turn queue.
-
-const COMMIT_SKILL: SkillDefinition = {
-  name: 'commit',
+const COMMIT_SKILL = stubSkill('commit', {
   description: 'commit changes',
   path: '/skills/commit/SKILL.md',
   dir: '/skills/commit',
   content: '# Commit',
   metadata: {},
   source: 'user',
-};
-
-function stubCatalog(skills: readonly SkillDefinition[]): SkillCatalog {
-  return {
-    getSkill: (name) => skills.find((s) => s.name === name),
-    getPluginSkill: () => undefined,
-    renderSkillPrompt: () => 'rendered skill body',
-    listInvocableSkills: () => [...skills],
-    getSkillRoots: () => [],
-    getModelSkillListing: () => '',
-  };
-}
+});
 
 function fakeTurn(): Turn {
   return {
@@ -59,24 +39,32 @@ describe('AgentSkillService', () => {
 
   beforeEach(() => {
     disposables = new DisposableStore();
-    ix = disposables.add(new TestInstantiationService());
     prompted = [];
-    ix.stub(IPromptService, {
-      prompt: (message) => {
-        prompted.push(message);
-        return fakeTurn();
+    ix = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.definePartialInstance(IPromptService, {
+          prompt: (message) => {
+            prompted.push(message);
+            return fakeTurn();
+          },
+          steer: () => undefined,
+          retry: () => undefined,
+          undo: () => 0,
+          clear: () => {},
+        });
+        reg.definePartialInstance(IEventSink, {
+          emit: () => {},
+          on: () => ({ dispose: () => {} }),
+        });
+        reg.defineInstance(IWireRecord, stubWireRecord());
+        reg.definePartialInstance(ITelemetryService, { track: () => {} });
       },
-      steer: () => undefined,
-      retry: () => undefined,
-      undo: () => 0,
-      clear: () => {},
     });
-    ix.stub(IEventSink, { emit: () => {}, on: () => ({ dispose: () => {} }) });
-    ix.stub(IWireRecord, stubWireRecord());
-    ix.stub(ITelemetryService, { track: () => {} });
+    const skills = new SessionSkillRegistry();
+    skills.register(COMMIT_SKILL);
     ix.set(
       IAgentSkillService,
-      new SyncDescriptor(AgentSkillService, [{ catalog: stubCatalog([COMMIT_SKILL]) }]),
+      new SyncDescriptor(AgentSkillService, [{ catalog: skills }]),
     );
   });
   afterEach(() => disposables.dispose());

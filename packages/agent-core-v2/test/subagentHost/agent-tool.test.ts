@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { SessionSubagentHost } from '../../../src/session/subagent-host';
-import { executeTool } from '../../tools/fixtures/execute-tool';
-import { testAgent } from './harness';
+import type { SessionSubagentHost } from '#/subagentHost';
+import { executeTool } from '../tools/fixtures/execute-tool';
+import { testAgent } from '../harness';
 
 const signal = new AbortController().signal;
 
@@ -162,10 +162,15 @@ describe('Agent tool service runtime', () => {
 function createSubagentHost(
   overrides: Partial<SessionSubagentHost> = {},
 ): SessionSubagentHost {
-  return {
+  const host: SessionSubagentHost = {
+    getSwarmItem: vi.fn(),
+    startBtw: vi.fn().mockResolvedValue('btw-url'),
     spawn: vi.fn(),
     resume: vi.fn(),
+    retry: vi.fn(),
+    getProfileName: vi.fn().mockResolvedValue(undefined),
     markActiveChildDetached: vi.fn(),
-    ...overrides,
-  } as unknown as SessionSubagentHost;
+    runQueued: vi.fn().mockResolvedValue([]),
+  };
+  return Object.assign(host, overrides);
 }

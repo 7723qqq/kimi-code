@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BackgroundTaskPersistence,
   type BackgroundTaskInfo,
-} from '../../../../src/services/agent/background/background';
+} from '#/background';
 
 let sessionDir: string;
 let persistence: BackgroundTaskPersistence;
