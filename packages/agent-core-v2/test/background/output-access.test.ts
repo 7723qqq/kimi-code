@@ -8,22 +8,24 @@ import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  BackgroundTaskPersistence,
   type IBackgroundService,
   ProcessBackgroundTask,
 } from '#/background';
 import { testAgent, type TestAgentContext } from '../harness';
-import type { BackgroundServiceTestManager } from './stubs';
+import {
+  createBackgroundTaskPersistence,
+  type BackgroundServiceTestManager,
+} from './stubs';
 
 interface BackgroundServiceFixture {
   readonly ctx: TestAgentContext;
   readonly manager: BackgroundServiceTestManager;
-  readonly persistence: BackgroundTaskPersistence;
+  readonly persistence: ReturnType<typeof createBackgroundTaskPersistence>;
 }
 
-function createBackgroundService(sessionDir: string): BackgroundServiceFixture {
-  const persistence = new BackgroundTaskPersistence(sessionDir);
-  const ctx = testAgent({ background: { persistence } });
+function createBackgroundService(homedir: string): BackgroundServiceFixture {
+  const persistence = createBackgroundTaskPersistence(homedir);
+  const ctx = testAgent({ homedir, background: { persistence } });
   return {
     ctx,
     manager: ctx.background as BackgroundServiceTestManager,
@@ -96,6 +98,24 @@ describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
     expect(snapshot.outputPath).toContain(taskId);
     expect(snapshot.outputPath!.endsWith('output.log')).toBe(true);
     expect(snapshot.fullOutputAvailable).toBe(true);
+  });
+
+  it('getOutputSnapshot truncates large persisted output to a tail preview with paging metadata', async () => {
+    const head = 'HEAD-MARKER\n';
+    const tail = 'TAIL-MARKER\n';
+    const output = head + 'x'.repeat(200 * 1024) + tail;
+    const taskId = registerProcess(manager, immediateProcess(0, output), 'echo big', 'large');
+
+    await manager.wait(taskId);
+    const snapshot = await manager.getOutputSnapshot(taskId, 32 * 1024);
+
+    expect(snapshot.outputPath).toBeDefined();
+    expect(snapshot.outputSizeBytes).toBe(Buffer.byteLength(output));
+    expect(snapshot.previewBytes).toBe(32 * 1024);
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.fullOutputAvailable).toBe(true);
+    expect(snapshot.preview).toContain(tail);
+    expect(snapshot.preview).not.toContain(head);
   });
 
   it('getOutputSnapshot omits outputPath when no persisted log file exists', async () => {

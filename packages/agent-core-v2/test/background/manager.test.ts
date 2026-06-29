@@ -13,7 +13,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AgentBackgroundTask,
-  BackgroundTaskPersistence,
   type IBackgroundService,
   ProcessBackgroundTask,
   type BackgroundTaskInfo,
@@ -21,12 +20,15 @@ import {
 import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { testAgent, type TestAgentContext } from '../harness';
-import type { BackgroundServiceTestManager } from './stubs';
+import {
+  createBackgroundTaskPersistence,
+  type BackgroundServiceTestManager,
+} from './stubs';
 
 interface BackgroundServiceFixture {
   ctx: TestAgentContext;
   manager: BackgroundServiceTestManager;
-  persistence?: BackgroundTaskPersistence;
+  persistence?: ReturnType<typeof createBackgroundTaskPersistence>;
 }
 
 function createBackgroundManager(options: {
@@ -36,8 +38,9 @@ function createBackgroundManager(options: {
   const persistence =
     options.sessionDir === undefined
       ? undefined
-      : new BackgroundTaskPersistence(options.sessionDir);
+      : createBackgroundTaskPersistence(options.sessionDir);
   const ctx = testAgent({
+    homedir: options.sessionDir,
     background: {
       persistence,
       maxRunningTasks: options.maxRunningTasks,
@@ -462,6 +465,52 @@ describe('BackgroundManager', () => {
     expect(manager.list()).toHaveLength(2);
   });
 
+  it('excludes terminal detached tasks from active listings and includes them in all-task listings', async () => {
+    const { manager } = createBackgroundManager();
+    const taskId = registerProcess(manager, immediateProcess(0), 'echo done', 'done');
+
+    await manager.wait(taskId);
+
+    expect(manager.list(true)).toEqual([]);
+    expect(manager.list(false)).toEqual([
+      expect.objectContaining({
+        taskId,
+        kind: 'process',
+        status: 'completed',
+        exitCode: 0,
+      }),
+    ]);
+  });
+
+  it('honours the list limit parameter', () => {
+    const { manager } = createBackgroundManager();
+    const first = registerProcess(manager, pendingProcess().proc, 'sleep 1', 'one');
+    const second = registerProcess(manager, pendingProcess().proc, 'sleep 2', 'two');
+
+    expect(manager.list(true, 1)).toEqual([
+      expect.objectContaining({ taskId: first }),
+    ]);
+    expect(manager.list(true, 1)).not.toEqual([
+      expect.objectContaining({ taskId: second }),
+    ]);
+  });
+
+  it('lists running tasks synchronously without waiting for task completion', () => {
+    vi.useFakeTimers();
+    const { manager } = createBackgroundManager();
+    const taskId = registerProcess(manager, pendingProcess().proc, 'sleep 60', 'running list');
+
+    const tasks = manager.list(true);
+
+    expect(tasks).toEqual([
+      expect.objectContaining({
+        taskId,
+        status: 'running',
+        description: 'running list',
+      }),
+    ]);
+  });
+
   it('rejects new tasks when maxRunningTasks is reached', () => {
     const { manager } = createBackgroundManager({ maxRunningTasks: 1 });
 
@@ -620,6 +669,21 @@ describe('BackgroundManager', () => {
       exitCode: 143,
     });
     expect(killSpy).toHaveBeenCalledWith('SIGTERM');
+  });
+
+  it('includes stopReason for stopped tasks in all-task listings', async () => {
+    const { manager } = createBackgroundManager();
+    const taskId = registerProcess(manager, pendingProcess().proc, 'sleep 60', 'stop reason');
+
+    await manager.stop(taskId, 'superseded by newer task');
+
+    expect(manager.list(false)).toEqual([
+      expect.objectContaining({
+        taskId,
+        status: 'killed',
+        stopReason: 'superseded by newer task',
+      }),
+    ]);
   });
 
   it('disposes process resources after a stopped process task settles', async () => {
@@ -833,11 +897,11 @@ describe('BackgroundManager', () => {
   it('getTask on an unknown id does not create persisted state', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-mgr-missing-'));
     try {
-      const { manager } = createBackgroundManager({ sessionDir });
+      const { manager, persistence } = createBackgroundManager({ sessionDir });
 
       expect(manager.getTask('bash-bogusss0')).toBeUndefined();
 
-      expect(await new BackgroundTaskPersistence(sessionDir).listTasks()).toEqual([]);
+      expect(await persistence!.listTasks()).toEqual([]);
     } finally {
       await rm(sessionDir, { recursive: true, force: true });
     }

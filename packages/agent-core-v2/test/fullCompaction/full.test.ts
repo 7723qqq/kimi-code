@@ -20,7 +20,8 @@ import {
   DefaultCompactionStrategy,
   type CompactionStrategy,
 } from '#/fullCompaction/strategy';
-import { HookEngine, type HookEngineTriggerArgs } from '#/externalHooks/engine';
+import { HookEngine } from '#/externalHooks/engine';
+import type { HookEngineTriggerArgs } from '#/externalHooks/types';
 import { MASTER_ENV } from '#/flag/flagService';
 import { microCompactionFlag } from '#/microCompaction/flag';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
@@ -232,7 +233,7 @@ describe('FullCompaction', () => {
     expect(completeEvent?.args).not.toHaveProperty('summary');
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: []
+      tools: Agent, CronCreate, CronDelete, CronList, EnterPlanMode, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
@@ -279,7 +280,7 @@ describe('FullCompaction', () => {
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     await ctx.dispatch({
       type: 'context.splice',
-      start: ctx.context.getHistory().length,
+      start: ctx.context.get().length,
       deleteCount: 0,
       messages: [{ role: 'assistant', content: [], toolCalls: [] }],
     });
@@ -957,13 +958,13 @@ describe('FullCompaction', () => {
 
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: []
+      tools: Agent, CronCreate, CronDelete, CronList, EnterPlanMode, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
         user: text <compaction-instruction>
     `);
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+    expect(ctx.context.get().map((message) => message.role)).toEqual([
       'assistant',
       'user',
       'assistant',
@@ -971,7 +972,7 @@ describe('FullCompaction', () => {
     ]);
     await ctx.dispatch({
       type: 'context.splice',
-      start: ctx.context.getHistory().length,
+      start: ctx.context.get().length,
       deleteCount: 0,
       messages: [
         {
@@ -982,7 +983,7 @@ describe('FullCompaction', () => {
         },
       ],
     });
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+    expect(ctx.context.get().map((message) => message.role)).toEqual([
       'assistant',
       'user',
       'assistant',
@@ -1020,7 +1021,7 @@ describe('FullCompaction', () => {
     );
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: []
+      tools: Agent, CronCreate, CronDelete, CronList, EnterPlanMode, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
@@ -1102,7 +1103,7 @@ describe('FullCompaction', () => {
         i * 1_850,
       );
     }
-    const initialTokens = estimateTokensForMessages(ctx.context.getHistory());
+    const initialTokens = estimateTokensForMessages(ctx.context.get());
     const completed = ctx.once('compaction.completed');
     for (let i = 1; i <= 30; i++) {
       ctx.mockNextResponse({ type: 'text', text: `Auto summary ${String(i)}.` });
@@ -1157,7 +1158,7 @@ describe('FullCompaction', () => {
     );
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: []
+      tools: Agent, CronCreate, CronDelete, CronList, EnterPlanMode, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
@@ -1197,7 +1198,7 @@ describe('FullCompaction', () => {
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
         system: <system-prompt>
-        tools: []
+        tools: Agent, CronCreate, CronDelete, CronList, EnterPlanMode, ExitPlanMode
         messages:
           user: text "old user one"
           assistant: text "old assistant one"
@@ -1206,7 +1207,6 @@ describe('FullCompaction', () => {
           user: text <compaction-instruction>
 
       call 2:
-        tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, ReadMediaFile, TaskList, TaskOutput, TaskStop, TodoList, Write
         messages:
           assistant: text "Auto compacted summary."
           user: text "recent user three"
@@ -1241,7 +1241,7 @@ describe('FullCompaction', () => {
 
     // ContextMemory records raw insertion order — the reminder sits where it
     // was added, right after the still-open tool exchange.
-    expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+    expect(ctx.context.get().map((m) => m.role)).toEqual([
       'user',
       'assistant',
       'user',
@@ -1269,7 +1269,7 @@ describe('FullCompaction', () => {
     // Compaction preserves the in-flight tool exchange (and the reminder behind
     // it) in recent; the projection closes the open calls and keeps the
     // reminder after them.
-    expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+    expect(ctx.context.get().map((m) => m.role)).toEqual([
       'assistant',
       'user',
       'assistant',
@@ -1288,7 +1288,7 @@ describe('FullCompaction', () => {
     // reminder after the tool results.
     await ctx.dispatch({
       type: 'context.splice',
-      start: ctx.context.getHistory().length,
+      start: ctx.context.get().length,
       deleteCount: 0,
       messages: [
         {
@@ -1307,7 +1307,7 @@ describe('FullCompaction', () => {
     });
 
     // Raw history keeps insertion order (reminder before the trailing results).
-    expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+    expect(ctx.context.get().map((m) => m.role)).toEqual([
       'assistant',
       'user',
       'assistant',
@@ -1347,7 +1347,7 @@ describe('FullCompaction', () => {
     // keeps insertion order (reminder after the partial exchange); the
     // projector keeps the real result, synthesizes the open one, and places the
     // reminder after the closed exchange.
-    expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+    expect(ctx.context.get().map((m) => m.role)).toEqual([
       'user',
       'assistant',
       'user',
@@ -1370,7 +1370,7 @@ describe('FullCompaction', () => {
     await ctx.rpc.beginCompaction({});
     await compacted;
 
-    expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+    expect(ctx.context.get().map((m) => m.role)).toEqual([
       'assistant',
       'user',
       'assistant',
@@ -1388,7 +1388,7 @@ describe('FullCompaction', () => {
 
     await ctx.dispatch({
       type: 'context.splice',
-      start: ctx.context.getHistory().length,
+      start: ctx.context.get().length,
       deleteCount: 0,
       messages: [
         {
@@ -1402,7 +1402,7 @@ describe('FullCompaction', () => {
 
     // Raw history keeps insertion order; the projector moves the reminder to
     // after the now-closed tool exchange.
-    expect(ctx.context.getHistory().map((m) => m.role)).toEqual([
+    expect(ctx.context.get().map((m) => m.role)).toEqual([
       'assistant',
       'user',
       'assistant',
@@ -1820,39 +1820,42 @@ describe('FullCompaction', () => {
     expect(compactionMaxCompletionTokens).toEqual([8192]);
   });
 
-  it('honors completion budget env opt-out during compaction', async () => {
-    vi.stubEnv('KIMI_MODEL_MAX_COMPLETION_TOKENS', '0');
-    let callCount = 0;
-    const compactionMaxCompletionTokens: unknown[] = [];
-    const generate: GenerateFn = async (provider, _system, _tools, _history, callbacks) => {
-      callCount += 1;
-      if (callCount === 1) {
-        throw new APIContextOverflowError(400, 'Context length exceeded', 'req-opt-out');
-      }
-      if (callCount === 2) {
-        compactionMaxCompletionTokens.push(providerMaxCompletionTokens(provider));
-        return textResult('Opt-out compacted summary.');
-      }
-      await callbacks?.onMessagePart?.({
-        type: 'text',
-        text: 'Recovered with opt-out.',
+  it.each(['0', '-1'])(
+    'honors completion budget env opt-out (%s) during compaction',
+    async (maxCompletionTokens) => {
+      vi.stubEnv('KIMI_MODEL_MAX_COMPLETION_TOKENS', maxCompletionTokens);
+      let callCount = 0;
+      const compactionMaxCompletionTokens: unknown[] = [];
+      const generate: GenerateFn = async (provider, _system, _tools, _history, callbacks) => {
+        callCount += 1;
+        if (callCount === 1) {
+          throw new APIContextOverflowError(400, 'Context length exceeded', 'req-opt-out');
+        }
+        if (callCount === 2) {
+          compactionMaxCompletionTokens.push(providerMaxCompletionTokens(provider));
+          return textResult('Opt-out compacted summary.');
+        }
+        await callbacks?.onMessagePart?.({
+          type: 'text',
+          text: 'Recovered with opt-out.',
+        });
+        return textResult('Recovered with opt-out.');
+      };
+      const ctx = testAgent({ generate });
+      ctx.configure({
+        provider: CATALOGUED_PROVIDER,
+        modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
       });
-      return textResult('Recovered with opt-out.');
-    };
-    const ctx = testAgent({ generate });
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
-    });
-    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
-    ctx.newEvents();
+      ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+      ctx.newEvents();
 
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Retry with opt-out' }] });
-    await ctx.untilTurnEnd();
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Retry with opt-out' }] });
+      await ctx.untilTurnEnd();
 
-    expect(callCount).toBe(3);
-    expect(compactionMaxCompletionTokens).toEqual([undefined]);
-  });
+      expect(callCount).toBe(3);
+      expect(compactionMaxCompletionTokens).toEqual([undefined]);
+    },
+  );
 
   it('ignores filtered assistant placeholders when checking the retained overflow suffix', async () => {
     let callCount = 0;
@@ -1949,13 +1952,12 @@ describe('FullCompaction', () => {
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
         system: <system-prompt>
-        tools: []
+        tools: Agent, CronCreate, CronDelete, CronList, EnterPlanMode, ExitPlanMode
         messages:
           user: text "Trigger repeated compaction"
           user: text <compaction-instruction>
 
       call 2:
-        tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
         messages:
           assistant: text "First compacted summary."
     `);

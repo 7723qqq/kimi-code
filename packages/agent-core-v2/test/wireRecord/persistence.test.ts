@@ -20,6 +20,7 @@ import {
   AGENT_WIRE_PROTOCOL_VERSION,
   IAppendLogStorage,
   IAppendLogStore,
+  IBlobStorage,
   IWireRecord,
   type PersistedWireRecord,
   WireRecordService,
@@ -97,6 +98,7 @@ async function createWireHarness(): Promise<{
   const storage = new FileStorageService(dir);
   const ix = disposable.add(new TestInstantiationService());
   ix.stub(IAppendLogStorage, storage);
+  ix.stub(IBlobStorage, storage);
   ix.stub(IBootstrapService, stubBootstrap(dir));
   ix.stub(IHostFileSystem, new HostFileSystem());
   ix.stub(IReplayBuilderService, stubReplayBuilder());
