@@ -33,6 +33,8 @@ export interface Interaction<TPayload = unknown> {
   readonly kind: InteractionKind;
   readonly payload: TPayload;
   readonly origin: InteractionOrigin;
+  /** Epoch ms when the interaction was parked. */
+  readonly createdAt: number;
 }
 
 /** Emitted by {@link IInteractionService.onDidResolve} when a request is responded to. */
@@ -53,6 +55,13 @@ export interface IInteractionService {
   enqueue<TPayload>(req: InteractionRequest<TPayload>): Interaction;
   respond(id: string, response: unknown): void;
   listPending(kind?: InteractionKind): readonly Interaction[];
+  /**
+   * Whether `id` was responded to within the recent-resolution window. Lets
+   * edge callers distinguish a duplicate resolve (idempotent conflict) from an
+   * unknown id. The window is bounded (see {@link InteractionService}) and
+   * exists purely for idempotency signaling.
+   */
+  isRecentlyResolved(id: string): boolean;
   readonly onDidChange: Event<void>;
   /** Fires when a pending request is responded to, carrying its id and response. */
   readonly onDidResolve: Event<InteractionResolution>;

@@ -25,10 +25,17 @@ interface Pending {
   readonly resolve: (response: unknown) => void;
 }
 
+/** How long a resolved id is remembered for idempotent-conflict signaling. */
+const RECENTLY_RESOLVED_TTL_MS = 60_000;
+/** Upper bound on the resolved-ledger size; oldest entries are swept first. */
+const RECENTLY_RESOLVED_MAX = 256;
+
 export class InteractionService extends Disposable implements IInteractionService {
   declare readonly _serviceBrand: undefined;
 
   private readonly pending = new Map<string, Pending>();
+  /** id → epoch ms when it was resolved. */
+  private readonly recentlyResolved = new Map<string, number>();
   private readonly _onDidChange = this._register(new Emitter<void>());
   readonly onDidChange: Event<void> = this._onDidChange.event;
   private readonly _onDidResolve = this._register(new Emitter<InteractionResolution>());
@@ -49,6 +56,7 @@ export class InteractionService extends Disposable implements IInteractionServic
     const entry = this.pending.get(id);
     if (entry === undefined) return;
     this.pending.delete(id);
+    this.rememberResolved(id);
     entry.resolve(response);
     this._onDidChange.fire();
     this._onDidResolve.fire({ id, response });
@@ -57,6 +65,16 @@ export class InteractionService extends Disposable implements IInteractionServic
   listPending(kind?: InteractionKind): readonly Interaction[] {
     const all = [...this.pending.values()].map((p) => p.interaction);
     return kind === undefined ? all : all.filter((i) => i.kind === kind);
+  }
+
+  isRecentlyResolved(id: string): boolean {
+    const resolvedAt = this.recentlyResolved.get(id);
+    if (resolvedAt === undefined) return false;
+    if (Date.now() - resolvedAt > RECENTLY_RESOLVED_TTL_MS) {
+      this.recentlyResolved.delete(id);
+      return false;
+    }
+    return true;
   }
 
   private park<TPayload>(
@@ -70,10 +88,25 @@ export class InteractionService extends Disposable implements IInteractionServic
       kind: req.kind,
       payload: req.payload,
       origin,
+      createdAt: Date.now(),
     };
     this.pending.set(id, { interaction, resolve });
     this._onDidChange.fire();
     return interaction;
+  }
+
+  private rememberResolved(id: string): void {
+    // Lazy sweep: drop expired entries, then cap by size (oldest first).
+    const now = Date.now();
+    for (const [key, resolvedAt] of this.recentlyResolved) {
+      if (now - resolvedAt > RECENTLY_RESOLVED_TTL_MS) this.recentlyResolved.delete(key);
+    }
+    while (this.recentlyResolved.size >= RECENTLY_RESOLVED_MAX) {
+      const oldest = this.recentlyResolved.keys().next().value;
+      if (oldest === undefined) break;
+      this.recentlyResolved.delete(oldest);
+    }
+    this.recentlyResolved.set(id, now);
   }
 
   private generateId(): string {

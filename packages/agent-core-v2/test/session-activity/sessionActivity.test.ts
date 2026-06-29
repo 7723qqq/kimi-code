@@ -67,10 +67,10 @@ function interactions(
 ): Partial<IInteractionService> {
   const items: Interaction[] = [];
   for (let i = 0; i < (pending.approval ?? 0); i++) {
-    items.push({ id: `a${i}`, kind: 'approval', payload: {}, origin: {} });
+    items.push({ id: `a${i}`, kind: 'approval', payload: {}, origin: {}, createdAt: 0 });
   }
   for (let i = 0; i < (pending.question ?? 0); i++) {
-    items.push({ id: `q${i}`, kind: 'question', payload: {}, origin: {} });
+    items.push({ id: `q${i}`, kind: 'question', payload: {}, origin: {}, createdAt: 0 });
   }
   return {
     listPending: (kind?: InteractionKind) =>
