@@ -1,10 +1,26 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { testAgent } from '../harness';
+import { toDisposable } from '#/_base/di';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { createServices, type TestInstantiationService } from '#/_base/di/test';
+import { IEventSink } from '#/eventSink';
+import { IUsageService, type UsageStatus } from '#/usage';
+import { UsageService } from '#/usage/usageService';
+import { IWireRecord, type WireRecord } from '#/wireRecord';
 
-describe('Agent usage', () => {
-  it('accumulates usage by model', () => {
-    const usage = testAgent().usage;
+let disposables: DisposableStore;
+
+beforeEach(() => {
+  disposables = new DisposableStore();
+});
+
+afterEach(() => {
+  disposables.dispose();
+});
+
+describe('UsageService', () => {
+  it('resolves by interface and accumulates usage by model', () => {
+    const { usage, records } = createUsageHarness();
 
     usage.record('model-a', {
       inputOther: 1,
@@ -25,7 +41,7 @@ describe('Agent usage', () => {
       inputCacheCreation: 400,
     });
 
-    expect(usage.data()).toEqual({
+    expect(usage.status()).toEqual({
       byModel: {
         'model-a': {
           inputOther: 11,
@@ -48,10 +64,15 @@ describe('Agent usage', () => {
       },
       currentTurn: undefined,
     });
+    expect(records.map((record) => record.type)).toEqual([
+      'usage.record',
+      'usage.record',
+      'usage.record',
+    ]);
   });
 
-  it('tracks current turn usage separately from session totals', () => {
-    const usage = testAgent().usage;
+  it('tracks current turn usage by turn id', () => {
+    const { usage } = createUsageHarness();
 
     usage.record('model-a', {
       inputOther: 1,
@@ -59,7 +80,6 @@ describe('Agent usage', () => {
       inputCacheRead: 3,
       inputCacheCreation: 4,
     });
-    usage.beginTurn();
     usage.record(
       'model-a',
       {
@@ -68,7 +88,7 @@ describe('Agent usage', () => {
         inputCacheRead: 30,
         inputCacheCreation: 40,
       },
-      'turn',
+      { type: 'turn', turnId: 1 },
     );
     usage.record(
       'model-b',
@@ -78,10 +98,10 @@ describe('Agent usage', () => {
         inputCacheRead: 300,
         inputCacheCreation: 400,
       },
-      'turn',
+      { type: 'turn', turnId: 1 },
     );
 
-    expect(usage.data()).toMatchObject({
+    expect(usage.status()).toMatchObject({
       total: {
         inputOther: 111,
         output: 222,
@@ -96,13 +116,27 @@ describe('Agent usage', () => {
       },
     });
 
-    usage.endTurn();
+    usage.record(
+      'model-a',
+      {
+        inputOther: 5,
+        output: 6,
+        inputCacheRead: 7,
+        inputCacheCreation: 8,
+      },
+      { type: 'turn', turnId: 2 },
+    );
 
-    expect(usage.data().currentTurn).toBeUndefined();
+    expect(usage.status().currentTurn).toEqual({
+      inputOther: 5,
+      output: 6,
+      inputCacheRead: 7,
+      inputCacheCreation: 8,
+    });
   });
 
   it('returns immutable status snapshots', () => {
-    const usage = testAgent().usage;
+    const { usage } = createUsageHarness();
 
     usage.record('model-a', {
       inputOther: 1,
@@ -110,7 +144,7 @@ describe('Agent usage', () => {
       inputCacheRead: 3,
       inputCacheCreation: 4,
     });
-    const snapshot = usage.data();
+    const snapshot = usage.status();
 
     usage.record('model-a', {
       inputOther: 10,
@@ -137,4 +171,78 @@ describe('Agent usage', () => {
       currentTurn: undefined,
     });
   });
+
+  it('publishes usage status changes through the event sink', () => {
+    const { usage, events } = createUsageHarness();
+
+    usage.record('model-a', {
+      inputOther: 1,
+      output: 2,
+      inputCacheRead: 3,
+      inputCacheCreation: 4,
+    });
+
+    expect(events).toEqual([
+      {
+        type: 'agent.status.updated',
+        usage: {
+          byModel: {
+            'model-a': {
+              inputOther: 1,
+              output: 2,
+              inputCacheRead: 3,
+              inputCacheCreation: 4,
+            },
+          },
+          total: {
+            inputOther: 1,
+            output: 2,
+            inputCacheRead: 3,
+            inputCacheCreation: 4,
+          },
+          currentTurn: undefined,
+        } satisfies UsageStatus,
+      },
+    ]);
+  });
 });
+
+function createUsageHarness(): {
+  readonly ix: TestInstantiationService;
+  readonly usage: IUsageService;
+  readonly records: WireRecord[];
+  readonly events: unknown[];
+} {
+  const records: WireRecord[] = [];
+  const events: unknown[] = [];
+  const ix = createServices(disposables, {
+    strict: true,
+    additionalServices: (reg) => {
+      reg.definePartialInstance(IWireRecord, {
+        restoring: null,
+        postRestoring: false,
+        append: (record) => {
+          records.push(record);
+        },
+        register: () => toDisposable(() => {}),
+        restore: async () => ({}),
+        flush: async () => {},
+        close: async () => {},
+      });
+      reg.definePartialInstance(IEventSink, {
+        emit: (event) => {
+          events.push(event);
+        },
+        on: () => toDisposable(() => {}),
+      });
+      reg.define(IUsageService, UsageService);
+    },
+  });
+
+  return {
+    ix,
+    usage: ix.get(IUsageService),
+    records,
+    events,
+  };
+}

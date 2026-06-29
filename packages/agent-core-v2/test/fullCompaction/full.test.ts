@@ -20,10 +20,11 @@ import {
   DefaultCompactionStrategy,
   type CompactionStrategy,
 } from '#/fullCompaction/strategy';
-import { FLAG_DEFINITIONS, MASTER_ENV } from '../../../../src/flags';
-import { HookEngine, type HookEngineTriggerArgs } from '../../../../src/session/hooks';
+import { HookEngine, type HookEngineTriggerArgs } from '#/externalHooks/engine';
+import { MASTER_ENV } from '#/flag/flagService';
+import { microCompactionFlag } from '#/microCompaction/flag';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
-import { recordingTelemetry, type TelemetryRecord } from '../../../fixtures/telemetry';
+import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import type { TestAgentContext, TestAgentOptions } from '../harness';
 import { testAgent } from '../harness';
 import {
@@ -2008,11 +2009,7 @@ function enableMicroCompactionFlag(): void {
 }
 
 function getMicroCompactionFlagEnv(): string {
-  const flag = FLAG_DEFINITIONS.find((definition) => definition.id === 'micro_compaction');
-  if (flag === undefined) {
-    throw new Error('Missing micro_compaction flag definition.');
-  }
-  return flag.env;
+  return microCompactionFlag.env;
 }
 
 function deferred<T>() {

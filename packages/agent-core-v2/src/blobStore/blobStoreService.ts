@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IHostFileSystem } from '#/hostFs';
+import { IBlobStorage, type IStorageService } from '#/storage';
 
 import {
   BLOBREF_PROTOCOL,
@@ -16,12 +16,15 @@ const DEFAULT_STORAGE_SCOPE = 'blobs';
 const DATA_URI_HEADER_RE = /^data:([^;]+);base64,/;
 
 export class BlobStoreService implements IBlobStoreService {
+  declare readonly _serviceBrand: undefined;
+
+  private readonly storageScope = DEFAULT_STORAGE_SCOPE;
   private readonly cache = new Map<string, Buffer>();
   private readonly cacheSizes = new Map<string, number>();
   private currentCacheSize = 0;
 
   constructor(
-    @IHostFileSystem private readonly hostFs: IHostFileSystem,
+    @IBlobStorage private readonly storage: IStorageService,
   ) {
   }
 
