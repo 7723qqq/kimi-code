@@ -362,19 +362,31 @@ describe('CLI options parsing', () => {
       expect(parse([]).quiet).toBe(false);
     });
 
-    it('enters print mode on its own', () => {
-      const opts = parse(['--quiet']);
+    it('enters print mode when paired with --prompt', () => {
+      const opts = parse(['--quiet', '-p', 'hi']);
       expect(opts.quiet).toBe(true);
       expect(validateOptions(opts).uiMode).toBe('print');
     });
 
+    it('enters print mode when paired with --input-format', () => {
+      const opts = parse(['--quiet', '--input-format', 'text']);
+      expect(opts.quiet).toBe(true);
+      expect(validateOptions(opts).uiMode).toBe('print');
+    });
+
+    it('rejects --quiet on its own (no input source)', () => {
+      const opts = parse(['--quiet']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow('Quiet mode requires --prompt or --input-format.');
+    });
+
     it('is allowed alongside an explicit --output-format text', () => {
-      const opts = parse(['--quiet', '--output-format', 'text']);
+      const opts = parse(['--quiet', '-p', 'hi', '--output-format', 'text']);
       expect(() => validateOptions(opts)).not.toThrow();
     });
 
     it('rejects --quiet with --output-format stream-json', () => {
-      const opts = parse(['--quiet', '--output-format', 'stream-json']);
+      const opts = parse(['--quiet', '-p', 'hi', '--output-format', 'stream-json']);
       expect(() => validateOptions(opts)).toThrow(OptionConflictError);
       expect(() => validateOptions(opts)).toThrow('Quiet mode implies --output-format text.');
     });

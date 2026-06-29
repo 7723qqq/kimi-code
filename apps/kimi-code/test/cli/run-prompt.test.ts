@@ -811,6 +811,34 @@ describe('runPrompt', () => {
     expect(stderr.text()).toBe('');
   });
 
+  it('does not emit an empty final assistant message when a final-only turn fails', async () => {
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 41, origin: { kind: 'user' } }));
+        handler(
+          mocks.mainEvent({
+            type: 'turn.ended',
+            turnId: 41,
+            reason: 'failed',
+            error: { code: 'provider.api_error', message: 'boom', retryable: false },
+          }),
+        );
+      }
+    });
+    const stdout = writer();
+
+    await runPrompt(opts({ outputFormat: 'stream-json', finalMessageOnly: true }), '1.2.3-test', {
+      stdout,
+      stderr: writer(),
+    });
+
+    // Only the error line — no spurious `{"role":"assistant","content":""}` first.
+    expect(stdout.text()).toBe(
+      '{"type":"error","code":"provider.api_error","message":"boom","retryable":false}\n',
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
   it('emits only the final text in text final-message-only mode and skips the resume hint (output B)', async () => {
     const stdout = writer();
     const stderr = writer();

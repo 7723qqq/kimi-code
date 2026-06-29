@@ -53,6 +53,11 @@ export function validateOptions(opts: CLIOptions): ValidatedOptions {
   if (opts.quiet === true && opts.outputFormat !== undefined && opts.outputFormat !== 'text') {
     throw new OptionConflictError('Quiet mode implies --output-format text.');
   }
+  // Prompt mode needs an input source. `--prompt` and `--input-format` provide
+  // one; `--quiet` on its own does not, so it must be paired with either.
+  if (promptMode && !hasPrompt && opts.inputFormat === undefined) {
+    throw new OptionConflictError('Quiet mode requires --prompt or --input-format.');
+  }
   if (hasPrompt && opts.inputFormat !== undefined) {
     throw new OptionConflictError(
       'Cannot combine --prompt with --input-format; the prompt is read from stdin.',

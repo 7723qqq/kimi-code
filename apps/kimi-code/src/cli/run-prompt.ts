@@ -950,7 +950,12 @@ class PromptFinalJsonWriter implements PromptTurnWriter {
   }
 
   finish(): void {
-    this.stdout.write(`${JSON.stringify({ role: 'assistant', content: this.assistantText })}\n`);
+    // Only emit when there is a final message: a failed turn settles through
+    // finish() before its error line, so an empty emit would read as a spurious
+    // successful empty answer. Mirrors PromptFinalTextWriter.
+    if (this.assistantText.length > 0) {
+      this.stdout.write(`${JSON.stringify({ role: 'assistant', content: this.assistantText })}\n`);
+    }
   }
 }
 
