@@ -67,6 +67,7 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'workspaces:list': { service: IWorkspaceRegistry, method: 'list', readonly: true },
     'workspaces:get': { service: IWorkspaceRegistry, method: 'get', readonly: true },
     'workspaces:createOrTouch': { service: IWorkspaceRegistry, method: 'createOrTouch' },
+    'workspaces:update': { service: IWorkspaceRegistry, method: 'update' },
     'workspaces:delete': { service: IWorkspaceRegistry, method: 'delete' },
 
     'config:get': { service: IConfigService, method: 'get', readonly: true },

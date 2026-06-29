@@ -111,6 +111,31 @@ describe('server-v2 /api/v2 RPC', () => {
     expect(got.body.data.root).toBe(cwd);
   });
 
+  it('renames a workspace via update', async () => {
+    const cwd = home as string;
+    const created = await call<{ id: string; name: string }>(
+      'POST',
+      '/api/v2/workspaces:createOrTouch',
+      cwd,
+    );
+    const id = created.body.data.id;
+
+    const updated = await call<{ id: string; name: string }>(
+      'POST',
+      '/api/v2/workspaces:update',
+      [id, { name: 'renamed' }],
+    );
+    expect(updated.body.code).toBe(0);
+    expect(updated.body.data.name).toBe('renamed');
+
+    const got = await call<{ id: string; name: string }>(
+      'GET',
+      '/api/v2/workspaces:get',
+      id,
+    );
+    expect(got.body.data.name).toBe('renamed');
+  });
+
   it('counts active sessions', async () => {
     const cwd = home as string;
     const created = await call<{ id: string }>('POST', '/api/v2/workspaces:createOrTouch', cwd);

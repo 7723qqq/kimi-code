@@ -59,6 +59,7 @@ Read = `GET`, write = `POST`. `sid` = `session_id`, `aid` = `agent_id`.
 | `workspaces` | `list` | IWorkspaceRegistry.list | GET |
 | `workspaces` | `get` | IWorkspaceRegistry.get | GET |
 | `workspaces` | `createOrTouch` | IWorkspaceRegistry.createOrTouch | POST |
+| `workspaces` | `update` | IWorkspaceRegistry.update | POST |
 | `workspaces` | `delete` | IWorkspaceRegistry.delete | POST |
 | `config` | `get` / `getAll` / `inspect` | IConfigService.* | GET |
 | `config` | `set` / `replace` / `reload` | IConfigService.* | POST |
