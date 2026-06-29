@@ -28,6 +28,7 @@
   "files": [
     "dist",
     "dist-web",
+    "native",
     "scripts/postinstall.mjs",
     "scripts/postinstall",
     "README.md"
@@ -75,11 +76,10 @@
   },
   "optionalDependencies": {
     "@mariozechner/clipboard": "^0.3.9",
-    "koffi": "^2.16.0",
     "node-pty": "^1.1.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-tui": "^0.74.0",
+    "@earendil-works/pi-tui": "^0.78.1",
     "@moonshot-ai/acp-adapter": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-code-sdk": "workspace:^",
