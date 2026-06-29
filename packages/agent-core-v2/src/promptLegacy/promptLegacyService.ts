@@ -1,0 +1,238 @@
+/**
+ * `promptLegacy` domain — `IPromptLegacyService` implementation.
+ *
+ * Per-agent v1-compatible scheduler. Owns the active submission and a FIFO
+ * queue; launches turns through `IPromptService` and observes them to
+ * auto-start the next queued prompt. Legacy `prompt.*` lifecycle events are
+ * not emitted (they are not part of the v2 `AgentEvent` union); the HTTP
+ * responses carry the same information.
+ */
+
+import { randomUUID } from 'node:crypto';
+
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { ErrorCodes, KimiError } from '#/errors';
+import { IProfileService } from '#/profile';
+import { IPromptService } from '#/prompt';
+import { ITurnService, type Turn, type TurnResult } from '#/turn';
+import { IPermissionModeService } from '#/permissionMode';
+import type { ContentPart } from '@moonshot-ai/kosong';
+import type {
+  PromptAbortResponse,
+  PromptItem,
+  PromptListResponse,
+  PromptSteerResult,
+  PromptSubmission,
+  PromptSubmitResult,
+} from '@moonshot-ai/protocol';
+
+import { IPromptLegacyService } from './promptLegacy';
+
+interface PromptRecord {
+  readonly promptId: string;
+  readonly userMessageId: string;
+  readonly body: PromptSubmission;
+  readonly createdAt: string;
+}
+
+interface ActivePrompt extends PromptRecord {
+  readonly turn: Turn;
+}
+
+export class PromptLegacyService implements IPromptLegacyService {
+  declare readonly _serviceBrand: undefined;
+
+  private active: ActivePrompt | undefined;
+  private readonly queued: PromptRecord[] = [];
+  /** Prompts whose abort was requested; their turn settles asynchronously. */
+  private readonly abortedPromptIds = new Set<string>();
+
+  constructor(
+    @IPromptService private readonly prompt: IPromptService,
+    @ITurnService private readonly turnService: ITurnService,
+    @IProfileService private readonly profile: IProfileService,
+    @IPermissionModeService private readonly permissionMode: IPermissionModeService,
+  ) {}
+
+  list(): PromptListResponse {
+    return {
+      active: this.active === undefined ? null : toItem(this.active, 'running'),
+      queued: this.queued.map((record) => toItem(record, 'queued')),
+    };
+  }
+
+  async submit(body: PromptSubmission): Promise<PromptSubmitResult> {
+    await this.applyOverrides(body);
+
+    const record = this.createRecord(body);
+    if (this.active !== undefined) {
+      this.queued.push(record);
+      return toItem(record, 'queued');
+    }
+    const turn = this.launch(record);
+    return toItem(record, turn === undefined ? 'queued' : 'running');
+  }
+
+  async steer(promptIds: readonly string[]): Promise<PromptSteerResult> {
+    if (promptIds.length === 0) {
+      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'prompt_ids must not be empty');
+    }
+    if (this.active === undefined) {
+      throw new KimiError(ErrorCodes.PROMPT_NOT_FOUND, 'no active prompt to steer into');
+    }
+
+    const selectedIds = new Set(promptIds);
+    const selected: PromptRecord[] = [];
+    for (let i = this.queued.length - 1; i >= 0; i--) {
+      const record = this.queued[i]!;
+      if (selectedIds.has(record.promptId)) {
+        selected.push(record);
+        this.queued.splice(i, 1);
+      }
+    }
+    if (selected.length !== selectedIds.size) {
+      throw new KimiError(ErrorCodes.PROMPT_NOT_FOUND, 'one or more prompts are not queued');
+    }
+    selected.reverse();
+
+    const content = selected.flatMap((record) => contentToCoreParts(record.body.content));
+    this.prompt.steer({
+      role: 'user',
+      content,
+      toolCalls: [],
+      origin: { kind: 'user' },
+    });
+    return { steered: true, prompt_ids: [...promptIds] };
+  }
+
+  async abort(promptId: string): Promise<PromptAbortResponse> {
+    if (this.active?.promptId === promptId) {
+      // Mark and cancel; the turn settles asynchronously and `onTurnSettled`
+      // clears `active` and starts the next queued prompt.
+      this.abortedPromptIds.add(promptId);
+      this.active.turn.abortController.abort('prompt aborted');
+      return { aborted: true };
+    }
+
+    const index = this.queued.findIndex((item) => item.promptId === promptId);
+    if (index >= 0) {
+      this.queued.splice(index, 1);
+      return { aborted: true };
+    }
+
+    throw new KimiError(ErrorCodes.PROMPT_NOT_FOUND, `prompt ${promptId} not found`);
+  }
+
+  // --- internals -------------------------------------------------------------
+
+  private createRecord(body: PromptSubmission): PromptRecord {
+    const promptId = `prompt_${randomUUID()}`;
+    return {
+      promptId,
+      userMessageId: `msg_${promptId}`,
+      body,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  private launch(record: PromptRecord): Turn | undefined {
+    const parts = contentToCoreParts(record.body.content);
+    if (parts.length === 0) {
+      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'prompt content has no supported parts');
+    }
+    const turn = this.prompt.prompt({
+      role: 'user',
+      content: parts,
+      toolCalls: [],
+      origin: { kind: 'user' },
+    });
+    if (turn === undefined) {
+      // Busy with a turn started outside the legacy service (e.g. via /api/v2);
+      // keep the record queued so it runs once the agent is idle.
+      this.queued.unshift(record);
+      return undefined;
+    }
+    this.active = { ...record, turn };
+    void turn.result.then((result) => this.onTurnSettled(record.promptId, result));
+    return turn;
+  }
+
+  private onTurnSettled(promptId: string, result: TurnResult): void {
+    if (this.active?.promptId !== promptId) return;
+    this.active = undefined;
+    this.abortedPromptIds.delete(promptId);
+    void result;
+    this.startNextQueued();
+  }
+
+  private startNextQueued(): void {
+    if (this.active !== undefined) return;
+    const next = this.queued.shift();
+    if (next === undefined) return;
+    this.launch(next);
+  }
+
+  private async applyOverrides(body: PromptSubmission): Promise<void> {
+    if (body.model !== undefined) {
+      await this.profile.setModel(body.model);
+    }
+    if (body.thinking !== undefined) {
+      this.profile.setThinking(body.thinking);
+    }
+    if (body.permission_mode !== undefined) {
+      this.permissionMode.setMode(body.permission_mode);
+    }
+  }
+}
+
+function toItem(record: PromptRecord, status: 'running' | 'queued'): PromptItem {
+  return {
+    prompt_id: record.promptId,
+    user_message_id: record.userMessageId,
+    status,
+    content: record.body.content,
+    created_at: record.createdAt,
+  };
+}
+
+function contentToCoreParts(content: PromptSubmission['content']): ContentPart[] {
+  const parts: ContentPart[] = [];
+  for (const part of content) {
+    switch (part.type) {
+      case 'text':
+        parts.push({ type: 'text', text: part.text });
+        break;
+      case 'image':
+        if (part.source.kind === 'url') {
+          parts.push({ type: 'image_url', imageUrl: { url: part.source.url } });
+        } else if (part.source.kind === 'base64') {
+          parts.push({
+            type: 'image_url',
+            imageUrl: { url: `data:${part.source.media_type};base64,${part.source.data}` },
+          });
+        }
+        break;
+      case 'video':
+        if (part.source.kind === 'url') {
+          parts.push({ type: 'video_url', videoUrl: { url: part.source.url } });
+        } else if (part.source.kind === 'base64') {
+          parts.push({
+            type: 'video_url',
+            videoUrl: { url: `data:${part.source.media_type};base64,${part.source.data}` },
+          });
+        }
+        break;
+      // tool_use / tool_result / file / thinking are not valid user-prompt input.
+    }
+  }
+  return parts;
+}
+
+registerScopedService(
+  LifecycleScope.Agent,
+  IPromptLegacyService,
+  PromptLegacyService,
+  InstantiationType.Delayed,
+  'promptLegacy',
+);

@@ -96,6 +96,7 @@ const DOMAIN_LAYER = new Map([
   ['fullCompaction', 4],
   ['microCompaction', 4],
   ['loop', 4],
+  ['media', 4],
   ['llmRequester', 4],
   ['llmRequestLog', 4],
   ['externalHooks', 4],
@@ -123,6 +124,7 @@ const DOMAIN_LAYER = new Map([
   ['question', 7],
   ['gateway', 7],
   ['rpc', 7],
+  ['promptLegacy', 7],
 ]);
 
 const V1_PACKAGE = '@moonshot-ai/agent-core';

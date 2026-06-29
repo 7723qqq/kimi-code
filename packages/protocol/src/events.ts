@@ -224,11 +224,20 @@ export type KimiErrorCode =
   | 'request.invalid'
   | 'request.work_dir_required'
   | 'request.prompt_input_empty'
+  | 'prompt.not_found'
+  | 'prompt.already_completed'
+  | 'session.busy'
   | 'shell.git_bash_not_found'
   | 'workspace.not_found'
   | 'terminal.not_found'
+  | 'file.not_found'
+  | 'file.too_large'
   | 'fs.path_not_found'
   | 'fs.permission_denied'
+  | 'fs.path_escapes'
+  | 'fs.too_many_results'
+  | 'fs.grep_timeout'
+  | 'fs.git_unavailable'
   | 'validation.failed'
   | 'not_implemented'
   | 'internal';
@@ -861,6 +870,8 @@ export const kimiErrorCodeSchema = z.enum([
   'shell.git_bash_not_found',
   'workspace.not_found',
   'terminal.not_found',
+  'file.not_found',
+  'file.too_large',
   'fs.path_not_found',
   'fs.permission_denied',
   'validation.failed',
