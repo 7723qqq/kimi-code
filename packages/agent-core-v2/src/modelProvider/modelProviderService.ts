@@ -1,17 +1,15 @@
 /**
- * `kosong` domain (L1) — `IProviderManager` contract and runtime implementation.
+ * `modelProvider` domain (L1) — `IModelProvider` runtime implementations.
  *
- * Resolves the active model alias into a runtime kosong `ProviderConfig` plus
- * optional OAuth request authorization, reading provider / model configuration
- * through `config`. A host-built instance is installed into a Session scope via
- * `providerManagerSeed`; `IProfileService` / `ILLMRequester` consume it through
- * DI. Bound at Session scope.
+ * Resolves configured model aliases into runtime kosong provider configuration,
+ * model capability metadata, completion budget hints, and optional OAuth request
+ * authorization. The host installs one implementation into Session scope via
+ * `modelProviderSeed`.
  */
 
 import type {
   ModelCapability,
   ProviderConfig as KosongProviderConfig,
-  ProviderRequestAuth,
 } from '@moonshot-ai/kosong';
 import {
   APIStatusError,
@@ -19,61 +17,19 @@ import {
   UNKNOWN_CAPABILITY,
 } from '@moonshot-ai/kosong';
 
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { ScopeSeed } from '#/_base/di/scope';
-import type { IConfigService } from '#/config';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
-import type { OAuthRef, ProviderConfig } from '#/provider';
+import type { ProviderConfig } from '#/provider';
 
 import type { ModelAlias } from './configSection';
+import type {
+  AuthorizedRequest,
+  IModelProvider,
+  ModelProviderOptions,
+  RequestLogger,
+  ResolvedRuntimeProvider,
+} from './modelProvider';
 
-export interface BearerTokenProvider {
-  getAccessToken(options?: { readonly force?: boolean }): Promise<string>;
-}
-
-export type OAuthTokenProviderResolver = (
-  providerName: string,
-  oauthRef?: OAuthRef,
-) => BearerTokenProvider | undefined;
-
-export interface ResolvedRuntimeProvider {
-  readonly providerName: string;
-  readonly provider: KosongProviderConfig;
-  readonly modelCapabilities: ModelCapability;
-  readonly alwaysThinking?: boolean;
-  readonly maxOutputSize?: number;
-}
-
-export interface ProviderManagerOptions {
-  readonly config: IConfigService;
-  readonly kimiRequestHeaders?: Record<string, string>;
-  readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver;
-  readonly promptCacheKey?: string;
-}
-
-export interface RequestLogger {
-  warn(message: string, payload?: unknown): void;
-}
-
-type AuthorizedRequest = <T>(
-  request: (auth: ProviderRequestAuth) => Promise<T>,
-) => Promise<T>;
-
-export interface IProviderManager {
-  readonly _serviceBrand: undefined;
-  readonly defaultModel?: string;
-  resolveProviderConfig(model: string): ResolvedRuntimeProvider;
-  resolveAuth?(model: string, options?: { readonly log?: RequestLogger }): AuthorizedRequest | undefined;
-}
-
-export const IProviderManager: ServiceIdentifier<IProviderManager> =
-  createDecorator<IProviderManager>('providerManager');
-
-export function providerManagerSeed(providerManager: IProviderManager): ScopeSeed {
-  return [[IProviderManager as ServiceIdentifier<unknown>, providerManager]];
-}
-
-export class SingleModelProvider implements IProviderManager {
+export class SingleModelProvider implements IModelProvider {
   declare readonly _serviceBrand: undefined;
   constructor(
     private readonly providerConfig: KosongProviderConfig,
@@ -99,9 +55,9 @@ export class SingleModelProvider implements IProviderManager {
   }
 }
 
-export class ProviderManager implements IProviderManager {
+export class ModelProvider implements IModelProvider {
   declare readonly _serviceBrand: undefined;
-  constructor(private readonly options: ProviderManagerOptions) {}
+  constructor(private readonly options: ModelProviderOptions) {}
 
   get defaultModel(): string | undefined {
     return this.options.config.get<string>('defaultModel');
@@ -205,7 +161,7 @@ export class ProviderManager implements IProviderManager {
     }
 
     const log = options?.log;
-    const fetchAuth = async (force: boolean): Promise<ProviderRequestAuth> => {
+    const fetchAuth = async (force: boolean): Promise<{ readonly apiKey: string }> => {
       let apiKey: string;
       try {
         apiKey = await tokenProvider.getAccessToken(force ? { force: true } : undefined);

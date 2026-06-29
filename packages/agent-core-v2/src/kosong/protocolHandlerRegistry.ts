@@ -16,13 +16,12 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IConfigRegistry } from '#/config';
-
 import {
   MODELS_SECTION,
   ModelsSectionSchema,
   modelsFromToml,
   modelsToToml,
-} from './configSection';
+} from '#/modelProvider';
 
 export type ProtocolHandlerFactory = (config: ProviderConfig) => ChatProvider;
 

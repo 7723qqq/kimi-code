@@ -75,7 +75,8 @@ const DOMAIN_LAYER = new Map([
   ['permissionPolicy', 3],
   ['permissionRules', 3],
   ['plugin', 3],
-  ['modelRuntime', 3],
+  ['kosong', 3],
+  ['modelProvider', 3],
   // L4 — agent behaviour
   ['context', 4],
   ['message', 4],

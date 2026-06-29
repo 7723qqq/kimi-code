@@ -2,7 +2,7 @@ import { emptyUsage } from '@moonshot-ai/kosong';
 import type { StreamedMessagePart } from '@moonshot-ai/kosong';
 import { describe, expect, it } from 'vitest';
 
-import type { IProviderManager, ResolvedRuntimeProvider } from '#/kosong';
+import type { IModelProvider, ResolvedRuntimeProvider } from '#/modelProvider';
 import { ILLMRequester } from '#/index';
 import { testAgent } from '../harness';
 
@@ -82,7 +82,7 @@ describe('LLMRequester service migration coverage', () => {
           rawFinishReason: 'stop',
         };
       },
-      providerManager: stubProviderManager('deepseek/deepseek-v4-flash', {
+      modelProvider: stubModelProvider('deepseek/deepseek-v4-flash', {
         providerName: 'deepseek',
         provider: {
           type: 'openai',
@@ -166,10 +166,10 @@ async function collectLLMEvents(
   return events;
 }
 
-function stubProviderManager(
+function stubModelProvider(
   modelAlias: string,
   resolved: ResolvedRuntimeProvider,
-): IProviderManager {
+): IModelProvider {
   return {
     _serviceBrand: undefined,
     defaultModel: modelAlias,

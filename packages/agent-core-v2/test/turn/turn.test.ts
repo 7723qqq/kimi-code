@@ -1984,7 +1984,7 @@ function mediaCapabilities(): ModelCapability {
 function oauthAgentOptions(
   getAccessToken: (options?: { readonly force?: boolean }) => Promise<string>,
   capabilities?: readonly string[] | undefined,
-): Pick<TestAgentOptions, 'initialConfig' | 'providerManagerOverrides'> {
+): Pick<TestAgentOptions, 'initialConfig' | 'modelProviderOverrides'> {
   return {
     initialConfig: {
       defaultModel: 'kimi-code',
@@ -2004,7 +2004,7 @@ function oauthAgentOptions(
         },
       },
     },
-    providerManagerOverrides: {
+    modelProviderOverrides: {
       resolveOAuthTokenProvider: vi.fn(() => ({ getAccessToken })),
     },
   };

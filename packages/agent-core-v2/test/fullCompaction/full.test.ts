@@ -1744,10 +1744,10 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    const providerManager = (ctx.runtime as any).modelProvider;
-    if (providerManager === undefined) throw new Error('Expected provider manager');
-    const resolveProviderConfig = providerManager.resolveProviderConfig.bind(providerManager);
-    providerManager.resolveProviderConfig = (model: string) => ({
+    const modelProvider = (ctx.runtime as any).modelProvider;
+    if (modelProvider === undefined) throw new Error('Expected model provider');
+    const resolveProviderConfig = modelProvider.resolveProviderConfig.bind(modelProvider);
+    modelProvider.resolveProviderConfig = (model: string) => ({
       ...resolveProviderConfig(model),
       modelCapabilities: UNKNOWN_CAPABILITY,
     });
@@ -2041,7 +2041,7 @@ function countEvents(events: ReturnType<TestAgentContext['newEvents']>, type: st
 
 function oauthTestAgentOptions(
   getAccessToken: (options?: { readonly force?: boolean }) => Promise<string>,
-): Pick<TestAgentOptions, 'initialConfig' | 'providerManagerOverrides'> {
+): Pick<TestAgentOptions, 'initialConfig' | 'modelProviderOverrides'> {
   return {
     initialConfig: {
       defaultModel: 'kimi-code',
@@ -2060,7 +2060,7 @@ function oauthTestAgentOptions(
         },
       },
     },
-    providerManagerOverrides: {
+    modelProviderOverrides: {
       resolveOAuthTokenProvider: () => ({ getAccessToken }),
     },
   };

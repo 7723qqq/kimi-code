@@ -3,7 +3,7 @@
  *
  * Assembles one LLM request from `profile` (provider / system prompt),
  * `contextMemory` + `contextProjector` (history), and `toolRegistry` (tools),
- * resolves request authorization through `kosong` `IProviderManager`, drives
+ * resolves request authorization through `modelProvider`, drives
  * kosong `generate()`, and logs each request through `llmRequestLog`. Bound at
  * Agent scope.
  */
@@ -20,7 +20,7 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IProviderManager } from '#/kosong';
+import { IModelProvider } from '#/modelProvider';
 import {
   applyCompletionBudget,
   resolveCompletionBudget,
@@ -55,7 +55,7 @@ export class LLMRequesterService implements ILLMRequester {
     @IProfileService private readonly profile: IProfileService,
     @ILLMRequestLogService private readonly requestLog: ILLMRequestLogService,
     @IUsageService private readonly usage: IUsageService,
-    @IProviderManager private readonly providerManager: IProviderManager,
+    @IModelProvider private readonly modelProvider: IModelProvider,
     @IConfigService private readonly config: IConfigService,
   ) {}
 
@@ -193,7 +193,7 @@ export class LLMRequesterService implements ILLMRequester {
   }
 
   private resolveAuth(modelAlias: string) {
-    return this.providerManager.resolveAuth?.(modelAlias);
+    return this.modelProvider.resolveAuth?.(modelAlias);
   }
 
   private defaultTools(): readonly KosongTool[] {

@@ -7,6 +7,8 @@ import type { ContentPart, ModelCapability, ProviderConfig } from '@moonshot-ai/
 import type { generate as kosongGenerate } from '@moonshot-ai/kosong';
 import { expect, onTestFinished, vi } from 'vitest';
 
+import type { IConfigService } from '#/config';
+import { ModelProvider, type IModelProvider } from '#/modelProvider';
 import type { KimiConfig } from '../../../../src/config';
 import {
   InstantiationService,
@@ -53,7 +55,6 @@ import {
   type WireRecord,
   type WireRecordPersistence,
 } from '../../../../src/services/agent';
-import { ProviderManager } from '../../../../src/session/provider-manager';
 import type { TelemetryClient } from '../../../../src/telemetry';
 import type { PromisifyMethods } from '../../../../src/utils/types';
 import { testKaos } from '../../../fixtures/test-kaos';
@@ -133,9 +134,9 @@ export interface TestAgentOptions {
   readonly permissionRules?: readonly PermissionRule[];
   readonly goal?: AgentRuntimeOptions['goal'];
   readonly pluginSessionStarts?: AgentRuntimeOptions['pluginSessionStarts'];
-  readonly providerManager?: ProviderManager;
+  readonly modelProvider?: IModelProvider;
   readonly initialConfig?: KimiConfig;
-  readonly providerManagerOverrides?: Omit<ConstructorParameters<typeof ProviderManager>[0], 'config'>;
+  readonly modelProviderOverrides?: Omit<ConstructorParameters<typeof ModelProvider>[0], 'config'>;
   readonly sessionId?: string;
   readonly agentId?: string;
   readonly subagentHost?: AgentRuntimeOptions['subagentHost'];
@@ -235,10 +236,10 @@ export class AgentTestContext {
 
     const kaos = options.kaos ?? testKaos;
     const toolServices = options.toolServices ?? options.runtime;
-    const providerManager = options.providerManager ?? new ProviderManager({
-      config: () => this.kimiConfig,
+    const modelProvider = options.modelProvider ?? new ModelProvider({
+      config: configService(() => this.kimiConfig),
       promptCacheKey: options.sessionId,
-      ...options.providerManagerOverrides,
+      ...options.modelProviderOverrides,
     });
     const persistence = this.wrapPersistence(
       options.persistence ?? new InMemoryWireRecordPersistence(),
@@ -262,7 +263,7 @@ export class AgentTestContext {
       },
       kaos,
       config: () => this.kimiConfig,
-      modelProvider: providerManager,
+      modelProvider: modelProvider,
       generate: options.generate ?? this.scriptedGenerate.generate,
       toolServices,
       mcp: options.mcp,
@@ -358,7 +359,7 @@ export class AgentTestContext {
     provider: ProviderConfig,
     modelCapabilities?: ModelCapability | undefined,
   ): void {
-    if (this.options.providerManager === undefined) {
+    if (this.options.modelProvider === undefined) {
       this.kimiConfig = configWithProvider(this.kimiConfig, provider, modelCapabilities);
     }
     this.profile.update({ modelAlias: provider.model });
@@ -629,9 +630,9 @@ export class AgentTestContext {
       kaos: createResumeNoSideEffectKaos(this.profile.data().cwd),
       runtime: this.options.runtime,
       toolServices: this.options.toolServices,
-      providerManager: this.options.providerManager,
+      modelProvider: this.options.modelProvider,
       initialConfig: this.kimiConfig,
-      providerManagerOverrides: this.options.providerManagerOverrides,
+      modelProviderOverrides: this.options.modelProviderOverrides,
       generate: failOnResumeGenerate,
       microCompaction: this.options.microCompaction,
       fullCompaction: this.options.fullCompaction,
@@ -988,6 +989,30 @@ function configStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot['config
 
 function emptyConfig(): KimiConfig {
   return configWithProvider({ providers: {} }, MOCK_PROVIDER, undefined);
+}
+
+function configService(readConfig: () => KimiConfig): IConfigService {
+  return {
+    _serviceBrand: undefined,
+    ready: Promise.resolve(),
+    onDidChange: () => ({ dispose: () => {} }),
+    onDidSectionChange: () => ({ dispose: () => {} }),
+    get: <T>(domain: string) => (readConfig() as Record<string, unknown>)[domain] as T,
+    inspect: (domain: string) => {
+      const value = (readConfig() as Record<string, unknown>)[domain];
+      return {
+        value,
+        defaultValue: undefined,
+        userValue: undefined,
+        memoryValue: value,
+      };
+    },
+    getAll: () => readConfig() as never,
+    set: () => Promise.resolve(),
+    replace: () => Promise.resolve(),
+    reload: () => Promise.resolve(),
+    diagnostics: () => [],
+  } as unknown as IConfigService;
 }
 
 function configWithProvider(

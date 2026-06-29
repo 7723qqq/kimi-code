@@ -53,7 +53,7 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>subagentHost</b>\n<size:9><i>Session</i></size>\n  ISubagentHost" as subagentHost #D5F5E3
   rectangle "<b>process</b>\n<size:9><i>Session</i></size>\n  IProcessRunner\n  IProcessBackend" as process #D5F5E3
   rectangle "<b>terminal</b>\n<size:9><i>Session</i></size>\n  ITerminalService\n  ITerminalBackend" as terminal #D5F5E3
-  rectangle "<b>modelRuntime</b>\n<size:9><i>Session</i></size>\n  IModelResolver(S)\n  IProviderAuthService(S)\n  IModelRuntimeOptions(seed)" as modelRuntime #D5F5E3
+  rectangle "<b>modelProvider</b>\n<size:9><i>Session</i></size>\n  IModelProvider (seed)" as modelProvider #D5F5E3
 }
 
 package "Agent scope (per agent)" #FDF5E6 {
@@ -129,10 +129,7 @@ question --> interaction #34495E
 subagentHost --> toolRegistry #34495E
 subagentHost --> background #34495E
 subagentHost --> profile #34495E
-modelRuntime --> config #34495E
-modelRuntime --> provider #34495E
-modelRuntime --> model #34495E
-modelRuntime --> auth #34495E
+modelProvider --> config #34495E
 session --> session_context #34495E
 session --> session_metadata #34495E
 session --> agent_lifecycle #34495E
@@ -161,7 +158,7 @@ profile --> eventSink #34495E
 profile --> replayBuilder #34495E
 profile --> telemetry #34495E
 profile --> config #34495E
-profile --> modelRuntime #34495E
+profile --> modelProvider #34495E
 profile --> chatProvider #34495E
 prompt --> contextMemory #34495E
 prompt --> turn #34495E
@@ -191,7 +188,7 @@ llmRequester --> toolRegistry #34495E
 llmRequester --> profile #34495E
 llmRequester --> llmRequestLog #34495E
 llmRequester --> usage #34495E
-llmRequester --> modelRuntime #34495E
+llmRequester --> modelProvider #34495E
 llmRequester --> config #34495E
 llmRequestLog --> log #34495E
 toolExecutor --> toolRegistry #34495E

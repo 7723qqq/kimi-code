@@ -1,13 +1,10 @@
 /**
- * `kosong` domain (L1) — `models` config-section schema and TOML transforms.
+ * `modelProvider` domain (L1) — model alias config-section schema.
  *
- * Owns the `[models.<alias>]` configuration section (model alias → provider +
- * context/capabilities) consumed by `ProviderManager` to resolve a runtime
- * provider. Includes the snake_case ↔ camelCase TOML transforms that preserve
- * user-defined alias names (record keys) while converting each alias's fields.
- * Registered into `IConfigRegistry` by `ProtocolHandlerRegistry` (the kosong
- * domain's Core service) on construction, so the `config` domain never imports
- * this domain's types.
+ * Owns the `[models.<alias>]` configuration section consumed by `IModelProvider`
+ * to resolve a model alias into provider, model, context, and capability
+ * settings. Includes TOML transforms that preserve user-defined alias keys
+ * while converting each alias's fields.
  */
 
 import { z } from 'zod';
@@ -39,7 +36,6 @@ export const ModelsSectionSchema = z.record(z.string(), ModelAliasSchema);
 
 export type ModelsSection = z.infer<typeof ModelsSectionSchema>;
 
-/** Read transform: preserve alias names; camelCase each alias's fields. */
 export const modelsFromToml = (rawSnake: unknown): unknown => {
   if (!isPlainObject(rawSnake)) return rawSnake;
   const out: Record<string, unknown> = {};
@@ -49,7 +45,6 @@ export const modelsFromToml = (rawSnake: unknown): unknown => {
   return out;
 };
 
-/** Write transform: preserve alias names; snake_case each alias's fields. */
 export const modelsToToml = (value: unknown, rawSnake: unknown): unknown => {
   if (!isPlainObject(value)) return value;
   const rawSub = cloneRecord(rawSnake);

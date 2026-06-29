@@ -117,7 +117,7 @@ This pattern recurs throughout the codebase and confirms the rule:
   agent's record stream).
 - **`config`** — `IConfigRegistry` / `IConfigService` (`Core`, global config).
 - **`kosong`** — `IProtocolHandlerRegistry` (`Core`, protocol adapters keyed by provider
-  type) + `IProviderManager` (`Session`, resolves the active model into a provider config).
+  type) + `IModelProvider` (`Session`, resolves the active model into a provider config).
   Generation itself is driven by `ILLMRequester` (`Agent`) in the `llmRequester` domain.
 - **`tool`** — `IToolDefinitionRegistry` (`Core`, tool-definition registry) + `IToolService`
   (`Agent`, this agent's execution).
