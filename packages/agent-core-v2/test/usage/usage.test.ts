@@ -1,55 +1,140 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { SyncDescriptor } from '#/_base/di/descriptors';
-import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
-import { TestInstantiationService } from '#/_base/di/test';
-import { IEventSink } from '../../src/eventSink';
-import { IUsageService } from '#/usage';
-import { UsageService } from '#/usage/usageService';
-import { IWireRecord } from '#/wireRecord';
+import { testAgent } from './harness';
 
-import { stubWireRecord } from '../contextMemory/stubs';
+describe('Agent usage', () => {
+  it('accumulates usage by model', () => {
+    const usage = testAgent().usage;
 
-function usage(inputOther: number, output: number): { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number } {
-  return { inputOther, output, inputCacheRead: 0, inputCacheCreation: 0 };
-}
+    usage.record('model-a', {
+      inputOther: 1,
+      output: 2,
+      inputCacheRead: 3,
+      inputCacheCreation: 4,
+    });
+    usage.record('model-a', {
+      inputOther: 10,
+      output: 20,
+      inputCacheRead: 30,
+      inputCacheCreation: 40,
+    });
+    usage.record('model-b', {
+      inputOther: 100,
+      output: 200,
+      inputCacheRead: 300,
+      inputCacheCreation: 400,
+    });
 
-describe('UsageService', () => {
-  let disposables: DisposableStore;
-  let ix: TestInstantiationService;
-
-  beforeEach(() => {
-    disposables = new DisposableStore();
-    ix = disposables.add(new TestInstantiationService());
-    ix.stub(IWireRecord, stubWireRecord());
-    ix.stub(IEventSink, { emit: () => {}, on: () => toDisposable(() => {}) });
-    ix.set(IUsageService, new SyncDescriptor(UsageService));
+    expect(usage.data()).toEqual({
+      byModel: {
+        'model-a': {
+          inputOther: 11,
+          output: 22,
+          inputCacheRead: 33,
+          inputCacheCreation: 44,
+        },
+        'model-b': {
+          inputOther: 100,
+          output: 200,
+          inputCacheRead: 300,
+          inputCacheCreation: 400,
+        },
+      },
+      total: {
+        inputOther: 111,
+        output: 222,
+        inputCacheRead: 333,
+        inputCacheCreation: 444,
+      },
+      currentTurn: undefined,
+    });
   });
-  afterEach(() => disposables.dispose());
 
-  it('accumulates input/output tokens per model', () => {
-    const svc = ix.get(IUsageService);
-    svc.record('m', usage(10, 5));
-    svc.record('m', usage(3, 2));
-    expect(svc.status().byModel?.['m']).toEqual(usage(13, 7));
-    expect(svc.status().total).toEqual(usage(13, 7));
+  it('tracks current turn usage separately from session totals', () => {
+    const usage = testAgent().usage;
+
+    usage.record('model-a', {
+      inputOther: 1,
+      output: 2,
+      inputCacheRead: 3,
+      inputCacheCreation: 4,
+    });
+    usage.beginTurn();
+    usage.record(
+      'model-a',
+      {
+        inputOther: 10,
+        output: 20,
+        inputCacheRead: 30,
+        inputCacheCreation: 40,
+      },
+      'turn',
+    );
+    usage.record(
+      'model-b',
+      {
+        inputOther: 100,
+        output: 200,
+        inputCacheRead: 300,
+        inputCacheCreation: 400,
+      },
+      'turn',
+    );
+
+    expect(usage.data()).toMatchObject({
+      total: {
+        inputOther: 111,
+        output: 222,
+        inputCacheRead: 333,
+        inputCacheCreation: 444,
+      },
+      currentTurn: {
+        inputOther: 110,
+        output: 220,
+        inputCacheRead: 330,
+        inputCacheCreation: 440,
+      },
+    });
+
+    usage.endTurn();
+
+    expect(usage.data().currentTurn).toBeUndefined();
   });
 
-  it('tracks current turn usage by turn id', () => {
-    const svc = ix.get(IUsageService);
-    svc.record('m', usage(10, 5), { type: 'turn', turnId: 1 });
-    svc.record('m', usage(3, 2), { type: 'turn', turnId: 1 });
-    expect(svc.status().currentTurn).toEqual(usage(13, 7));
+  it('returns immutable status snapshots', () => {
+    const usage = testAgent().usage;
 
-    svc.record('m', usage(4, 1), { type: 'turn', turnId: 2 });
-    expect(svc.status().currentTurn).toEqual(usage(4, 1));
-  });
+    usage.record('model-a', {
+      inputOther: 1,
+      output: 2,
+      inputCacheRead: 3,
+      inputCacheCreation: 4,
+    });
+    const snapshot = usage.data();
 
-  it('does not include session usage in current turn', () => {
-    const svc = ix.get(IUsageService);
-    svc.record('m', usage(10, 5), { type: 'turn', turnId: 1 });
-    svc.record('m', usage(3, 2));
-    expect(svc.status().currentTurn).toEqual(usage(10, 5));
-    expect(svc.status().byModel?.['m']).toEqual(usage(13, 7));
+    usage.record('model-a', {
+      inputOther: 10,
+      output: 20,
+      inputCacheRead: 30,
+      inputCacheCreation: 40,
+    });
+
+    expect(snapshot).toEqual({
+      byModel: {
+        'model-a': {
+          inputOther: 1,
+          output: 2,
+          inputCacheRead: 3,
+          inputCacheCreation: 4,
+        },
+      },
+      total: {
+        inputOther: 1,
+        output: 2,
+        inputCacheRead: 3,
+        inputCacheCreation: 4,
+      },
+      currentTurn: undefined,
+    });
   });
 });
