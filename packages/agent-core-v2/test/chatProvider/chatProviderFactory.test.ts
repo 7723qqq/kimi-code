@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ChatProvider, Message, StreamedMessage, Tool } from '@moonshot-ai/kosong';
 
 import { createScopedTestHost } from '#/_base/di/test';
-import { IProtocolHandlerRegistry } from '#/kosong';
+import { IChatProviderFactory } from '#/chatProvider';
 
 function stubProvider(): ChatProvider {
   const stream: StreamedMessage = {
@@ -28,12 +28,12 @@ function stubProvider(): ChatProvider {
   };
 }
 
-describe('ProtocolHandlerRegistry', () => {
-  it('creates a built-in handler by type', () => {
+describe('ChatProviderFactory', () => {
+  it('creates a built-in adapter by type', () => {
     const host = createScopedTestHost();
     afterEach(() => host.core.dispose());
-    const registry = host.core.accessor.get(IProtocolHandlerRegistry);
-    const provider = registry.create({ type: 'kimi', model: 'kimi-model', apiKey: 'sk-test' });
+    const factory = host.core.accessor.get(IChatProviderFactory);
+    const provider = factory.create({ type: 'kimi', model: 'kimi-model', apiKey: 'sk-test' });
     expect(provider.name).toBe('kimi');
     expect(provider.modelName).toBe('kimi-model');
   });
@@ -41,9 +41,9 @@ describe('ProtocolHandlerRegistry', () => {
   it('lets a registered factory override a built-in type', () => {
     const host = createScopedTestHost();
     afterEach(() => host.core.dispose());
-    const registry = host.core.accessor.get(IProtocolHandlerRegistry);
+    const factory = host.core.accessor.get(IChatProviderFactory);
     const stub = stubProvider();
-    registry.register('kimi', () => stub);
-    expect(registry.create({ type: 'kimi', model: 'x' })).toBe(stub);
+    factory.register('kimi', () => stub);
+    expect(factory.create({ type: 'kimi', model: 'x' })).toBe(stub);
   });
 });

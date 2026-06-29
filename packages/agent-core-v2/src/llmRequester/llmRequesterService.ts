@@ -3,9 +3,9 @@
  *
  * Assembles one LLM request from `profile` (provider / system prompt),
  * `contextMemory` + `contextProjector` (history), and `toolRegistry` (tools),
- * resolves request authorization through `kosong` `IProviderManager`, drives
- * kosong `generate()`, and logs each request through `llmRequestLog`. Bound at
- * Agent scope.
+ * resolves request authorization through `modelRuntime` `IModelResolver`, drives
+ * `@moonshot-ai/kosong` `generate()`, and logs each request through
+ * `llmRequestLog`. Bound at Agent scope.
  */
 
 import {
@@ -20,13 +20,13 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IProviderManager } from '#/kosong';
+import { IModelResolver } from '#/modelRuntime';
 import {
   applyCompletionBudget,
   resolveCompletionBudget,
 } from "#/_base/utils/completion-budget";
 import { IConfigService } from '#/config';
-import type { KimiModelOverrides } from '#/kosong';
+import type { KimiModelOverrides } from '#/chatProvider';
 import { IProfileService } from '#/profile';
 import { IContextMemory } from '#/contextMemory';
 import { IContextProjector } from '#/contextProjector';
@@ -55,7 +55,7 @@ export class LLMRequesterService implements ILLMRequester {
     @IProfileService private readonly profile: IProfileService,
     @ILLMRequestLogService private readonly requestLog: ILLMRequestLogService,
     @IUsageService private readonly usage: IUsageService,
-    @IProviderManager private readonly providerManager: IProviderManager,
+    @IModelResolver private readonly modelResolver: IModelResolver,
     @IConfigService private readonly config: IConfigService,
   ) {}
 
@@ -144,9 +144,7 @@ export class LLMRequesterService implements ILLMRequester {
         usage,
         model: usageModel,
       });
-      if (request.usageContext === undefined) {
-        this.usage.record(usageModel, usage);
-      }
+      this.usage.record(usageModel, usage, request.usageContext);
       queue.push({
         type: 'finish',
         providerFinishReason: result.finishReason ?? undefined,
@@ -195,7 +193,7 @@ export class LLMRequesterService implements ILLMRequester {
   }
 
   private resolveAuth(modelAlias: string) {
-    return this.providerManager.resolveAuth?.(modelAlias);
+    return this.modelResolver.resolveAuth?.(modelAlias);
   }
 
   private defaultTools(): readonly KosongTool[] {

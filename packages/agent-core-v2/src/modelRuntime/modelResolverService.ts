@@ -1,16 +1,15 @@
 /**
- * `kosong` domain (L1) — `IProviderManager` contract and runtime implementation.
+ * `modelRuntime` domain (L3) — `IModelResolver` runtime implementation.
  *
- * Resolves the active model alias into a runtime kosong `ProviderConfig` plus
- * optional OAuth request authorization, reading provider / model configuration
- * through `config`. A host-built instance is installed into a Session scope via
- * `providerManagerSeed`; `IProfileService` / `ILLMRequester` consume it through
- * DI. Bound at Session scope.
+ * Resolves a model alias into a runtime provider configuration plus optional
+ * OAuth request authorization, reading provider / model configuration through
+ * `IConfigService` and OAuth tokens through `IOAuthService`. Registered as a
+ * Session-scoped service; `modelResolverSeed` remains a host/test override seam.
  */
 
 import type {
   ModelCapability,
-  ProviderConfig as KosongProviderConfig,
+  ProviderConfig as RuntimeProviderConfig,
   ProviderRequestAuth,
 } from '@moonshot-ai/kosong';
 import {
@@ -19,64 +18,30 @@ import {
   UNKNOWN_CAPABILITY,
 } from '@moonshot-ai/kosong';
 
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { ScopeSeed } from '#/_base/di/scope';
-import type { IConfigService } from '#/config';
+import { InstantiationType } from '#/_base/di/extensions';
+import type { ServiceIdentifier } from '#/_base/di/instantiation';
+import { LifecycleScope, registerScopedService, type ScopeSeed } from '#/_base/di/scope';
+import { IOAuthService } from '#/auth';
+import { IConfigService } from '#/config';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
-import type { OAuthRef, ProviderConfig } from '#/provider';
+import type { ModelAlias } from '#/model';
+import type { ProviderConfig } from '#/provider';
 
-import type { ModelAlias } from './configSection';
+import {
+  type AuthorizedRequest,
+  IModelResolver,
+  type RequestLogger,
+  type ResolvedModel,
+} from './modelRuntime';
 
-export interface BearerTokenProvider {
-  getAccessToken(options?: { readonly force?: boolean }): Promise<string>;
+export function modelResolverSeed(modelResolver: IModelResolver): ScopeSeed {
+  return [[IModelResolver as ServiceIdentifier<unknown>, modelResolver]];
 }
 
-export type OAuthTokenProviderResolver = (
-  providerName: string,
-  oauthRef?: OAuthRef,
-) => BearerTokenProvider | undefined;
-
-export interface ResolvedRuntimeProvider {
-  readonly providerName: string;
-  readonly provider: KosongProviderConfig;
-  readonly modelCapabilities: ModelCapability;
-  readonly alwaysThinking?: boolean;
-  readonly maxOutputSize?: number;
-}
-
-export interface ProviderManagerOptions {
-  readonly config: IConfigService;
-  readonly kimiRequestHeaders?: Record<string, string>;
-  readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver;
-  readonly promptCacheKey?: string;
-}
-
-export interface RequestLogger {
-  warn(message: string, payload?: unknown): void;
-}
-
-type AuthorizedRequest = <T>(
-  request: (auth: ProviderRequestAuth) => Promise<T>,
-) => Promise<T>;
-
-export interface IProviderManager {
-  readonly _serviceBrand: undefined;
-  readonly defaultModel?: string;
-  resolveProviderConfig(model: string): ResolvedRuntimeProvider;
-  resolveAuth?(model: string, options?: { readonly log?: RequestLogger }): AuthorizedRequest | undefined;
-}
-
-export const IProviderManager: ServiceIdentifier<IProviderManager> =
-  createDecorator<IProviderManager>('providerManager');
-
-export function providerManagerSeed(providerManager: IProviderManager): ScopeSeed {
-  return [[IProviderManager as ServiceIdentifier<unknown>, providerManager]];
-}
-
-export class SingleModelProvider implements IProviderManager {
+export class SingleModelResolver implements IModelResolver {
   declare readonly _serviceBrand: undefined;
   constructor(
-    private readonly providerConfig: KosongProviderConfig,
+    private readonly providerConfig: RuntimeProviderConfig,
     private readonly modelCapabilities: ModelCapability = UNKNOWN_CAPABILITY,
   ) {}
 
@@ -84,42 +49,45 @@ export class SingleModelProvider implements IProviderManager {
     return this.providerConfig.model;
   }
 
-  resolveProviderConfig(model: string): ResolvedRuntimeProvider {
+  resolve(model: string): ResolvedModel {
     if (model !== this.providerConfig.model) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
-        `Model "${model}" is not supported by SingleModelProvider.`,
+        `Model "${model}" is not supported by SingleModelResolver.`,
       );
     }
     return {
       modelCapabilities: this.modelCapabilities,
-      providerName: 'single-model-provider',
+      providerName: 'single-model-resolver',
       provider: this.providerConfig,
     };
   }
 }
 
-export class ProviderManager implements IProviderManager {
+export class ModelResolver implements IModelResolver {
   declare readonly _serviceBrand: undefined;
-  constructor(private readonly options: ProviderManagerOptions) {}
+  constructor(
+    @IConfigService private readonly config: IConfigService,
+    @IOAuthService private readonly oauth: IOAuthService,
+  ) {}
 
   get defaultModel(): string | undefined {
-    return this.options.config.get<string>('defaultModel');
+    return this.config.get<string>('defaultModel');
   }
 
   private get models(): Record<string, ModelAlias> {
-    return this.options.config.get<Record<string, ModelAlias>>('models') ?? {};
+    return this.config.get<Record<string, ModelAlias>>('models') ?? {};
   }
 
   private get providers(): Record<string, ProviderConfig> {
-    return this.options.config.get<Record<string, ProviderConfig>>('providers') ?? {};
+    return this.config.get<Record<string, ProviderConfig>>('providers') ?? {};
   }
 
   private get defaultProvider(): string | undefined {
-    return this.options.config.get<string>('defaultProvider');
+    return this.config.get<string>('defaultProvider');
   }
 
-  resolveProviderConfig(model: string): ResolvedRuntimeProvider {
+  resolve(model: string): ResolvedModel {
     const alias = this.models[model];
     if (alias === undefined) {
       throw new KimiError(
@@ -151,13 +119,11 @@ export class ProviderManager implements IProviderManager {
       );
     }
 
-    const provider = toKosongProviderConfig(
+    const provider = toRuntimeProviderConfig(
       providerConfig,
       alias.model,
-      this.options.kimiRequestHeaders,
       alias.maxOutputSize,
       alias.reasoningKey,
-      this.options.promptCacheKey,
       alias.adaptiveThinking,
     );
 
@@ -176,7 +142,7 @@ export class ProviderManager implements IProviderManager {
     model: string,
     options?: { readonly log?: RequestLogger },
   ): AuthorizedRequest | undefined {
-    const { providerName } = this.resolveProviderConfig(model);
+    const { providerName } = this.resolve(model);
     const providerConfig = this.providers[providerName];
     if (providerConfig?.oauth === undefined) return undefined;
 
@@ -194,10 +160,7 @@ export class ProviderManager implements IProviderManager {
         cause === undefined ? undefined : { cause },
       );
 
-    const tokenProvider = this.options.resolveOAuthTokenProvider?.(
-      providerName,
-      providerConfig.oauth,
-    );
+    const tokenProvider = this.oauth.resolveTokenProvider(providerName, providerConfig.oauth);
     if (tokenProvider === undefined) {
       return async () => {
         throw loginRequired();
@@ -245,7 +208,7 @@ export class ProviderManager implements IProviderManager {
 
 function resolveModelCapabilities(
   alias: ModelAlias,
-  provider: KosongProviderConfig,
+  provider: RuntimeProviderConfig,
 ): ModelCapability {
   const declared = new Set((alias.capabilities ?? []).map((c) => c.trim().toLowerCase()));
   const detected = getModelCapability(provider.type, provider.model);
@@ -260,15 +223,13 @@ function resolveModelCapabilities(
   };
 }
 
-function toKosongProviderConfig(
+function toRuntimeProviderConfig(
   provider: ProviderConfig,
   model: string,
-  kimiRequestHeaders: Record<string, string> | undefined,
   maxOutputSize: number | undefined,
   reasoningKey: string | undefined,
-  promptCacheKey: string | undefined,
   adaptiveThinking: boolean | undefined,
-): KosongProviderConfig {
+): RuntimeProviderConfig {
   switch (provider.type) {
     case 'anthropic':
       return {
@@ -295,8 +256,7 @@ function toKosongProviderConfig(
         model,
         baseUrl: providerValue(provider.baseUrl, provider.env, 'KIMI_BASE_URL'),
         apiKey: providerApiKey(provider),
-        generationKwargs: { prompt_cache_key: promptCacheKey },
-        ...defaultHeadersField({ ...kimiRequestHeaders, ...provider.customHeaders }),
+        ...defaultHeadersField(provider.customHeaders),
       };
     case 'google-genai':
       return {
@@ -410,3 +370,11 @@ function locationFromVertexAIBaseUrl(baseUrl: string | undefined): string | unde
     return undefined;
   }
 }
+
+registerScopedService(
+  LifecycleScope.Session,
+  IModelResolver,
+  ModelResolver,
+  InstantiationType.Delayed,
+  'modelRuntime',
+);

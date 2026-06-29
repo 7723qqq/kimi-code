@@ -22,9 +22,11 @@ import {
   transformPlainObject,
 } from '#/config/toml';
 
-import { ProviderConfigSchema, ProvidersSectionSchema } from './provider';
-
-export const ENV_MODEL_PROVIDER_KEY = '__kimi_env__';
+import {
+  ENV_MODEL_PROVIDER_KEY,
+  ProviderConfigSchema,
+  ProvidersSectionSchema,
+} from './provider';
 
 export const providersEnvBindings = envBindings(ProvidersSectionSchema, {
   [ENV_MODEL_PROVIDER_KEY]: envBindings(ProviderConfigSchema, {

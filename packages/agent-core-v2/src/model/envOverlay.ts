@@ -1,21 +1,21 @@
 /**
- * `provider` domain (L2) — `KIMI_MODEL_*` effective-config overlay.
+ * `model` domain (L2) — `KIMI_MODEL_*` effective-config overlay.
  *
- * When `KIMI_MODEL_NAME` is set, synthesizes one provider + one model alias from
- * the `KIMI_MODEL_*` environment variables and overlays them onto the resolved
- * `effective` config: the reserved provider/model entries, `defaultModel`, and
- * the request `modelOverrides`. The overlay is applied ONLY to the in-memory
- * `effective` view; its `strip` removes the synthesized values on the write
- * path so they never reach `config.toml`. Registered into `IConfigRegistry` by
- * `ProviderService` on construction, so the `config` domain never imports this
- * domain's model/provider semantics.
+ * When `KIMI_MODEL_NAME` is set, synthesizes one model alias (bound to the
+ * reserved `__kimi_env__` provider owned by the `provider` domain) from the
+ * `KIMI_MODEL_*` environment variables and overlays it onto the resolved
+ * `effective` config: the reserved model entry, `defaultModel`, and the request
+ * `modelOverrides`. The overlay is applied ONLY to the in-memory `effective`
+ * view; its `strip` removes the synthesized values on the write path so they
+ * never reach `config.toml`. Registered into `IConfigRegistry` by `ModelService`
+ * on construction, so the `config` domain never imports this domain's model
+ * semantics.
  */
 
 import { parseBooleanEnv } from '#/_base/utils';
 import type { ConfigEffectiveOverlay } from '#/config';
 import { ErrorCodes, KimiError } from '#/errors';
-
-import { ENV_MODEL_PROVIDER_KEY } from './configSection';
+import { ENV_MODEL_PROVIDER_KEY } from '#/provider';
 
 /** Reserved key for the env-driven synthetic model alias. */
 export const ENV_MODEL_ALIAS_KEY = '__kimi_env_model__';

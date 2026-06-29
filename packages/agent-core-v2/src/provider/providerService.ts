@@ -25,7 +25,6 @@ import {
   providersToToml,
   stripProvidersEnv,
 } from './configSection';
-import { kimiModelEnvOverlay } from './envOverlay';
 
 export class ProviderService extends Disposable implements IProviderService {
   declare readonly _serviceBrand: undefined;
@@ -44,7 +43,6 @@ export class ProviderService extends Disposable implements IProviderService {
       fromToml: providersFromToml,
       toToml: providersToToml,
     });
-    registry.registerEffectiveOverlay(kimiModelEnvOverlay);
     this._register(
       config.onDidChange((e) => {
         if (e.domain === PROVIDERS_SECTION) {

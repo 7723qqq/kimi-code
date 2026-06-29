@@ -116,9 +116,13 @@ This pattern recurs throughout the codebase and confirms the rule:
   `ISessionMetadata` (`Session`, this session's metadata) + `IWireRecord` (`Agent`, this
   agent's record stream).
 - **`config`** — `IConfigRegistry` / `IConfigService` (`Core`, global config).
-- **`kosong`** — `IProtocolHandlerRegistry` (`Core`, protocol adapters keyed by provider
-  type) + `IProviderManager` (`Session`, resolves the active model into a provider config).
-  Generation itself is driven by `ILLMRequester` (`Agent`) in the `llmRequester` domain.
+- **`chatProvider` / `model` / `modelRuntime`** — `IChatProviderFactory` (`Core`,
+  protocol adapters keyed by provider type), `IModelService` (`Core`, model-alias
+  configuration), and `IModelResolver` (`Session`, resolves the active model into a
+  runtime provider config plus request authorization). Provider connection
+  configuration lives in the sibling `provider` domain (`IProviderService`, `Core`).
+  Generation itself is driven by `ILLMRequester` (`Agent`) in the `llmRequester`
+  domain.
 - **`tool`** — `IToolDefinitionRegistry` (`Core`, tool-definition registry) + `IToolService`
   (`Agent`, this agent's execution).
 
@@ -234,7 +238,8 @@ reverse):
 1. **Root (depend on no business domain)**: `_base`, `log`, `environment`, `event`,
    `telemetry`, `kaos`.
 2. **Data / state**: `records`, `filestore`, `workspace`, `blobStore`, `config`.
-3. **Capabilities**: `tool`, `permission`, `prompt`, `contextMemory`, `kosong`, `skill`, …
+3. **Capabilities**: `tool`, `permission`, `prompt`, `contextMemory`, `chatProvider`,
+   `modelRuntime`, `skill`, …
 4. **Orchestrators**: `session`, `agent-lifecycle`, `loop`, `turn`, `swarm`.
 5. **Edge**: `gateway`, `rpc`.
 

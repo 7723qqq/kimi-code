@@ -1,11 +1,12 @@
 /**
- * `kosong` domain (L1) — applies `KIMI_MODEL_*` request overrides to a provider.
+ * `chatProvider` domain (L1) — applies `KIMI_MODEL_*` request overrides to a
+ * `ChatProvider`.
  *
  * The override values are resolved by the `KIMI_MODEL_*` env overlay
- * (`provider/envOverlay.ts`) into the `modelOverrides` effective config value;
+ * (`#/model/envOverlay.ts`) into the `modelOverrides` effective config value;
  * this module applies that resolved value to a `ChatProvider`. It performs no
- * env access itself and owns no config schema — it is pure kosong-side provider
- * adaptation, which is why it lives here rather than in `config`.
+ * env access itself and owns no config schema — it is pure provider-adapter
+ * adaptation, which is why it lives here rather than in `config` or `model`.
  */
 
 import {

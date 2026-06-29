@@ -45,6 +45,8 @@ export interface ServerStartOptions {
   readonly debugEndpoints?: boolean;
   /** When set, require `Authorization: Bearer <rpcToken>` on `/api/v2`. */
   readonly rpcToken?: string;
+  /** Extra scope seeds applied at bootstrap (e.g. a host-provided `IModelResolver`). */
+  readonly seeds?: ScopeSeed;
 }
 
 export interface RunningServer {
@@ -79,6 +81,7 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   const { core } = bootstrap({ homeDir, configPath }, [
     ...logSeed(logging),
     ...durableStorageSeeds(homeDir),
+    ...(opts.seeds ?? []),
   ]);
 
   const logger = opts.logger ?? createServerLogger({ level: opts.logLevel ?? 'info' });

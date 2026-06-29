@@ -4,7 +4,7 @@
  * Owns the `ProviderConfig` / `OAuthRef` models and the `providers` config
  * section; exposes CRUD over provider configurations and persists them through
  * `config`. Core-scoped — provider configuration is global and shared across
- * sessions. Higher-level services (OAuth, CLI, UI, kosong) mutate providers
+ * sessions. Higher-level services (OAuth, CLI, UI, modelRuntime) mutate providers
  * through this domain instead of writing config directly.
  */
 
@@ -48,6 +48,9 @@ export const ProviderConfigSchema = z.object({
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
 export const PROVIDERS_SECTION = 'providers';
+
+/** Reserved key for the env-driven synthetic provider (`KIMI_MODEL_API_KEY` …). */
+export const ENV_MODEL_PROVIDER_KEY = '__kimi_env__';
 
 export const ProvidersSectionSchema = z.record(z.string(), ProviderConfigSchema);
 

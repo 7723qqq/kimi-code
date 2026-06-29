@@ -1,16 +1,11 @@
 /**
- * `kosong` domain (L1) — `models` config-section schema and TOML transforms.
+ * `model` domain (L2) — `models` config-section TOML transforms.
  *
- * Owns the `[models.<alias>]` configuration section (model alias → provider +
- * context/capabilities) consumed by `ProviderManager` to resolve a runtime
- * provider. Includes the snake_case ↔ camelCase TOML transforms that preserve
- * user-defined alias names (record keys) while converting each alias's fields.
- * Registered into `IConfigRegistry` by `ProtocolHandlerRegistry` (the kosong
- * domain's Core service) on construction, so the `config` domain never imports
- * this domain's types.
+ * Snake_case ↔ camelCase transforms that preserve user-defined alias names
+ * (record keys) while converting each alias's fields. Registered into
+ * `IConfigRegistry` by `ModelService` on construction, so the `config` domain
+ * never imports this domain's types.
  */
-
-import { z } from 'zod';
 
 import {
   camelToSnake,
@@ -19,25 +14,6 @@ import {
   setDefined,
   transformPlainObject,
 } from '#/config/toml';
-
-export const MODELS_SECTION = 'models';
-
-export const ModelAliasSchema = z.object({
-  provider: z.string(),
-  model: z.string(),
-  maxContextSize: z.number().int().min(1),
-  maxOutputSize: z.number().int().min(1).optional(),
-  capabilities: z.array(z.string()).optional(),
-  displayName: z.string().optional(),
-  reasoningKey: z.string().optional(),
-  adaptiveThinking: z.boolean().optional(),
-});
-
-export type ModelAlias = z.infer<typeof ModelAliasSchema>;
-
-export const ModelsSectionSchema = z.record(z.string(), ModelAliasSchema);
-
-export type ModelsSection = z.infer<typeof ModelsSectionSchema>;
 
 /** Read transform: preserve alias names; camelCase each alias's fields. */
 export const modelsFromToml = (rawSnake: unknown): unknown => {

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import type { IOAuthService } from '#/auth';
 import type { IConfigService } from '#/config';
 import { ErrorCodes, KimiError } from '#/errors';
-import { ProviderManager } from '#/kosong';
+import { ModelResolver } from '#/modelRuntime';
 
 function stubConfig(sections: Record<string, unknown>): IConfigService {
   return {
@@ -19,6 +20,19 @@ function stubConfig(sections: Record<string, unknown>): IConfigService {
   } as unknown as IConfigService;
 }
 
+function stubOAuth(): IOAuthService {
+  return {
+    _serviceBrand: undefined,
+    startLogin: () => Promise.reject(new Error('not implemented')),
+    getFlow: () => undefined,
+    cancelLogin: () => Promise.reject(new Error('not implemented')),
+    logout: () => Promise.reject(new Error('not implemented')),
+    status: () => Promise.resolve({ loggedIn: false }),
+    resolveTokenProvider: () => undefined,
+    getCachedAccessToken: () => Promise.resolve(undefined),
+  };
+}
+
 function baseSections(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     defaultProvider: 'kimi',
@@ -33,30 +47,30 @@ function baseSections(overrides: Record<string, unknown> = {}): Record<string, u
   };
 }
 
-describe('ProviderManager', () => {
+describe('ModelResolver', () => {
   it('resolves a configured model to its provider', () => {
-    const pm = new ProviderManager({ config: stubConfig(baseSections()) });
-    const resolved = pm.resolveProviderConfig('k1');
+    const resolver = new ModelResolver(stubConfig(baseSections()), stubOAuth());
+    const resolved = resolver.resolve('k1');
     expect(resolved.providerName).toBe('kimi');
     expect(resolved.provider).toMatchObject({ model: 'kimi-model' });
     expect(resolved.modelCapabilities).toBeDefined();
   });
 
   it('exposes defaultModel from config', () => {
-    const pm = new ProviderManager({ config: stubConfig(baseSections()) });
-    expect(pm.defaultModel).toBe('k1');
+    const resolver = new ModelResolver(stubConfig(baseSections()), stubOAuth());
+    expect(resolver.defaultModel).toBe('k1');
   });
 
   it('reads providers and models from the config service', () => {
     const config = stubConfig(baseSections());
-    const pm = new ProviderManager({ config });
-    expect(pm.defaultModel).toBe('k1');
-    expect(pm.resolveProviderConfig('k1').providerName).toBe('kimi');
+    const resolver = new ModelResolver(config, stubOAuth());
+    expect(resolver.defaultModel).toBe('k1');
+    expect(resolver.resolve('k1').providerName).toBe('kimi');
   });
 
   it('throws CONFIG_INVALID for an unknown model', () => {
-    const pm = new ProviderManager({ config: stubConfig(baseSections()) });
-    expect(() => pm.resolveProviderConfig('does-not-exist')).toThrowError(
+    const resolver = new ModelResolver(stubConfig(baseSections()), stubOAuth());
+    expect(() => resolver.resolve('does-not-exist')).toThrowError(
       expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID } as Partial<KimiError>),
     );
   });
@@ -71,8 +85,8 @@ describe('ProviderManager', () => {
         },
       }),
     );
-    const pm = new ProviderManager({ config });
-    expect(() => pm.resolveProviderConfig('orphan')).toThrowError(
+    const resolver = new ModelResolver(config, stubOAuth());
+    expect(() => resolver.resolve('orphan')).toThrowError(
       expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID } as Partial<KimiError>),
     );
   });
@@ -86,8 +100,8 @@ describe('ProviderManager', () => {
         },
       }),
     );
-    const pm = new ProviderManager({ config });
-    expect(() => pm.resolveProviderConfig('ghost')).toThrowError(
+    const resolver = new ModelResolver(config, stubOAuth());
+    expect(() => resolver.resolve('ghost')).toThrowError(
       expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID } as Partial<KimiError>),
     );
   });

@@ -2,9 +2,9 @@
  * `profile` domain (L3) — `IProfileService` implementation.
  *
  * Owns the active agent's model alias, thinking level, system prompt, and
- * active-tool set; resolves the runtime provider through `kosong`
- * `IProviderManager`, builds the protocol adapter through `kosong`
- * `IProtocolHandlerRegistry`, applies completion budget through
+ * active-tool set; resolves the runtime provider through `modelRuntime`
+ * `IModelResolver`, builds the protocol adapter through `chatProvider`
+ * `IChatProviderFactory`, applies completion budget through
  * `completion-budget`, persists profile changes through `wireRecord`, and
  * emits status through `eventBus`. Bound at Agent scope.
  */
@@ -22,16 +22,16 @@ import picomatch from 'picomatch';
 import { ErrorCodes, KimiError } from "#/errors";
 import { IConfigRegistry, IConfigService } from '#/config';
 import { resolveThinkingEffort, type ThinkingEffort } from '#/config/thinking';
-import { applyKimiModelOverrides, type KimiModelOverrides } from '#/kosong';
+import { applyKimiModelOverrides, IChatProviderFactory, type KimiModelOverrides } from '#/chatProvider';
 import type { LoopControl } from '#/loop/configSection';
-import { IProtocolHandlerRegistry, IProviderManager, type ResolvedRuntimeProvider } from '#/kosong';
-import { isMcpToolName } from '#/mcp/tool-naming';
+import { isMcpToolName } from '#/tool';
+import { IModelResolver, type ResolvedModel } from '#/modelRuntime';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/profile';
 
 import { IEventSink } from '../eventSink';
 import { IReplayBuilderService } from '#/replayBuilder';
 import { ITelemetryService } from '#/telemetry';
-import type { ToolSource } from '#/toolRegistry';
+import type { ToolSource } from '#/tool';
 import { IWireRecord } from '#/wireRecord';
 import type {
   ProfileData,
@@ -78,8 +78,8 @@ export class ProfileService implements IProfileService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
-    @IProviderManager private readonly providerManager: IProviderManager,
-    @IProtocolHandlerRegistry private readonly protocolHandlers: IProtocolHandlerRegistry,
+    @IModelResolver private readonly modelResolver: IModelResolver,
+    @IChatProviderFactory private readonly chatProviders: IChatProviderFactory,
   ) {
     configRegistry.registerSection(THINKING_SECTION, ThinkingConfigSchema, {
       env: thinkingEnvBindings,
@@ -110,7 +110,7 @@ export class ProfileService implements IProfileService {
       this.cwdValue = this.readConfiguredCwd();
     }
     if (this.modelAliasValue === undefined) {
-      this.modelAliasValue = this.providerManager.defaultModel;
+      this.modelAliasValue = this.modelResolver.defaultModel;
     }
   }
 
@@ -126,7 +126,7 @@ export class ProfileService implements IProfileService {
   }
 
   setModel(model: string): ProfileSetModelResult {
-    const resolved = this.providerManager.resolveProviderConfig(model);
+    const resolved = this.modelResolver.resolve(model);
     if (this.modelAlias !== model) {
       this.update({ modelAlias: model });
       this.telemetry.track('model_switch', { model });
@@ -174,7 +174,7 @@ export class ProfileService implements IProfileService {
 
   resolveModelContext(): ProfileModelContext {
     const modelAlias = this.model;
-    const resolved = this.providerManager.resolveProviderConfig(modelAlias);
+    const resolved = this.modelResolver.resolve(modelAlias);
     if (resolved === undefined) {
       throw new KimiError(ErrorCodes.MODEL_NOT_CONFIGURED, 'Provider not set');
     }
@@ -192,7 +192,7 @@ export class ProfileService implements IProfileService {
   }
 
   getProvider(): ChatProvider {
-    const provider = this.protocolHandlers.create(this.providerConfig).withThinking(this.thinkingLevel);
+    const provider = this.chatProviders.create(this.providerConfig).withThinking(this.thinkingLevel);
     const overrides = this.config.get<KimiModelOverrides>('modelOverrides');
     return applyKimiModelOverrides(provider, overrides, this.thinkingLevel);
   }
@@ -312,7 +312,7 @@ export class ProfileService implements IProfileService {
   }
 
   private get modelAlias(): string | undefined {
-    return this.modelAliasValue ?? this.providerManager.defaultModel;
+    return this.modelAliasValue ?? this.modelResolver.defaultModel;
   }
 
   private get providerConfig(): ProviderConfig {
@@ -334,13 +334,13 @@ export class ProfileService implements IProfileService {
     return this.tryResolvedProviderConfig()?.alwaysThinking === true;
   }
 
-  private get resolvedProviderConfig(): ResolvedRuntimeProvider | undefined {
+  private get resolvedProviderConfig(): ResolvedModel | undefined {
     const modelAlias = this.modelAlias;
     if (modelAlias === undefined) return undefined;
-    return this.providerManager.resolveProviderConfig(modelAlias);
+    return this.modelResolver.resolve(modelAlias);
   }
 
-  private tryResolvedProviderConfig(): ResolvedRuntimeProvider | undefined {
+  private tryResolvedProviderConfig(): ResolvedModel | undefined {
     try {
       return this.resolvedProviderConfig;
     } catch {

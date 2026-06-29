@@ -1,10 +1,11 @@
 /**
- * `kosong` domain error codes — provider (LLM API) failures.
+ * `chatProvider` domain error codes — provider (LLM API) failures raised while
+ * driving a `ChatProvider`.
  */
 
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors';
 
-export const KosongErrors = {
+export const ChatProviderErrors = {
   codes: {
     PROVIDER_API_ERROR: 'provider.api_error',
     PROVIDER_RATE_LIMIT: 'provider.rate_limit',
@@ -28,4 +29,4 @@ export const KosongErrors = {
   },
 } as const satisfies ErrorDomain;
 
-registerErrorDomain(KosongErrors);
+registerErrorDomain(ChatProviderErrors);
