@@ -2,10 +2,13 @@ import {
   APIConnectionError,
   APITimeoutError,
   APIStatusError,
+  APIProviderRateLimitError,
   ChatProviderError,
   PROVIDER_OVERLOAD_MESSAGE_PATTERN,
   PROVIDER_RATE_LIMIT_MESSAGE_PATTERN,
   PROVIDER_REVERSE_PROXY_ERROR_PATTERN,
+  PROVIDER_REVERSE_PROXY_RATE_LIMIT_PATTERN,
+  PROVIDER_STREAM_INTERRUPTED_MESSAGE_PATTERN,
   normalizeAPIStatusError,
 } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
@@ -41,7 +44,6 @@ import type {
   ToolUseBlockParam,
 } from '@anthropic-ai/sdk/resources/messages/messages.js';
 
-import { createSharedFetch } from '../http/undici-agent';
 import { mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
 import {
   normalizeToolCallIdsForProvider,
@@ -96,25 +98,6 @@ export interface AnthropicOptions {
    * encode a parseable Claude version. Leave undefined to infer from the name.
    */
   adaptiveThinking?: boolean | undefined;
-  /**
-   * TTL hint for prompt cache breakpoints. Anthropic charges less per
-   * cached read for longer-lived cache entries (e.g. `1h` is cheaper
-   * per read than `5m`, which is cheaper than `ephemeral`), at the
-   * cost of holding server-side state longer. Defaults to `ephemeral`
-   * to preserve the current behavior; set to `5m` or `1h` for
-   * long-running sessions where the same prompt prefix is reused
-   * across many turns.
-   */
-  cacheControlTtl?: 'ephemeral' | '5m' | '1h' | undefined;
-  /**
-   * Use the Anthropic **beta** Messages API (`client.beta.messages.create`,
-   * `POST /v1/messages?beta=true`) instead of the standard Messages API.
-   *
-   * Beta features (`betaFeatures`) are then sent via the request `betas`
-   * field rather than the `anthropic-beta` header. Defaults to false, which
-   * keeps the standard endpoint + header behavior.
-   */
-  betaApi?: boolean | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => Anthropic;
 }
 
@@ -373,58 +356,7 @@ function budgetTokensForEffort(effort: ThinkingEffort): number {
   }
   throw new Error(`Unknown thinking effort: ${String(effort)}`);
 }
-const EPHEMERAL_CACHE_CONTROL = { type: 'ephemeral' as const };
-const TTL_CACHE_CONTROL = {
-  '5m': { type: '5m' as const },
-  '1h': { type: '1h' as const },
-};
-
-/**
- * Build the cache_control breakpoint object for the configured TTL.
- * `ephemeral` is the cheapest per-call cost but is recycled after 5
- * minutes of idleness, which makes it the right default for short
- * interactive sessions. `5m` and `1h` are explicit prompt-cache TTLs
- * that the provider keeps alive for that wall-clock window after the
- * last read; cheaper per cached read, at the cost of server-side
- * state. The choice is made once at provider construction.
- *
- * The return type is the Anthropic SDK's published `cache_control`
- * field shape (`{ type: 'ephemeral' }`) cast through `unknown` so the
- * runtime values for `5m` and `1h` survive the type checker — the
- * server has always accepted those TTLs, only the SDK type was
- * lagging. The cast is contained here so the rest of the file keeps
- * a tight SDK-typed surface.
- */
-type CacheControlTtl = 'ephemeral' | '5m' | '1h';
-type AnthropicCacheControl = { type: 'ephemeral' | '5m' | '1h' };
-function cacheControlFor(ttl: CacheControlTtl): AnthropicCacheControl {
-  return ttl === '5m' || ttl === '1h' ? TTL_CACHE_CONTROL[ttl] : EPHEMERAL_CACHE_CONTROL;
-}
-
-/**
- * Stable JSON fingerprint of a tool set. Anthropic's prompt cache
- * matches the wire bytes of the tools array exactly, so a fingerprint
- * that ignores property order in the schema would still produce a
- * miss when the caller reordered keys. Serializing once with
- * JSON.stringify and hashing is cheap and matches the wire shape.
- *
- * Empty tool set has a distinct fingerprint so the cache slot is
- * reused only when the input is literally the same.
- */
-function fingerprintTools(tools: readonly Tool[]): string {
-  if (tools.length === 0) return '[]';
-  // Sort by tool name to give the same fingerprint regardless of
-  // registration order — callers often add tools in different orders
-  // across sessions even when the set is semantically identical.
-  const sorted = [...tools].sort((a, b) => a.name.localeCompare(b.name));
-  return JSON.stringify(
-    sorted.map((t) => ({
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-    })),
-  );
-}
+const CACHE_CONTROL = { type: 'ephemeral' as const };
 
 type CacheableBlock = ContentBlockParam & { cache_control?: { type: 'ephemeral' } };
 
@@ -446,10 +378,7 @@ const CACHEABLE_TYPES = new Set([
   'web_search_tool_result',
 ]);
 
-function injectCacheControlOnLastBlock(
-  messages: MessageParam[],
-  ttl: CacheControlTtl,
-): void {
+function injectCacheControlOnLastBlock(messages: MessageParam[]): void {
   const lastMessage = messages.at(-1);
   if (lastMessage === undefined) return;
   const content = lastMessage.content;
@@ -457,10 +386,7 @@ function injectCacheControlOnLastBlock(
   const lastBlock = content.at(-1) as CacheableBlock | undefined;
   if (lastBlock === undefined) return;
   if (CACHEABLE_TYPES.has(lastBlock.type)) {
-    // The SDK type only declares the `ephemeral` shape, but the wire
-    // protocol has accepted `5m` and `1h` for a long time. Cast here
-    // so the rest of the file keeps the SDK's tight type.
-    lastBlock.cache_control = cacheControlFor(ttl) as { type: 'ephemeral' };
+    lastBlock.cache_control = CACHE_CONTROL;
   }
 }
 
@@ -487,33 +413,16 @@ interface AnthropicImageBlock {
   cache_control?: { type: 'ephemeral' };
 }
 
-interface AnthropicVideoBlock {
-  type: 'video';
-  source:
-    | { type: 'base64'; media_type: string; data: string }
-    | { type: 'url'; url: string };
-}
-
-// The Messages API has no representation for audio input. Instead of
+// The Messages API has no representation for audio or video input. Instead of
 // silently dropping such parts (the model would not even know an attachment
 // existed), emit a placeholder text block so it can acknowledge the gap.
 // Consecutive parts of the same kind collapse into a single placeholder.
 const OMITTED_MEDIA_PLACEHOLDER = {
   audio_url: '(audio omitted: not supported by this provider)',
+  video_url: '(video omitted: not supported by this provider)',
 } as const;
 
 const SUPPORTED_B64_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
-
-const SUPPORTED_B64_VIDEO_TYPES = new Set([
-  'video/mp4',
-  'video/mpeg',
-  'video/quicktime',
-  'video/webm',
-  'video/x-matroska',
-  'video/x-msvideo',
-  'video/x-flv',
-  'video/3gpp',
-]);
 
 function imageUrlPartToAnthropic(url: string): AnthropicImageBlock {
   if (url.startsWith('data:')) {
@@ -539,32 +448,6 @@ function imageUrlPartToAnthropic(url: string): AnthropicImageBlock {
     source: { type: 'url', url },
   };
 }
-
-function videoUrlPartToAnthropic(url: string): AnthropicVideoBlock {
-  if (url.startsWith('data:')) {
-    const withoutScheme = url.slice(5);
-    const parts = withoutScheme.split(';base64,', 2);
-    if (parts.length !== 2 || parts[0] === undefined || parts[1] === undefined) {
-      throw new ChatProviderError(`Invalid data URL for video: ${url}`);
-    }
-    const mediaType = parts[0];
-    const data = parts[1];
-    if (!SUPPORTED_B64_VIDEO_TYPES.has(mediaType)) {
-      throw new ChatProviderError(
-        `Unsupported media type for base64 video: ${mediaType}, url: ${url}`,
-      );
-    }
-    return {
-      type: 'video',
-      source: { type: 'base64', media_type: mediaType, data },
-    };
-  }
-
-  return {
-    type: 'video',
-    source: { type: 'url', url },
-  };
-}
 interface AnthropicToolParam extends AnthropicTool {
   cache_control?: { type: 'ephemeral' } | null;
 }
@@ -577,7 +460,7 @@ function convertTool(tool: Tool): AnthropicToolParam {
   };
 }
 function toolResultToBlock(toolCallId: string, content: ContentPart[]): ToolResultBlockParam {
-  const blocks: Array<TextBlockParam | AnthropicImageBlock | AnthropicVideoBlock> = [];
+  const blocks: Array<TextBlockParam | AnthropicImageBlock> = [];
   for (const part of content) {
     if (part.type === 'text') {
       if (part.text) {
@@ -585,9 +468,7 @@ function toolResultToBlock(toolCallId: string, content: ContentPart[]): ToolResu
       }
     } else if (part.type === 'image_url') {
       blocks.push(imageUrlPartToAnthropic(part.imageUrl.url));
-    } else if (part.type === 'video_url') {
-      blocks.push(videoUrlPartToAnthropic(part.videoUrl.url));
-    } else if (part.type === 'audio_url') {
+    } else if (part.type === 'audio_url' || part.type === 'video_url') {
       const placeholder = OMITTED_MEDIA_PLACEHOLDER[part.type];
       const last = blocks.at(-1);
       if (!(last?.type === 'text' && last.text === placeholder)) {
@@ -656,9 +537,7 @@ function convertMessage(message: Message, model: string): MessageParam {
       } else if (part.think !== '' && shouldPreserveUnsignedThinking(model)) {
         blocks.push({ type: 'thinking', thinking: part.think } as unknown as ThinkingBlockParam);
       }
-    } else if (part.type === 'video_url') {
-      blocks.push(videoUrlPartToAnthropic(part.videoUrl.url) as unknown as ContentBlockParam);
-    } else if (part.type === 'audio_url') {
+    } else if (part.type === 'audio_url' || part.type === 'video_url') {
       const placeholder = OMITTED_MEDIA_PLACEHOLDER[part.type];
       const last = blocks.at(-1);
       if (!(last?.type === 'text' && last.text === placeholder)) {
@@ -704,6 +583,14 @@ function convertMessage(message: Message, model: string): MessageParam {
  */
 function classifyAnthropicSdkError(message: string): ChatProviderError {
   const lower = message.toLowerCase();
+  // Rate-limit patterns (including Xunfei reverse-proxy rate-limit codes)
+  // — map to 429 so the full rate-limit handling pipeline kicks in.
+  if (PROVIDER_REVERSE_PROXY_RATE_LIMIT_PATTERN.test(lower)) {
+    return new APIProviderRateLimitError(`Anthropic error: ${message}`, null);
+  }
+  if (PROVIDER_RATE_LIMIT_MESSAGE_PATTERN.test(lower)) {
+    return new APIProviderRateLimitError(`Anthropic error: ${message}`, null);
+  }
   // Provider-side overload / transient failures — map to 503 so the
   // retry loop picks them up automatically.
   if (PROVIDER_REVERSE_PROXY_ERROR_PATTERN.test(lower)) {
@@ -712,9 +599,8 @@ function classifyAnthropicSdkError(message: string): ChatProviderError {
   if (PROVIDER_OVERLOAD_MESSAGE_PATTERN.test(lower)) {
     return new APIStatusError(503, `Anthropic error: ${message}`, null);
   }
-  // Rate-limit patterns that arrive without a 429 status code.
-  if (PROVIDER_RATE_LIMIT_MESSAGE_PATTERN.test(lower)) {
-    return new APIStatusError(429, `Anthropic error: ${message}`, null);
+  if (PROVIDER_STREAM_INTERRUPTED_MESSAGE_PATTERN.test(lower)) {
+    return new APIStatusError(503, `Anthropic error: ${message}`, null);
   }
   return new ChatProviderError(`Anthropic error: ${message}`);
 }
@@ -1015,31 +901,13 @@ export class AnthropicChatProvider implements ChatProvider {
   private _defaultHeaders: Record<string, string | null> | undefined;
   private _clientFactory: ((auth: ProviderRequestAuth) => Anthropic) | undefined;
   private _adaptiveThinking: boolean | undefined;
-  private _betaApi: boolean;
   private _explicitMaxTokens: boolean;
-  private _cacheControlTtl: 'ephemeral' | '5m' | '1h';
-  /**
-   * Cache of the tool array in Anthropic wire format, keyed by a
-   * fingerprint of the input tool set. Anthropic's prompt cache uses
-   * exact-prefix matching, so any change in tool order, tool name, or
-   * tool parameters invalidates the cache for the entire prompt. By
-   * memoizing the converted AnthropicToolParam[] on the provider
-   * instance and stamping the cache_control breakpoint once, we keep
-   * the tools prefix byte-identical across calls within a session and
-   * let Anthropic hit the cache. Without this, every turn paid the
-   * full input-token cost of the tool schema on the first read.
-   */
-  private _toolsCache: {
-    fingerprint: string;
-    tools: AnthropicToolParam[];
-  } | null = null;
 
   constructor(options: AnthropicOptions) {
     this._model = options.model;
     this._stream = options.stream ?? true;
     this._metadata = options.metadata;
     this._adaptiveThinking = options.adaptiveThinking;
-    this._betaApi = options.betaApi ?? false;
     this._apiKey =
       options.apiKey === undefined || options.apiKey.length === 0 ? undefined : options.apiKey;
     this._baseUrl = options.baseUrl;
@@ -1047,7 +915,6 @@ export class AnthropicChatProvider implements ChatProvider {
     this._clientFactory = options.clientFactory;
     this._client = this._apiKey === undefined ? undefined : this._buildClient(this._apiKey);
     this._explicitMaxTokens = options.defaultMaxTokens !== undefined;
-    this._cacheControlTtl = options.cacheControlTtl ?? 'ephemeral';
     this._generationKwargs = {
       max_tokens: resolveDefaultMaxTokens(options.model, options.defaultMaxTokens),
       betaFeatures: options.betaFeatures ?? [INTERLEAVED_THINKING_BETA],
@@ -1110,8 +977,7 @@ export class AnthropicChatProvider implements ChatProvider {
           {
             type: 'text',
             text: systemPrompt,
-            // See injectCacheControlOnLastBlock above re: cast.
-            cache_control: cacheControlFor(this._cacheControlTtl) as { type: 'ephemeral' },
+            cache_control: CACHE_CONTROL,
           } as TextBlockParam,
         ]
       : undefined;
@@ -1138,7 +1004,7 @@ export class AnthropicChatProvider implements ChatProvider {
 
     // Inject cache_control on last content block of last message (after merge,
     // so it lands on the final tool_result block in the merged user message).
-    injectCacheControlOnLastBlock(messages, this._cacheControlTtl);
+    injectCacheControlOnLastBlock(messages);
 
     // Build generation kwargs (excluding betaFeatures)
     const kwargs: Record<string, unknown> = {};
@@ -1166,23 +1032,21 @@ export class AnthropicChatProvider implements ChatProvider {
       kwargs['output_config'] = this._generationKwargs.output_config;
     }
 
-    // Build the beta feature list. On the standard Messages API these travel
-    // via the `anthropic-beta` header; on the beta Messages API (`betaApi`) the
-    // SDK reads them from the request `betas` field and sets the header itself,
-    // so we must not also set the header (that would duplicate it).
+    // Build beta headers
     const betas = this._generationKwargs.betaFeatures ?? [];
     const extraHeaders: Record<string, string> = {};
-    if (!this._betaApi && betas.length > 0) {
+    if (betas.length > 0) {
       extraHeaders['anthropic-beta'] = betas.join(',');
     }
 
-    // Convert tools. Memoize the converted wire-format array so the
-    // AnthropicToolParam[] prefix stays byte-identical across calls
-    // within a session — Anthropic's prompt cache uses exact-prefix
-    // matching, so any allocation churn here invalidates the cache.
-    // The fingerprint covers the input tool set; a different set
-    // (or even a different order) drops the cached array.
-    const anthropicTools = this._getOrBuildToolsParam(tools);
+    // Convert tools
+    const anthropicTools: AnthropicToolParam[] = tools.map((t) => convertTool(t));
+    if (anthropicTools.length > 0) {
+      const lastTool = anthropicTools.at(-1);
+      if (lastTool !== undefined) {
+        lastTool.cache_control = CACHE_CONTROL;
+      }
+    }
 
     // Build the create params
     const createParams: Record<string, unknown> = {
@@ -1203,10 +1067,6 @@ export class AnthropicChatProvider implements ChatProvider {
       createParams['metadata'] = this._metadata;
     }
 
-    if (this._betaApi && betas.length > 0) {
-      createParams['betas'] = betas;
-    }
-
     const requestOptions: Record<string, unknown> = {};
     const headers = mergeRequestHeaders(extraHeaders, options?.auth?.headers);
     if (headers !== undefined) {
@@ -1223,15 +1083,10 @@ export class AnthropicChatProvider implements ChatProvider {
       // The helper reparses accumulated input_json_delta buffers on every chunk,
       // which becomes synchronous O(n^2) work for large streamed tool arguments.
       try {
-        const stream = this._betaApi
-          ? await client.beta.messages.create(
-              { ...createParams, stream: true } as unknown as MessageCreateParamsStreaming,
-              finalRequestOptions,
-            )
-          : await client.messages.create(
-              { ...createParams, stream: true } as unknown as MessageCreateParamsStreaming,
-              finalRequestOptions,
-            );
+        const stream = await client.messages.create(
+          { ...createParams, stream: true } as unknown as MessageCreateParamsStreaming,
+          finalRequestOptions,
+        );
         return new AnthropicStreamedMessage(stream, true);
       } catch (error: unknown) {
         throw convertAnthropicError(error);
@@ -1240,15 +1095,10 @@ export class AnthropicChatProvider implements ChatProvider {
 
     // Non-streaming fallback
     try {
-      const response = this._betaApi
-        ? await client.beta.messages.create(
-            { ...createParams, stream: false } as unknown as MessageCreateParams,
-            finalRequestOptions,
-          )
-        : await client.messages.create(
-            { ...createParams, stream: false } as unknown as MessageCreateParams,
-            finalRequestOptions,
-          );
+      const response = await client.messages.create(
+        { ...createParams, stream: false } as unknown as MessageCreateParams,
+        finalRequestOptions,
+      );
       return new AnthropicStreamedMessage(response, false);
     } catch (error: unknown) {
       throw convertAnthropicError(error);
@@ -1315,40 +1165,8 @@ export class AnthropicChatProvider implements ChatProvider {
       authToken: null,
       baseURL: this._baseUrl ?? null,
       defaultHeaders: this._buildDefaultHeaders(apiKey),
-      // Route every Anthropic HTTP call through the shared undici Agent so
-      // TCP+TLS setup is amortized across requests within a session. The
-      // fetch wrapper is module-singleton (see ../http/undici-agent), so
-      // successive provider instances share the same connection pool.
-      fetch: createSharedFetch(),
+      maxRetries: 0,
     });
-  }
-
-  /**
-   * Convert the input tool set to Anthropic wire format, memoized on a
-   * stable JSON fingerprint of the input. The Anthropic prompt cache
-   * does exact-prefix matching on the request bytes, so reallocating
-   * the tool array every call (with non-deterministic property order
-   * in the JSON schema) would invalidate the cache and force a
-   * re-read of every cached prompt segment. The cache is invalidated
-   * automatically when the tool set changes.
-   */
-  private _getOrBuildToolsParam(tools: readonly Tool[]): AnthropicToolParam[] {
-    const fingerprint = fingerprintTools(tools);
-    const cached = this._toolsCache;
-    if (cached !== null && cached.fingerprint === fingerprint) {
-      return cached.tools;
-    }
-    const converted = tools.map((t) => convertTool(t));
-    if (converted.length > 0) {
-      // Stamp cache_control on the last tool once at conversion time so
-      // subsequent requests hit the same wire bytes. Cast: see
-      // injectCacheControlOnLastBlock above.
-      converted[converted.length - 1]!.cache_control = cacheControlFor(
-        this._cacheControlTtl,
-      ) as { type: 'ephemeral' };
-    }
-    this._toolsCache = { fingerprint, tools: converted };
-    return converted;
   }
 
   withThinking(effort: ThinkingEffort): AnthropicChatProvider {

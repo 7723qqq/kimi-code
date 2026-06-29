@@ -109,6 +109,16 @@ describe('convertAnthropicError', () => {
     expect((result as APIStatusError).statusCode).toBe(503);
   });
 
+  it('AnthropicError "upstream stream ended" → APIStatusError(503)', () => {
+    const err = new AnthropicError(
+      '{"error":{"type":"new_api_error","message":"upstream stream ended without protocol terminator (eof)"},"type":"error"}',
+    );
+    const result = convertAnthropicError(err);
+    expect(result).toBeInstanceOf(APIStatusError);
+    expect((result as APIStatusError).statusCode).toBe(503);
+    expect(result.message).toContain('upstream stream ended');
+  });
+
   it('AnthropicError rate-limit message → APIStatusError(429)', () => {
     const err = new AnthropicError('rate limited: too many requests');
     const result = convertAnthropicError(err);
@@ -116,13 +126,13 @@ describe('convertAnthropicError', () => {
     expect((result as APIStatusError).statusCode).toBe(429);
   });
 
-  it('AnthropicError "Xunfei request failed" → APIStatusError(503)', () => {
+  it('AnthropicError "Xunfei rate-limit code 11210" → APIProviderRateLimitError', () => {
     const err = new AnthropicError(
       '{"error":{"message":"Xunfei claude request failed with Sid: abc123 code: 11210, msg: internal error"}}',
     );
     const result = convertAnthropicError(err);
-    expect(result).toBeInstanceOf(APIStatusError);
-    expect((result as APIStatusError).statusCode).toBe(503);
+    expect(result).toBeInstanceOf(APIProviderRateLimitError);
+    expect((result as APIProviderRateLimitError).statusCode).toBe(429);
     expect(result.message).toContain('Xunfei claude request failed');
   });
 

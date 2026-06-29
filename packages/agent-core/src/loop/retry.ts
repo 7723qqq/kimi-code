@@ -1,4 +1,5 @@
 import { sleep } from '@antfu/utils';
+import { isProviderRateLimitError } from '@moonshot-ai/kosong';
 import * as retry from 'retry';
 
 import type { Logger } from '#/logging/types';
@@ -13,6 +14,13 @@ export const DEFAULT_MAX_RETRY_ATTEMPTS = 3;
 const RETRY_MIN_TIMEOUT_MS = 300;
 const RETRY_MAX_TIMEOUT_MS = 5000;
 const RETRY_FACTOR = 2;
+
+// Rate-limit errors (e.g. Xunfei TPM limit code 11210) need much longer
+// backoff than transient server errors. TPM limits refresh per minute, so
+// a 5s backoff is useless. Use 15s minimum with a higher ceiling.
+const RATE_LIMIT_RETRY_MIN_TIMEOUT_MS = 15_000;
+const RATE_LIMIT_RETRY_MAX_TIMEOUT_MS = 60_000;
+const RATE_LIMIT_RETRY_FACTOR = 2;
 
 export interface ChatWithRetryInput {
   readonly llm: LLM;
@@ -49,7 +57,9 @@ export async function chatWithRetry(input: ChatWithRetryInput): Promise<LLMChatR
         throw error;
       }
 
-      const delayMs = delays[attempt - 1] ?? 0;
+      const delayMs = isProviderRateLimitError(error)
+        ? rateLimitBackoffDelay(attempt)
+        : (delays[attempt - 1] ?? 0);
       input.params.signal.throwIfAborted();
       input.dispatchEvent({
         type: 'step.retrying',
@@ -104,6 +114,15 @@ export function retryBackoffDelays(maxAttempts: number): number[] {
     maxTimeout: RETRY_MAX_TIMEOUT_MS,
     factor: RETRY_FACTOR,
     randomize: true,
+  });
+}
+
+function rateLimitBackoffDelay(attempt: number): number {
+  return retry.createTimeout(Math.max(0, attempt - 1), {
+    minTimeout: RATE_LIMIT_RETRY_MIN_TIMEOUT_MS,
+    maxTimeout: RATE_LIMIT_RETRY_MAX_TIMEOUT_MS,
+    factor: RATE_LIMIT_RETRY_FACTOR,
+    randomize: false,
   });
 }
 

@@ -1,4 +1,4 @@
-import { isProviderRateLimitError, type TokenUsage } from '@moonshot-ai/kosong';
+import { isProviderRateLimitError, isRetryableGenerateError, type TokenUsage } from '@moonshot-ai/kosong';
 import * as retry from 'retry';
 
 import type {
@@ -36,6 +36,10 @@ const RATE_LIMIT_RETRY_FACTOR = 2;
 const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2000;
 const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000;
 const RATE_LIMIT_SUSPENDED_REASON = 'Provider rate limit; subagent requeued for retry.';
+const TRANSIENT_SUSPENDED_REASON = 'Transient provider error; subagent requeued for retry.';
+const TRANSIENT_MAX_RETRIES = 2;
+const TRANSIENT_RETRY_BASE_MS = 5000;
+const TRANSIENT_RETRY_FACTOR = 2;
 
 const AGENT_SWARM_MAX_CONCURRENCY_ENV = 'KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY';
 
@@ -96,7 +100,13 @@ type RateLimitedOutcome = {
   readonly error: string;
 };
 
-type AttemptOutcome<T> = SubagentResult<T> | RateLimitedOutcome;
+type TransientErrorOutcome = {
+  readonly type: 'transient_error';
+  readonly agentId: string;
+  readonly error: string;
+};
+
+type AttemptOutcome<T> = SubagentResult<T> | RateLimitedOutcome | TransientErrorOutcome;
 
 type TaskState<T> = {
   readonly index: number;
@@ -214,13 +224,17 @@ export class SubagentBatch<T> {
   }
 
   private scheduleNormalLaunch(): void {
+    const now = Date.now();
     while (
       this.normalLaunchCount < INITIAL_LAUNCH_LIMIT &&
       this.pending.length > 0 &&
       !this.rateLimitMode &&
       !this.isAtConcurrencyLimit()
     ) {
-      this.startAttempt(this.pending.shift()!);
+      const next = this.pending[0]!;
+      if (next.retryReadyAt > now) break;
+      this.pending.shift();
+      this.startAttempt(next);
       this.normalLaunchCount += 1;
     }
 
@@ -233,14 +247,22 @@ export class SubagentBatch<T> {
       return;
     }
 
+    const nextReadyAt = this.pending[0]!.retryReadyAt;
+    const delay = Math.max(nextReadyAt - Date.now(), INITIAL_LAUNCH_INTERVAL_MS);
     this.normalLaunchTimer = setTimeout(() => {
       this.normalLaunchTimer = undefined;
       if (this.finished || this.rateLimitMode || this.pending.length === 0) return;
       if (this.isAtConcurrencyLimit()) return;
-      this.startAttempt(this.pending.shift()!);
+      const next = this.pending[0]!;
+      if (next.retryReadyAt > Date.now()) {
+        this.schedule();
+        return;
+      }
+      this.pending.shift();
+      this.startAttempt(next);
       this.normalLaunchCount += 1;
       this.schedule();
-    }, INITIAL_LAUNCH_INTERVAL_MS);
+    }, delay);
   }
 
   private isAtConcurrencyLimit(): boolean {
@@ -351,6 +373,17 @@ export class SubagentBatch<T> {
         };
       }
 
+      if (
+        attempt.state.retryCount < TRANSIENT_MAX_RETRIES &&
+        isRetryableGenerateError(error)
+      ) {
+        return {
+          type: 'transient_error',
+          agentId: handle.agentId,
+          error: this.attemptErrorMessage(attempt, error, 'failed'),
+        };
+      }
+
       return this.failedAttemptOutcome(attempt, error);
     }
   }
@@ -399,6 +432,8 @@ export class SubagentBatch<T> {
         state: 'started',
         error: outcome.error,
       };
+    } else if (outcome.type === 'transient_error') {
+      this.requeueTransientError(attempt, outcome.agentId);
     } else {
       this.requeueRateLimited(attempt, outcome.agentId);
     }
@@ -458,6 +493,28 @@ export class SubagentBatch<T> {
         now + RATE_LIMIT_RETRY_BASE_MS,
       );
     }
+  }
+
+  private requeueTransientError(attempt: ActiveAttempt<T>, agentId: string): void {
+    const state = attempt.state;
+    state.agentId = agentId;
+    state.retryAgentId = agentId;
+    this.launcher.suspended?.({
+      task: state.task,
+      agentId,
+      reason: TRANSIENT_SUSPENDED_REASON,
+    });
+
+    const now = Date.now();
+    state.retryCount += 1;
+    const retryDelay = retry.createTimeout(Math.max(0, state.retryCount - 1), {
+      minTimeout: TRANSIENT_RETRY_BASE_MS,
+      maxTimeout: Number.POSITIVE_INFINITY,
+      factor: TRANSIENT_RETRY_FACTOR,
+      randomize: false,
+    });
+    state.retryReadyAt = now + retryDelay;
+    this.pending.unshift(state);
   }
 
   private enterRateLimitMode(now: number): void {

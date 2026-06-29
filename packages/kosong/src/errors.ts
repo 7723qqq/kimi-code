@@ -121,22 +121,53 @@ export const PROVIDER_OVERLOAD_MESSAGE_PATTERN =
 export const PROVIDER_RATE_LIMIT_MESSAGE_PATTERN =
   /\b(?:rate[ _-]?limit(?:ed)?|too\s+many\s+requests|quota\s+exceeded)\b/i;
 
+// Upstream stream interrupted before a complete response was received.
+// Reverse proxies (e.g. Xunfei, new-api) may surface this as a generic
+// error when the upstream connection drops mid-stream.
+export const PROVIDER_STREAM_INTERRUPTED_MESSAGE_PATTERN =
+  /\b(?:upstream\s+)?stream\s+(?:ended|terminated|closed|interrupted|disconnected)\b/i;
+
 // Transient Xunfei reverse-proxy failure codes:
-//   11210 - upstream/engine internal error
-//   10012 - "The system is busy, please try again later." (EngineInternalError:1105)
-//   10015 - upstream engine transient failure
+//   10006 - concurrent connection conflict (retry after disconnect)
+//   10007 - user traffic limited (processing current request, retry later)
+//   10008 - service capacity insufficient (retry later)
+//   10009 - failed to connect to engine (retry)
+//   10010 - engine data error or queue (retry, optionally switch model)
+//   10011 - error sending data to engine (retry)
+//   10012 - engine internal error or queue (retry, optionally switch model)
+//   10110 - service busy (retry later)
+//   10222 - engine network error (retry)
+//   10223 - LB cannot find engine node (retry)
+//   11202 - second-level rate limit exceeded (retry)
+//   11203 - concurrent rate limit exceeded (retry)
+//   11210 - TPM limit exceeded (tpm refreshes per minute, retry after wait)
+//
+// NOT included (permanent / config / billing):
+//   10015 (appid blacklisted), 10016 (authorization), 10907/10910 (token limit),
+//   11200-11201 (authorization/call count), 11221 (model config), etc.
 //
 // Uses a tempered greedy token `(?:(?!\bcode\s*[:=]).)*` to match "code: 11210"
 // only when it is the FIRST code= occurrence after "xunfei request failed".
 // This prevents false positives like "code: 10001 ... code: 11210" where the
 // first code is non-transient (e.g. invalid api key).
 export const PROVIDER_REVERSE_PROXY_ERROR_PATTERN =
-  /\bxunfei\s+(?:claude\s+)?request\s+failed\b(?:(?!\bcode\s*[:=]).)*\bcode\s*[:=]\s*(?:11210|10012|10015)\b/i;
+  /\bxunfei\s+(?:claude\s+)?request\s+failed\b(?:(?!\bcode\s*[:=]).)*\bcode\s*[:=]\s*(?:1000[6-9]|1001[01]|10012|10110|1022[23]|1120[23]|11210)\b/i;
+
+// Xunfei reverse-proxy rate-limit codes (subset of the transient codes above).
+// These are separated so that errors carrying them can be normalized to
+// APIProviderRateLimitError, enabling the full rate-limit handling pipeline
+// (subagent batch requeue with longer backoff, wire protocol, etc.).
+//   11202 - second-level rate limit exceeded
+//   11203 - concurrent rate limit exceeded
+//   11210 - TPM limit exceeded (tpm refreshes per minute)
+export const PROVIDER_REVERSE_PROXY_RATE_LIMIT_PATTERN =
+  /\bxunfei\s+(?:claude\s+)?request\s+failed\b(?:(?!\bcode\s*[:=]).)*\bcode\s*[:=]\s*(?:1120[23]|11210)\b/i;
 
 const RETRYABLE_PROVIDER_MESSAGE_PATTERNS: readonly RegExp[] = [
   PROVIDER_OVERLOAD_MESSAGE_PATTERN,
   PROVIDER_RATE_LIMIT_MESSAGE_PATTERN,
   PROVIDER_REVERSE_PROXY_ERROR_PATTERN,
+  PROVIDER_STREAM_INTERRUPTED_MESSAGE_PATTERN,
 ];
 
 function isRetryableProviderMessage(message: string): boolean {
@@ -176,6 +207,13 @@ export function normalizeAPIStatusError(
   if (statusCode === 429) {
     return new APIProviderRateLimitError(message, requestId);
   }
+  // Some reverse proxies (e.g. Xunfei) return 500 with a rate-limit error
+  // code in the body. Normalize to APIProviderRateLimitError so the full
+  // rate-limit handling pipeline (subagent batch requeue, longer backoff,
+  // wire protocol) kicks in.
+  if (PROVIDER_REVERSE_PROXY_RATE_LIMIT_PATTERN.test(message)) {
+    return new APIProviderRateLimitError(message, requestId);
+  }
   if (isContextOverflowStatusError(statusCode, message)) {
     return new APIContextOverflowError(statusCode, message, requestId);
   }
@@ -191,10 +229,12 @@ export function isContextOverflowStatusError(statusCode: number, message: string
 export function isProviderRateLimitError(error: unknown): boolean {
   if (error instanceof APIProviderRateLimitError) return true;
 
+  const lowerMessage = errorMessage(error).toLowerCase();
+  if (PROVIDER_REVERSE_PROXY_RATE_LIMIT_PATTERN.test(lowerMessage)) return true;
+
   const statusCode = getStatusCode(error);
   if (statusCode !== undefined) return statusCode === 429;
 
-  const lowerMessage = errorMessage(error).toLowerCase();
   return PROVIDER_RATE_LIMIT_MESSAGE_PATTERNS.some((pattern) => pattern.test(lowerMessage));
 }
 
