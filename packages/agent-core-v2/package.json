@@ -61,6 +61,7 @@
     "@moonshot-ai/kimi-telemetry": "workspace:^",
     "@moonshot-ai/kosong": "workspace:^",
     "@moonshot-ai/protocol": "workspace:^",
+    "ignore": "^5.3.2",
     "nunjucks": "^3.2.4",
     "pathe": "^2.0.3",
     "picomatch": "^4.0.4",
