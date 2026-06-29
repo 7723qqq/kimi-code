@@ -27,7 +27,7 @@ import { IProfileService } from '#/profile';
 import { IReplayBuilderService } from '#/replayBuilder';
 import { ITelemetryService } from '#/telemetry';
 import { IToolStoreService } from '#/toolStore';
-import { ITurnService } from '#/turn';
+import { ITurnService, type TurnContextOverflowContext } from '#/turn';
 import type { ContextMessage } from '#/contextMemory';
 import { IWireRecord } from '#/wireRecord';
 import {
@@ -49,6 +49,14 @@ import {
   type CompactionBeginData,
   type CompactionResult,
 } from './types';
+
+declare module '#/wireRecord' {
+  interface WireRecordMap {
+    'full_compaction.begin': CompactionBeginData;
+    'full_compaction.cancel': {};
+    'full_compaction.complete': FullCompactionCompleteData;
+  }
+}
 
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
 
@@ -120,6 +128,11 @@ export class FullCompactionService extends Disposable implements IFullCompaction
       turnService.hooks.afterStep.register('full-compaction', async (_ctx, next) => {
         await this.afterStep();
         await next();
+      }),
+    );
+    this._register(
+      turnService.hooks.onContextOverflow.register('full-compaction', async (ctx, next) => {
+        await this.onContextOverflow(ctx, next);
       }),
     );
     this._register(
@@ -207,14 +220,17 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     this.compactionCountInTurn = 0;
   }
 
-  async handleOverflowError(
-    signal: AbortSignal,
-    error: unknown,
-    turnId?: number,
+  private async onContextOverflow(
+    context: TurnContextOverflowContext,
+    next: () => Promise<void>,
   ): Promise<void> {
     const didStartCompaction = this.beginAutoCompaction();
-    if (!didStartCompaction && !this.compacting) throw error;
-    await this.block(signal, turnId);
+    if (!didStartCompaction && !this.compacting) {
+      await next();
+      return;
+    }
+    context.handled = true;
+    await this.block(context.turn.abortController.signal, context.turn.id);
   }
 
   private async beforeStep(signal: AbortSignal, turnId?: number): Promise<void> {

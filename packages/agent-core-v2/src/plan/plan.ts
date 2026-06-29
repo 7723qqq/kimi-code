@@ -17,20 +17,5 @@ export interface IPlanService {
   status(): Promise<PlanData>;
 }
 
-declare module '#/wireRecord' {
-  interface WireRecordMap {
-    'plan_mode.enter': {
-      id: string;
-    };
-    'plan_mode.cancel': {
-      id?: string;
-    };
-    'plan_mode.exit': {
-      id?: string;
-    };
-  }
-
-}
-
 export const IPlanService =
   createDecorator<IPlanService>('agentPlanService');

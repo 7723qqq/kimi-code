@@ -25,6 +25,14 @@ import {
   type MicroCompactionServiceOptions,
 } from './microCompaction';
 
+declare module '#/wireRecord' {
+  interface WireRecordMap {
+    'micro_compaction.apply': {
+      cutoff: number;
+    };
+  }
+}
+
 const DEFAULT_CONFIG: MicroCompactionConfig = {
   keepRecentMessages: 20,
   minContentTokens: 100,

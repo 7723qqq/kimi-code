@@ -14,7 +14,7 @@
  * verbatim. The injection target is an LLM-visible transcript where
  * double-escaping would be noisier than literal punctuation.
  */
-import type { CronJobOrigin } from '../cron';
+import type { CronJobOrigin } from "@moonshot-ai/protocol";
 
 export function renderCronFireXml(
   origin: CronJobOrigin,

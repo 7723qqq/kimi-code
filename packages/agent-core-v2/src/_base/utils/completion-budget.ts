@@ -19,6 +19,7 @@ export function resolveCompletionBudget(args: {
   readonly maxCompletionTokensCap?: number;
 }): CompletionBudgetConfig | undefined {
   if (args.maxCompletionTokensCap !== undefined) {
+    if (args.maxCompletionTokensCap <= 0) return undefined;
     return { hardCap: args.maxCompletionTokensCap };
   }
   if (args.maxOutputSize !== undefined && args.maxOutputSize > 0) {

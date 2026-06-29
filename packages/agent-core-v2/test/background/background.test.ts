@@ -7,7 +7,7 @@ import { IBackgroundService, type BackgroundTask } from '#/background';
 import { BackgroundService } from '#/background/backgroundService';
 import { IConfigRegistry } from '#/config';
 import { IContextMemory } from '#/contextMemory';
-import { IEventSink } from '../../src/eventSink';
+import { IEventSink } from '#/eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { IPromptService } from '#/prompt';
 import { ISessionContext } from '#/session-context';

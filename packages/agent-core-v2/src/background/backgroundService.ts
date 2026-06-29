@@ -53,6 +53,17 @@ import {
 } from './background';
 import { BACKGROUND_SECTION, BackgroundConfigSchema } from './configSection';
 
+declare module '#/wireRecord' {
+  interface WireRecordMap {
+    'background.task.started': {
+      info: BackgroundTaskInfo;
+    };
+    'background.task.terminated': {
+      info: BackgroundTaskInfo;
+    };
+  }
+}
+
 interface ForegroundRelease {
   readonly promise: Promise<ForegroundTaskReleaseReason>;
   resolve(reason: ForegroundTaskReleaseReason): void;

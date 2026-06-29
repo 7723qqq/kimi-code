@@ -29,9 +29,7 @@ import { IWireRecord } from '#/wireRecord';
 import {
   ICronService,
   type CronFireOptions,
-  type CronJobOrigin,
   type CronLoadOptions,
-  type CronMissedOrigin,
   type CronOptions,
   type CronPersistence,
   type CronTaskInit,
@@ -65,6 +63,7 @@ import {
   CRON_SCHEDULED,
 } from './tools/telemetry-events';
 import type { CronTask, CronToolManager } from './tools/types';
+import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {

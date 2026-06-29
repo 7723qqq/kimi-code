@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { emptyUsage } from '@moonshot-ai/kosong';
 
-import { ProviderManager } from '../../../src/session/provider-manager';
+import { ModelResolver } from '#/modelRuntime';
 import { ILLMRequester } from '../../../src/services/agent';
+import { stubConfig, stubOAuth } from '../modelRuntime/stubs';
 import { testAgent } from './harness';
 
 describe('ConfigState model capabilities', () => {
-  it('computes provider and model capabilities from ProviderManager metadata', () => {
+  it('computes provider and model capabilities from ModelResolver metadata', () => {
     const ctx = testAgent({
-      providerManager: new ProviderManager({
-        config: {
+      modelResolver: new ModelResolver(stubConfig({
           providers: {
             kimi: {
               type: 'kimi',
@@ -24,8 +24,7 @@ describe('ConfigState model capabilities', () => {
               capabilities: ['image_in', 'video_in', 'thinking', 'tool_use'],
             },
           },
-        },
-      }),
+        }), stubOAuth()),
     });
     const profile = ctx.profile;
 
@@ -45,8 +44,7 @@ describe('ConfigState model capabilities', () => {
 
   it('does not infer Kimi capabilities from the provider catalogue', () => {
     const ctx = testAgent({
-      providerManager: new ProviderManager({
-        config: {
+      modelResolver: new ModelResolver(stubConfig({
           providers: {
             kimi: {
               type: 'kimi',
@@ -60,8 +58,7 @@ describe('ConfigState model capabilities', () => {
               maxContextSize: 128_000,
             },
           },
-        },
-      }),
+        }), stubOAuth()),
     });
     const profile = ctx.profile;
 
@@ -90,8 +87,7 @@ describe('ConfigState model capabilities', () => {
           rawFinishReason: 'stop',
         };
       },
-      providerManager: new ProviderManager({
-        config: {
+      modelResolver: new ModelResolver(stubConfig({
           providers: {
             deepseek: {
               type: 'openai',
@@ -107,8 +103,7 @@ describe('ConfigState model capabilities', () => {
               maxOutputSize: 384000,
             },
           },
-        },
-      }),
+        }), stubOAuth()),
     });
 
     ctx.profile.update({
@@ -126,9 +121,8 @@ describe('ConfigState model capabilities', () => {
 
   it('uses session id as a provider prompt cache hint without storing it on Agent', () => {
     const ctx = testAgent({
-      providerManager: new ProviderManager({
-        promptCacheKey: 'session-test',
-        config: {
+      modelResolver: new ModelResolver(
+        stubConfig({
           providers: {
             kimi: {
               type: 'kimi',
@@ -142,8 +136,10 @@ describe('ConfigState model capabilities', () => {
               maxContextSize: 128_000,
             },
           },
-        },
-      }),
+        }),
+        stubOAuth(),
+        { promptCacheKey: 'session-test' },
+      ),
     });
     const profile = ctx.profile;
 
@@ -162,8 +158,7 @@ describe('ConfigState model capabilities', () => {
 describe('ConfigState thinking clamp for always-thinking models', () => {
   function alwaysThinkingAgent() {
     return testAgent({
-      providerManager: new ProviderManager({
-        config: {
+      modelResolver: new ModelResolver(stubConfig({
           providers: { kimi: { type: 'kimi', apiKey: 'test-key' } },
           models: {
             'kimi-code/deep': {
@@ -179,8 +174,7 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
               capabilities: ['thinking'],
             },
           },
-        },
-      }),
+        }), stubOAuth()),
     });
   }
 
@@ -222,14 +216,12 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
 describe('ConfigState.provider applies global KIMI_MODEL_* request config', () => {
   function kimiAgent() {
     return testAgent({
-      providerManager: new ProviderManager({
-        config: {
+      modelResolver: new ModelResolver(stubConfig({
           providers: { kimi: { type: 'kimi', apiKey: 'test-key' } },
           models: {
             'kimi-code': { provider: 'kimi', model: 'kimi-code', maxContextSize: 128_000 },
           },
-        },
-      }),
+        }), stubOAuth()),
     });
   }
 

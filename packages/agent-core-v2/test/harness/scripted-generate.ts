@@ -7,7 +7,7 @@ import {
 } from '@moonshot-ai/kosong';
 import type { generate as kosongGenerate } from '@moonshot-ai/kosong';
 
-import { estimateTokensForMessages } from '../../../../src/utils/tokens';
+import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import {
   generateInputSnapshot,
   generateInputsSnapshot,

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Logger, LogContext, LogPayload } from '../../../../src/logging';
-import type { EnabledPluginSessionStart } from '../../../../src/plugin/types';
-import {
-  IDynamicInjector,
-  type ContextMessage,
-} from '../../../../src/services/agent';
-import type { SkillCatalog, SkillDefinition } from '../../../../src/skill/types';
+import { IContextInjector } from '#/contextInjector';
+import type { ContextMessage } from '#/contextMemory';
+import type { LogContext, LogPayload } from '#/log';
+import type { EnabledPluginSessionStart } from '#/plugin/types';
+import { SessionSkillRegistry } from '#/skill';
+import type { SkillDefinition } from '#/skill/types';
 import { testAgent } from '../harness';
+import { stubSkill } from './stubs';
 
 type InjectableDynamicInjector = {
   inject(): Promise<void>;
@@ -18,13 +18,20 @@ interface CapturedWarn {
   readonly payload?: LogPayload;
 }
 
+interface RecordingLogger {
+  warn(message: string, payload?: LogPayload): void;
+  info(message: string, payload?: LogPayload): void;
+  debug(message: string, payload?: LogPayload): void;
+  error(message: string, payload?: LogPayload): void;
+  createChild(ctx: LogContext): RecordingLogger;
+}
+
 function skill(
   name: string,
   body: string,
   plugin?: SkillDefinition['plugin'],
 ): SkillDefinition {
-  return {
-    name,
+  return stubSkill(name, {
     description: '',
     path: `/fake/${name}/SKILL.md`,
     dir: `/fake/${name}`,
@@ -32,35 +39,10 @@ function skill(
     metadata: {},
     source: 'extra',
     plugin,
-  };
+  });
 }
 
-function skillCatalog(skills: readonly SkillDefinition[]): SkillCatalog {
-  const byName = new Map(skills.map((s) => [s.name.toLowerCase(), s]));
-  const byPluginAndName = new Map(
-    skills.flatMap((s) =>
-      s.plugin === undefined ? [] : [[`${s.plugin.id}\0${s.name.toLowerCase()}`, s] as const],
-    ),
-  );
-
-  return {
-    getSkill: (name) => byName.get(name.toLowerCase()),
-    getPluginSkill: (pluginId, name) =>
-      byPluginAndName.get(`${pluginId}\0${name.toLowerCase()}`),
-    renderSkillPrompt: (next) => {
-      const plugin = next.plugin;
-      if (plugin === undefined) return next.content;
-      const instructions = plugin.instructions;
-      if (instructions === undefined) return next.content;
-      return `<kimi-plugin-instructions plugin="${plugin.id}">\n${instructions}\n</kimi-plugin-instructions>\n\n${next.content}`;
-    },
-    listInvocableSkills: () => skills,
-    getSkillRoots: () => [],
-    getModelSkillListing: () => '',
-  };
-}
-
-function recordingLogger(warnings: CapturedWarn[]): Logger {
+function recordingLogger(warnings: CapturedWarn[]): RecordingLogger {
   return {
     warn: (message, payload) => {
       warnings.push({ message, payload });
@@ -81,8 +63,12 @@ function sessionStartRuntime(input: {
   readonly warnings: readonly CapturedWarn[];
 } {
   const warnings: CapturedWarn[] = [];
+  const skills = new SessionSkillRegistry();
+  for (const skill of input.skills) {
+    skills.register(skill);
+  }
   const ctx = testAgent({
-    skills: skillCatalog(input.skills),
+    skills,
     pluginSessionStarts: input.sessionStarts,
     log: recordingLogger(warnings),
   });
@@ -94,7 +80,7 @@ function sessionStartRuntime(input: {
 }
 
 async function injectDynamic(ctx: ReturnType<typeof testAgent>): Promise<void> {
-  await (ctx.get(IDynamicInjector) as unknown as InjectableDynamicInjector).inject();
+  await (ctx.get(IContextInjector) as unknown as InjectableDynamicInjector).inject();
 }
 
 function lastReminder(ctx: ReturnType<typeof testAgent>): string {

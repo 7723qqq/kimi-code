@@ -39,29 +39,46 @@ function policyContext(toolName: string, args: unknown): ResolvedToolExecutionHo
 describe('DefaultToolApprovePermissionPolicyService', () => {
   const policy = new DefaultToolApprovePermissionPolicyService();
 
-  it('auto-approves CronList', () => {
-    expect(policy.evaluate(policyContext('CronList', {}))).toEqual({ kind: 'approve' });
+  it.each([
+    ['Read', { path: '/workspace/notes.md' }],
+    ['Grep', { pattern: 'TODO', path: '/workspace' }],
+    ['Glob', { pattern: '**/*.ts', path: '/workspace' }],
+    ['ReadMediaFile', { path: '/workspace/image.png' }],
+    ['SetTodoList', { items: [] }],
+    ['TodoList', {}],
+    ['TaskList', {}],
+    ['TaskOutput', { task_id: 'task_1' }],
+    ['CronList', {}],
+    ['WebSearch', { query: 'kimi code' }],
+    ['FetchURL', { url: 'https://example.com' }],
+    ['Agent', { prompt: 'review this' }],
+    ['AskUserQuestion', { questions: [] }],
+    ['Skill', { name: 'test-skill' }],
+    ['GetGoal', {}],
+    ['SetGoalBudget', { tokenBudget: 1000 }],
+    ['UpdateGoal', { status: 'complete' }],
+  ] as const)('approves %s', (toolName, args) => {
+    expect(policy.evaluate(policyContext(toolName, args))).toEqual({ kind: 'approve' });
   });
 
-  it('does not approve CronCreate', () => {
+  it.each([
+    ['Bash', { command: 'printf first', timeout: 60 }],
+    ['Write', { path: '/workspace/a.ts', content: 'x' }],
+    ['Edit', { path: '/workspace/a.ts', old_string: 'a', new_string: 'b' }],
+    ['Custom', { value: 1 }],
+    ['CronCreate', { cron: '*/5 * * * *', prompt: 'ping' }],
+    ['CronDelete', { id: 'job_1' }],
+    [
+      'AgentSwarm',
+      {
+        description: 'Check files',
+        prompt_template: 'Check {{item}}',
+        items: ['a.ts', 'b.ts'],
+      },
+    ],
+  ] as const)('does not approve %s', (toolName, args) => {
     expect(
-      policy.evaluate(policyContext('CronCreate', { cron: '*/5 * * * *', prompt: 'ping' })),
-    ).toBeUndefined();
-  });
-
-  it('does not approve CronDelete', () => {
-    expect(policy.evaluate(policyContext('CronDelete', { id: 'job_1' }))).toBeUndefined();
-  });
-
-  it('does not approve AgentSwarm', () => {
-    expect(
-      policy.evaluate(
-        policyContext('AgentSwarm', {
-          description: 'Check files',
-          prompt_template: 'Check {{item}}',
-          items: ['a.ts', 'b.ts'],
-        }),
-      ),
+      policy.evaluate(policyContext(toolName, args)),
     ).toBeUndefined();
   });
 });

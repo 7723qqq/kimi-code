@@ -9,8 +9,8 @@ import {
   BackgroundTaskPersistence,
   type IBackgroundService,
   ProcessBackgroundTask,
-} from '../../../../src/services/agent/background/background';
-import type { SessionSubagentHost, SubagentHandle } from '../../../../src/session/subagent-host';
+} from '#/background';
+import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
 import { testAgent } from '../harness';
 
 function registerProcess(

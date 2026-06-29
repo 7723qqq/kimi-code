@@ -10,15 +10,14 @@ import type { ContentPart } from '@moonshot-ai/kosong';
 import {
   CRON_FIRED,
   CRON_MISSED,
-} from '../../../../src/tools/cron/telemetry-events';
-import type { CronTask } from '../../../../src/tools/cron/types';
-import { recordingTelemetry, type TelemetryRecord } from '../../../fixtures/telemetry';
-import {
-  IPromptService,
-  ITurnRunner,
-} from '../../../../src/services/agent';
-import type { ContextMessage, PromptOrigin, Turn } from '../../../../src/services/agent';
+} from '#/cron/tools/telemetry-events';
+import type { CronTask } from '#/cron/tools/types';
+import { IPromptService } from '#/prompt';
+import type { ContextMessage, PromptOrigin } from '#/contextMemory';
+import { ITelemetryService } from '#/telemetry';
+import { ITurnService, type Turn } from '#/turn';
 import { testAgent, type TestAgentContext } from '../harness';
+import type { TelemetryRecord } from '../telemetry/stubs';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -72,6 +71,16 @@ function createSteerSpy(
   return calls;
 }
 
+function captureTelemetry(ctx: TestAgentContext): TelemetryRecord[] {
+  const records: TelemetryRecord[] = [];
+  vi.spyOn(ctx.get(ITelemetryService), 'track').mockImplementation(
+    (event, properties) => {
+      records.push({ event, properties });
+    },
+  );
+  return records;
+}
+
 describe('CronManager', () => {
   beforeEach(() => {
     // Pin jitter off so fire-count assertions are deterministic. Each
@@ -114,11 +123,10 @@ describe('CronManager', () => {
   describe('handleFire — recurring', () => {
     it('steers with cron_job origin and emits cron_fired telemetry', () => {
       const harness = createClocks();
-      const telemetryRecords: TelemetryRecord[] = [];
       const ctx = testAgent({
         cron: { clocks: harness.clocks, autoStart: false, pollIntervalMs: null },
-        telemetry: recordingTelemetry(telemetryRecords),
       });
+      const telemetryRecords = captureTelemetry(ctx);
       const steerCalls = createSteerSpy(ctx, {
         id: 7,
         abortController: new AbortController(),
@@ -180,11 +188,10 @@ describe('CronManager', () => {
   describe('handleFire — one-shot', () => {
     it('uses recurring=false in origin and telemetry', () => {
       const harness = createClocks();
-      const telemetryRecords: TelemetryRecord[] = [];
       const ctx = testAgent({
         cron: { clocks: harness.clocks, autoStart: false, pollIntervalMs: null },
-        telemetry: recordingTelemetry(telemetryRecords),
       });
+      const telemetryRecords = captureTelemetry(ctx);
       const steerCalls = createSteerSpy(ctx);
 
       // Add a one-shot task that fires at the very next */5 mark, then
@@ -318,11 +325,10 @@ describe('CronManager', () => {
   describe('stale propagation into fire origin', () => {
     it('origin.stale === true for a recurring task older than 7 days', () => {
       const harness = createClocks();
-      const telemetryRecords: TelemetryRecord[] = [];
       const ctx = testAgent({
         cron: { clocks: harness.clocks, autoStart: false, pollIntervalMs: null },
-        telemetry: recordingTelemetry(telemetryRecords),
       });
+      const telemetryRecords = captureTelemetry(ctx);
       const steerCalls = createSteerSpy(ctx);
 
       // Add a recurring task whose createdAt is 8 days ago. Note: the
@@ -357,11 +363,10 @@ describe('CronManager', () => {
       // stays up past the stale threshold keeps re-injecting an old
       // cron prompt forever.
       const harness = createClocks();
-      const telemetryRecords: TelemetryRecord[] = [];
       const ctx = testAgent({
         cron: { clocks: harness.clocks, autoStart: false, pollIntervalMs: null },
-        telemetry: recordingTelemetry(telemetryRecords),
       });
+      const telemetryRecords = captureTelemetry(ctx);
       const steerCalls = createSteerSpy(ctx);
 
       harness.setNow(harness.now() - 8 * ONE_DAY_MS);
@@ -389,11 +394,10 @@ describe('CronManager', () => {
   describe('buffered semantics', () => {
     it('reports buffered=true on the telemetry event when steer returns null', () => {
       const harness = createClocks();
-      const telemetryRecords: TelemetryRecord[] = [];
       const ctx = testAgent({
         cron: { clocks: harness.clocks, autoStart: false, pollIntervalMs: null },
-        telemetry: recordingTelemetry(telemetryRecords),
       });
+      const telemetryRecords = captureTelemetry(ctx);
       createSteerSpy(ctx, undefined);
 
       ctx.cron.addTask({ cron: '*/5 * * * *', prompt: 'while-active' });
@@ -409,15 +413,14 @@ describe('CronManager', () => {
   describe('idle gating', () => {
     it('does not fire while a turn is active', () => {
       const harness = createClocks();
-      const telemetryRecords: TelemetryRecord[] = [];
       const ctx = testAgent({
         cron: { clocks: harness.clocks, autoStart: false, pollIntervalMs: null },
-        telemetry: recordingTelemetry(telemetryRecords),
       });
+      const telemetryRecords = captureTelemetry(ctx);
       const steerCalls = createSteerSpy(ctx);
 
       let hasActiveTurn = true;
-      vi.spyOn(ctx.get(ITurnRunner), 'getActiveTurn').mockImplementation(() => {
+      vi.spyOn(ctx.get(ITurnService), 'getActiveTurn').mockImplementation(() => {
         return hasActiveTurn
           ? {
               id: 1,
@@ -466,11 +469,10 @@ describe('CronManager', () => {
 
   describe('handleMissed', () => {
     it('no-ops on an empty task list', () => {
-      const telemetryRecords: TelemetryRecord[] = [];
       const ctx = testAgent({
         cron: { autoStart: false, pollIntervalMs: null },
-        telemetry: recordingTelemetry(telemetryRecords),
       });
+      const telemetryRecords = captureTelemetry(ctx);
       const steerCalls = createSteerSpy(ctx);
 
       ctx.cron.handleMissed([], () => [{ type: 'text', text: 'should not run' }]);
@@ -479,11 +481,10 @@ describe('CronManager', () => {
     });
 
     it('steers cron_missed origin and emits cron_missed telemetry', () => {
-      const telemetryRecords: TelemetryRecord[] = [];
       const ctx = testAgent({
         cron: { autoStart: false, pollIntervalMs: null },
-        telemetry: recordingTelemetry(telemetryRecords),
       });
+      const telemetryRecords = captureTelemetry(ctx);
       const steerCalls = createSteerSpy(ctx);
 
       const tasks: CronTask[] = [

@@ -16,10 +16,10 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
-import type { ContextMessage, PromptOrigin } from '../../../../src/services/agent';
-import { IPromptService } from '../../../../src/services/agent';
-import { createCronPersistStore } from '../../../../src/tools/cron/persist';
-import type { ClockSources } from '../../../../src/tools/cron/clock';
+import type { ContextMessage, PromptOrigin } from '#/index';
+import { IPromptService } from '#/index';
+import { createCronPersistStore } from '#/cron/tools/persist';
+import type { ClockSources } from '#/cron/tools/clock';
 import { testAgent, type TestAgentContext } from '../harness';
 
 const WALL_ANCHOR = 1_700_000_000_000;
@@ -94,8 +94,12 @@ describe('CronManager — persistence and resume', () => {
   it('addTask writes a JSON record to <sessionDir>/cron/<id>.json', async () => {
     const harness = createClocks();
     const ctx = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: harness.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: harness.clocks,
+        pollIntervalMs: null,
+      },
     });
 
     const task = ctx.cron.addTask({
@@ -121,8 +125,12 @@ describe('CronManager — persistence and resume', () => {
   it('removeTasks deletes the JSON record', async () => {
     const harness = createClocks();
     const ctx = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: harness.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: harness.clocks,
+        pollIntervalMs: null,
+      },
     });
 
     const task = ctx.cron.addTask({ cron: '*/5 * * * *', prompt: 'a' });
@@ -139,8 +147,12 @@ describe('CronManager — persistence and resume', () => {
   it('loadFromDisk re-adopts tasks with original id and createdAt', async () => {
     const clockA = createClocks();
     const ctxA = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: clockA.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: clockA.clocks,
+        pollIntervalMs: null,
+      },
     });
     const t1 = ctxA.cron.addTask({ cron: '*/5 * * * *', prompt: 'a' });
     const t2 = ctxA.cron.addTask({
@@ -153,8 +165,12 @@ describe('CronManager — persistence and resume', () => {
 
     const clockB = createClocks(clockA.now() + 60_000);
     const ctxB = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: clockB.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: clockB.clocks,
+        pollIntervalMs: null,
+      },
     });
     expect(ctxB.cron.store.list()).toEqual([]);
     await ctxB.cron.loadFromDisk();
@@ -176,8 +192,12 @@ describe('CronManager — persistence and resume', () => {
   it('recurring task missed during downtime fires once with coalescedCount > 1', async () => {
     const clockA = createClocks();
     const ctxA = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: clockA.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: clockA.clocks,
+        pollIntervalMs: null,
+      },
     });
     ctxA.cron.addTask({ cron: '*/5 * * * *', prompt: 'check' });
     await ctxA.cron.flushPersist();
@@ -185,8 +205,12 @@ describe('CronManager — persistence and resume', () => {
 
     const clockB = createClocks(clockA.now() + 23 * 60_000);
     const ctxB = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: clockB.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: clockB.clocks,
+        pollIntervalMs: null,
+      },
     });
     await ctxB.cron.loadFromDisk();
 
@@ -206,8 +230,12 @@ describe('CronManager — persistence and resume', () => {
   it('one-shot scheduled in the past fires once on resume and the file is removed', async () => {
     const clockA = createClocks(WALL_ANCHOR);
     const ctxA = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: clockA.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: clockA.clocks,
+        pollIntervalMs: null,
+      },
     });
     const oneShot = ctxA.cron.addTask({
       cron: '*/5 * * * *',
@@ -220,8 +248,12 @@ describe('CronManager — persistence and resume', () => {
 
     const clockB = createClocks(clockA.now() + 10 * 60_000);
     const ctxB = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: clockB.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: clockB.clocks,
+        pollIntervalMs: null,
+      },
     });
     await ctxB.cron.loadFromDisk();
 
@@ -244,8 +276,12 @@ describe('CronManager — persistence and resume', () => {
   it('recurring task fired before shutdown does NOT replay on resume', async () => {
     const clockA = createClocks(WALL_ANCHOR);
     const ctxA = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: clockA.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: clockA.clocks,
+        pollIntervalMs: null,
+      },
     });
     const task = ctxA.cron.addTask({ cron: '*/5 * * * *', prompt: 'check' });
     await ctxA.cron.flushPersist();
@@ -264,8 +300,12 @@ describe('CronManager — persistence and resume', () => {
 
     const clockB = createClocks(WALL_ANCHOR + 23 * 60_000);
     const ctxB = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: clockB.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: clockB.clocks,
+        pollIntervalMs: null,
+      },
     });
     await ctxB.cron.loadFromDisk();
 
@@ -284,8 +324,12 @@ describe('CronManager — persistence and resume', () => {
   it('treats a future lastFiredAt as corrupt and falls back to createdAt', async () => {
     const clockA = createClocks();
     const ctxA = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: clockA.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: clockA.clocks,
+        pollIntervalMs: null,
+      },
     });
     const task = ctxA.cron.addTask({ cron: '*/5 * * * *', prompt: 'check' });
     await ctxA.cron.flushPersist();
@@ -301,8 +345,12 @@ describe('CronManager — persistence and resume', () => {
 
     const clockB = createClocks(clockA.now() + 23 * 60_000);
     const ctxB = testAgent({
-      homedir: sessionDir,
-      cron: { autoStart: false, clocks: clockB.clocks, pollIntervalMs: null },
+      cron: {
+        homedir: sessionDir,
+        autoStart: false,
+        clocks: clockB.clocks,
+        pollIntervalMs: null,
+      },
     });
     await ctxB.cron.loadFromDisk();
 

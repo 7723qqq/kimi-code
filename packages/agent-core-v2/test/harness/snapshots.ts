@@ -1,7 +1,7 @@
 import type { Message, Tool as LLMTool } from '@moonshot-ai/kosong';
 import { expect } from 'vitest';
 
-import { AGENT_WIRE_PROTOCOL_VERSION } from '../../../../src/services/agent';
+import { AGENT_WIRE_PROTOCOL_VERSION } from '#/wireRecord';
 
 const IS_EVENT_ARRAY = Symbol('isEventArray');
 const IS_GENERATE_INPUT_SNAPSHOT = Symbol('isGenerateInputSnapshot');

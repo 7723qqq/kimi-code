@@ -30,9 +30,15 @@ import type { ProviderConfig } from '#/provider';
 import {
   type AuthorizedRequest,
   IModelResolver,
+  type ModelResolverOptions,
   type RequestLogger,
   type ResolvedModel,
 } from './modelRuntime';
+
+type ModelResolverRuntimeOptions = Pick<
+  ModelResolverOptions,
+  'kimiRequestHeaders' | 'promptCacheKey'
+>;
 
 export function modelResolverSeed(modelResolver: IModelResolver): ScopeSeed {
   return [[IModelResolver as ServiceIdentifier<unknown>, modelResolver]];
@@ -66,10 +72,14 @@ export class SingleModelResolver implements IModelResolver {
 
 export class ModelResolver implements IModelResolver {
   declare readonly _serviceBrand: undefined;
+  private readonly runtimeOptions: ModelResolverRuntimeOptions;
   constructor(
     @IConfigService private readonly config: IConfigService,
     @IOAuthService private readonly oauth: IOAuthService,
-  ) {}
+    options: ModelResolverRuntimeOptions = {},
+  ) {
+    this.runtimeOptions = options;
+  }
 
   get defaultModel(): string | undefined {
     return this.config.get<string>('defaultModel');
@@ -125,6 +135,8 @@ export class ModelResolver implements IModelResolver {
       alias.maxOutputSize,
       alias.reasoningKey,
       alias.adaptiveThinking,
+      this.runtimeOptions.kimiRequestHeaders,
+      this.runtimeOptions.promptCacheKey,
     );
 
     return {
@@ -229,6 +241,8 @@ function toRuntimeProviderConfig(
   maxOutputSize: number | undefined,
   reasoningKey: string | undefined,
   adaptiveThinking: boolean | undefined,
+  kimiRequestHeaders?: Record<string, string>,
+  promptCacheKey?: string,
 ): RuntimeProviderConfig {
   switch (provider.type) {
     case 'anthropic':
@@ -256,7 +270,8 @@ function toRuntimeProviderConfig(
         model,
         baseUrl: providerValue(provider.baseUrl, provider.env, 'KIMI_BASE_URL'),
         apiKey: providerApiKey(provider),
-        ...defaultHeadersField(provider.customHeaders),
+        generationKwargs: { prompt_cache_key: promptCacheKey },
+        ...defaultHeadersField({ ...kimiRequestHeaders, ...provider.customHeaders }),
       };
     case 'google-genai':
       return {

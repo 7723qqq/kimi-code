@@ -3,38 +3,93 @@ import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
+import type { ContentPart } from '@moonshot-ai/kosong';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
 import {
-  BlobStore,
-  isBlobRef,
-  type AgentRecord,
-} from '../../../../src/services/agent';
+  BLOBREF_PROTOCOL,
+  IBlobStoreService,
+  MISSING_MEDIA_PLACEHOLDER,
+} from '#/blobStore';
+import { BlobStoreService } from '#/blobStore/blobStoreService';
+import { IBootstrapService } from '#/bootstrap';
+import { HostFileSystem, IHostFileSystem } from '#/hostFs';
+import { stubBootstrap } from '../bootstrap/stubs';
 
 const cleanups: string[] = [];
+const disposables: DisposableStore[] = [];
 
 afterEach(async () => {
+  for (const store of disposables.splice(0)) {
+    store.dispose();
+  }
   for (const dir of cleanups.splice(0)) {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 });
 
-function firstImageUrl(record: AgentRecord): string {
-  return (record as unknown as { input: [{ imageUrl: { url: string } }] }).input[0].imageUrl.url;
+function imagePart(url: string): ContentPart {
+  return { type: 'image_url', imageUrl: { url } } as ContentPart;
 }
 
-async function makeStore(options?: { maxCacheSize?: number; threshold?: number }): Promise<{ store: BlobStore; blobsDir: string }> {
-  const blobsDir = join(tmpdir(), `blobref-test-${randomBytes(6).toString('hex')}`);
-  await mkdir(blobsDir, { recursive: true });
-  cleanups.push(blobsDir);
+function videoPart(url: string): ContentPart {
+  return { type: 'video_url', videoUrl: { url } } as ContentPart;
+}
+
+function firstImageUrl(parts: readonly ContentPart[]): string {
+  return (parts[0] as unknown as { imageUrl: { url: string } }).imageUrl.url;
+}
+
+function secondVideoUrl(parts: readonly ContentPart[]): string {
+  return (parts[1] as unknown as { videoUrl: { url: string } }).videoUrl.url;
+}
+
+function imageUrlObject(part: ContentPart): { url: string } {
+  return (part as unknown as { imageUrl: { url: string } }).imageUrl;
+}
+
+async function makeHomeDir(): Promise<{ homeDir: string; blobsDir: string }> {
+  const homeDir = join(tmpdir(), `blobref-test-${randomBytes(6).toString('hex')}`);
+  await mkdir(homeDir, { recursive: true });
+  cleanups.push(homeDir);
+  return { homeDir, blobsDir: join(homeDir, 'blobs') };
+}
+
+function createStore(
+  homeDir: string,
+  ctor: typeof BlobStoreService = BlobStoreService,
+): IBlobStoreService {
+  const disposable = new DisposableStore();
+  disposables.push(disposable);
+
+  const ix = disposable.add(new TestInstantiationService());
+  ix.stub(IHostFileSystem, new HostFileSystem());
+  ix.stub(IBootstrapService, stubBootstrap(homeDir));
+  ix.set(IBlobStoreService, new SyncDescriptor(ctor));
+  return ix.get(IBlobStoreService);
+}
+
+async function makeStore(): Promise<{ store: IBlobStoreService; blobsDir: string }> {
+  const { homeDir, blobsDir } = await makeHomeDir();
   return {
-    store: new BlobStore({
-      blobsDir,
-      threshold: options?.threshold ?? 4096,
-      maxCacheSize: options?.maxCacheSize,
-    }),
+    store: createStore(homeDir),
     blobsDir,
   };
+}
+
+class TwoBlobCacheStoreService extends BlobStoreService {
+  protected override get maxCacheSize(): number {
+    return 8_000;
+  }
+}
+
+class OneBlobCacheStoreService extends BlobStoreService {
+  protected override get maxCacheSize(): number {
+    return 4_000;
+  }
 }
 
 describe('blobref', () => {
@@ -43,18 +98,11 @@ describe('blobref', () => {
     const payload = 'A'.repeat(5000);
     const dataUri = `data:image/png;base64,${payload}`;
 
-    const record: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: dataUri } }],
-      origin: { kind: 'user' },
-    };
+    const offloaded = await store.offloadParts([imagePart(dataUri)]);
+    const url = firstImageUrl(offloaded);
 
-    const offloaded = await store.offload(record);
-
-    const url = (offloaded as unknown as { input: [{ imageUrl: { url: string } }] }).input[0]
-      .imageUrl.url;
-    expect(isBlobRef(url)).toBe(true);
-    expect(url.startsWith('blobref:')).toBe(true);
+    expect(store.isBlobRef(url)).toBe(true);
+    expect(url.startsWith(BLOBREF_PROTOCOL)).toBe(true);
     expect(url.startsWith('blobref:image/png;')).toBe(true);
 
     const files = await readdir(blobsDir);
@@ -62,112 +110,70 @@ describe('blobref', () => {
     expect((await readFile(join(blobsDir, files[0]!))).toString('base64')).toBe(payload);
   });
 
-  it('does not mutate the input record or its content parts', async () => {
+  it('does not mutate the input array or content parts', async () => {
     const { store } = await makeStore();
     const payload = 'M'.repeat(5000);
     const dataUri = `data:image/png;base64,${payload}`;
     const innerImageUrl = { url: dataUri };
-    const part = { type: 'image_url', imageUrl: innerImageUrl } as const;
-    const record: AgentRecord = {
-      type: 'turn.prompt',
-      input: [part as unknown as { type: 'image_url'; imageUrl: { url: string } }],
-      origin: { kind: 'user' },
-    } as unknown as AgentRecord;
+    const part = { type: 'image_url', imageUrl: innerImageUrl } as unknown as ContentPart;
+    const parts = [part];
 
-    const offloaded = await store.offload(record);
+    const offloaded = await store.offloadParts(parts);
 
-    // The original record/parts must remain untouched.
-    expect(
-      (record as unknown as { input: unknown[] }).input[0],
-    ).toBe(part);
-    expect(part.imageUrl).toBe(innerImageUrl);
+    expect(parts[0]).toBe(part);
+    expect(imageUrlObject(part)).toBe(innerImageUrl);
     expect(innerImageUrl.url).toBe(dataUri);
 
-    // The returned record carries the blobref URL.
-    expect(offloaded).not.toBe(record);
-    const returnedUrl = (
-      offloaded as unknown as { input: [{ imageUrl: { url: string } }] }
-    ).input[0].imageUrl.url;
-    expect(returnedUrl.startsWith('blobref:image/png;')).toBe(true);
+    expect(offloaded).not.toBe(parts);
+    expect(offloaded[0]).not.toBe(part);
+    expect(imageUrlObject(offloaded[0]!)).not.toBe(innerImageUrl);
+    expect(firstImageUrl(offloaded).startsWith('blobref:image/png;')).toBe(true);
   });
 
-  it('offloads tool.result media parts in context.append_loop_event records', async () => {
+  it('offloads every media container in content parts', async () => {
     const { store, blobsDir } = await makeStore();
     const payload = 'X'.repeat(5000);
     const dataUri = `data:image/png;base64,${payload}`;
-    const innerImageUrl = { url: dataUri };
-    const part = { type: 'image_url', imageUrl: innerImageUrl } as const;
-    const record: AgentRecord = {
-      type: 'context.append_loop_event',
-      event: {
-        type: 'tool.result',
-        parentUuid: 'p',
-        toolCallId: 'tc',
-        result: { isError: false, output: [part] },
-      },
-    } as unknown as AgentRecord;
+    const parts = [imagePart(dataUri), videoPart(dataUri)];
 
-    const offloaded = await store.offload(record);
+    const offloaded = await store.offloadParts(parts);
 
-    // Input record/part untouched — same path that the agent's in-memory
-    // history shares with this record reference.
-    expect(innerImageUrl.url).toBe(dataUri);
-    expect(part.imageUrl).toBe(innerImageUrl);
-
-    // Returned record has blobref URL on a fresh imageUrl object.
-    const returned = offloaded as unknown as {
-      event: { result: { output: [{ imageUrl: { url: string } }] } };
-    };
-    expect(returned.event.result.output[0].imageUrl).not.toBe(innerImageUrl);
-    expect(returned.event.result.output[0].imageUrl.url.startsWith('blobref:image/png;')).toBe(true);
+    expect(firstImageUrl(offloaded).startsWith('blobref:image/png;')).toBe(true);
+    expect(secondVideoUrl(offloaded).startsWith('blobref:image/png;')).toBe(true);
+    expect(firstImageUrl(offloaded)).toBe(secondVideoUrl(offloaded));
 
     const files = await readdir(blobsDir);
     expect(files).toHaveLength(1);
   });
 
-  it('returns the same record reference when nothing needs offloading', async () => {
+  it('returns the same array reference when nothing needs offloading', async () => {
     const { store } = await makeStore();
-    const record: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'text', text: 'just text' }],
-      origin: { kind: 'user' },
-    } as unknown as AgentRecord;
+    const parts: readonly ContentPart[] = [{ type: 'text', text: 'just text' }];
 
-    const offloaded = await store.offload(record);
-    expect(offloaded).toBe(record);
+    const offloaded = await store.offloadParts(parts);
+    expect(offloaded).toBe(parts);
   });
 
   it('skips small data URIs below threshold', async () => {
     const { store, blobsDir } = await makeStore();
     const payload = 'short';
     const dataUri = `data:image/png;base64,${payload}`;
+    const parts = [imagePart(dataUri)];
 
-    const record: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: dataUri } }],
-      origin: { kind: 'user' },
-    };
+    const offloaded = await store.offloadParts(parts);
 
-    const offloaded = await store.offload(record);
-
-    // Below threshold: nothing happens; original record is returned as-is.
-    expect(offloaded).toBe(record);
+    expect(offloaded).toBe(parts);
     const files = await readdir(blobsDir).catch(() => []);
     expect(files).toHaveLength(0);
   });
 
   it('skips existing blobrefs during offload', async () => {
     const { store } = await makeStore();
-    const record: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: 'blobref:image/png;abc' } }],
-      origin: { kind: 'user' },
-    };
+    const parts = [imagePart('blobref:image/png;abc')];
 
-    const offloaded = await store.offload(record);
+    const offloaded = await store.offloadParts(parts);
 
-    // Already a blobref: nothing to do; the same reference is returned.
-    expect(offloaded).toBe(record);
+    expect(offloaded).toBe(parts);
   });
 
   it('rehydrates blobrefs back to data URIs', async () => {
@@ -175,32 +181,18 @@ describe('blobref', () => {
     const payload = 'B'.repeat(5000);
     const dataUri = `data:image/jpeg;base64,${payload}`;
 
-    const record: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: dataUri } }],
-      origin: { kind: 'user' },
-    };
+    const offloaded = await store.offloadParts([imagePart(dataUri)]);
+    const rehydrated = await store.rehydrateParts(offloaded);
 
-    const offloaded = await store.offload(record);
-    await store.rehydrate(offloaded);
-
-    const url = (offloaded as unknown as { input: [{ imageUrl: { url: string } }] }).input[0]
-      .imageUrl.url;
-    expect(url).toBe(dataUri);
+    expect(firstImageUrl(rehydrated)).toBe(dataUri);
+    expect(firstImageUrl(offloaded)).toMatch(/^blobref:image\/jpeg;/);
   });
 
   it('replaces missing blobs with placeholder text', async () => {
     const { store } = await makeStore();
-    const record: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: 'blobref:image/png;deadbeef' } }],
-      origin: { kind: 'user' },
-    };
+    const rehydrated = await store.rehydrateParts([imagePart('blobref:image/png;deadbeef')]);
 
-    await store.rehydrate(record);
-
-    const url = (record.input as unknown as [{ imageUrl: { url: string } }])[0].imageUrl.url;
-    expect(url).toBe('[media missing]');
+    expect(firstImageUrl(rehydrated)).toBe(MISSING_MEDIA_PLACEHOLDER);
   });
 
   it('deduplicates identical payloads by hash', async () => {
@@ -208,19 +200,8 @@ describe('blobref', () => {
     const payload = 'C'.repeat(5000);
     const dataUri = `data:image/png;base64,${payload}`;
 
-    const record1: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: dataUri } }],
-      origin: { kind: 'user' },
-    };
-    const record2: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: dataUri } }],
-      origin: { kind: 'user' },
-    };
-
-    await store.offload(record1);
-    await store.offload(record2);
+    await store.offloadParts([imagePart(dataUri)]);
+    await store.offloadParts([imagePart(dataUri)]);
 
     const files = await readdir(blobsDir);
     expect(files).toHaveLength(1);
@@ -231,171 +212,89 @@ describe('blobref', () => {
     const payload = 'E'.repeat(5000);
     const dataUri = `data:image/png;base64,${payload}`;
 
-    const record: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: dataUri } }],
-      origin: { kind: 'user' },
-    };
-
-    const offloaded = await store.offload(record);
+    const offloaded = await store.offloadParts([imagePart(dataUri)]);
     const files = await readdir(blobsDir);
     expect(files).toHaveLength(1);
     await rm(join(blobsDir, files[0]!));
 
-    // Should still rehydrate because offload populated the cache.
-    await store.rehydrate(offloaded);
-    const url = (offloaded as unknown as { input: [{ imageUrl: { url: string } }] }).input[0]
-      .imageUrl.url;
-    expect(url).toBe(dataUri);
+    const rehydrated = await store.rehydrateParts(offloaded);
+    expect(firstImageUrl(rehydrated)).toBe(dataUri);
   });
 
   it('rehydrates from read cache after first disk read', async () => {
-    const { store, blobsDir } = await makeStore();
+    const { homeDir, blobsDir } = await makeHomeDir();
+    const writer = createStore(homeDir);
+    const reader = createStore(homeDir);
     const payload = 'F'.repeat(5000);
     const dataUri = `data:image/png;base64,${payload}`;
 
-    const record: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: dataUri } }],
-      origin: { kind: 'user' },
-    };
+    const offloaded = await writer.offloadParts([imagePart(dataUri)]);
+    const blobref = firstImageUrl(offloaded);
 
-    const offloaded = await store.offload(record);
-    await store.rehydrate(offloaded);
+    const firstRead = await reader.rehydrateParts([imagePart(blobref)]);
+    expect(firstImageUrl(firstRead)).toBe(dataUri);
 
     const files = await readdir(blobsDir);
     expect(files).toHaveLength(1);
     await rm(join(blobsDir, files[0]!));
 
-    // Second rehydrate (of a fresh record pointing to the same blobref)
-    // should still succeed because the first rehydrate populated the read cache.
-    // After the rehydrate above, `offloaded` carries the data URI again — pull
-    // the blobref back out by re-offloading or re-using the original offload run.
-    const offloadedFresh = await store.offload(record);
-    const record2: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: firstImageUrl(offloadedFresh) } }],
-      origin: { kind: 'user' },
-    };
-    await store.rehydrate(record2);
-    expect(firstImageUrl(record2)).toBe(dataUri);
+    const secondRead = await reader.rehydrateParts([imagePart(blobref)]);
+    expect(firstImageUrl(secondRead)).toBe(dataUri);
   });
 
   it('evicts least-recently-used entries when cache size limit is exceeded', async () => {
-    const limit = 8; // bytes
-    const { store, blobsDir } = await makeStore({ maxCacheSize: limit, threshold: 1 });
+    const { homeDir, blobsDir } = await makeHomeDir();
+    const store = createStore(homeDir, TwoBlobCacheStoreService);
+    const payloadA = 'A'.repeat(5000);
+    const payloadB = 'B'.repeat(5000);
+    const payloadC = 'C'.repeat(5000);
 
-    const payloadA = 'A'.repeat(4); // 3 bytes after base64 decode
-    const payloadB = 'B'.repeat(4); // 3 bytes after base64 decode
-    const payloadC = 'C'.repeat(4); // 3 bytes after base64 decode
+    const offloadedA = await store.offloadParts([imagePart(`data:image/png;base64,${payloadA}`)]);
+    const offloadedB = await store.offloadParts([imagePart(`data:image/png;base64,${payloadB}`)]);
+    const blobrefA = firstImageUrl(offloadedA);
+    const blobrefB = firstImageUrl(offloadedB);
 
-    const recordA: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: `data:image/png;base64,${payloadA}` } }],
-      origin: { kind: 'user' },
-    };
-    const recordB: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: `data:image/png;base64,${payloadB}` } }],
-      origin: { kind: 'user' },
-    };
-    const recordC: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: `data:image/png;base64,${payloadC}` } }],
-      origin: { kind: 'user' },
-    };
+    await store.rehydrateParts([imagePart(blobrefA)]);
+    const offloadedC = await store.offloadParts([imagePart(`data:image/png;base64,${payloadC}`)]);
+    const blobrefC = firstImageUrl(offloadedC);
 
-    const offloadedA = await store.offload(recordA);
-    const offloadedB = await store.offload(recordB);
-
-    // Touch A so it becomes more recent than B.
-    const recordA_touch: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: firstImageUrl(offloadedA) } }],
-      origin: { kind: 'user' },
-    };
-    await store.rehydrate(recordA_touch);
-
-    // Adding C should evict B (the least-recently-used), not A.
-    const offloadedC = await store.offload(recordC);
-
-    // Delete all files so only cache can satisfy rehydration.
     const files = await readdir(blobsDir);
-    for (const f of files) {
-      await rm(join(blobsDir, f));
+    for (const file of files) {
+      await rm(join(blobsDir, file));
     }
 
-    // A should still be cached because it was touched after B.
-    const recordA2: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: firstImageUrl(offloadedA) } }],
-      origin: { kind: 'user' },
-    };
-    await store.rehydrate(recordA2);
-    expect(firstImageUrl(recordA2)).toBe(`data:image/png;base64,${payloadA}`);
-
-    // B should have been evicted.
-    const recordB2: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: firstImageUrl(offloadedB) } }],
-      origin: { kind: 'user' },
-    };
-    await store.rehydrate(recordB2);
-    expect(firstImageUrl(recordB2)).toBe('[media missing]');
-
-    // C should still be cached.
-    const recordC2: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: firstImageUrl(offloadedC) } }],
-      origin: { kind: 'user' },
-    };
-    await store.rehydrate(recordC2);
-    expect(firstImageUrl(recordC2)).toBe(`data:image/png;base64,${payloadC}`);
+    expect(firstImageUrl(await store.rehydrateParts([imagePart(blobrefA)]))).toBe(
+      `data:image/png;base64,${payloadA}`,
+    );
+    expect(firstImageUrl(await store.rehydrateParts([imagePart(blobrefB)]))).toBe(
+      MISSING_MEDIA_PLACEHOLDER,
+    );
+    expect(firstImageUrl(await store.rehydrateParts([imagePart(blobrefC)]))).toBe(
+      `data:image/png;base64,${payloadC}`,
+    );
   });
 
   it('skips caching a blob larger than the entire cache cap', async () => {
-    const limit = 8; // bytes
-    const { store, blobsDir } = await makeStore({ maxCacheSize: limit, threshold: 1 });
+    const { homeDir, blobsDir } = await makeHomeDir();
+    const store = createStore(homeDir, OneBlobCacheStoreService);
+    const small = 'S'.repeat(5000);
+    const large = 'L'.repeat(10000);
 
-    const small = 'S'.repeat(4);
-    const large = 'L'.repeat(16);
+    const offloadedSmall = await store.offloadParts([imagePart(`data:image/png;base64,${small}`)]);
+    const offloadedLarge = await store.offloadParts([imagePart(`data:image/png;base64,${large}`)]);
+    const smallBlobref = firstImageUrl(offloadedSmall);
+    const largeBlobref = firstImageUrl(offloadedLarge);
 
-    const recordSmall: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: `data:image/png;base64,${small}` } }],
-      origin: { kind: 'user' },
-    };
-    const recordLarge: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: `data:image/png;base64,${large}` } }],
-      origin: { kind: 'user' },
-    };
-
-    const offloadedSmall = await store.offload(recordSmall);
-    const offloadedLarge = await store.offload(recordLarge);
-
-    // Delete all files so only cache can satisfy rehydration.
     const files = await readdir(blobsDir);
-    for (const f of files) {
-      await rm(join(blobsDir, f));
+    for (const file of files) {
+      await rm(join(blobsDir, file));
     }
 
-    // The small blob is still cached.
-    const recordSmall2: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: firstImageUrl(offloadedSmall) } }],
-      origin: { kind: 'user' },
-    };
-    await store.rehydrate(recordSmall2);
-    expect(firstImageUrl(recordSmall2)).toBe(`data:image/png;base64,${small}`);
-
-    // The large blob was never cached, so rehydration fails.
-    const recordLarge2: AgentRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: firstImageUrl(offloadedLarge) } }],
-      origin: { kind: 'user' },
-    };
-    await store.rehydrate(recordLarge2);
-    expect(firstImageUrl(recordLarge2)).toBe('[media missing]');
+    expect(firstImageUrl(await store.rehydrateParts([imagePart(smallBlobref)]))).toBe(
+      `data:image/png;base64,${small}`,
+    );
+    expect(firstImageUrl(await store.rehydrateParts([imagePart(largeBlobref)]))).toBe(
+      MISSING_MEDIA_PLACEHOLDER,
+    );
   });
 });

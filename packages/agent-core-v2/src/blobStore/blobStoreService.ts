@@ -8,7 +8,6 @@ import {
   BLOBREF_PROTOCOL,
   IBlobStoreService,
   MISSING_MEDIA_PLACEHOLDER,
-  type BlobStoreServiceOptions,
 } from './blobStore';
 
 const DEFAULT_THRESHOLD = 4096;
@@ -17,20 +16,24 @@ const DEFAULT_STORAGE_SCOPE = 'blobs';
 const DATA_URI_HEADER_RE = /^data:([^;]+);base64,/;
 
 export class BlobStoreService implements IBlobStoreService {
-  private readonly storageScope: string;
-  private readonly threshold: number;
-  private readonly maxCacheSize: number;
+  declare readonly _serviceBrand: undefined;
+
+  private readonly storageScope = DEFAULT_STORAGE_SCOPE;
   private readonly cache = new Map<string, Buffer>();
   private readonly cacheSizes = new Map<string, number>();
   private currentCacheSize = 0;
 
   constructor(
     @IBlobStorage private readonly storage: IStorageService,
-    options: BlobStoreServiceOptions = {},
   ) {
-    this.storageScope = options.storageScope ?? DEFAULT_STORAGE_SCOPE;
-    this.threshold = options.threshold ?? DEFAULT_THRESHOLD;
-    this.maxCacheSize = options.maxCacheSize ?? DEFAULT_MAX_CACHE_SIZE;
+  }
+
+  protected get threshold(): number {
+    return DEFAULT_THRESHOLD;
+  }
+
+  protected get maxCacheSize(): number {
+    return DEFAULT_MAX_CACHE_SIZE;
   }
 
   isBlobRef(url: string): boolean {

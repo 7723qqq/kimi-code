@@ -17,8 +17,13 @@ import {
   type SwarmModeTrigger,
 } from './swarm';
 
-export interface SwarmServiceOptions {
-  readonly registerAgentSwarmTool?: boolean;
+declare module '#/wireRecord' {
+  interface WireRecordMap {
+    'swarm_mode.enter': {
+      trigger: SwarmModeTrigger;
+    };
+    'swarm_mode.exit': {};
+  }
 }
 
 export class SwarmService extends Disposable implements ISwarmService {
@@ -27,13 +32,12 @@ export class SwarmService extends Disposable implements ISwarmService {
   private _active: SwarmModeTrigger | null = null;
 
   constructor(
-    options: SwarmServiceOptions = {},
     @IWireRecord private readonly wireRecord: IWireRecord,
     @IEventSink private readonly events: IEventSink,
     @ISystemReminderService private readonly reminders: ISystemReminderService,
-    @ITurnService turnService?: ITurnService,
-    @IToolRegistry toolRegistry?: IToolRegistry,
-    @ISubagentHost subagentHost?: ISubagentHost,
+    @ITurnService turnService: ITurnService,
+    @IToolRegistry toolRegistry: IToolRegistry,
+    @ISubagentHost subagentHost: ISubagentHost,
   ) {
     super();
     this._register(
@@ -46,24 +50,16 @@ export class SwarmService extends Disposable implements ISwarmService {
         this.applyExit(false);
       }),
     );
-    if (turnService !== undefined) {
-      this._register(
-        turnService.hooks.onEnded.register('swarm-mode-auto-exit', (_ctx, next) => {
-          const done = next();
-          if (this.shouldAutoExit) {
-            this.exit();
-          }
-          return done;
-        }),
-      );
-    }
-    if (options.registerAgentSwarmTool === true) {
-      this._register(
-        this.requireToolRegistry(toolRegistry).register(
-          new AgentSwarmTool(this.requireSubagentHost(subagentHost), this),
-        ),
-      );
-    }
+    this._register(
+      turnService.hooks.onEnded.register('swarm-mode-auto-exit', (_ctx, next) => {
+        const done = next();
+        if (this.shouldAutoExit) {
+          this.exit();
+        }
+        return done;
+      }),
+    );
+    this._register(toolRegistry.register(new AgentSwarmTool(subagentHost, this)));
   }
 
   enter(trigger: SwarmModeTrigger): void {
@@ -114,16 +110,6 @@ export class SwarmService extends Disposable implements ISwarmService {
 
   private emitChanged(): void {
     this.events.emit({ type: 'agent.status.updated', swarmMode: this.isActive });
-  }
-
-  private requireToolRegistry(toolRegistry: IToolRegistry | undefined): IToolRegistry {
-    if (toolRegistry !== undefined) return toolRegistry;
-    throw new Error('AgentSwarm requires the agent tool registry service.');
-  }
-
-  private requireSubagentHost(subagentHost: ISubagentHost | undefined): ISubagentHost {
-    if (subagentHost !== undefined) return subagentHost;
-    throw new Error('AgentSwarm requires the agent subagent host service.');
   }
 }
 

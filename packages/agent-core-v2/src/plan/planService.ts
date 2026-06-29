@@ -38,6 +38,20 @@ import {
 } from './plan';
 import PLAN_MODE_EXIT_REMINDER from './plan-mode-exit-reminder.md?raw';
 
+declare module '#/wireRecord' {
+  interface WireRecordMap {
+    'plan_mode.enter': {
+      id: string;
+    };
+    'plan_mode.cancel': {
+      id?: string;
+    };
+    'plan_mode.exit': {
+      id?: string;
+    };
+  }
+}
+
 const PLAN_MODE_DEDUP_MIN_TURNS = 2;
 const PLAN_MODE_FULL_REFRESH_TURNS = 5;
 const PLAN_MODE_INJECTION_VARIANT = 'plan_mode';
@@ -232,6 +246,8 @@ export class PlanService extends Disposable implements IPlanService {
       return { isError: true, output: `Failed to enter plan mode: ${message}` };
     }
 
+    this.trackTelemetry('plan_enter_resolved', { outcome: 'auto_approved' });
+
     return { output: enteredPlanModeMessage(this._planFilePath) };
   }
 
@@ -331,7 +347,7 @@ export class PlanService extends Disposable implements IPlanService {
   }
 
   private trackTelemetry(
-    event: 'plan_submitted' | 'plan_resolved',
+    event: 'plan_enter_resolved' | 'plan_submitted' | 'plan_resolved',
     properties: Record<string, string | number | boolean | undefined>,
   ): void {
     this.telemetry.track(event, properties);

@@ -1,0 +1,114 @@
+import { describe, expect, it } from 'vitest';
+
+import { runHook } from '#/externalHooks/runner';
+
+function nodeCommand(source: string): string {
+  return `node -e ${JSON.stringify(source.replace(/\s*\n\s*/g, ' '))}`;
+}
+
+describe('runHook process runner', () => {
+  it('returns allow when the hook exits 0 and captures stdout', async () => {
+    const result = await runHook(
+      nodeCommand('process.stdout.write("ok\\n");'),
+      { tool_name: 'Bash' },
+      { timeout: 5 },
+    );
+
+    expect(result.action).toBe('allow');
+    expect(result.stdout?.trim()).toBe('ok');
+  });
+
+  it('parses stdout JSON message into a hook result message', async () => {
+    const result = await runHook(
+      nodeCommand('process.stdout.write(JSON.stringify({ message: "hook says hi" }));'),
+      {},
+      { timeout: 5 },
+    );
+
+    expect(result.action).toBe('allow');
+    expect(result.message).toBe('hook says hi');
+    expect(result.structuredOutput).toBe(true);
+  });
+
+  it('marks structured stdout JSON without message as empty hook output', async () => {
+    const emptyObject = await runHook(
+      nodeCommand('process.stdout.write("{}");'),
+      {},
+      { timeout: 5 },
+    );
+    expect(emptyObject.action).toBe('allow');
+    expect(emptyObject.message).toBeUndefined();
+    expect(emptyObject.structuredOutput).toBe(true);
+
+    const emptyHookSpecificOutput = await runHook(
+      nodeCommand('process.stdout.write(JSON.stringify({ hookSpecificOutput: {} }));'),
+      {},
+      { timeout: 5 },
+    );
+    expect(emptyHookSpecificOutput.action).toBe('allow');
+    expect(emptyHookSpecificOutput.message).toBeUndefined();
+    expect(emptyHookSpecificOutput.structuredOutput).toBe(true);
+  });
+
+  it('returns block when the hook exits 2 and captures stderr as the reason', async () => {
+    const result = await runHook(
+      nodeCommand('process.stderr.write("blocked\\n"); process.exit(2);'),
+      { tool_name: 'Bash' },
+      { timeout: 5 },
+    );
+
+    expect(result.action).toBe('block');
+    expect(result.reason).toContain('blocked');
+  });
+
+  it('returns allow on non-zero, non-2 exit codes', async () => {
+    const result = await runHook(
+      nodeCommand('process.exit(1);'),
+      { tool_name: 'Bash' },
+      { timeout: 5 },
+    );
+
+    expect(result.action).toBe('allow');
+  });
+
+  it('returns allow with timedOut=true when the command exceeds the timeout', async () => {
+    const result = await runHook(
+      nodeCommand('setTimeout(() => {}, 10000);'),
+      { tool_name: 'Bash' },
+      { timeout: 1 },
+    );
+
+    expect(result.action).toBe('allow');
+    expect(result.timedOut).toBe(true);
+  });
+
+  it('parses stdout JSON permissionDecision=deny into a block result with the supplied reason', async () => {
+    const result = await runHook(
+      nodeCommand(
+        'process.stdout.write(JSON.stringify({ hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "use rg" } }));',
+      ),
+      { tool_name: 'Bash' },
+      { timeout: 5 },
+    );
+
+    expect(result.action).toBe('block');
+    expect(result.reason).toBe('use rg');
+  });
+
+  it('writes the input payload to the hook process stdin as JSON', async () => {
+    const result = await runHook(
+      nodeCommand([
+        'let input = "";',
+        'process.stdin.on("data", (chunk) => { input += chunk; });',
+        'process.stdin.on("end", () => {',
+        '  const parsed = JSON.parse(input);',
+        '  process.stdout.write(parsed.tool_name);',
+        '});',
+      ].join('\n')),
+      { tool_name: 'Write' },
+      { timeout: 5 },
+    );
+
+    expect(result.stdout?.trim()).toBe('Write');
+  });
+});

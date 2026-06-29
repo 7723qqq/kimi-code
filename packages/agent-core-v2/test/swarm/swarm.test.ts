@@ -10,7 +10,7 @@ import { ISystemReminderService } from '#/systemReminder';
 import { SystemReminderService } from '#/systemReminder/systemReminderService';
 import { ISwarmService } from '#/swarm';
 import { SwarmService } from '#/swarm/swarmService';
-import { IToolRegistry } from '#/toolRegistry';
+import { IToolRegistry, ToolRegistryService } from '#/toolRegistry';
 import { ITurnService } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 
@@ -28,7 +28,7 @@ describe('SwarmService', () => {
     ix.stub(IWireRecord, stubWireRecord());
     ix.stub(IEventSink, { emit: () => {}, on: () => toDisposable(() => {}) });
     ix.stub(ITurnService, stubTurnWithHooks());
-    ix.stub(IToolRegistry, {});
+    ix.set(IToolRegistry, new SyncDescriptor(ToolRegistryService));
     ix.stub(ISubagentHost, {});
     ix.set(ISystemReminderService, new SyncDescriptor(SystemReminderService));
     ix.set(ISwarmService, new SyncDescriptor(SwarmService));

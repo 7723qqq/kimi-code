@@ -21,7 +21,6 @@ export type {
   ShouldContinueAfterStopHook,
   ShouldContinueAfterStopResult,
   LoopMessageBuilder,
-  ToolCall,
   TurnResult,
 } from './types';
 

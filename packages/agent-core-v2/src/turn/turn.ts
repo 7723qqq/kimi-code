@@ -19,6 +19,12 @@ export interface TurnStepContext {
   continueTurn: boolean;
 }
 
+export interface TurnContextOverflowContext {
+  readonly turn: Turn;
+  readonly error: unknown;
+  handled: boolean;
+}
+
 export interface TurnRunContext {
   readonly turn: Turn;
   readonly origin: PromptOrigin;
@@ -41,6 +47,7 @@ export interface ITurnService {
     onEnded: TurnEndedContext;
     beforeStep: TurnStepContext;
     afterStep: TurnStepContext;
+    onContextOverflow: TurnContextOverflowContext;
   }>;
 }
 

@@ -1,6 +1,7 @@
 import type { ContentPart, Message } from '@moonshot-ai/kosong';
 
 import type { BackgroundTaskStatus } from '../background';
+import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';
 
 export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 
@@ -40,23 +41,6 @@ export interface BackgroundTaskOrigin {
   readonly taskId: string;
   readonly status: BackgroundTaskStatus;
   readonly notificationId: string;
-}
-
-export interface CronJobOrigin {
-  readonly kind: 'cron_job';
-  readonly jobId: string;
-  readonly cron: string;
-  readonly recurring: boolean;
-  /** Number of theoretical fires that were collapsed into this single delivery (>= 1). */
-  readonly coalescedCount: number;
-  /** True for recurring tasks past the 7-day age threshold. */
-  readonly stale: boolean;
-}
-
-export interface CronMissedOrigin {
-  readonly kind: 'cron_missed';
-  /** Number of one-shot tasks bundled into this missed-fire notification. */
-  readonly count: number;
 }
 
 export interface HookResultOrigin {

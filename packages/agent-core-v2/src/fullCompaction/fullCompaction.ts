@@ -1,5 +1,4 @@
 import type {
-  CompactionBeginData,
   CompactionResult,
   CompactionSource,
 } from './types';
@@ -19,15 +18,6 @@ export interface IFullCompaction {
 
   begin(input: CompactInput): boolean;
   cancel(): void;
-  handleOverflowError(signal: AbortSignal, error: unknown, turnId?: number): Promise<void>;
-}
-
-declare module '#/wireRecord' {
-  interface WireRecordMap {
-    'full_compaction.begin': CompactionBeginData;
-    'full_compaction.cancel': {};
-    'full_compaction.complete': FullCompactionCompleteData;
-  }
 }
 
 export const IFullCompaction = createDecorator<IFullCompaction>('agentFullCompactionService');

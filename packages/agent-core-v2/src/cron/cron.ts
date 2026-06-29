@@ -34,20 +34,6 @@ export interface CronFireOptions {
   readonly firedAt?: number;
 }
 
-export interface CronJobOrigin {
-  readonly kind: 'cron_job';
-  readonly jobId: string;
-  readonly cron: string;
-  readonly recurring: boolean;
-  readonly coalescedCount: number;
-  readonly stale: boolean;
-}
-
-export interface CronMissedOrigin {
-  readonly kind: 'cron_missed';
-  readonly count: number;
-}
-
 export interface ICronService extends CronToolManager {
   readonly _serviceBrand: undefined;
   readonly isEnabled: boolean;
