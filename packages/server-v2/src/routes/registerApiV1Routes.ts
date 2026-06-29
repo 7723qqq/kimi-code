@@ -11,12 +11,14 @@ import type { Scope } from '@moonshot-ai/agent-core-v2';
 import { ulid } from 'ulid';
 
 import { okEnvelope } from '../envelope';
+import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerConfigRoutes } from './config';
 import { registerMetaRoute } from './meta';
 import { registerOAuthRoutes } from './oauth';
 import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
+import { registerWorkspacesRoutes } from './workspaces';
 
 interface ApiV1AppHost {
   register(
@@ -59,6 +61,14 @@ export async function registerApiV1Routes(
       registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
       registerSessionsRoutes(
         apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0],
+        core,
+      );
+      registerApprovalsRoutes(
+        apiV1 as unknown as Parameters<typeof registerApprovalsRoutes>[0],
+        core,
+      );
+      registerWorkspacesRoutes(
+        apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],
         core,
       );
       registerShutdownRoutes(apiV1 as unknown as Parameters<typeof registerShutdownRoutes>[0], {
