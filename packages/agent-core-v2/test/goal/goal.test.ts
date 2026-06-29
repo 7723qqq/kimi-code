@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ErrorCodes } from '../../../src/errors';
+import { ErrorCodes } from '#/errors';
 import {
   IEventBus,
   IGoalService,
@@ -9,9 +9,9 @@ import {
   type GoalService,
   type PersistedWireRecord,
   type WireRecord,
-} from '../../../src/services/agent';
+} from '#/index';
 import { recordingTelemetry, type TelemetryRecord } from '../../fixtures/telemetry';
-import { testAgent } from './harness';
+import { testAgent } from '../harness';
 
 type GoalServiceTestManager = IGoalService & GoalService;
 type GoalRecord = Extract<PersistedWireRecord, { type: `goal.${string}` }>;

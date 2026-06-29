@@ -19,17 +19,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DefaultCompactionStrategy,
   type CompactionStrategy,
-} from '../../../../src/services/agent/fullCompaction/compactionStrategy';
+} from '#/fullCompaction/strategy';
 import { FLAG_DEFINITIONS, MASTER_ENV } from '../../../../src/flags';
 import { HookEngine, type HookEngineTriggerArgs } from '../../../../src/session/hooks';
-import { estimateTokensForMessages } from '../../../../src/utils/tokens';
+import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import { recordingTelemetry, type TelemetryRecord } from '../../../fixtures/telemetry';
 import type { TestAgentContext, TestAgentOptions } from '../harness';
 import { testAgent } from '../harness';
 import {
   IFullCompaction,
   IMicroCompactionService,
-} from '../../../../src/services/agent';
+} from '#/index';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 

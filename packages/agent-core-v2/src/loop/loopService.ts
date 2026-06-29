@@ -70,7 +70,6 @@ import { runTurn as runLoopTurn } from './run-turn';
 import type {
   ExecutableTool,
   ExecutableToolResult,
-  RunnableToolExecution,
 } from '#/tool';
 import type { LoopHooks } from './types';
 
