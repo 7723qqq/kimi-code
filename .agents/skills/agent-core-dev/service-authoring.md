@@ -30,6 +30,8 @@ The package entry `src/index.ts` re-exports each domain barrel so that importing
 
 > The `Service` suffix is the norm for injectables. Roles (facade / bus / broker / adapter) are conveyed by the interface shape and the file-header comment, not by inventing new suffixes.
 
+Do not name a Service after a scope or a god-object-shaped data bag. `IAgentEntityService`, `IAgentDataService`, `ISessionEntityService`, and `ITurnEntityService` re-merge domains by lifetime; name Services after the real owning domain (`IBackgroundTaskEntityService`, `ISessionMetadata`, `IPermissionRulesService`). See [domain-boundaries.md](domain-boundaries.md).
+
 ## The contract file (`<domain>.ts`)
 
 Holds the public surface of the domain. A typical contract:
@@ -306,6 +308,7 @@ export * from './greet/index';
 
 - One folder per domain, kebab-case; contract `<domain>.ts`, impl `<domain>Service.ts`, barrel `index.ts`.
 - `IXxxService` / `XxxService` naming; decorator string is lowerCamelCase, globally unique, and stable.
+- Name Services by owning domain, never by scope (`IAgentEntityService`, `ISessionEntityService`, `ITurnEntityService`).
 - `_serviceBrand` only on interfaces used as a DI token — never on base interfaces or plain models.
 - Sync methods return concrete types, async return `Promise<T>`; do not `Promise`-wrap sync work.
 - `createInstance` objects put static parameters before service parameters; scoped services put `@IX` parameters first (static params need defaults).
