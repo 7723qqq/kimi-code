@@ -18,6 +18,7 @@ import {
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
 import { resolve } from 'pathe';
+import { createInterface } from 'node:readline';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS } from '#/constant/app';
 
@@ -40,7 +41,16 @@ interface PromptOutput {
 interface PromptRunIO {
   readonly stdout?: PromptOutput;
   readonly stderr?: PromptOutput;
+  /** Source of stdin lines for `--input-format`. Defaults to a reader over `process.stdin`. */
+  readonly stdin?: AsyncIterable<string>;
+  /** Injectable clock for the background-task drain loop (tests). */
+  readonly clock?: PromptClock;
   readonly process?: PromptProcess;
+}
+
+interface PromptClock {
+  now(): number;
+  sleep(ms: number): Promise<void>;
 }
 
 interface PromptProcess {
@@ -53,6 +63,34 @@ const PROMPT_UI_MODE = 'print';
 const PROMPT_MAIN_AGENT_ID = 'main';
 const PROMPT_BLOCK_BULLET = '• ';
 const PROMPT_BLOCK_INDENT = '  ';
+/** Generic non-retryable failure. */
+const CLI_EXIT_FAILURE = 1;
+/** Transient provider failure (connection/timeout/rate-limit/5xx) — safe to retry. Mirrors EX_TEMPFAIL. */
+const CLI_EXIT_RETRYABLE = 75;
+
+/** Env override for keeping background tasks alive past exit (matches the session resolver). */
+const BACKGROUND_KEEP_ALIVE_ON_EXIT_ENV = 'KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT';
+/** Default ceiling (seconds) for waiting on background tasks at exit when none is configured. */
+const DEFAULT_PRINT_WAIT_CEILING_S = 3600;
+/** Poll interval (ms) while draining background tasks at exit. */
+const BACKGROUND_DRAIN_POLL_MS = 500;
+
+/**
+ * A turn-level failure (provider/turn error). Carries the structured code and
+ * retryable flag so the prompt runner can emit a machine-readable error and pick
+ * an exit code. Setup errors (no model, session not found, …) are plain Errors
+ * and are not caught by the turn handler.
+ */
+class PromptTurnError extends Error {
+  constructor(
+    readonly code: string,
+    readonly detail: string,
+    readonly retryable: boolean,
+  ) {
+    super(`${code}: ${detail}`);
+    this.name = 'PromptTurnError';
+  }
+}
 
 export async function runPrompt(
   opts: CLIOptions,
@@ -139,18 +177,74 @@ export async function runPrompt(
     });
     setCrashPhase('runtime');
 
-    const outputFormat = opts.outputFormat ?? 'text';
-    // Headless goal mode: `kimi -p "/goal <objective>"`. The goal driver keeps
-    // the turn-run alive across continuation turns, so the normal prompt-turn
-    // waiter blocks until the goal is terminal; we then emit a summary and set a
-    // distinct exit code.
-    const goalCreate = parseHeadlessGoalCreate(opts.prompt!);
-    if (goalCreate !== undefined) {
-      await runHeadlessGoal(session, goalCreate, goalModel, outputFormat, stdout, stderr);
-    } else {
-      await runPromptTurn(session, opts.prompt!, outputFormat, stdout, stderr);
+    // `--quiet` is shorthand for `--output-format text --final-message-only`.
+    const finalOnly = (opts.finalMessageOnly ?? false) || opts.quiet === true;
+    const outputFormat: PromptOutputFormat =
+      opts.quiet === true ? 'text' : (opts.outputFormat ?? 'text');
+    const inputFormat = opts.inputFormat;
+    try {
+      if (inputFormat !== undefined) {
+        // Prompts come from stdin instead of `--prompt`. `stream-json` reads one
+        // JSON user message per line and runs a turn for each (multi-turn);
+        // `text` reads all of stdin as a single prompt.
+        const lines = io.stdin ?? defaultStdinLines(process.stdin);
+        if (inputFormat === 'stream-json') {
+          for await (const command of readUserCommands(lines, stderr)) {
+            await runPromptTurn(session, command, outputFormat, finalOnly, stdout, stderr);
+          }
+        } else {
+          const command = (await collectLines(lines)).trim();
+          if (command.length > 0) {
+            await runPromptTurn(session, command, outputFormat, finalOnly, stdout, stderr);
+          }
+        }
+      } else {
+        // Headless goal mode: `kimi -p "/goal <objective>"`. The goal driver
+        // keeps the turn-run alive across continuation turns, so the normal
+        // prompt-turn waiter blocks until the goal is terminal; we then emit a
+        // summary and set a distinct exit code.
+        const goalCreate = parseHeadlessGoalCreate(opts.prompt!);
+        if (goalCreate !== undefined) {
+          await runHeadlessGoal(
+            session,
+            goalCreate,
+            goalModel,
+            outputFormat,
+            finalOnly,
+            stdout,
+            stderr,
+          );
+        } else {
+          await runPromptTurn(session, opts.prompt!, outputFormat, finalOnly, stdout, stderr);
+        }
+      }
+    } catch (error) {
+      // A turn-level failure is reported through the chosen output format (so a
+      // stream-json consumer keeps receiving JSON) and mapped to an exit code;
+      // setup errors (no model, session not found, …) are not PromptTurnErrors
+      // and propagate to the top-level handler instead.
+      if (!(error instanceof PromptTurnError)) throw error;
+      emitPromptError(error, outputFormat, stdout, stderr);
+      process.exitCode = error.retryable ? CLI_EXIT_RETRYABLE : CLI_EXIT_FAILURE;
     }
-    writeResumeHint(session.id, outputFormat, stdout, stderr);
+    // Give background tasks a chance to finish before the session is closed (and
+    // any stragglers killed). Gated by the same `keepAliveOnExit` config the
+    // session uses: when keep-alive is on, tasks are left running and we skip the
+    // wait entirely.
+    await drainBackgroundTasksOnExit(
+      session,
+      resolveKeepAliveOnExit(config, process.env),
+      resolvePrintWaitCeilingMs(config),
+      outputFormat,
+      stdout,
+      stderr,
+      io.clock ?? defaultPromptClock,
+    );
+    // `--final-message-only` keeps stdout to just the answer(s), so the resume
+    // hint is suppressed in that mode.
+    if (!finalOnly) {
+      writeResumeHint(session.id, outputFormat, stdout, stderr);
+    }
 
     withTelemetryContext({ sessionId: session.id }).track('exit', {
       duration_ms: Date.now() - startedAt,
@@ -165,6 +259,7 @@ async function runHeadlessGoal(
   goal: HeadlessGoalCreate,
   model: string | undefined,
   outputFormat: PromptOutputFormat,
+  finalOnly: boolean,
   stdout: PromptOutput,
   stderr: PromptOutput,
 ): Promise<void> {
@@ -187,7 +282,7 @@ async function runHeadlessGoal(
   try {
     // The objective is sent as the normal prompt; goal continuation keeps the
     // turn alive until a terminal state is reached.
-    await runPromptTurn(session, goal.objective, outputFormat, stdout, stderr);
+    await runPromptTurn(session, goal.objective, outputFormat, finalOnly, stdout, stderr);
   } finally {
     unsubscribeGoalEvents();
     const snapshot = completedSnapshot ?? (await session.getGoal()).goal;
@@ -382,15 +477,13 @@ function runPromptTurn(
   session: Session,
   prompt: string,
   outputFormat: PromptOutputFormat,
+  finalOnly: boolean,
   stdout: PromptOutput,
   stderr: PromptOutput,
 ): Promise<void> {
   let activeTurnId: number | undefined;
   let activeAgentId: string | undefined;
-  const outputWriter =
-    outputFormat === 'stream-json'
-      ? new PromptJsonWriter(stdout)
-      : new PromptTranscriptWriter(stdout, stderr);
+  const outputWriter = createPromptTurnWriter(outputFormat, finalOnly, stdout, stderr);
   let settled = false;
   let unsubscribe: (() => void) | undefined;
 
@@ -408,11 +501,18 @@ function runPromptTurn(
     };
 
     unsubscribe = session.onEvent((event) => {
+      // Session-level notifications (background tasks, cron) are not tied to the
+      // main turn, so they are surfaced before the turn/agent filter below.
+      const notification = toNotificationMessage(event);
+      if (notification !== undefined) {
+        outputWriter.writeNotification(notification);
+        return;
+      }
       if (event.type === 'error') {
         if (event.agentId !== PROMPT_MAIN_AGENT_ID) {
           return;
         }
-        finish(new Error(`${event.code}: ${event.message}`));
+        finish(new PromptTurnError(event.code, event.message, event.retryable === true));
         return;
       }
       if (event.type === 'turn.started' && activeTurnId === undefined) {
@@ -470,7 +570,7 @@ function runPromptTurn(
             finish();
             return;
           }
-          finish(new Error(formatTurnEndedFailure(event)));
+          finish(turnEndedError(event));
           return;
         case 'agent.status.updated':
         case 'background.task.started':
@@ -498,7 +598,7 @@ function runPromptTurn(
     });
 
     session.prompt(prompt).catch((error: unknown) => {
-      finish(error instanceof Error ? error : new Error(String(error)));
+      finish(toPromptTurnError(error));
     });
   });
 }
@@ -514,9 +614,24 @@ interface PromptTurnWriter {
     argumentsPart: string | undefined,
   ): void;
   writeToolResult(toolCallId: string, output: unknown): void;
+  writeNotification(message: PromptJsonNotificationMessage): void;
   flushAssistant(): void;
   discardAssistant(): void;
   finish(): void;
+}
+
+function createPromptTurnWriter(
+  outputFormat: PromptOutputFormat,
+  finalOnly: boolean,
+  stdout: PromptOutput,
+  stderr: PromptOutput,
+): PromptTurnWriter {
+  if (outputFormat === 'stream-json') {
+    return finalOnly ? new PromptFinalJsonWriter(stdout) : new PromptJsonWriter(stdout);
+  }
+  return finalOnly
+    ? new PromptFinalTextWriter(stdout)
+    : new PromptTranscriptWriter(stdout, stderr);
 }
 
 class PromptTranscriptWriter implements PromptTurnWriter {
@@ -550,6 +665,8 @@ class PromptTranscriptWriter implements PromptTurnWriter {
 
   writeToolResult(): void {}
 
+  writeNotification(): void {}
+
   flushAssistant(): void {}
 
   discardAssistant(): void {}
@@ -579,6 +696,35 @@ interface PromptJsonToolMessage {
   role: 'tool';
   tool_call_id: string;
   content: string;
+}
+
+interface PromptJsonThinkingMessage {
+  role: 'assistant';
+  type: 'thinking';
+  content: string;
+}
+
+/**
+ * Asynchronous, non-turn notifications (background tasks, cron) surfaced as
+ * their own JSONL line. `event` carries the originating session event type; the
+ * remaining fields are event-specific.
+ */
+interface PromptJsonNotificationMessage {
+  type: 'notification';
+  event: string;
+  taskId?: string;
+  kind?: string;
+  status?: string;
+  description?: string;
+  prompt?: string;
+}
+
+/** A turn-level failure surfaced as its own JSONL line in `stream-json` mode. */
+interface PromptJsonErrorMessage {
+  type: 'error';
+  code: string;
+  message: string;
+  retryable: boolean;
 }
 
 interface PromptJsonResumeMetaMessage {
@@ -613,6 +759,7 @@ function writeResumeHint(
 
 class PromptJsonWriter implements PromptTurnWriter {
   private assistantText = '';
+  private thinkingText = '';
   private readonly toolCalls: PromptJsonToolCall[] = [];
 
   constructor(private readonly stdout: PromptOutput) {}
@@ -629,7 +776,16 @@ class PromptJsonWriter implements PromptTurnWriter {
     });
   }
 
-  writeThinkingDelta(): void {}
+  writeThinkingDelta(delta: string): void {
+    this.thinkingText += delta;
+  }
+
+  writeNotification(message: PromptJsonNotificationMessage): void {
+    // Flush any in-flight assistant/thinking content first so the notification
+    // never splits a streaming assistant message.
+    this.flushAssistant();
+    this.writeJsonLine(message);
+  }
 
   writeToolCall(toolCallId: string, name: string, args: unknown): void {
     const existing = this.toolCalls.find((toolCall) => toolCall.id === toolCallId);
@@ -672,6 +828,9 @@ class PromptJsonWriter implements PromptTurnWriter {
   }
 
   flushAssistant(): void {
+    // Thinking precedes the assistant/tool output of the same step so a viewer
+    // can render the reasoning before the answer it produced.
+    this.flushThinking();
     if (this.assistantText.length === 0 && this.toolCalls.length === 0) return;
     const message: PromptJsonAssistantMessage = {
       role: 'assistant',
@@ -684,11 +843,22 @@ class PromptJsonWriter implements PromptTurnWriter {
 
   discardAssistant(): void {
     this.assistantText = '';
+    this.thinkingText = '';
     this.toolCalls.length = 0;
   }
 
   finish(): void {
     this.flushAssistant();
+  }
+
+  private flushThinking(): void {
+    if (this.thinkingText.length === 0) return;
+    this.writeJsonLine({
+      role: 'assistant',
+      type: 'thinking',
+      content: this.thinkingText,
+    });
+    this.thinkingText = '';
   }
 
   private findOrCreateToolCall(toolCallId: string, name: string): PromptJsonToolCall {
@@ -706,8 +876,94 @@ class PromptJsonWriter implements PromptTurnWriter {
     return toolCall;
   }
 
-  private writeJsonLine(message: PromptJsonAssistantMessage | PromptJsonToolMessage): void {
+  private writeJsonLine(
+    message:
+      | PromptJsonAssistantMessage
+      | PromptJsonToolMessage
+      | PromptJsonThinkingMessage
+      | PromptJsonNotificationMessage,
+  ): void {
     this.stdout.write(`${JSON.stringify(message)}\n`);
+  }
+}
+
+/**
+ * `--final-message-only` + `stream-json`: emit exactly one assistant message per
+ * turn — the final step's text. Thinking, tool calls/results and notifications
+ * are dropped. Each step boundary discards the previous step's buffer so only
+ * the last step survives to `finish()`.
+ */
+class PromptFinalJsonWriter implements PromptTurnWriter {
+  private assistantText = '';
+
+  constructor(private readonly stdout: PromptOutput) {}
+
+  writeAssistantDelta(delta: string): void {
+    this.assistantText += delta;
+  }
+
+  writeHookResult(): void {}
+
+  writeThinkingDelta(): void {}
+
+  writeToolCall(): void {}
+
+  writeToolCallDelta(): void {}
+
+  writeToolResult(): void {}
+
+  writeNotification(): void {}
+
+  flushAssistant(): void {
+    // A new step supersedes the previous one; keep only the latest step's text.
+    this.assistantText = '';
+  }
+
+  discardAssistant(): void {
+    this.assistantText = '';
+  }
+
+  finish(): void {
+    this.stdout.write(`${JSON.stringify({ role: 'assistant', content: this.assistantText })}\n`);
+  }
+}
+
+/**
+ * `--final-message-only` + `text`: emit only the final step's assistant text.
+ */
+class PromptFinalTextWriter implements PromptTurnWriter {
+  private assistantText = '';
+
+  constructor(private readonly stdout: PromptOutput) {}
+
+  writeAssistantDelta(delta: string): void {
+    this.assistantText += delta;
+  }
+
+  writeHookResult(): void {}
+
+  writeThinkingDelta(): void {}
+
+  writeToolCall(): void {}
+
+  writeToolCallDelta(): void {}
+
+  writeToolResult(): void {}
+
+  writeNotification(): void {}
+
+  flushAssistant(): void {
+    this.assistantText = '';
+  }
+
+  discardAssistant(): void {
+    this.assistantText = '';
+  }
+
+  finish(): void {
+    if (this.assistantText.length > 0) {
+      this.stdout.write(`${this.assistantText}\n`);
+    }
   }
 }
 
@@ -804,10 +1060,249 @@ function hasTurnId(event: Event): event is Event & { readonly turnId: number } {
   return 'turnId' in event;
 }
 
-function formatTurnEndedFailure(event: Extract<Event, { type: 'turn.ended' }>): string {
-  if (event.error !== undefined) return `${event.error.code}: ${event.error.message}`;
-  if (event.reason === 'filtered') {
-    return 'Provider safety policy blocked the response.';
+function turnEndedError(event: Extract<Event, { type: 'turn.ended' }>): PromptTurnError {
+  if (event.error !== undefined) {
+    return new PromptTurnError(
+      event.error.code,
+      event.error.message,
+      event.error.retryable === true,
+    );
   }
-  return `Prompt turn ended with reason: ${event.reason}`;
+  if (event.reason === 'filtered') {
+    return new PromptTurnError(
+      'provider.filtered',
+      'Provider safety policy blocked the response.',
+      false,
+    );
+  }
+  return new PromptTurnError(
+    `turn.${event.reason}`,
+    `Prompt turn ended with reason: ${event.reason}`,
+    false,
+  );
+}
+
+/** Normalizes an error thrown by `session.prompt()` into a {@link PromptTurnError}. */
+function toPromptTurnError(error: unknown): PromptTurnError {
+  if (error instanceof PromptTurnError) return error;
+  if (error !== null && typeof error === 'object') {
+    const payload = error as { code?: unknown; message?: unknown; retryable?: unknown };
+    if (typeof payload.code === 'string' && typeof payload.message === 'string') {
+      return new PromptTurnError(payload.code, payload.message, payload.retryable === true);
+    }
+  }
+  return new PromptTurnError('internal', error instanceof Error ? error.message : String(error), false);
+}
+
+/**
+ * Reports a turn-level failure through the active output format: a structured
+ * `{"type":"error",…}` JSONL line on stdout for `stream-json`, or a plain-text
+ * line on stderr for `text` (keeping `stream-json` stdout entirely JSON).
+ */
+function emitPromptError(
+  error: PromptTurnError,
+  outputFormat: PromptOutputFormat,
+  stdout: PromptOutput,
+  stderr: PromptOutput,
+): void {
+  if (outputFormat === 'stream-json') {
+    const message: PromptJsonErrorMessage = {
+      type: 'error',
+      code: error.code,
+      message: error.detail,
+      retryable: error.retryable,
+    };
+    stdout.write(`${JSON.stringify(message)}\n`);
+    return;
+  }
+  stderr.write(`Error: ${error.message}\n`);
+}
+
+const defaultPromptClock: PromptClock = {
+  now: () => Date.now(),
+  sleep: (ms) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    }),
+};
+
+/**
+ * Waits for active background tasks to finish before the session is closed,
+ * bounded by the print-wait ceiling. Skipped entirely when `keepAliveOnExit` is
+ * set (tasks are intentionally left running). In `stream-json` mode each task's
+ * terminal outcome is surfaced as a notification line while waiting.
+ */
+async function drainBackgroundTasksOnExit(
+  session: Session,
+  keepAliveOnExit: boolean,
+  ceilingMs: number,
+  outputFormat: PromptOutputFormat,
+  stdout: PromptOutput,
+  stderr: PromptOutput,
+  clock: PromptClock,
+): Promise<void> {
+  if (keepAliveOnExit) return;
+  let active = await session.listBackgroundTasks({ activeOnly: true });
+  if (active.length === 0) return;
+  const unsubscribe =
+    outputFormat === 'stream-json'
+      ? session.onEvent((event) => {
+          const notification = toNotificationMessage(event);
+          if (notification?.event === 'background.task.terminated') {
+            stdout.write(`${JSON.stringify(notification)}\n`);
+          }
+        })
+      : undefined;
+  try {
+    const deadline = clock.now() + ceilingMs;
+    while (active.length > 0) {
+      if (clock.now() >= deadline) {
+        stderr.write(
+          `Timed out after ${Math.round(ceilingMs / 1000)}s waiting for ${active.length} background task(s); they will be stopped.\n`,
+        );
+        return;
+      }
+      await clock.sleep(BACKGROUND_DRAIN_POLL_MS);
+      active = await session.listBackgroundTasks({ activeOnly: true });
+    }
+  } finally {
+    unsubscribe?.();
+  }
+}
+
+/**
+ * Resolves whether background tasks are kept alive past exit, mirroring the
+ * session resolver: env override, then config, defaulting to false (drain).
+ */
+function resolveKeepAliveOnExit(
+  config: { readonly background?: unknown },
+  env: NodeJS.ProcessEnv,
+): boolean {
+  const envValue = parsePromptBooleanEnv(env[BACKGROUND_KEEP_ALIVE_ON_EXIT_ENV]);
+  if (envValue !== undefined) return envValue;
+  const background = config.background as { keepAliveOnExit?: unknown } | undefined;
+  return typeof background?.keepAliveOnExit === 'boolean' ? background.keepAliveOnExit : false;
+}
+
+/** Resolves the background-drain ceiling in milliseconds from config. */
+function resolvePrintWaitCeilingMs(config: { readonly background?: unknown }): number {
+  const background = config.background as { printWaitCeilingS?: unknown } | undefined;
+  const seconds =
+    typeof background?.printWaitCeilingS === 'number' && background.printWaitCeilingS > 0
+      ? background.printWaitCeilingS
+      : DEFAULT_PRINT_WAIT_CEILING_S;
+  return seconds * 1000;
+}
+
+function parsePromptBooleanEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+  if (
+    normalized === '0' ||
+    normalized === 'false' ||
+    normalized === 'no' ||
+    normalized === 'off'
+  ) {
+    return false;
+  }
+  return undefined;
+}
+
+/**
+ * Maps session-level notification events (background tasks, cron) to a JSONL
+ * notification line, or `undefined` for events that are not notifications.
+ */
+function toNotificationMessage(event: Event): PromptJsonNotificationMessage | undefined {
+  switch (event.type) {
+    case 'background.task.started':
+    case 'background.task.terminated':
+      return {
+        type: 'notification',
+        event: event.type,
+        taskId: event.info.taskId,
+        kind: event.info.kind,
+        status: event.info.status,
+        description: event.info.description,
+      };
+    case 'cron.fired':
+      return {
+        type: 'notification',
+        event: 'cron.fired',
+        prompt: event.prompt,
+      };
+    default:
+      return undefined;
+  }
+}
+
+/** Default `--input-format` line source: a reader over the given stdin stream. */
+function defaultStdinLines(input: NodeJS.ReadableStream): AsyncIterable<string> {
+  return createInterface({ input, crlfDelay: Infinity });
+}
+
+/** Joins all input lines into a single string (for `--input-format text`). */
+async function collectLines(lines: AsyncIterable<string>): Promise<string> {
+  const collected: string[] = [];
+  for await (const line of lines) {
+    collected.push(line);
+  }
+  return collected.join('\n');
+}
+
+/**
+ * Yields a prompt command per `user` message read from stdin as JSONL. Blank
+ * lines, malformed JSON and non-`user` messages are skipped with a stderr note,
+ * matching the kimi-cli `stream-json` input contract.
+ */
+async function* readUserCommands(
+  lines: AsyncIterable<string>,
+  stderr: PromptOutput,
+): AsyncGenerator<string> {
+  for await (const raw of lines) {
+    const line = raw.trim();
+    if (line.length === 0) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      stderr.write(`Ignoring invalid JSON input line: ${line}\n`);
+      continue;
+    }
+    const command = extractUserCommand(parsed);
+    if (command === undefined) {
+      stderr.write(`Ignoring non-user input message: ${line}\n`);
+      continue;
+    }
+    if (command.length === 0) continue;
+    yield command;
+  }
+}
+
+/** Extracts the prompt text from a parsed `user` message, or `undefined`. */
+function extractUserCommand(parsed: unknown): string | undefined {
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+  const message = parsed as { role?: unknown; content?: unknown };
+  if (message.role !== 'user') return undefined;
+  return extractMessageText(message.content);
+}
+
+/** Concatenates the text of a message's content (string or content-part array). */
+function extractMessageText(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  const texts: string[] = [];
+  for (const part of content) {
+    if (
+      typeof part === 'object' &&
+      part !== null &&
+      (part as { type?: unknown }).type === 'text' &&
+      typeof (part as { text?: unknown }).text === 'string'
+    ) {
+      texts.push((part as { text: string }).text);
+    }
+  }
+  return texts.join('\n').trim();
 }

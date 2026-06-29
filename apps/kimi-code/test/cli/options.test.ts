@@ -303,6 +303,83 @@ describe('CLI options parsing', () => {
     });
   });
 
+  describe('--input-format', () => {
+    it('parses --input-format stream-json and enters print mode without --prompt', () => {
+      const opts = parse(['--input-format', 'stream-json']);
+      expect(opts.inputFormat).toBe('stream-json');
+      expect(opts.prompt).toBeUndefined();
+      expect(validateOptions(opts).uiMode).toBe('print');
+    });
+
+    it('parses --input-format text and enters print mode', () => {
+      const opts = parse(['--input-format=text']);
+      expect(opts.inputFormat).toBe('text');
+      expect(validateOptions(opts).uiMode).toBe('print');
+    });
+
+    it('allows --input-format with --output-format stream-json', () => {
+      const opts = parse(['--input-format', 'stream-json', '--output-format', 'stream-json']);
+      expect(opts.inputFormat).toBe('stream-json');
+      expect(opts.outputFormat).toBe('stream-json');
+      expect(validateOptions(opts).uiMode).toBe('print');
+    });
+
+    it('rejects combining --prompt with --input-format', () => {
+      const opts = parse(['-p', 'hi', '--input-format', 'stream-json']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow(
+        'Cannot combine --prompt with --input-format; the prompt is read from stdin.',
+      );
+    });
+
+    it('rejects an unknown --input-format value', () => {
+      expect(() => parse(['--input-format', 'yaml'])).toThrow();
+    });
+  });
+
+  describe('--final-message-only', () => {
+    it('defaults to false', () => {
+      expect(parse([]).finalMessageOnly).toBe(false);
+    });
+
+    it('parses --final-message-only in prompt mode', () => {
+      const opts = parse(['-p', 'hi', '--final-message-only']);
+      expect(opts.finalMessageOnly).toBe(true);
+      expect(validateOptions(opts).uiMode).toBe('print');
+    });
+
+    it('rejects --final-message-only outside prompt mode', () => {
+      const opts = parse(['--final-message-only']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow(
+        'Final-message-only output is only supported in prompt mode.',
+      );
+    });
+  });
+
+  describe('--quiet', () => {
+    it('defaults to false', () => {
+      expect(parse([]).quiet).toBe(false);
+    });
+
+    it('enters print mode on its own', () => {
+      const opts = parse(['--quiet']);
+      expect(opts.quiet).toBe(true);
+      expect(validateOptions(opts).uiMode).toBe('print');
+    });
+
+    it('is allowed alongside an explicit --output-format text', () => {
+      const opts = parse(['--quiet', '--output-format', 'text']);
+      expect(() => validateOptions(opts)).not.toThrow();
+    });
+
+    it('rejects --quiet with --output-format stream-json', () => {
+      const opts = parse(['--quiet', '--output-format', 'stream-json']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow('Quiet mode implies --output-format text.');
+    });
+  });
+
   describe('--skills-dir', () => {
     it('collects repeated skill directories', () => {
       expect(parse(['--skills-dir', '/one', '--skills-dir=/two']).skillsDirs).toEqual([
@@ -408,9 +485,6 @@ describe('CLI options parsing', () => {
         '--agent=default',
         '--raw-model',
         '--config-file=x',
-        '--quiet',
-        '--final-message-only',
-        '--input-format=text',
         '--agent-file=x',
         '--mcp-config={}',
         '--mcp-config-file=/',

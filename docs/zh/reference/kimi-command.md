@@ -19,7 +19,10 @@ kimi <subcommand> [options]
 | `--continue` | `-c` | 继续当前工作目录下最近一次的会话，无需手动指定 ID |
 | `--model <model>` | `-m` | 为本次启动指定模型别名。省略时新会话使用配置文件中的 `default_model` |
 | `--prompt <prompt>` | `-p` | 非交互执行单次 prompt，并把 Assistant 输出流式写到 stdout。该模式不会打开 TUI |
-| `--output-format <format>` | | 设置非交互输出格式，支持 `text` 与 `stream-json`。仅可与 `--prompt` 一起使用，默认 `text` |
+| `--output-format <format>` | | 设置非交互输出格式，支持 `text` 与 `stream-json`。仅在 prompt 模式下可用，默认 `text` |
+| `--input-format <format>` | | 从 stdin 读取 prompt（替代 `--prompt`），支持 `text`（整个 stdin 作为一条 prompt）与 `stream-json`（每行一个 JSON user 消息，依次作为多轮执行）。会进入 prompt 模式，且不能与 `--prompt` 同时使用 |
+| `--final-message-only` | | prompt 模式下只输出每轮最后一条 Assistant 消息（丢弃 thinking、工具调用与 notification，并不再输出恢复会话提示） |
+| `--quiet` | | `--output-format text --final-message-only` 的 prompt 模式简写 |
 | `--yolo` | `-y` | 自动批准普通工具调用，跳过审批请求 |
 | `--auto` | | 以 auto 权限模式启动；工具审批自动处理，Agent 不会向用户提问 |
 | `--plan` | | 以 Plan 模式启动新会话，AI 会优先使用只读工具进行探索和规划 |
@@ -39,7 +42,9 @@ kimi <subcommand> [options]
 - `--continue` 与 `--session` 互斥——两者都表示"恢复历史会话"
 - `--yolo` 和 `--auto` 互斥——两种权限模式互斥
 - `--prompt` 不能与 `--yolo`、`--auto` 或 `--plan` 同时使用——非交互模式固定使用 `auto` 权限
-- `--output-format` 只能与 `--prompt` 一起使用
+- `--output-format`、`--input-format` 与 `--final-message-only` 仅在 prompt 模式下生效（由 `--prompt`、`--input-format` 或 `--quiet` 进入）
+- `--prompt` 不能与 `--input-format` 同时使用——此时 prompt 从 stdin 读取
+- `--quiet` 隐含 `--output-format text`，因此不能与 `--output-format stream-json` 同时使用
 
 恢复会话时，可以通过 `--auto`、`--yolo` 或 `--plan` 覆盖原会话保存的权限或计划模式。例如，`kimi --continue --auto` 会恢复最近会话并切换到 auto 权限模式。
 
@@ -116,7 +121,20 @@ kimi -m kimi-code/kimi-for-coding -p "Explain the latest diff"
 kimi -p "List changed files" --output-format stream-json
 ```
 
-`stream-json` 模式下，普通回复输出 Assistant 消息；模型调用工具时，先输出带 `tool_calls` 的 Assistant 消息，再输出对应的 Tool 消息，最后继续输出后续 Assistant 消息。thinking 内容不会写入 JSONL；工具进度和恢复会话提示仍写到 stderr。
+`stream-json` 模式下，普通回复输出 Assistant 消息；模型调用工具时，先输出带 `tool_calls` 的 Assistant 消息，再输出对应的 Tool 消息，最后继续输出后续 Assistant 消息。thinking 内容会单独成行——一条带 `"type":"thinking"` 标记的 Assistant 消息，排在它所产生的回复之前。后台任务与 cron 通知会输出为 `{"type":"notification", ...}` 行。工具进度和恢复会话提示仍写到 stderr。
+
+需要让其它程序驱动 Kimi Code 时，把 `stream-json` 输出与 `--input-format stream-json` 搭配使用：从 stdin 每行喂一个 JSON user 消息，依次作为多轮执行：
+
+```sh
+printf '%s\n' '{"role":"user","content":"List changed files"}' \
+  | kimi --input-format stream-json --output-format stream-json
+```
+
+只想要每轮最终答案时使用 `--final-message-only`，例如 `kimi -p "..." --output-format stream-json --final-message-only` 每轮只输出一条 Assistant 消息。
+
+turn 失败时，错误会以当前格式上报，保证输出仍可被机器解析：`stream-json` 模式下向 stdout 写一行 `{"type":"error","code":"…","message":"…","retryable":…}`（stdout 保持全 JSON）；`text` 模式下写到 stderr。进程退出码：成功为 `0`，可重试的 provider 错误（连接/超时/限流/5xx）为 `75`，其它失败为 `1`。
+
+退出前，prompt 模式会等待仍在运行的后台任务结束（上限为 `background.print_wait_ceiling_s`，默认 3600s），并在 `stream-json` 模式下把每个任务的完成作为 notification 行输出。当设置了 `background.keep_alive_on_exit`（或 `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT=1`）时跳过等待，后台任务被保留继续运行。
 
 ## 子命令
 

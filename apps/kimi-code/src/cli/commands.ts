@@ -68,6 +68,24 @@ export function createProgram(
     )
     .addOption(
       new Option(
+        '--input-format <format>',
+        'Read prompts from stdin in this format instead of --prompt. `stream-json` reads one JSON user message per line (multi-turn); `text` reads all of stdin as a single prompt. Implies prompt mode.',
+      ).choices(['text', 'stream-json']),
+    )
+    .addOption(
+      new Option(
+        '--final-message-only',
+        'In prompt mode, emit only the final assistant message of each turn.',
+      ).default(false),
+    )
+    .addOption(
+      new Option(
+        '--quiet',
+        'Shorthand for prompt mode with --output-format text --final-message-only.',
+      ).default(false),
+    )
+    .addOption(
+      new Option(
         '--skills-dir <dir>',
         'Load skills from this directory instead of auto-discovered user and project directories. Can be repeated.',
       )
@@ -131,6 +149,9 @@ export function createProgram(
       plan: raw['plan'] as boolean,
       model: raw['model'] as string | undefined,
       outputFormat: raw['outputFormat'] as CLIOptions['outputFormat'],
+      inputFormat: raw['inputFormat'] as CLIOptions['inputFormat'],
+      finalMessageOnly: raw['finalMessageOnly'] === true,
+      quiet: raw['quiet'] === true,
       prompt: raw['prompt'] as string | undefined,
       skillsDirs: raw['skillsDir'] as string[],
       addDirs: raw['addDir'] as string[],

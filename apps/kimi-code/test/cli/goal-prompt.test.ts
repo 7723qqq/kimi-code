@@ -90,6 +90,7 @@ const mocks = vi.hoisted(() => {
       eventHandlers.add(handler);
       return () => eventHandlers.delete(handler);
     }),
+    listBackgroundTasks: vi.fn(async () => [] as readonly unknown[]),
     prompt: vi.fn(async () => {
       for (const handler of eventHandlers) {
         handler(mainEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));

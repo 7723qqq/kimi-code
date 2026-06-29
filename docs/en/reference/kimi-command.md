@@ -19,7 +19,10 @@ All flags are optional — run `kimi` directly to enter an interactive session:
 | `--continue` | `-c` | Continue the most recent session in the current working directory, without specifying an ID manually |
 | `--model <model>` | `-m` | Specify a model alias for this launch. When omitted, new sessions use `default_model` from the config file |
 | `--prompt <prompt>` | `-p` | Run a single prompt non-interactively and stream the Assistant output to stdout. This mode does not open the TUI |
-| `--output-format <format>` | | Set the non-interactive output format; supports `text` and `stream-json`. Can only be used with `--prompt`; defaults to `text` |
+| `--output-format <format>` | | Set the non-interactive output format; supports `text` and `stream-json`. Only available in prompt mode; defaults to `text` |
+| `--input-format <format>` | | Read prompts from stdin instead of `--prompt`; supports `text` (all of stdin as one prompt) and `stream-json` (one JSON user message per line, run as successive turns). Implies prompt mode and cannot be combined with `--prompt` |
+| `--final-message-only` | | In prompt mode, emit only the final Assistant message of each turn (thinking, tool calls and notifications are dropped, and the resume hint is suppressed) |
+| `--quiet` | | Shorthand for prompt mode with `--output-format text --final-message-only` |
 | `--yolo` | `-y` | Auto-approve regular tool calls, skipping approval requests |
 | `--auto` | | Start with auto permission mode; tool approvals are handled automatically and the Agent will not ask the user questions |
 | `--plan` | | Start a new session in Plan mode — the AI will prioritize read-only tools for exploration and planning |
@@ -39,7 +42,9 @@ The following combinations are rejected at startup:
 - `--continue` and `--session` are mutually exclusive — both mean "resume a previous session"
 - `--yolo` and `--auto` are mutually exclusive — the two permission modes cannot be combined
 - `--prompt` cannot be used with `--yolo`, `--auto`, or `--plan` — non-interactive mode uses `auto` permission by default
-- `--output-format` can only be used together with `--prompt`
+- `--output-format`, `--input-format` and `--final-message-only` only apply in prompt mode (entered by `--prompt`, `--input-format` or `--quiet`)
+- `--prompt` cannot be combined with `--input-format` — the prompt is read from stdin instead
+- `--quiet` implies `--output-format text`, so combining it with `--output-format stream-json` is rejected
 
 When resuming a session, you can override its saved permission or plan mode by adding `--auto`, `--yolo`, or `--plan`. For example, `kimi --continue --auto` resumes the latest session and switches it to auto permission mode.
 
@@ -116,7 +121,20 @@ When you need to parse output programmatically, use the `stream-json` format —
 kimi -p "List changed files" --output-format stream-json
 ```
 
-In `stream-json` mode, regular replies produce an Assistant message; when the model calls a tool, an Assistant message with `tool_calls` is emitted first, followed by the corresponding Tool message, then subsequent Assistant messages. Thinking content is not written to JSONL; tool progress and "resuming session" notices are still written to stderr.
+In `stream-json` mode, regular replies produce an Assistant message; when the model calls a tool, an Assistant message with `tool_calls` is emitted first, followed by the corresponding Tool message, then subsequent Assistant messages. Thinking content is written as its own line — an Assistant message tagged with `"type":"thinking"` — emitted before the answer it produced. Background-task and cron notifications are emitted as `{"type":"notification", ...}` lines. Tool progress and "resuming session" notices are still written to stderr.
+
+To drive Kimi Code from another program, pair `stream-json` output with `--input-format stream-json` to feed one JSON user message per line over stdin and run each as a turn:
+
+```sh
+printf '%s\n' '{"role":"user","content":"List changed files"}' \
+  | kimi --input-format stream-json --output-format stream-json
+```
+
+Use `--final-message-only` when you only want the final answer of each turn rather than the full stream — for example `kimi -p "..." --output-format stream-json --final-message-only` emits a single Assistant message per turn.
+
+When a turn fails, the error is reported in the active format so the output stays machine-readable: in `stream-json` mode a `{"type":"error","code":"…","message":"…","retryable":…}` line is written to stdout (keeping stdout entirely JSON); in `text` mode it is written to stderr. The process exit code is `0` on success, `75` for a retryable provider error (connection/timeout/rate-limit/5xx), and `1` for any other failure.
+
+Before exiting, prompt mode waits for any still-running background tasks to finish (bounded by `background.print_wait_ceiling_s`, default 3600s), surfacing each task's completion as a notification line in `stream-json` mode. This wait is skipped when `background.keep_alive_on_exit` is set (or `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT=1`), in which case the tasks are left running.
 
 ## Subcommands
 

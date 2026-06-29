@@ -1,5 +1,6 @@
 export type UIMode = 'shell' | 'print';
 export type PromptOutputFormat = 'text' | 'stream-json';
+export type PromptInputFormat = 'text' | 'stream-json';
 
 export interface CLIOptions {
   session: string | undefined;
@@ -9,6 +10,9 @@ export interface CLIOptions {
   plan: boolean;
   model: string | undefined;
   outputFormat: PromptOutputFormat | undefined;
+  inputFormat?: PromptInputFormat | undefined;
+  finalMessageOnly?: boolean;
+  quiet?: boolean;
   prompt: string | undefined;
   skillsDirs: string[];
   addDirs?: string[];
@@ -28,8 +32,11 @@ export class OptionConflictError extends Error {
 
 export function validateOptions(opts: CLIOptions): ValidatedOptions {
   const prompt = opts.prompt;
-  const promptMode = prompt !== undefined;
-  if (promptMode && prompt.trim().length === 0) {
+  const hasPrompt = prompt !== undefined;
+  // Prompt mode is entered by `--prompt`, by `--input-format` (the prompt is
+  // then read from stdin instead of the flag), or by `--quiet`.
+  const promptMode = hasPrompt || opts.inputFormat !== undefined || opts.quiet === true;
+  if (hasPrompt && prompt.trim().length === 0) {
     throw new OptionConflictError('Prompt cannot be empty.');
   }
   if (opts.model !== undefined && opts.model.trim().length === 0) {
@@ -37,6 +44,19 @@ export function validateOptions(opts: CLIOptions): ValidatedOptions {
   }
   if (!promptMode && opts.outputFormat !== undefined) {
     throw new OptionConflictError('Output format is only supported in prompt mode.');
+  }
+  if (!promptMode && opts.finalMessageOnly) {
+    throw new OptionConflictError('Final-message-only output is only supported in prompt mode.');
+  }
+  // `--quiet` is shorthand for `--output-format text --final-message-only`, so a
+  // conflicting explicit output format is rejected.
+  if (opts.quiet === true && opts.outputFormat !== undefined && opts.outputFormat !== 'text') {
+    throw new OptionConflictError('Quiet mode implies --output-format text.');
+  }
+  if (hasPrompt && opts.inputFormat !== undefined) {
+    throw new OptionConflictError(
+      'Cannot combine --prompt with --input-format; the prompt is read from stdin.',
+    );
   }
   if (promptMode && opts.yolo) {
     throw new OptionConflictError('Cannot combine --prompt with --yolo.');
