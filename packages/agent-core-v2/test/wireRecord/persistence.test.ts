@@ -29,7 +29,6 @@ import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
 import type { IStorageService } from '#/storage';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubReplayBuilder } from '../contextMemory/stubs';
-import { InMemoryWireRecordPersistence } from '../harness';
 
 const cleanups: string[] = [];
 const disposables: DisposableStore[] = [];
@@ -320,35 +319,7 @@ describe('WireRecordService persistence', () => {
   });
 });
 
-describe('InMemoryWireRecordPersistence', () => {
-  it('stores appended records and replaces them on rewrite', async () => {
-    const persistence = new InMemoryWireRecordPersistence();
-    persistence.append({
-      type: 'turn.prompt',
-      input: [{ type: 'text', text: 'one' }],
-      origin: { kind: 'user' },
-    });
-    persistence.rewrite([
-      {
-        type: 'metadata',
-        protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
-        created_at: 1,
-      },
-    ]);
-
-    const records: PersistedWireRecord[] = [];
-    for await (const record of persistence.read()) records.push(record);
-
-    expect(records).toEqual([
-      {
-        type: 'metadata',
-        protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
-        created_at: 1,
-      },
-    ]);
-    expect(persistence.records).toEqual(records);
-  });
-
+describe('wire record append-log persistence', () => {
   it('can be backed by the same IAppendLogStore contract as file persistence', async () => {
     const storage = new InMemoryStorageService();
     const log = createAppendLogHarness(storage);

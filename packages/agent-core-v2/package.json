@@ -55,6 +55,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@antfu/utils": "^9.3.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@moonshot-ai/kaos": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
