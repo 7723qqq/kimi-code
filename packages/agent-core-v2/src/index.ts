@@ -56,6 +56,7 @@ export * from './agentFs/index';
 export * from './process/index';
 export * from './terminal/index';
 export * from './storage/index';
+export * from './filestore/index';
 export * from './auth/index';
 
 // Ported agent services. These keep the current service boundaries during the migration.
@@ -78,6 +79,7 @@ export * from './permissionPolicy/index';
 export * from './permissionRules/index';
 export * from './profile/index';
 export * from './prompt/index';
+export * from './promptLegacy/index';
 export * from './replayBuilder/index';
 export * from './rpc/index';
 export * from './subagentHost/index';

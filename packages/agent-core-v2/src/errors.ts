@@ -13,6 +13,8 @@ import { AuthErrors } from '#/auth/errors';
 import { BackgroundErrors } from '#/background/errors';
 import { ChatProviderErrors } from '#/chatProvider/errors';
 import { ConfigErrors } from '#/config/errors';
+import { FileErrors } from '#/filestore/errors';
+import { FsErrors } from '#/agentFs/errors';
 import { FullCompactionErrors } from '#/fullCompaction/errors';
 import { GoalErrors } from '#/goal/errors';
 import { LoopErrors } from '#/loop/errors';
@@ -21,6 +23,7 @@ import { ModelCatalogErrors } from '#/modelCatalog/errors';
 import { PluginErrors } from '#/plugin/errors';
 import { ProfileErrors } from '#/profile/errors';
 import { PromptErrors } from '#/prompt/errors';
+import { PromptLegacyErrors } from '#/promptLegacy/errors';
 import { SessionErrors } from '#/session/errors';
 import { SkillErrors } from '#/skill/errors';
 import { TerminalErrors } from '#/terminal/errors';
@@ -33,6 +36,8 @@ export { AuthErrors } from '#/auth/errors';
 export { BackgroundErrors } from '#/background/errors';
 export { ChatProviderErrors } from '#/chatProvider/errors';
 export { ConfigErrors } from '#/config/errors';
+export { FileErrors } from '#/filestore/errors';
+export { FsErrors } from '#/agentFs/errors';
 export { FullCompactionErrors } from '#/fullCompaction/errors';
 export { GoalErrors } from '#/goal/errors';
 export { LoopErrors } from '#/loop/errors';
@@ -41,6 +46,7 @@ export { ModelCatalogErrors } from '#/modelCatalog/errors';
 export { PluginErrors } from '#/plugin/errors';
 export { ProfileErrors } from '#/profile/errors';
 export { PromptErrors } from '#/prompt/errors';
+export { PromptLegacyErrors } from '#/promptLegacy/errors';
 export { SessionErrors } from '#/session/errors';
 export { SkillErrors } from '#/skill/errors';
 export { TerminalErrors } from '#/terminal/errors';
@@ -54,6 +60,8 @@ export const ErrorCodes = {
   ...BackgroundErrors.codes,
   ...ChatProviderErrors.codes,
   ...ConfigErrors.codes,
+  ...FileErrors.codes,
+  ...FsErrors.codes,
   ...FullCompactionErrors.codes,
   ...GoalErrors.codes,
   ...LoopErrors.codes,
@@ -62,6 +70,7 @@ export const ErrorCodes = {
   ...PluginErrors.codes,
   ...ProfileErrors.codes,
   ...PromptErrors.codes,
+  ...PromptLegacyErrors.codes,
   ...SessionErrors.codes,
   ...SkillErrors.codes,
   ...TerminalErrors.codes,
