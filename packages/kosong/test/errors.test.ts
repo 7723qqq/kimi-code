@@ -141,7 +141,15 @@ describe('isRetryableGenerateError', () => {
       isRetryableGenerateError(
         new APIStatusError(
           400,
-          'Anthropic error: Xunfei claude request failed with code: 10015, msg: upstream busy',
+          'Anthropic error: Xunfei claude request failed with code: 10110, msg: service busy',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(
+        new APIStatusError(
+          500,
+          'Xunfei claude request failed with Sid: cht000d7d0f@dx19f12b3c265b958312 code: 11210, msg: NotEnoughCvError',
         ),
       ),
     ).toBe(true);
@@ -195,6 +203,22 @@ describe('isRetryableGenerateError', () => {
     ).toBe(true);
   });
 
+  it('retries ChatProviderError with stream-interrupted message', () => {
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
+          'Anthropic error: {"error":{"type":"new_api_error","message":"upstream stream ended without protocol terminator (eof)"},"type":"error"}',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(new ChatProviderError('stream terminated unexpectedly')),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(new ChatProviderError('upstream stream closed')),
+    ).toBe(true);
+  });
+
   it('retries ChatProviderError with Xunfei reverse-proxy failure message', () => {
     expect(
       isRetryableGenerateError(
@@ -213,7 +237,14 @@ describe('isRetryableGenerateError', () => {
     expect(
       isRetryableGenerateError(
         new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10015, msg: upstream engine error',
+          'Anthropic error: Xunfei claude request failed with code: 10009, msg: failed to connect to engine',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
+          'Anthropic error: Xunfei claude request failed with code: 10222, msg: engine network error',
         ),
       ),
     ).toBe(true);
@@ -237,10 +268,76 @@ describe('isRetryableGenerateError', () => {
     expect(
       isRetryableGenerateError(
         new ChatProviderError(
+          'Anthropic error: Xunfei claude request failed with code: 10015, msg: appid in blacklist',
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
           'Anthropic error: Xunfei claude request failed with code: 10001, msg: invalid api key. Also saw code: 11210 earlier',
         ),
       ),
     ).toBe(false);
+  });
+
+  it('retries ChatProviderError with additional transient Xunfei codes', () => {
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
+          'Anthropic error: Xunfei claude request failed with code: 10006, msg: concurrent connection',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
+          'Anthropic error: Xunfei claude request failed with code: 10007, msg: traffic limited',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
+          'Anthropic error: Xunfei claude request failed with code: 10008, msg: capacity insufficient',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
+          'Anthropic error: Xunfei claude request failed with code: 10010, msg: engine queue',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
+          'Anthropic error: Xunfei claude request failed with code: 10011, msg: send data error',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
+          'Anthropic error: Xunfei claude request failed with code: 10223, msg: LB no node',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
+          'Anthropic error: Xunfei claude request failed with code: 11202, msg: second rate limit',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(
+          'Anthropic error: Xunfei claude request failed with code: 11203, msg: concurrent rate limit',
+        ),
+      ),
+    ).toBe(true);
   });
 
   it('does not retry ChatProviderError with unknown message', () => {
@@ -326,6 +423,36 @@ describe('normalizeAPIStatusError', () => {
     expect(error).toBeInstanceOf(APIStatusError);
     expect(error).not.toBeInstanceOf(APIContextOverflowError);
   });
+
+  it.each([
+    [
+      500,
+      'Xunfei claude request failed with Sid: cht000d7d0f@dx19f12b3c265b958312 code: 11210, msg: NotEnoughCvError',
+    ],
+    [
+      500,
+      'Xunfei claude request failed with code: 11202, msg: second-level rate limit',
+    ],
+    [
+      500,
+      'Xunfei claude request failed with code: 11203, msg: concurrent rate limit',
+    ],
+  ])('normalizes %i with Xunfei rate-limit code to APIProviderRateLimitError', (statusCode, message) => {
+    const error = normalizeAPIStatusError(statusCode, message, 'req-rl');
+    expect(error).toBeInstanceOf(APIProviderRateLimitError);
+    expect(error.statusCode).toBe(429);
+    expect(error.requestId).toBe('req-rl');
+  });
+
+  it('keeps 500 with non-rate-limit Xunfei code as APIStatusError', () => {
+    const error = normalizeAPIStatusError(
+      500,
+      'Xunfei claude request failed with code: 10012, msg: engine internal error',
+    );
+    expect(error).toBeInstanceOf(APIStatusError);
+    expect(error).not.toBeInstanceOf(APIProviderRateLimitError);
+    expect(error.statusCode).toBe(500);
+  });
 });
 
 describe('isProviderRateLimitError', () => {
@@ -356,5 +483,48 @@ describe('isProviderRateLimitError', () => {
     expect(isProviderRateLimitError(new APIStatusError(401, 'unauthorized'))).toBe(false);
     expect(isProviderRateLimitError('APIStatusError: 401 unauthorized')).toBe(false);
     expect(isProviderRateLimitError(new Error('context length exceeded'))).toBe(false);
+  });
+
+  it('matches Xunfei reverse-proxy rate-limit codes', () => {
+    expect(
+      isProviderRateLimitError(
+        new APIStatusError(
+          500,
+          'Xunfei claude request failed with Sid: cht000d7d0f code: 11210, msg: NotEnoughCvError',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isProviderRateLimitError(
+        new Error(
+          'Xunfei claude request failed with code: 11202, msg: second-level rate limit',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isProviderRateLimitError(
+        new Error(
+          'Xunfei claude request failed with code: 11203, msg: concurrent rate limit',
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it('does not match non-rate-limit Xunfei codes', () => {
+    expect(
+      isProviderRateLimitError(
+        new APIStatusError(
+          500,
+          'Xunfei claude request failed with code: 10012, msg: engine internal error',
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      isProviderRateLimitError(
+        new Error(
+          'Xunfei claude request failed with code: 10001, msg: invalid api key',
+        ),
+      ),
+    ).toBe(false);
   });
 });

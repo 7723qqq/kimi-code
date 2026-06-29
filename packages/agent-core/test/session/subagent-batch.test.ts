@@ -1,5 +1,5 @@
 import { createControlledPromise } from '@antfu/utils';
-import { APIProviderRateLimitError } from '@moonshot-ai/kosong';
+import { APIConnectionError, APIProviderRateLimitError } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -308,6 +308,181 @@ describe('SubagentBatch scheduling contract', () => {
         },
       ]);
       expect(onSuspended).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('transient error requeues with backoff and eventually succeeds', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSuspended = vi.fn();
+      const { runBatch, attempts } = createMockBatchRunner({ onSuspended });
+      const running = runBatch(Array.from({ length: 3 }, (_, index) => queuedTask(index + 1)), {
+        signal,
+      });
+      void running.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(3);
+      attempts.forEach((attempt) => {
+        attempt.markReady();
+      });
+
+      // Task 2 hits a transient error while tasks 1 and 3 are still running.
+      attempts[1]!.outcome.resolve({ type: 'transient_error', agentId: 'agent-2' });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Suspended event emitted for the transient error.
+      expect(onSuspended).toHaveBeenCalledTimes(1);
+      expect(onSuspended).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'Transient provider error; subagent requeued for retry.' }),
+      );
+
+      // No new attempt yet (backoff not elapsed).
+      expect(attempts).toHaveLength(3);
+
+      // Tasks 1 and 3 complete while task 2 is waiting for retry.
+      attempts[0]!.outcome.resolve({
+        task: attempts[0]!.task,
+        agentId: 'agent-1',
+        status: 'completed',
+        result: 'completed 1',
+      });
+      attempts[2]!.outcome.resolve({
+        task: attempts[2]!.task,
+        agentId: 'agent-3',
+        status: 'completed',
+        result: 'completed 3',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // After 5s backoff, the requeued task launches as a retry.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(attempts).toHaveLength(4);
+      expect(attempts[3]!.retryAgentId).toBe('agent-2');
+
+      // The retry succeeds.
+      attempts[3]!.outcome.resolve({
+        task: attempts[3]!.task,
+        agentId: 'agent-2',
+        status: 'completed',
+        result: 'completed 2 (retry)',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const results = await running;
+      expect(results).toHaveLength(3);
+      expect(results[0]!.status).toBe('completed');
+      expect(results[1]!.status).toBe('completed');
+      expect(results[1]!.result).toBe('completed 2 (retry)');
+      expect(results[2]!.status).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails the only unfinished task on transient error instead of suspending forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSuspended = vi.fn();
+      const { runBatch, attempts } = createMockBatchRunner({ onSuspended });
+      const running = runBatch(Array.from({ length: 2 }, (_, index) => queuedTask(index + 1)), {
+        signal,
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(2);
+      attempts.forEach((attempt) => {
+        attempt.markReady();
+      });
+
+      attempts[0]!.outcome.resolve({
+        task: attempts[0]!.task,
+        agentId: 'agent-1',
+        status: 'completed',
+        result: 'completed 1',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      attempts[1]!.outcome.resolve({ type: 'transient_error', agentId: 'agent-2' });
+      await expect(running).resolves.toMatchObject([
+        {
+          task: { data: 1 },
+          agentId: 'agent-1',
+          status: 'completed',
+          result: 'completed 1',
+        },
+        {
+          task: { data: 2 },
+          agentId: 'agent-2',
+          status: 'failed',
+          state: 'started',
+        },
+      ]);
+      expect(onSuspended).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops retrying transient errors after max retries', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSuspended = vi.fn();
+      const { runBatch, attempts } = createMockBatchRunner({ onSuspended });
+      const running = runBatch(Array.from({ length: 3 }, (_, index) => queuedTask(index + 1)), {
+        signal,
+      });
+      void running.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(3);
+      attempts.forEach((attempt) => {
+        attempt.markReady();
+      });
+
+      // Task 2 hits a transient error while tasks 1 and 3 are still running.
+      attempts[1]!.outcome.resolve({ type: 'transient_error', agentId: 'agent-2' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(onSuspended).toHaveBeenCalledTimes(1);
+
+      // First retry (retryCount=1) — another transient error.
+      // Tasks 1 and 3 are still running so the retry is not the only task.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(attempts).toHaveLength(4);
+      attempts[3]!.outcome.resolve({ type: 'transient_error', agentId: 'agent-2' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(onSuspended).toHaveBeenCalledTimes(2);
+
+      // Second retry (retryCount=2) — another transient error.
+      // retryCount is now 2 which equals TRANSIENT_MAX_RETRIES, so the
+      // next attempt should fail instead of requeue.
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(attempts).toHaveLength(5);
+      attempts[4]!.outcome.resolve({ type: 'transient_error', agentId: 'agent-2' });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // No more requeues — the task fails.
+      expect(onSuspended).toHaveBeenCalledTimes(2);
+
+      // Complete the remaining tasks.
+      attempts[0]!.outcome.resolve({
+        task: attempts[0]!.task,
+        agentId: 'agent-1',
+        status: 'completed',
+        result: 'completed 1',
+      });
+      attempts[2]!.outcome.resolve({
+        task: attempts[2]!.task,
+        agentId: 'agent-3',
+        status: 'completed',
+        result: 'completed 3',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const results = await running;
+      expect(results[1]!.status).toBe('failed');
     } finally {
       vi.useRealTimers();
     }
@@ -742,6 +917,10 @@ type MockAttemptOutcome<T> =
   | {
       readonly type: 'rate_limited';
       readonly agentId: string;
+    }
+  | {
+      readonly type: 'transient_error';
+      readonly agentId: string;
     };
 
 type MockAttemptRecord = {
@@ -872,6 +1051,10 @@ function completionFromMockOutcome<T>(
           reject(new APIProviderRateLimitError('Rate limited', result.agentId));
           return;
         }
+        if (isMockTransientErrorOutcome(result)) {
+          reject(new APIConnectionError('upstream stream ended without protocol terminator (eof)'));
+          return;
+        }
         if (result.status === 'completed') {
           resolve({ result: result.result ?? '', usage: result.usage });
           return;
@@ -890,6 +1073,12 @@ function isMockRateLimitOutcome<T>(
   outcome: MockAttemptOutcome<T>,
 ): outcome is Extract<MockAttemptOutcome<T>, { readonly type: 'rate_limited' }> {
   return 'type' in outcome && outcome.type === 'rate_limited';
+}
+
+function isMockTransientErrorOutcome<T>(
+  outcome: MockAttemptOutcome<T>,
+): outcome is Extract<MockAttemptOutcome<T>, { readonly type: 'transient_error' }> {
+  return 'type' in outcome && outcome.type === 'transient_error';
 }
 
 function queuedTask(index: number): QueuedSubagentTask<number> {

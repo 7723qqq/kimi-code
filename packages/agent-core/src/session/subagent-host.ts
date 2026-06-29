@@ -1,5 +1,8 @@
 import {
+  APIConnectionError,
   APIProviderRateLimitError,
+  APIStatusError,
+  ChatProviderError,
   isProviderRateLimitError,
   type TokenUsage,
 } from '@moonshot-ai/kosong';
@@ -475,11 +478,7 @@ async function runChildTurnToCompletion(child: Agent, signal: AbortSignal): Prom
     if (turnEnded.error?.code === ErrorCodes.PROVIDER_RATE_LIMIT) {
       throw providerRateLimitErrorFromPayload(turnEnded.error);
     }
-    throw new Error(
-      turnEnded.error === undefined
-        ? `Subagent turn ${turnEnded.reason}`
-        : `[${turnEnded.error.code}] ${turnEnded.error.message}`,
-    );
+    throw providerErrorFromPayload(turnEnded.error);
   }
   if (completion.stopReason === 'max_tokens') {
     throw new Error(`${SUBAGENT_MAX_TOKENS_ERROR}.`);
@@ -490,6 +489,25 @@ function providerRateLimitErrorFromPayload(error: KimiErrorPayload): APIProvider
   const requestId =
     typeof error.details?.['requestId'] === 'string' ? error.details['requestId'] : null;
   return new APIProviderRateLimitError(error.message, requestId);
+}
+
+function providerErrorFromPayload(error: KimiErrorPayload | undefined): Error {
+  if (error === undefined) return new Error('Subagent turn failed');
+
+  const requestId =
+    typeof error.details?.['requestId'] === 'string' ? error.details['requestId'] : null;
+  const statusCode = error.details?.['statusCode'];
+  const message = error.message;
+
+  if (error.code === ErrorCodes.PROVIDER_CONNECTION_ERROR) {
+    return new APIConnectionError(message);
+  }
+
+  if (typeof statusCode === 'number') {
+    return new APIStatusError(statusCode, message, requestId);
+  }
+
+  return new ChatProviderError(`[${error.code}] ${message}`);
 }
 
 function lastAssistantText(agent: Agent): string {
