@@ -19,6 +19,7 @@ import { registerMessagesRoutes } from './messages';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
 import { registerOAuthRoutes } from './oauth';
+import { registerQuestionsRoutes } from './questions';
 import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
 import { registerWorkspacesRoutes } from './workspaces';
@@ -76,6 +77,10 @@ export async function registerApiV1Routes(
       );
       registerApprovalsRoutes(
         apiV1 as unknown as Parameters<typeof registerApprovalsRoutes>[0],
+        core,
+      );
+      registerQuestionsRoutes(
+        apiV1 as unknown as Parameters<typeof registerQuestionsRoutes>[0],
         core,
       );
       registerWorkspacesRoutes(

@@ -9,32 +9,43 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IInteractionService } from '#/interaction';
 
-import { type QuestionRequest, IQuestionService } from './question';
+import {
+  type QuestionRequest,
+  type QuestionResult,
+  IQuestionService,
+} from './question';
 
 export class QuestionService implements IQuestionService {
   declare readonly _serviceBrand: undefined;
 
   constructor(@IInteractionService private readonly interaction: IInteractionService) {}
 
-  request(req: QuestionRequest): Promise<string> {
-    return this.interaction.request<QuestionRequest, string>({
-      id: req.id,
+  request(req: QuestionRequest): Promise<QuestionResult> {
+    return this.interaction.request<QuestionRequest, QuestionResult>({
+      id: requestId(req),
       kind: 'question',
       payload: req,
+      origin: { turnId: req.turnId },
     });
   }
 
-  enqueue(req: QuestionRequest): QuestionRequest {
+  enqueue(req: QuestionRequest): QuestionRequest & { readonly id: string } {
+    const id = requestId(req);
     this.interaction.enqueue<QuestionRequest>({
-      id: req.id,
+      id,
       kind: 'question',
       payload: req,
+      origin: { turnId: req.turnId },
     });
-    return req;
+    return { ...req, id };
   }
 
-  answer(id: string, answer: string): void {
-    this.interaction.respond(id, answer);
+  answer(id: string, result: QuestionResult): void {
+    this.interaction.respond(id, result);
+  }
+
+  dismiss(id: string): void {
+    this.interaction.respond(id, null);
   }
 
   listPending(): readonly QuestionRequest[] {
@@ -42,6 +53,10 @@ export class QuestionService implements IQuestionService {
       .listPending('question')
       .map((i) => i.payload as QuestionRequest);
   }
+}
+
+function requestId(req: QuestionRequest): string {
+  return req.id ?? req.toolCallId ?? `question:${String(Date.now())}`;
 }
 
 registerScopedService(LifecycleScope.Session, IQuestionService, QuestionService, InstantiationType.Delayed, 'question');

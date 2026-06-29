@@ -43,12 +43,24 @@ import {
 import { createScopedTestHost, type ScopedTestHost } from '#/_base/di/test';
 import { type ApprovalRequest, ApprovalService, IApprovalService } from '#/approval';
 import { IInteractionService, InteractionService } from '#/interaction';
-import { IQuestionService, QuestionService } from '#/question';
+import { type QuestionRequest, IQuestionService, QuestionService } from '#/question';
 
 const display: ToolInputDisplay = { kind: 'command', command: 'rm -rf /tmp/demo' };
 
 function approval(id: string): ApprovalRequest {
   return { id, toolName: 'bash', action: 'run', display };
+}
+
+function question(id: string): QuestionRequest {
+  return {
+    id,
+    questions: [
+      {
+        question: 'What is your name?',
+        options: [{ label: 'kimi' }, { label: 'other' }],
+      },
+    ],
+  };
 }
 
 describe('interaction kernel + approval/question facades (Session scope)', () => {
@@ -93,12 +105,12 @@ describe('interaction kernel + approval/question facades (Session scope)', () =>
     disposables.add(interaction.onDidResolve((r) => resolved.push(r)));
 
     // enqueue parks the request and returns its id without blocking.
-    const parked = questions.enqueue({ id: 'q-name', prompt: 'What is your name?' });
+    const parked = questions.enqueue(question('q-name'));
     console.log('1) enqueued question (id known up front):', parked);
     console.log('2) pending questions:', questions.listPending());
 
     // The answer arrives later (HTTP/WS `questions:answer`) and fans out.
-    questions.answer('q-name', 'kimi');
+    questions.answer('q-name', { answers: { q_0: 'kimi' } });
     console.log('3) onDidResolve stream delivered:', resolved);
     console.log('4) after answer, pending questions:', questions.listPending());
   });
@@ -112,7 +124,7 @@ describe('interaction kernel + approval/question facades (Session scope)', () =>
     disposables.add(interaction.onDidChange(() => changes++));
 
     void approvals.request(approval('bash-1')); // change #1 (park approval)
-    questions.enqueue({ id: 'q-name', prompt: 'name?' }); // change #2 (park question)
+    questions.enqueue(question('q-name')); // change #2 (park question)
 
     // The kernel sees every pending interaction, regardless of which facade parked it.
     console.log('1) kernel listPending (all kinds):', interaction.listPending().map((i) => i.kind));
@@ -120,7 +132,7 @@ describe('interaction kernel + approval/question facades (Session scope)', () =>
     console.log('3) kernel listPending("question"):', interaction.listPending('question').map((i) => i.id));
 
     approvals.decide('bash-1', { decision: 'rejected' }); // change #3 (resolve approval)
-    questions.answer('q-name', 'kimi'); // change #4 (resolve question)
+    questions.answer('q-name', { answers: { q_0: 'kimi' } }); // change #4 (resolve question)
     console.log('4) onDidChange fired', changes, 'times (park x2 + resolve x2)');
   });
 

@@ -1,234 +1,111 @@
-import type { ToolCall } from '@moonshot-ai/kosong';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { ErrorCodes, KimiError } from '../../../src/errors';
-import { IQuestionService, type QuestionResult } from '../../../src/services';
-import { testAgent } from './harness';
+import { InstantiationType } from '#/_base/di/extensions';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import {
+  _clearScopedRegistryForTests,
+  LifecycleScope,
+  registerScopedService,
+  type Scope,
+} from '#/_base/di/scope';
+import { createScopedTestHost, type ScopedTestHost } from '#/_base/di/test';
+import { IInteractionService, InteractionService } from '#/interaction';
+import { type QuestionRequest, IQuestionService, QuestionService } from '#/question';
 
-describe('Agent question', () => {
-  it('roundtrips a question request through wire rpc', async () => {
-    const ctx = testAgent();
+function makeRequest(id: string): QuestionRequest {
+  return {
+    id,
+    toolCallId: `tc-${id}`,
+    questions: [
+      {
+        question: 'Pick one',
+        options: [{ label: 'Yes' }, { label: 'No' }],
+      },
+    ],
+  };
+}
 
-    const resultPromise = ctx.service(IQuestionService).request({
-      sessionId: 'session-1',
-      agentId: 'agent-1',
-      questions: [
-        {
-          question: 'Pick one',
-          options: [{ label: 'Yes' }, { label: 'No' }],
-        },
-      ],
-    });
+describe('IQuestionService (Session scope facade over the interaction kernel)', () => {
+  let disposables: DisposableStore;
+  let host: ScopedTestHost;
+  let session: Scope;
 
-    expect(await ctx.untilQuestion({ Yes: true })).toMatchInlineSnapshot(
-      `[emit] requestQuestion   { "questions": [ { "question": "Pick one", "options": [ { "label": "Yes" }, { "label": "No" } ] } ] }`,
-    );
+  beforeEach(() => {
+    _clearScopedRegistryForTests();
+    registerScopedService(LifecycleScope.Session, IInteractionService, InteractionService, InstantiationType.Delayed, 'interaction');
+    registerScopedService(LifecycleScope.Session, IQuestionService, QuestionService, InstantiationType.Delayed, 'question');
 
-    await expect(resultPromise).resolves.toEqual({ Yes: true });
-    await ctx.expectResumeMatches();
+    disposables = new DisposableStore();
+    host = createScopedTestHost();
+    session = host.child(LifecycleScope.Session, 'session-a');
   });
 
-  it('sends multiple questions in one request', async () => {
-    const ctx = testAgent();
-
-    const resultPromise = ctx.service(IQuestionService).request({
-      sessionId: 'session-1',
-      agentId: 'agent-1',
-      questions: [
-        {
-          question: 'Pick one',
-          options: [{ label: 'Yes' }, { label: 'No' }],
-        },
-        {
-          question: 'Pick storage',
-          options: [{ label: 'Postgres' }, { label: 'SQLite' }],
-        },
-      ],
-    });
-
-    expect(
-      await ctx.untilQuestion({ Yes: true, 'Pick storage': 'Postgres' }),
-    ).toMatchInlineSnapshot(
-      `[emit] requestQuestion   { "questions": [ { "question": "Pick one", "options": [ { "label": "Yes" }, { "label": "No" } ] }, { "question": "Pick storage", "options": [ { "label": "Postgres" }, { "label": "SQLite" } ] } ] }`,
-    );
-
-    await expect(resultPromise).resolves.toEqual({ Yes: true, 'Pick storage': 'Postgres' });
-    await ctx.expectResumeMatches();
+  afterEach(() => {
+    disposables.dispose();
+    host.dispose();
   });
 
-  it('registers AskUserQuestion and routes model calls through question service', async () => {
-    const telemetry = { track: vi.fn() };
-    const ctx = testAgent({
-      telemetry,
-    });
-    ctx.configure({ tools: ['AskUserQuestion'] });
+  it('request parks until answer resolves it with the rich result', async () => {
+    const questions = session.accessor.get(IQuestionService);
 
-    expect(ctx.toolsData().find((tool) => tool.name === 'AskUserQuestion')).toMatchObject({
-      active: true,
-      name: 'AskUserQuestion',
-      source: 'builtin',
-    });
+    const pending = questions.request(makeRequest('q1'));
+    expect(questions.listPending().map((r) => r.id)).toEqual(['q1']);
 
-    ctx.mockNextResponse(
-      { type: 'text', text: 'I need one choice.' },
-      askQuestionCall('call_question'),
-    );
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Ask me.' }] });
-    await ctx.untilQuestion({
-      answers: { 'Pick one': 'Yes' },
-      method: 'number_key',
-    });
-
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: <system-prompt>
-      tools: AskUserQuestion
-      messages:
-        user: text "Ask me."
-    `);
-    expect(requestQuestionArgs(ctx, 'call_question')).toEqual({
-      turnId: 0,
-      toolCallId: 'call_question',
-      questions: [
-        {
-          question: 'Pick one',
-          header: '',
-          options: [
-            { label: 'Yes', description: '' },
-            { label: 'No', description: '' },
-          ],
-          multiSelect: false,
-        },
-      ],
-    });
-
-    ctx.mockNextResponse({ type: 'text', text: 'Thanks for answering.' });
-    await ctx.untilTurnEnd();
-
-    expect(toolResultArgs(ctx, 'call_question')).toMatchObject({
-      output: JSON.stringify({ answers: { 'Pick one': 'Yes' } }),
-    });
-    expect(telemetry.track).toHaveBeenCalledWith('question_answered', {
-      answered: 1,
-      method: 'number_key',
-    });
-    expect(String(toolResultArgs(ctx, 'call_question').output)).not.toContain('number_key');
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      messages:
-        <last>
-        assistant: text "I need one choice."  calls call_question:AskUserQuestion { "questions": [ { "question": "Pick one", "options": [ { "label": "Yes" }, { "label": "No" } ] } ] }
-        tool[call_question]: text "{\\"answers\\":{\\"Pick one\\":\\"Yes\\"}}"
-    `);
-    await ctx.expectResumeMatches();
+    questions.answer('q1', { answers: { q_0: 'Yes' }, method: 'number_key' });
+    await expect(pending).resolves.toEqual({ answers: { q_0: 'Yes' }, method: 'number_key' });
+    expect(questions.listPending()).toEqual([]);
   });
 
-  it('returns a dismissed answer when the user dismisses AskUserQuestion', async () => {
-    const telemetry = { track: vi.fn() };
-    const ctx = testAgent({ telemetry });
-    ctx.configure({ tools: ['AskUserQuestion'] });
+  it('enqueue returns immediately and the answer streams over onDidResolve', () => {
+    const interaction = session.accessor.get(IInteractionService);
+    const questions = session.accessor.get(IQuestionService);
 
-    ctx.mockNextResponse(
-      { type: 'text', text: 'I need one choice.' },
-      askQuestionCall('call_dismissed'),
-    );
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Ask me.' }] });
-    await ctx.untilQuestion(null);
+    const resolved: { id: string; response: unknown }[] = [];
+    disposables.add(interaction.onDidResolve((r) => resolved.push(r)));
 
-    ctx.mockNextResponse({ type: 'text', text: 'No answer was provided.' });
-    await ctx.untilTurnEnd();
+    const parked = questions.enqueue(makeRequest('q1'));
+    expect(parked.id).toBe('q1');
+    expect(questions.listPending().map((r) => r.id)).toEqual(['q1']);
 
-    expect(JSON.parse(String(toolResultArgs(ctx, 'call_dismissed').output))).toEqual({
-      answers: {},
-      note: 'User dismissed the question without answering.',
-    });
-    expect(telemetry.track).toHaveBeenCalledWith('question_dismissed', undefined);
+    questions.answer('q1', { answers: { q_0: 'No' } });
+    expect(resolved).toEqual([{ id: 'q1', response: { answers: { q_0: 'No' } } }]);
+    expect(questions.listPending()).toEqual([]);
   });
 
-  it('returns a hard error when the question service reports unsupported questions', async () => {
-    const ctx = testAgent({
-      questionService: unsupportedQuestionService(),
-    });
-    ctx.configure({ tools: ['AskUserQuestion'] });
+  it('dismiss resolves a pending request with null', async () => {
+    const questions = session.accessor.get(IQuestionService);
 
-    ctx.mockNextResponse(
-      { type: 'text', text: 'I need one choice.' },
-      askQuestionCall('call_unsupported'),
-    );
-    ctx.mockNextResponse({ type: 'text', text: 'I will ask directly instead.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Ask me.' }] });
-    await ctx.untilTurnEnd();
+    const pending = questions.request(makeRequest('q1'));
+    questions.dismiss('q1');
 
-    expect(toolResultArgs(ctx, 'call_unsupported')).toMatchObject({
-      isError: true,
-      output: expect.stringContaining('does not support interactive questions'),
-    });
-    expect(String(toolResultArgs(ctx, 'call_unsupported').output)).toContain(
-      'Do NOT call this tool again',
-    );
-    expect(requestQuestionArgs(ctx, 'call_unsupported')).toBeUndefined();
+    await expect(pending).resolves.toBeNull();
+    expect(questions.listPending()).toEqual([]);
   });
 
-  it('enqueue parks a question without blocking', () => {
-    const svc = ix.get(IQuestionService);
-    const enqueued = svc.enqueue({ id: 'q1', prompt: 'name?' });
-    expect(enqueued).toEqual({ id: 'q1', prompt: 'name?' });
-    expect(svc.listPending()).toEqual([{ id: 'q1', prompt: 'name?' }]);
-    svc.answer('q1', 'kimi');
-    expect(svc.listPending()).toEqual([]);
+  it('listPending returns the stored in-process payload', () => {
+    const questions = session.accessor.get(IQuestionService);
+    questions.enqueue(makeRequest('q1'));
+
+    const pending = questions.listPending();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      id: 'q1',
+      toolCallId: 'tc-q1',
+      questions: [{ question: 'Pick one' }],
+    });
+  });
+
+  it('Session scope isolates brokers: a question parked in A is invisible to B', () => {
+    const sessionB = host.child(LifecycleScope.Session, 'session-b');
+    const questionsA = session.accessor.get(IQuestionService);
+    const questionsB = sessionB.accessor.get(IQuestionService);
+
+    questionsA.enqueue(makeRequest('q1'));
+    expect(questionsA.listPending().map((r) => r.id)).toEqual(['q1']);
+    expect(questionsB.listPending()).toEqual([]);
+
+    // Answering from B is a no-op — the id lives in A's kernel.
+    questionsB.answer('q1', { answers: { q_0: 'Yes' } });
+    expect(questionsA.listPending().map((r) => r.id)).toEqual(['q1']);
   });
 });
-
-function askQuestionCall(id: string): ToolCall {
-  return {
-    type: 'function',
-    id,
-    name: 'AskUserQuestion',
-    arguments: JSON.stringify({
-      questions: [
-        {
-          question: 'Pick one',
-          options: [{ label: 'Yes' }, { label: 'No' }],
-        },
-      ],
-    }),
-  };
-}
-
-function requestQuestionArgs(
-  ctx: ReturnType<typeof testAgent>,
-  toolCallId: string,
-): unknown {
-  return rpcArgs(ctx, 'requestQuestion', toolCallId);
-}
-
-function toolResultArgs(
-  ctx: ReturnType<typeof testAgent>,
-  toolCallId: string,
-): { readonly output?: unknown; readonly isError?: boolean } {
-  const args = rpcArgs(ctx, 'tool.result', toolCallId);
-  expect(args).toBeDefined();
-  return args as { readonly output?: unknown; readonly isError?: boolean };
-}
-
-function rpcArgs(
-  ctx: ReturnType<typeof testAgent>,
-  event: string,
-  toolCallId: string,
-): unknown {
-  return ctx.allEvents.find((entry) => {
-    if (entry.type !== '[rpc]' || entry.event !== event) return false;
-    const args = entry.args as { readonly toolCallId?: string };
-    return args.toolCallId === toolCallId;
-  })?.args;
-}
-
-function unsupportedQuestionService(): IQuestionService {
-  return {
-    _serviceBrand: undefined,
-    request: async (): Promise<QuestionResult> => {
-      throw new KimiError(ErrorCodes.NOT_IMPLEMENTED, 'Client does not support questions');
-    },
-    resolve: () => {},
-    dismiss: () => {},
-    listPending: () => [],
-  };
-}
