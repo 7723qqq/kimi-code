@@ -7,7 +7,6 @@ import {
 import type { ContextMessage } from '#/contextMemory';
 import { IContextMemory } from '#/contextMemory';
 import { IEventSink } from '../eventSink';
-import { IProfileService } from '#/profile';
 import { IWireRecord, type WireRecord } from '#/wireRecord';
 import {
   IContextSizeService,

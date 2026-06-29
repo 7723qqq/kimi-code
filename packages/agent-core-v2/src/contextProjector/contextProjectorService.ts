@@ -1,16 +1,13 @@
-import type { Message } from '@moonshot-ai/kosong';
-import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-
 import {
   IInstantiationService,
 } from "#/_base/di";
-import { IMicroCompactionService } from '#/microCompaction';
-import type { ContentPart, TextPart } from '@moonshot-ai/kosong';
-import { IContextProjector } from './contextProjector';
-import { ErrorCodes, KimiError } from '#/errors';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContextMessage } from '#/contextMemory/types';
-
+import { ErrorCodes, KimiError } from '#/errors';
+import { IMicroCompactionService } from '#/microCompaction';
+import type { ContentPart, Message, TextPart } from '@moonshot-ai/kosong';
+import { IContextProjector } from './contextProjector';
 
 export class ContextProjectorService implements IContextProjector {
   constructor(
@@ -30,126 +27,56 @@ export class ContextProjectorService implements IContextProjector {
 
 
 export function project(history: readonly ContextMessage[]): Message[] {
-  const usable = history
-    .map(prepareMessageForProjection)
-    .filter((message): message is ContextMessage => message !== null);
-  return mergeAdjacentUserMessages(deferMessagesAroundOpenToolExchanges(usable));
+  return finalizeProjectedMessages(mergeAdjacentUserMessages(normalizeToolExchanges(history)));
 }
 
 const TOOL_INTERRUPTED_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_INTERRUPTED_OUTPUT =
   'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
 
-/**
- * Normalizes a raw history into a sequence the model can consume: every
- * assistant tool call is immediately followed by its results (real results are
- * pulled up right after the call; messages that landed between a call and its
- * results — e.g. injected reminders — are moved to after the exchange closes),
- * and any tool call left unanswered is closed with a synthetic error result.
- *
- * This is the single place tool exchanges are made valid. `ContextMemory`
- * stores the raw insertion order and never closes anything; closure is
- * recomputed here on every projection, so it does not need to be persisted.
- */
-export function deferMessagesAroundOpenToolExchanges(
-  history: readonly ContextMessage[],
-): ContextMessage[] {
-  const out: ContextMessage[] = [];
-  const pendingToolResultIds = new Set<string>();
-  // Calls that have already been answered (by a real or synthetic result). A
-  // second result for the same call is a stale duplicate and is dropped. A
-  // result whose call has not been seen at all is kept — it may be a valid
-  // result whose call sits outside a projected slice (micro-compaction projects
-  // single messages to size them).
-  const answeredToolCallIds = new Set<string>();
-  let deferredMessages: ContextMessage[] = [];
-  // Whether an assistant message has been emitted yet. A tool result whose call
-  // was never seen is an orphan and is dropped — but only once we are in a real
-  // projection context (an assistant has appeared). A leading tool result with
-  // no assistant is a bare slice (micro-compaction sizes single messages this
-  // way) and is kept.
-  let sawAssistant = false;
+interface ToolExchangeProjection {
+  pendingToolCalls: Set<string>;
+  results: ContextMessage[];
+}
 
-  const push = (message: ContextMessage): void => {
-    out.push(message);
-    if (message.role !== 'assistant') return;
-    sawAssistant = true;
-    for (const toolCall of message.toolCalls) {
-      pendingToolResultIds.add(toolCall.id);
-      // A fresh call re-opens the id, so a later result is matched to this call
-      // rather than being dropped as a duplicate of an earlier (reused) id.
-      answeredToolCallIds.delete(toolCall.id);
-    }
-  };
-
-  const acceptResult = (message: ContextMessage): void => {
-    out.push(message);
-    if (message.toolCallId !== undefined) answeredToolCallIds.add(message.toolCallId);
-  };
-
-  const flushDeferredMessages = (): void => {
-    if (deferredMessages.length === 0) return;
-    const messages = deferredMessages;
-    deferredMessages = [];
-    for (const message of messages) {
-      visit(message);
-    }
-  };
-
-  // Synthesize a result for every tool call still unanswered, then release the
-  // messages that were waiting behind the (now closed) exchange.
-  const closeOpenExchange = (): void => {
-    for (const toolCallId of pendingToolResultIds) {
-      out.push(createInterruptedToolResult(toolCallId));
-      answeredToolCallIds.add(toolCallId);
-    }
-    pendingToolResultIds.clear();
-    flushDeferredMessages();
-  };
-
-  const visit = (message: ContextMessage): void => {
-    const isToolResult = message.role === 'tool' && message.toolCallId !== undefined;
-    // A second result for an already-answered call is a stale duplicate.
-    if (isToolResult && answeredToolCallIds.has(message.toolCallId!)) return;
-
-    if (pendingToolResultIds.size === 0) {
-      if (isToolResult) {
-        // A result whose call was never seen is an orphan in a real projection,
-        // but a kept message in a bare slice (no assistant yet).
-        if (sawAssistant) return;
-        acceptResult(message);
-      } else {
-        push(message);
-      }
-      return;
-    }
-
-    // A real result for one of the open calls — pull it up right after the call.
-    if (isToolResult && pendingToolResultIds.has(message.toolCallId!)) {
-      pendingToolResultIds.delete(message.toolCallId!);
-      acceptResult(message);
-      if (pendingToolResultIds.size === 0) flushDeferredMessages();
-      return;
-    }
-
-    // A new assistant turn means the open calls will never be answered — close
-    // them (synthetic results) before the new exchange starts.
-    if (message.role === 'assistant') {
-      closeOpenExchange();
-      visit(message);
-      return;
-    }
-
-    // Everything else (a stray reminder, a result for an as-yet-unseen call)
-    // waits behind the open exchange and is released once it closes.
-    deferredMessages.push(message);
-  };
+export function normalizeToolExchanges(history: readonly ContextMessage[]): ContextMessage[] {
+  const exchangeByToolCallId = new Map<string, ToolExchangeProjection>();
+  const exchangeByAssistant = new Map<ContextMessage, ToolExchangeProjection>();
 
   for (const message of history) {
-    visit(message);
+    if (message.role === 'assistant' && message.toolCalls.length > 0) {
+      const exchange: ToolExchangeProjection = {
+        pendingToolCalls: new Set(message.toolCalls.map((toolCall) => toolCall.id)),
+        results: [],
+      };
+      exchangeByAssistant.set(message, exchange);
+      for (const toolCall of message.toolCalls) {
+        exchangeByToolCallId.set(toolCall.id, exchange);
+      }
+      continue;
+    }
+
+    if (message.role !== 'tool' || message.toolCallId === undefined) continue;
+
+    const exchange = exchangeByToolCallId.get(message.toolCallId);
+    if (exchange === undefined) continue;
+    if (!exchange.pendingToolCalls.delete(message.toolCallId)) continue;
+    exchange.results.push(message);
   }
-  // Close any exchange still open at the end of history.
-  closeOpenExchange();
+
+  const out: ContextMessage[] = [];
+  for (const message of history) {
+    if (message.role === 'tool') continue;
+
+    out.push(message);
+    const exchange = exchangeByAssistant.get(message);
+    if (exchange === undefined) continue;
+
+    out.push(...exchange.results);
+    for (const toolCallId of exchange.pendingToolCalls) {
+      out.push(createInterruptedToolResult(toolCallId));
+    }
+  }
 
   return out;
 }
@@ -166,12 +93,9 @@ function createInterruptedToolResult(toolCallId: string): ContextMessage {
   };
 }
 
-function mergeAdjacentUserMessages(history: readonly ContextMessage[]): Message[] {
+function mergeAdjacentUserMessages(history: readonly ContextMessage[]): ContextMessage[] {
   const out: ContextMessage[] = [];
-  for (const source of history) {
-    const message = prepareMessageForProjection(source);
-    if (message === null) continue;
-
+  for (const message of history) {
     const previous = out.at(-1);
     if (
       canMergeUserMessage(message) &&
@@ -183,34 +107,47 @@ function mergeAdjacentUserMessages(history: readonly ContextMessage[]): Message[
     }
     out.push(message);
   }
-  return out.map(stripContextMetadata);
+  return out;
 }
 
-function prepareMessageForProjection(message: ContextMessage): ContextMessage | null {
-  if (message.partial === true) return null;
+function finalizeProjectedMessages(history: readonly ContextMessage[]): Message[] {
+  const out: Message[] = [];
+  for (const message of history) {
+    if (message.partial === true) continue;
 
-  let content: ContentPart[] | undefined;
-  for (const [index, part] of message.content.entries()) {
-    if (part.type === 'text' && part.text.length === 0) {
-      content ??= message.content.slice(0, index);
-      continue;
+    let content: ContentPart[] | undefined;
+    for (const [index, part] of message.content.entries()) {
+      if (part.type === 'text' && part.text.length === 0) {
+        content ??= message.content.slice(0, index);
+        continue;
+      }
+      content?.push(part);
     }
-    content?.push(part);
-  }
 
-  const next = content === undefined ? message : { ...message, content };
-  if (next.role === 'tool' && next.content.length === 0) {
-    throw new KimiError(
-      ErrorCodes.REQUEST_INVALID,
-      'Tool result message content cannot be empty after removing empty text blocks.',
-      {
-        details: {
-          toolCallId: next.toolCallId,
+    const projectedContent = content ?? message.content;
+    if (message.role === 'tool' && projectedContent.length === 0) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'Tool result message content cannot be empty after removing empty text blocks.',
+        {
+          details: {
+            toolCallId: message.toolCallId,
+          },
         },
-      },
-    );
+      );
+    }
+    if (projectedContent.length === 0 && message.toolCalls.length === 0) continue;
+
+    out.push({
+      role: message.role,
+      name: message.name,
+      content: projectedContent.map((p) => ({ ...p })) as ContentPart[],
+      toolCalls: message.toolCalls.map((tc) => ({ ...tc })),
+      toolCallId: message.toolCallId,
+      partial: message.partial,
+    });
   }
-  return next.content.length === 0 && next.toolCalls.length === 0 ? null : next;
+  return out;
 }
 
 function canMergeUserMessage(message: ContextMessage): boolean {
@@ -239,17 +176,6 @@ function extractTextOnly(message: Message): string {
     .filter((p): p is TextPart => p.type === 'text')
     .map((p) => p.text)
     .join('');
-}
-
-function stripContextMetadata(message: ContextMessage): Message {
-  return {
-    role: message.role,
-    name: message.name,
-    content: message.content.map((p) => ({ ...p })) as ContentPart[],
-    toolCalls: message.toolCalls.map((tc) => ({ ...tc })),
-    toolCallId: message.toolCallId,
-    partial: message.partial,
-  };
 }
 
 export function trimTrailingOpenToolExchange(history: readonly Message[]): Message[] {
@@ -282,7 +208,6 @@ function isInterruptedToolResult(message: Message): boolean {
     content.text === `${TOOL_INTERRUPTED_STATUS}\n${TOOL_INTERRUPTED_OUTPUT}`
   );
 }
-
 
 registerScopedService(
   LifecycleScope.Agent,

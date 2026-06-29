@@ -6,9 +6,9 @@ import {
 } from "#/_base/di";
 import { Emitter } from "#/_base/event";
 
-import { IEventSink } from '.';
-import type { AgentEvent } from '@moonshot-ai/protocol';
 import { IWireRecord } from '#/wireRecord';
+import type { AgentEvent } from '@moonshot-ai/protocol';
+import { IEventSink } from './eventSink';
 
 export class EventSinkService extends Disposable implements IEventSink {
   declare readonly _serviceBrand: undefined;

@@ -179,7 +179,7 @@ export class GoalService extends Disposable implements IGoalService {
       objective: state.objective,
       completionCriterion: state.completionCriterion,
     });
-    this.track('goal_created', { actor, replace: input.replace === true });
+    this.telemetry.track('goal_created', { actor, replace: input.replace === true });
     return this.toSnapshot(state);
   }
 
@@ -248,7 +248,7 @@ export class GoalService extends Disposable implements IGoalService {
     state.budgetLimits = { ...state.budgetLimits, ...input.budgetLimits };
     this.persistState(state);
     this.appendGoalUpdate({ budgetLimits: state.budgetLimits });
-    this.track('goal_budget_set', {
+    this.telemetry.track('goal_budget_set', {
       actor,
       ...budgetTelemetryProperties(input.budgetLimits),
     });
@@ -260,7 +260,10 @@ export class GoalService extends Disposable implements IGoalService {
     const snapshot = this.toSnapshot(state);
     this.clearInternal(actor);
     if (actor === 'user') {
-      this.appendSystemReminder(GOAL_CANCELLED_REMINDER, 'goal_cancelled');
+      this.reminders.appendSystemReminder(GOAL_CANCELLED_REMINDER, {
+        kind: 'system_trigger',
+        name: 'goal_cancelled',
+      });
     }
     return snapshot;
   }
@@ -320,7 +323,7 @@ export class GoalService extends Disposable implements IGoalService {
     state.turnsUsed += 1;
     this.persistState(state);
     this.appendGoalUpdate({ turnsUsed: state.turnsUsed });
-    this.track('goal_continued', { turns_used: state.turnsUsed });
+    this.telemetry.track('goal_continued', { turns_used: state.turnsUsed });
     return this.toSnapshot(state);
   }
 
@@ -408,7 +411,10 @@ export class GoalService extends Disposable implements IGoalService {
     const hadGoal = this.state !== undefined;
     this.state = undefined;
     if (!hadGoal) return;
-    this.appendSystemReminder(GOAL_FORK_CLEARED_REMINDER, 'goal_fork_cleared');
+    this.reminders.appendSystemReminder(GOAL_FORK_CLEARED_REMINDER, {
+      kind: 'system_trigger',
+      name: 'goal_fork_cleared',
+    });
   }
 
   private clearInternal(
@@ -418,7 +424,7 @@ export class GoalService extends Disposable implements IGoalService {
     if (this.state === undefined) return;
     this.persistState(undefined, { silent: opts.emit === false });
     this.wireRecord.append({ type: 'goal.clear' });
-    if (opts.track !== false) this.track('goal_cleared', { actor });
+    if (opts.track !== false) this.telemetry.track('goal_cleared', { actor });
   }
 
   private appendStatusUpdate(state: GoalState, actor: GoalActor, reason?: string): void {
@@ -428,7 +434,7 @@ export class GoalService extends Disposable implements IGoalService {
       wallClockMs: liveWallClockMs(state),
       actor,
     });
-    this.track('goal_status_changed', {
+    this.telemetry.track('goal_status_changed', {
       actor,
       status: state.status,
       turns_used: state.turnsUsed,
@@ -501,14 +507,6 @@ export class GoalService extends Disposable implements IGoalService {
       budget: computeBudgetReport(state),
       terminalReason: state.terminalReason,
     };
-  }
-
-  private track(event: string, properties: TelemetryProperties): void {
-    this.telemetry.track(event, properties);
-  }
-
-  private appendSystemReminder(text: string, name: string): void {
-    this.reminders.appendSystemReminder(text, { kind: 'system_trigger', name });
   }
 }
 
