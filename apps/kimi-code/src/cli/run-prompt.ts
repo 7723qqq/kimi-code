@@ -575,10 +575,15 @@ function runPromptTurn(
           return;
         case 'tool.progress':
           // stream-json: a JSON line on stdout (keeping the live tool output in
-          // the JSON stream); text: the raw chunk on stderr as before.
+          // the JSON stream); text: the raw chunk on stderr — suppressed under
+          // `--final-message-only`/`--quiet`, which promise minimal output.
           if (outputFormat === 'stream-json') {
             outputWriter.writeActivity(toolProgressMessage(event));
-          } else if (event.update.text !== undefined && event.update.text.length > 0) {
+          } else if (
+            !finalOnly &&
+            event.update.text !== undefined &&
+            event.update.text.length > 0
+          ) {
             stderr.write(
               event.update.text.endsWith('\n') ? event.update.text : `${event.update.text}\n`,
             );

@@ -839,6 +839,58 @@ describe('runPrompt', () => {
     expect(process.exitCode).toBe(1);
   });
 
+  // Final-only is a subtractive contract enforced by the writer, but several
+  // paths write to stdout/stderr directly (resume hint, goal summary, drain,
+  // tool progress). These kitchen-sink tests feed every in-turn event kind and
+  // assert the output is EXACTLY the final message — one guard that catches any
+  // such leak at once, rather than discovering them one path at a time.
+  const emitKitchenSink = (turnId: number) => {
+    for (const handler of mocks.eventHandlers) {
+      const e = (event: Record<string, unknown>) => handler(mocks.mainEvent(event));
+      e({ type: 'turn.started', turnId, origin: { kind: 'user' } });
+      e({ type: 'thinking.delta', turnId, delta: 'secret reasoning' });
+      e({ type: 'assistant.delta', turnId, delta: 'first step' });
+      e({ type: 'tool.call.started', turnId, toolCallId: 'tc_1', name: 'Bash', args: { command: 'ls' } });
+      e({ type: 'tool.progress', turnId, toolCallId: 'tc_1', update: { kind: 'stdout', text: 'live output' } });
+      e({ type: 'tool.result', turnId, toolCallId: 'tc_1', output: 'res' });
+      e({ type: 'hook.result', turnId, hookEvent: 'UserPromptSubmit', content: '{}' });
+      e({
+        type: 'background.task.terminated',
+        info: { taskId: 'b1', kind: 'process', status: 'completed', description: 'build', startedAt: 0, endedAt: 1 },
+      });
+      e({ type: 'subagent.spawned', subagentId: 'a1', subagentName: 'researcher', runInBackground: false });
+      e({ type: 'warning', message: 'heads up' });
+      e({ type: 'turn.step.started', turnId });
+      e({ type: 'assistant.delta', turnId, delta: 'the final answer' });
+      e({ type: 'turn.ended', turnId, reason: 'completed' });
+    }
+  };
+
+  it('final-only stream-json emits exactly the final message for a kitchen-sink turn', async () => {
+    mocks.session.prompt.mockImplementationOnce(async () => emitKitchenSink(90));
+    const stdout = writer();
+    const stderr = writer();
+
+    await runPrompt(opts({ outputFormat: 'stream-json', finalMessageOnly: true }), '1.2.3-test', {
+      stdout,
+      stderr,
+    });
+
+    expect(stdout.text()).toBe('{"role":"assistant","content":"the final answer"}\n');
+    expect(stderr.text()).toBe('');
+  });
+
+  it('final-only/quiet text emits exactly the final text with a silent stderr', async () => {
+    mocks.session.prompt.mockImplementationOnce(async () => emitKitchenSink(91));
+    const stdout = writer();
+    const stderr = writer();
+
+    await runPrompt(opts({ quiet: true }), '1.2.3-test', { stdout, stderr });
+
+    expect(stdout.text()).toBe('the final answer\n');
+    expect(stderr.text()).toBe('');
+  });
+
   it('emits only the final text in text final-message-only mode and skips the resume hint (output B)', async () => {
     const stdout = writer();
     const stderr = writer();
