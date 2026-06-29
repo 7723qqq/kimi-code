@@ -1257,7 +1257,7 @@ function parsePromptBooleanEnv(value: string | undefined): boolean | undefined {
  * Maps session-level notification events (background tasks, cron) to a JSONL
  * notification line, or `undefined` for events that are not notifications.
  */
-function toNotificationMessage(event: Event): PromptJsonNotificationMessage | undefined {
+export function toNotificationMessage(event: Event): PromptJsonNotificationMessage | undefined {
   switch (event.type) {
     case 'background.task.started':
     case 'background.task.terminated':
@@ -1281,7 +1281,7 @@ function toNotificationMessage(event: Event): PromptJsonNotificationMessage | un
 }
 
 /** Builds the JSON line for a turn-scoped `tool.progress` event (stream-json). */
-function toolProgressMessage(event: Extract<Event, { type: 'tool.progress' }>): Record<string, unknown> {
+export function toolProgressMessage(event: Extract<Event, { type: 'tool.progress' }>): Record<string, unknown> {
   const message: Record<string, unknown> = {
     type: 'tool_progress',
     tool_call_id: event.toolCallId,
@@ -1302,7 +1302,7 @@ function toolProgressMessage(event: Extract<Event, { type: 'tool.progress' }>): 
  * `undefined` for events that are not activity events. `tool.progress` is
  * turn-scoped and handled separately.
  */
-function toActivityMessage(event: Event): Record<string, unknown> | undefined {
+export function toActivityMessage(event: Event): Record<string, unknown> | undefined {
   switch (event.type) {
     case 'subagent.spawned': {
       const message: Record<string, unknown> = {
