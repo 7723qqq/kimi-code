@@ -8,5 +8,8 @@
 
 export * from './agentFs';
 export * from './agentFsService';
+export * from './errors';
+export * from './fs';
+export * from './fsService';
 export * from './localFileSystemBackend';
 export * from './sshFileSystemBackend';
