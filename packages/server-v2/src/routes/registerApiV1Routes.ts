@@ -12,6 +12,7 @@ import { ulid } from 'ulid';
 
 import { okEnvelope } from '../envelope';
 import { registerAuthRoute } from './auth';
+import { registerConfigRoutes } from './config';
 import { registerMetaRoute } from './meta';
 import { registerOAuthRoutes } from './oauth';
 import { registerSessionsRoutes } from './sessions';
@@ -55,6 +56,7 @@ export async function registerApiV1Routes(
 
       registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], core);
       registerOAuthRoutes(apiV1 as unknown as Parameters<typeof registerOAuthRoutes>[0], core);
+      registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
       registerSessionsRoutes(
         apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0],
         core,
