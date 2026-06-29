@@ -44,7 +44,7 @@ const DOMAIN_LAYER = new Map([
   ['bootstrap', 1],
   ['hostFs', 1],
   ['workspaceContext', 1],
-  ['kosong', 1],
+  ['chatProvider', 1],
   ['hooks', 1],
   ['storage', 1],
   // L2 — data & cross-cutting capabilities
@@ -58,6 +58,7 @@ const DOMAIN_LAYER = new Map([
   ['hostFolderBrowser', 2],
   ['auth', 2],
   ['provider', 2],
+  ['model', 2],
   ['session-index', 2],
   ['sessionStore', 2],
   ['eventBus', 2],
@@ -74,6 +75,7 @@ const DOMAIN_LAYER = new Map([
   ['permissionPolicy', 3],
   ['permissionRules', 3],
   ['plugin', 3],
+  ['modelRuntime', 3],
   // L4 — agent behaviour
   ['context', 4],
   ['message', 4],
@@ -135,7 +137,6 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  * shape for several of them. They are surfaced here (and in the dependency
  * report) for review rather than hidden.
  *
- *  - `kosong>config`        : model catalog reads its config section (PLAN §Dep graph).
  *  - `permission>approval`  : permission(Agent) requests approval(Session broker).
  *  - `skill>turn`           : skill activate starts a turn (same Agent scope intent).
  *  - `turn>agent-lifecycle` : turn cancels sub-agents via lifecycle handle.
@@ -143,6 +144,7 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  *  - `background>agent-lifecycle`: background agent-tasks spawn sub-agents.
  *  - `cron>agent-lifecycle` : cron coordinator steers the main agent.
  *  - `cron>session-context` : cron needs sessionId.
+ *  - `background>session-context`: background derives the session storage namespace for task persistence.
  *  - `cron>session-activity`: cron scheduler gates on session idle.
  *  - `session>event`        : session facade publishes status events.
  *  - `workspace>event`      : workspace registry publishes workspace lifecycle events.
@@ -155,8 +157,6 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  * layering violations to fix here.
  */
 const ALLOWED_EXCEPTIONS = new Set([
-  'kosong>config',
-  'kosong>provider',
   'permission>approval',
   'skill>turn',
   'turn>agent-lifecycle',
@@ -164,6 +164,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'background>agent-lifecycle',
   'cron>agent-lifecycle',
   'cron>session-context',
+  'background>session-context',
   'cron>session-activity',
   'session>event',
   'wireRecord>hooks',

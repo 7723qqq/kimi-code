@@ -1,12 +1,15 @@
 /**
  * `telemetry` domain (L1) — `CloudAppender`, an `ITelemetryAppender` that
  * batches events, enriches them with common context, and posts them to the
- * telemetry endpoint through `CloudTransport`. Core-scoped; has no cross-domain
- * collaborators and is independent of `@moonshot-ai/kimi-telemetry`.
+ * telemetry endpoint through `CloudTransport`, which persists failed events
+ * through the `storage` byte layer. Core-scoped; independent of
+ * `@moonshot-ai/kimi-telemetry`.
  */
 
 import { randomUUID } from 'node:crypto';
 import { arch, platform, release } from 'node:os';
+
+import type { IStorageService } from '#/storage';
 
 import type { ITelemetryAppender, TelemetryContextPatch, TelemetryProperties } from './telemetry';
 import {
@@ -19,7 +22,7 @@ import {
 } from './cloudTransport';
 
 export interface CloudAppenderOptions {
-  readonly homeDir: string;
+  readonly storage: IStorageService;
   readonly deviceId: string;
   readonly sessionId?: string;
   readonly appName: string;
@@ -61,7 +64,7 @@ export class CloudAppender implements ITelemetryAppender {
     this.flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
     this.context = buildContext(options);
     this.transport = new CloudTransport({
-      homeDir: options.homeDir,
+      storage: options.storage,
       deviceId: options.deviceId,
       endpoint: options.endpoint,
       getAccessToken: options.getAccessToken,

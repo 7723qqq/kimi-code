@@ -1,3 +1,15 @@
+/**
+ * `background` domain (L5) — `BackgroundService` implementation.
+ *
+ * Owns the agent's registry of running and restored background tasks:
+ * registers and drives tasks to completion, retains a bounded output ring,
+ * persists task state and output through the `background` persistence helper
+ * (over the `storage` stores, namespaced by the session from
+ * `session-context`), records lifecycle through `wireRecord`, delivers
+ * terminal notifications through `contextMemory`, and broadcasts through
+ * `eventSink`. Bound at Agent scope.
+ */
+
 import {
   randomBytes } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
@@ -22,17 +34,19 @@ import { IConfigRegistry } from '#/config';
 import { IEventSink } from '../eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { IPromptService } from '#/prompt';
+import { ISessionContext } from '#/session-context';
+import { IAtomicDocumentStore, IStorageService } from '#/storage';
 import { ITelemetryService } from '#/telemetry';
 import type { WireRecord } from '#/wireRecord';
 import { IWireRecord } from '#/wireRecord';
 import {
   IBackgroundService,
+  BackgroundTaskPersistence,
   type BackgroundLoadOptions,
   type BackgroundServiceOptions,
   type BackgroundTask,
   type BackgroundTaskInfo,
   type BackgroundTaskOutputSnapshot,
-  type BackgroundTaskPersistence,
   type BackgroundTaskStatus,
   type ForegroundTaskReleaseReason,
   type RegisterBackgroundTaskOptions,
@@ -118,10 +132,13 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @IContextMemory private readonly context: IContextMemory,
     @IConfigRegistry configRegistry: IConfigRegistry,
+    @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
+    @IStorageService private readonly byteStore: IStorageService,
+    @ISessionContext private readonly session: ISessionContext,
   ) {
     super();
     configRegistry.registerSection(BACKGROUND_SECTION, BackgroundConfigSchema);
-    this.persistence = options.persistence;
+    this.persistence = options.persistence ?? this.createDefaultPersistence();
     this.maxRunningTasks = options.maxRunningTasks;
     this._register(
       wireRecord.register('background.task.started', (record) => {
@@ -526,6 +543,16 @@ export class BackgroundService extends Disposable implements IBackgroundService 
       lostTasks.push(updated);
     }
     return lostTasks;
+  }
+
+  private createDefaultPersistence(): BackgroundTaskPersistence {
+    const sessionScope = this.session.metaScope.replace(/\/session-meta$/, '');
+    return new BackgroundTaskPersistence(
+      this.session.sessionDir,
+      sessionScope,
+      this.atomicDocs,
+      this.byteStore,
+    );
   }
 
   private persistLive(entry: ManagedTask): Promise<void> {

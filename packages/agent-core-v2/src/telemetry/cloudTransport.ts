@@ -1,21 +1,14 @@
 /**
  * `telemetry` domain (L1) — `CloudTransport`, the HTTP transport behind
  * `CloudAppender`. Posts enriched events to the telemetry endpoint with Bearer
- * auth, retry, and on-disk fallback for failed events. Core-scoped; has no
- * cross-domain collaborators and is independent of `@moonshot-ai/kimi-telemetry`.
+ * auth, retry, and a byte-store fallback for failed events, persisted through
+ * the `storage` byte layer (`IStorageService`) under the `telemetry` scope.
+ * Core-scoped; independent of `@moonshot-ai/kimi-telemetry`.
  */
 
 import { randomBytes } from 'node:crypto';
-import {
-  chmodSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { join } from 'node:path';
+
+import type { IStorageService } from '#/storage';
 
 export type CloudPrimitive = boolean | number | string | undefined | null;
 
@@ -42,7 +35,7 @@ export interface CloudPayload {
 }
 
 export interface CloudTransportOptions {
-  readonly homeDir: string;
+  readonly storage: IStorageService;
   readonly deviceId: string;
   readonly endpoint?: string;
   readonly getAccessToken?: () => string | null | Promise<string | null>;
@@ -60,9 +53,15 @@ export const DISK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const RETRY_BACKOFFS_MS = [1_000, 4_000, 16_000] as const;
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const TELEMETRY_SCOPE = 'telemetry';
+const FAILED_PREFIX = 'failed_';
+const JSONL_SUFFIX = '.jsonl';
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 
 export class CloudTransport {
-  private readonly homeDir: string;
+  private readonly storage: IStorageService;
   private readonly deviceId: string;
   private readonly endpoint: string;
   private readonly getAccessToken: (() => string | null | Promise<string | null>) | null;
@@ -73,7 +72,7 @@ export class CloudTransport {
   private readonly now: () => number;
 
   constructor(options: CloudTransportOptions) {
-    this.homeDir = options.homeDir;
+    this.storage = options.storage;
     this.deviceId = options.deviceId;
     this.endpoint = options.endpoint ?? TELEMETRY_ENDPOINT;
     this.getAccessToken = options.getAccessToken ?? null;
@@ -87,13 +86,13 @@ export class CloudTransport {
   async send(events: readonly EnrichedCloudEvent[], signal?: AbortSignal): Promise<void> {
     if (events.length === 0) return;
     let savedToDisk = false;
-    const saveEventsToDisk = (): void => {
+    const saveEventsToDisk = async (): Promise<void> => {
       if (savedToDisk) return;
-      this.saveToDisk(events);
+      await this.saveToDisk(events);
       savedToDisk = true;
     };
     if (signal?.aborted === true) {
-      saveEventsToDisk();
+      await saveEventsToDisk();
       throw abortError();
     }
 
@@ -111,7 +110,7 @@ export class CloudTransport {
           return;
         } catch (error) {
           if (isSignalAborted(signal) || isAbortError(error)) {
-            saveEventsToDisk();
+            await saveEventsToDisk();
             throw error;
           }
           if (!(error instanceof TransientCloudError)) {
@@ -124,71 +123,64 @@ export class CloudTransport {
       }
     } catch (error) {
       if (isSignalAborted(signal) || isAbortError(error)) {
-        saveEventsToDisk();
+        await saveEventsToDisk();
         throw error;
       }
     }
 
-    saveEventsToDisk();
+    await saveEventsToDisk();
   }
 
-  saveToDisk(events: readonly EnrichedCloudEvent[]): void {
+  async saveToDisk(events: readonly EnrichedCloudEvent[]): Promise<void> {
     if (events.length === 0) return;
-    const path = join(this.telemetryDir(), `failed_${randomBytes(6).toString('hex')}.jsonl`);
+    const key = `${FAILED_PREFIX}${this.now()}_${randomBytes(6).toString('hex')}${JSONL_SUFFIX}`;
     const text = events.map((event) => JSON.stringify(event)).join('\n') + '\n';
-    writeFileSync(path, text, { encoding: 'utf-8', mode: 0o600, flag: 'wx' });
-    try {
-      chmodSync(path, 0o600);
-    } catch {
-      // best effort on platforms that do not support chmod.
-    }
+    await this.storage.write(TELEMETRY_SCOPE, key, textEncoder.encode(text));
   }
 
   async retryDiskEvents(): Promise<void> {
-    let entries: string[];
-    try {
-      entries = readdirSync(this.telemetryDir());
-    } catch {
-      return;
-    }
-
+    const keys = await this.storage.list(TELEMETRY_SCOPE, FAILED_PREFIX);
     const now = this.now();
-    for (const entry of entries) {
-      if (!entry.startsWith('failed_') || !entry.endsWith('.jsonl')) continue;
-      const path = join(this.telemetryDir(), entry);
-      try {
-        const stat = statSync(path);
-        if (now - stat.mtimeMs > DISK_EVENT_MAX_AGE_MS) {
-          unlinkSync(path);
-          continue;
-        }
-      } catch {
+    for (const key of keys) {
+      if (!key.startsWith(FAILED_PREFIX) || !key.endsWith(JSONL_SUFFIX)) continue;
+      const createdAt = parseFailedTimestamp(key);
+      if (createdAt === undefined || now - createdAt > DISK_EVENT_MAX_AGE_MS) {
+        await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
         continue;
       }
 
       let events: EnrichedCloudEvent[];
       let payload: CloudPayload;
       try {
-        events = readJsonl(path);
+        events = await this.readJsonl(key);
         payload = buildPayload(events, this.deviceId);
       } catch (error) {
         if (error instanceof SyntaxError || error instanceof TypeError) {
-          try {
-            unlinkSync(path);
-          } catch {
-            // best effort cleanup.
-          }
+          await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
         }
         continue;
       }
 
       try {
         await this.sendHttp(payload);
-        unlinkSync(path);
+        await this.storage.delete(TELEMETRY_SCOPE, key);
       } catch (error) {
         if (error instanceof TransientCloudError) continue;
       }
     }
+  }
+
+  private async readJsonl(key: string): Promise<EnrichedCloudEvent[]> {
+    const bytes = await this.storage.read(TELEMETRY_SCOPE, key);
+    if (bytes === undefined) return [];
+    const text = textDecoder.decode(bytes);
+    const events: EnrichedCloudEvent[] = [];
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) continue;
+      events.push(JSON.parse(trimmed) as EnrichedCloudEvent);
+    }
+    return events;
   }
 
   private async sendHttp(payload: CloudPayload, signal?: AbortSignal): Promise<void> {
@@ -232,17 +224,15 @@ export class CloudTransport {
       throw new TransientCloudError(String(error));
     }
   }
+}
 
-  private telemetryDir(): string {
-    const path = join(this.homeDir, 'telemetry');
-    mkdirSync(path, { recursive: true, mode: 0o700 });
-    try {
-      chmodSync(path, 0o700);
-    } catch {
-      // best effort on platforms that do not support chmod.
-    }
-    return path;
-  }
+function parseFailedTimestamp(key: string): number | undefined {
+  const rest = key.slice(FAILED_PREFIX.length);
+  const underscore = rest.indexOf('_');
+  if (underscore === -1) return undefined;
+  const raw = rest.slice(0, underscore);
+  const ts = Number(raw);
+  return Number.isFinite(ts) ? ts : undefined;
 }
 
 export class TransientCloudError extends Error {
@@ -316,17 +306,6 @@ function handleStatus(status: number): void {
   if (status >= 400) {
     return;
   }
-}
-
-function readJsonl(path: string): EnrichedCloudEvent[] {
-  const text = readFileSync(path, 'utf-8');
-  const events: EnrichedCloudEvent[] = [];
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    events.push(JSON.parse(trimmed) as EnrichedCloudEvent);
-  }
-  return events;
 }
 
 async function fetchWithTimeout(

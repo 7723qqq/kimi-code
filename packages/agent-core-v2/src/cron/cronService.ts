@@ -1,3 +1,13 @@
+/**
+ * `cron` domain (L5) — `CronService` implementation.
+ *
+ * Owns the agent's cron task set: schedules and fires due tasks (steering
+ * the agent through `prompt`), persists task records through the `cron`
+ * persistence helper (over the `storage` atomic-document store), mirrors
+ * mutations onto `wireRecord` for replay, and registers the cron tools into
+ * `toolRegistry`. Bound at Agent scope.
+ */
+
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -10,6 +20,7 @@ import type { ContextMessage } from '#/contextMemory';
 import { IEventSink } from '../eventSink';
 import { IConfigRegistry, IConfigService } from '#/config';
 import { IPromptService } from '#/prompt';
+import { IAtomicDocumentStore } from '#/storage';
 import { ITelemetryService } from '#/telemetry';
 import { IToolRegistry } from '#/toolRegistry';
 import type { Turn } from '#/turn';
@@ -98,6 +109,7 @@ export class CronService
     @IToolRegistry private readonly toolRegistry: IToolRegistry,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
+    @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
   ) {
     super();
     this.enabled = options.isSubagent !== true;
@@ -123,7 +135,7 @@ export class CronService
         ? options.persistence ??
         (options.homedir === undefined
           ? undefined
-          : createCronPersistStore(options.homedir))
+          : createCronPersistStore(this.atomicDocs))
         : undefined;
 
     this._register(

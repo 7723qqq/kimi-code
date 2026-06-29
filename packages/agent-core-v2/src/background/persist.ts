@@ -1,168 +1,117 @@
 /**
- * Background task persistence helpers.
+ * `background` domain (L5) — `BackgroundTaskPersistence`, the per-session
+ * persistence helper behind `BackgroundService`.
  *
- * Each task lives at `<sessionDir>/tasks/<taskId>.json` so a CLI
- * restart can list previously-running tasks (now lost) and emit terminal
- * notifications.
- *
- * The per-id JSON layer (write / read / list) is delegated to
- * `createPerIdJsonStore`, which centralises atomic-write +
- * path-traversal-guarded readdir for cron / background / anything else
- * that needs session-scoped per-id JSON. This class keeps the
- * background-specific shape and the output.log helpers together.
+ * Persists task state (`<taskId>.json`) and raw task output (`output.log`)
+ * through the `storage` access-pattern stores (`IAtomicDocumentStore` for
+ * atomic whole-document state, `IStorageService` byte primitives for ordered
+ * output append), addressed under the session's storage scope so the domain
+ * never touches the filesystem. Task ids are validated against the
+ * `{prefix}-{8 hex}` shape before use as path segments (path-traversal and
+ * legacy `bg_<hex>` guard), and legacy snake_case records are normalized to
+ * the current shape on read. Not scope-bound; constructed by
+ * `BackgroundService`.
  */
 
-import { appendFile, mkdir, open, stat } from 'node:fs/promises';
-import { dirname, join } from 'pathe';
+import { join } from 'pathe';
 
-import { createPerIdJsonStore, type PerIdJsonStore } from '#/_base/utils/per-id-json-store';
+import type { IAtomicDocumentStore, IStorageService } from '#/storage';
+
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from './task';
 
-/**
- * Task id format: `{prefix}-{8 chars of [0-9a-z]}`.
- *
- * Strictly enforced before deriving task paths so neither path-traversal
- * (`../`) nor a legacy `bg_<hex>` format can escape through the
- * persistence layer. The prefix is intentionally open-ended so new task
- * kinds do not need persistence-layer changes.
- */
 const VALID_TASK_ID: RegExp = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{8}$/;
+
+const TASKS_SCOPE = 'tasks';
+const OUTPUT_LOG_KEY = 'output.log';
+const JSON_SUFFIX = '.json';
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 
 type PersistedTask = BackgroundTaskInfo;
 
 type DiskPersistedTask = PersistedTask | LegacyPersistedTask;
 
-function tasksDirOf(sessionDir: string): string {
-  return join(sessionDir, 'tasks');
-}
-
-function taskOutputDir(sessionDir: string, taskId: string): string {
+function validateTaskId(taskId: string): void {
   if (!VALID_TASK_ID.test(taskId)) {
     throw new Error(`Invalid task id: "${taskId}"`);
   }
-  return join(tasksDirOf(sessionDir), taskId);
-}
-
-function taskOutputFile(sessionDir: string, taskId: string): string {
-  return join(taskOutputDir(sessionDir, taskId), 'output.log');
 }
 
 export class BackgroundTaskPersistence {
-  private readonly store: PerIdJsonStore<DiskPersistedTask>;
+  constructor(
+    private readonly sessionDir: string,
+    private readonly sessionScope: string,
+    private readonly docs: IAtomicDocumentStore,
+    private readonly bytes: IStorageService,
+  ) {}
 
-  constructor(private readonly sessionDir: string) {
-    this.store = createPerIdJsonStore<DiskPersistedTask>({
-      rootDir: sessionDir,
-      subdir: 'tasks',
-      idRegex: VALID_TASK_ID,
-      isValid: isReadablePersistedTask,
-      entityName: 'task id',
-    });
+  private tasksScope(): string {
+    return `${this.sessionScope}/${TASKS_SCOPE}`;
+  }
+
+  private taskOutputScope(taskId: string): string {
+    validateTaskId(taskId);
+    return `${this.sessionScope}/${TASKS_SCOPE}/${taskId}`;
   }
 
   taskOutputFile(taskId: string): string {
-    return taskOutputFile(this.sessionDir, taskId);
+    validateTaskId(taskId);
+    return join(this.sessionDir, TASKS_SCOPE, taskId, OUTPUT_LOG_KEY);
   }
 
-  /** Atomically write a task's persisted state. Creates dirs as needed. */
   async writeTask(task: PersistedTask): Promise<void> {
-    await this.store.write(task.taskId, task);
+    validateTaskId(task.taskId);
+    await this.docs.set(this.tasksScope(), `${task.taskId}${JSON_SUFFIX}`, task);
   }
 
-  /** Read a single task file. Returns undefined when missing/corrupt/unrecognized. */
   async readTask(taskId: string): Promise<PersistedTask | undefined> {
-    const task = await this.store.read(taskId);
-    return task === undefined ? undefined : normalizePersistedTask(task);
+    validateTaskId(taskId);
+    const task = await this.docs.get<DiskPersistedTask>(
+      this.tasksScope(),
+      `${taskId}${JSON_SUFFIX}`,
+    );
+    if (task === undefined || !isReadablePersistedTask(task)) return undefined;
+    return normalizePersistedTask(task);
   }
 
   async appendTaskOutput(taskId: string, chunk: string): Promise<void> {
-    const path = this.taskOutputFile(taskId);
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    await appendFile(path, chunk, 'utf-8');
+    if (chunk.length === 0) return;
+    await this.bytes.append(this.taskOutputScope(taskId), OUTPUT_LOG_KEY, textEncoder.encode(chunk));
   }
 
-  /**
-   * Total byte size of a task's `output.log`. Returns 0 when the log does
-   * not exist yet (the task has produced no output, or is unknown).
-   *
-   * This is the authoritative full-output size — unlike the in-memory ring
-   * buffer it is never truncated, so callers can report how much output a
-   * task has actually produced.
-   */
   async taskOutputSizeBytes(taskId: string): Promise<number> {
-    try {
-      const st = await stat(this.taskOutputFile(taskId));
-      return st.size;
-    } catch {
-      return 0;
-    }
+    const data = await this.bytes.read(this.taskOutputScope(taskId), OUTPUT_LOG_KEY);
+    return data === undefined ? 0 : data.byteLength;
   }
 
   async taskOutputExists(taskId: string): Promise<boolean> {
-    try {
-      return (await stat(this.taskOutputFile(taskId))).isFile();
-    } catch {
-      return false;
-    }
+    const entries = await this.bytes.list(this.taskOutputScope(taskId));
+    return entries.includes(OUTPUT_LOG_KEY);
   }
 
-  /**
-   * Read a byte window of a task's `output.log`.
-   *
-   * Reads at most `maxBytes` bytes starting at byte `offset`. A window that
-   * runs past EOF is clamped to whatever remains; an `offset` at/after EOF
-   * yields an empty string. Returns an empty string when the log is absent.
-   *
-   * Byte-level (not line-level) paging mirrors how the full log is stored
-   * on disk, so callers can page arbitrarily large logs without loading the
-   * whole file into memory.
-   */
   async readTaskOutputBytes(taskId: string, offset: number, maxBytes: number): Promise<string> {
     const start = Math.max(0, Math.trunc(offset));
     const limit = Math.max(0, Math.trunc(maxBytes));
     if (limit === 0) return '';
-    let handle;
-    try {
-      handle = await open(this.taskOutputFile(taskId), 'r');
-    } catch {
-      return '';
-    }
-    try {
-      const size = (await handle.stat()).size;
-      if (start >= size) return '';
-      const length = Math.min(limit, size - start);
-      const buffer = Buffer.allocUnsafe(length);
-      const { bytesRead } = await handle.read(buffer, 0, length, start);
-      return buffer.toString('utf-8', 0, bytesRead);
-    } catch {
-      return '';
-    } finally {
-      await handle.close();
-    }
+    const data = await this.bytes.read(this.taskOutputScope(taskId), OUTPUT_LOG_KEY);
+    if (data === undefined || start >= data.byteLength) return '';
+    const end = Math.min(data.byteLength, start + limit);
+    return textDecoder.decode(data.subarray(start, end));
   }
 
-  /**
-   * Enumerate all persisted tasks for a session.
-   *
-   * Skips, silently:
-   *   - basenames that don't match `VALID_TASK_ID` (stray files, legacy
-   *     `bg_*` leftovers, partially-written temp files);
-   *   - files that fail to read / parse;
-   *   - records that are neither identifiable as the current camelCase
-   *     shape nor the previous snake_case task shape.
-   *
-   * Legacy snake_case records are normalized to current `BackgroundTaskInfo`
-   * in memory. The next lifecycle/reconcile write stores them back in the
-   * current format, so compatibility is read-only and opportunistically
-   * migrates without a separate migration step.
-   *
-   * `writeTask` uses atomic temp+rename so a genuinely truncated file in
-   * production is rare; if it happens we accept the loss rather than
-   * emit a ghost with no recoverable metadata beyond the filename.
-   */
   async listTasks(): Promise<readonly PersistedTask[]> {
-    const tasks = await this.store.list();
-    return tasks.map(normalizePersistedTask);
+    const keys = await this.docs.list(this.tasksScope());
+    const tasks: PersistedTask[] = [];
+    for (const key of keys) {
+      if (!key.endsWith(JSON_SUFFIX)) continue;
+      const id = key.slice(0, -JSON_SUFFIX.length);
+      if (!VALID_TASK_ID.test(id)) continue;
+      const task = await this.docs.get<DiskPersistedTask>(this.tasksScope(), key);
+      if (task === undefined || !isReadablePersistedTask(task)) continue;
+      tasks.push(normalizePersistedTask(task));
+    }
+    return tasks;
   }
 }
 

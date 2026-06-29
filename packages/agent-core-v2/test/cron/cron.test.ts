@@ -15,6 +15,7 @@ import { IPromptService } from '#/prompt';
 import {
   InMemoryStorageService,
   IStorageService,
+  IAtomicDocumentStore,
   IAtomicTomlDocumentStore,
   TomlAtomicDocumentStore,
 } from '#/storage';
@@ -91,6 +92,12 @@ describe('CronService', () => {
     ix.stub(IBootstrapService, stubBootstrap());
     ix.stub(ILogService, stubLog());
     ix.stub(IStorageService, new InMemoryStorageService());
+    ix.stub(IAtomicDocumentStore, {
+      get: async () => undefined,
+      set: async () => {},
+      delete: async () => {},
+      list: async () => [],
+    });
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
     ix.set(IConfigService, new SyncDescriptor(ConfigService));

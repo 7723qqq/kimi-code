@@ -9,7 +9,6 @@ export * from './completion-budget';
 export * from './env';
 export * from './fs';
 export * from './hero-slug';
-export * from './per-id-json-store';
 export * from './promise';
 export * from './proxy';
 export * from './render-prompt';

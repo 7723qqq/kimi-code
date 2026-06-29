@@ -1,8 +1,9 @@
 /**
- * Per-process OAuth orchestrator for MCP HTTP servers.
+ * `mcp` domain (L5) — `McpOAuthService`, the per-process OAuth orchestrator
+ * for MCP HTTP servers.
  *
- * The service owns one {@link McpOAuthClientProvider} per server/resource and
- * mediates the synthetic `mcp__<server>__authenticate` tool flow:
+ * Owns one {@link McpOAuthClientProvider} per server/resource and mediates the
+ * synthetic `mcp__<server>__authenticate` tool flow:
  *
  *  1. `getProvider(serverName, serverUrl)` returns the cached provider.
  *     `HttpMcpClient` hands this to `StreamableHTTPClientTransport.authProvider`
@@ -26,13 +27,11 @@ import { auth, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client
 
 import { startCallbackServer, type CallbackServer } from './callback-server';
 import { McpOAuthClientProvider } from './provider';
-import { JsonFileStore, mcpCredentialsDir, mcpOAuthStoreKey } from './store';
+import { mcpOAuthStoreKey, type McpOAuthStore } from './store';
 
 export interface McpOAuthServiceOptions {
-  /** Storage backend; overrides `kimiHomeDir` when supplied. */
-  readonly store?: JsonFileStore;
-  /** Resolved Kimi home; credentials default to `<kimiHomeDir>/credentials/mcp/`. */
-  readonly kimiHomeDir?: string;
+  /** Credential store backing the OAuth providers. */
+  readonly store: McpOAuthStore;
   /** Override for the label embedded in DCR `client_name`. */
   readonly clientLabel?: string;
 }
@@ -59,16 +58,12 @@ export interface BeginAuthorizationResult {
 }
 
 export class McpOAuthService {
-  private readonly store: JsonFileStore;
+  private readonly store: McpOAuthStore;
   private readonly clientLabel: string | undefined;
   private readonly providers = new Map<string, McpOAuthClientProvider>();
 
-  constructor(options: McpOAuthServiceOptions = {}) {
-    this.store =
-      options.store ??
-      new JsonFileStore(
-        options.kimiHomeDir === undefined ? undefined : mcpCredentialsDir(options.kimiHomeDir),
-      );
+  constructor(options: McpOAuthServiceOptions) {
+    this.store = options.store;
     this.clientLabel = options.clientLabel;
   }
 
@@ -89,8 +84,8 @@ export class McpOAuthService {
   }
 
   /** True once the provider has persisted tokens for this server/resource identity. */
-  hasTokens(serverName: string, serverUrl: string | URL): boolean {
-    return this.getProvider(serverName, serverUrl).tokens() !== undefined;
+  async hasTokens(serverName: string, serverUrl: string | URL): Promise<boolean> {
+    return (await this.getProvider(serverName, serverUrl).tokens()) !== undefined;
   }
 
   /**
@@ -126,6 +121,7 @@ export class McpOAuthService {
     }
 
     provider.setRedirectUrl(new URL(callbackServer.redirectUri));
+    await provider.ready;
 
     let authorizationUrl: URL | undefined;
     try {
@@ -195,8 +191,8 @@ export class McpOAuthService {
     serverName: string,
     serverUrl: string | URL,
     scope: 'all' | 'client' | 'tokens' | 'discovery' = 'all',
-  ): void {
-    this.getProvider(serverName, serverUrl).invalidateCredentials(scope);
+  ): Promise<void> {
+    return this.getProvider(serverName, serverUrl).invalidateCredentials(scope);
   }
 }
 
