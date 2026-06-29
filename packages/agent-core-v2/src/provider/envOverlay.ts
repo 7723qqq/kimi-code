@@ -56,7 +56,7 @@ function parseCompletionTokens(raw: string | undefined): number | undefined {
   const value = trimmed(raw);
   if (value === undefined) return undefined;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) return undefined;
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return undefined;
   return parsed;
 }
 

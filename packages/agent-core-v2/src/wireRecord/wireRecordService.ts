@@ -42,6 +42,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
   >();
   private readonly persistKey: string | undefined;
   private readonly blobStore: IBlobStoreService | undefined;
+  private persistentAppendQueue: Promise<void> = Promise.resolve();
   private _restoring: { time?: number } | null = null;
   private _postRestoring = false;
   private metadataInitialized = false;
@@ -191,34 +192,44 @@ export class WireRecordService extends Disposable implements IWireRecord {
   }
 
   async flush(): Promise<void> {
+    await this.persistentAppendQueue;
     await this.log?.flush();
   }
 
   async close(): Promise<void> {
+    await this.persistentAppendQueue;
     await this.log?.close();
   }
 
   private appendPersistent(record: PersistedWireRecord): void {
     if (this.log === undefined || this.persistKey === undefined) return;
+    let metadata: WireRecordMetadata | undefined;
     if (!this.metadataInitialized && record.type !== 'metadata') {
-      const metadata: WireRecordMetadata = {
+      metadata = {
         type: 'metadata',
         protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
         created_at: Date.now(),
       };
-      this.log.append('wire', this.persistKey, metadata, {
-        onError: (error) => this.reportPersistenceError(error, metadata),
-      });
       this.metadataInitialized = true;
     }
     if (record.type === 'metadata') {
       this.metadataInitialized = true;
     }
-    void this.preparePersistentRecord(record).then((prepared) => {
+
+    const append = this.persistentAppendQueue.then(async () => {
       if (this.log === undefined || this.persistKey === undefined) return;
+      if (metadata !== undefined) {
+        this.log.append('wire', this.persistKey, metadata, {
+          onError: (error) => this.reportPersistenceError(error, metadata),
+        });
+      }
+      const prepared = await this.preparePersistentRecord(record);
       this.log.append('wire', this.persistKey, prepared, {
         onError: (error) => this.reportPersistenceError(error, prepared),
       });
+    });
+    this.persistentAppendQueue = append.catch((error: unknown) => {
+      this.reportPersistenceError(error, record);
     });
   }
 
