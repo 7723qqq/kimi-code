@@ -1,5 +1,5 @@
 import type { PrepareToolExecutionResult, ResolvedToolExecutionHookContext } from '#/loop';
-import type { ToolInputDisplay } from '@moonshot-ai/protocol';
+import type { ApprovalResponse } from '@moonshot-ai/protocol';
 import type { PermissionRule } from '#/permissionRules';
 
 /**
@@ -12,21 +12,6 @@ import type { PermissionRule } from '#/permissionRules';
  *   - `auto`   — caller may bypass rule checks entirely
  */
 export type PermissionMode = 'manual' | 'yolo' | 'auto';
-
-
-export interface ApprovalRequest {
-  toolCallId: string;
-  toolName: string;
-  action: string;
-  display: ToolInputDisplay;
-}
-
-export interface ApprovalResponse {
-  decision: 'approved' | 'rejected' | 'cancelled';
-  scope?: 'session';
-  feedback?: string;
-  selectedLabel?: string;
-}
 
 export interface PermissionData {
   mode: PermissionMode;
