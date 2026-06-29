@@ -76,6 +76,7 @@ const DOMAIN_LAYER = new Map([
   ['permissionRules', 3],
   ['plugin', 3],
   ['modelRuntime', 3],
+  ['modelCatalog', 3],
   // L4 — agent behaviour
   ['context', 4],
   ['message', 4],
@@ -150,10 +151,11 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  *
  * Post-rebase-v2 restructuring introduced cross-domain type sharing between
  * L3 (registries/capabilities) and L4 (agent behaviour). The tool contract
- * (`ExecutableTool` / `ToolExecution` / results) now lives in `tool` (L3); the
- * remaining L3→L4 imports are `loop`/`turn` tool-execution hook contexts and a
- * `loop` error helper — real dependencies surfaced for review rather than
- * layering violations to fix here.
+ * (`ExecutableTool` / `ToolExecution` / results) and the tool-execution hook
+ * contexts (`ToolExecutionHookContext` / `ToolWillExecuteContext` / …) now
+ * live in `tool` (L3); the only remaining L3→L4 import is a `loop` error /
+ * event helper used by `toolExecutor` — surfaced for review rather than a
+ * layering violation to fix here.
  */
 const ALLOWED_EXCEPTIONS = new Set([
   'permission>approval',
@@ -167,22 +169,18 @@ const ALLOWED_EXCEPTIONS = new Set([
   'cron>session-activity',
   'session>event',
   'wireRecord>hooks',
-  // L3/L4 type-sharing: tool contract now lives in `tool`; remaining upward
-  // imports are loop/turn hook contexts and a loop error helper.
+  // L3/L4 type-sharing: tool contract + execution hook contexts now live in
+  // `tool`; the remaining upward import is a `loop` error/event helper.
   'contextMemory>background',
   'llmRequester>session',
   'loop>mcp',
   'permission>externalHooks',
-  'permission>loop',
-  'permission>turn',
   'permissionMode>contextInjector',
   'permissionMode>replayBuilder',
   'permissionPolicy>externalHooks',
-  'permissionPolicy>loop',
   'permissionPolicy>profile',
   'permissionRules>replayBuilder',
   'plugin>mcp',
-  'profile>mcp',
   'profile>session',
   'replayBuilder>background',
   'replayBuilder>rpc',
@@ -191,7 +189,6 @@ const ALLOWED_EXCEPTIONS = new Set([
   'skill>prompt',
   'swarm>subagentHost',
   'toolExecutor>loop',
-  'toolExecutor>turn',
   'userTool>profile',
   'wireRecord>contextMemory',
   'wireRecord>loop',

@@ -1,0 +1,221 @@
+/**
+ * `/models` + `/providers` catalog route handlers — server-v2 port.
+ *
+ * Implements the v1 model/provider catalog wire contract on top of
+ * `agent-core-v2`'s `IModelCatalogService`:
+ *   GET  /models                       — list configured model aliases
+ *   GET  /providers                    — list configured providers
+ *   GET  /providers/{provider_id}      — get a configured provider by id
+ *   POST /models/{tail} (:set_default) — set the global default model alias
+ *   POST /providers:refresh_oauth      — refresh OAuth-backed provider models
+ *
+ * **Wire fidelity**: reuses `@moonshot-ai/protocol`'s catalog schemas and the
+ * numeric `ErrorCode` envelope verbatim, so the response shape and error codes
+ * (`40412` provider-not-found, `40413` model-not-found, `40001` validation) are
+ * byte-for-byte compatible with v1's `routes/modelCatalog.ts`. The v2 domain
+ * throws coded `KimiError`s (`provider.not_found` / `model.not_found`); this
+ * edge maps them to the numeric protocol codes by `code` (never `instanceof`).
+ */
+
+import { IConfigService, IModelCatalogService, isKimiError, type Scope } from '@moonshot-ai/agent-core-v2';
+import {
+  ErrorCode,
+  getProviderResponseSchema,
+  listModelsResponseSchema,
+  listProvidersResponseSchema,
+  refreshOAuthProviderModelsResponseSchema,
+  setDefaultModelResponseSchema,
+} from '@moonshot-ai/protocol';
+import { z } from 'zod';
+
+import { errEnvelope, okEnvelope } from '../envelope';
+import { defineRoute } from '../middleware/defineRoute';
+import { parseActionSuffix } from './action-suffix';
+
+interface ModelCatalogRouteHost {
+  get(
+    path: string,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
+    handler: (
+      req: { id: string; params: unknown },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void,
+  ): unknown;
+  post(
+    path: string,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
+    handler: (
+      req: { id: string; body: unknown; params: unknown },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void,
+  ): unknown;
+}
+
+const providerIdParamSchema = z.object({
+  provider_id: z.string().min(1),
+});
+
+const modelActionTailParamSchema = z.object({
+  tail: z.string().min(1),
+});
+
+/**
+ * Resolve the catalog service after the config layer is ready. Config loads
+ * asynchronously during bootstrap; mirroring `routes/config.ts`, route handlers
+ * await `IConfigService.ready` so an immediate request never observes an empty
+ * (not-yet-loaded) catalog.
+ */
+async function loadCatalog(core: Scope): Promise<IModelCatalogService> {
+  await core.accessor.get(IConfigService).ready;
+  return core.accessor.get(IModelCatalogService);
+}
+
+export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Scope): void {
+  const listModelsRoute = defineRoute(
+    {
+      method: 'GET',
+      path: '/models',
+      success: { data: listModelsResponseSchema },
+      description: 'List configured model aliases',
+      tags: ['models'],
+    },
+    async (req, reply) => {
+      const items = await (await loadCatalog(core)).listModels();
+      reply.send(okEnvelope({ items }, req.id));
+    },
+  );
+  app.get(
+    listModelsRoute.path,
+    listModelsRoute.options,
+    listModelsRoute.handler as Parameters<ModelCatalogRouteHost['get']>[2],
+  );
+
+  const setDefaultModelRoute = defineRoute(
+    {
+      method: 'POST',
+      path: '/models/{tail}',
+      params: modelActionTailParamSchema,
+      success: { data: setDefaultModelResponseSchema },
+      errors: {
+        [ErrorCode.VALIDATION_FAILED]: {},
+        [ErrorCode.MODEL_NOT_FOUND]: {},
+      },
+      description: 'Set the global default model alias',
+      tags: ['models'],
+      operationId: 'setDefaultModel',
+    },
+    async (req, reply) => {
+      try {
+        const { tail } = req.params;
+        const parsed = parseActionSuffix({
+          tail,
+          allowedActions: ['set_default'] as const,
+          resourceLabel: 'model',
+        });
+        if (parsed.kind !== 'action') {
+          const message =
+            parsed.kind === 'invalid' ? parsed.reason : `unsupported action: ${tail}`;
+          reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, message, req.id));
+          return;
+        }
+        const result = await (await loadCatalog(core)).setDefaultModel(parsed.id);
+        reply.send(okEnvelope(result, req.id));
+      } catch (err) {
+        if (sendMappedError(reply, req.id, err)) return;
+        throw err;
+      }
+    },
+  );
+  app.post(
+    setDefaultModelRoute.path,
+    setDefaultModelRoute.options,
+    setDefaultModelRoute.handler as Parameters<ModelCatalogRouteHost['post']>[2],
+  );
+
+  const listProvidersRoute = defineRoute(
+    {
+      method: 'GET',
+      path: '/providers',
+      success: { data: listProvidersResponseSchema },
+      description: 'List configured providers',
+      tags: ['providers'],
+    },
+    async (req, reply) => {
+      const items = await (await loadCatalog(core)).listProviders();
+      reply.send(okEnvelope({ items }, req.id));
+    },
+  );
+  app.get(
+    listProvidersRoute.path,
+    listProvidersRoute.options,
+    listProvidersRoute.handler as Parameters<ModelCatalogRouteHost['get']>[2],
+  );
+
+  const refreshOAuthProvidersRoute = defineRoute(
+    {
+      method: 'POST',
+      path: '/providers:refresh_oauth',
+      success: { data: refreshOAuthProviderModelsResponseSchema },
+      description: 'Refresh OAuth-backed provider model metadata',
+      tags: ['providers'],
+      operationId: 'refreshOAuthProviderModels',
+    },
+    async (req, reply) => {
+      const result = await (await loadCatalog(core)).refreshOAuthProviderModels();
+      reply.send(okEnvelope(result, req.id));
+    },
+  );
+  app.post(
+    refreshOAuthProvidersRoute.path,
+    refreshOAuthProvidersRoute.options,
+    refreshOAuthProvidersRoute.handler as Parameters<ModelCatalogRouteHost['post']>[2],
+  );
+
+  const getProviderRoute = defineRoute(
+    {
+      method: 'GET',
+      path: '/providers/{provider_id}',
+      params: providerIdParamSchema,
+      success: { data: getProviderResponseSchema },
+      errors: {
+        [ErrorCode.VALIDATION_FAILED]: {},
+        [ErrorCode.PROVIDER_NOT_FOUND]: {},
+      },
+      description: 'Get a configured provider by ID',
+      tags: ['providers'],
+    },
+    async (req, reply) => {
+      try {
+        const { provider_id } = req.params;
+        const provider = await (await loadCatalog(core)).getProvider(provider_id);
+        reply.send(okEnvelope(provider, req.id));
+      } catch (err) {
+        if (sendMappedError(reply, req.id, err)) return;
+        throw err;
+      }
+    },
+  );
+  app.get(
+    getProviderRoute.path,
+    getProviderRoute.options,
+    getProviderRoute.handler as Parameters<ModelCatalogRouteHost['get']>[2],
+  );
+}
+
+/** Map a coded domain error to the numeric protocol envelope. Returns true if handled. */
+function sendMappedError(
+  reply: { send(payload: unknown): unknown },
+  requestId: string,
+  err: unknown,
+): boolean {
+  if (!isKimiError(err)) return false;
+  if (err.code === 'provider.not_found') {
+    reply.send(errEnvelope(ErrorCode.PROVIDER_NOT_FOUND, err.message, requestId));
+    return true;
+  }
+  if (err.code === 'model.not_found') {
+    reply.send(errEnvelope(ErrorCode.MODEL_NOT_FOUND, err.message, requestId));
+    return true;
+  }
+  return false;
+}

@@ -11,12 +11,15 @@ export * from './telemetry/index';
 export * from './bootstrap/index';
 export * from './hostFs/index';
 export { IEventService, type DomainEvent } from './event/index';
-export * from './kosong/index';
+export * from './chatProvider/index';
 
 export * from './session-index/index';
 export * from './session-metadata/index';
 export * from './config/index';
 export * from './provider/index';
+export * from './model/index';
+export * from './modelCatalog/index';
+export * from './modelRuntime/index';
 
 import './skill/index';
 export * from './permission/index';

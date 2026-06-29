@@ -33,6 +33,7 @@ export interface IOAuthService {
   logout(provider?: string): Promise<OAuthLogoutResponse>;
   status(provider?: string): Promise<AuthStatus>;
   resolveTokenProvider(provider: string, oauthRef?: OAuthRef): BearerTokenProvider | undefined;
+  getCachedAccessToken(provider: string, oauthRef?: OAuthRef): Promise<string | undefined>;
 }
 
 export const IOAuthService: ServiceIdentifier<IOAuthService> =

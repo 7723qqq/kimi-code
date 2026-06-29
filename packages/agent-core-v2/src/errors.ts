@@ -11,12 +11,13 @@ import { CoreErrors } from '#/_base/errors';
 import { AgentLifecycleErrors } from '#/agent-lifecycle/errors';
 import { AuthErrors } from '#/auth/errors';
 import { BackgroundErrors } from '#/background/errors';
+import { ChatProviderErrors } from '#/chatProvider/errors';
 import { ConfigErrors } from '#/config/errors';
 import { FullCompactionErrors } from '#/fullCompaction/errors';
 import { GoalErrors } from '#/goal/errors';
-import { KosongErrors } from '#/kosong/errors';
 import { LoopErrors } from '#/loop/errors';
 import { McpErrors } from '#/mcp/errors';
+import { ModelCatalogErrors } from '#/modelCatalog/errors';
 import { PluginErrors } from '#/plugin/errors';
 import { ProfileErrors } from '#/profile/errors';
 import { PromptErrors } from '#/prompt/errors';
@@ -30,12 +31,13 @@ export * from '#/_base/errors';
 export { AgentLifecycleErrors } from '#/agent-lifecycle/errors';
 export { AuthErrors } from '#/auth/errors';
 export { BackgroundErrors } from '#/background/errors';
+export { ChatProviderErrors } from '#/chatProvider/errors';
 export { ConfigErrors } from '#/config/errors';
 export { FullCompactionErrors } from '#/fullCompaction/errors';
 export { GoalErrors } from '#/goal/errors';
-export { KosongErrors } from '#/kosong/errors';
 export { LoopErrors } from '#/loop/errors';
 export { McpErrors } from '#/mcp/errors';
+export { ModelCatalogErrors } from '#/modelCatalog/errors';
 export { PluginErrors } from '#/plugin/errors';
 export { ProfileErrors } from '#/profile/errors';
 export { PromptErrors } from '#/prompt/errors';
@@ -50,12 +52,13 @@ export const ErrorCodes = {
   ...AgentLifecycleErrors.codes,
   ...AuthErrors.codes,
   ...BackgroundErrors.codes,
+  ...ChatProviderErrors.codes,
   ...ConfigErrors.codes,
   ...FullCompactionErrors.codes,
   ...GoalErrors.codes,
-  ...KosongErrors.codes,
   ...LoopErrors.codes,
   ...McpErrors.codes,
+  ...ModelCatalogErrors.codes,
   ...PluginErrors.codes,
   ...ProfileErrors.codes,
   ...PromptErrors.codes,

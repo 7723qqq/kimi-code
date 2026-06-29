@@ -199,6 +199,7 @@ export type KimiErrorCode =
   | 'goal.not_resumable'
   | 'model.not_configured'
   | 'model.config_invalid'
+  | 'model.not_found'
   | 'auth.login_required'
   | 'context.overflow'
   | 'loop.max_steps_exceeded'
@@ -206,6 +207,7 @@ export type KimiErrorCode =
   | 'provider.rate_limit'
   | 'provider.auth_error'
   | 'provider.connection_error'
+  | 'provider.not_found'
   | 'skill.not_found'
   | 'skill.type_unsupported'
   | 'skill.name_empty'
@@ -831,6 +833,7 @@ export const kimiErrorCodeSchema = z.enum([
   'goal.not_resumable',
   'model.not_configured',
   'model.config_invalid',
+  'model.not_found',
   'auth.login_required',
   'context.overflow',
   'loop.max_steps_exceeded',
@@ -838,6 +841,7 @@ export const kimiErrorCodeSchema = z.enum([
   'provider.rate_limit',
   'provider.auth_error',
   'provider.connection_error',
+  'provider.not_found',
   'skill.not_found',
   'skill.type_unsupported',
   'skill.name_empty',

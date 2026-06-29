@@ -146,6 +146,10 @@ export class OAuthService extends Disposable implements IOAuthService {
     return this.toolkit.tokenProvider(provider, oauthRef);
   }
 
+  getCachedAccessToken(provider: string, oauthRef?: OAuthRef): Promise<string | undefined> {
+    return this.toolkit.getCachedAccessToken(provider, oauthRef);
+  }
+
   private readOAuthRef(provider: string): OAuthRef {
     const oauth = this.providerService.get(provider)?.oauth;
     if (oauth === undefined) {

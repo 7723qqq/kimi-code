@@ -4,7 +4,8 @@
  * Mirrors the v1 server's prefixing and per-module delegation, but resolves
  * services from the `agent-core-v2` Core `Scope` instead of the v1 flat
  * `IInstantiationService`. v0.1 mounts the subset of routes that v2 can serve
- * end-to-end today (health, meta, auth readiness, OAuth device flow, shutdown).
+ * end-to-end today (health, meta, auth readiness, OAuth device flow, config,
+ * model/provider catalog, shutdown).
  */
 
 import type { Scope } from '@moonshot-ai/agent-core-v2';
@@ -15,6 +16,7 @@ import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerConfigRoutes } from './config';
 import { registerMetaRoute } from './meta';
+import { registerModelCatalogRoutes } from './modelCatalog';
 import { registerOAuthRoutes } from './oauth';
 import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
@@ -59,6 +61,10 @@ export async function registerApiV1Routes(
       registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], core);
       registerOAuthRoutes(apiV1 as unknown as Parameters<typeof registerOAuthRoutes>[0], core);
       registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
+      registerModelCatalogRoutes(
+        apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],
+        core,
+      );
       registerSessionsRoutes(
         apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0],
         core,
