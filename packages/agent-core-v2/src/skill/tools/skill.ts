@@ -14,7 +14,7 @@
 import { z } from 'zod';
 
 import type { BuiltinTool } from '#/toolRegistry';
-import type { ExecutableToolResult, ToolExecution } from '#/tool';
+import type { ExecutableToolResult, ToolExecution } from '#/_base/tools';
 import type { IAgentSkillService } from '../skill';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';

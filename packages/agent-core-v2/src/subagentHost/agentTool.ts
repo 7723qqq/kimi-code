@@ -18,13 +18,13 @@ import { z } from 'zod';
 
 import type { BuiltinTool } from '#/toolRegistry';
 import type { ILogger } from '#/log';
-import { ToolAccesses } from '#/tool';
+import { ToolAccesses } from '#/_base/tools';
 import { isAbortError } from '#/loop/errors';
 import type {
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
-} from '#/tool';
+} from '#/_base/tools';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION,
   DEFAULT_SUBAGENT_TIMEOUT_MS,

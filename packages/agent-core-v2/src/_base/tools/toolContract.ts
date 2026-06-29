@@ -1,12 +1,12 @@
 /**
- * `tool` domain (L3) — foundational `ExecutableTool` contract.
+ * `_base/tools` support module — foundational `ExecutableTool` contract.
  *
  * Defines the `resolveExecution` → `ToolExecution` → `execute(ctx)` contract
  * every tool implements, the `ExecutableToolContext` it runs against, the
  * `ExecutableToolResult` it returns, and the streaming `ToolUpdate`. The
  * `stopTurn` / `stopBatchAfterThis` fields are internal loop-control hints
- * stripped before persistence. Pure contract (types only); resource-access
- * declarations live in `tool-access`. No scoped service.
+ * stripped before persistence. Resource-access declarations live in
+ * `tool-access`.
  */
 
 import type { ContentPart, Tool } from '@moonshot-ai/kosong';

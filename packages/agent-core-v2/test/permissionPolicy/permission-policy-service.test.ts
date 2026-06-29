@@ -27,7 +27,7 @@ import {
 } from '#/permissionRules';
 import { IProfileService, type ProfileData } from '#/profile';
 import { ITelemetryService } from '#/telemetry';
-import { ToolAccesses, type ToolAccesses as ToolAccessList } from '#/tool';
+import { ToolAccesses, type ToolAccesses as ToolAccessList } from '#/_base/tools';
 
 import { stubPermissionModeService } from '../permissionMode/stubs';
 import { recordingTelemetry } from '../telemetry/stubs';

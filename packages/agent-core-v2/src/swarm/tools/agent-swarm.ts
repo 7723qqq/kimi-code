@@ -6,8 +6,8 @@ import {
   type QueuedSubagentRunResult,
   type QueuedSubagentTask,
 } from '#/subagentHost';
-import { ToolAccesses } from '#/tool';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool';
+import { ToolAccesses } from '#/_base/tools';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/_base/tools';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
 

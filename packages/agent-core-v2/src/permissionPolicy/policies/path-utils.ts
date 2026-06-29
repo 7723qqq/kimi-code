@@ -3,7 +3,7 @@ import * as nodePath from 'node:path';
 import * as posixPath from 'node:path/posix';
 import * as win32Path from 'node:path/win32';
 
-import type { ToolFileAccess } from '#/tool';
+import type { ToolFileAccess } from '#/_base/tools';
 import type { ResolvedToolExecutionHookContext } from '#/loop';
 import {
   isWithinDirectory,

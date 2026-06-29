@@ -13,7 +13,7 @@ import {
 import { Disposable,
 } from "#/_base/di";
 import { ErrorCodes, KimiError } from "#/errors";
-import type { ExecutableToolResult } from '#/tool';
+import type { ExecutableToolResult } from '#/_base/tools';
 import {
   isInlineSkillType,
   isUserActivatableSkillType,

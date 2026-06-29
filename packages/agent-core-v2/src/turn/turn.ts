@@ -1,7 +1,7 @@
 import { createDecorator } from "#/_base/di";
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
 import type { Hooks } from '#/hooks';
-import type { ExecutableToolResult } from '#/tool';
+import type { ExecutableToolResult } from '#/_base/tools';
 import type {
   AuthorizeToolExecutionResult,
   ToolExecutionHookContext,
@@ -23,6 +23,12 @@ export interface Turn {
 export interface TurnStepContext {
   readonly turn: Turn;
   continueTurn: boolean;
+}
+
+export interface TurnContextOverflowContext {
+  readonly turn: Turn;
+  readonly error: unknown;
+  handled: boolean;
 }
 
 export interface TurnRunContext {
@@ -66,6 +72,7 @@ export interface ITurnService {
     onEnded: TurnEndedContext;
     beforeStep: TurnStepContext;
     afterStep: TurnStepContext;
+    onContextOverflow: TurnContextOverflowContext;
   }>;
 }
 

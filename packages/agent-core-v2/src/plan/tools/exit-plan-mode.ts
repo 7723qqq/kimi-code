@@ -10,7 +10,7 @@ import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
 import type { BuiltinTool } from '#/toolRegistry';
-import type { ExecutableToolResult, ToolExecution } from '#/tool';
+import type { ExecutableToolResult, ToolExecution } from '#/_base/tools';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { ITelemetryService } from '#/telemetry';
 import type { IPlanService, PlanData } from '../plan';

@@ -9,14 +9,4 @@ export interface ISwarmService {
   exit(): void;
 }
 
-declare module '#/wireRecord' {
-  interface WireRecordMap {
-    'swarm_mode.enter': {
-      trigger: SwarmModeTrigger;
-    };
-    'swarm_mode.exit': {};
-  }
-
-}
-
 export const ISwarmService = createDecorator<ISwarmService>('agentSwarmService');

@@ -310,6 +310,7 @@ profile ..> wireRecord #16A085 : config.update / tools.set_active_tools
 contextMemory ..> wireRecord #16A085 : context.splice
 cron ..> wireRecord #16A085 : cron.add / delete / cursor
 fullCompaction ..> wireRecord #16A085 : full_compaction.begin/cancel/complete
+fullCompaction ..> turn #16A085 : hooks.onContextOverflow
 permissionRules ..> wireRecord #16A085 : permission.rules.add / record_approval_result
 skill ..> wireRecord #16A085 : skill.activate
 goal ..> wireRecord #16A085 : goal.create/update/clear

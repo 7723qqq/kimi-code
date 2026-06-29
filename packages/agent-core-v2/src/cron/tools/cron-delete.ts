@@ -38,7 +38,7 @@
 
 import { z } from 'zod';
 
-import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/tool';
+import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/_base/tools';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { CronToolManager } from './types';
 import CRON_DELETE_DESCRIPTION from './cron-delete.md?raw';

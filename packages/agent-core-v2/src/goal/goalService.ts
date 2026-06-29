@@ -35,6 +35,27 @@ import type {
   GoalToolResult,
 } from './types';
 
+declare module '#/wireRecord' {
+  interface WireRecordMap {
+    forked: {};
+    'goal.create': {
+      goalId: string;
+      objective: string;
+      completionCriterion?: string;
+    };
+    'goal.update': {
+      status?: GoalStatus;
+      reason?: string;
+      turnsUsed?: number;
+      tokensUsed?: number;
+      wallClockMs?: number;
+      budgetLimits?: GoalBudgetLimits;
+      actor?: GoalActor;
+    };
+    'goal.clear': {};
+  }
+}
+
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
 
 const GOAL_CANCELLED_REMINDER = [

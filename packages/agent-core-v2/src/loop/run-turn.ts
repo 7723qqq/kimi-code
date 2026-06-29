@@ -20,7 +20,7 @@ import type { LoopInterruptReason, LoopEventDispatcher, LoopTurnInterruptedEvent
 import type { IToolExecutor } from '#/toolExecutor';
 import type { LLM } from './llm';
 import { executeLoopStep } from './turn-step';
-import type { ExecutableTool } from '#/tool';
+import type { ExecutableTool } from '#/_base/tools';
 import type {
   LoopHooks,
   LoopMessageBuilder,

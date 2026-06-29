@@ -16,7 +16,7 @@ import type { IToolExecutor } from '#/toolExecutor';
 import type { LoopEventDispatcher } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { chatWithRetry } from './retry';
-import type { ExecutableTool } from '#/tool';
+import type { ExecutableTool } from '#/_base/tools';
 import type {
   LoopHooks,
   LoopMessageBuilder,

@@ -8,7 +8,7 @@
 
 import type { Tool as KosongTool } from '@moonshot-ai/kosong';
 
-import type { ExecutableTool, ExecutableToolResult } from '#/tool';
+import type { ExecutableTool, ExecutableToolResult } from '#/_base/tools';
 import { mcpResultToExecutableOutput } from '../output';
 import type { MCPClient } from '../types';
 

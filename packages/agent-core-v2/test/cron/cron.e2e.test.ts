@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CronCreateTool } from '#/cron/tools/cron-create';
 import { CronDeleteTool } from '#/cron/tools/cron-delete';
 import { CronListTool } from '#/cron/tools/cron-list';
-import type { ExecutableToolOutput } from '#/tool';
+import type { ExecutableToolOutput } from '#/_base/tools';
 import {
   IPromptService,
   type ContextMessage,

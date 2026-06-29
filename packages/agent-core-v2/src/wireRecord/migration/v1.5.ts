@@ -5,7 +5,7 @@ import {
 } from '@moonshot-ai/kosong';
 
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
-import type { ExecutableToolResult } from '#/tool';
+import type { ExecutableToolResult } from '#/_base/tools';
 import type {
   LoopContentPartEvent,
   LoopRecordedEvent,

@@ -4,6 +4,7 @@
  */
 
 export * from './_base/di/index';
+export * from './_base/tools/index';
 export * from './errors';
 
 export * from './log/index';
@@ -79,7 +80,6 @@ export * from './replayBuilder/index';
 export * from './rpc/index';
 export * from './subagentHost/index';
 export * from './todoList/index';
-export * from './tool/index';
 export * from './toolExecutor/index';
 export * from './toolRegistry/index';
 export * from './toolStore/index';

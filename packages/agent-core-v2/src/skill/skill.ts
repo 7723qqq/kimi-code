@@ -1,5 +1,5 @@
 import { createDecorator } from "#/_base/di";
-import type { ExecutableToolResult } from '#/tool';
+import type { ExecutableToolResult } from '#/_base/tools';
 import type { Turn } from '#/turn';
 import type { SkillCatalog } from './types';
 

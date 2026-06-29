@@ -45,6 +45,7 @@ function makeHooks(): ITurnService['hooks'] {
     'onEnded',
     'beforeStep',
     'afterStep',
+    'onContextOverflow',
   ]) as ITurnService['hooks'];
 }
 

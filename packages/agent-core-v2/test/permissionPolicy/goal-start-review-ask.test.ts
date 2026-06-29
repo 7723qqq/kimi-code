@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ResolvedToolExecutionHookContext } from '#/loop';
 import type { IPermissionModeService } from '#/permissionMode';
 import { GoalStartReviewAskPermissionPolicyService } from '#/permissionPolicy/policies/goal-start-review-ask';
-import { ToolAccesses } from '#/tool';
+import { ToolAccesses } from '#/_base/tools';
 
 const signal = new AbortController().signal;
 type PermissionMode = IPermissionModeService['mode'];

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AlreadyAuthorizedError, type BeginAuthorizationResult, type McpOAuthService } from '#/mcp/oauth';
 import { createMcpAuthTool } from '#/mcp/tools/auth';
-import type { ToolUpdate } from '#/tool';
+import type { ToolUpdate } from '#/_base/tools';
 
 import { executeTool } from './stubs';
 

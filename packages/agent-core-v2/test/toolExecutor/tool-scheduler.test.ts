@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ToolAccesses } from '#/tool';
+import { ToolAccesses } from '#/_base/tools';
 import { ToolScheduler, type ToolCallTask } from '#/toolExecutor/toolScheduler';
 
 describe('ToolScheduler', () => {

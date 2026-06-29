@@ -17,6 +17,15 @@ import {
   type SwarmModeTrigger,
 } from './swarm';
 
+declare module '#/wireRecord' {
+  interface WireRecordMap {
+    'swarm_mode.enter': {
+      trigger: SwarmModeTrigger;
+    };
+    'swarm_mode.exit': {};
+  }
+}
+
 export class SwarmService extends Disposable implements ISwarmService {
   declare readonly _serviceBrand: undefined;
 
