@@ -6,6 +6,10 @@ import {
   parsePattern,
 } from '#/permissionRules/matchesRule';
 import type { PermissionRuleMatchExecution } from '#/permissionRules/matchesRule';
+import {
+  matchesGlobRuleSubject,
+  matchesPathRuleSubject,
+} from '#/_base/tools/support/rule-match';
 
 function rule(pattern: string): PermissionRule {
   return { decision: 'allow', scope: 'user', pattern };
@@ -93,4 +97,71 @@ describe('permissionRules/matchPermissionRule', () => {
       matchPermissionRule({ rule: rule('('), toolName: 'bash', execution: noArgs }),
     ).toBeUndefined();
   });
+
+  it('matches rules against tool-specific argument fields through execution matchers', () => {
+    expect(matches(rule('Bash(git *)'), 'Bash', {
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, 'git status'),
+    })).toBe(true);
+    expect(matches(rule('Bash(git *)'), 'Bash', {
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, 'npm test'),
+    })).toBe(false);
+    expect(matches(rule('Read(/etc/**)'), 'Read', {
+      matchesRule: (ruleArgs) => matchesPathRuleSubject(ruleArgs, '/etc/passwd'),
+    })).toBe(true);
+    expect(matches(rule('Edit(!./src/**)'), 'Edit', {
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, '/workspace/README.md', {
+          cwd: '/workspace',
+          pathClass: 'posix',
+        }),
+    })).toBe(true);
+    expect(matches(rule('Edit(!./src/**)'), 'Edit', {
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, '/workspace/src/a.ts', {
+          cwd: '/workspace',
+          pathClass: 'posix',
+        }),
+    })).toBe(false);
+    expect(matches(rule('Agent(review-*)'), 'Agent', {
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, 'review-code'),
+    })).toBe(true);
+    expect(matches(rule('mcp__github__*'), 'mcp__github__list_issues', noArgs)).toBe(true);
+    expect(matches(rule('Bash(git *)'), 'Bash', {
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, '42'),
+    })).toBe(false);
+    expect(matches(rule('Bad(unclosed'), 'Bad', noArgs)).toBe(false);
+  });
+
+  it('does not match rule arguments without an execution matcher', () => {
+    expect(matches(rule('Custom("query":"a.b")'), 'Custom', noArgs)).toBe(false);
+    expect(matches(rule('Bash("command":"git status")'), 'Bash', noArgs)).toBe(false);
+    expect(matches(rule('Bash(^git status$)'), 'Bash', noArgs)).toBe(false);
+    expect(matches(rule('Read([invalid'), 'Read', noArgs)).toBe(false);
+    expect(matches(rule('AgentSwarm(swarm)'), 'AgentSwarm', noArgs)).toBe(false);
+  });
+
+  it('matches path rule subjects case-insensitively', () => {
+    expect(matches(rule('Edit(/repo/secrets.env)'), 'Edit', {
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, '/repo/Secrets.env', {
+          cwd: '/repo',
+          pathClass: 'posix',
+        }),
+    })).toBe(true);
+    expect(matches(rule('Edit(/repo/Sub/**)'), 'Edit', {
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, '/repo/sub/a.ts', {
+          cwd: '/repo',
+          pathClass: 'posix',
+        }),
+    })).toBe(true);
+  });
 });
+
+function matches(
+  permissionRule: PermissionRule,
+  toolName: string,
+  execution: PermissionRuleMatchExecution,
+): boolean {
+  return matchPermissionRule({ rule: permissionRule, toolName, execution }) !== undefined;
+}

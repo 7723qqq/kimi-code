@@ -1,5 +1,5 @@
 import type { PrepareToolExecutionResult, ResolvedToolExecutionHookContext } from '#/loop';
-import type { ApprovalResponse } from '@moonshot-ai/protocol';
+import type { ApprovalResponse } from '#/approval/approval';
 import type { PermissionRule } from '#/permissionRules';
 
 /**

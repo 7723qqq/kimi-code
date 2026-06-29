@@ -1,3 +1,4 @@
+import type { ToolCall } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { IPlanService, PlanData } from '#/plan';
@@ -7,8 +8,15 @@ import {
   type ExitPlanModeInput,
 } from '#/plan/tools/exit-plan-mode';
 import type { ITelemetryService } from '#/telemetry';
+import { IToolExecutor } from '#/toolExecutor';
 
 import { executeTool } from '../tools/fixtures/execute-tool';
+import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { testAgent } from '../harness/agent';
+import {
+  recordingTelemetry as captureTelemetry,
+  type TelemetryRecord,
+} from '../telemetry/stubs';
 
 const ACTIVE_PLAN: NonNullable<PlanData> = {
   id: 'test-plan',
@@ -86,6 +94,43 @@ describe('EnterPlanModeTool telemetry', () => {
       outcome: 'auto_approved',
     });
   });
+});
+
+describe('PlanService EnterPlanMode telemetry', () => {
+  it.each(['manual', 'auto', 'yolo'] as const)(
+    'enters without approval and tracks auto_approved in %s mode',
+    async (mode) => {
+      const records: TelemetryRecord[] = [];
+      const ctx = testAgent({
+        kaos: createFakeKaos({
+          mkdir: vi.fn().mockResolvedValue(undefined),
+        }),
+        permissionMode: mode,
+        telemetry: captureTelemetry(records),
+      });
+      const call: ToolCall = {
+        type: 'function',
+        id: `call_enter_plan_${mode}`,
+        name: 'EnterPlanMode',
+        arguments: '{}',
+      };
+
+      const result = await ctx.get(IToolExecutor).execute([call], {
+        turnId: '1',
+        signal: new AbortController().signal,
+      });
+
+      expect(result[0]?.isError).toBeFalsy();
+      expect(result[0]?.output).toContain('Plan mode is now active');
+      expect(
+        ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
+      ).toBe(false);
+      expect(records).toContainEqual({
+        event: 'plan_enter_resolved',
+        properties: { outcome: 'auto_approved' },
+      });
+    },
+  );
 });
 
 describe('ExitPlanModeTool telemetry', () => {

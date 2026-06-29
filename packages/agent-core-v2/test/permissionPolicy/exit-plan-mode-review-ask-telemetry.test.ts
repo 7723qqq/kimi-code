@@ -263,6 +263,49 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
+  it('returns approved plan output without a saved-to line when display has no path', () => {
+    const display: ToolInputDisplay = {
+      kind: 'plan_review',
+      plan: '# Draft Plan',
+    };
+    const result = makePolicy().evaluate(policyContext(display));
+    if (result?.kind !== 'ask') throw new Error('expected ask');
+
+    const approval = result.resolveApproval?.(approvalResponse({ decision: 'approved' }));
+
+    expect(approval).toMatchObject({
+      kind: 'result',
+      syntheticResult: {
+        isError: false,
+        output: expect.stringContaining('## Approved Plan:\n# Draft Plan'),
+      },
+    });
+    expect(approval?.kind === 'result' ? approval.syntheticResult?.output : '').not.toContain(
+      'Plan saved to:',
+    );
+  });
+
+  it('does not force a selected-approach prefix for labels that are not in the options', () => {
+    const result = makePolicy().evaluate(policyContext(planReviewDisplay({ options })));
+    if (result?.kind !== 'ask') throw new Error('expected ask');
+
+    const approval = result.resolveApproval?.(approvalResponse({
+      decision: 'approved',
+      selectedLabel: 'Approach C',
+    }));
+
+    expect(approval?.kind === 'result' ? approval.syntheticResult?.output : '').not.toContain(
+      'Selected approach:',
+    );
+    expect(records).toContainEqual({
+      event: 'plan_resolved',
+      properties: {
+        outcome: 'approved',
+        chosen_option: 'Approach C',
+      },
+    });
+  });
+
   it('does not track approved when exitPlanMode fails', () => {
     const exitPlanMode = vi.fn(() => ({
       isError: true as const,

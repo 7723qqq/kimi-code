@@ -130,6 +130,31 @@ describe('ContextInjectorService', () => {
     });
   });
 
+  it('resets every stored injection index after context clear', async () => {
+    const seenA: Array<number | null> = [];
+    const seenB: Array<number | null> = [];
+
+    injector(ix).register('recording_a', ({ lastInjectedAt }) => {
+      seenA.push(lastInjectedAt);
+      return lastInjectedAt === null ? 'recorded reminder A' : undefined;
+    });
+    injector(ix).register('recording_b', ({ lastInjectedAt }) => {
+      seenB.push(lastInjectedAt);
+      return lastInjectedAt === null ? 'recorded reminder B' : undefined;
+    });
+
+    await injector(ix).inject();
+    context.splice(0, context.get().length, []);
+    await injector(ix).inject();
+
+    expect(seenA).toEqual([null, null]);
+    expect(seenB).toEqual([null, null]);
+    expect(context.get().map((message) => message.origin)).toEqual([
+      { kind: 'injection', variant: 'recording_a' },
+      { kind: 'injection', variant: 'recording_b' },
+    ]);
+  });
+
   it('keeps the injection index aligned after compaction replaces the prefix', async () => {
     const seen: Array<number | null> = [];
 
@@ -150,6 +175,36 @@ describe('ContextInjectorService', () => {
     expect(seen).toEqual([null, 0]);
     expect(context.get()).toHaveLength(1);
     expect(context.get()[0]?.origin).toEqual({ kind: 'compaction_summary' });
+  });
+
+  it('keeps every injection index aligned after compaction preserves injected messages', async () => {
+    const seenA: Array<number | null> = [];
+    const seenB: Array<number | null> = [];
+
+    context.splice(0, 0, [
+      userMessage('old request'),
+      userMessage('old follow-up'),
+    ]);
+    injector(ix).register('recording_a', ({ lastInjectedAt }) => {
+      seenA.push(lastInjectedAt);
+      return lastInjectedAt === null ? 'recorded reminder A' : undefined;
+    });
+    injector(ix).register('recording_b', ({ lastInjectedAt }) => {
+      seenB.push(lastInjectedAt);
+      return lastInjectedAt === null ? 'recorded reminder B' : undefined;
+    });
+
+    await injector(ix).inject();
+    context.splice(0, 2, [compactionSummary('Compacted summary.')]);
+    await injector(ix).inject();
+
+    expect(seenA).toEqual([null, 1]);
+    expect(seenB).toEqual([null, 2]);
+    expect(context.get().map((message) => message.origin)).toEqual([
+      { kind: 'compaction_summary' },
+      { kind: 'injection', variant: 'recording_a' },
+      { kind: 'injection', variant: 'recording_b' },
+    ]);
   });
 });
 

@@ -282,9 +282,9 @@ describe('MicroCompaction', () => {
     expect(textOf(call?.history[5])).toBe(DEFAULT_MARKER);
     expect(textOf(call?.history[8])).toBe('recent result three');
 
-    expect(textOf(ctx.context.getHistory()[2])).toBe('old result one');
-    expect(textOf(ctx.context.getHistory()[5])).toBe('middle result two');
-    expect(textOf(ctx.context.getHistory()[8])).toBe('recent result three');
+    expect(textOf(ctx.context.get()[2])).toBe('old result one');
+    expect(textOf(ctx.context.get()[5])).toBe('middle result two');
+    expect(textOf(ctx.context.get()[8])).toBe('recent result three');
     await ctx.expectResumeMatches();
   });
 
@@ -340,10 +340,12 @@ describe('MicroCompaction', () => {
     vi.setSystemTime(61 * MINUTE);
     (ctx.get(IMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, 'result two']);
+    await ctx.wireRecord.flush();
     expect(lastMicroCompactionCutoff(persistence.records)).toBe(4);
 
     vi.setSystemTime(62 * MINUTE);
     appendMicroToolExchange(ctx, 3, { output: 'result three' });
+    await ctx.wireRecord.flush();
 
     const resumed = testAgent({
       microCompaction: { config },
@@ -382,10 +384,12 @@ describe('MicroCompaction', () => {
     vi.setSystemTime(61 * MINUTE);
     (ctx.get(IMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, 'result two']);
+    await ctx.wireRecord.flush();
     expect(lastMicroCompactionCutoff(persistence.records)).toBe(4);
 
     vi.setSystemTime(62 * MINUTE);
     appendMicroToolExchange(ctx, 3, { output: 'result three' });
+    await ctx.wireRecord.flush();
 
     const resumedPersistence = new InMemoryWireRecordPersistence(
       cloneRecords(persistence.records),
@@ -405,6 +409,7 @@ describe('MicroCompaction', () => {
       DEFAULT_MARKER,
       'result three',
     ]);
+    await resumed.wireRecord.flush();
     expect(lastMicroCompactionCutoff(resumedPersistence.records)).toBe(7);
   });
 
@@ -633,7 +638,7 @@ describe('MicroCompaction', () => {
 
     (ctx.get(IMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([marker]);
-    expect(textOf(ctx.context.getHistory()[2])).toBe('abcd');
+    expect(textOf(ctx.context.get()[2])).toBe('abcd');
   });
 
   it('keeps raw pending token accounting even when projection truncates tool output', () => {
@@ -660,8 +665,8 @@ describe('MicroCompaction', () => {
     vi.setSystemTime(61 * MINUTE);
 
     (ctx.get(IMicroCompactionService) as any).detect();
-    const rawPending = ctx.context.getHistory().slice(-1);
-    const projectedPending = ctx.project(rawPending);
+    const rawPending = ctx.context.get().slice(-1);
+    const projectedPending = (ctx.get(IMicroCompactionService) as any).compact(rawPending);
     expect(textOf(projectedPending[0])).toBe(DEFAULT_MARKER);
     expect(ctx.contextSize.getStatus().contextTokensWithPending).toBe(
       ctx.contextSize.getStatus().contextTokens + estimateTokensForMessages(rawPending),
@@ -697,7 +702,7 @@ describe('MicroCompaction', () => {
     vi.setSystemTime(61 * MINUTE);
 
     (ctx.get(IMicroCompactionService) as any).detect();
-    const compacted = (ctx.get(IMicroCompactionService) as any).compact(ctx.context.getHistory());
+    const compacted = (ctx.get(IMicroCompactionService) as any).compact(ctx.context.get());
     const tool = compacted.find((message: any) => message.role === 'tool');
     expect(tool).toMatchObject({
       role: 'tool',
@@ -721,8 +726,17 @@ describe('MicroCompaction', () => {
       },
     });
 
+    vi.setSystemTime(0);
+    ctx.context.splice(ctx.context.get().length, 0, [
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'assistant anchor' }],
+        toolCalls: [],
+      },
+    ]);
+
     vi.setSystemTime(61 * MINUTE);
-    ctx.context.spliceHistory(ctx.context.getHistory().length, 0, [
+    ctx.context.splice(ctx.context.get().length, 0, [
       {
         role: 'tool',
         content: [{ type: 'text', text: 'orphan tool-like output' }],
@@ -730,7 +744,9 @@ describe('MicroCompaction', () => {
       },
     ]);
 
-    expect(toolTexts(ctx.project())).toEqual(['orphan tool-like output']);
+    (ctx.get(IMicroCompactionService) as any).detect();
+    const compacted = (ctx.get(IMicroCompactionService) as any).compact(ctx.context.get());
+    expect(toolTexts(compacted)).toEqual(['orphan tool-like output']);
   });
 
   it('clears cutoff on full compaction', async () => {
@@ -884,7 +900,7 @@ function appendMicroToolExchange(
 
   ctx.appendUserMessage([{ type: 'text', text: `lookup ${String(index)}` }]);
 
-  ctx.context.spliceHistory(ctx.context.getHistory().length, 0, [
+  ctx.context.splice(ctx.context.get().length, 0, [
     {
       role: 'assistant',
       content: [
@@ -897,13 +913,13 @@ function appendMicroToolExchange(
   ]);
 
   if (usage !== undefined) {
-    ctx.contextSize.measure(
-      ctx.context.getHistory().length,
+    ctx.contextSize.measured(
+      ctx.context.get().length,
       usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation,
     );
   }
 
-  ctx.context.spliceHistory(ctx.context.getHistory().length, 0, [
+  ctx.context.splice(ctx.context.get().length, 0, [
     {
       role: 'tool',
       content: typeof output === 'string' ? [{ type: 'text', text: output }] : [...output],

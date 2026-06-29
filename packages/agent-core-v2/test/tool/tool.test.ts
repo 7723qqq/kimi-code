@@ -316,12 +316,8 @@ describe('Agent tools', () => {
     expect(managedBash!.description).toContain('run_in_background=true');
   });
 
-  it('exposes AgentSwarm when a subagent host is available', () => {
-    const subagentHost = {} as unknown as SessionSubagentHost;
-
-    const ctx = testAgent({
-      subagentHost,
-    });
+  it('exposes AgentSwarm by default', () => {
+    const ctx = testAgent();
     ctx.configure({ tools: ['AgentSwarm'] });
 
     expect(ctx.toolsData().some((tool) => tool.name === 'AgentSwarm')).toBe(true);
