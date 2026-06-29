@@ -476,7 +476,7 @@ async function dispatchToolCall(
     uuid: call.toolCall.id,
     turnId: options.turnId ?? '',
     step: options.stepNumber ?? 0,
-    stepUuid: '',
+    stepUuid: options.stepUuid ?? '',
     toolCallId: call.toolCall.id,
     name: call.toolName,
     args,

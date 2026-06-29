@@ -144,7 +144,9 @@ export class LLMRequesterService implements ILLMRequester {
         usage,
         model: usageModel,
       });
-      this.usage.record(usageModel, usage, request.usageContext);
+      if (request.usageContext === undefined) {
+        this.usage.record(usageModel, usage);
+      }
       queue.push({
         type: 'finish',
         providerFinishReason: result.finishReason ?? undefined,

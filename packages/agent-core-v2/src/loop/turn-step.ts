@@ -131,13 +131,14 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
   let effectiveStopReason: LoopStepStopReason =
     stopTurnAfterUsage && stopReason === 'tool_use' ? 'end_turn' : stopReason;
   if (effectiveStopReason === 'tool_use') {
-    const toolResults = await toolExecutor.execute(response.toolCalls, {
-      signal,
-      turnId,
-      stepNumber: currentStep,
-      dispatchEvent,
-      onProgress: (toolCallId, update) => {
-        void dispatchEvent({ type: 'tool.progress', toolCallId, update });
+      const toolResults = await toolExecutor.execute(response.toolCalls, {
+        signal,
+        turnId,
+        stepNumber: currentStep,
+        stepUuid,
+        dispatchEvent,
+        onProgress: (toolCallId, update) => {
+          void dispatchEvent({ type: 'tool.progress', toolCallId, update });
       },
     });
     if (toolResults.some((r) => r.stopTurn === true)) {

@@ -81,6 +81,7 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
 
   private applySplice(record: WireRecord<'context.splice'>): void {
     const messages = [...record.messages];
+    this.history.splice(record.start, record.deleteCount, ...messages);
     for (const message of messages) {
       this.replayBuilder.push({ type: 'message', message });
     }

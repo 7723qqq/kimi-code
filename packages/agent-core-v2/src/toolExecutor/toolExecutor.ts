@@ -9,6 +9,7 @@ export interface ToolExecutorExecuteOptions {
   readonly signal?: AbortSignal;
   readonly turnId?: string;
   readonly stepNumber?: number;
+  readonly stepUuid?: string;
   readonly dispatchEvent?: LoopEventDispatcher | undefined;
   readonly onProgress?: ((toolCallId: string, update: ToolUpdate) => void) | undefined;
 }

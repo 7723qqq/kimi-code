@@ -1,13 +1,12 @@
 import type { Message } from '@moonshot-ai/kosong';
 import { describe, expect, it } from 'vitest';
 
-import { estimateTokensForMessages } from '../../../src/utils/tokens';
-import { testAgent } from './harness';
-import {
-  project,
-  renderNotificationXml,
-  type ContextMessage,
-} from '../../../src/services/agent';
+import { estimateTokensForMessages } from '#/_base/utils/tokens';
+import { project } from '#/contextProjector';
+import type { ContextMessage } from '#/contextMemory';
+import { renderNotificationXml } from '#/contextMemory/notification-xml';
+
+import { testAgent } from '../harness';
 
 describe('Agent context', () => {
   it('stores prompt origins without leaking them to LLM projection', () => {

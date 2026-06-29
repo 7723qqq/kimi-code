@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { testAgent } from './harness';
+import { testAgent } from '../harness';
 
 describe('Agent usage', () => {
   it('accumulates usage by model', () => {

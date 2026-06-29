@@ -1,14 +1,14 @@
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { expect, it } from 'vitest';
 
-import { FLAG_DEFINITIONS, FlagResolver } from '../../../src/flags';
-import { testAgent } from './harness';
+import { IFlagService } from '#/flag';
+
+import { testAgent } from '../harness';
 
 it('creates an independent agent with a scoped experimental flag resolver', () => {
-  const flags = new FlagResolver({}, FLAG_DEFINITIONS);
   const ctx = testAgent({
-    experimentalFlags: flags,
   });
+  const flags = ctx.get(IFlagService);
 
   expect(flags.enabled('micro_compaction')).toBe(true);
 });
