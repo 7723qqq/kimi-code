@@ -5,7 +5,7 @@
  * services from the `agent-core-v2` Core `Scope` instead of the v1 flat
  * `IInstantiationService`. v0.1 mounts the subset of routes that v2 can serve
  * end-to-end today (health, meta, auth readiness, OAuth device flow, config,
- * model/provider catalog, shutdown).
+ * model/provider catalog, sessions, messages, approvals, workspaces, shutdown).
  */
 
 import type { Scope } from '@moonshot-ai/agent-core-v2';
@@ -15,6 +15,7 @@ import { okEnvelope } from '../envelope';
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerConfigRoutes } from './config';
+import { registerMessagesRoutes } from './messages';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
 import { registerOAuthRoutes } from './oauth';
@@ -67,6 +68,10 @@ export async function registerApiV1Routes(
       );
       registerSessionsRoutes(
         apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0],
+        core,
+      );
+      registerMessagesRoutes(
+        apiV1 as unknown as Parameters<typeof registerMessagesRoutes>[0],
         core,
       );
       registerApprovalsRoutes(
