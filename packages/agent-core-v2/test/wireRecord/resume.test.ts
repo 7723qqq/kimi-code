@@ -7,19 +7,18 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   BackgroundTaskPersistence,
-  InMemoryWireRecordPersistence,
-  IPlanModeService,
   IReplayBuilderService,
-  ITurnRunner,
   type PersistedWireRecord,
   type PromptOrigin,
-} from '../../../src/services/agent';
+} from '#/index';
 import type {
   BackgroundTaskInfo,
   IBackgroundService,
-} from '../../../src/services/agent/background/background';
-import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
-import { DEFAULT_TEST_SYSTEM_PROMPT, testAgent } from './harness';
+} from '#/background';
+import { IPlanService } from '#/plan';
+import { ITurnService } from '#/turn';
+import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { DEFAULT_TEST_SYSTEM_PROMPT, InMemoryWireRecordPersistence, testAgent } from '../harness';
 
 const MOCK_PROVIDER = {
   type: 'kimi',
@@ -33,7 +32,7 @@ type BackgroundServiceTestManager = IBackgroundService & {
 };
 
 function turnCurrentId(ctx: ReturnType<typeof testAgent>): number {
-  const runner = ctx.get(ITurnRunner) as unknown as { nextTurnId: number };
+  const runner = ctx.get(ITurnService) as unknown as { nextTurnId: number };
   return runner.nextTurnId - 1;
 }
 
@@ -69,9 +68,8 @@ describe('Agent resume', () => {
     });
 
     await ctx.runtime.restore();
-
-    expect(ctx.get(IPlanModeService).isActive).toBe(true);
-    expect(ctx.get(IPlanModeService).planFilePath).toContain('resume-plan');
+    const plan = await ctx.get(IPlanService).status();
+    expect(plan?.path).toContain('resume-plan');
     expect(ctx.newEvents()).toMatchInlineSnapshot(`[]`);
     expect(ctx.llmCalls).toHaveLength(0);
     expect(execWithEnv).not.toHaveBeenCalled();
@@ -294,7 +292,7 @@ describe('Agent resume', () => {
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
         system: <system-prompt>
-        tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
+        tools: Agent, AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, MultiEdit, Read, SetGoalBudget, SetTodoList, TaskList, TaskOutput, TodoList, UpdateGoal, WebSearch, Write
         messages:
           user: text "Historical prompt before skill"
           assistant: []  calls call_resume_write:Write { "path": "result.txt" }, call_resume_skill:Skill { "skill": "review" }
@@ -404,10 +402,15 @@ describe('Agent resume', () => {
         tokensAfter: 3,
       },
     ] as unknown as PersistedWireRecord[]);
-    const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-delivered-'));
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-delivered-'));
+    const sessionDir = join(homeDir, 'sessions', 'test-session');
     try {
       const backgroundPersistence = new BackgroundTaskPersistence(sessionDir);
-      const ctx = testAgent({ persistence, homedir: sessionDir });
+      const ctx = testAgent({
+        persistence,
+        homedir: homeDir,
+        background: { persistence: backgroundPersistence },
+      });
       await backgroundPersistence.writeTask({
         taskId: 'agent-seen0000',
         kind: 'agent',
@@ -433,7 +436,7 @@ describe('Agent resume', () => {
 
       expect(steer).not.toHaveBeenCalled();
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await rm(homeDir, { recursive: true, force: true });
     }
   });
 
@@ -538,10 +541,15 @@ describe('Agent resume', () => {
         origin: { kind: 'user' },
       },
     ] as unknown as PersistedWireRecord[]);
-    const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-undelivered-'));
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-undelivered-'));
+    const sessionDir = join(homeDir, 'sessions', 'test-session');
     try {
       const backgroundPersistence = new BackgroundTaskPersistence(sessionDir);
-      const ctx = testAgent({ persistence, homedir: sessionDir });
+      const ctx = testAgent({
+        persistence,
+        homedir: homeDir,
+        background: { persistence: backgroundPersistence },
+      });
       await backgroundPersistence.writeTask({
         taskId: 'agent-new00000',
         kind: 'agent',
@@ -582,7 +590,7 @@ describe('Agent resume', () => {
         }),
       );
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await rm(homeDir, { recursive: true, force: true });
     }
   });
 

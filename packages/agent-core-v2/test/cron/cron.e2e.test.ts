@@ -8,14 +8,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CronCreateTool } from '../../../../src/tools/cron/cron-create';
-import { CronDeleteTool } from '../../../../src/tools/cron/cron-delete';
-import { CronListTool } from '../../../../src/tools/cron/cron-list';
-import type { ExecutableToolOutput } from '../../../../src/loop/types';
+import { CronCreateTool } from '#/cron/tools/cron-create';
+import { CronDeleteTool } from '#/cron/tools/cron-delete';
+import { CronListTool } from '#/cron/tools/cron-list';
+import type { ExecutableToolOutput } from '#/tool';
 import {
   IPromptService,
   type ContextMessage,
-} from '../../../../src/services/agent';
+} from '#/index';
 import { testAgent, type TestAgentContext } from '../harness';
 
 // Local-time anchor (cron-expr matches on local fields, so a UTC anchor

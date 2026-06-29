@@ -121,6 +121,8 @@ kosong --> config #34495E
 records --> hostFs #34495E
 records --> storage #34495E
 records --> log #34495E
+blobStore --> bootstrap #34495E
+blobStore --> hostFs #34495E
 tool --> config #34495E
 tool --> records #34495E
 tool --> permission #34495E

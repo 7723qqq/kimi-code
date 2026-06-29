@@ -11,13 +11,9 @@ import {
   BackgroundTaskPersistence,
   type IBackgroundService,
   ProcessBackgroundTask,
-} from '../../../../src/services/agent/background/background';
+} from '#/background';
 import { testAgent, type TestAgentContext } from '../harness';
-
-type BackgroundServiceTestManager = IBackgroundService & {
-  loadFromDisk(): Promise<void>;
-  reconcile(): Promise<readonly unknown[]>;
-};
+import type { BackgroundServiceTestManager } from './stubs';
 
 interface BackgroundServiceFixture {
   readonly ctx: TestAgentContext;

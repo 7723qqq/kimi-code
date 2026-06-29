@@ -22,29 +22,21 @@ import { join } from 'pathe';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { testAgent } from './harness';
-import {
-  BackgroundTaskPersistence,
-  IPromptService,
-  ITurnRunner,
-} from '../../../src/services/agent';
 import {
   AgentBackgroundTask,
-  type BackgroundTaskInfo,
-  type IBackgroundService,
-} from '../../../src/services/agent/background/background';
-
-type BackgroundServiceTestManager = IBackgroundService & {
-  loadFromDisk(): Promise<void>;
-  reconcile(): Promise<readonly BackgroundTaskInfo[]>;
-};
+  BackgroundTaskPersistence,
+} from '#/background';
+import { IPromptService } from '#/prompt';
+import { ITurnService } from '#/turn';
+import { testAgent } from '../harness';
+import type { BackgroundServiceTestManager } from './stubs';
 
 function agentTask(
   completion: Promise<{ result: string }>,
   description: string,
 ): AgentBackgroundTask {
   return new AgentBackgroundTask(
-    { agentId: 'agent-child', profileName: 'coder', resumed: false, completion },
+    { agentId: 'agent-child', profileName: 'coder', completion },
     description,
     { markActiveChildDetached: vi.fn() },
     new AbortController(),
@@ -56,7 +48,7 @@ describe('background notification → main agent (real Agent instance)', () => {
     const ctx = testAgent();
     ctx.configure({ tools: [] });
 
-    expect(ctx.runtime.get(ITurnRunner).getActiveTurn()).toBeUndefined();
+    expect(ctx.runtime.get(ITurnService).getActiveTurn()).toBeUndefined();
     expect(ctx.llmCalls.length).toBe(0);
 
     // The expected auto-launched turn will call generate once, then end.
@@ -287,7 +279,7 @@ describe('background notification → main agent (real Agent instance)', () => {
         status: 'running',
       });
 
-      const ctx = testAgent({ homedir: sessionDir });
+      const ctx = testAgent({ background: { persistence: backgroundPersistence } });
       ctx.configure({ tools: [] });
 
       // We do NOT mock any LLM response. If the resume path
@@ -314,7 +306,7 @@ describe('background notification → main agent (real Agent instance)', () => {
       // The notifications were silently appended, so no new turn ran.
       expect(steerSpy).not.toHaveBeenCalled();
       expect(ctx.llmCalls.length).toBe(0);
-      expect(ctx.runtime.get(ITurnRunner).getActiveTurn()).toBeUndefined();
+      expect(ctx.runtime.get(ITurnService).getActiveTurn()).toBeUndefined();
 
       // Both notifications are in context, waiting for the user. The
       // completed bash task references its persisted output file rather

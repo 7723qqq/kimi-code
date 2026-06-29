@@ -5,27 +5,51 @@ import { join } from 'pathe';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
+import { IBlobStoreService } from '#/blobStore';
+import { BlobStoreService } from '#/blobStore/blobStoreService';
+import { IBootstrapService } from '#/bootstrap';
+import { IHostFileSystem, HostFileSystem } from '#/hostFs';
+import { ContextMemoryService } from '#/contextMemory/contextMemoryService';
+import { IContextMemory, type ContextMessage } from '#/contextMemory';
+import { IReplayBuilderService } from '#/replayBuilder';
 import {
+  AppendLogStore,
   AGENT_WIRE_PROTOCOL_VERSION,
-  BlobStore,
-  FileSystemAgentRecordPersistence,
-  InMemoryAgentRecordPersistence,
-  type AgentRecord,
-} from '../../../../src/services/agent';
+  IAppendLogStorage,
+  IAppendLogStore,
+  IWireRecord,
+  type PersistedWireRecord,
+  WireRecordService,
+} from '#/index';
+import { FileStorageService } from '#/storage/fileStorageService';
+import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
+import type { IStorageService } from '#/storage';
+import { stubBootstrap } from '../bootstrap/stubs';
+import { stubReplayBuilder } from '../contextMemory/stubs';
+import { InMemoryWireRecordPersistence } from '../harness';
 
 const cleanups: string[] = [];
+const disposables: DisposableStore[] = [];
+const SCOPE = 'wire-test';
+const KEY = 'wire.jsonl';
 
 afterEach(async () => {
+  for (const store of disposables.splice(0)) {
+    store.dispose();
+  }
   for (const dir of cleanups.splice(0)) {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 });
 
-async function makeWirePath(): Promise<string> {
-  const dir = join(tmpdir(), `wire-jsonl-test-${randomBytes(6).toString('hex')}`);
+async function makeDir(prefix: string): Promise<string> {
+  const dir = join(tmpdir(), `${prefix}-${randomBytes(6).toString('hex')}`);
   await mkdir(dir, { recursive: true });
   cleanups.push(dir);
-  return join(dir, 'wire.jsonl');
+  return dir;
 }
 
 async function readLines(path: string): Promise<string[]> {
@@ -33,43 +57,108 @@ async function readLines(path: string): Promise<string[]> {
   return raw.split('\n').filter((line) => line.length > 0);
 }
 
-describe('FileSystemAgentRecordPersistence', () => {
-  it('writes only the appended record', async () => {
-    const wirePath = await makeWirePath();
-    const persistence = new FileSystemAgentRecordPersistence(wirePath);
+function createAppendLogHarness(storage: IStorageService): IAppendLogStore {
+  const disposable = new DisposableStore();
+  disposables.push(disposable);
 
-    persistence.append({
+  const ix = disposable.add(new TestInstantiationService());
+  ix.stub(IAppendLogStorage, storage);
+  ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+  return ix.get(IAppendLogStore);
+}
+
+async function createFileAppendLogHarness(): Promise<{
+  readonly dir: string;
+  readonly log: IAppendLogStore;
+}> {
+  const dir = await makeDir('wire-jsonl-test');
+  return {
+    dir,
+    log: createAppendLogHarness(new FileStorageService(dir)),
+  };
+}
+
+async function collect<R>(log: IAppendLogStore, scope = SCOPE, key = KEY): Promise<R[]> {
+  const records: R[] = [];
+  for await (const record of log.read<R>(scope, key)) {
+    records.push(record);
+  }
+  return records;
+}
+
+async function createWireHarness(): Promise<{
+  readonly dir: string;
+  readonly storage: IStorageService;
+  readonly wire: IWireRecord;
+}> {
+  const dir = await makeDir('wire-service-test');
+  const disposable = new DisposableStore();
+  disposables.push(disposable);
+
+  const storage = new FileStorageService(dir);
+  const ix = disposable.add(new TestInstantiationService());
+  ix.stub(IAppendLogStorage, storage);
+  ix.stub(IBootstrapService, stubBootstrap(dir));
+  ix.stub(IHostFileSystem, new HostFileSystem());
+  ix.stub(IReplayBuilderService, stubReplayBuilder());
+  ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+  ix.set(IBlobStoreService, new SyncDescriptor(BlobStoreService));
+  ix.set(IWireRecord, new SyncDescriptor(WireRecordService, [{ homedir: dir }]));
+  ix.set(IContextMemory, new SyncDescriptor(ContextMemoryService));
+  ix.get(IContextMemory);
+
+  return {
+    dir,
+    storage,
+    wire: ix.get(IWireRecord),
+  };
+}
+
+async function readPersistedWireRecords(
+  storage: IStorageService,
+): Promise<readonly PersistedWireRecord[]> {
+  const keys = await storage.list('wire');
+  if (keys.length === 0) return [];
+  expect(keys).toHaveLength(1);
+  const log = createAppendLogHarness(storage);
+  return collect<PersistedWireRecord>(log, 'wire', keys[0]);
+}
+
+describe('AppendLogStore file persistence', () => {
+  it('writes only the appended record', async () => {
+    const { dir, log } = await createFileAppendLogHarness();
+
+    log.append(SCOPE, KEY, {
       type: 'turn.prompt',
       input: [{ type: 'text', text: 'hello' }],
       origin: { kind: 'user' },
     });
-    await persistence.close();
+    await log.close();
 
-    const lines = await readLines(wirePath);
+    const lines = await readLines(join(dir, SCOPE, KEY));
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0]!)['type']).toBe('turn.prompt');
   });
 
   it('appends to an existing file without injecting records', async () => {
-    const wirePath = await makeWirePath();
-
-    const first = new FileSystemAgentRecordPersistence(wirePath);
-    first.append({
+    const dir = await makeDir('wire-jsonl-test');
+    const first = createAppendLogHarness(new FileStorageService(dir));
+    first.append(SCOPE, KEY, {
       type: 'turn.prompt',
       input: [{ type: 'text', text: 'one' }],
       origin: { kind: 'user' },
     });
     await first.close();
 
-    const second = new FileSystemAgentRecordPersistence(wirePath);
-    second.append({
+    const second = createAppendLogHarness(new FileStorageService(dir));
+    second.append(SCOPE, KEY, {
       type: 'turn.prompt',
       input: [{ type: 'text', text: 'two' }],
       origin: { kind: 'user' },
     });
     await second.close();
 
-    const lines = await readLines(wirePath);
+    const lines = await readLines(join(dir, SCOPE, KEY));
     expect(lines).toHaveLength(2);
     expect(lines.map((line) => JSON.parse(line)['type'])).toEqual([
       'turn.prompt',
@@ -78,23 +167,20 @@ describe('FileSystemAgentRecordPersistence', () => {
   });
 
   it('returns appended metadata records from read() output', async () => {
-    const wirePath = await makeWirePath();
-    const persistence = new FileSystemAgentRecordPersistence(wirePath);
-    persistence.append({
+    const { log } = await createFileAppendLogHarness();
+    log.append(SCOPE, KEY, {
       type: 'metadata',
       protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
       created_at: 1,
     });
-    persistence.append({
+    log.append(SCOPE, KEY, {
       type: 'turn.prompt',
       input: [{ type: 'text', text: 'hi' }],
       origin: { kind: 'user' },
     });
-    await persistence.close();
+    await log.close();
 
-    const reader = new FileSystemAgentRecordPersistence(wirePath);
-    const records: AgentRecord[] = [];
-    for await (const r of reader.read()) records.push(r);
+    const records = await collect<PersistedWireRecord>(log);
     expect(records).toHaveLength(2);
     expect(records[0]).toMatchObject({
       type: 'metadata',
@@ -104,14 +190,13 @@ describe('FileSystemAgentRecordPersistence', () => {
   });
 
   it('rewrites records from the beginning and then appends after them', async () => {
-    const wirePath = await makeWirePath();
-    const persistence = new FileSystemAgentRecordPersistence(wirePath);
-    persistence.append({
+    const { dir, log } = await createFileAppendLogHarness();
+    log.append(SCOPE, KEY, {
       type: 'turn.prompt',
       input: [{ type: 'text', text: 'old' }],
       origin: { kind: 'user' },
     });
-    persistence.rewrite([
+    await log.rewrite(SCOPE, KEY, [
       {
         type: 'metadata',
         protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
@@ -123,14 +208,14 @@ describe('FileSystemAgentRecordPersistence', () => {
         origin: { kind: 'user' },
       },
     ]);
-    persistence.append({
+    log.append(SCOPE, KEY, {
       type: 'turn.prompt',
       input: [{ type: 'text', text: 'later' }],
       origin: { kind: 'user' },
     });
-    await persistence.flush();
+    await log.flush();
 
-    const lines = await readLines(wirePath);
+    const lines = await readLines(join(dir, SCOPE, KEY));
     expect(lines.map((line) => JSON.parse(line)['type'])).toEqual([
       'metadata',
       'turn.prompt',
@@ -141,16 +226,15 @@ describe('FileSystemAgentRecordPersistence', () => {
   });
 
   it('rewrites already flushed records from the beginning', async () => {
-    const wirePath = await makeWirePath();
-    const persistence = new FileSystemAgentRecordPersistence(wirePath);
-    persistence.append({
+    const { dir, log } = await createFileAppendLogHarness();
+    log.append(SCOPE, KEY, {
       type: 'turn.prompt',
       input: [{ type: 'text', text: 'old' }],
       origin: { kind: 'user' },
     });
-    await persistence.flush();
+    await log.flush();
 
-    persistence.rewrite([
+    await log.rewrite(SCOPE, KEY, [
       {
         type: 'metadata',
         protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
@@ -162,9 +246,9 @@ describe('FileSystemAgentRecordPersistence', () => {
         origin: { kind: 'user' },
       },
     ]);
-    await persistence.flush();
+    await log.flush();
 
-    const lines = await readLines(wirePath);
+    const lines = await readLines(join(dir, SCOPE, KEY));
     expect(lines.map((line) => JSON.parse(line)['type'])).toEqual([
       'metadata',
       'turn.prompt',
@@ -173,88 +257,72 @@ describe('FileSystemAgentRecordPersistence', () => {
   });
 
   it('flushes pending records on close', async () => {
-    const wirePath = await makeWirePath();
-    const persistence = new FileSystemAgentRecordPersistence(wirePath);
+    const { dir, log } = await createFileAppendLogHarness();
 
-    persistence.append({
+    log.append(SCOPE, KEY, {
       type: 'turn.prompt',
       input: [{ type: 'text', text: 'late' }],
       origin: { kind: 'user' },
     });
-    await persistence.close();
+    await log.close();
 
-    const lines = await readLines(wirePath);
+    const lines = await readLines(join(dir, SCOPE, KEY));
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0]!)['type']).toBe('turn.prompt');
   });
 
-  it('enters error state after a write failure', async () => {
-    const wirePath = await makeWirePath();
-    await mkdir(wirePath);
-    const persistence = new FileSystemAgentRecordPersistence(wirePath);
+  it('propagates write failures from flush', async () => {
+    const dir = await makeDir('wire-jsonl-test');
+    await mkdir(join(dir, SCOPE, KEY), { recursive: true });
+    const log = createAppendLogHarness(new FileStorageService(dir));
 
-    persistence.append({
+    log.append(SCOPE, KEY, {
       type: 'turn.prompt',
       input: [{ type: 'text', text: 'first' }],
       origin: { kind: 'user' },
     });
-    await expect(persistence.flush()).rejects.toBeInstanceOf(Error);
 
-    expect(() => {
-      persistence.append({
-        type: 'turn.prompt',
-        input: [{ type: 'text', text: 'second' }],
-        origin: { kind: 'user' },
-      });
-    }).toThrow();
-    expect(() => {
-      persistence.rewrite([
-        {
-          type: 'turn.prompt',
-          input: [{ type: 'text', text: 'rewrite' }],
-          origin: { kind: 'user' },
-        },
-      ]);
-    }).toThrow();
-    await expect(persistence.flush()).rejects.toBeInstanceOf(Error);
-  });
-
-  it('offloads large data URIs to blobsDir during append', async () => {
-    const dir = join(tmpdir(), `wire-blob-test-${randomBytes(6).toString('hex')}`);
-    await mkdir(dir, { recursive: true });
-    cleanups.push(dir);
-
-    const wirePath = join(dir, 'wire.jsonl');
-    const blobsDir = join(dir, 'blobs');
-    const persistence = new FileSystemAgentRecordPersistence(wirePath, {
-      blobStore: new BlobStore({ blobsDir }),
-    });
-
-    const payload = 'X'.repeat(5000);
-    const dataUri = `data:image/png;base64,${payload}`;
-
-    persistence.append({
-      type: 'turn.prompt',
-      input: [{ type: 'image_url', imageUrl: { url: dataUri } }],
-      origin: { kind: 'user' },
-    });
-    await persistence.close();
-
-    const lines = await readLines(wirePath);
-    expect(lines).toHaveLength(1);
-    const record = JSON.parse(lines[0]!) as unknown as Record<string, unknown>;
-    const url = ((record['input'] as unknown[])[0] as { imageUrl: { url: string } }).imageUrl.url;
-    expect(url.startsWith('blobref:')).toBe(true);
-
-    const blobFiles = await readdir(blobsDir);
-    expect(blobFiles).toHaveLength(1);
-    expect((await readFile(join(blobsDir, blobFiles[0]!))).toString('base64')).toBe(payload);
+    await expect(log.flush()).rejects.toBeInstanceOf(Error);
   });
 });
 
-describe('InMemoryAgentRecordPersistence', () => {
+describe('WireRecordService persistence', () => {
+  it('offloads large content part data URIs to blobsDir during append', async () => {
+    const { dir, storage, wire } = await createWireHarness();
+    const payload = 'X'.repeat(5000);
+    const dataUri = `data:image/png;base64,${payload}`;
+    const message: ContextMessage = {
+      role: 'user',
+      content: [{ type: 'image_url', imageUrl: { url: dataUri } }],
+      toolCalls: [],
+      origin: { kind: 'user' },
+    };
+
+    wire.append({
+      type: 'context.splice',
+      start: 0,
+      deleteCount: 0,
+      messages: [message],
+    });
+    await wire.flush();
+
+    const records = await readPersistedWireRecords(storage);
+    expect(records.map((record) => record.type)).toEqual(['metadata', 'context.splice']);
+    const record = records[1] as Extract<PersistedWireRecord, { type: 'context.splice' }>;
+    const url = (
+      record.messages[0]!.content[0] as unknown as { imageUrl: { url: string } }
+    ).imageUrl.url;
+    expect(url.startsWith('blobref:')).toBe(true);
+
+    const blobFiles = await readdir(join(dir, 'blobs'));
+    expect(blobFiles).toHaveLength(1);
+    expect((await readFile(join(dir, 'blobs', blobFiles[0]!))).toString('base64')).toBe(payload);
+  });
+});
+
+describe('InMemoryWireRecordPersistence', () => {
   it('stores appended records and replaces them on rewrite', async () => {
-    const persistence = new InMemoryAgentRecordPersistence();
+    const persistence = new InMemoryWireRecordPersistence();
     persistence.append({
       type: 'turn.prompt',
       input: [{ type: 'text', text: 'one' }],
@@ -268,7 +336,7 @@ describe('InMemoryAgentRecordPersistence', () => {
       },
     ]);
 
-    const records: AgentRecord[] = [];
+    const records: PersistedWireRecord[] = [];
     for await (const record of persistence.read()) records.push(record);
 
     expect(records).toEqual([
@@ -279,5 +347,31 @@ describe('InMemoryAgentRecordPersistence', () => {
       },
     ]);
     expect(persistence.records).toEqual(records);
+  });
+
+  it('can be backed by the same IAppendLogStore contract as file persistence', async () => {
+    const storage = new InMemoryStorageService();
+    const log = createAppendLogHarness(storage);
+
+    log.append<PersistedWireRecord>(SCOPE, KEY, {
+      type: 'turn.prompt',
+      input: [{ type: 'text', text: 'one' }],
+      origin: { kind: 'user' },
+    });
+    await log.rewrite<PersistedWireRecord>(SCOPE, KEY, [
+      {
+        type: 'metadata',
+        protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
+        created_at: 1,
+      },
+    ]);
+
+    expect(await collect<PersistedWireRecord>(log)).toEqual([
+      {
+        type: 'metadata',
+        protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
+        created_at: 1,
+      },
+    ]);
   });
 });

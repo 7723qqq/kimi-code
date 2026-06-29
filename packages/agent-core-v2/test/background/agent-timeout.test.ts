@@ -11,7 +11,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { AgentBackgroundTask } from '../../../../src/services/agent/background/background';
+import { AgentBackgroundTask } from '#/background';
 import { testAgent } from '../harness';
 
 function agentTask(
@@ -20,7 +20,7 @@ function agentTask(
   timeoutMs?: number,
 ): AgentBackgroundTask {
   const task = new AgentBackgroundTask(
-    { agentId: 'agent-child', profileName: 'coder', resumed: false, completion },
+    { agentId: 'agent-child', profileName: 'coder', completion },
     description,
     { markActiveChildDetached: vi.fn() },
     new AbortController(),

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CronCreateTool,
   type CronCreateInput,
-} from '../../../../src/tools/cron/cron-create';
+} from '#/cron/tools/cron-create';
 import { testAgent, type TestAgentContext } from '../harness';
 
 describe('Agent + Cron integration (P1.7)', () => {
@@ -50,21 +50,20 @@ describe('Agent + Cron integration (P1.7)', () => {
     }
   });
 
-  it('KIMI_DISABLE_CRON=1 short-circuits CronCreate with a disabled error', () => {
+  it('KIMI_DISABLE_CRON=1 short-circuits CronCreate with a disabled error', async () => {
+    await ctx.cron.stop();
     vi.stubEnv('KIMI_DISABLE_CRON', '1');
+    ctx = testAgent();
+    ctx.configure({ tools: ['CronCreate'] });
 
-    // We construct a fresh CronCreateTool against the agent's cron
-    // manager rather than driving a full tool-dispatch loop — the
-    // killswitch lives in `resolveExecution`, so a direct call is the
-    // precise unit being asserted, and it stays robust if the loop /
-    // dispatch surface changes around it (P1.8 onwards).
-    const tool = new CronCreateTool(ctx.cron!);
+    const tool = ctx.tools.resolve('CronCreate') as CronCreateTool | undefined;
+    expect(tool).toBeDefined();
     const args: CronCreateInput = {
       cron: '*/5 * * * *',
       prompt: 'x',
       recurring: true,
     };
-    const result = tool.resolveExecution(args);
+    const result = tool!.resolveExecution(args);
 
     // resolveExecution returns a `ToolExecution` — when it errors
     // up-front the shape is `{ isError: true, output: string }` with no

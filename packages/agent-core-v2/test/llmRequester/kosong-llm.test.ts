@@ -2,9 +2,9 @@ import { emptyUsage } from '@moonshot-ai/kosong';
 import type { StreamedMessagePart } from '@moonshot-ai/kosong';
 import { describe, expect, it } from 'vitest';
 
-import { ProviderManager } from '../../../src/session/provider-manager';
-import { ILLMRequester } from '../../../src/services/agent';
-import { testAgent } from './harness';
+import type { IProviderManager, ResolvedRuntimeProvider } from '#/kosong';
+import { ILLMRequester } from '#/index';
+import { testAgent } from '../harness';
 
 describe('LLMRequester service migration coverage', () => {
   it('preserves indexed tool-call deltas through LoopService protocol events', async () => {
@@ -82,24 +82,23 @@ describe('LLMRequester service migration coverage', () => {
           rawFinishReason: 'stop',
         };
       },
-      providerManager: new ProviderManager({
-        config: {
-          providers: {
-            deepseek: {
-              type: 'openai',
-              apiKey: 'test-key',
-              baseUrl: 'https://api.deepseek.example/v1',
-            },
-          },
-          models: {
-            'deepseek/deepseek-v4-flash': {
-              provider: 'deepseek',
-              model: 'deepseek-v4-flash',
-              maxContextSize: 1_000_000,
-              maxOutputSize: 384_000,
-            },
-          },
+      providerManager: stubProviderManager('deepseek/deepseek-v4-flash', {
+        providerName: 'deepseek',
+        provider: {
+          type: 'openai',
+          apiKey: 'test-key',
+          baseUrl: 'https://api.deepseek.example/v1',
+          model: 'deepseek-v4-flash',
         },
+        modelCapabilities: {
+          image_in: false,
+          video_in: false,
+          audio_in: false,
+          thinking: false,
+          tool_use: true,
+          max_context_tokens: 1_000_000,
+        },
+        maxOutputSize: 384_000,
       }),
     });
     ctx.profile.update({
@@ -165,4 +164,20 @@ async function collectLLMEvents(
     events.push(event);
   }
   return events;
+}
+
+function stubProviderManager(
+  modelAlias: string,
+  resolved: ResolvedRuntimeProvider,
+): IProviderManager {
+  return {
+    _serviceBrand: undefined,
+    defaultModel: modelAlias,
+    resolveProviderConfig(model) {
+      if (model !== modelAlias) {
+        throw new Error(`Unexpected model alias: ${model}`);
+      }
+      return resolved;
+    },
+  };
 }

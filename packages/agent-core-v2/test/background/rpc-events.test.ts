@@ -11,21 +11,19 @@ import { join } from 'pathe';
 import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { AgentBackgroundTask, ProcessBackgroundTask } from '../../../../src/services/agent/background/background';
+import { AgentBackgroundTask, ProcessBackgroundTask } from '#/background';
 import { testAgent, type TestAgentContext, type TestAgentOptions } from '../harness';
 import {
   BackgroundTaskPersistence,
   type BackgroundTaskInfo,
   type IBackgroundService,
-} from '../../../../src/services/agent/background/background';
-import { IPromptService } from '../../../../src/services/agent';
-import type { SessionSubagentHost, SubagentHandle } from '../../../../src/session/subagent-host';
+} from '#/background';
+import { IPromptService } from '#/prompt';
+import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
+import { recordingTelemetry } from '../telemetry/stubs';
+import type { BackgroundServiceTestManager } from './stubs';
 
 type FireAndForgetTrigger = NonNullable<TestAgentOptions['hookEngine']>['fireAndForgetTrigger'];
-type BackgroundServiceTestManager = IBackgroundService & {
-  loadFromDisk(): Promise<void>;
-  reconcile(): Promise<readonly BackgroundTaskInfo[]>;
-};
 
 function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
   return {
@@ -162,6 +160,8 @@ function createBackgroundManager(options: {
   hooks?: FakeBackgroundAgent['hooks'];
 } = {}): BackgroundServiceFixture {
   const track = vi.fn();
+  const telemetry = recordingTelemetry([]);
+  vi.spyOn(telemetry, 'track').mockImplementation(track);
   const hookEngine: TestAgentOptions['hookEngine'] = options.hooks === undefined
     ? undefined
     : {
@@ -170,11 +170,7 @@ function createBackgroundManager(options: {
         fireAndForgetTrigger: options.hooks.fireAndForgetTrigger,
       };
   const ctx = testAgent({
-    telemetry: {
-      track,
-      withContext: () => ({ track }),
-      setContext: () => {},
-    },
+    telemetry,
     background: {
       persistence:
         options.sessionDir === undefined
@@ -192,7 +188,7 @@ function createBackgroundManager(options: {
   });
 
   const steerSpy = vi.spyOn(ctx.get(IPromptService), 'steer').mockReturnValue(undefined);
-  const spliceHistorySpy = vi.spyOn(ctx.context, 'spliceHistory');
+  const spliceHistorySpy = vi.spyOn(ctx.context, 'splice');
 
   const agent: FakeBackgroundAgent = {
     emittedEvents,
@@ -561,7 +557,7 @@ describe('BackgroundManager — notification delivery', () => {
       await persistence.writeTask(persistedAgent({ taskId: 'agent-seen0000' }));
       await persistence.appendTaskOutput('agent-seen0000', 'already delivered summary');
       const { agent, ctx, manager } = createBackgroundManager({ sessionDir });
-      ctx.context.spliceHistory(ctx.context.getHistory().length, 0, [
+      ctx.context.splice(ctx.context.getHistory().length, 0, [
         {
           role: 'user',
           content: [{ type: 'text', text: 'already delivered' }],

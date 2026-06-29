@@ -5,24 +5,41 @@ import { join } from 'pathe';
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
-import { testAgent } from './harness';
-import {
-  IReplayBuilderService,
-  InMemoryWireRecordPersistence,
-} from '../../../src/services/agent';
-import { SessionSkillRegistry, type SkillCatalog, type SkillDefinition } from '../../../src/skill';
-import { testKaos } from '../../fixtures/test-kaos';
+import { IReplayBuilderService } from '#/index';
+import { SessionSkillRegistry, type SkillCatalog, type SkillDefinition } from '#/skill';
+import { InMemoryWireRecordPersistence, testAgent } from '../harness';
+import { recordingTelemetry } from '../telemetry/stubs';
+import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { stubSkill } from './stubs';
 
 function makeSkill(name: string, metadata: SkillDefinition['metadata'] = {}): SkillDefinition {
-  return {
-    name,
-    description: `desc for ${name}`,
-    path: `/skills/${name}/SKILL.md`,
-    dir: `/skills/${name}`,
-    content: `body of ${name}`,
-    metadata,
-    source: 'user',
-  };
+  return stubSkill(name, { metadata });
+}
+
+function recordContainsSkillLoaded(record: unknown, skillName: string): boolean {
+  if (!isRecordWithMessages(record)) return false;
+  return record.messages.some((message) => {
+    return message.content?.some((part) => {
+      return (
+        part.type === 'text' &&
+        typeof part.text === 'string' &&
+        part.text.includes(`<kimi-skill-loaded name="${skillName}"`)
+      );
+    });
+  });
+}
+
+function isRecordWithMessages(
+  record: unknown,
+): record is {
+  readonly type: string;
+  readonly messages: readonly {
+    readonly content?: readonly { readonly type?: string; readonly text?: string }[];
+  }[];
+} {
+  if (record === null || typeof record !== 'object') return false;
+  const candidate = record as { readonly type?: unknown; readonly messages?: unknown };
+  return candidate.type === 'context.splice' && Array.isArray(candidate.messages);
 }
 
 describe('ToolManager SkillTool registration', () => {
@@ -84,10 +101,7 @@ describe('ToolManager SkillTool registration', () => {
   it('persists model-invoked inline skill reminders through agent wire', async () => {
     const skills = new SessionSkillRegistry();
     skills.register(makeSkill('review'));
-    const wireRecords: any[] = [];
-    const persistence = new InMemoryWireRecordPersistence([], {
-      onRecord: (record: any) => wireRecords.push(record),
-    });
+    const persistence = new InMemoryWireRecordPersistence();
     const ctx = testAgent({ skills, persistence });
     ctx.configure({ tools: ['Skill'] });
 
@@ -102,16 +116,8 @@ describe('ToolManager SkillTool registration', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Review this change' }] });
     await ctx.untilTurnEnd();
 
-    const skillSplice = wireRecords.find(
-      (record) =>
-        record.type === 'context.splice' &&
-        record.messages?.some((message: any) =>
-          message.content?.some(
-            (part: any) =>
-              part.type === 'text' &&
-              part.text.includes('<kimi-skill-loaded name="review"'),
-          ),
-        ),
+    const skillSplice = persistence.records.find(
+      (record) => recordContainsSkillLoaded(record, 'review'),
     );
     expect(skillSplice).toMatchObject({
       type: 'context.splice',
@@ -138,7 +144,7 @@ describe('ToolManager SkillTool registration', () => {
         }),
       ],
     });
-    expect(wireRecords.find((record) => record.type === 'skill.activate')).toMatchObject({
+    expect(persistence.records.find((record) => record.type === 'skill.activate')).toMatchObject({
       type: 'skill.activate',
       origin: {
         kind: 'skill_activation',
@@ -162,10 +168,11 @@ describe('ToolManager SkillTool registration', () => {
   it('restores skill activation records before the skill service is otherwise used', async () => {
     const skills = new SessionSkillRegistry();
     skills.register(makeSkill('review'));
-    const track = vi.fn();
+    const telemetry = recordingTelemetry([]);
+    const track = vi.spyOn(telemetry, 'track');
     const ctx = testAgent({
       skills,
-      telemetry: { track },
+      telemetry,
     });
     const emit = vi.spyOn(ctx.events, 'emit');
     const origin = {
@@ -246,7 +253,7 @@ describe('ToolManager SkillTool registration', () => {
       skills.register(skill);
 
       const ctx = testAgent({
-        kaos: testKaos.withCwd(workDir),
+        kaos: createFakeKaos().withCwd(workDir),
         skills,
       });
       ctx.configure({ tools: ['Skill'] });

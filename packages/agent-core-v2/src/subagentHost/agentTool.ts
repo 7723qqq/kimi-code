@@ -101,6 +101,8 @@ export type AgentToolOutput = z.infer<typeof AgentToolOutputSchema>;
 
 const BACKGROUND_AGENT_UNAVAILABLE =
   'Background agent execution is not available for this agent because TaskList, TaskOutput, and TaskStop are not enabled.';
+const RESUME_WITH_TYPE_UNAVAILABLE =
+  'Cannot set subagent_type when resuming an existing agent. Resume by agent id only.';
 
 export interface AgentToolSubagentProfile {
   readonly description?: string | undefined;
@@ -114,7 +116,6 @@ export type AgentToolSubagentMap = Readonly<Record<string, AgentToolSubagentProf
 
 export class AgentTool implements BuiltinTool<AgentToolInput> {
   readonly name: string = 'Agent';
-  readonly description: string;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentToolInputSchema);
 
   constructor(
@@ -123,27 +124,41 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     subagents?: AgentToolSubagentMap | undefined,
     options?: {
       log?: ILogger;
-      allowBackground?: boolean | undefined;
+      canRunInBackground?: (() => boolean) | undefined;
     },
   ) {
-    this.allowBackground = options?.allowBackground ?? true;
+    this.canRunInBackground = options?.canRunInBackground ?? (() => true);
     const log = options?.log;
-    const typeLines = buildSubagentDescriptions(subagents);
-    const baseDescription = `${AGENT_DESCRIPTION_BASE}\n\n${
-      this.allowBackground ? AGENT_BACKGROUND_DESCRIPTION : AGENT_BACKGROUND_DISABLED_DESCRIPTION
-    }`;
-    this.description = typeLines
-      ? `${baseDescription}\n\nAvailable agent types (pass via subagent_type):\n${typeLines}`
-      : baseDescription;
+    this.typeLines = buildSubagentDescriptions(subagents);
     this.log = log;
   }
 
   private readonly log?: ILogger;
-  private readonly allowBackground: boolean;
+  private readonly canRunInBackground: () => boolean;
+  private readonly typeLines: string;
+
+  get description(): string {
+    const backgroundDescription = this.canRunInBackground()
+      ? AGENT_BACKGROUND_DESCRIPTION
+      : AGENT_BACKGROUND_DISABLED_DESCRIPTION;
+    const baseDescription = `${AGENT_DESCRIPTION_BASE}\n\n${backgroundDescription}`;
+    return this.typeLines
+      ? `${baseDescription}\n\nAvailable agent types (pass via subagent_type):\n${this.typeLines}`
+      : baseDescription;
+  }
 
   async resolveExecution(args: AgentToolInput): Promise<ToolExecution> {
-    let profileName = args.subagent_type?.length ? args.subagent_type : 'coder';
+    const requestedProfileName = args.subagent_type?.length ? args.subagent_type : undefined;
     const resumeAgentId = args.resume?.trim();
+    if (
+      resumeAgentId !== undefined &&
+      resumeAgentId.length > 0 &&
+      requestedProfileName !== undefined
+    ) {
+      return { output: RESUME_WITH_TYPE_UNAVAILABLE, isError: true };
+    }
+
+    let profileName = requestedProfileName ?? 'coder';
     if (resumeAgentId !== undefined && resumeAgentId.length > 0) {
       profileName = (await this.subagentHost.getProfileName(resumeAgentId)) ?? 'subagent';
     }
@@ -181,12 +196,13 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         requestedProfileName !== undefined
       ) {
         return {
-          output: 'Cannot set subagent_type when resuming an existing agent. Resume by agent id only.',
+          output: RESUME_WITH_TYPE_UNAVAILABLE,
           isError: true,
         };
       }
 
-      if (runInBackground && !this.allowBackground) {
+      const allowBackground = this.canRunInBackground();
+      if (runInBackground && !allowBackground) {
         return {
           output: BACKGROUND_AGENT_UNAVAILABLE,
           isError: true,
@@ -265,7 +281,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
             taskId,
             handle,
             args.description,
-            this.allowBackground,
+            allowBackground,
           ),
         };
       }
@@ -277,7 +293,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
             taskId,
             handle,
             args.description,
-            this.allowBackground,
+            allowBackground,
           ),
         };
       }

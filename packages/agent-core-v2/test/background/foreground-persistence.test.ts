@@ -18,7 +18,7 @@ import {
   BackgroundTaskPersistence,
   type IBackgroundService,
   ProcessBackgroundTask,
-} from '../../../../src/services/agent/background/background';
+} from '#/background';
 import { testAgent, type TestAgentContext } from '../harness';
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;

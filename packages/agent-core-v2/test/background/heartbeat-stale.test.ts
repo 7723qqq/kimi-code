@@ -11,17 +11,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BackgroundTaskPersistence,
   type BackgroundTaskInfo,
-  type IBackgroundService,
-} from '../../../../src/services/agent/background/background';
+} from '#/background';
 import { testAgent, type TestAgentContext } from '../harness';
+import type { BackgroundServiceTestManager } from './stubs';
 
 let sessionDir: string;
 let persistence: BackgroundTaskPersistence;
-
-type BackgroundServiceTestManager = IBackgroundService & {
-  loadFromDisk(): Promise<void>;
-  reconcile(): Promise<readonly BackgroundTaskInfo[]>;
-};
 
 function testAgentWithBackground(): {
   ctx: TestAgentContext;

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { SyncDescriptor } from '#/_base/di';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import type { TestInstantiationService } from '#/_base/di/test';
 import type { ApprovalResponse } from '#/approval/approval';
 import { IApprovalService } from '#/approval/approval';
 import { IExternalHooksService } from '#/externalHooks';
-import type { LLM } from '#/loop/llm';
 import type { ResolvedToolExecutionHookContext } from '#/loop';
 import { IPermissionGate, PermissionGate } from '#/permission';
 import type { PermissionGateOptions } from '#/permission';
@@ -20,12 +20,10 @@ import { IToolExecutor } from '#/toolExecutor';
 import { ITurnService } from '#/turn';
 import type { ToolCall } from '@moonshot-ai/kosong';
 
-import {
-  stubApprovalService,
-  stubPermissionModeService,
-  stubPermissionPolicyService,
-  stubPermissionRulesService,
-} from './stubs';
+import { stubApprovalService } from '../approval/stubs';
+import { stubPermissionModeService } from '../permissionMode/stubs';
+import { stubPermissionPolicyService } from '../permissionPolicy/stubs';
+import { stubPermissionRulesService } from '../permissionRules/stubs';
 import { stubTurnWithHooks, stubToolExecutor } from '../turn/stubs';
 
 function makeContext(toolName: string): ResolvedToolExecutionHookContext {
@@ -81,13 +79,13 @@ describe('PermissionGate', () => {
       },
     });
   });
-  afterEach(() => disposables.dispose());
+  afterEach(() => {
+    disposables.dispose();
+  });
 
-  // NOTE: PermissionGate is built via createInstance (not get) because its
-  // first constructor parameter, `options`, is a static argument the container
-  // cannot bake into a singleton. See di-testing.md "Exceptions".
   function make(options: PermissionGateOptions = {}): IPermissionGate {
-    return ix.createInstance(PermissionGate, options);
+    ix.set(IPermissionGate, new SyncDescriptor(PermissionGate, [options]));
+    return ix.get(IPermissionGate);
   }
 
   it('returns undefined when no policy evaluates', async () => {

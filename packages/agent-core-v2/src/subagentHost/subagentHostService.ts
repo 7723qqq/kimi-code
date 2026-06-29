@@ -30,16 +30,15 @@ export class SubagentHostService extends Disposable implements ISubagentHost {
   ) {
     super();
 
-    const allowBackground =
-      profile.isToolActive('TaskList') &&
-      profile.isToolActive('TaskOutput') &&
-      profile.isToolActive('TaskStop');
-
     this._register(
       toolRegistry.register(
         new AgentTool(this, background, undefined, {
           log,
-          allowBackground,
+          canRunInBackground: () => {
+            return profile.isToolActive('TaskList') &&
+              profile.isToolActive('TaskOutput') &&
+              profile.isToolActive('TaskStop');
+          },
         }),
       ),
     );
