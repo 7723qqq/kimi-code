@@ -660,6 +660,9 @@ importers:
 
   packages/server-v2:
     dependencies:
+      '@fastify/multipart':
+        specifier: ^10.0.0
+        version: 10.0.0
       '@moonshot-ai/agent-core-v2':
         specifier: workspace:^
         version: link:../agent-core-v2

@@ -24,6 +24,7 @@ package "Core scope (process-wide)" #EAF3FB {
   rectangle "<b>telemetry</b>\n<size:9><i>Core</i></size>\n  ITelemetryService" as telemetry #D6EAF8
   rectangle "<b>event</b>\n<size:9><i>Core</i></size>\n  IEventService" as event #D6EAF8
   rectangle "<b>storage</b>\n<size:9><i>Core</i></size>\n  IStorageService\n  IAppendLogStore\n  IAtomicDocumentStore\n  IAtomicTomlDocumentStore" as storage #D6EAF8
+  rectangle "<b>filestore</b>\n<size:9><i>Core</i></size>\n  IFileStore" as filestore #D6EAF8
   rectangle "<b>gateway</b>\n<size:9><i>Core</i></size>\n  IRestGateway\n  IWSGateway\n  IWSBroadcastService" as gateway #D6EAF8
   rectangle "<b>session-lifecycle</b>\n<size:9><i>Core</i></size>\n  ISessionLifecycleService" as session_lifecycle #D6EAF8
   rectangle "<b>session-index</b>\n<size:9><i>Core</i></size>\n  ISessionIndex" as sessionIndex #D6EAF8
@@ -145,6 +146,7 @@ session_activity --> interaction #34495E
 wireRecord --> blobStore #34495E
 wireRecord --> storage #34495E
 blobStore --> storage #34495E
+filestore --> storage #34495E
 eventSink --> wireRecord #34495E
 contextMemory --> wireRecord #34495E
 contextMemory --> replayBuilder #34495E

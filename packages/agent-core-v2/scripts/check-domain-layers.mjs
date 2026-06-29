@@ -51,6 +51,7 @@ const DOMAIN_LAYER = new Map([
   ['records', 2],
   ['wireRecord', 2],
   ['blobStore', 2],
+  ['filestore', 2],
   ['config', 2],
   ['agentFs', 2],
   ['process', 2],
