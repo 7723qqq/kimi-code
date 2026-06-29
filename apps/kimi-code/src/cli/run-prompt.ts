@@ -287,8 +287,13 @@ async function runHeadlessGoal(
   } finally {
     unsubscribeGoalEvents();
     const snapshot = completedSnapshot ?? (await session.getGoal()).goal;
+    // The goal status is conveyed by the exit code; `--final-message-only` keeps
+    // stdout to the single final assistant message, so the JSON summary is
+    // suppressed in that mode (the text summary stays on stderr).
     if (outputFormat === 'stream-json') {
-      stdout.write(`${JSON.stringify(goalSummaryJson(snapshot))}\n`);
+      if (!finalOnly) {
+        stdout.write(`${JSON.stringify(goalSummaryJson(snapshot))}\n`);
+      }
     } else {
       stderr.write(`${formatGoalSummaryText(snapshot)}\n`);
     }
@@ -1284,6 +1289,10 @@ function toolProgressMessage(event: Extract<Event, { type: 'tool.progress' }>): 
   };
   if (event.update.text !== undefined) message['text'] = event.update.text;
   if (event.update.percent !== undefined) message['percent'] = event.update.percent;
+  // `kind: 'custom'` updates (e.g. the MCP OAuth authorization URL) carry their
+  // payload here; keep it so stream-json clients get the structured signal.
+  if (event.update.customKind !== undefined) message['custom_kind'] = event.update.customKind;
+  if (event.update.customData !== undefined) message['custom_data'] = event.update.customData;
   return message;
 }
 

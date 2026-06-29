@@ -189,6 +189,27 @@ describe('runPrompt headless goal mode', () => {
     expect(stdout.text()).toContain('"status":"complete"');
   });
 
+  it('suppresses the JSON goal summary in final-message-only mode', async () => {
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
+        handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 1, delta: 'shipped' }));
+        handler(mocks.mainEvent({ type: 'turn.ended', turnId: 1, reason: 'completed' }));
+      }
+    });
+    const stdout = writer();
+    const stderr = writer();
+
+    await runPrompt(opts({ outputFormat: 'stream-json', finalMessageOnly: true }), 'test', {
+      stdout,
+      stderr,
+      process: { once: () => {}, off: () => {}, exit: () => undefined as never },
+    });
+
+    expect(stdout.text()).toBe('{"role":"assistant","content":"shipped"}\n');
+    expect(stdout.text()).not.toContain('goal.summary');
+  });
+
   it('sets a distinct exit code for a non-complete final status', async () => {
     mocks.session.getGoal.mockResolvedValue({ goal: snapshot({ status: 'blocked' }) } as never);
     const stdout = writer();

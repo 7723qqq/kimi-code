@@ -1523,6 +1523,37 @@ describe('runPrompt', () => {
     expect(stderr.text()).toBe('');
   });
 
+  it('preserves custom tool.progress payloads (e.g. MCP OAuth URL) in stream-json', async () => {
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 75, origin: { kind: 'user' } }));
+        handler(
+          mocks.mainEvent({
+            type: 'tool.progress',
+            turnId: 75,
+            toolCallId: 'tc_1',
+            update: {
+              kind: 'custom',
+              customKind: 'mcp.oauth.authorization_url',
+              customData: { serverName: 'fs', authorizationUrl: 'https://auth.example/x' },
+            },
+          }),
+        );
+        handler(mocks.mainEvent({ type: 'turn.ended', turnId: 75, reason: 'completed' }));
+      }
+    });
+    const stdout = writer();
+
+    await runPrompt(opts({ outputFormat: 'stream-json' }), '1.2.3-test', {
+      stdout,
+      stderr: writer(),
+    });
+
+    expect(stdout.text()).toContain(
+      '{"type":"tool_progress","tool_call_id":"tc_1","kind":"custom","custom_kind":"mcp.oauth.authorization_url","custom_data":{"serverName":"fs","authorizationUrl":"https://auth.example/x"}}',
+    );
+  });
+
   it('keeps tool.progress on stderr (not JSON) in text mode', async () => {
     mocks.session.prompt.mockImplementationOnce(async () => {
       for (const handler of mocks.eventHandlers) {
