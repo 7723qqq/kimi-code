@@ -16,14 +16,15 @@ import type {
   ExecutableToolResult,
   RunnableToolExecution,
   ToolExecution,
+  ToolResult,
+  ToolDidExecuteContext,
+  ToolWillExecuteContext,
 } from '#/tool';
+import type { ToolCall } from '@moonshot-ai/kosong';
 import { isAbortError } from '#/loop/errors';
 import { IToolRegistry } from '#/toolRegistry';
-import type { ToolResult } from '#/toolRegistry';
-import type { ToolCall } from '#/loop';
 import { ToolAccesses } from '#/tool';
 import { OrderedHookSlot } from '#/hooks';
-import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/turn';
 import {
   IToolExecutor,
   type ToolExecutorExecuteOptions,

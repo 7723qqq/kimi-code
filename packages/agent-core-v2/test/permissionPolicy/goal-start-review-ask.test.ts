@@ -2,7 +2,7 @@ import type { ToolCall } from '@moonshot-ai/kosong';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { describe, expect, it } from 'vitest';
 
-import type { ResolvedToolExecutionHookContext } from '#/loop';
+import type { ResolvedToolExecutionHookContext } from '#/tool';
 import type { IPermissionModeService } from '#/permissionMode';
 import { GoalStartReviewAskPermissionPolicyService } from '#/permissionPolicy/policies/goal-start-review-ask';
 import { ToolAccesses } from '#/tool';

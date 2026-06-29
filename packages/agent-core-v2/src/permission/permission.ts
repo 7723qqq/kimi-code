@@ -6,7 +6,7 @@ import { createDecorator } from "#/_base/di";
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,
-} from '#/loop';
+} from '#/tool';
 import type { PathClass } from '#/_base/tools/policies/path-access';
 
 export interface PermissionPlanModeState {

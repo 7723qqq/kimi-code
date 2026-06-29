@@ -5,9 +5,9 @@ import {
 } from "#/_base/di";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import type { ExecutableTool } from '#/tool';
+import type { ExecutableTool, ToolInfo, ToolSource } from '#/tool';
 import { OrderedHookSlot } from '../hooks';
-import { IToolRegistry, type ToolInfo, type ToolRegistrationOptions, type ToolSource } from './toolRegistry';
+import { IToolRegistry, type ToolRegistrationOptions } from './toolRegistry';
 
 interface ToolEntry {
   readonly tool: ExecutableTool;

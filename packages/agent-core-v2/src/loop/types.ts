@@ -12,7 +12,6 @@
 
 import type { Message, TokenUsage, ToolCall } from '@moonshot-ai/kosong';
 
-import type { ExecutableTool, ExecutableToolResult, RunnableToolExecution } from '#/tool';
 import type { LLM } from './llm';
 
 export type { ToolCall };
@@ -68,30 +67,6 @@ export interface LoopStepHookContext {
   readonly stepNumber: number;
   readonly signal: AbortSignal;
   readonly llm: LLM;
-}
-
-export interface ToolExecutionHookContext {
-  readonly turnId: string;
-  readonly signal: AbortSignal;
-  readonly toolCall: ToolCall;
-  readonly toolCalls: readonly ToolCall[];
-  readonly tool?: ExecutableTool | undefined;
-  readonly args: unknown;
-}
-
-export interface ResolvedToolExecutionHookContext extends ToolExecutionHookContext {
-  readonly execution: RunnableToolExecution;
-}
-
-export interface AuthorizeToolExecutionResult {
-  readonly block?: boolean | undefined;
-  readonly reason?: string | undefined;
-  readonly syntheticResult?: ExecutableToolResult | undefined;
-  readonly executionMetadata?: unknown;
-}
-
-export interface PrepareToolExecutionResult extends AuthorizeToolExecutionResult {
-  readonly updatedArgs?: unknown;
 }
 
 export interface LoopAfterStepContext extends LoopStepHookContext {

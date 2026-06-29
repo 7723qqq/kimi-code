@@ -1,4 +1,4 @@
-import type { ResolvedToolExecutionHookContext } from '#/loop';
+import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { matchPermissionRule } from '#/permissionRules';
 import { IPermissionRulesService } from '../../permissionRules/permissionRules';
 import type {

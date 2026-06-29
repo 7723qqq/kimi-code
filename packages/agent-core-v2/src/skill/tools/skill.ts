@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool } from '#/toolRegistry';
+import type { BuiltinTool } from '#/tool';
 import type { ExecutableToolResult, ToolExecution } from '#/tool';
 import type { IAgentSkillService } from '../skill';
 import { renderPrompt } from '#/_base/utils/render-prompt';

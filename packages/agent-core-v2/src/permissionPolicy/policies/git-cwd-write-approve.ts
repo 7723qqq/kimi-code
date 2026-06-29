@@ -1,4 +1,4 @@
-import type { ResolvedToolExecutionHookContext } from '#/loop';
+import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { isWithinWorkspace } from '#/_base/tools/policies/path-access';
 import { IProfileService } from '../../profile/profile';
 import type {

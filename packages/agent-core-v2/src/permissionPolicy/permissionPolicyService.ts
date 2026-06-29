@@ -2,7 +2,7 @@ import {
   Disposable,
   IInstantiationService,
 } from "#/_base/di";
-import type { ResolvedToolExecutionHookContext } from '#/loop';
+import type { ResolvedToolExecutionHookContext } from '#/tool';
 import type { PathClass } from '#/_base/tools/policies/path-access';
 import {
   type PermissionGitWorkTreeMarker,

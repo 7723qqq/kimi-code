@@ -1,5 +1,8 @@
 /**
- * `toolRegistry` domain barrel - re-exports the toolRegistry service contract and implementation.
+ * `toolRegistry` domain barrel — re-exports the per-agent tool registry
+ * contract (`toolRegistry`) and its scoped service (`toolRegistryService`).
+ * Importing this barrel registers the `IToolRegistry` binding into the scope
+ * registry.
  */
 
 export * from './toolRegistry';

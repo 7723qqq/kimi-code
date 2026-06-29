@@ -1,7 +1,7 @@
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { describe, expect, it } from 'vitest';
 
-import type { ResolvedToolExecutionHookContext } from '#/loop';
+import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { DefaultToolApprovePermissionPolicyService } from '#/permissionPolicy/policies/default-tool-approve';
 import { ToolAccesses } from '#/tool';
 

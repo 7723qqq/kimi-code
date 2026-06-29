@@ -16,7 +16,7 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool } from '#/toolRegistry';
+import type { BuiltinTool } from '#/tool';
 import type { ILogger } from '#/log';
 import { ToolAccesses } from '#/tool';
 import { isAbortError } from '#/loop/errors';

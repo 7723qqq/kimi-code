@@ -1,7 +1,7 @@
 import { createDecorator } from "#/_base/di";
 import type {
   ResolvedToolExecutionHookContext
-} from '#/loop';
+} from '#/tool';
 import type { PermissionGateOptions } from '#/permission';
 import type { PermissionPolicyResult } from './types';
 

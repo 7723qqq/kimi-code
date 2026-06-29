@@ -49,7 +49,8 @@ import { IProfileService } from '#/profile';
 import { IConfigRegistry, IConfigService } from '#/config';
 import { ITelemetryService } from '#/telemetry';
 import { IToolExecutor } from '#/toolExecutor';
-import { IToolRegistry, type ToolResult } from '#/toolRegistry';
+import { IToolRegistry } from '#/toolRegistry';
+import type { ToolResult } from '#/tool';
 import type { Turn, TurnResult } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 import type {

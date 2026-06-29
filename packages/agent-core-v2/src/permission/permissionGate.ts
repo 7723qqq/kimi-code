@@ -9,7 +9,7 @@ import {
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,
-} from '#/loop';
+} from '#/tool';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { IApprovalService } from "#/approval/approval";
 import { IExternalHooksService } from '#/externalHooks';

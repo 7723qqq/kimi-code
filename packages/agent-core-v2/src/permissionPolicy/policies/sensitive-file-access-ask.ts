@@ -1,4 +1,4 @@
-import type { ResolvedToolExecutionHookContext } from '#/loop';
+import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { isSensitiveFile } from '#/_base/tools/policies/sensitive';
 import type {
   PermissionPolicy,

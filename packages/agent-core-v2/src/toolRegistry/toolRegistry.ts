@@ -1,55 +1,16 @@
-import { createDecorator, type IDisposable } from "#/_base/di";
-import type { ExecutableTool, ExecutableToolContext } from '#/tool';
-import type {
-  ContentPart,
-  ToolCall as KosongToolCall
-} from '@moonshot-ai/kosong';
+/**
+ * `toolRegistry` domain (L3) — `IToolRegistry` contract.
+ *
+ * Per-agent registry of the tools an agent can resolve and run: `register` /
+ * `unregister` / `list` / `resolve`, plus `onRegistered` / `onUnregistered`
+ * hooks. The tool model types it references (`ExecutableTool`, `ToolInfo`,
+ * `ToolSource`) live in the foundational `tool` contract. Bound at Agent
+ * scope.
+ */
 
+import { createDecorator, type IDisposable } from '#/_base/di';
+import type { ExecutableTool, ToolInfo, ToolSource } from '#/tool';
 import type { Hooks } from '../hooks';
-import type { ToolInputDisplay } from "@moonshot-ai/protocol";
-
-export type BuiltinTool<Input = unknown> = ExecutableTool<Input>;
-
-export interface ToolDefinition {
-  readonly name: string;
-  readonly description: string;
-  readonly parameters?: Record<string, unknown>;
-  readonly source?: ToolSource;
-  readonly info?: Record<string, unknown>;
-}
-
-export interface ToolCall {
-  readonly id: string;
-  readonly name: string;
-  readonly arguments: unknown;
-  readonly raw?: KosongToolCall;
-}
-
-export type ToolOutput = string | ContentPart[];
-
-export interface ToolResult {
-  readonly output: ToolOutput;
-  readonly isError?: boolean;
-  readonly message?: string;
-  readonly description?: string;
-  readonly display?: ToolInputDisplay;
-  readonly approvalRule?: string;
-  readonly stopTurn?: boolean;
-  readonly stopBatchAfterThis?: boolean;
-}
-
-export interface ToolExecutionContext extends ExecutableToolContext {
-  readonly call: ToolCall;
-  readonly args: unknown;
-}
-
-export interface ToolInfo extends ToolDefinition {
-  readonly source: ToolSource;
-}
-
-
-export type ToolSource = 'builtin' | 'user' | 'mcp';
-
 
 export interface ToolRegistrationOptions {
   readonly source?: ToolSource;

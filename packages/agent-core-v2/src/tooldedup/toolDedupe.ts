@@ -1,8 +1,13 @@
 /**
  * `toolDedup` domain (L4) — per-turn tool-call deduplication.
  *
- * Defines the public contract for same-step suppression and cross-step repeat
- * reminders. Agent-scoped — one instance per agent.
+ * A self-wiring plugin: it participates in `turn` step boundaries and
+ * `IToolExecutor`'s will/did hooks to suppress same-step duplicates and inject
+ * cross-step repeat reminders. No other service injects it — the container
+ * constructs it eagerly at Agent scope so its constructor registers the hooks.
+ * The only public surface is the read-only `currentStreak` observation; the
+ * step/result operations stay private to the service. Agent-scoped — one
+ * instance per agent.
  */
 
 import type { ContentPart } from '@moonshot-ai/kosong';
@@ -32,15 +37,6 @@ export type ToolDedupResult = ToolDedupSuccessResult | ToolDedupErrorResult;
 export interface IToolDedupe {
   readonly _serviceBrand: undefined;
   readonly currentStreak: number;
-  beginStep(): void;
-  endStep(): void;
-  checkSameStep(toolCallId: string, toolName: string, args: unknown): ToolDedupResult | null;
-  finalizeResult(
-    toolCallId: string,
-    toolName: string,
-    args: unknown,
-    result: ToolDedupResult,
-  ): Promise<ToolDedupResult>;
 }
 
 export const IToolDedupe: ServiceIdentifier<IToolDedupe> =

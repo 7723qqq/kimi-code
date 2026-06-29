@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { BuiltinTool } from '#/toolRegistry';
+import type { BuiltinTool } from '#/tool';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   type QueuedSubagentRunResult,

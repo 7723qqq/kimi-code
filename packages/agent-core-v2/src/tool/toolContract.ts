@@ -1,12 +1,15 @@
 /**
- * `tool` domain (L3) — foundational `ExecutableTool` contract.
+ * `tool` domain (L3) — foundational tool model contract.
  *
- * Defines the `resolveExecution` → `ToolExecution` → `execute(ctx)` contract
- * every tool implements, the `ExecutableToolContext` it runs against, the
- * `ExecutableToolResult` it returns, and the streaming `ToolUpdate`. The
- * `stopTurn` / `stopBatchAfterThis` fields are internal loop-control hints
- * stripped before persistence. Pure contract (types only); resource-access
- * declarations live in `tool-access`. No scoped service.
+ * Owns the tool model shared by every tool domain: the static metadata
+ * (`ToolSource` / `ToolDefinition` / `ToolInfo`), the `ExecutableTool`
+ * contract every tool implements (`resolveExecution` → `ToolExecution` →
+ * `execute(ctx)`), the `ExecutableToolContext` it runs against, the raw and
+ * finalized results (`ExecutableToolResult` / `ToolResult`), the streaming
+ * `ToolUpdate`, and the `BuiltinTool` alias. The `stopTurn` /
+ * `stopBatchAfterThis` fields are internal loop-control hints stripped before
+ * persistence. Pure contract (types only); resource-access declarations live
+ * in `tool-access`, execution hook contexts in `toolHooks`. No scoped service.
  */
 
 import type { ContentPart, Tool } from '@moonshot-ai/kosong';
@@ -64,4 +67,31 @@ export type ToolExecution = RunnableToolExecution | ExecutableToolErrorResult;
 
 export interface ExecutableTool<Input = unknown> extends Tool {
   resolveExecution(input: Input): ToolExecution | Promise<ToolExecution>;
+}
+
+export type ToolSource = 'builtin' | 'user' | 'mcp';
+
+export interface ToolDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters?: Record<string, unknown>;
+  readonly source?: ToolSource;
+  readonly info?: Record<string, unknown>;
+}
+
+export interface ToolInfo extends ToolDefinition {
+  readonly source: ToolSource;
+}
+
+export type BuiltinTool<Input = unknown> = ExecutableTool<Input>;
+
+export interface ToolResult {
+  readonly output: ExecutableToolOutput;
+  readonly isError?: boolean;
+  readonly message?: string;
+  readonly description?: string;
+  readonly display?: ToolInputDisplay;
+  readonly approvalRule?: string;
+  readonly stopTurn?: boolean;
+  readonly stopBatchAfterThis?: boolean;
 }

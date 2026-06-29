@@ -1,8 +1,11 @@
 /**
  * `toolDedup` domain (L4) — `IToolDedupe` implementation.
  *
- * Owns per-turn same-step suppression and cross-step repeat reminders; reports
- * repeat telemetry through `telemetry`. Bound at Agent scope.
+ * Self-wiring plugin: its constructor registers `turn` beforeStep/afterStep
+ * hooks and `toolExecutor` onWillExecuteTool/onDidExecuteTool hooks to drive
+ * same-step suppression and cross-step repeat reminders, and reports repeat
+ * telemetry through `telemetry`. Constructed eagerly at Agent scope so the
+ * hooks are installed without any other service injecting it.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -140,7 +143,7 @@ export class ToolDedupeService extends Disposable implements IToolDedupe {
     });
   }
 
-  beginStep(): void {
+  private beginStep(): void {
     for (const deferred of this.stepDeferreds.values()) {
       deferred.resolve({
         output: 'Tool call deduplicated but original result was lost',
@@ -154,7 +157,7 @@ export class ToolDedupeService extends Disposable implements IToolDedupe {
     this.callKeyByCallId.clear();
   }
 
-  endStep(): void {
+  private endStep(): void {
     for (const key of this.stepCalls) {
       if (key === this.consecutiveKey) {
         this.consecutiveCount += 1;
@@ -165,7 +168,7 @@ export class ToolDedupeService extends Disposable implements IToolDedupe {
     }
   }
 
-  checkSameStep(toolCallId: string, toolName: string, args: unknown): ToolDedupResult | null {
+  private checkSameStep(toolCallId: string, toolName: string, args: unknown): ToolDedupResult | null {
     const key = makeKey(toolName, args);
     const index = this.stepCalls.length;
     this.stepCalls.push(key);
@@ -181,7 +184,7 @@ export class ToolDedupeService extends Disposable implements IToolDedupe {
     return null;
   }
 
-  async finalizeResult(
+  private async finalizeResult(
     toolCallId: string,
     toolName: string,
     args: unknown,
@@ -259,6 +262,6 @@ registerScopedService(
   LifecycleScope.Agent,
   IToolDedupe,
   ToolDedupeService,
-  InstantiationType.Delayed,
+  InstantiationType.Eager,
   'toolDedup',
 );

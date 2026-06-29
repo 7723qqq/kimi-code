@@ -8,7 +8,8 @@ import type {
   ExecutableToolResult,
 } from '#/tool';
 import { IProfileService } from '#/profile';
-import { IToolRegistry, type ToolResult } from '#/toolRegistry';
+import { IToolRegistry } from '#/toolRegistry';
+import type { ToolResult } from '#/tool';
 import { IWireRecord } from '#/wireRecord';
 import {
   IUserToolService,

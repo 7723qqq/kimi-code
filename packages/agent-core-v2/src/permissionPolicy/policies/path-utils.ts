@@ -4,7 +4,7 @@ import * as posixPath from 'node:path/posix';
 import * as win32Path from 'node:path/win32';
 
 import type { ToolFileAccess } from '#/tool';
-import type { ResolvedToolExecutionHookContext } from '#/loop';
+import type { ResolvedToolExecutionHookContext } from '#/tool';
 import {
   isWithinDirectory,
   type PathClass,

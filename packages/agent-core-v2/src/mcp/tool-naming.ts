@@ -1,5 +1,7 @@
 const MCP_NAME_PREFIX = 'mcp__';
 const MCP_NAME_SEPARATOR = '__';
+
+export { isMcpToolName } from '#/tool';
 /**
  * Most LLM providers cap tool names around 64 characters. Leave headroom
  * for the prefix and a separator and truncate longer names with a stable
@@ -16,10 +18,6 @@ const MAX_QUALIFIED_LENGTH = 64;
  */
 export function sanitizeMcpNamePart(part: string): string {
   return part.replaceAll(/[^a-zA-Z0-9_-]/g, '_').replaceAll(/_+/g, '_');
-}
-
-export function isMcpToolName(name: string): boolean {
-  return name.startsWith(MCP_NAME_PREFIX);
 }
 
 /**

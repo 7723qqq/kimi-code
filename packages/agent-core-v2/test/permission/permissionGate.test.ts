@@ -7,7 +7,7 @@ import type { ApprovalResponse } from '#/approval/approval';
 import { IApprovalService } from '#/approval/approval';
 import { IExternalHooksService } from '#/externalHooks';
 import type { LLM } from '#/loop/llm';
-import type { ResolvedToolExecutionHookContext } from '#/loop';
+import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { IPermissionGate, PermissionGate } from '#/permission';
 import type { PermissionGateOptions } from '#/permission';
 import { IPermissionModeService } from '#/permissionMode';

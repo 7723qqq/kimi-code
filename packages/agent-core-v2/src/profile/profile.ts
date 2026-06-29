@@ -6,7 +6,7 @@ import type {
 
 import { createDecorator } from "#/_base/di";
 import type { ThinkingEffort } from '#/config/thinking';
-import type { ToolSource } from '../toolRegistry';
+import type { ToolSource } from '#/tool';
 
 /**
  * Data required to configure an agent: provider, model, capabilities, profile,
