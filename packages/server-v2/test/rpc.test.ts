@@ -2,6 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import {
+  IAgentLifecycleService,
+  ISessionLifecycleService,
+} from '@moonshot-ai/agent-core-v2';
 import type { ISessionIndex, ISessionMetadata } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -78,6 +82,14 @@ describe('server-v2 /api/v2 RPC', () => {
     const body = (await res.json()) as Envelope<{ id: string }>;
     expect(body.code).toBe(0);
     return body.data.id;
+  }
+
+  // The main agent scope is not created automatically on session creation
+  // (server-v2 gap G10); create it here so the agent-scope dispatch resolves.
+  async function createMainAgent(sessionId: string): Promise<void> {
+    const session = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
+    if (session === undefined) throw new Error(`session ${sessionId} not found`);
+    await session.accessor.get(IAgentLifecycleService).createMain();
   }
 
   // --- Core scope -----------------------------------------------------------
@@ -176,6 +188,31 @@ describe('server-v2 /api/v2 RPC', () => {
     const id = await createSession(home as string);
     const { body } = await call<null>('POST', `/api/v2/session/${id}/session:archive`);
     expect(body.code).toBe(0);
+  });
+
+  // --- Agent scope ----------------------------------------------------------
+
+  it('submits a prompt and returns the turn id', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+
+    const { body } = await call<{ turn_id: number }>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/prompts:submit`,
+      { input: [{ type: 'text', text: 'hello' }] },
+    );
+    expect(body.code).toBe(0);
+    expect(body.data.turn_id).toBe(0);
+  });
+
+  it('returns 40401 when the agent does not exist', async () => {
+    const id = await createSession(home as string);
+    const { body } = await call<null>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/prompts:submit`,
+      { input: [{ type: 'text', text: 'hello' }] },
+    );
+    expect(body.code).toBe(40401);
   });
 
   // --- typed client ---------------------------------------------------------

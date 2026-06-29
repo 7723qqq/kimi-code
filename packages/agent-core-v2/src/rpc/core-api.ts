@@ -13,7 +13,7 @@ import type {
 import type { PermissionData, PermissionMode } from '#/permissionPolicy';
 import type { PlanData } from '#/plan';
 import type { SwarmModeTrigger } from '#/swarm';
-import type { ToolInfo } from '#/toolRegistry';
+import type { ToolInfo } from '#/tool';
 import type { ResolvedConfig } from '#/config';
 import type { McpServerConfig } from '#/mcp';
 import type { ExperimentalFeatureState } from '#/flag';
@@ -335,11 +335,21 @@ export interface RemoveKimiProviderPayload {
   readonly providerId: string;
 }
 
+/**
+ * Result returned when a prompt/steer submission is accepted. The turn is the
+ * submission's identity and lifecycle (`turn.started` / `turn.ended` carry the
+ * rest over the event stream), so the handle is just the turn id. `undefined`
+ * means the submission was not accepted (e.g. the agent was busy).
+ */
+export interface PromptLaunchResult {
+  readonly turn_id: number;
+}
+
 export interface AgentAPI {
-  prompt: (payload: PromptPayload) => void;
-  steer: (payload: SteerPayload) => void;
+  prompt: (payload: PromptPayload) => PromptLaunchResult | undefined;
+  steer: (payload: SteerPayload) => PromptLaunchResult | undefined;
   cancel: (payload: CancelPayload) => void;
-  undoHistory: (payload: UndoHistoryPayload) => void;
+  undoHistory: (payload: UndoHistoryPayload) => number;
   setThinking: (payload: SetThinkingPayload) => void;
   setPermission: (payload: SetPermissionPayload) => void;
   setModel: (payload: SetModelPayload) => SetModelResult;

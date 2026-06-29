@@ -22,6 +22,7 @@
  */
 
 import {
+  IAgentRPCService,
   IApprovalService,
   IAuthSummaryService,
   IBackgroundService,
@@ -202,6 +203,16 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'mcp:reconnect': { service: IMcpService, method: 'reconnect' },
 
     'tools:list': { service: IToolRegistry, method: 'list', readonly: true },
+
+    // `prompts:*` is the one facade-backed group in this map: `IPromptService`
+    // returns a live `Turn` handle, so it is reached through the wire-shaped
+    // `IAgentRPCService` facade which surfaces the serializable `turn_id`
+    // instead (see edge-exposure.md §4).
+    'prompts:submit': { service: IAgentRPCService, method: 'prompt' },
+    'prompts:steer': { service: IAgentRPCService, method: 'steer' },
+    'prompts:undo': { service: IAgentRPCService, method: 'undoHistory' },
+    'prompts:clear': { service: IAgentRPCService, method: 'clearContext' },
+    'prompts:cancel': { service: IAgentRPCService, method: 'cancel' },
   },
 };
 

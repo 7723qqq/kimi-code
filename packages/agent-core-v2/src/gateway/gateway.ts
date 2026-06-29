@@ -11,8 +11,16 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 
 export interface IRestGateway {
   readonly _serviceBrand: undefined;
-  prompt(sessionId: string, agentId: string, input: string): Promise<void>;
-  steer(sessionId: string, agentId: string, content: string): Promise<void>;
+  prompt(
+    sessionId: string,
+    agentId: string,
+    input: string,
+  ): Promise<{ readonly turn_id: number } | undefined>;
+  steer(
+    sessionId: string,
+    agentId: string,
+    content: string,
+  ): Promise<{ readonly turn_id: number } | undefined>;
   cancel(sessionId: string, agentId: string, reason?: string): Promise<void>;
   getStatus(sessionId: string): Promise<unknown>;
   flushLogs(sessionId: string): Promise<void>;

@@ -37,23 +37,33 @@ export class RestGateway implements IRestGateway {
     return agent;
   }
 
-  prompt(sessionId: string, agentId: string, input: string): Promise<void> {
-    this.agent(sessionId, agentId).accessor.get(IPromptService).prompt({
+  prompt(
+    sessionId: string,
+    agentId: string,
+    input: string,
+  ): Promise<{ readonly turn_id: number } | undefined> {
+    const turn = this.agent(sessionId, agentId).accessor.get(IPromptService).prompt({
       role: 'user',
       content: [{ type: 'text', text: input }],
       toolCalls: [],
       origin: { kind: 'user' },
     });
-    return Promise.resolve();
+    return Promise.resolve(turn === undefined ? undefined : { turn_id: turn.id });
   }
-  steer(sessionId: string, agentId: string, content: string): Promise<void> {
-    this.agent(sessionId, agentId).accessor.get(IPromptService).steer({
+  steer(
+    sessionId: string,
+    agentId: string,
+    content: string,
+  ): Promise<{ readonly turn_id: number } | undefined> {
+    const agent = this.agent(sessionId, agentId);
+    const turn = agent.accessor.get(IPromptService).steer({
       role: 'user',
       content: [{ type: 'text', text: content }],
       toolCalls: [],
       origin: { kind: 'user' },
     });
-    return Promise.resolve();
+    const id = turn?.id ?? agent.accessor.get(ITurnService).getActiveTurn()?.id;
+    return Promise.resolve(id === undefined ? undefined : { turn_id: id });
   }
   cancel(sessionId: string, agentId: string, reason?: string): Promise<void> {
     const activeTurn = this.agent(sessionId, agentId).accessor.get(ITurnService).getActiveTurn();

@@ -29,6 +29,7 @@ import type {
   EnterSwarmPayload,
   GetBackgroundOutputPayload,
   GetBackgroundPayload,
+  PromptLaunchResult,
   PromptPayload,
   RegisterToolPayload,
   SetActiveToolsPayload,
@@ -64,21 +65,24 @@ export class AgentRPCService implements IAgentRPCService {
     @IGoalService private readonly goal: IGoalService,
   ) { }
 
-  prompt(payload: PromptPayload): void {
-    this.promptService.prompt({
+  prompt(payload: PromptPayload): PromptLaunchResult | undefined {
+    const turn = this.promptService.prompt({
       role: 'user',
       content: [...payload.input],
       toolCalls: [],
     });
+    return turn === undefined ? undefined : { turn_id: turn.id };
   }
 
-  steer(payload: SteerPayload): void {
+  steer(payload: SteerPayload): PromptLaunchResult | undefined {
     this.telemetry.track('input_steer', { parts: payload.input.length });
-    this.promptService.steer({
+    const turn = this.promptService.steer({
       role: 'user',
       content: [...payload.input],
       toolCalls: [],
     });
+    const id = turn?.id ?? this.turnService.getActiveTurn()?.id;
+    return id === undefined ? undefined : { turn_id: id };
   }
 
   cancel({ turnId }: CancelPayload): void {
@@ -91,8 +95,8 @@ export class AgentRPCService implements IAgentRPCService {
     turn.abortController.abort();
   }
 
-  undoHistory(payload: UndoHistoryPayload): void {
-    this.promptService.undo(payload.count);
+  undoHistory(payload: UndoHistoryPayload): number {
+    return this.promptService.undo(payload.count);
   }
 
   setThinking(payload: SetThinkingPayload): void {
@@ -177,9 +181,7 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   clearContext(_payload: EmptyPayload): void {
-    const history = this.context.get();
-    if (history.length === 0) return;
-    this.context.splice(0, history.length, []);
+    this.promptService.clear();
   }
 
   activateSkill(payload: ActivateSkillPayload): void {
