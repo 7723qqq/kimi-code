@@ -1,7 +1,7 @@
 import type { FinishReason, TextPart, ThinkPart, TokenUsage } from '@moonshot-ai/kosong';
 
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-import type { ExecutableToolResult, ToolUpdate } from '#/tool';
+import type { ExecutableToolResult, ToolUpdate } from '#/_base/tools';
 import type { LoopStepStopReason } from './types';
 
 export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error';

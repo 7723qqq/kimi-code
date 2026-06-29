@@ -1,5 +1,5 @@
 import { renderPrompt } from "#/_base/utils/render-prompt";
-import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool';
+import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/_base/tools';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import type { IAgentSkillService } from '../skill';

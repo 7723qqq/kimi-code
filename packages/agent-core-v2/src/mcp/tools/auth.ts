@@ -30,7 +30,7 @@ import {
   type ExecutableTool,
   type ExecutableToolContext,
   type ExecutableToolResult,
-} from '#/tool';
+} from '#/_base/tools';
 import { toInputJsonSchema } from '../../_base/tools/support/input-schema';
 import {
   MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,

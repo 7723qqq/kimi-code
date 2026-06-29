@@ -2,9 +2,7 @@ import { createDecorator } from "#/_base/di";
 import type {
   CreateGoalInput,
   GoalActor,
-  GoalBudgetLimits,
   GoalSnapshot,
-  GoalStatus,
   GoalToolResult,
 } from './types';
 
@@ -19,27 +17,6 @@ export interface IGoalService {
   pauseGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot>;
   resumeGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot>;
   cancelGoal(actor?: GoalActor): Promise<GoalSnapshot>;
-}
-
-declare module '#/wireRecord' {
-  interface WireRecordMap {
-    forked: {};
-    'goal.create': {
-      goalId: string;
-      objective: string;
-      completionCriterion?: string;
-    };
-    'goal.update': {
-      status?: GoalStatus;
-      reason?: string;
-      turnsUsed?: number;
-      tokensUsed?: number;
-      wallClockMs?: number;
-      budgetLimits?: GoalBudgetLimits;
-      actor?: GoalActor;
-    };
-    'goal.clear': {};
-  }
 }
 
 export const IGoalService = createDecorator<IGoalService>('agentGoalService');

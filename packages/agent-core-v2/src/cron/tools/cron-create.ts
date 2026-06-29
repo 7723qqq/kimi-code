@@ -25,7 +25,7 @@
 
 import { z } from 'zod';
 
-import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/tool';
+import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/_base/tools';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern } from '#/_base/tools/support/rule-match';
 import {

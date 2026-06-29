@@ -1,6 +1,6 @@
 import { createDecorator } from "#/_base/di";
 import type { ToolCall } from '@moonshot-ai/kosong';
-import type { ToolUpdate } from '#/tool';
+import type { ToolUpdate } from '#/_base/tools';
 import type { LoopEventDispatcher } from '#/loop/events';
 import type { ToolResult } from '#/toolRegistry';
 import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/turn';

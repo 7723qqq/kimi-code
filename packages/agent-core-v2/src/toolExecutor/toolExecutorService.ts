@@ -16,11 +16,11 @@ import type {
   ExecutableToolResult,
   RunnableToolExecution,
   ToolExecution,
-} from '#/tool';
+} from '#/_base/tools';
 import { isAbortError } from '#/loop/errors';
 import { IToolRegistry } from '#/toolRegistry';
 import type { ToolResult } from '#/toolRegistry';
-import { ToolAccesses } from '#/tool';
+import { ToolAccesses } from '#/_base/tools';
 import { OrderedHookSlot } from '#/hooks';
 import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/turn';
 import {

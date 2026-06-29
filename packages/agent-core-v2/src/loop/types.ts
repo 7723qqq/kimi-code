@@ -12,7 +12,7 @@
 
 import type { Message, TokenUsage, ToolCall } from '@moonshot-ai/kosong';
 
-import type { ExecutableTool, ExecutableToolResult, RunnableToolExecution } from '#/tool';
+import type { ExecutableTool, ExecutableToolResult, RunnableToolExecution } from '#/_base/tools';
 import type { LLM } from './llm';
 
 export type LoopMessageBuilder = () => Message[] | Promise<Message[]>;

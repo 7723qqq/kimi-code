@@ -10,7 +10,7 @@ import type { PermissionMode } from '#/permissionPolicy';
 import { ExitPlanModeReviewAskPermissionPolicyService } from '#/permissionPolicy/policies/exit-plan-mode-review-ask';
 import type { PermissionPolicyRuntime } from '#/permissionPolicy/policies/runtime';
 import { ITelemetryService } from '#/telemetry';
-import { ToolAccesses } from '#/tool';
+import { ToolAccesses } from '#/_base/tools';
 
 import { stubPermissionModeService } from '../permissionMode/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';

@@ -12,6 +12,7 @@ import { ITelemetryService } from '#/telemetry';
 import { IWireRecord } from '#/wireRecord';
 import type {
   Turn,
+  TurnContextOverflowContext,
   TurnEndedContext,
   TurnResult,
   TurnStepContext,
@@ -42,6 +43,7 @@ export class TurnService implements ITurnService {
     onEnded: new OrderedHookSlot<TurnEndedContext>(),
     beforeStep: new OrderedHookSlot<TurnStepContext>(),
     afterStep: new OrderedHookSlot<TurnStepContext>(),
+    onContextOverflow: new OrderedHookSlot<TurnContextOverflowContext>(),
   };
 
   constructor(
@@ -116,6 +118,7 @@ export class TurnService implements ITurnService {
       result = await this.loop.runTurn(turn, {
         beforeStep: this.hooks.beforeStep,
         afterStep: this.hooks.afterStep,
+        onContextOverflow: this.hooks.onContextOverflow,
       });
       return result;
     } catch (error) {

@@ -29,7 +29,6 @@ import {
 
 import {
   Disposable,
-  IInstantiationService,
 } from "#/_base/di";
 import {
   ErrorCodes,
@@ -43,13 +42,12 @@ import { IContextProjector } from '#/contextProjector';
 import { IContextSizeService } from '#/contextSize';
 import { IEventSink } from '../eventSink';
 import { IExternalHooksService } from '#/externalHooks';
-import { IFullCompaction } from '#/fullCompaction';
 import { ILLMRequester } from '#/llmRequester';
 import { IProfileService } from '#/profile';
 import { IConfigRegistry, IConfigService } from '#/config';
 import { ITelemetryService } from '#/telemetry';
 import { IToolExecutor } from '#/toolExecutor';
-import { IToolRegistry, type ToolResult } from '#/toolRegistry';
+import { IToolRegistry } from '#/toolRegistry';
 import type { Turn, TurnResult } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 import type {
@@ -70,7 +68,7 @@ import { runTurn as runLoopTurn } from './run-turn';
 import type {
   ExecutableTool,
   ExecutableToolResult,
-} from '#/tool';
+} from '#/_base/tools';
 import type { LoopHooks } from './types';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
@@ -102,7 +100,6 @@ export class LoopService extends Disposable implements ILoopService {
     @IProfileService private readonly profile: IProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IWireRecord private readonly wireRecord: IWireRecord,
-    @IInstantiationService private readonly instantiation: IInstantiationService,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
@@ -172,14 +169,9 @@ export class LoopService extends Disposable implements ILoopService {
           return { reason: 'completed' };
         } catch (error) {
           if (isContextOverflowError(error)) {
-            await this.instantiation.invokeFunction((accessor) =>
-              accessor.get(IFullCompaction).handleOverflowError(
-                turn.abortController.signal,
-                error,
-                turn.id,
-              ),
-            );
-            continue;
+            const context = { turn, error, handled: false };
+            await hooks?.onContextOverflow.run(context);
+            if (context.handled) continue;
           }
           throw error;
         }
@@ -872,25 +864,7 @@ async function emitCompletedContentPart(
   }
 }
 
-function toExecutableToolResult(result: ToolResult): ExecutableToolResult {
-  if (result.isError === true) {
-    return {
-      output: result.output,
-      isError: true,
-      message: result.message,
-      stopTurn: result.stopTurn,
-    };
-  }
-  return {
-    output: result.output,
-    message: result.message,
-    stopTurn: result.stopTurn,
-  };
-}
-
-type ToolTelemetryResult = Extract<LoopEvent, { type: 'tool.result' }>['result'];
-
-function telemetryToolOutcome(result: ToolTelemetryResult): 'success' | 'error' | 'cancelled' {
+function telemetryToolOutcome(result: ExecutableToolResult): 'success' | 'error' | 'cancelled' {
   if (result.isError !== true) return 'success';
   const text = toolResultText(result).toLowerCase();
   return text.includes('aborted') ||
@@ -900,7 +874,7 @@ function telemetryToolOutcome(result: ToolTelemetryResult): 'success' | 'error' 
     : 'error';
 }
 
-function telemetryToolErrorType(result: ToolTelemetryResult): string {
+function telemetryToolErrorType(result: ExecutableToolResult): string {
   const text = toolResultText(result);
   if (text.startsWith('Tool "') && text.includes('" not found')) return 'ToolNotFound';
   if (text.startsWith('Invalid args for tool "')) return 'ToolInputError';
@@ -910,7 +884,7 @@ function telemetryToolErrorType(result: ToolTelemetryResult): string {
   return 'ToolError';
 }
 
-function toolResultText(result: ToolTelemetryResult): string {
+function toolResultText(result: ExecutableToolResult): string {
   return toolOutputText(result.output);
 }
 

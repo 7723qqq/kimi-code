@@ -24,13 +24,5 @@ export interface IMicroCompactionService {
   compact(messages: readonly ContextMessage[]): readonly ContextMessage[];
 }
 
-declare module '#/wireRecord' {
-  interface WireRecordMap {
-    'micro_compaction.apply': {
-      cutoff: number;
-    };
-  }
-}
-
 export const IMicroCompactionService =
   createDecorator<IMicroCompactionService>('agentMicroCompactionService');

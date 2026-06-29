@@ -7,7 +7,7 @@ import type {
   ExecutableToolResult,
   RunnableToolExecution,
   ToolExecution,
-} from '#/tool';
+} from '#/_base/tools';
 import type { ClockSources } from '#/cron/tools/clock';
 import {
   CronCreateTool,

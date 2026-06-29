@@ -1,7 +1,7 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
 
 import { createDecorator } from "#/_base/di";
-import type { ExecutableToolResult } from '#/tool';
+import type { ExecutableToolResult } from '#/_base/tools';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import type { HookEngine } from './engine';
 

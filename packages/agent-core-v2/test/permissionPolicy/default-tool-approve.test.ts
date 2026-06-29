@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ResolvedToolExecutionHookContext } from '#/loop';
 import { DefaultToolApprovePermissionPolicyService } from '#/permissionPolicy/policies/default-tool-approve';
-import { ToolAccesses } from '#/tool';
+import { ToolAccesses } from '#/_base/tools';
 
 const signal = new AbortController().signal;
 

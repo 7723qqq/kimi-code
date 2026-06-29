@@ -23,7 +23,7 @@ import { ITelemetryService } from '#/telemetry';
 import { IToolRegistry } from '#/toolRegistry';
 import { IWireRecord } from '#/wireRecord';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-import type { ExecutableToolResult } from '#/tool';
+import type { ExecutableToolResult } from '#/_base/tools';
 import { EnterPlanModeInputSchema } from './tools/enter-plan-mode';
 import ENTER_PLAN_MODE_DESCRIPTION from './tools/enter-plan-mode.md?raw';
 import {
@@ -37,6 +37,20 @@ import {
   type PlanFilePath,
 } from './plan';
 import PLAN_MODE_EXIT_REMINDER from './plan-mode-exit-reminder.md?raw';
+
+declare module '#/wireRecord' {
+  interface WireRecordMap {
+    'plan_mode.enter': {
+      id: string;
+    };
+    'plan_mode.cancel': {
+      id?: string;
+    };
+    'plan_mode.exit': {
+      id?: string;
+    };
+  }
+}
 
 const PLAN_MODE_DEDUP_MIN_TURNS = 2;
 const PLAN_MODE_FULL_REFRESH_TURNS = 5;

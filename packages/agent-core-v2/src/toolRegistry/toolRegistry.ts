@@ -1,5 +1,5 @@
 import { createDecorator, type IDisposable } from "#/_base/di";
-import type { ExecutableTool } from '#/tool';
+import type { ExecutableTool } from '#/_base/tools';
 import type { ContentPart } from '@moonshot-ai/kosong';
 
 import type { Hooks } from '../hooks';
