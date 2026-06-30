@@ -61,6 +61,8 @@ export interface LLMChatResponse {
   toolCalls: ToolCall[];
   providerFinishReason?: FinishReason;
   rawFinishReason?: string;
+  /** Provider-assigned response/message id, when available. */
+  providerMessageId?: string;
   usage: TokenUsage;
   streamTiming?: LLMStreamTiming;
 }

@@ -37,6 +37,8 @@ interface PageWire {
   has_more: boolean;
 }
 
+const MSG_ID = /^msg_[0-9A-Z]{26}$/;
+
 describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
   let server: RunningServer | undefined;
   let home: string | undefined;
@@ -115,9 +117,6 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     }
   }
 
-  const messageId = (sid: string, index: number): string =>
-    `msg_${sid}_${String(index).padStart(6, '0')}`;
-
   it('returns an empty page when the session has no main agent', async () => {
     const id = await createSession();
     const { body } = await getJson<PageWire>(`/api/v1/sessions/${id}/messages`);
@@ -134,7 +133,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     expect(body.data.items).toEqual([]);
   });
 
-  it('lists spliced messages newest-first with derived ids and mapped content', async () => {
+  it('lists spliced messages newest-first with stable ids and mapped content', async () => {
     const id = await createSession();
     await seedMainAgentMessages(id, [
       { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
@@ -149,23 +148,19 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     const { body } = await getJson<PageWire>(`/api/v1/sessions/${id}/messages`);
     expect(body.code).toBe(0);
     expect(body.data.has_more).toBe(false);
-    expect(body.data.items.map((m) => m.id)).toEqual([
-      messageId(id, 2),
-      messageId(id, 1),
-      messageId(id, 0),
-    ]);
+    expect(body.data.items).toHaveLength(3);
+    expect(body.data.items.every((m) => MSG_ID.test(m.id))).toBe(true);
     expect(body.data.items.every((m) => m.session_id === id)).toBe(true);
 
-    // index 0: plain user text.
-    expect(body.data.items[2]).toMatchObject({
-      id: messageId(id, 0),
+    // newest first → tool, assistant, user.
+    const [tool, assistant, user] = body.data.items;
+
+    expect(user).toMatchObject({
       role: 'user',
       content: [{ type: 'text', text: 'hi' }],
     });
 
-    // index 1: assistant text + a tool_use part parsed from the tool call.
-    expect(body.data.items[1]).toMatchObject({
-      id: messageId(id, 1),
+    expect(assistant).toMatchObject({
       role: 'assistant',
       content: [
         { type: 'text', text: 'running' },
@@ -178,9 +173,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
       ],
     });
 
-    // index 2: tool result flattened to a single tool_result part.
-    expect(body.data.items[0]).toMatchObject({
-      id: messageId(id, 2),
+    expect(tool).toMatchObject({
       role: 'tool',
       content: [{ type: 'tool_result', tool_call_id: 'call_1', output: 'file.txt' }],
     });
@@ -193,29 +186,34 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
       { role: 'assistant', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
     ]);
 
+    const list = await getJson<PageWire>(`/api/v1/sessions/${id}/messages`);
+    const assistant = list.body.data.items.find((m) => m.role === 'assistant');
+    expect(assistant).toBeDefined();
+
     const got = await getJson<MessageWire>(
-      `/api/v1/sessions/${id}/messages/${messageId(id, 1)}`,
+      `/api/v1/sessions/${id}/messages/${assistant!.id}`,
     );
     expect(got.body.code).toBe(0);
     expect(got.body.data).toMatchObject({
-      id: messageId(id, 1),
+      id: assistant!.id,
       role: 'assistant',
       content: [{ type: 'text', text: 'hello' }],
     });
 
     const missing = await getJson<null>(
-      `/api/v1/sessions/${id}/messages/${messageId(id, 99)}`,
+      `/api/v1/sessions/${id}/messages/msg_does_not_exist`,
     );
     expect(missing.body.code).toBe(40403);
   });
 
-  it('rejects a message id that belongs to another session (40403)', async () => {
+  it('returns 40403 for a message id not present in the session', async () => {
     const id = await createSession();
     await seedMainAgentMessages(id, [
       { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
     ]);
-    const foreignId = messageId('sess_other', 0);
-    const { body } = await getJson<null>(`/api/v1/sessions/${id}/messages/${foreignId}`);
+    const { body } = await getJson<null>(
+      `/api/v1/sessions/${id}/messages/msg_00NOT_IN_SESSION00`,
+    );
     expect(body.code).toBe(40403);
   });
 
@@ -223,7 +221,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     const list = await getJson<null>('/api/v1/sessions/nope/messages');
     expect(list.body.code).toBe(40401);
 
-    const got = await getJson<null>(`/api/v1/sessions/nope/messages/${messageId('nope', 0)}`);
+    const got = await getJson<null>('/api/v1/sessions/nope/messages/msg_does_not_exist');
     expect(got.body.code).toBe(40401);
   });
 
@@ -234,25 +232,28 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
       { role: 'user', content: [{ type: 'text', text: 'm1' }], toolCalls: [] },
       { role: 'user', content: [{ type: 'text', text: 'm2' }], toolCalls: [] },
     ]);
-    const ids = [messageId(id, 0), messageId(id, 1), messageId(id, 2)];
+    const all = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?page_size=100`);
+    // newest first → [m2, m1, m0]
+    const idsDesc = all.body.data.items.map((m) => m.id);
+    expect(idsDesc).toHaveLength(3);
 
     // page_size=1 → newest only, more available.
     const first = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?page_size=1`);
-    expect(first.body.data.items.map((m) => m.id)).toEqual([ids[2]]);
+    expect(first.body.data.items.map((m) => m.id)).toEqual([idsDesc[0]]);
     expect(first.body.data.has_more).toBe(true);
 
     // before_id = newest → the two older entries.
     const older = await getJson<PageWire>(
-      `/api/v1/sessions/${id}/messages?before_id=${ids[2]}`,
+      `/api/v1/sessions/${id}/messages?before_id=${idsDesc[0]}`,
     );
-    expect(older.body.data.items.map((m) => m.id)).toEqual([ids[1], ids[0]]);
+    expect(older.body.data.items.map((m) => m.id)).toEqual([idsDesc[1], idsDesc[2]]);
     expect(older.body.data.has_more).toBe(false);
 
     // after_id = oldest → the two newer entries.
     const newer = await getJson<PageWire>(
-      `/api/v1/sessions/${id}/messages?after_id=${ids[0]}`,
+      `/api/v1/sessions/${id}/messages?after_id=${idsDesc[2]}`,
     );
-    expect(newer.body.data.items.map((m) => m.id)).toEqual([ids[2], ids[1]]);
+    expect(newer.body.data.items.map((m) => m.id)).toEqual([idsDesc[0], idsDesc[1]]);
     expect(newer.body.data.has_more).toBe(false);
   });
 
@@ -266,7 +267,8 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     const { body } = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?role=user`);
     expect(body.code).toBe(0);
     expect(body.data.items.every((m) => m.role === 'user')).toBe(true);
-    expect(body.data.items.map((m) => m.id)).toEqual([messageId(id, 2), messageId(id, 0)]);
+    expect(body.data.items).toHaveLength(2);
+    expect(body.data.items.every((m) => MSG_ID.test(m.id))).toBe(true);
   });
 
   // Regression for the cold-session gap: a persisted (non-live) session must
@@ -296,6 +298,12 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     ]);
     await agent.accessor.get(IWireRecord).flush();
 
+    // Live (post-compaction) context exposes only the folded summary; capture
+    // its id so we can assert it survives the restart unchanged.
+    const livePage = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?page_size=100`);
+    expect(livePage.body.data.items).toHaveLength(1);
+    const liveSummaryId = livePage.body.data.items[0]!.id;
+
     // Restart the server on the same homeDir → the session is cold for the next
     // read (mirrors a session carried over from a prior process).
     await server!.close();
@@ -305,29 +313,29 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     // Full transcript preserved (pre-compaction m0/m1/m2 + summary), newest first.
     const { body } = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?page_size=100`);
     expect(body.code).toBe(0);
-    expect(body.data.items.map((m) => m.id)).toEqual([
-      messageId(id, 3),
-      messageId(id, 2),
-      messageId(id, 1),
-      messageId(id, 0),
-    ]);
-    expect(body.data.items[0]).toMatchObject({
-      id: messageId(id, 3),
+    expect(body.data.items).toHaveLength(4);
+    expect(body.data.items.every((m) => MSG_ID.test(m.id))).toBe(true);
+
+    // newest first → summary, m2, m1, m0.
+    const [summary, _m2, m1] = body.data.items;
+    // The summary id is persisted in the wire record and survives restore.
+    expect(summary!.id).toBe(liveSummaryId);
+    expect(summary).toMatchObject({
       role: 'assistant',
       metadata: { origin: { kind: 'compaction_summary' } },
     });
 
     // get returns a specific message for a cold session …
-    const got = await getJson<MessageWire>(`/api/v1/sessions/${id}/messages/${messageId(id, 1)}`);
+    const got = await getJson<MessageWire>(`/api/v1/sessions/${id}/messages/${m1.id}`);
     expect(got.body.code).toBe(0);
     expect(got.body.data).toMatchObject({
-      id: messageId(id, 1),
+      id: m1.id,
       role: 'assistant',
       content: [{ type: 'text', text: 'm1' }],
     });
 
     // … and 40403 for an unknown message id in the same cold session.
-    const missing = await getJson<null>(`/api/v1/sessions/${id}/messages/${messageId(id, 99)}`);
+    const missing = await getJson<null>(`/api/v1/sessions/${id}/messages/msg_does_not_exist`);
     expect(missing.body.code).toBe(40403);
   });
 });

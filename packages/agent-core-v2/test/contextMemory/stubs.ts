@@ -11,7 +11,7 @@ import { toDisposable } from '#/_base/di';
 import type { ServiceRegistration } from '#/_base/di/test';
 import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';
-import { IContextMemory, type ContextMessage } from '#/contextMemory';
+import { ensureMessageId, IContextMemory, type ContextMessage } from '#/contextMemory';
 import { IReplayBuilderService } from '#/replayBuilder';
 import { IWireRecord } from '#/wireRecord';
 
@@ -79,11 +79,12 @@ export function stubContextMemory(): StubContextMemory {
     },
     get: () => [...messages],
     splice: (start, deleteCount, inserted, tokens) => {
-      messages.splice(start, deleteCount, ...inserted);
+      const stamped = inserted.map(ensureMessageId);
+      messages.splice(start, deleteCount, ...stamped);
       void hooks.onSpliced.run({
         start,
         deleteCount,
-        messages: [...inserted],
+        messages: [...stamped],
         tokens,
       });
     },

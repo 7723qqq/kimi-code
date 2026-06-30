@@ -18,7 +18,6 @@ import { type IScopeHandle, LifecycleScope, registerScopedService } from '#/_bas
 import { IAgentLifecycleService } from '#/agent-lifecycle';
 import {
   IContextMemory,
-  parseMessageId,
   toProtocolMessage,
   type ContextMessage,
 } from '#/contextMemory';
@@ -83,14 +82,7 @@ export class MessageLegacyService implements IMessageLegacyService {
     // Resolve the session first: an unknown sid maps to 40401 even when the
     // message id is malformed or belongs to another session (40403).
     const all = await this.loadMessages(sessionId);
-    const parsed = parseMessageId(messageId);
-    if (parsed === undefined || parsed.sessionId !== sessionId) {
-      throw new KimiError(
-        ErrorCodes.MESSAGE_NOT_FOUND,
-        `message ${messageId} does not exist in session ${sessionId}`,
-      );
-    }
-    const entry = all[parsed.index];
+    const entry = all.find((m) => m.id === messageId);
     if (entry === undefined) {
       throw new KimiError(
         ErrorCodes.MESSAGE_NOT_FOUND,

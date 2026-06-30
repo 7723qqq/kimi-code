@@ -87,12 +87,20 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
     await ensureMainAgent(sid);
     await snapshot(sid); // activate the journal (as_of_seq 0)
 
-    emit(sid, { type: 'turn.started', turnId: 1 } as unknown as AgentEvent); // durable → seq 1
+    emit(sid, {
+      type: 'turn.started',
+      turnId: 1,
+      promptMessageId: 'msg_test_prompt_1',
+    } as unknown as AgentEvent); // durable → seq 1
     emit(sid, { type: 'assistant.delta', turnId: 1, delta: 'Hello' } as unknown as AgentEvent); // volatile
 
     const snap = await snapshot(sid);
     expect(snap.as_of_seq).toBe(1);
-    expect(snap.in_flight_turn).toMatchObject({ turn_id: 1, assistant_text: 'Hello' });
+    expect(snap.in_flight_turn).toMatchObject({
+      turn_id: 1,
+      assistant_text: 'Hello',
+      current_prompt_id: 'msg_test_prompt_1',
+    });
   });
 
   it('returns 404 for an unknown session', async () => {

@@ -13,31 +13,10 @@ import type { Message, MessageContent, MessageRole, ToolUseContent } from '@moon
 
 import type { ContextMessage } from './types';
 
-/** Derive a stable opaque message id from (sessionId, index). */
+/** Derive a stable opaque message id from (sessionId, index) — fallback for legacy records that predate intrinsic message ids. */
 function deriveMessageId(sessionId: string, index: number): string {
   const padded = String(index).padStart(6, '0');
   return `msg_${sessionId}_${padded}`;
-}
-
-/**
- * Inverse of `deriveMessageId`: parse `msg_<sessionId>_<index>` back into
- * `{sessionId, index}`. Returns `undefined` when the id does not match the
- * derived contract. The session id may itself contain underscores, so the split
- * is taken from the RIGHT on `_`.
- */
-export function parseMessageId(
-  messageId: string,
-): { sessionId: string; index: number } | undefined {
-  if (!messageId.startsWith('msg_')) return undefined;
-  const rest = messageId.slice('msg_'.length);
-  const lastUnderscore = rest.lastIndexOf('_');
-  if (lastUnderscore <= 0) return undefined;
-  const sessionId = rest.slice(0, lastUnderscore);
-  const indexStr = rest.slice(lastUnderscore + 1);
-  if (!/^\d+$/.test(indexStr)) return undefined;
-  const index = Number.parseInt(indexStr, 10);
-  if (!Number.isFinite(index) || index < 0) return undefined;
-  return { sessionId, index };
 }
 
 /** kosong's `Role` already matches the wire `MessageRole` — pass through. */
@@ -134,7 +113,7 @@ export function toProtocolMessage(
   msg: ContextMessage,
   sessionCreatedAtMs: number,
 ): Message {
-  const id = deriveMessageId(sessionId, index);
+  const id = msg.id ?? deriveMessageId(sessionId, index);
   const role = toProtocolRole(msg.role);
   const content = buildProtocolContent(msg);
   const createdAtMs = sessionCreatedAtMs + index;

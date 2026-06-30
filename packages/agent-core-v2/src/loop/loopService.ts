@@ -37,7 +37,7 @@ import {
   type KimiErrorPayload,
 } from "#/errors";
 import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
-import { IContextMemory, type ContextMessage } from '#/contextMemory';
+import { IContextMemory, newMessageId, type ContextMessage } from '#/contextMemory';
 import { IContextProjector } from '#/contextProjector';
 import { IContextSizeService } from '#/contextSize';
 import { IEventSink } from '../eventSink';
@@ -196,6 +196,7 @@ export class LoopService extends Disposable implements ILoopService {
     switch (event.type) {
       case 'step.begin': {
         const message: ContextMessage = {
+          id: newMessageId(),
           role: 'assistant',
           content: [],
           toolCalls: [],
@@ -204,6 +205,9 @@ export class LoopService extends Disposable implements ILoopService {
         return;
       }
       case 'step.end': {
+        if (event.providerMessageId !== undefined) {
+          this.stampProviderMessageId(event.uuid, event.providerMessageId);
+        }
         this.openSteps.delete(event.uuid);
         this.pendingMeasurements.delete(event.uuid);
         return;
@@ -491,6 +495,7 @@ export class LoopService extends Disposable implements ILoopService {
     let usage = emptyUsage();
     let providerFinishReason: LLMChatResponse['providerFinishReason'];
     let rawFinishReason: string | undefined;
+    let providerMessageId: string | undefined;
     let streamTiming: LLMChatResponse['streamTiming'];
     const stream = this.llmRequester.request(
       {
@@ -517,6 +522,7 @@ export class LoopService extends Disposable implements ILoopService {
         case 'finish':
           providerFinishReason = event.providerFinishReason;
           rawFinishReason = event.rawFinishReason;
+          providerMessageId = event.id;
           continue;
         case 'timing':
           streamTiming = {
@@ -536,6 +542,7 @@ export class LoopService extends Disposable implements ILoopService {
       usage,
       providerFinishReason,
       rawFinishReason,
+      providerMessageId,
       streamTiming,
     };
   }
@@ -634,6 +641,14 @@ export class LoopService extends Disposable implements ILoopService {
     }
       this.spliceHistory(index, 1, [next]);
     this.openSteps.set(stepUuid, { message: next, inserted: true });
+  }
+
+  private stampProviderMessageId(stepUuid: string, providerMessageId: string): void {
+    const openStep = this.openSteps.get(stepUuid);
+    if (openStep === undefined || !openStep.inserted) return;
+    const index = this.context.get().indexOf(openStep.message);
+    if (index < 0) return;
+    this.spliceHistory(index, 1, [{ ...openStep.message, providerMessageId }]);
   }
 
   private appendToolResult(toolCallId: string, result: ExecutableToolResult): void {

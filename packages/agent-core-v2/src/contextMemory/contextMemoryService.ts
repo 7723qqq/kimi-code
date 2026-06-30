@@ -5,6 +5,7 @@ import { OrderedHookSlot } from '#/hooks';
 import { IReplayBuilderService } from '#/replayBuilder';
 import { IWireRecord, type WireRecord } from '#/wireRecord';
 import { IContextMemory } from './contextMemory';
+import { ensureMessageId } from './messageId';
 import type { ContextMessage } from './types';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -69,11 +70,12 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
     messages: readonly ContextMessage[],
     tokens?: number,
   ): void {
+    const stamped = messages.map(ensureMessageId);
     const record: WireRecord<'context.splice'> = {
       type: 'context.splice',
       start,
       deleteCount,
-      messages,
+      messages: stamped,
       tokens,
     };
     this.wireRecord.append(record);
@@ -85,7 +87,7 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
       record.deleteCount > 0 && record.start > 0
         ? this.history.slice(record.start, record.start + record.deleteCount)
         : [];
-    const messages = [...record.messages];
+    const messages = record.messages.map(ensureMessageId);
     this.history.splice(record.start, record.deleteCount, ...messages);
     this.replayBuilder.removeLastMessages(new Set(removedMessages));
     for (const message of messages) {

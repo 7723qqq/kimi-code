@@ -28,6 +28,8 @@ export interface LoopStepEndEvent {
    */
   readonly providerFinishReason?: FinishReason | undefined;
   readonly rawFinishReason?: string | undefined;
+  /** Provider-assigned response/message id for this step's assistant message. */
+  readonly providerMessageId?: string | undefined;
 }
 
 export interface LoopStepRetryingEvent {

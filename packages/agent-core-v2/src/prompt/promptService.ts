@@ -2,7 +2,12 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError, makeErrorPayload } from "#/errors";
 
-import { IContextMemory, USER_PROMPT_ORIGIN, type ContextMessage } from '#/contextMemory';
+import {
+  ensureMessageId,
+  IContextMemory,
+  USER_PROMPT_ORIGIN,
+  type ContextMessage,
+} from '#/contextMemory';
 import { IEventSink } from '../eventSink';
 import { ITurnService, type Turn } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
@@ -33,8 +38,9 @@ export class PromptService implements IPromptService {
 
   prompt(message: ContextMessage): Turn | undefined {
     if (this.emitBusyIfActive()) return undefined;
-    this.append(message);
-    const turn = this.turnService.launch(message.origin ?? USER_PROMPT_ORIGIN);
+    const stamped = ensureMessageId(message);
+    this.append(stamped);
+    const turn = this.turnService.launch(stamped.origin ?? USER_PROMPT_ORIGIN, stamped.id);
     this.observe(turn);
     return turn;
   }
@@ -42,13 +48,14 @@ export class PromptService implements IPromptService {
   steer(message: ContextMessage): Turn | undefined {
     const activeTurn = this.turnService.getActiveTurn();
     if (activeTurn !== undefined) {
-      this.steerQueue.push(message);
+      this.steerQueue.push(ensureMessageId(message));
       this.observe(activeTurn);
       return undefined;
     }
 
-    this.append(message);
-    const turn = this.turnService.launch(message.origin ?? USER_PROMPT_ORIGIN);
+    const stamped = ensureMessageId(message);
+    this.append(stamped);
+    const turn = this.turnService.launch(stamped.origin ?? USER_PROMPT_ORIGIN, stamped.id);
     this.observe(turn);
     return turn;
   }

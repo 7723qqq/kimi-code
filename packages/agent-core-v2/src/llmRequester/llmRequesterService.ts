@@ -146,6 +146,7 @@ export class LLMRequesterService implements ILLMRequester {
         type: 'finish',
         providerFinishReason: result.finishReason ?? undefined,
         rawFinishReason: result.rawFinishReason ?? undefined,
+        id: result.id ?? undefined,
       });
       if (firstChunkAt !== undefined) {
         const outputEndedAt = streamEndedAt ?? Date.now();
