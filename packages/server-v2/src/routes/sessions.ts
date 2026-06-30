@@ -590,7 +590,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
 // through `ServiceAccessor.get` and pass it straight here.
 // ---------------------------------------------------------------------------
 
-interface SessionWireFields {
+export interface SessionWireFields {
   readonly id: string;
   readonly workspaceId: string;
   readonly title?: string;
@@ -601,7 +601,7 @@ interface SessionWireFields {
   readonly custom?: Record<string, unknown>;
 }
 
-function toWireSession(fields: SessionWireFields, cwd: string): Session {
+export function toWireSession(fields: SessionWireFields, cwd: string): Session {
   return {
     id: fields.id,
     workspace_id: fields.workspaceId,

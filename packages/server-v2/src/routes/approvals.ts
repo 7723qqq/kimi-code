@@ -187,7 +187,7 @@ export function registerApprovalsRoutes(app: ApprovalRouteHost, core: Scope): vo
 // `approvalRequestSchema`.
 // ---------------------------------------------------------------------------
 
-function toWireApproval(interaction: Interaction, sessionId: string): {
+export function toWireApproval(interaction: Interaction, sessionId: string): {
   approval_id: string;
   session_id: string;
   turn_id?: number;

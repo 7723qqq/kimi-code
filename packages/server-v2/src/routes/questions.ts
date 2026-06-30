@@ -283,7 +283,7 @@ function buildItem(item: QuestionItem, itemIdx: number): ProtocolQuestionItem {
 }
 
 /** In-process request + interaction metadata → protocol wire shape. */
-function toWireQuestion(interaction: Interaction, sessionId: string): ProtocolQuestionRequest {
+export function toWireQuestion(interaction: Interaction, sessionId: string): ProtocolQuestionRequest {
   const req = interaction.payload as QuestionRequest;
   const createdAt = new Date(interaction.createdAt).toISOString();
   const out: ProtocolQuestionRequest = {

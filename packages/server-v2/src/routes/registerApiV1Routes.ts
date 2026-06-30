@@ -6,16 +6,19 @@
  * `IInstantiationService`. v0.1 mounts the subset of routes that v2 can serve
  * end-to-end today (health, meta, auth readiness, OAuth device flow, config,
  * model/provider catalog, sessions, messages, approvals, workspaces, the fs
- * folder picker, the session filesystem, terminals, shutdown).
+ * folder picker, the session filesystem, terminals, connections, shutdown).
  */
 
 import type { Scope } from '@moonshot-ai/agent-core-v2';
 import { ulid } from 'ulid';
 
 import { okEnvelope } from '../envelope';
+import { type IConnectionRegistry } from '../transport/ws/connectionRegistry';
+import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBroadcaster';
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerConfigRoutes } from './config';
+import { registerConnectionsRoutes } from './connections';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
 import { registerMessagesRoutes } from './messages';
@@ -26,6 +29,7 @@ import { registerPromptsRoutes } from './prompts';
 import { registerQuestionsRoutes } from './questions';
 import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
+import { registerSnapshotRoutes } from './snapshot';
 import { registerSkillsRoutes } from './skills';
 import { registerTasksRoutes } from './tasks';
 import { registerTerminalsRoutes } from './terminals';
@@ -52,6 +56,8 @@ export interface RegisterApiV1RoutesOptions {
   readonly serverVersion: string;
   readonly debugEndpoints?: boolean;
   readonly onShutdown: () => void;
+  readonly connectionRegistry: IConnectionRegistry;
+  readonly broadcaster: SessionEventBroadcaster;
 }
 
 export async function registerApiV1Routes(
@@ -113,6 +119,14 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerTerminalsRoutes>[0],
         core,
       );
+      registerConnectionsRoutes(
+        apiV1 as unknown as Parameters<typeof registerConnectionsRoutes>[0],
+        opts.connectionRegistry,
+      );
+      registerSnapshotRoutes(apiV1 as unknown as Parameters<typeof registerSnapshotRoutes>[0], {
+        core,
+        broadcaster: opts.broadcaster,
+      });
       registerShutdownRoutes(apiV1 as unknown as Parameters<typeof registerShutdownRoutes>[0], {
         onShutdown: opts.onShutdown,
       });

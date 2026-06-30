@@ -54,6 +54,8 @@ function handle(id: string, active: boolean): IScopeHandle {
 function lifecycle(handles: readonly IScopeHandle[]): IAgentLifecycleService {
   return {
     _serviceBrand: undefined,
+    onDidCreate: () => ({ dispose: () => {} }),
+    onDidDispose: () => ({ dispose: () => {} }),
     create: () => Promise.resolve(handles[0]!),
     createMain: () => Promise.resolve(handles[0]!),
     getHandle: () => undefined,

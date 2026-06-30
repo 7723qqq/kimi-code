@@ -8,6 +8,11 @@
  *   - schema validation (invalid frames are dropped, not fatal)
  *   - graceful cleanup on close (dispose listeners, cancel pending)
  *   - no stack traces over the wire
+ *
+ * Captures per-connection metadata (`connectedAt`, `remoteAddress`,
+ * `userAgent`, handshake state) and tracks the session ids of active
+ * session/agent-scoped `listen`s so the `GET /api/v1/connections` mirror route
+ * can list live clients in the v1 wire shape.
  */
 
 import { timingSafeEqual } from 'node:crypto';
@@ -40,10 +45,19 @@ export interface WsConnectionOptions {
   readonly pingIntervalMs?: number;
   readonly pongTimeoutMs?: number;
   readonly callTimeoutMs?: number;
+  /** ISO 8601 timestamp the socket was accepted at; defaults to `now`. */
+  readonly connectedAt?: string;
+  /** Peer address as seen by the server socket. Null when unavailable. */
+  readonly remoteAddress: string | null;
+  /** `User-Agent` header from the upgrade request. Null when absent. */
+  readonly userAgent: string | null;
 }
 
 export class WsConnection {
   readonly id: string;
+  readonly connectedAt: string;
+  readonly remoteAddress: string | null;
+  readonly userAgent: string | null;
   private readonly socket: WebSocket;
   private readonly core: Scope;
   private readonly token?: string;
@@ -54,11 +68,16 @@ export class WsConnection {
   private closed = false;
   private gotHello = false;
   private readonly pending = new Map<string, PendingEntry>();
+  /** Active session/agent-scoped `listen`s: listen id → session id. */
+  private readonly subscriptions = new Map<string, string>();
   private pingTimer?: ReturnType<typeof setInterval>;
   private pongTimer?: ReturnType<typeof setTimeout>;
 
   constructor(opts: WsConnectionOptions) {
     this.id = `conn_${ulid()}`;
+    this.connectedAt = opts.connectedAt ?? new Date().toISOString();
+    this.remoteAddress = opts.remoteAddress;
+    this.userAgent = opts.userAgent;
     this.socket = opts.socket;
     this.core = opts.core;
     this.token = opts.token;
@@ -72,6 +91,19 @@ export class WsConnection {
 
     this.startHeartbeat();
     this.send({ type: 'ready', heartbeatMs: this.pingIntervalMs });
+  }
+
+  /** Whether the client has completed the `hello` (auth) handshake. */
+  get hasClientHello(): boolean {
+    return this.gotHello;
+  }
+
+  /**
+   * Distinct session ids this connection currently has an active session- or
+   * agent-scoped `listen` for — the v2 projection of v1's `subscriptions`.
+   */
+  get subscriptionSessionIds(): readonly string[] {
+    return Array.from(new Set(this.subscriptions.values())).sort();
   }
 
   // -------------------------------------------------------------------------
@@ -213,10 +245,14 @@ export class WsConnection {
       return;
     }
 
+    if ((msg.scope === 'session' || msg.scope === 'agent') && msg.sessionId !== undefined) {
+      this.subscriptions.set(msg.id, msg.sessionId);
+    }
     this.pending.set(msg.id, {
       cancel: () => {
         disposable.dispose();
         this.pending.delete(msg.id);
+        this.subscriptions.delete(msg.id);
       },
     });
   }
@@ -282,10 +318,10 @@ export class WsConnection {
   // Close
   // -------------------------------------------------------------------------
 
-  close(): void {
+  close(code = 1000, reason?: string): void {
     if (this.closed) return;
     try {
-      this.socket.close(1000);
+      this.socket.close(code, reason);
     } catch {
       // ignore
     }
