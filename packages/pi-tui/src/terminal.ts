@@ -524,15 +524,31 @@ export class ProcessTerminal implements Terminal {
 			this.stdinBuffer = undefined;
 		}
 
-		// Remove event handlers
+		// Remove the stdin data handler. It is only registered on the TTY path, so
+		// in headless mode it is undefined and this is a safe no-op.
 		if (this.stdinDataHandler) {
 			process.stdin.removeListener("data", this.stdinDataHandler);
 			this.stdinDataHandler = undefined;
 		}
+
+		// Handler references are part of stop()'s contract: clear them in every
+		// mode, even when the terminal itself was never touched.
 		this.inputHandler = undefined;
-		if (this.resizeHandler) {
-			process.stdout.removeListener("resize", this.resizeHandler);
-			this.resizeHandler = undefined;
+		const resizeHandler = this.resizeHandler;
+		this.resizeHandler = undefined;
+
+		// Headless / non-TTY: start() was a no-op beyond stashing the handlers, so
+		// no resize listener was registered, stdin was never resumed, and raw mode
+		// was never enabled — `wasRaw` still holds its stale default. Skip the
+		// listener / stdin / raw-mode teardown so a TTY-based runner's raw mode is
+		// not clobbered. The sequence-based teardown above is safe to keep: it
+		// no-ops via #safeWrite when headless.
+		if (isTerminalHeadless() || !process.stdout.isTTY) {
+			return;
+		}
+
+		if (resizeHandler) {
+			process.stdout.removeListener("resize", resizeHandler);
 		}
 
 		// Pause stdin to prevent any buffered input (e.g., Ctrl+D) from being
@@ -605,7 +621,10 @@ export class ProcessTerminal implements Terminal {
 		if (active) {
 			// OSC 9;4;3 - indeterminate progress
 			this.#safeWrite(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
-			if (!this.progressInterval) {
+			// Skip the keepalive interval in headless mode: each tick no-ops via
+			// #safeWrite, but the timer itself would pin the event loop and can
+			// hang node --test.
+			if (!this.progressInterval && !isTerminalHeadless()) {
 				this.progressInterval = setInterval(() => {
 					this.#safeWrite(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
 				}, TERMINAL_PROGRESS_KEEPALIVE_MS);
