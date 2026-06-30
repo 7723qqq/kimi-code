@@ -125,13 +125,14 @@ describe("StdinBuffer", () => {
 		});
 
 		it("should flush incomplete sequence after timeout", async () => {
-			processInput("\x1b[<35");
+			// A non-SGR CSI partial is not subject to partial-hold, so it flushes at timeoutMs.
+			processInput("\x1b[1");
 			assert.deepStrictEqual(emittedSequences, []);
 
 			// Wait for timeout
 			await wait(15);
 
-			assert.deepStrictEqual(emittedSequences, ["\x1b[<35"]);
+			assert.deepStrictEqual(emittedSequences, ["\x1b[1"]);
 		});
 	});
 
@@ -198,23 +199,27 @@ describe("StdinBuffer", () => {
 			assert.deepStrictEqual(emittedSequences, ["\x1b[3;1:3~"]);
 		});
 
-		it("should split ESC+ESC+CSI into standalone ESC and the CSI sequence (WezTerm Escape key regression)", () => {
-			// WezTerm with enable_kitty_keyboard sends Escape key press as raw \x1b
-			// and the release as a full Kitty CSI-u sequence, concatenated.
-			// The buffer must not treat \x1b\x1b as a complete meta-key when the
-			// following byte starts a new escape sequence.
+		it("should keep ESC+ESC+CSI as a single meta-CSI sequence", () => {
+			// An ESC-prefixed CSI (metaSendsEscape terminals, or a held Esc joined by a
+			// CSI follower) is consumed as one sequence so the follower's tail is never
+			// torn off and leaked as typed text. ESC+SGR mouse is the lone exception and
+			// is split in extractCompleteSequences (covered by the partial-hold tests).
 			processInput("\x1b\x1b[27;129:3u");
-			assert.deepStrictEqual(emittedSequences, ["\x1b", "\x1b[27;129:3u"]);
+			assert.deepStrictEqual(emittedSequences, ["\x1b\x1b[27;129:3u"]);
 		});
 
-		it("should split ESC+ESC+CSI with no modifier (no num_lock)", () => {
+		it("should keep ESC+ESC+CSI as a single meta-CSI sequence (no modifier)", () => {
 			processInput("\x1b\x1b[27;1:3u");
-			assert.deepStrictEqual(emittedSequences, ["\x1b", "\x1b[27;1:3u"]);
+			assert.deepStrictEqual(emittedSequences, ["\x1b\x1b[27;1:3u"]);
 		});
 
-		it("should still emit ESC+ESC as a single sequence when not followed by a new escape", () => {
-			// \x1b\x1b alone (no following CSI) stays as-is — e.g. ctrl+alt+[
+		it("should still emit ESC+ESC as a single sequence when not followed by a new escape", async () => {
+			// \x1b\x1b alone (no following CSI, e.g. ctrl+alt+[) is held for the flush
+			// window — the next byte could still open a CSI/SS3 — then delivered as-is.
 			processInput("\x1b\x1b");
+			assert.deepStrictEqual(emittedSequences, []);
+
+			await wait(15);
 			assert.deepStrictEqual(emittedSequences, ["\x1b\x1b"]);
 		});
 
@@ -348,13 +353,14 @@ describe("StdinBuffer", () => {
 		});
 
 		it("should emit flushed data via timeout", async () => {
-			processInput("\x1b[<35");
+			// A non-SGR CSI partial is not subject to partial-hold, so it flushes at timeoutMs.
+			processInput("\x1b[1");
 			assert.deepStrictEqual(emittedSequences, []);
 
 			// Wait for timeout to flush
 			await wait(15);
 
-			assert.deepStrictEqual(emittedSequences, ["\x1b[<35"]);
+			assert.deepStrictEqual(emittedSequences, ["\x1b[1"]);
 		});
 	});
 

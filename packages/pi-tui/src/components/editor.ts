@@ -1,4 +1,5 @@
 import type { AutocompleteProvider, AutocompleteSuggestions } from "../autocomplete.ts";
+import { decodeReencodedPasteControls } from "../bracketed-paste.ts";
 import { getKeybindings } from "../keybindings.ts";
 import { decodePrintableKey, matchesKey } from "../keys.ts";
 import { KillRing } from "../kill-ring.ts";
@@ -1146,17 +1147,13 @@ export class Editor implements Component, Focusable {
 
 		this.pushUndoSnapshot();
 
-		// Some terminals (e.g. tmux popups with extended-keys-format=csi-u) re-encode
-		// control bytes inside bracketed paste as CSI-u Ctrl+<letter> sequences
-		// (ESC [ <codepoint> ; 5 u). Decode those back to their literal byte so the
-		// per-char filter below preserves newlines instead of stripping ESC and
-		// leaking the printable tail (e.g. "[106;5u") into the editor.
-		const decodedText = pastedText.replace(/\x1b\[(\d+);5u/g, (match, code) => {
-			const cp = Number(code);
-			if (cp >= 97 && cp <= 122) return String.fromCharCode(cp - 96);
-			if (cp >= 65 && cp <= 90) return String.fromCharCode(cp - 64);
-			return match;
-		});
+		// Some terminals (e.g. tmux popups with extended-keys-format=csi-u, or xterm
+		// modifyOtherKeys) re-encode control bytes inside bracketed paste as Ctrl+<letter>
+		// sequences — CSI-u (ESC [ <codepoint> ; 5 u) or xterm (ESC [ 27 ; 5 ; <codepoint> ~).
+		// Decode those back to their literal byte so the per-char filter below preserves
+		// newlines/tabs instead of stripping ESC and leaking the printable tail (e.g.
+		// "[106;5u") into the editor.
+		const decodedText = decodeReencodedPasteControls(pastedText);
 
 		// Clean the pasted text: normalize line endings, expand tabs
 		const cleanText = this.normalizeText(decodedText);
