@@ -80,6 +80,7 @@ type ToolTelemetryEvent = 'tool_call' | 'tool_call_dedup_detected' | 'tool_call_
 type TelemetryProperties = Record<string, unknown>;
 
 export class LoopService extends Disposable implements ILoopService {
+  declare readonly _serviceBrand: undefined;
   private readonly openSteps = new Map<string, OpenStep>();
   private readonly toolCallStartedAt = new Map<string, ToolCallTelemetryStart>();
   private readonly toolCallDupType = new Map<string, 'normal' | 'cross_step'>();

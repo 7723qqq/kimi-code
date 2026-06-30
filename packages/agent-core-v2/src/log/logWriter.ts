@@ -248,6 +248,7 @@ export interface FileLogWriterServiceOptions extends RotatingFileWriterOptions {
 }
 
 export class FileLogWriterService implements ILogWriterService {
+  declare readonly _serviceBrand: undefined;
   private readonly sink: RotatingFileWriter;
   private readonly format: FormatOptions;
 
@@ -276,6 +277,7 @@ export class FileLogWriterService implements ILogWriterService {
 }
 
 export class SessionFileLogWriterService extends Disposable implements ILogWriterService {
+  declare readonly _serviceBrand: undefined;
   private readonly inner: FileLogWriterService;
 
   constructor(

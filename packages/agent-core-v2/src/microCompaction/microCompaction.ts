@@ -21,6 +21,7 @@ export interface MicroCompactionEffect {
 }
 
 export interface IMicroCompactionService {
+  readonly _serviceBrand: undefined;
   compact(messages: readonly ContextMessage[]): readonly ContextMessage[];
 }
 

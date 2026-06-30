@@ -31,6 +31,7 @@ interface McpToolCollision {
 }
 
 export class McpService extends Disposable implements IMcpService {
+  declare readonly _serviceBrand: undefined;
   private readonly mcpTools = new Map<string, McpToolRegistration>();
   private readonly mcpToolsByServer = new Map<string, string[]>();
 

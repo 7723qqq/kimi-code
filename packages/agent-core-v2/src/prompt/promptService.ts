@@ -9,6 +9,7 @@ import { IWireRecord } from '#/wireRecord';
 import { IPromptService } from './prompt';
 
 export class PromptService implements IPromptService {
+  declare readonly _serviceBrand: undefined;
   private readonly steerQueue: ContextMessage[] = [];
   private observedTurn: Turn | undefined;
 

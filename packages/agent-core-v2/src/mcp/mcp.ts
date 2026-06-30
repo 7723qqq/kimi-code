@@ -15,6 +15,7 @@ export interface McpResolvedServer {
 }
 
 export interface IMcpService {
+  readonly _serviceBrand: undefined;
   readonly oauthService: McpOAuthService | undefined;
 
   waitForInitialLoad(signal?: AbortSignal): Promise<void>;

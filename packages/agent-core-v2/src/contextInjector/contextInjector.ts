@@ -14,6 +14,7 @@ export type ContextInjectionProvider = (
 ) => string | undefined | Promise<string | undefined>;
 
 export interface IContextInjector {
+  readonly _serviceBrand: undefined;
   register(
     variant: string,
     provider: ContextInjectionProvider,

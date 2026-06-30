@@ -14,6 +14,7 @@ export interface CompactInput {
 }
 
 export interface IFullCompaction {
+  readonly _serviceBrand: undefined;
   readonly isCompacting: boolean;
 
   begin(input: CompactInput): boolean;

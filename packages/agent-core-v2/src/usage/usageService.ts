@@ -21,6 +21,7 @@ declare module '#/wireRecord' {
 }
 
 export class UsageService extends Disposable implements IUsageService {
+  declare readonly _serviceBrand: undefined;
   private readonly byModel: Record<string, TokenUsage> = {};
   private currentTurnId: number | undefined;
   private currentTurn: TokenUsage | undefined;

@@ -16,6 +16,7 @@ export interface ToolStoreUpdate<K extends ToolStoreKey = ToolStoreKey> {
 }
 
 export interface IToolStoreService extends ToolStore {
+  readonly _serviceBrand: undefined;
   data(): Readonly<Partial<ToolStoreData>>;
 
   readonly hooks: Hooks<{

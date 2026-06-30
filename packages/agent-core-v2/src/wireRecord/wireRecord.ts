@@ -59,6 +59,7 @@ export interface WireRecordRegisterOptions<T extends keyof WireRecordMap> {
 }
 
 export interface IWireRecord {
+  readonly _serviceBrand: undefined;
   readonly restoring: WireRecordRestoringContext | null;
   readonly postRestoring: boolean;
 

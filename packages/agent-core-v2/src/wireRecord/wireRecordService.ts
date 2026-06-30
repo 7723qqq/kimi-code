@@ -34,6 +34,7 @@ type Resumer<T extends keyof WireRecordMap> = (data: WireRecord<T>) => void | Pr
 type BlobSelector<T extends keyof WireRecordMap> = WireRecordBlobSelector<WireRecord<T>>;
 
 export class WireRecordService extends Disposable implements IWireRecord {
+  declare readonly _serviceBrand: undefined;
   private readonly records: WireRecord[] = [];
   private readonly resumers = new Map<keyof WireRecordMap, Set<Resumer<keyof WireRecordMap>>>();
   private readonly blobSelectors = new Map<

@@ -23,6 +23,7 @@ import { IWireRecord } from '#/wireRecord';
 export function stubWireRecord(): IWireRecord {
   const hooks = createHooks(['onRestoredRecord', 'onResumeEnded']) as IWireRecord['hooks'];
   return {
+    _serviceBrand: undefined,
     restoring: null,
     postRestoring: false,
     hooks,
@@ -71,6 +72,7 @@ export function stubContextMemory(): StubContextMemory {
     };
   }>;
   return {
+    _serviceBrand: undefined,
     hooks,
     get messages() {
       return messages;

@@ -17,6 +17,7 @@ declare module '#/wireRecord' {
 }
 
 export class ToolStoreService extends Disposable implements IToolStoreService {
+  declare readonly _serviceBrand: undefined;
   private readonly store: Partial<ToolStoreData> = {};
 
   readonly hooks = {

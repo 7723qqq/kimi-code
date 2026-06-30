@@ -8,11 +8,24 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
 import {
   BackgroundTaskPersistence,
   type BackgroundTaskInfo,
 } from '#/background';
+import {
+  AtomicDocumentStore,
+  FileStorageService,
+  IAtomicDocumentStore,
+  IAtomicDocumentStorage,
+  IStorageService,
+} from '#/storage';
 
+const SESSION_SCOPE = 'session';
+
+let disposables: DisposableStore;
 let sessionDir: string;
 let persistence: BackgroundTaskPersistence;
 
@@ -38,10 +51,24 @@ beforeEach(async () => {
     `kimi-bg-persist-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   await mkdir(sessionDir, { recursive: true });
-  persistence = new BackgroundTaskPersistence(sessionDir);
+
+  // `BackgroundTaskPersistence` is a plain (non-DI) helper constructed by
+  // `BackgroundService`, so the test builds it directly. Its `docs`
+  // collaborator (`IAtomicDocumentStore`) carries an `@IService` dependency, so
+  // it is resolved by interface through the container rather than `new`ed.
+  disposables = new DisposableStore();
+  const ix = disposables.add(new TestInstantiationService());
+  const fs = new FileStorageService(sessionDir, 0o700);
+  ix.set(IAtomicDocumentStorage, fs);
+  ix.set(IStorageService, fs);
+  ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
+  const docs = ix.get(IAtomicDocumentStore);
+  const bytes = ix.get(IStorageService);
+  persistence = new BackgroundTaskPersistence(sessionDir, SESSION_SCOPE, docs, bytes);
 });
 
 afterEach(async () => {
+  disposables.dispose();
   await rm(sessionDir, { recursive: true, force: true });
 });
 
@@ -87,14 +114,14 @@ describe('BackgroundTaskPersistence', () => {
 
   it('listTasks skips corrupt files', async () => {
     await persistence.writeTask(sample());
-    await writeFile(join(sessionDir, 'tasks', 'bash-baaaaaaa.json'), '{not json', 'utf-8');
+    await writeFile(join(sessionDir, SESSION_SCOPE, 'tasks', 'bash-baaaaaaa.json'), '{not json', 'utf-8');
     const all = await persistence.listTasks();
     expect(all.map((task) => task.taskId)).toEqual(['bash-11111111']);
   });
 
   it('writeTask creates tasks dir with mode 0700', async () => {
     await persistence.writeTask(sample());
-    const st = await stat(join(sessionDir, 'tasks'));
+    const st = await stat(join(sessionDir, SESSION_SCOPE, 'tasks'));
     // eslint-disable-next-line no-bitwise
     expect(st.mode & 0o777).toBe(0o700);
   });
@@ -110,7 +137,7 @@ describe('BackgroundTaskPersistence', () => {
   it('listTasks silently skips non-validating task id files', async () => {
     await persistence.writeTask(sample());
     await writeFile(
-      join(sessionDir, 'tasks', 'BAD-ID!!!.json'),
+      join(sessionDir, SESSION_SCOPE, 'tasks', 'BAD-ID!!!.json'),
       JSON.stringify(sample({ taskId: 'BAD-ID!!!' })),
       'utf-8',
     );
@@ -121,7 +148,7 @@ describe('BackgroundTaskPersistence', () => {
   it('listTasks skips unrecognized records', async () => {
     await persistence.writeTask(sample());
     await writeFile(
-      join(sessionDir, 'tasks', 'bash-cccccccc.json'),
+      join(sessionDir, SESSION_SCOPE, 'tasks', 'bash-cccccccc.json'),
       JSON.stringify({ oops: 1 }),
       'utf-8',
     );

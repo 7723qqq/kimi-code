@@ -40,6 +40,7 @@ export interface PermissionGateOptions {
 }
 
 export interface IPermissionGate {
+  readonly _serviceBrand: undefined;
   data(): PermissionData;
   authorize(
     context: ResolvedToolExecutionHookContext,

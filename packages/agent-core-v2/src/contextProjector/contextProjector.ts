@@ -4,6 +4,7 @@ import type { Message } from '@moonshot-ai/kosong';
 import type { ContextMessage } from '#/contextMemory';
 
 export interface IContextProjector {
+  readonly _serviceBrand: undefined;
   project(messages: readonly ContextMessage[]): readonly Message[];
 }
 

@@ -15,9 +15,7 @@ import {
   MISSING_MEDIA_PLACEHOLDER,
 } from '#/blobStore';
 import { BlobStoreService } from '#/blobStore/blobStoreService';
-import { IBootstrapService } from '#/bootstrap';
-import { HostFileSystem, IHostFileSystem } from '#/hostFs';
-import { stubBootstrap } from '../bootstrap/stubs';
+import { FileStorageService, IBlobStorage } from '#/storage';
 
 const cleanups: string[] = [];
 const disposables: DisposableStore[] = [];
@@ -66,8 +64,7 @@ function createStore(
   disposables.push(disposable);
 
   const ix = disposable.add(new TestInstantiationService());
-  ix.stub(IHostFileSystem, new HostFileSystem());
-  ix.stub(IBootstrapService, stubBootstrap(homeDir));
+  ix.set(IBlobStorage, new FileStorageService(homeDir));
   ix.set(IBlobStoreService, new SyncDescriptor(ctor));
   return ix.get(IBlobStoreService);
 }

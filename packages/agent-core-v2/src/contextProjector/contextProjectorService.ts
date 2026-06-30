@@ -10,6 +10,7 @@ import type { ContentPart, Message, TextPart } from '@moonshot-ai/kosong';
 import { IContextProjector } from './contextProjector';
 
 export class ContextProjectorService implements IContextProjector {
+  declare readonly _serviceBrand: undefined;
   constructor(
     @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {}
@@ -42,6 +43,7 @@ interface ToolExchangeProjection {
 export function normalizeToolExchanges(history: readonly ContextMessage[]): ContextMessage[] {
   const exchangeByToolCallId = new Map<string, ToolExchangeProjection>();
   const exchangeByAssistant = new Map<ContextMessage, ToolExchangeProjection>();
+  const matchedResults = new Set<ContextMessage>();
 
   for (const message of history) {
     if (message.role === 'assistant' && message.toolCalls.length > 0) {
@@ -62,13 +64,26 @@ export function normalizeToolExchanges(history: readonly ContextMessage[]): Cont
     if (exchange === undefined) continue;
     if (!exchange.pendingToolCalls.delete(message.toolCallId)) continue;
     exchange.results.push(message);
+    matchedResults.add(message);
   }
 
   const out: ContextMessage[] = [];
+  let sawAssistant = false;
   for (const message of history) {
-    if (message.role === 'tool') continue;
+    if (message.role === 'tool') {
+      // A result matched to its call is emitted right after that call (below).
+      if (matchedResults.has(message)) continue;
+      // A result whose call was never seen is an orphan and is dropped — but
+      // only once we are in a real projection context (an assistant has
+      // appeared). A leading tool result with no assistant is a bare slice
+      // (micro-compaction sizes single messages this way) and is kept.
+      if (sawAssistant) continue;
+      out.push(message);
+      continue;
+    }
 
     out.push(message);
+    if (message.role === 'assistant') sawAssistant = true;
     const exchange = exchangeByAssistant.get(message);
     if (exchange === undefined) continue;
 

@@ -21,6 +21,7 @@ declare module '#/wireRecord' {
 }
 
 export class ContextMemoryService extends Disposable implements IContextMemory {
+  declare readonly _serviceBrand: undefined;
   private readonly history: ContextMessage[] = [];
 
   readonly hooks = {

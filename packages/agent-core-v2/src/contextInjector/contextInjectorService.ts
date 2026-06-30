@@ -25,6 +25,7 @@ interface ContextInjectionEntry {
 }
 
 export class ContextInjectorService extends Disposable implements IContextInjector {
+  declare readonly _serviceBrand: undefined;
   private readonly entries = new Set<ContextInjectionEntry>();
   private readonly selfInsertedMessages = new WeakMap<ContextMessage, ContextInjectionEntry>();
 

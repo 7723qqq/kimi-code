@@ -27,6 +27,7 @@ export type LLMEvent =
     };
 
 export interface ILLMRequester {
+  readonly _serviceBrand: undefined;
   request(overrides?: LLMRequestOverrides, signal?: AbortSignal): AsyncIterable<LLMEvent>;
 }
 

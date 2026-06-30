@@ -4,6 +4,7 @@ import type { Turn } from "#/turn";
 
 
 export interface IPromptService {
+  readonly _serviceBrand: undefined;
   prompt(message: ContextMessage): Turn | undefined;
   steer(message: ContextMessage): Turn | undefined;
   retry(trigger?: string): Turn | undefined;

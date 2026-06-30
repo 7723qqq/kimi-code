@@ -48,6 +48,7 @@ function extractContext(payload: LogPayload): LogContext | undefined {
 }
 
 export class MemoryLogWriterService implements ILogWriterService {
+  declare readonly _serviceBrand: undefined;
   readonly entries: LogEntry[] = [];
   write(entry: LogEntry): void {
     this.entries.push(entry);
@@ -55,6 +56,7 @@ export class MemoryLogWriterService implements ILogWriterService {
 }
 
 export class ConsoleLogWriterService implements ILogWriterService {
+  declare readonly _serviceBrand: undefined;
   write(entry: LogEntry): void {
     const line = entry.ctx !== undefined ? `${entry.msg} ${JSON.stringify(entry.ctx)}` : entry.msg;
     switch (entry.level) {

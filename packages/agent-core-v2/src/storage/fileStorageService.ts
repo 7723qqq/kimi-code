@@ -53,7 +53,10 @@ export class FileStorageService implements IStorageService {
 
   private readonly syncedDirs = new Set<string>();
 
-  constructor(private readonly baseDir: string) {}
+  constructor(
+    private readonly baseDir: string,
+    private readonly dirMode?: number,
+  ) {}
 
   async read(scope: string, key: string): Promise<Uint8Array | undefined> {
     try {
@@ -83,7 +86,7 @@ export class FileStorageService implements IStorageService {
     _options: StorageWriteOptions = {},
   ): Promise<void> {
     const filePath = this.path(scope, key);
-    await mkdir(dirname(filePath), { recursive: true });
+    await mkdir(dirname(filePath), { recursive: true, mode: this.dirMode });
     await atomicWrite(filePath, data);
     await this.syncDirOnce(dirname(filePath));
   }
@@ -96,7 +99,7 @@ export class FileStorageService implements IStorageService {
   ): Promise<void> {
     const filePath = this.path(scope, key);
     const dir = dirname(filePath);
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: this.dirMode });
 
     const fh = await open(filePath, 'a');
     try {
@@ -151,7 +154,7 @@ export class FileStorageService implements IStorageService {
     // us observe a file that does not exist yet at subscription time.
     const arm = (): void => {
       try {
-        mkdirSync(dir, { recursive: true });
+        mkdirSync(dir, { recursive: true, mode: this.dirMode });
         watcher = fsWatch(dir, (_event, filename) => {
           if (filename === null || filename === name) schedule();
         });

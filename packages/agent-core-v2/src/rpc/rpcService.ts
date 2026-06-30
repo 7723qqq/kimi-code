@@ -44,6 +44,7 @@ import type {
 import { IAgentRPCService } from './rpc';
 
 export class AgentRPCService implements IAgentRPCService {
+  declare readonly _serviceBrand: undefined;
   constructor(
     @IPromptService private readonly promptService: IPromptService,
     @ITurnService private readonly turnService: ITurnService,

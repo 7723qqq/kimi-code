@@ -48,6 +48,7 @@ describe('RestGateway', () => {
     turnService = stubTurn({ hasActiveTurn: true });
 
     const promptService: IPromptService = {
+      _serviceBrand: undefined,
       prompt: (message) => {
         promptCalls.push(message);
         return undefined;

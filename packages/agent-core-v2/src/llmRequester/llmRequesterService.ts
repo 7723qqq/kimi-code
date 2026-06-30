@@ -47,6 +47,7 @@ const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
 };
 
 export class LLMRequesterService implements ILLMRequester {
+  declare readonly _serviceBrand: undefined;
   constructor(
     private readonly options: LLMRequesterServiceOptions = {},
     @IContextMemory private readonly context: IContextMemory,

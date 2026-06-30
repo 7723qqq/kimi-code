@@ -30,6 +30,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 export class PermissionGate extends Disposable implements IPermissionGate {
+  declare readonly _serviceBrand: undefined;
   constructor(
     private readonly options: PermissionGateOptions = {},
     @IPermissionModeService private readonly modeService: IPermissionModeService,

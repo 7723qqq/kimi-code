@@ -89,6 +89,7 @@ class CompactionTruncatedError extends Error {
 }
 
 export class FullCompactionService extends Disposable implements IFullCompaction {
+  declare readonly _serviceBrand: undefined;
   private readonly strategy: CompactionStrategy;
   private compactionCountInTurn = 0;
   private compacting: ActiveCompaction | null = null;

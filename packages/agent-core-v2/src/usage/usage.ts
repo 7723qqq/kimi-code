@@ -14,6 +14,7 @@ export interface UsageStatus {
 }
 
 export interface IUsageService {
+  readonly _serviceBrand: undefined;
   record(model: string, usage: TokenUsage, context?: UsageRecordContext): void;
   status(): UsageStatus;
 }

@@ -5,9 +5,11 @@ import type {
 } from './core-api';
 import type { PromisableMethods } from "#/_base/utils/types";
 
-export interface IAgentRPCService extends PromisableMethods<AgentAPI> {}
+export interface IAgentRPCService extends PromisableMethods<AgentAPI> {
+  readonly _serviceBrand: undefined;}
 
-export interface ISessionRPCService extends PromisableMethods<SessionAPI> {}
+export interface ISessionRPCService extends PromisableMethods<SessionAPI> {
+  readonly _serviceBrand: undefined;}
 
 export const IAgentRPCService =
   createDecorator<IAgentRPCService>('agentRPCService');

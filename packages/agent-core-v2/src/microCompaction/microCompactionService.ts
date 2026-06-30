@@ -45,6 +45,7 @@ export class MicroCompactionService
   extends Disposable
   implements IMicroCompactionService
 {
+  declare readonly _serviceBrand: undefined;
   private cutoff = 0;
   private readonly config: MicroCompactionConfig;
   private _lastAssistantAt: number | null = null;

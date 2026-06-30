@@ -9,6 +9,7 @@ export interface LoopRunHooks {
 }
 
 export interface ILoopService {
+  readonly _serviceBrand: undefined;
   runTurn(turn: Turn, hooks?: LoopRunHooks): Promise<TurnResult>;
 }
 

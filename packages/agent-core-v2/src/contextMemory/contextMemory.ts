@@ -4,6 +4,7 @@ import type { Hooks } from '#/hooks';
 import type { ContextMessage } from './types';
 
 export interface IContextMemory {
+  readonly _serviceBrand: undefined;
   get(): readonly ContextMessage[];
   splice(
     start: number,

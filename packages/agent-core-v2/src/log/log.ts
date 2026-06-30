@@ -31,6 +31,7 @@ export interface LogEntry {
 }
 
 export interface ILogWriterService {
+  readonly _serviceBrand: undefined;
   write(entry: LogEntry): void;
   flush?(): Promise<void>;
   close?(): Promise<void>;

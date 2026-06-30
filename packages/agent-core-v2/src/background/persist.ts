@@ -107,7 +107,13 @@ export class BackgroundTaskPersistence {
       if (!key.endsWith(JSON_SUFFIX)) continue;
       const id = key.slice(0, -JSON_SUFFIX.length);
       if (!VALID_TASK_ID.test(id)) continue;
-      const task = await this.docs.get<DiskPersistedTask>(this.tasksScope(), key);
+      let task: DiskPersistedTask | undefined;
+      try {
+        task = await this.docs.get<DiskPersistedTask>(this.tasksScope(), key);
+      } catch {
+        // Skip files that fail to read / parse (corrupt or partially written).
+        continue;
+      }
       if (task === undefined || !isReadablePersistedTask(task)) continue;
       tasks.push(normalizePersistedTask(task));
     }

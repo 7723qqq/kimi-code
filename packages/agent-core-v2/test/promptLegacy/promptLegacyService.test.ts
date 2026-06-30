@@ -46,6 +46,7 @@ function createHarness(): Harness {
   const steered: string[] = [];
 
   const prompt: IPromptService = {
+    _serviceBrand: undefined,
     prompt: () => {
       if (activeTurn !== undefined) return undefined;
       const { turn, settle } = controlledTurn(nextTurnId++);
