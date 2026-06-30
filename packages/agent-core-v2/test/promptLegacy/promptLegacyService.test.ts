@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 
-import type { IPermissionModeService } from '#/permissionMode';
-import type { IProfileService } from '#/profile';
-import type { IPromptService } from '#/prompt';
-import type { ITurnService, Turn, TurnResult } from '#/turn';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { createServices } from '#/_base/di/test';
+import { IPermissionModeService } from '#/permissionMode/permissionMode';
+import { IProfileService } from '#/profile/profile';
+import { IPromptService } from '#/prompt/prompt';
+import { ITurnService, type Turn, type TurnResult } from '#/turn/turn';
 import type { PromptSubmission } from '@moonshot-ai/protocol';
 
-import { PromptLegacyService } from '#/promptLegacy';
+import { IPromptLegacyService, PromptLegacyService } from '#/promptLegacy';
 
 interface ControlledTurn {
   readonly turn: Turn;
@@ -32,13 +34,16 @@ function textBody(text: string): PromptSubmission {
 }
 
 interface Harness {
-  readonly service: PromptLegacyService;
+  readonly service: IPromptLegacyService;
   readonly turns: Turn[];
   readonly settleActive: (result: TurnResult) => void;
   readonly steered: string[];
 }
 
 function createHarness(): Harness {
+  const disposables = new DisposableStore();
+  onTestFinished(() => disposables.dispose());
+
   let nextTurnId = 0;
   let activeTurn: Turn | undefined;
   let activeSettle: ((result: TurnResult) => void) | undefined;
@@ -94,7 +99,16 @@ function createHarness(): Harness {
     setMode: () => {},
   } as unknown as IPermissionModeService;
 
-  const service = new PromptLegacyService(prompt, turnService, profile, permissionMode);
+  const ix = createServices(disposables, {
+    additionalServices: (reg) => {
+      reg.defineInstance(IPromptService, prompt);
+      reg.defineInstance(ITurnService, turnService);
+      reg.defineInstance(IProfileService, profile);
+      reg.defineInstance(IPermissionModeService, permissionMode);
+      reg.define(IPromptLegacyService, PromptLegacyService);
+    },
+  });
+  const service = ix.get(IPromptLegacyService);
   return {
     service,
     turns,

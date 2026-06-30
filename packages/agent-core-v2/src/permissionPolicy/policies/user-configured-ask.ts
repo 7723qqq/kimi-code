@@ -4,18 +4,14 @@ import type {
   PermissionPolicy,
   PermissionPolicyResult,
 } from '../types';
-import type { PermissionPolicyRuntime } from './runtime';
 import { evaluateUserConfiguredRule } from './user-configured-rule';
 
 export class UserConfiguredAskPermissionPolicyService implements PermissionPolicy {
   readonly name = 'user-configured-ask';
 
-  constructor(
-    private readonly runtime: PermissionPolicyRuntime,
-    @IPermissionRulesService private readonly rulesService: IPermissionRulesService,
-  ) {}
+  constructor(@IPermissionRulesService private readonly rulesService: IPermissionRulesService) {}
 
   evaluate(context: ResolvedToolExecutionHookContext): PermissionPolicyResult | undefined {
-    return evaluateUserConfiguredRule(context, 'ask', this.rulesService, this.runtime);
+    return evaluateUserConfiguredRule(context, 'ask', this.rulesService);
   }
 }

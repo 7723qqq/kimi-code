@@ -37,24 +37,29 @@ interface IndexFile {
   readonly files: FileMeta[];
 }
 
-export interface FileStoreServiceOptions {
-  /** Override the 50 MiB upload cap; mainly for tests. */
-  readonly maxUploadBytes?: number;
+function isFileMeta(value: unknown): value is FileMeta {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const meta = value as Record<string, unknown>;
+  return (
+    typeof meta['id'] === 'string' &&
+    meta['id'].startsWith('f_') &&
+    typeof meta['name'] === 'string' &&
+    typeof meta['media_type'] === 'string' &&
+    typeof meta['size'] === 'number' &&
+    Number.isSafeInteger(meta['size']) &&
+    meta['size'] >= 0 &&
+    typeof meta['created_at'] === 'string' &&
+    (meta['expires_at'] === undefined || typeof meta['expires_at'] === 'string')
+  );
 }
 
 export class FileStoreService implements IFileStore {
   declare readonly _serviceBrand: undefined;
 
-  private readonly maxUploadBytes: number;
   private indexCache: Map<string, FileMeta> | undefined;
   private indexLoadPromise: Promise<void> | undefined;
 
-  constructor(
-    @IBlobStorage private readonly blobs: IStorageService,
-    options: FileStoreServiceOptions = {},
-  ) {
-    this.maxUploadBytes = options.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
-  }
+  constructor(@IBlobStorage private readonly blobs: IStorageService) {}
 
   async save(source: Readable, filename: string, options: SaveOptions = {}): Promise<FileMeta> {
     await this.ensureIndex();
@@ -65,8 +70,8 @@ export class FileStoreService implements IFileStore {
     for await (const chunk of source) {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
       bytes += buf.length;
-      if (bytes > this.maxUploadBytes) {
-        throw fileTooLargeError(bytes, this.maxUploadBytes);
+      if (bytes > DEFAULT_MAX_UPLOAD_BYTES) {
+        throw fileTooLargeError(bytes, DEFAULT_MAX_UPLOAD_BYTES);
       }
       chunks.push(buf);
     }
@@ -138,7 +143,7 @@ export class FileStoreService implements IFileStore {
       const map = new Map<string, FileMeta>();
       if (parsed && Array.isArray(parsed.files)) {
         for (const f of parsed.files) {
-          if (f && typeof f.id === 'string') {
+          if (isFileMeta(f)) {
             map.set(f.id, f);
           }
         }

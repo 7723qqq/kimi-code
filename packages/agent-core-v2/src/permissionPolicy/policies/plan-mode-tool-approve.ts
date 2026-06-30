@@ -1,24 +1,28 @@
+import { IPlanService } from '#/plan';
+import type { IPlanService as PlanService } from '#/plan';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
 } from '../types';
 import { writesOnlyPlanFile } from './path-utils';
-import type { PermissionPolicyRuntime } from './runtime';
 
 export class PlanModeToolApprovePermissionPolicyService implements PermissionPolicy {
   readonly name = 'plan-mode-tool-approve';
 
-  constructor(private readonly runtime: PermissionPolicyRuntime) {}
+  constructor(@IPlanService private readonly plan: PlanService) {}
 
-  evaluate(context: ResolvedToolExecutionHookContext): PermissionPolicyResult | undefined {
+  async evaluate(
+    context: ResolvedToolExecutionHookContext,
+  ): Promise<PermissionPolicyResult | undefined> {
     const toolName = context.toolCall.name;
     if (toolName === 'EnterPlanMode') return { kind: 'approve' };
 
-    const planFilePath = this.runtime.planFilePath();
+    const plan = await this.plan.status();
+    const planFilePath = plan?.path ?? null;
     if (
       (toolName === 'Write' || toolName === 'Edit') &&
-      this.runtime.planModeActive() &&
+      plan !== null &&
       planFilePath !== null &&
       writesOnlyPlanFile(context, planFilePath)
     ) {
@@ -26,7 +30,7 @@ export class PlanModeToolApprovePermissionPolicyService implements PermissionPol
     }
 
     if (toolName === 'ExitPlanMode') {
-      if (!this.runtime.planModeActive()) return { kind: 'approve' };
+      if (plan === null) return { kind: 'approve' };
       if (context.execution.display?.kind !== 'plan_review') return { kind: 'approve' };
       if (context.execution.display.plan.trim().length === 0) return { kind: 'approve' };
     }

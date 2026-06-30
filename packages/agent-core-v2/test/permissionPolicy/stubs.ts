@@ -17,7 +17,6 @@ export function stubPermissionPolicyService(
 ): IPermissionPolicyService {
   return {
     _serviceBrand: undefined,
-    configure: () => {},
     evaluate: () => Promise.resolve(next()),
   };
 }

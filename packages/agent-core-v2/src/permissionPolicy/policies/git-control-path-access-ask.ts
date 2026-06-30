@@ -1,30 +1,33 @@
 import type { ResolvedToolExecutionHookContext } from '#/tool';
-import { IProfileService } from '../../profile/profile';
+import { IKaos } from '#/kaos';
+import type { IKaos as KaosService } from '#/kaos';
+import { IWorkspaceContext } from '#/workspaceContext';
+import type { IWorkspaceContext as WorkspaceContext } from '#/workspaceContext';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
 } from '../types';
 import {
   fileAccesses,
+  findLocalGitWorkTreeMarker,
   hasGitPathComponent,
   isGitControlPath,
 } from './path-utils';
-import type { PermissionPolicyRuntime } from './runtime';
 
 export class GitControlPathAccessAskPermissionPolicyService implements PermissionPolicy {
   readonly name = 'git-control-path-access-ask';
 
   constructor(
-    private readonly runtime: PermissionPolicyRuntime,
-    @IProfileService private readonly profile: IProfileService,
+    @IKaos private readonly kaos: KaosService,
+    @IWorkspaceContext private readonly workspace: WorkspaceContext,
   ) {}
 
   async evaluate(
     context: ResolvedToolExecutionHookContext,
   ): Promise<PermissionPolicyResult | undefined> {
-    const cwd = this.cwd();
+    const cwd = this.workspace.workDir;
     if (cwd.length === 0) return undefined;
-    const pathClass = this.runtime.pathClass();
+    const pathClass = this.kaos.pathClass();
     const accesses = fileAccesses(context);
     if (accesses.length === 0) return undefined;
 
@@ -33,15 +36,11 @@ export class GitControlPathAccessAskPermissionPolicyService implements Permissio
     );
     if (directGitAccess !== undefined) return { kind: 'ask' };
 
-    const marker = await this.runtime.findGitWorkTreeMarker(cwd);
+    const marker = await findLocalGitWorkTreeMarker(cwd);
     if (marker === null) return undefined;
     const access = accesses.find((fileAccess) =>
       isGitControlPath(fileAccess.path, marker, pathClass),
     );
     return access === undefined ? undefined : { kind: 'ask' };
-  }
-
-  private cwd(): string {
-    return this.runtime.options.cwd ?? this.profile.data().cwd ?? '';
   }
 }

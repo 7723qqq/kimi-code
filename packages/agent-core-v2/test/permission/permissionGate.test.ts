@@ -10,6 +10,7 @@ import type { ApprovalResponse } from '#/approval/approval';
 import type { ApprovalRequest } from '#/approval/approval';
 import { IApprovalService } from '#/approval/approval';
 import { IExternalHooksService } from '#/externalHooks';
+import { IKaos } from '#/kaos';
 import type { LLM } from '#/loop/llm';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { IPermissionGate, PermissionGate } from '#/permission';
@@ -24,10 +25,14 @@ import type {
 } from '#/permissionRules';
 import type { PermissionRule } from '#/permissionRules';
 import { IPermissionRulesService } from '#/permissionRules';
+import { IPlanService } from '#/plan';
 import { IProfileService, type ProfileData } from '#/profile';
+import { ISessionContext } from '#/session-context';
+import { ISwarmService } from '#/swarm';
 import { ITelemetryService } from '#/telemetry/telemetry';
 import { IToolExecutor } from '#/toolExecutor';
 import { ITurnService } from '#/turn';
+import { IWorkspaceContext } from '#/workspaceContext';
 import type { ToolCall } from '@moonshot-ai/kosong';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
@@ -100,6 +105,27 @@ describe('PermissionGate', () => {
         });
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
         reg.defineInstance(IApprovalService, stubApprovalService(() => approvalResponse));
+        reg.defineInstance(ISessionContext, {
+          _serviceBrand: undefined,
+          sessionId: 'test-session',
+          workspaceId: 'test-workspace',
+          sessionDir: '/tmp/test-session',
+          metaScope: 'sessions/test-workspace/test-session/session-meta',
+        });
+        reg.definePartialInstance(IPlanService, {
+          status: async () => null,
+          exit: () => {},
+        });
+        reg.definePartialInstance(ISwarmService, {
+          isActive: false,
+        });
+        reg.definePartialInstance(IKaos, {
+          pathClass: () => 'posix',
+        });
+        reg.definePartialInstance(IWorkspaceContext, {
+          workDir: '/workspace',
+          additionalDirs: [],
+        });
         reg.defineInstance(ITurnService, stubTurnWithHooks());
         reg.defineInstance(IToolExecutor, stubToolExecutor());
         reg.definePartialInstance(IProfileService, {
@@ -168,6 +194,18 @@ describe('PermissionGate', () => {
     expect(await svc.authorize(makeContext('bash'))).toEqual({
       block: true,
       reason: 'nope',
+    });
+  });
+
+  it('adds subagent retry guidance to policy deny messages', async () => {
+    policyResult = { policyName: 'p', result: { kind: 'deny', message: 'nope' } };
+    const svc = make({ agentType: 'sub' });
+    const retryGuidance =
+      "Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
+
+    expect(await svc.authorize(makeContext('bash'))).toEqual({
+      block: true,
+      reason: `nope ${retryGuidance}`,
     });
   });
 

@@ -20,6 +20,7 @@ import {
   type PermissionPolicyResult,
 } from '#/permissionPolicy';
 import { IPermissionRulesService } from '#/permissionRules';
+import { ISessionContext } from '#/session-context';
 import { ITelemetryService } from '#/telemetry';
 import { IToolExecutor } from '#/toolExecutor';
 import {
@@ -37,15 +38,12 @@ export class PermissionGate extends Disposable implements IPermissionGate {
     @IPermissionRulesService private readonly rulesService: IPermissionRulesService,
     @IPermissionPolicyService private readonly policyService: IPermissionPolicyService,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
+    @ISessionContext private readonly session: ISessionContext,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IToolExecutor toolExecutor: IToolExecutor,
   ) {
     super();
-    this.policyService.configure(options);
-    if (options.initialMode !== undefined) {
-      this.modeService.setMode(options.initialMode);
-    }
     toolExecutor.hooks.onWillExecuteTool.register('permission', async (ctx, next) => {
       const result = await this.authorize(ctx);
       if (result !== undefined) {
@@ -97,7 +95,9 @@ export class PermissionGate extends Disposable implements IPermissionGate {
       case 'deny':
         return {
           block: true,
-          reason: result.message ?? this.formatPolicyDenyMessage(context.toolCall.name),
+          reason: this.formatDenyMessage(
+            result.message ?? `Tool "${context.toolCall.name}" was denied by permission policy.`,
+          ),
         };
       case 'ask':
         return this.requestToolApproval(context, result, policyName);
@@ -139,7 +139,7 @@ export class PermissionGate extends Disposable implements IPermissionGate {
       });
       try {
         response = await approvalService.request({
-          sessionId: this.options.sessionId ?? 'service-session',
+          sessionId: this.session.sessionId,
           agentId: this.options.agentId ?? 'main',
           turnId: numericTurnId(context.turnId),
           toolCallId: context.toolCall.id,
@@ -247,18 +247,21 @@ export class PermissionGate extends Disposable implements IPermissionGate {
       result.decision === 'cancelled'
         ? `Tool "${toolName}" was not run because the approval request was cancelled.`
         : `Tool "${toolName}" was not run because the user rejected the approval request.`;
-    if (this.options.agentType === 'sub') {
+    if (this.isSubagent()) {
       return `${prefix}${suffix} Try a different approach — don't retry the same call, don't attempt to bypass the restriction.`;
     }
     return `${prefix}${suffix}`;
   }
 
-  private formatPolicyDenyMessage(toolName: string): string {
-    const prefix = `Tool "${toolName}" was denied by permission policy.`;
-    if (this.options.agentType === 'sub') {
-      return `${prefix} Try a different approach — don't retry the same call, don't attempt to bypass the restriction.`;
+  private formatDenyMessage(message: string): string {
+    if (this.isSubagent()) {
+      return `${message} Try a different approach — don't retry the same call, don't attempt to bypass the restriction.`;
     }
-    return prefix;
+    return message;
+  }
+
+  private isSubagent(): boolean {
+    return this.options.agentType === 'sub';
   }
 }
 

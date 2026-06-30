@@ -1,19 +1,24 @@
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { isWithinWorkspace } from '#/_base/tools/policies/path-access';
-import { IProfileService } from '../../profile/profile';
+import { IKaos } from '#/kaos';
+import type { IKaos as KaosService } from '#/kaos';
+import { IWorkspaceContext } from '#/workspaceContext';
+import type { IWorkspaceContext as WorkspaceContext } from '#/workspaceContext';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
 } from '../types';
-import { writeFileAccesses } from './path-utils';
-import type { PermissionPolicyRuntime } from './runtime';
+import {
+  findLocalGitWorkTreeMarker,
+  writeFileAccesses,
+} from './path-utils';
 
 export class GitCwdWriteApprovePermissionPolicyService implements PermissionPolicy {
   readonly name = 'git-cwd-write-approve';
 
   constructor(
-    private readonly runtime: PermissionPolicyRuntime,
-    @IProfileService private readonly profile: IProfileService,
+    @IKaos private readonly kaos: KaosService,
+    @IWorkspaceContext private readonly workspace: WorkspaceContext,
   ) {}
 
   async evaluate(
@@ -21,28 +26,27 @@ export class GitCwdWriteApprovePermissionPolicyService implements PermissionPoli
   ): Promise<PermissionPolicyResult | undefined> {
     const toolName = context.toolCall.name;
     if (toolName !== 'Write' && toolName !== 'Edit') return undefined;
-    if (this.runtime.pathClass() !== 'posix') return undefined;
+    if (this.kaos.pathClass() !== 'posix') return undefined;
 
-    const cwd = this.cwd();
+    const cwd = this.workspace.workDir;
     if (cwd.length === 0) return undefined;
 
     const writeAccesses = writeFileAccesses(context);
     if (writeAccesses.length === 0) return undefined;
-    const additionalDirs = this.runtime.options.additionalDirs ?? [];
     if (
       !writeAccesses.every((access) =>
-        isWithinWorkspace(access.path, { workspaceDir: cwd, additionalDirs }, 'posix'),
+        isWithinWorkspace(
+          access.path,
+          { workspaceDir: cwd, additionalDirs: this.workspace.additionalDirs },
+          'posix',
+        ),
       )
     ) {
       return undefined;
     }
 
-    return (await this.runtime.findGitWorkTreeMarker(cwd)) === null
+    return (await findLocalGitWorkTreeMarker(cwd)) === null
       ? undefined
       : { kind: 'approve' };
-  }
-
-  private cwd(): string {
-    return this.runtime.options.cwd ?? this.profile.data().cwd ?? '';
   }
 }

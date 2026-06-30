@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import type { ToolCall } from '@moonshot-ai/kosong';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +16,7 @@ import {
   matchesPathRuleSubject,
 } from '#/_base/tools/support/rule-match';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
+import { IKaos, type IKaos as KaosService } from '#/kaos';
 import { IPermissionModeService } from '#/permissionMode';
 import {
   IPermissionPolicyService,
@@ -25,9 +30,11 @@ import {
   type PermissionApprovalResultRecord,
   type PermissionRule,
 } from '#/permissionRules';
-import { IProfileService, type ProfileData } from '#/profile';
+import { IPlanService, type PlanData } from '#/plan';
+import { ISwarmService } from '#/swarm';
 import { ITelemetryService } from '#/telemetry';
 import { ToolAccesses, type ToolAccesses as ToolAccessList } from '#/tool';
+import { IWorkspaceContext } from '#/workspaceContext';
 
 import { stubPermissionModeService } from '../permissionMode/stubs';
 import { recordingTelemetry } from '../telemetry/stubs';
@@ -40,12 +47,18 @@ describe('PermissionPolicyService chain', () => {
   let mode: PermissionMode;
   let rules: PermissionRule[];
   let sessionApprovalRulePatterns: string[];
+  let plan: PlanData;
+  let swarmActive: boolean;
+  let workspace: ReturnType<typeof workspaceStub>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     mode = 'manual';
     rules = [];
     sessionApprovalRulePatterns = [];
+    plan = null;
+    swarmActive = false;
+    workspace = workspaceStub('/workspace');
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.defineInstance(IPermissionModeService, stubPermissionModeService(() => mode));
@@ -53,9 +66,12 @@ describe('PermissionPolicyService chain', () => {
           rules: () => rules,
           sessionApprovalRulePatterns: () => sessionApprovalRulePatterns,
         }));
-        reg.definePartialInstance(IProfileService, {
-          data: () => ({ cwd: '/workspace' }) as ProfileData,
-        });
+        reg.defineInstance(IWorkspaceContext, workspace);
+        reg.defineInstance(IKaos, kaosStub());
+        reg.definePartialInstance(IPlanService, planServiceStub(() => plan, () => {
+          plan = null;
+        }));
+        reg.definePartialInstance(ISwarmService, swarmServiceStub(() => swarmActive));
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
         reg.define(IPermissionPolicyService, PermissionPolicyService);
       },
@@ -73,10 +89,8 @@ describe('PermissionPolicyService chain', () => {
 
   async function evaluate(
     input: PolicyContextInput,
-    options: Parameters<IPermissionPolicyService['configure']>[0] = {},
   ): Promise<PermissionPolicyEvaluation | undefined> {
     const svc = service();
-    svc.configure(options);
     return svc.evaluate(policyContext(input));
   }
 
@@ -192,20 +206,25 @@ describe('PermissionPolicyService plan-mode policies', () => {
   let ix: TestInstantiationService;
   let mode: PermissionMode;
   let sessionApprovalRulePatterns: string[];
+  let plan: PlanData;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     mode = 'manual';
     sessionApprovalRulePatterns = [];
+    plan = null;
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.defineInstance(IPermissionModeService, stubPermissionModeService(() => mode));
         reg.definePartialInstance(IPermissionRulesService, permissionRulesStub({
           sessionApprovalRulePatterns: () => sessionApprovalRulePatterns,
         }));
-        reg.definePartialInstance(IProfileService, {
-          data: () => ({ cwd: '/workspace' }) as ProfileData,
-        });
+        reg.defineInstance(IWorkspaceContext, workspaceStub('/workspace'));
+        reg.defineInstance(IKaos, kaosStub());
+        reg.definePartialInstance(IPlanService, planServiceStub(() => plan, () => {
+          plan = null;
+        }));
+        reg.definePartialInstance(ISwarmService, swarmServiceStub(() => false));
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
         reg.define(IPermissionPolicyService, PermissionPolicyService);
       },
@@ -219,10 +238,8 @@ describe('PermissionPolicyService plan-mode policies', () => {
 
   async function evaluate(
     input: PolicyContextInput,
-    options: Parameters<IPermissionPolicyService['configure']>[0] = {},
   ): Promise<PermissionPolicyEvaluation | undefined> {
     const svc = ix.get(IPermissionPolicyService);
-    svc.configure(options);
     return svc.evaluate(policyContext(input));
   }
 
@@ -237,6 +254,7 @@ describe('PermissionPolicyService plan-mode policies', () => {
     'approves %s when it only writes the active plan file',
     async (toolName) => {
       const planFilePath = '/workspace/.kimi/plans/current.md';
+      plan = planData(planFilePath);
       await expect(evaluate({
         toolName,
         args: toolName === 'Write'
@@ -245,8 +263,6 @@ describe('PermissionPolicyService plan-mode policies', () => {
         accesses: toolName === 'Write'
           ? ToolAccesses.writeFile(planFilePath)
           : ToolAccesses.readWriteFile(planFilePath),
-      }, {
-        planMode: planModeState({ isActive: true, planFilePath }),
       })).resolves.toMatchObject({
         policyName: 'plan-mode-tool-approve',
         result: { kind: 'approve' },
@@ -256,13 +272,12 @@ describe('PermissionPolicyService plan-mode policies', () => {
 
   it('denies active plan-mode writes that have no file write access', async () => {
     const planFilePath = '/workspace/.kimi/plans/current.md';
+    plan = planData(planFilePath);
 
     await expect(evaluate({
       toolName: 'Write',
       args: { path: planFilePath, content: '# Plan' },
       accesses: ToolAccesses.none(),
-    }, {
-      planMode: planModeState({ isActive: true, planFilePath }),
     })).resolves.toMatchObject({
       policyName: 'plan-mode-guard-deny',
       result: {
@@ -277,8 +292,6 @@ describe('PermissionPolicyService plan-mode policies', () => {
       toolName: 'ExitPlanMode',
       args: {},
       display: planReviewDisplay({ plan: '# Plan' }),
-    }, {
-      planMode: planModeState({ isActive: false, planFilePath: '/tmp/plan.md' }),
     })).resolves.toMatchObject({
       policyName: 'plan-mode-tool-approve',
       result: { kind: 'approve' },
@@ -286,12 +299,11 @@ describe('PermissionPolicyService plan-mode policies', () => {
   });
 
   it('approves ExitPlanMode while active when there is no plan review display', async () => {
+    plan = planData('/tmp/plan.md');
     await expect(evaluate({
       toolName: 'ExitPlanMode',
       args: {},
       display: { kind: 'generic', summary: 'exit', detail: {} },
-    }, {
-      planMode: planModeState({ isActive: true, planFilePath: '/tmp/plan.md' }),
     })).resolves.toMatchObject({
       policyName: 'plan-mode-tool-approve',
       result: { kind: 'approve' },
@@ -299,12 +311,11 @@ describe('PermissionPolicyService plan-mode policies', () => {
   });
 
   it('approves ExitPlanMode while active when the plan review is blank', async () => {
+    plan = planData('/tmp/plan.md');
     await expect(evaluate({
       toolName: 'ExitPlanMode',
       args: {},
       display: planReviewDisplay({ plan: '  \n\t' }),
-    }, {
-      planMode: planModeState({ isActive: true, planFilePath: '/tmp/plan.md' }),
     })).resolves.toMatchObject({
       policyName: 'plan-mode-tool-approve',
       result: { kind: 'approve' },
@@ -312,12 +323,11 @@ describe('PermissionPolicyService plan-mode policies', () => {
   });
 
   it('defers non-empty plan reviews to the review approval policy in manual mode', async () => {
+    plan = planData('/tmp/plan.md');
     await expect(evaluate({
       toolName: 'ExitPlanMode',
       args: {},
       display: planReviewDisplay({ plan: '# Plan' }),
-    }, {
-      planMode: planModeState({ isActive: true, planFilePath: '/tmp/plan.md' }),
     })).resolves.toMatchObject({
       policyName: 'exit-plan-mode-review-ask',
       result: { kind: 'ask' },
@@ -326,13 +336,12 @@ describe('PermissionPolicyService plan-mode policies', () => {
 
   it('requests plan-review approval in yolo mode', async () => {
     mode = 'yolo';
+    plan = planData('/tmp/plan.md');
 
     await expect(evaluate({
       toolName: 'ExitPlanMode',
       args: {},
       display: planReviewDisplay({ plan: '# Plan' }),
-    }, {
-      planMode: planModeState({ isActive: true, planFilePath: '/tmp/plan.md' }),
     })).resolves.toMatchObject({
       policyName: 'exit-plan-mode-review-ask',
       result: { kind: 'ask' },
@@ -341,13 +350,12 @@ describe('PermissionPolicyService plan-mode policies', () => {
 
   it('reuses session approval for ExitPlanMode without re-prompting plan review', async () => {
     sessionApprovalRulePatterns.push('ExitPlanMode');
+    plan = planData('/tmp/plan.md');
 
     await expect(evaluate({
       toolName: 'ExitPlanMode',
       args: {},
       display: planReviewDisplay({ plan: '# Updated Plan' }),
-    }, {
-      planMode: planModeState({ isActive: true, planFilePath: '/tmp/plan.md' }),
     })).resolves.toMatchObject({
       policyName: 'session-approval-history',
       result: { kind: 'approve' },
@@ -355,11 +363,10 @@ describe('PermissionPolicyService plan-mode policies', () => {
   });
 
   it('uses ordinary Bash approval in manual plan mode', async () => {
+    plan = planData('/tmp/plan.md');
     await expect(evaluate({
       toolName: 'Bash',
       args: { command: 'ls -la', timeout: 60 },
-    }, {
-      planMode: planModeState({ isActive: true, planFilePath: '/tmp/plan.md' }),
     })).resolves.toMatchObject({
       policyName: 'fallback-ask',
       result: { kind: 'ask' },
@@ -373,11 +380,10 @@ describe('PermissionPolicyService plan-mode policies', () => {
     'defers Bash to ordinary %s permission behavior in plan mode',
     async (nextMode, policyName) => {
       mode = nextMode;
+      plan = planData('/tmp/plan.md');
       await expect(evaluate({
         toolName: 'Bash',
         args: { command: 'rm generated.txt', timeout: 60 },
-      }, {
-        planMode: planModeState({ isActive: true, planFilePath: '/tmp/plan.md' }),
       })).resolves.toMatchObject({
         policyName,
         result: { kind: 'approve' },
@@ -390,24 +396,25 @@ describe('PermissionPolicyService git cwd write approval', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let mode: PermissionMode;
-  let gitWorkTreeMarker: NonNullable<
-    Parameters<IPermissionPolicyService['configure']>[0]['gitWorkTreeMarker']
-  >;
+  let workspace: ReturnType<typeof workspaceStub>;
+  let workspaceDir: string;
+  let cleanupDirs: string[];
 
-  beforeEach(() => {
+  beforeEach(async () => {
     disposables = new DisposableStore();
     mode = 'manual';
-    gitWorkTreeMarker = vi.fn(() => ({
-      dotGitPath: '/workspace/.git',
-      controlDirPath: '/workspace/.git',
-    }));
+    workspaceDir = await mkdtemp(join(tmpdir(), 'kimi-permission-git-'));
+    cleanupDirs = [workspaceDir];
+    await mkdir(join(workspaceDir, '.git'), { recursive: true });
+    workspace = workspaceStub(workspaceDir);
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.defineInstance(IPermissionModeService, stubPermissionModeService(() => mode));
         reg.definePartialInstance(IPermissionRulesService, permissionRulesStub());
-        reg.definePartialInstance(IProfileService, {
-          data: () => ({ cwd: '/workspace' }) as ProfileData,
-        });
+        reg.defineInstance(IWorkspaceContext, workspace);
+        reg.defineInstance(IKaos, kaosStub());
+        reg.definePartialInstance(IPlanService, planServiceStub(() => null));
+        reg.definePartialInstance(ISwarmService, swarmServiceStub(() => false));
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
         reg.define(IPermissionPolicyService, PermissionPolicyService);
       },
@@ -415,21 +422,15 @@ describe('PermissionPolicyService git cwd write approval', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     disposables.dispose();
+    await Promise.all(cleanupDirs.map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   async function evaluate(
     input: PolicyContextInput,
-    options: Parameters<IPermissionPolicyService['configure']>[0] = {},
   ): Promise<PermissionPolicyEvaluation | undefined> {
     const svc = ix.get(IPermissionPolicyService);
-    svc.configure({
-      cwd: '/workspace',
-      pathClass: 'posix',
-      gitWorkTreeMarker,
-      ...options,
-    });
     return svc.evaluate(policyContext(input));
   }
 
@@ -441,14 +442,13 @@ describe('PermissionPolicyService git cwd write approval', () => {
       policyName: 'fallback-ask',
       result: { kind: 'ask' },
     });
-    expect(gitWorkTreeMarker).not.toHaveBeenCalled();
   });
 
   it('approves Write to a path inside the git cwd', async () => {
     await expect(evaluate({
       toolName: 'Write',
       args: { path: 'src/a.ts', content: 'x' },
-      accesses: ToolAccesses.writeFile('/workspace/src/a.ts'),
+      accesses: ToolAccesses.writeFile(join(workspaceDir, 'src/a.ts')),
     })).resolves.toMatchObject({
       policyName: 'git-cwd-write-approve',
       result: { kind: 'approve' },
@@ -456,12 +456,13 @@ describe('PermissionPolicyService git cwd write approval', () => {
   });
 
   it('approves Edit on an additionalDir path in manual mode', async () => {
+    const extraDir = await mkdtemp(join(tmpdir(), 'kimi-permission-extra-'));
+    cleanupDirs.push(extraDir);
+    workspace.addAdditionalDir(extraDir);
     await expect(evaluate({
       toolName: 'Edit',
-      args: { path: '/extra/src/a.ts', old_string: 'A', new_string: 'B' },
-      accesses: ToolAccesses.readWriteFile('/extra/src/a.ts'),
-    }, {
-      additionalDirs: ['/extra'],
+      args: { path: join(extraDir, 'src/a.ts'), old_string: 'A', new_string: 'B' },
+      accesses: ToolAccesses.readWriteFile(join(extraDir, 'src/a.ts')),
     })).resolves.toMatchObject({
       policyName: 'git-cwd-write-approve',
       result: { kind: 'approve' },
@@ -469,12 +470,14 @@ describe('PermissionPolicyService git cwd write approval', () => {
   });
 
   it('asks for paths outside cwd and additionalDirs', async () => {
+    const extraDir = await mkdtemp(join(tmpdir(), 'kimi-permission-extra-'));
+    cleanupDirs.push(extraDir);
+    workspace.addAdditionalDir(extraDir);
+    const outsidePath = join(`${extraDir}-evil`, 'outside.ts');
     await expect(evaluate({
       toolName: 'Write',
-      args: { path: '/extra-evil/outside.ts', content: 'x' },
-      accesses: ToolAccesses.writeFile('/extra-evil/outside.ts'),
-    }, {
-      additionalDirs: ['/extra'],
+      args: { path: outsidePath, content: 'x' },
+      accesses: ToolAccesses.writeFile(outsidePath),
     })).resolves.toMatchObject({
       policyName: 'fallback-ask',
       result: { kind: 'ask' },
@@ -485,7 +488,7 @@ describe('PermissionPolicyService git cwd write approval', () => {
     await expect(evaluate({
       toolName: 'Write',
       args: { path: '.git/config', content: 'x' },
-      accesses: ToolAccesses.writeFile('/workspace/.git/config'),
+      accesses: ToolAccesses.writeFile(join(workspaceDir, '.git/config')),
     })).resolves.toMatchObject({
       policyName: 'git-control-path-access-ask',
       result: { kind: 'ask' },
@@ -496,7 +499,7 @@ describe('PermissionPolicyService git cwd write approval', () => {
     await expect(evaluate({
       toolName: 'Write',
       args: { path: '.env', content: 'SECRET=1' },
-      accesses: ToolAccesses.writeFile('/workspace/.env'),
+      accesses: ToolAccesses.writeFile(join(workspaceDir, '.env')),
     })).resolves.toMatchObject({
       policyName: 'sensitive-file-access-ask',
       result: { kind: 'ask' },
@@ -508,7 +511,7 @@ describe('PermissionPolicyService git cwd write approval', () => {
     await expect(evaluate({
       toolName: 'Write',
       args: { path: 'src/a.ts', content: 'x' },
-      accesses: ToolAccesses.writeFile('/workspace/src/a.ts'),
+      accesses: ToolAccesses.writeFile(join(workspaceDir, 'src/a.ts')),
     })).resolves.toMatchObject({
       policyName: 'auto-mode-approve',
       result: { kind: 'approve' },
@@ -531,8 +534,8 @@ describe('PermissionPolicyService git cwd write approval', () => {
       toolName: 'Write',
       args: { path: 'src/a.ts', content: 'x' },
       accesses: [
-        { kind: 'file', operation: 'write', path: '/workspace/src/a.ts' },
-        { kind: 'file', operation: 'write', path: '/tmp/outside.ts' },
+        { kind: 'file', operation: 'write', path: join(workspaceDir, 'src/a.ts') },
+        { kind: 'file', operation: 'write', path: join(tmpdir(), 'outside.ts') },
       ],
     })).resolves.toMatchObject({
       policyName: 'fallback-ask',
@@ -704,14 +707,72 @@ function stringArg(
   return typeof value === 'string' ? value : fallback;
 }
 
-function planModeState(input: {
-  readonly isActive: boolean;
-  readonly planFilePath: string | null;
-}): Parameters<IPermissionPolicyService['configure']>[0]['planMode'] {
+function workspaceStub(initialWorkDir: string): IWorkspaceContext {
+  let workDir = initialWorkDir;
+  let additionalDirs: string[] = [];
   return {
-    isActive: input.isActive,
-    planFilePath: input.planFilePath,
-    exit: () => {},
+    _serviceBrand: undefined,
+    get workDir() {
+      return workDir;
+    },
+    get additionalDirs() {
+      return additionalDirs;
+    },
+    setWorkDir: (nextWorkDir) => {
+      workDir = nextWorkDir;
+    },
+    resolve: (path) => path,
+    isWithin: () => true,
+    assertAllowed: (path) => path,
+    addAdditionalDir: (dir) => {
+      if (!additionalDirs.includes(dir)) additionalDirs = [...additionalDirs, dir];
+    },
+    removeAdditionalDir: (dir) => {
+      additionalDirs = additionalDirs.filter((candidate) => candidate !== dir);
+    },
+  };
+}
+
+function kaosStub(pathClass: ReturnType<KaosService['pathClass']> = 'posix'): KaosService {
+  const kaos = {
+    _serviceBrand: undefined,
+    name: 'test',
+    cwd: '/workspace',
+    osEnv: {} as KaosService['osEnv'],
+    backend: {} as KaosService['backend'],
+    pathClass: () => pathClass,
+    normpath: (path: string) => path,
+    gethome: () => '/home/test',
+    getcwd: () => '/workspace',
+    withCwd: () => kaos,
+    withEnv: () => kaos,
+  } satisfies KaosService;
+  return kaos;
+}
+
+function planServiceStub(
+  status: () => PlanData | Promise<PlanData>,
+  exit: IPlanService['exit'] = () => {},
+): Partial<IPlanService> {
+  return {
+    status: async () => status(),
+    exit,
+  };
+}
+
+function swarmServiceStub(isActive: () => boolean): Partial<ISwarmService> {
+  return {
+    get isActive() {
+      return isActive();
+    },
+  };
+}
+
+function planData(path: string): NonNullable<PlanData> {
+  return {
+    id: 'plan-1',
+    content: '# Plan',
+    path,
   };
 }
 

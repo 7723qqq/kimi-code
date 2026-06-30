@@ -10,7 +10,6 @@ import {
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import type { IPermissionRulesService } from '../../permissionRules/permissionRules';
 import type { PermissionPolicyResult } from '../types';
-import type { PermissionPolicyRuntime } from './runtime';
 
 const USER_CONFIGURED_SCOPES = new Set<PermissionRuleScope>([
   'turn-override',
@@ -22,21 +21,22 @@ export function evaluateUserConfiguredRule(
   context: ResolvedToolExecutionHookContext,
   decision: PermissionRuleDecision,
   rulesService: IPermissionRulesService,
-  runtime: PermissionPolicyRuntime,
 ): PermissionPolicyResult | undefined {
   const match = firstMatchingRule(context, decision, rulesService, USER_CONFIGURED_SCOPES);
   if (match === undefined) return undefined;
   if (decision === 'deny') {
     return {
       kind: 'deny',
-      message: runtime.formatPermissionRuleDenyMessage(
-        context.toolCall.name,
-        match.rule.reason,
-      ),
+      message: defaultPermissionRuleDenyMessage(context.toolCall.name, match.rule.reason),
     };
   }
   if (decision === 'ask') return { kind: 'ask' };
   return { kind: 'approve' };
+}
+
+function defaultPermissionRuleDenyMessage(tool: string, reason: string | undefined): string {
+  const suffix = reason !== undefined && reason.length > 0 ? ` Reason: ${reason}` : '';
+  return `Tool "${tool}" was denied by permission rule.${suffix}`;
 }
 
 function firstMatchingRule(

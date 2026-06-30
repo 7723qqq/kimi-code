@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IBootstrapService } from '#/bootstrap/bootstrapContract';
+import { IBootstrapService } from '#/bootstrap/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/config/config';
 import { ConfigRegistry, ConfigService } from '#/config/configService';
 import {

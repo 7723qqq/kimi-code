@@ -1,3 +1,5 @@
+import { IPlanService } from '#/plan';
+import type { IPlanService as PlanService } from '#/plan';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import type {
   PermissionPolicy,
@@ -6,19 +8,21 @@ import type {
 import {
   writesOnlyPlanFile,
 } from './path-utils';
-import type { PermissionPolicyRuntime } from './runtime';
 
 export class PlanModeGuardDenyPermissionPolicyService implements PermissionPolicy {
   readonly name = 'plan-mode-guard-deny';
 
-  constructor(private readonly runtime: PermissionPolicyRuntime) {}
+  constructor(@IPlanService private readonly plan: PlanService) {}
 
-  evaluate(context: ResolvedToolExecutionHookContext): PermissionPolicyResult | undefined {
-    if (!this.runtime.planModeActive()) return undefined;
+  async evaluate(
+    context: ResolvedToolExecutionHookContext,
+  ): Promise<PermissionPolicyResult | undefined> {
+    const plan = await this.plan.status();
+    if (plan === null) return undefined;
 
     const toolName = context.toolCall.name;
     if (toolName === 'Write' || toolName === 'Edit') {
-      const planFilePath = this.runtime.planFilePath();
+      const planFilePath = plan.path;
       if (planFilePath !== null && writesOnlyPlanFile(context, planFilePath)) return undefined;
       return {
         kind: 'deny',

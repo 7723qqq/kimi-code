@@ -2,7 +2,6 @@ import { createDecorator } from "#/_base/di";
 import type {
   ResolvedToolExecutionHookContext
 } from '#/tool';
-import type { PermissionGateOptions } from '#/permission';
 import type { PermissionPolicyResult } from './types';
 
 
@@ -13,7 +12,6 @@ export interface PermissionPolicyEvaluation {
 
 export interface IPermissionPolicyService {
   readonly _serviceBrand: undefined;
-  configure(options: PermissionGateOptions): void;
   evaluate(
     context: ResolvedToolExecutionHookContext,
   ): Promise<PermissionPolicyEvaluation | undefined>;

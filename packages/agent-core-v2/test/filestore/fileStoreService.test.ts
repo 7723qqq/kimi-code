@@ -101,6 +101,15 @@ describe('FileStoreService', () => {
     });
   });
 
+  it('treats traversal-looking file ids as not found', async () => {
+    await expect(store().get('f_../outside')).rejects.toMatchObject({
+      code: FileErrors.codes.FILE_NOT_FOUND,
+    });
+    await expect(store().delete('f_../outside')).rejects.toMatchObject({
+      code: FileErrors.codes.FILE_NOT_FOUND,
+    });
+  });
+
   it('rejects an upload that exceeds the cap', async () => {
     const big = Buffer.alloc(DEFAULT_MAX_UPLOAD_BYTES + 1, 0);
     await expect(store().save(readable(big), 'big.bin')).rejects.toMatchObject({
@@ -156,6 +165,13 @@ describe('FileStoreService', () => {
               size: 2,
               created_at: new Date(0).toISOString(),
             },
+            {
+              id: 'f_../outside',
+              name: 'outside.txt',
+              media_type: 'text/plain',
+              size: 3,
+              created_at: new Date(0).toISOString(),
+            },
             { id: 'f_invalid' },
           ],
         }),
@@ -166,6 +182,9 @@ describe('FileStoreService', () => {
     expect(meta.name).toBe('valid.txt');
     expect((await readAll(stream)).toString()).toBe('ok');
     await expect(store().get('f_invalid')).rejects.toMatchObject({
+      code: FileErrors.codes.FILE_NOT_FOUND,
+    });
+    await expect(store().get('f_../outside')).rejects.toMatchObject({
       code: FileErrors.codes.FILE_NOT_FOUND,
     });
   });

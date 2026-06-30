@@ -9,7 +9,11 @@ import {
   isWithinDirectory,
   type PathClass,
 } from '#/_base/tools/policies/path-access';
-import type { PermissionGitWorkTreeMarker } from '../../permission/permission';
+
+export interface PermissionGitWorkTreeMarker {
+  readonly dotGitPath: string;
+  readonly controlDirPath: string;
+}
 
 export function fileAccesses(context: ResolvedToolExecutionHookContext): ToolFileAccess[] {
   return (

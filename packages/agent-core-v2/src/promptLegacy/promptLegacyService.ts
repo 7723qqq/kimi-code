@@ -13,10 +13,10 @@ import { randomUUID } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IProfileService } from '#/profile';
-import { IPromptService } from '#/prompt';
-import { ITurnService, type Turn, type TurnResult } from '#/turn';
-import { IPermissionModeService } from '#/permissionMode';
+import { IPermissionModeService } from '#/permissionMode/permissionMode';
+import { IProfileService } from '#/profile/profile';
+import { IPromptService } from '#/prompt/prompt';
+import { ITurnService, type Turn, type TurnResult } from '#/turn/turn';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import type {
   PromptAbortResponse,

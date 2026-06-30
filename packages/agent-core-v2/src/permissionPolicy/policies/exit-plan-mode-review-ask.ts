@@ -1,3 +1,5 @@
+import { IPlanService } from '#/plan';
+import type { IPlanService as PlanService } from '#/plan';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { IPermissionModeService } from '../../permissionMode/permissionMode';
 import { ITelemetryService } from '../../telemetry/telemetry';
@@ -7,7 +9,6 @@ import type {
   PermissionPolicyResult,
   ApprovalResponse,
 } from '../types';
-import type { PermissionPolicyRuntime } from './runtime';
 
 interface PlanReviewOption {
   readonly label: string;
@@ -24,15 +25,17 @@ export class ExitPlanModeReviewAskPermissionPolicyService implements PermissionP
   readonly name = 'exit-plan-mode-review-ask';
 
   constructor(
-    private readonly runtime: PermissionPolicyRuntime,
+    @IPlanService private readonly plan: PlanService,
     @IPermissionModeService private readonly modeService: IPermissionModeService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
-  evaluate(context: ResolvedToolExecutionHookContext): PermissionPolicyResult | undefined {
+  async evaluate(
+    context: ResolvedToolExecutionHookContext,
+  ): Promise<PermissionPolicyResult | undefined> {
     if (context.toolCall.name !== 'ExitPlanMode') return undefined;
     if (this.modeService.mode === 'auto') return undefined;
-    if (!this.runtime.planModeActive()) return undefined;
+    if (await this.plan.status() === null) return undefined;
     const display = context.execution.display;
     if (display?.kind !== 'plan_review') return undefined;
     if (display.plan.trim().length === 0) return undefined;
@@ -62,10 +65,7 @@ export class ExitPlanModeReviewAskPermissionPolicyService implements PermissionP
     }
 
     const selected = selectedExitPlanModeOption(display.options, result.selectedLabel);
-    const failed = this.runtime.exitPlanMode();
-    if (failed !== undefined) {
-      return { kind: 'result', syntheticResult: failed };
-    }
+    this.plan.exit();
 
     if (result.selectedLabel !== undefined && result.selectedLabel.length > 0) {
       this.trackPlanTelemetry('plan_resolved', {
@@ -107,15 +107,14 @@ export class ExitPlanModeReviewAskPermissionPolicyService implements PermissionP
     }
 
     if (result.selectedLabel === 'Reject and Exit') {
-      const failed = this.runtime.exitPlanMode();
+      this.plan.exit();
       return {
         kind: 'result',
-        syntheticResult:
-          failed ?? {
-            isError: true,
-            stopTurn: true,
-            output: 'Plan rejected by user. Plan mode deactivated.',
-          },
+        syntheticResult: {
+          isError: true,
+          stopTurn: true,
+          output: 'Plan rejected by user. Plan mode deactivated.',
+        },
       };
     }
 

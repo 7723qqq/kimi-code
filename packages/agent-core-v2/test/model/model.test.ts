@@ -51,6 +51,7 @@ describe('ModelService', () => {
   afterEach(() => disposables.dispose());
 
   it('registers the models section schema on construction', () => {
+    ix.get(IModelService);
     expect(registry.getSection(MODELS_SECTION)).toBeDefined();
   });
 

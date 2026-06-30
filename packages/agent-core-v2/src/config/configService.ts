@@ -21,7 +21,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
-import { IBootstrapService } from '#/bootstrap/bootstrapContract';
+import { IBootstrapService } from '#/bootstrap/bootstrap';
 import { ILogService } from '#/log/log';
 import {
   IAtomicTomlDocumentStore,

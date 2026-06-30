@@ -8,7 +8,7 @@ import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { IPermissionModeService } from '#/permissionMode';
 import type { PermissionMode } from '#/permissionPolicy';
 import { ExitPlanModeReviewAskPermissionPolicyService } from '#/permissionPolicy/policies/exit-plan-mode-review-ask';
-import type { PermissionPolicyRuntime } from '#/permissionPolicy/policies/runtime';
+import { IPlanService, type IPlanService as PlanService } from '#/plan';
 import { ITelemetryService } from '#/telemetry';
 import { ToolAccesses } from '#/tool';
 
@@ -20,7 +20,7 @@ const options = [
   { label: 'Approach B', description: 'Larger change.' },
 ] as const;
 
-type ExitPlanModeFn = PermissionPolicyRuntime['exitPlanMode'];
+type ExitPlanModeFn = PlanService['exit'];
 
 interface RuntimeApprovalResponse {
   readonly decision: ApprovalResponse['decision'];
@@ -71,19 +71,18 @@ function policyContext(display: ToolInputDisplay): ResolvedToolExecutionHookCont
   };
 }
 
-function runtime(exitPlanMode: ExitPlanModeFn = vi.fn()): PermissionPolicyRuntime {
+function planService(exitPlanMode: ExitPlanModeFn = vi.fn()): PlanService {
   return {
-    options: {},
-    planModeActive: () => true,
-    planFilePath: () => '/tmp/kimi-plan.md',
-    swarmModeIsActive: () => false,
-    pathClass: () => {
-      throw new Error('pathClass is not used by ExitPlanMode review policy');
-    },
-    findGitWorkTreeMarker: async () => null,
-    exitPlanMode,
-    formatPermissionRuleDenyMessage: (tool, reason) =>
-      `Tool "${tool}" was denied by permission rule.${reason === undefined ? '' : ` Reason: ${reason}`}`,
+    _serviceBrand: undefined,
+    enter: async () => {},
+    cancel: () => {},
+    clear: async () => {},
+    exit: exitPlanMode,
+    status: async () => ({
+      id: 'plan-1',
+      content: '# Plan',
+      path: '/tmp/kimi-plan.md',
+    }),
   };
 }
 
@@ -112,22 +111,20 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
   function makePolicy(
     exitPlanMode?: ExitPlanModeFn,
   ): ExitPlanModeReviewAskPermissionPolicyService {
-    return ix.createInstance(
-      ExitPlanModeReviewAskPermissionPolicyService,
-      runtime(exitPlanMode),
-    );
+    ix.set(IPlanService, planService(exitPlanMode));
+    return ix.createInstance(ExitPlanModeReviewAskPermissionPolicyService);
   }
 
-  it('does not ask or track when auto mode approves upstream', () => {
+  it('does not ask or track when auto mode approves upstream', async () => {
     mode = 'auto';
-    const result = makePolicy().evaluate(policyContext(planReviewDisplay()));
+    const result = await makePolicy().evaluate(policyContext(planReviewDisplay()));
 
     expect(result).toBeUndefined();
     expect(records).toEqual([]);
   });
 
-  it('tracks submitted before asking for manual plan approval', () => {
-    const result = makePolicy().evaluate(policyContext(planReviewDisplay()));
+  it('tracks submitted before asking for manual plan approval', async () => {
+    const result = await makePolicy().evaluate(policyContext(planReviewDisplay()));
 
     expect(result?.kind).toBe('ask');
     expect(records).toContainEqual({
@@ -136,9 +133,9 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('tracks approved multi-option plans with the chosen option', () => {
+  it('tracks approved multi-option plans with the chosen option', async () => {
     const exitPlanMode = vi.fn();
-    const result = makePolicy(exitPlanMode).evaluate(
+    const result = await makePolicy(exitPlanMode).evaluate(
       policyContext(planReviewDisplay({ options })),
     );
     if (result?.kind !== 'ask') throw new Error('expected ask');
@@ -169,9 +166,9 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('handles revision requests with feedback through plan resolution telemetry', () => {
+  it('handles revision requests with feedback through plan resolution telemetry', async () => {
     const exitPlanMode = vi.fn();
-    const result = makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
+    const result = await makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
     if (result?.kind !== 'ask') throw new Error('expected ask');
 
     const approval = result.resolveApproval?.(approvalResponse({
@@ -197,9 +194,9 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('handles plain rejections without exiting plan mode', () => {
+  it('handles plain rejections without exiting plan mode', async () => {
     const exitPlanMode = vi.fn();
-    const result = makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
+    const result = await makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
     if (result?.kind !== 'ask') throw new Error('expected ask');
 
     const approval = result.resolveApproval?.(approvalResponse({ decision: 'rejected' }));
@@ -218,9 +215,9 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('handles dismissed approval dialogs without exiting plan mode', () => {
+  it('handles dismissed approval dialogs without exiting plan mode', async () => {
     const exitPlanMode = vi.fn();
-    const result = makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
+    const result = await makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
     if (result?.kind !== 'ask') throw new Error('expected ask');
 
     const approval = result.resolveApproval?.(approvalResponse({ decision: 'cancelled' }));
@@ -239,9 +236,9 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('handles reject-and-exit and exits plan mode', () => {
+  it('handles reject-and-exit and exits plan mode', async () => {
     const exitPlanMode = vi.fn();
-    const result = makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
+    const result = await makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
     if (result?.kind !== 'ask') throw new Error('expected ask');
 
     const approval = result.resolveApproval?.(approvalResponse({
@@ -263,12 +260,12 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('returns approved plan output without a saved-to line when display has no path', () => {
+  it('returns approved plan output without a saved-to line when display has no path', async () => {
     const display: ToolInputDisplay = {
       kind: 'plan_review',
       plan: '# Draft Plan',
     };
-    const result = makePolicy().evaluate(policyContext(display));
+    const result = await makePolicy().evaluate(policyContext(display));
     if (result?.kind !== 'ask') throw new Error('expected ask');
 
     const approval = result.resolveApproval?.(approvalResponse({ decision: 'approved' }));
@@ -285,8 +282,8 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     );
   });
 
-  it('does not force a selected-approach prefix for labels that are not in the options', () => {
-    const result = makePolicy().evaluate(policyContext(planReviewDisplay({ options })));
+  it('does not force a selected-approach prefix for labels that are not in the options', async () => {
+    const result = await makePolicy().evaluate(policyContext(planReviewDisplay({ options })));
     if (result?.kind !== 'ask') throw new Error('expected ask');
 
     const approval = result.resolveApproval?.(approvalResponse({
@@ -306,23 +303,16 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('does not track approved when exitPlanMode fails', () => {
-    const exitPlanMode = vi.fn(() => ({
-      isError: true as const,
-      output: 'Failed to exit plan mode: state transition failure',
-    }));
-    const result = makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
+  it('propagates exit errors without tracking approved resolution', async () => {
+    const exitPlanMode = vi.fn(() => {
+      throw new Error('state transition failure');
+    });
+    const result = await makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
     if (result?.kind !== 'ask') throw new Error('expected ask');
 
-    const approval = result.resolveApproval?.(approvalResponse({ decision: 'approved' }));
-
-    expect(approval).toMatchObject({
-      kind: 'result',
-      syntheticResult: {
-        isError: true,
-        output: 'Failed to exit plan mode: state transition failure',
-      },
-    });
+    expect(() => result.resolveApproval?.(approvalResponse({ decision: 'approved' }))).toThrow(
+      'state transition failure',
+    );
     expect(records).toContainEqual({
       event: 'plan_submitted',
       properties: { has_options: false },

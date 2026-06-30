@@ -11,7 +11,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { parseBooleanEnv } from '#/_base/utils';
-import { IBootstrapService } from '#/bootstrap/bootstrapContract';
+import { IBootstrapService } from '#/bootstrap/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/config/config';
 
 import {
