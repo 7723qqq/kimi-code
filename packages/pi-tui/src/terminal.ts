@@ -16,7 +16,6 @@ const TERMINAL_PROGRESS_CLEAR_SEQUENCE = "\x1b]9;4;0;\x07";
 const APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE = "\x1b[13;2u";
 const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7;
 const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS = 150;
-const KITTY_KEYBOARD_PROTOCOL_QUERY = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\x1b[?u\x1b[c`;
 // Push-only form of the kitty query: arms the desired flag level so a following
 // `CSI ? u` (emitted by the capability probe) reports non-zero flags and the
 // negotiation handler enables kitty. Split out so the probe can own the single
@@ -52,6 +51,29 @@ export function isAppleTerminalSession(): boolean {
 export function normalizeAppleTerminalInput(data: string, isAppleTerminal: boolean, isShiftPressed: boolean): string {
 	if (isAppleTerminal && data === "\r" && isShiftPressed) return APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE;
 	return data;
+}
+
+let headlessOverride: boolean | undefined;
+
+/**
+ * Override headless detection. `undefined` clears the override and falls back to
+ * env/auto detection. Used by tests to force headless mode deterministically.
+ */
+export function setTerminalHeadless(value: boolean | undefined): void {
+	headlessOverride = value;
+}
+
+/**
+ * Whether the terminal must not paint: no raw mode, no probes, no SIGWINCH, no
+ * teardown writes. Honors the explicit override first, then `PI_TUI_HEADLESS=1`,
+ * then `NODE_ENV=test` (node --test / bun test default).
+ */
+export function isTerminalHeadless(): boolean {
+	if (headlessOverride !== undefined) return headlessOverride;
+	// node --test / bun test default headless; PI_TUI_HEADLESS=1 forces it
+	if (process.env["PI_TUI_HEADLESS"] === "1") return true;
+	if (process.env["NODE_ENV"] === "test") return true;
+	return false;
 }
 
 /**
@@ -154,9 +176,25 @@ export class ProcessTerminal implements Terminal {
 		return this._modifyOtherKeysActive;
 	}
 
+	/**
+	 * Single stdout egress for every terminal write. No-ops in headless mode so
+	 * tests / piped runs never paint, even if a code path forgets to gate on TTY.
+	 */
+	#safeWrite(data: string): void {
+		if (isTerminalHeadless()) return;
+		process.stdout.write(data);
+	}
+
 	start(onInput: (data: string) => void, onResize: () => void): void {
 		this.inputHandler = onInput;
 		this.resizeHandler = onResize;
+
+		// Headless / non-TTY: no raw mode, no probes, no SIGWINCH, no teardown
+		// writes. Handlers are stashed so stop() can clear them, but we never
+		// touch the terminal and probeReady stays undefined.
+		if (isTerminalHeadless() || !process.stdout.isTTY) {
+			return;
+		}
 
 		// Save previous state and enable raw mode
 		this.wasRaw = process.stdin.isRaw || false;
@@ -167,7 +205,7 @@ export class ProcessTerminal implements Terminal {
 		process.stdin.resume();
 
 		// Enable bracketed paste mode - terminal will wrap pastes in \x1b[200~ ... \x1b[201~
-		process.stdout.write("\x1b[?2004h");
+		this.#safeWrite("\x1b[?2004h");
 
 		// Set up resize handler immediately
 		process.stdout.on("resize", this.resizeHandler);
@@ -188,15 +226,11 @@ export class ProcessTerminal implements Terminal {
 		// run the capability probe. The probe taps stdin observe-only and emits the
 		// single kitty `CSI ? u` + DA1 sentinel; arming the flag level beforehand makes
 		// that probe report non-zero flags so the negotiation handler enables kitty.
-		// In non-TTY (headless) mode there is no terminal to probe, so fall back to the
-		// legacy full kitty query. See: https://sw.kovidgoyal.net/kitty/keyboard-protocol/
+		// Headless / non-TTY early-returns above, so a TTY is guaranteed here.
+		// See: https://sw.kovidgoyal.net/kitty/keyboard-protocol/
 		this.setupKeyboardProtocolPipeline();
-		if (process.stdout.isTTY) {
-			process.stdout.write(KITTY_KEYBOARD_PROTOCOL_PUSH);
-			this.runCapabilityProbe();
-		} else {
-			process.stdout.write(KITTY_KEYBOARD_PROTOCOL_QUERY);
-		}
+		this.#safeWrite(KITTY_KEYBOARD_PROTOCOL_PUSH);
+		this.runCapabilityProbe();
 	}
 
 	/**
@@ -268,7 +302,7 @@ export class ProcessTerminal implements Terminal {
 		if (!process.stdout.isTTY) return;
 		const io: ProbeIO = {
 			write: (data: string) => {
-				process.stdout.write(data);
+				this.#safeWrite(data);
 			},
 			onReply: (cb: (data: string) => void) => {
 				const handler = (data: string) => {
@@ -380,13 +414,13 @@ export class ProcessTerminal implements Terminal {
 
 	private enableModifyOtherKeys(): void {
 		if (this._kittyProtocolActive || this._modifyOtherKeysActive) return;
-		process.stdout.write("\x1b[>4;2m");
+		this.#safeWrite("\x1b[>4;2m");
 		this._modifyOtherKeysActive = true;
 	}
 
 	private disableModifyOtherKeys(): void {
 		if (!this._modifyOtherKeysActive) return;
-		process.stdout.write("\x1b[>4;0m");
+		this.#safeWrite("\x1b[>4;0m");
 		this._modifyOtherKeysActive = false;
 	}
 
@@ -432,7 +466,7 @@ export class ProcessTerminal implements Terminal {
 		if (shouldDisableKittyProtocol) {
 			// Disable Kitty keyboard protocol first so any late key releases
 			// do not generate new Kitty escape sequences.
-			process.stdout.write("\x1b[<u");
+			this.#safeWrite("\x1b[<u");
 			this.keyboardProtocolPushed = false;
 			this._kittyProtocolActive = false;
 			setKittyProtocolActive(false);
@@ -466,18 +500,18 @@ export class ProcessTerminal implements Terminal {
 
 	stop(): void {
 		if (this.clearProgressInterval()) {
-			process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
+			this.#safeWrite(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
 		}
 
 		// Disable bracketed paste mode
-		process.stdout.write("\x1b[?2004l");
+		this.#safeWrite("\x1b[?2004l");
 
 		const shouldDisableKittyProtocol = this.keyboardProtocolPushed || this._kittyProtocolActive;
 		this.clearKeyboardProtocolNegotiationBuffer();
 
 		// Disable Kitty keyboard protocol if not already done by drainInput()
 		if (shouldDisableKittyProtocol) {
-			process.stdout.write("\x1b[<u");
+			this.#safeWrite("\x1b[<u");
 			this.keyboardProtocolPushed = false;
 			this._kittyProtocolActive = false;
 			setKittyProtocolActive(false);
@@ -513,7 +547,7 @@ export class ProcessTerminal implements Terminal {
 	}
 
 	write(data: string): void {
-		process.stdout.write(data);
+		this.#safeWrite(data);
 		if (this.writeLogPath) {
 			try {
 				fs.appendFileSync(this.writeLogPath, data, { encoding: "utf8" });
@@ -534,52 +568,52 @@ export class ProcessTerminal implements Terminal {
 	moveBy(lines: number): void {
 		if (lines > 0) {
 			// Move down
-			process.stdout.write(`\x1b[${lines}B`);
+			this.#safeWrite(`\x1b[${lines}B`);
 		} else if (lines < 0) {
 			// Move up
-			process.stdout.write(`\x1b[${-lines}A`);
+			this.#safeWrite(`\x1b[${-lines}A`);
 		}
 		// lines === 0: no movement
 	}
 
 	hideCursor(): void {
-		process.stdout.write("\x1b[?25l");
+		this.#safeWrite("\x1b[?25l");
 	}
 
 	showCursor(): void {
-		process.stdout.write("\x1b[?25h");
+		this.#safeWrite("\x1b[?25h");
 	}
 
 	clearLine(): void {
-		process.stdout.write("\x1b[K");
+		this.#safeWrite("\x1b[K");
 	}
 
 	clearFromCursor(): void {
-		process.stdout.write("\x1b[J");
+		this.#safeWrite("\x1b[J");
 	}
 
 	clearScreen(): void {
-		process.stdout.write("\x1b[2J\x1b[H"); // Clear screen and move to home (1,1)
+		this.#safeWrite("\x1b[2J\x1b[H"); // Clear screen and move to home (1,1)
 	}
 
 	setTitle(title: string): void {
 		// OSC 0;title BEL - set terminal window title
-		process.stdout.write(`\x1b]0;${title}\x07`);
+		this.#safeWrite(`\x1b]0;${title}\x07`);
 	}
 
 	setProgress(active: boolean): void {
 		if (active) {
 			// OSC 9;4;3 - indeterminate progress
-			process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
+			this.#safeWrite(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
 			if (!this.progressInterval) {
 				this.progressInterval = setInterval(() => {
-					process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
+					this.#safeWrite(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
 				}, TERMINAL_PROGRESS_KEEPALIVE_MS);
 			}
 		} else {
 			this.clearProgressInterval();
 			// OSC 9;4;0 - clear progress
-			process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
+			this.#safeWrite(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
 		}
 	}
 
