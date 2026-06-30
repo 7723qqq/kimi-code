@@ -6,5 +6,5 @@ export default {
   authPageLogin: 'Sign in',
   connecting: 'Connecting…',
   comingSoon: 'Coming soon…',
-  internalBuildBanner: 'Internal testing · do not distribute',
+  internalBuildBanner: 'Internal testing only',
 } as const;
