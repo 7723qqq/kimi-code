@@ -223,4 +223,47 @@ export class LedgerTuiEngine {
 		this.#preparedValidRows = Math.min(this.#preparedValidRows, stableRows);
 		return frame;
 	}
+
+	#prepareFrame(frame: readonly string[], width: number): string[] {
+		const prepared = this.#preparedFrame;
+		const meta = this.#preparedMeta;
+		if (prepared.length > frame.length) {
+			prepared.length = frame.length;
+			meta.length = frame.length;
+		}
+		for (let i = Math.min(this.#preparedValidRows, prepared.length); i < frame.length; i++) {
+			const raw = frame[i]!;
+			const cached = meta[i];
+			if (cached !== undefined && cached.raw === raw && cached.width === width) {
+				prepared[i] = cached.line;
+				continue;
+			}
+			const entry = this.#prepareLine(raw, width);
+			meta[i] = entry;
+			prepared[i] = entry.line;
+		}
+		this.#preparedValidRows = frame.length;
+		return prepared;
+	}
+
+	#prepareLine(raw: string, width: number): PreparedLine {
+		if (isImageLine(raw)) return { raw, width, line: raw };
+		const normalized = raw; // Phase A: 假定组件已规范化；如需 normalizeTerminalOutput 在此补
+		if (visibleWidth(normalized) <= width) return { raw, width, line: normalized };
+		return { raw, width, line: truncateToWidth(normalized, width) };
+	}
+
+	#terminalLine(line: string): string {
+		if (isImageLine(line)) return line;
+		const coalesced = coalesceAdjacentSgr(line);
+		return coalesced + (line.includes("\x1b]8;") ? LINE_TERMINATOR : SEGMENT_RESET);
+	}
+
+	#lineRewriteSequence(line: string, width: number): string {
+		if (isImageLine(line)) return ERASE_LINE + line;
+		const terminalLine = this.#terminalLine(line);
+		const w = visibleWidth(line);
+		if (w >= width) return terminalLine;
+		return SEGMENT_RESET + ERASE_TO_END_OF_LINE + terminalLine;
+	}
 }
