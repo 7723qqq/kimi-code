@@ -313,6 +313,22 @@ describe("matchesKey", () => {
 			assert.strictEqual(matchesKey("\x1b", "escape"), true);
 		});
 
+		it("should recognize WezTerm-coalesced Escape press+release as escape", () => {
+			// WezTerm may coalesce the legacy Escape press (`\x1b`) with a kitty
+			// release event (`\x1b[27;129:3u`) into a single read.
+			assert.strictEqual(matchesKey("\x1b\x1b[27;129:3u", "escape"), true);
+		});
+
+		it("should not misread alt+up meta-chord as escape", () => {
+			assert.strictEqual(matchesKey("\x1b\x1b[A", "escape"), false);
+		});
+
+		it("should not misread ctrl+escape release as escape", () => {
+			// ctrl+escape release carries a non-zero modifier (ctrl=4), so the
+			// inner kitty sequence is not an unmodified Escape event.
+			assert.strictEqual(matchesKey("\x1b\x1b[27;5:3u", "escape"), false);
+		});
+
 		it("should match legacy linefeed as enter", () => {
 			setKittyProtocolActive(false);
 			assert.strictEqual(matchesKey("\n", "enter"), true);
