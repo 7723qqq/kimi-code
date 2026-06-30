@@ -1,6 +1,6 @@
 ---
 name: agent-core-dev
-description: Use when developing in packages/agent-core-v2 (the DI × Scope agent engine) — adding or modifying a domain Service, choosing a LifecycleScope, wiring DI dependencies, splitting a domain across scopes, owning or migrating a config section, gating behavior behind an experimental flag, raising coded errors, working on the permission system, writing DI/Scope tests, or porting business logic from agent-core (v1) to v2. Self-contained guide organized by development stage (orient → design → implement → test → verify) plus an align workflow for v1→v2 migration; each file carries the rules, examples, and red lines for its step.
+description: Use when developing in packages/agent-core-v2 (the DI × Scope agent engine) — adding or modifying a domain Service, choosing a LifecycleScope, wiring DI dependencies, splitting a domain across scopes, owning or migrating a config section, gating behavior behind an experimental flag, raising coded errors, working on the permission system, writing DI/Scope tests, porting business logic from agent-core (v1) to v2, or exposing a v2 domain over server-v2 while keeping the wire contract compatible with packages/server. Self-contained guide organized by development stage (orient → design → implement → test → verify) plus align workflows for v1→v2 migration and server-v2 wire exposure; each file carries the rules, examples, and red lines for its step.
 ---
 
 # agent-core-dev
@@ -28,6 +28,7 @@ Stages are ordered but not strictly linear: a test failure (stage 4) that reveal
 End-to-end procedures that span the stages. Reach for these before reading the stage files individually.
 
 - [Align (port `agent-core` → `agent-core-v2`)](align.md): split a v1 class into semantic units, fix each unit's domain / scope / Service / dependencies, then migrate the logic and tests. Use when the task is "move feature X from v1 to v2" or "port `IXxxService` to v2".
+- [Server align (expose `agent-core-v2` over `server-v2`)](server-align.md): wire a v2 domain into `packages/server-v2` over `/api/v2` (native) and `/api/v1` (v1-compatible mirror), keep the wire schema byte-compatible with `packages/server` by sharing the `@moonshot-ai/protocol` schema, and isolate v1-only behavior in a `<domain>Legacy` edge adapter instead of distorting the native v2 Service. Use when the task is "expose the new v2 Service on the server", "port the v1 `/api/v1` routes to server-v2", or "keep server-v2 wire-compatible with `packages/server`".
 
 ## Stages
 
