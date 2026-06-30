@@ -61,9 +61,11 @@ export class LedgerTuiEngine {
 	#preparedValidRows = 0;
 
 	// ---- paint framing ----
-	readonly #syncEnabled: boolean;
-	readonly #paintBeginSequence: string;
-	readonly #paintEndSequence: string;
+	// Recomputed by refreshSyncFraming() once the startup probe resolves, since
+	// the caps object is mutated in place by ProcessTerminalCapabilities.applyProbe.
+	#syncEnabled: boolean;
+	#paintBeginSequence: string;
+	#paintEndSequence: string;
 
 	// children injected by the host TUI (it owns the Container children list)
 	private readonly terminal: Terminal;
@@ -75,6 +77,20 @@ export class LedgerTuiEngine {
 		this.getChildren = getChildren;
 		this.#caps = caps;
 		this.#syncEnabled = caps.syncEnabled;
+		this.#paintBeginSequence = this.#syncEnabled
+			? `${HIDE_CURSOR}${SYNC_OUTPUT_BEGIN}${DISABLE_AUTOWRAP}`
+			: `${HIDE_CURSOR}${DISABLE_AUTOWRAP}`;
+		this.#paintEndSequence = this.#syncEnabled ? `${ENABLE_AUTOWRAP}${SYNC_OUTPUT_END}` : ENABLE_AUTOWRAP;
+	}
+
+	/**
+	 * Recompute the synchronized-output paint framing from the current caps.
+	 * The host calls this after the startup probe resolves: the caps object is
+	 * mutated in place by `ProcessTerminalCapabilities.applyProbe`, so re-reading
+	 * `this.#caps.syncEnabled` picks up the DECRQM ?2026 result.
+	 */
+	public refreshSyncFraming(): void {
+		this.#syncEnabled = this.#caps.syncEnabled;
 		this.#paintBeginSequence = this.#syncEnabled
 			? `${HIDE_CURSOR}${SYNC_OUTPUT_BEGIN}${DISABLE_AUTOWRAP}`
 			: `${HIDE_CURSOR}${DISABLE_AUTOWRAP}`;

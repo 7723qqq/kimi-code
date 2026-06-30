@@ -16,15 +16,12 @@ import {
 	type TerminalColorScheme,
 } from "./terminal-colors.ts";
 import { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.ts";
-import { createStaticCapabilities } from "./terminal-capabilities.ts";
+import { createStaticCapabilities, type TerminalCapabilities } from "./terminal-capabilities.ts";
+import type { ProbeResult } from "./terminal-probe.ts";
 import { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.ts";
 import { LedgerTuiEngine } from "./ledger/engine.ts";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
-
-// Static default terminal capabilities for the ledger engine, derived from the
-// environment. Phase B Task 2 will replace this with a probe-backed instance.
-const LEDGER_CAPABILITIES = createStaticCapabilities();
 
 interface KittyImageHeader {
 	ids: number[];
@@ -655,12 +652,28 @@ export class TUI extends Container {
 				this.requestRender();
 			},
 		);
+		this.attachProbeRefresh();
 		this.terminal.hideCursor();
 		if (this.terminalColorSchemeNotificationsEnabled) {
 			this.terminal.write("\x1b[?2031h");
 		}
 		this.queryCellSize();
 		this.requestRender();
+	}
+
+	/**
+	 * When the terminal exposes a startup probe, re-frame the ledger engine's
+	 * synchronized output and repaint once the probe resolves. The capabilities
+	 * object is already mutated in place by the terminal; this just re-reads it.
+	 */
+	private attachProbeRefresh(): void {
+		const probeReady = (this.terminal as { probeReady?: Promise<ProbeResult> }).probeReady;
+		if (!probeReady) return;
+		void probeReady.then(() => {
+			if (this.stopped) return;
+			this.ledgerEngine?.refreshSyncFraming();
+			this.requestRender();
+		});
 	}
 
 	addInputListener(listener: InputListener): () => void {
@@ -1644,9 +1657,20 @@ export class TUI extends Container {
 
 	private getLedgerEngine(): LedgerTuiEngine {
 		if (!this.ledgerEngine) {
-			this.ledgerEngine = new LedgerTuiEngine(this.terminal, () => this.children, LEDGER_CAPABILITIES);
+			this.ledgerEngine = new LedgerTuiEngine(this.terminal, () => this.children, this.resolveTerminalCapabilities());
 		}
 		return this.ledgerEngine;
+	}
+
+	/**
+	 * Resolve the capabilities handed to the ledger engine. A ProcessTerminal
+	 * exposes a mutable, probe-backed instance (shared with the engine so the
+	 * probe result applies in place); other terminals fall back to static env
+	 * defaults.
+	 */
+	private resolveTerminalCapabilities(): TerminalCapabilities {
+		const caps = (this.terminal as { terminalCapabilities?: TerminalCapabilities }).terminalCapabilities;
+		return caps ?? createStaticCapabilities();
 	}
 
 	private doRender(): void {
