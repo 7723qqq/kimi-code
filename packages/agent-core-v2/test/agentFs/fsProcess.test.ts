@@ -19,11 +19,13 @@ function fakeProcess(opts: FakeProcessOptions = {}): IProcess {
     stdout: Readable.from([opts.stdout ?? '']),
     stderr: Readable.from([opts.stderr ?? '']),
     pid: 1,
+    exitCode: opts.exitCode ?? null,
     wait: () => Promise.resolve(opts.exitCode ?? 0),
     kill: () => {
       opts.onKill?.();
       return Promise.resolve();
     },
+    dispose: () => undefined,
   };
 }
 
