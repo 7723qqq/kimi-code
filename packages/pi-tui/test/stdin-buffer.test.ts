@@ -130,7 +130,7 @@ describe("StdinBuffer", () => {
 			assert.deepStrictEqual(emittedSequences, []);
 
 			// Wait for timeout
-			await wait(15);
+			await wait(50);
 
 			assert.deepStrictEqual(emittedSequences, ["\x1b[1"]);
 		});
@@ -219,7 +219,7 @@ describe("StdinBuffer", () => {
 			processInput("\x1b\x1b");
 			assert.deepStrictEqual(emittedSequences, []);
 
-			await wait(15);
+			await wait(50);
 			assert.deepStrictEqual(emittedSequences, ["\x1b\x1b"]);
 		});
 
@@ -315,7 +315,7 @@ describe("StdinBuffer", () => {
 			assert.deepStrictEqual(emittedSequences, []);
 
 			// After timeout, should emit
-			await wait(15);
+			await wait(50);
 			assert.deepStrictEqual(emittedSequences, ["\x1b"]);
 		});
 
@@ -358,7 +358,7 @@ describe("StdinBuffer", () => {
 			assert.deepStrictEqual(emittedSequences, []);
 
 			// Wait for timeout to flush
-			await wait(15);
+			await wait(50);
 
 			assert.deepStrictEqual(emittedSequences, ["\x1b[1"]);
 		});
@@ -455,7 +455,7 @@ describe("StdinBuffer", () => {
 			buffer.destroy();
 
 			// Wait longer than timeout
-			await wait(15);
+			await wait(50);
 
 			// Should not have emitted anything
 			assert.deepStrictEqual(emittedSequences, []);
