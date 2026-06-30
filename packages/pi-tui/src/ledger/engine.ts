@@ -113,4 +113,114 @@ export class LedgerTuiEngine {
 		this.#hardwareCursorRow = update.toRow;
 		if (update.state) this.#showHardwareCursor = update.state.visible;
 	}
+
+	#ingestFrameRow(line: string): void {
+		const CURSOR_MARKER = "\x1b_pi:c\x07";
+		let markerIndex = line.indexOf(CURSOR_MARKER);
+		if (markerIndex === -1) {
+			this.#composedFrame.push(line);
+			return;
+		}
+		this.#frameCursorMarkers.push({ row: this.#composedFrame.length, col: visibleWidth(line.slice(0, markerIndex)) });
+		let stripped = line;
+		while (markerIndex !== -1) {
+			stripped = stripped.slice(0, markerIndex) + stripped.slice(markerIndex + CURSOR_MARKER.length);
+			markerIndex = stripped.indexOf(CURSOR_MARKER, markerIndex);
+		}
+		this.#composedFrame.push(stripped);
+	}
+
+	#pruneFrameCursorMarkers(fromRow: number): void {
+		this.#frameCursorMarkers = this.#frameCursorMarkers.filter((m) => m.row < fromRow);
+	}
+
+	#composeFrame(width: number): readonly string[] {
+		width = Math.max(1, width);
+		this.#nativeScrollbackLiveRegionStart = undefined;
+		this.#nativeScrollbackCommitSafeEnd = undefined;
+		this.#nativeScrollbackSnapshotSafeEnd = undefined;
+		const children = this.getChildren();
+		const previousSegments = this.#frameSegments;
+		const segments: FrameSegment[] = new Array(children.length);
+		let chainStable = this.#composeWidth === width;
+		this.#composeWidth = width;
+		let offset = 0;
+		let stableRows = 0;
+
+		for (let index = 0; index < children.length; index++) {
+			const child = children[index]!;
+			const previous = previousSegments[index];
+			// Phase A: no component-scoped reuse yet (partial roots = null)
+			let childLines: readonly string[];
+			let liveLocalStart: number | undefined;
+			let commitLocalEnd: number | undefined;
+			let snapshotLocalEnd: number | undefined;
+			let reported: number | undefined;
+
+			setNativeScrollbackCommittedRows(child, Math.max(0, this.#committedRows - offset));
+			childLines = child.render(width);
+			const liveRegionStart = getNativeScrollbackLiveRegionStart(child);
+			if (liveRegionStart !== undefined) {
+				liveLocalStart = Number.isFinite(liveRegionStart)
+					? Math.max(0, Math.min(childLines.length, Math.trunc(liveRegionStart)))
+					: childLines.length;
+				const commitSafeEnd = getNativeScrollbackCommitSafeEnd(child);
+				if (commitSafeEnd !== undefined) {
+					commitLocalEnd = Number.isFinite(commitSafeEnd)
+						? Math.max(liveLocalStart, Math.min(childLines.length, Math.trunc(commitSafeEnd)))
+						: childLines.length;
+				}
+				const snapshotSafeEnd = getNativeScrollbackSnapshotSafeEnd(child);
+				if (snapshotSafeEnd !== undefined) {
+					const snapshotFloor = commitLocalEnd ?? liveLocalStart;
+					snapshotLocalEnd = Number.isFinite(snapshotSafeEnd)
+						? Math.max(snapshotFloor, Math.min(childLines.length, Math.trunc(snapshotSafeEnd)))
+						: childLines.length;
+				}
+			}
+			reported = getRenderStablePrefixRows(child);
+
+			// topmost seam wins
+			if (liveLocalStart !== undefined && this.#nativeScrollbackLiveRegionStart === undefined) {
+				this.#nativeScrollbackLiveRegionStart = offset + liveLocalStart;
+				if (commitLocalEnd !== undefined) this.#nativeScrollbackCommitSafeEnd = offset + commitLocalEnd;
+				if (snapshotLocalEnd !== undefined) this.#nativeScrollbackSnapshotSafeEnd = offset + snapshotLocalEnd;
+			}
+
+			if (chainStable) {
+				if (previous !== undefined && previous.component === child && previous.start === offset) {
+					let stableCount = 0;
+					if (reported !== undefined) {
+						stableCount = Number.isFinite(reported)
+							? Math.max(0, Math.min(childLines.length, previous.rowCount, Math.trunc(reported)))
+							: 0;
+					} else if (previous.lines === childLines) {
+						stableCount = childLines.length;
+					}
+					stableRows += stableCount;
+					if (stableCount < childLines.length || previous.rowCount !== childLines.length) chainStable = false;
+				} else {
+					chainStable = false;
+				}
+			}
+			segments[index] = { component: child, lines: childLines, start: offset, rowCount: childLines.length, liveLocalStart, commitLocalEnd, snapshotLocalEnd };
+			offset += childLines.length;
+		}
+		this.#frameSegments = segments;
+
+		const frame = this.#composedFrame;
+		if (stableRows > frame.length) stableRows = frame.length;
+		if (stableRows !== offset || frame.length !== offset) {
+			frame.length = stableRows;
+			this.#pruneFrameCursorMarkers(stableRows);
+			for (const segment of segments) {
+				const lines = segment.lines;
+				const from = segment.start >= stableRows ? 0 : stableRows - segment.start;
+				for (let i = from; i < lines.length; i++) this.#ingestFrameRow(lines[i]!);
+			}
+		}
+		this.#renderStablePrefixRows = stableRows;
+		this.#preparedValidRows = Math.min(this.#preparedValidRows, stableRows);
+		return frame;
+	}
 }
