@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { app, BrowserWindow, Menu, shell } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 
-import { ensureServer, serverLogPath } from './ensure-server';
+import { ensureServer, kimiHome, serverLogPath } from './ensure-server';
 import { resolveSeaPath } from './sea-path';
 
 let mainWindow: BrowserWindow | null = null;
@@ -95,6 +95,25 @@ function errorHtml(message: string): string {
     <p>菜单 → Kimi Code Desktop → 重试连接，或先检查日志。</p>`;
 }
 
+// --- server auth token --------------------------------------------------------
+
+/** On-disk filename of the daemon's persistent bearer token (under KIMI_CODE_HOME). */
+const SERVER_TOKEN_FILE = 'server.token';
+
+/**
+ * Read the daemon's bearer token so the web UI can authenticate without showing
+ * the manual token dialog on a fresh launch. Returns undefined when the token
+ * cannot be read (the web UI then falls back to the dialog).
+ */
+function readServerToken(): string | undefined {
+  try {
+    const token = readFileSync(join(kimiHome(), SERVER_TOKEN_FILE), 'utf-8').trim();
+    return token.length > 0 ? token : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // --- connect flow -------------------------------------------------------------
 
 async function connect(win: BrowserWindow): Promise<void> {
@@ -105,8 +124,15 @@ async function connect(win: BrowserWindow): Promise<void> {
     if (!win.isDestroyed()) {
       // Append a desktop marker so the web UI shows the internal-build banner
       // even when it is served by an already-running shared daemon (the desktop
-      // reuses the local daemon rather than starting a private one).
-      await win.loadURL(`${origin}/?kimi_desktop=1&platform=${process.platform}`);
+      // reuses the local daemon rather than starting a private one). Carry the
+      // server token in the `#token=` fragment — like `kimi web` does — so the
+      // web UI can authenticate without falling into the manual token dialog on
+      // a fresh launch.
+      const token = readServerToken();
+      const fragment = token === undefined ? '' : `#token=${encodeURIComponent(token)}`;
+      await win.loadURL(
+        `${origin}/?kimi_desktop=1&platform=${process.platform}${fragment}`,
+      );
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
