@@ -9,8 +9,9 @@
  * the snapshot; everything downstream reads from `IBootstrapService` instead of
  * touching `process` directly. Bound at Core scope. Also seeds the Core storage
  * roles (`IStorageService`, `IAppendLogStorage`, `IAtomicDocumentStorage`,
- * `IBlobStorage`) with a `FileStorageService` rooted at `homeDir` so the byte
- * layer (and every Store above it) persists to disk.
+ * `IBlobStorage`) each with its own `FileStorageService` rooted at `homeDir`
+ * (via per-token `SyncDescriptor`s), so the byte layer (and every Store above
+ * it) persists to disk while the roles stay independently routable.
  */
 
 import { mkdirSync } from 'node:fs';
@@ -20,6 +21,7 @@ import { join } from 'pathe';
 
 import type { Environment } from '@moonshot-ai/kaos';
 
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { createCoreScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
 import {
@@ -109,12 +111,21 @@ export function bootstrap(input: BootstrapInput = {}, extraSeeds: ScopeSeed = []
 }
 
 function storageSeed(options: IBootstrapOptions): ScopeSeed {
-  const fileStorage = new FileStorageService(options.homeDir);
+  // Each storage role token resolves to its OWN `FileStorageService` instance
+  // rooted at `homeDir`. The four roles are intentionally independent so a
+  // composition profile can route any one of them (e.g. `IBlobStorage`) to a
+  // different backend; bundling them into a single shared instance would bake
+  // in the assumption that they are always the same backend. We seed a
+  // per-token `SyncDescriptor` (VS Code's `new SyncDescriptor(Ctor, [args])`
+  // pattern) so the container builds each instance via DI, while the `extra`
+  // seed still overrides the in-memory default robustly.
+  const file = (): SyncDescriptor<IStorageService> =>
+    new SyncDescriptor(FileStorageService, [options.homeDir], true);
   return [
-    [IStorageService as ServiceIdentifier<unknown>, fileStorage],
-    [IAppendLogStorage as ServiceIdentifier<unknown>, fileStorage],
-    [IAtomicDocumentStorage as ServiceIdentifier<unknown>, fileStorage],
-    [IBlobStorage as ServiceIdentifier<unknown>, fileStorage],
+    [IStorageService as ServiceIdentifier<unknown>, file()],
+    [IAppendLogStorage as ServiceIdentifier<unknown>, file()],
+    [IAtomicDocumentStorage as ServiceIdentifier<unknown>, file()],
+    [IBlobStorage as ServiceIdentifier<unknown>, file()],
   ];
 }
 

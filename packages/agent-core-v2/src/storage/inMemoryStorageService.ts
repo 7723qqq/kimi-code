@@ -3,9 +3,9 @@
  *
  * Registered as the default `IStorageService` at Core scope so scopes and
  * tests work out of the box. For durable production storage, the composition
- * root seeds a `FileStorageService` (rooted at `bootstrap.homeDir`) into the
- * Core scope via `ScopeOptions.extra`, overriding this default — the same
- * pattern `blobStoreService` uses.
+ * root seeds a per-token `FileStorageService` descriptor (rooted at
+ * `bootstrap.homeDir`) into the Core scope via `ScopeOptions.extra`,
+ * overriding this default — the same pattern `blobStoreService` uses.
  *
  * `append` concatenates into the same key slot `write` replaces, mirroring the
  * file implementation's single-namespace semantics so the two are

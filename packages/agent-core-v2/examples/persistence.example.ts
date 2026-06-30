@@ -21,9 +21,9 @@
  * bytes through the Storage token beneath it, exposing the codec / framing the
  * Store hides. All three Stores sit on distinct tokens of the same
  * `IStorageService` interface (`IStorageService`, `IAtomicDocumentStorage`,
- * `IAppendLogStorage`); `bootstrap` routes them to one `FileStorageService`
- * here, but a server profile could route each to a different backend — that is
- * the composition-root routing these distinct tokens enable.
+ * `IAppendLogStorage`); `bootstrap` routes each to its own `FileStorageService`
+ * here, and a server profile could route any one of them to a different backend
+ * — that is the composition-root routing these distinct tokens enable.
  *
  * All Services come from `src/`; nothing here defines a new Service.
  */

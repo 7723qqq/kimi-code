@@ -4,7 +4,15 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
 import { IBootstrapService, bootstrapSeed, resolveBootstrapOptions } from '#/bootstrap';
+import { bootstrap } from '#/bootstrap/bootstrap';
 import { BootstrapService } from '#/bootstrap/bootstrapService';
+import {
+  FileStorageService,
+  IAppendLogStorage,
+  IAtomicDocumentStorage,
+  IBlobStorage,
+  IStorageService,
+} from '#/storage';
 
 describe('BootstrapService (scoped)', () => {
   beforeEach(() => {
@@ -52,5 +60,27 @@ describe('resolveBootstrapOptions', () => {
     expect(resolveBootstrapOptions({ homeDir: '/a', osHomeDir: '/b', env: {} }).homeDir).toBe('/a');
     expect(resolveBootstrapOptions({ osHomeDir: '/b', env: { KIMI_CODE_HOME: '/c' } }).homeDir).toBe('/c');
     expect(resolveBootstrapOptions({ osHomeDir: '/b', env: {} }).homeDir).toBe('/b/.kimi-code');
+  });
+});
+
+describe('bootstrap() storage seeding', () => {
+  it('routes each storage role token to its own FileStorageService instance', () => {
+    const { core } = bootstrap({ homeDir: '/tmp/kimi-home' });
+    try {
+      const storage = core.accessor.get(IStorageService);
+      const appendLog = core.accessor.get(IAppendLogStorage);
+      const atomicDoc = core.accessor.get(IAtomicDocumentStorage);
+      const blob = core.accessor.get(IBlobStorage);
+
+      for (const instance of [storage, appendLog, atomicDoc, blob]) {
+        expect(instance).toBeInstanceOf(FileStorageService);
+      }
+
+      // Roles are independently routable, so they must not collapse into one
+      // shared backend instance by default.
+      expect(new Set([storage, appendLog, atomicDoc, blob]).size).toBe(4);
+    } finally {
+      core.dispose();
+    }
   });
 });
