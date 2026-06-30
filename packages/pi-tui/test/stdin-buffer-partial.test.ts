@@ -123,4 +123,28 @@ describe("StdinBuffer partial-hold + paste watchdog", () => {
 		assert.deepStrictEqual(emittedPaste, ["hello"]);
 		assert.strictEqual(emittedData.join(""), "world");
 	});
+
+	it("flushes a stale holdable partial before a fresh escape in the deferral window", async () => {
+		// Reproduces the render-stall + input-flood race: a hold-eligible partial
+		// (an SGR mouse prefix) has hit its flush timeout and scheduled the inner
+		// setTimeout(0) deferral, and a fresh escape (a new keypress, not the tail)
+		// arrives while that deferral is still pending. The stale partial must be
+		// delivered first and the fresh escape parsed from a clean buffer — never
+		// merged into one raw blob (which would lose the arrow key).
+		buffer.process("\x1b[<"); // hold-eligible partial; arms the flush timer
+		await wait(6); // flush timer (5ms) fires → schedules the setTimeout(0) deferral
+		buffer.process("\x1b[A"); // fresh escape arrives while the deferral is pending
+		await wait(20); // settle; both emissions happen synchronously in process()
+
+		// The arrow key is parsed, not swallowed into a merged blob.
+		assert.ok(
+			emittedData.includes("\x1b[A"),
+			`arrow key parsed, not lost: ${JSON.stringify(emittedData)}`,
+		);
+		// The stale partial and the fresh escape must never merge into one raw blob.
+		assert.ok(
+			!emittedData.some((e) => e.length > 1 && e.includes("\x1b[<") && e.includes("\x1b[A")),
+			`stale partial and fresh escape must not merge: ${JSON.stringify(emittedData)}`,
+		);
+	});
 });

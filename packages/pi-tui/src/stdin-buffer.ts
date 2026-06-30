@@ -362,10 +362,19 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 		}
 
 		if (this.#flushDeferral && this.#isFreshEscapeAfterDeferredFlush(str)) {
-			// The buffered partial already hit its flush timeout. A new escape is
-			// a fresh sequence, not a tail; flush the stale partial first so the
-			// new sequence can be parsed from a clean buffer.
-			this.#flushExpired();
+			// The buffered partial already hit its flush timeout, and this chunk
+			// is a fresh escape (a new keypress), not the tail we were waiting for.
+			// Calling #flushExpired() here would re-run #shouldHoldPartial(): the
+			// partial is still inside its hold window, so it would RE-ARM the flush
+			// timer instead of delivering — leaving this deferral pending to fire a
+			// second time, then merging the fresh escape into the stale partial
+			// (e.g. `\x1b[<` + `\x1b[A` delivered as one raw blob, losing the arrow
+			// key). Force-deliver the stale partial and clear both flush timers so
+			// the new chunk parses from a clean buffer.
+			this.#clearFlushTimer();
+			for (const sequence of this.flush()) {
+				this.#emitDataSequence(sequence);
+			}
 		} else {
 			// Cancel any pending flush — new data may complete the buffered partial.
 			this.#clearFlushTimer();
@@ -494,6 +503,7 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 		this.#pasteChunks = [];
 		this.#pasteOverlap = "";
 		this.#pasteBytes = 0;
+		this.#pendingKittyPrintableCodepoint = undefined;
 		this.emit("paste", content);
 	}
 
@@ -518,6 +528,10 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 	 * and cancel the deferral.
 	 */
 	#armFlushTimer(): void {
+		// Idempotent: clear any prior timer before re-arming so a re-arm can
+		// never orphan a still-pending timer (which would fire against a buffer
+		// it no longer owns).
+		if (this.#timeout) clearTimeout(this.#timeout);
 		this.#timeout = setTimeout(() => {
 			this.#timeout = undefined;
 			this.#flushDeferral = setTimeout(() => {
@@ -589,6 +603,7 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 	}
 
 	flush(): string[] {
+		this.#partialHoldStartMs = 0;
 		this.#clearFlushTimer();
 
 		if (this.#buffer.length === 0) {
