@@ -14,8 +14,10 @@
  * **Wire fidelity**: the v1 `workspaceSchema` carries more fields than v2's
  * `Workspace` (`{ id, root, name, createdAt, lastOpenedAt }`). The handler
  * projects the v2 record onto the v1 shape, deriving the extra fields:
- *   - `is_git_repo` / `branch` — best-effort `.git` detection (branch is not
- *     resolved and stays `null`).
+ *   - `is_git_repo` / `branch` — best-effort `.git` detection; `branch` is
+ *     parsed from `.git/HEAD` (`ref: refs/heads/<branch>`), resolving the
+ *     real git dir through a `.git` file for worktrees/submodules. Matches the
+ *     v1 `agent-core` probe.
  *   - `created_at` / `last_opened_at` — from the registry's in-memory
  *     timestamps (reset on restart; the registry is still a skeleton).
  *   - `session_count` — count of persisted sessions for the workspace.
@@ -240,12 +242,38 @@ async function detectGit(
   core: Scope,
   root: string,
 ): Promise<{ isGitRepo: boolean; branch: string | null }> {
-  try {
-    await core.accessor.get(IHostFileSystem).stat(join(root, '.git'));
-    return { isGitRepo: true, branch: null };
-  } catch {
+  // Mirror the v1 `agent-core` git probe: confirm `.git`, resolve the real git
+  // dir (a `.git` *file* in worktrees/submodules points at it via `gitdir:`),
+  // then read `<gitDir>/HEAD` and peel off `ref: refs/heads/<branch>`. Every
+  // step is best-effort so a missing/unreadable piece degrades to `null`
+  // rather than failing the projection.
+  const hostFs = core.accessor.get(IHostFileSystem);
+
+  const dotGit = await hostFs.stat(join(root, '.git')).catch(() => null);
+  if (dotGit === null) {
     return { isGitRepo: false, branch: null };
   }
+
+  let gitDir: string;
+  if (dotGit.isDirectory) {
+    gitDir = join(root, '.git');
+  } else if (dotGit.isFile) {
+    const text = await hostFs.readText(join(root, '.git')).catch(() => null);
+    const ref = (text === null ? '' : /^gitdir:\s*(.+)$/m.exec(text)?.[1] ?? '').trim();
+    if (ref === '') {
+      return { isGitRepo: false, branch: null };
+    }
+    gitDir = ref.startsWith('/') ? ref : join(root, ref);
+  } else {
+    return { isGitRepo: false, branch: null };
+  }
+
+  const head = await hostFs.readText(join(gitDir, 'HEAD')).catch(() => null);
+  if (head === null) {
+    return { isGitRepo: true, branch: null };
+  }
+  const branch = /^ref:\s*refs\/heads\/(.+)$/.exec(head.trim())?.[1] ?? null;
+  return { isGitRepo: true, branch };
 }
 
 async function countSessions(core: Scope, workspaceId: string): Promise<number> {
