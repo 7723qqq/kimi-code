@@ -38,6 +38,10 @@ const DOMAIN_LAYER = new Map([
   // `errors` is a top-level facade (src/errors.ts) that aggregates every
   // domain's error codes; any domain may import it, so it sits at L0.
   ['errors', 0],
+  // `kaos` is the execution-environment substrate (cwd/env/osEnv/backend);
+  // it wraps the `@moonshot-ai/kaos` package and depends on no business
+  // domain, so it sits at L0 where any domain may import it.
+  ['kaos', 0],
   // L1 — abstraction bridges & low-level capabilities
   ['log', 1],
   ['telemetry', 1],

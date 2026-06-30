@@ -19,7 +19,6 @@
  * only registered when the active model supports image or video input.
  */
 
-import type { Kaos } from '@moonshot-ai/kaos';
 import type {
   ContentPart,
   ModelCapability,
@@ -28,6 +27,8 @@ import type {
 } from '@moonshot-ai/kosong';
 import { z } from 'zod';
 
+import { IAgentFileSystem } from '#/agentFs';
+import { IKaos } from '#/kaos';
 import { ToolAccesses } from '#/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool';
 import { resolvePathAccessPath } from '#/_base/tools/policies/path-access';
@@ -63,7 +64,7 @@ export const ReadMediaFileInputSchema = z.object({
     ),
 });
 
-export type ReadMediaFileInput = z.Infer<typeof ReadMediaFileInputSchema>;
+export type ReadMediaFileInput = z.infer<typeof ReadMediaFileInputSchema>;
 
 // ── Tool description (capability-driven) ─────────────────────────────
 
@@ -135,7 +136,8 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
   readonly description: string;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ReadMediaFileInputSchema);
   constructor(
-    private readonly kaos: Kaos,
+    private readonly fs: IAgentFileSystem,
+    private readonly kaos: IKaos,
     private readonly workspace: WorkspaceConfig,
     private readonly capabilities: ModelCapability,
     private readonly videoUploader?: VideoUploader | undefined,
@@ -181,7 +183,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
     try {
       // For media input, the bytes are authoritative; the extension is only
       // a fallback for formats that cannot be sniffed from the header.
-      const header = await this.kaos.readBytes(safePath, MEDIA_SNIFF_BYTES);
+      const header = await this.fs.readBytes(safePath, MEDIA_SNIFF_BYTES);
       const fileType = detectFileType(safePath, header, 'media');
 
       if (fileType.kind === 'text') {
@@ -216,20 +218,20 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
         };
       }
 
-      const stat = await this.kaos.stat(safePath);
-      if (stat.stSize === 0) {
+      const stat = await this.fs.stat(safePath);
+      if (stat.size === 0) {
         return { isError: true, output: `"${args.path}" is empty.` };
       }
-      if (stat.stSize > MAX_MEDIA_BYTES) {
+      if (stat.size > MAX_MEDIA_BYTES) {
         return {
           isError: true,
           output:
-            `"${args.path}" is ${String(stat.stSize)} bytes, which exceeds the ` +
+            `"${args.path}" is ${String(stat.size)} bytes, which exceeds the ` +
             `maximum ${String(MAX_MEDIA_MEGABYTES)}MB for media files.`,
         };
       }
 
-      const data = await this.kaos.readBytes(safePath);
+      const data = Buffer.from(await this.fs.readBytes(safePath));
       const base64 = data.toString('base64');
       let mediaPart: ContentPart;
       if (fileType.kind === 'image') {
@@ -259,7 +261,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
       const systemText = buildSystemSummary({
         kind: fileType.kind,
         mimeType: fileType.mimeType,
-        byteSize: stat.stSize,
+        byteSize: stat.size,
         dimensions,
       });
 

@@ -8,6 +8,7 @@ import {
 } from '#/_base/di/scope';
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
 import { IBootstrapService } from '#/bootstrap';
+import { IKaosFactory, type IKaos } from '#/kaos';
 import { ISessionService } from '#/session';
 import { ISessionLifecycleService } from '#/session-lifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/session-lifecycle/sessionLifecycleService';
@@ -29,6 +30,26 @@ function metadataStub(): ISessionMetadata {
     update: () => Promise.resolve(),
     setTitle: () => Promise.resolve(),
     setArchived: () => Promise.resolve(),
+  };
+}
+
+function kaosFactoryStub(): IKaosFactory {
+  const kaos: IKaos = {
+    _serviceBrand: undefined,
+    name: 'local',
+    cwd: '/tmp/proj',
+    osEnv: { osKind: 'test', osArch: 'x64', osVersion: '', shellName: 'sh', shellPath: '/bin/sh' },
+    backend: undefined as never,
+    pathClass: () => 'posix',
+    normpath: (p) => p,
+    gethome: () => '/home',
+    getcwd: () => '/tmp/proj',
+    withCwd: (cwd) => ({ ...kaos, cwd, getcwd: () => cwd }),
+    withEnv: () => kaos,
+  };
+  return {
+    _serviceBrand: undefined,
+    createLocal: (cwd) => Promise.resolve({ ...kaos, cwd, getcwd: () => cwd }),
   };
 }
 
@@ -55,6 +76,7 @@ describe('SessionLifecycleService', () => {
     host = createScopedTestHost([
       stubPair(IBootstrapService, bootstrapStub()),
       stubPair(ISessionMetadata, metadataStub()),
+      stubPair(IKaosFactory, kaosFactoryStub()),
       ...extra,
     ]);
     return host.core.accessor.get(ISessionLifecycleService);

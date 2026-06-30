@@ -21,6 +21,7 @@ import {
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/bootstrap';
 import { NotImplementedError } from '#/errors';
+import { IKaos, IKaosFactory } from '#/kaos';
 import { sessionLogSeed } from '#/log';
 import { ISessionService } from '#/session';
 import { type ISessionContext, sessionContextSeed } from '#/session-context';
@@ -39,6 +40,7 @@ export class SessionLifecycleService implements ISessionLifecycleService {
   constructor(
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IKaosFactory private readonly kaosFactory: IKaosFactory,
   ) {}
 
   async create(opts: CreateSessionOptions): Promise<IScopeHandle> {
@@ -52,11 +54,18 @@ export class SessionLifecycleService implements ISessionLifecycleService {
       sessionDir,
       metaScope,
     };
+    const kaos = await this.kaosFactory.createLocal(opts.workDir);
     const handle = createScopedChildHandle(
       this.instantiation,
       LifecycleScope.Session,
       opts.sessionId,
-      { extra: [...sessionContextSeed(ctx), ...sessionLogSeed(opts.sessionId, sessionDir)] },
+      {
+        extra: [
+          ...sessionContextSeed(ctx),
+          ...sessionLogSeed(opts.sessionId, sessionDir),
+          [IKaos, kaos] as const,
+        ],
+      },
     );
     this.sessions.set(opts.sessionId, handle);
     await handle.accessor.get(ISessionMetadata).ready;

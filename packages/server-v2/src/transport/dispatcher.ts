@@ -17,16 +17,17 @@ import {
 import { resolveAction } from './actionMap';
 import type { ActionTarget, ScopeKind, ServiceAction } from './channel';
 import { assertSerializable } from './errors';
+import { MAIN_AGENT_ID, ensureMainAgent } from './mainAgent';
 
 /**
  * Resolve the scope a request targets. Returns `undefined` when the referenced
  * session / agent does not exist (caller maps to `40401`).
  */
-export function resolveScope(
+export async function resolveScope(
   core: Scope,
   scopeKind: ScopeKind,
   params: Record<string, string>,
-): Scope | IScopeHandle | undefined {
+): Promise<Scope | IScopeHandle | undefined> {
   switch (scopeKind) {
     case 'core':
       return core;
@@ -39,6 +40,7 @@ export function resolveScope(
       const agentId = params['agent_id'] ?? '';
       const session = core.accessor.get(ISessionLifecycleService).get(sessionId);
       if (session === undefined) return undefined;
+      if (agentId === MAIN_AGENT_ID) return ensureMainAgent(session);
       return session.accessor.get(IAgentLifecycleService).getHandle(agentId);
     }
   }
@@ -56,7 +58,7 @@ export async function dispatch(
   sa: ServiceAction,
   arg: unknown,
 ): Promise<unknown> {
-  const scope = resolveScope(core, scopeKind, params);
+  const scope = await resolveScope(core, scopeKind, params);
   if (scope === undefined) {
     throw new KimiError(
       ErrorCodes.SESSION_NOT_FOUND,

@@ -1,15 +1,15 @@
 /**
  * ReadMediaFileTool tests for the v2 output/capability contract.
  *
- * Self-contained: builds a minimal fake `Kaos` inline (the v2 shared kaos
- * fixtures do not exist yet) so the tool can be exercised without the
- * missing composition root.
+ * Self-contained: builds minimal fake `IAgentFileSystem` and `IKaos` inline
+ * so the tool can be exercised without the missing composition root.
  */
 
-import type { Kaos } from '@moonshot-ai/kaos';
 import type { ContentPart, ModelCapability } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { IAgentFileSystem } from '../../src/agentFs';
+import type { IKaos } from '../../src/kaos';
 import {
   ReadMediaFileInputSchema,
   ReadMediaFileTool,
@@ -65,17 +65,27 @@ interface FakeFile {
   readonly size?: number;
 }
 
-function createTestKaos(files: Record<string, FakeFile>): Kaos {
+function createTestFs(files: Record<string, FakeFile>): IAgentFileSystem {
   const lookup = (path: string): FakeFile | undefined => files[path];
   return {
-    readBytes: vi.fn(async (path: string, _length?: number) => lookup(path)?.data ?? Buffer.alloc(0)),
+    cwd: '/workspace',
+    readBytes: vi.fn(async (path: string, _n?: number) => lookup(path)?.data ?? Buffer.alloc(0)),
     stat: vi.fn(async (path: string) => {
       const file = lookup(path);
-      return { stSize: file?.size ?? file?.data.length ?? 0 };
+      return {
+        isFile: true,
+        isDirectory: false,
+        size: file?.size ?? file?.data.length ?? 0,
+      };
     }),
+  } as unknown as IAgentFileSystem;
+}
+
+function createTestKaos(): IKaos {
+  return {
     pathClass: () => 'posix',
     gethome: () => '/home',
-  } as unknown as Kaos;
+  } as unknown as IKaos;
 }
 
 function makeTool(
@@ -83,7 +93,7 @@ function makeTool(
   caps: ModelCapability = capabilities(),
   videoUploader?: VideoUploader,
 ): ReadMediaFileTool {
-  return new ReadMediaFileTool(createTestKaos(files), WORKSPACE, caps, videoUploader);
+  return new ReadMediaFileTool(createTestFs(files), createTestKaos(), WORKSPACE, caps, videoUploader);
 }
 
 async function execute(
@@ -250,11 +260,13 @@ describe('ReadMediaFileTool', () => {
 });
 
 describe('registerMediaTools', () => {
-  const kaos = createTestKaos({});
+  const fs = createTestFs({});
+  const kaos = createTestKaos();
 
   it('registers ReadMediaFile when the model supports image input', () => {
     const registry = new ToolRegistryService();
     const disposable = registerMediaTools(registry, {
+      fs,
       kaos,
       workspace: WORKSPACE,
       capabilities: capabilities({ image_in: true, video_in: false }),
@@ -267,6 +279,7 @@ describe('registerMediaTools', () => {
   it('registers ReadMediaFile when the model supports video input', () => {
     const registry = new ToolRegistryService();
     registerMediaTools(registry, {
+      fs,
       kaos,
       workspace: WORKSPACE,
       capabilities: capabilities({ image_in: false, video_in: true }),
@@ -277,6 +290,7 @@ describe('registerMediaTools', () => {
   it('does not register anything when the model lacks media capability', () => {
     const registry = new ToolRegistryService();
     const disposable = registerMediaTools(registry, {
+      fs,
       kaos,
       workspace: WORKSPACE,
       capabilities: capabilities({ image_in: false, video_in: false }),

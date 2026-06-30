@@ -33,7 +33,6 @@
  */
 
 import {
-  IAgentLifecycleService,
   IContextMemory,
   ISessionIndex,
   ISessionLifecycleService,
@@ -50,9 +49,7 @@ import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
-
-/** Agent id that owns the session's primary conversation history. */
-const MAIN_AGENT_ID = 'main';
+import { ensureMainAgent } from '../transport/mainAgent';
 
 /** One entry from the main agent's live history. */
 type MemoryMessage = ReturnType<IContextMemory['get']>[number];
@@ -232,8 +229,9 @@ async function loadProtocolMessages(core: Scope, sid: string): Promise<Message[]
   if (summary === undefined) return undefined;
 
   const session = core.accessor.get(ISessionLifecycleService).get(sid);
-  const agent = session?.accessor.get(IAgentLifecycleService).getHandle(MAIN_AGENT_ID);
-  const history = agent?.accessor.get(IContextMemory).get() ?? [];
+  if (session === undefined) return [];
+  const agent = await ensureMainAgent(session);
+  const history = agent.accessor.get(IContextMemory).get();
 
   return history.map((msg, index) => toProtocolMessage(sid, index, msg, summary.createdAt));
 }

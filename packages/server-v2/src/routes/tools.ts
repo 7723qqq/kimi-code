@@ -45,7 +45,6 @@
 
 import {
   ErrorCodes,
-  IAgentLifecycleService,
   IMcpService,
   ISessionIndex,
   ISessionLifecycleService,
@@ -67,10 +66,8 @@ import {
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
+import { ensureMainAgent } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
-
-/** Agent id that owns the session's tool registry and MCP connections. */
-const MAIN_AGENT_ID = 'main';
 
 /** v2 MCP tool-name prefix / separator (see `mcp/tool-naming.ts`). */
 const MCP_NAME_PREFIX = 'mcp__';
@@ -217,7 +214,8 @@ async function resolveEffectiveAgent(core: Scope, sessionId: string | undefined)
   const sid = sessionId ?? (await mostRecentSessionId(core));
   if (sid === undefined) return undefined;
   const session = core.accessor.get(ISessionLifecycleService).get(sid);
-  return session?.accessor.get(IAgentLifecycleService).getHandle(MAIN_AGENT_ID);
+  if (session === undefined) return undefined;
+  return ensureMainAgent(session);
 }
 
 /** Pick the most-recently-created session id, mirroring v1's fallback. */

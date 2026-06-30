@@ -39,7 +39,6 @@
  */
 
 import {
-  IAgentLifecycleService,
   IBackgroundService,
   ISessionIndex,
   ISessionLifecycleService,
@@ -59,10 +58,8 @@ import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
+import { ensureMainAgent } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
-
-/** Agent id that owns the session's background tasks. */
-const MAIN_AGENT_ID = 'main';
 
 /** Default cap (bytes) for the opt-in output preview on GET-by-id. */
 const DEFAULT_TASK_OUTPUT_PREVIEW_BYTES = 32 * 1024;
@@ -281,8 +278,9 @@ async function resolveSessionBackground(core: Scope, sid: string): Promise<Resol
   if (summary === undefined) return { kind: 'not_found' };
 
   const session = core.accessor.get(ISessionLifecycleService).get(sid);
-  const agent = session?.accessor.get(IAgentLifecycleService).getHandle(MAIN_AGENT_ID);
-  const bg = agent?.accessor.get(IBackgroundService);
+  if (session === undefined) return { kind: 'resolved', bg: undefined };
+  const agent = await ensureMainAgent(session);
+  const bg = agent.accessor.get(IBackgroundService);
   return { kind: 'resolved', bg };
 }
 

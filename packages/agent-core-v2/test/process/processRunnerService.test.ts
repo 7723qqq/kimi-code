@@ -1,0 +1,79 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Readable } from 'node:stream';
+
+import { InstantiationType } from '#/_base/di/extensions';
+import {
+  LifecycleScope,
+  _clearScopedRegistryForTests,
+  registerScopedService,
+} from '#/_base/di/scope';
+import { createScopedTestHost, stubPair } from '#/_base/di/test';
+import { IKaos, IKaosFactory, KaosFactory } from '#/kaos';
+import { IProcessRunner, ProcessRunner } from '#/process';
+
+async function collect(stream: Readable): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+describe('ProcessRunner (backed by IKaos)', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    _clearScopedRegistryForTests();
+    registerScopedService(
+      LifecycleScope.Core,
+      IKaosFactory,
+      KaosFactory,
+      InstantiationType.Delayed,
+      'kaos',
+    );
+    registerScopedService(
+      LifecycleScope.Session,
+      IProcessRunner,
+      ProcessRunner,
+      InstantiationType.Delayed,
+      'process',
+    );
+    dir = await mkdtemp(join(tmpdir(), 'procrunner-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  async function makeRunner(): Promise<IProcessRunner> {
+    const host = createScopedTestHost();
+    const factory = host.core.accessor.get(IKaosFactory);
+    const kaos = await factory.createLocal(dir);
+    const session = host.child(LifecycleScope.Session, 's', [stubPair(IKaos, kaos)]);
+    return session.accessor.get(IProcessRunner);
+  }
+
+  it('exec runs a command and captures stdout + exit code', async () => {
+    const runner = await makeRunner();
+    const proc = await runner.exec(['node', '-e', 'process.stdout.write("ok")']);
+    const out = await collect(proc.stdout);
+    expect(out).toBe('ok');
+    expect(await proc.wait()).toBe(0);
+    expect(proc.exitCode).toBe(0);
+  });
+
+  it('exec overlays per-call env', async () => {
+    const runner = await makeRunner();
+    const proc = await runner.exec(
+      ['node', '-e', 'process.stdout.write(process.env.FOO ?? "")'],
+      { env: { FOO: 'bar' } },
+    );
+    const out = await collect(proc.stdout);
+    expect(out).toBe('bar');
+    expect(await proc.wait()).toBe(0);
+  });
+});
