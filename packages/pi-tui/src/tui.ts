@@ -16,10 +16,15 @@ import {
 	type TerminalColorScheme,
 } from "./terminal-colors.ts";
 import { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.ts";
+import { createStaticCapabilities } from "./terminal-capabilities.ts";
 import { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.ts";
 import { LedgerTuiEngine } from "./ledger/engine.ts";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
+
+// Static default terminal capabilities for the ledger engine, derived from the
+// environment. Phase B Task 2 will replace this with a probe-backed instance.
+const LEDGER_CAPABILITIES = createStaticCapabilities();
 
 interface KittyImageHeader {
 	ids: number[];
@@ -1639,7 +1644,7 @@ export class TUI extends Container {
 
 	private getLedgerEngine(): LedgerTuiEngine {
 		if (!this.ledgerEngine) {
-			this.ledgerEngine = new LedgerTuiEngine(this.terminal, () => this.children);
+			this.ledgerEngine = new LedgerTuiEngine(this.terminal, () => this.children, LEDGER_CAPABILITIES);
 		}
 		return this.ledgerEngine;
 	}
