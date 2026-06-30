@@ -24,6 +24,7 @@ declare module '#/wireRecord' {
     'turn.launch': {
       turnId: number;
       origin: PromptOrigin;
+      promptMessageId?: string;
     };
   }
 }
@@ -75,7 +76,7 @@ export class TurnService implements ITurnService {
     });
   }
 
-  launch(origin: PromptOrigin): Turn {
+  launch(origin: PromptOrigin, promptMessageId?: string): Turn {
     if (this.activeTurn !== undefined) {
       throw new Error(`Cannot launch a new turn while turn ${this.activeTurn.id} is active`);
     }
@@ -85,12 +86,13 @@ export class TurnService implements ITurnService {
     this.lastEndedReasonValue = undefined;
 
     const turnId = this.nextTurnId;
-    this.wireRecord.append({ type: 'turn.launch', turnId, origin });
+    this.wireRecord.append({ type: 'turn.launch', turnId, origin, promptMessageId });
     this.restoreLaunch(turnId);
     const abortController = new AbortController();
     const ready = createControlledPromise<void>();
     const turn: MutableTurn = {
       id: turnId,
+      promptMessageId,
       abortController,
       ready: ready.promise,
       result: Promise.resolve({ reason: 'failed' }),
@@ -118,7 +120,12 @@ export class TurnService implements ITurnService {
     let result: TurnResult | undefined;
     try {
       this.telemetry.track('turn_started', { mode: telemetryMode });
-      this.events.emit({ type: 'turn.started', turnId: turn.id, origin });
+      this.events.emit({
+        type: 'turn.started',
+        turnId: turn.id,
+        origin,
+        promptMessageId: turn.promptMessageId,
+      });
       const promptHookResult = await this.applyUserPromptHook(turn, origin);
       if (promptHookResult !== undefined) {
         result = promptHookResult;

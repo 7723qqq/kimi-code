@@ -61,4 +61,24 @@ describe('message history (IContextMemory)', () => {
 
     expect(ctx.get().map(textOf)).toEqual(['keep']);
   });
+
+  it('stamps a msg_<ulid> id on messages that lack one', () => {
+    const ctx = ix.get(IContextMemory);
+    ctx.splice(0, 0, [textMessage('user', 'hello')]);
+
+    const [message] = ctx.get();
+    expect(message?.id).toMatch(/^msg_[0-9A-Z]{26}$/);
+  });
+
+  it('preserves an existing message id (idempotent)', () => {
+    const ctx = ix.get(IContextMemory);
+    const existing: ContextMessage = {
+      ...textMessage('user', 'keep'),
+      id: 'msg_01HXQM8K7Z3V9N2P5R6T8W0Y1B',
+    };
+    ctx.splice(0, 0, [existing]);
+
+    const [message] = ctx.get();
+    expect(message?.id).toBe('msg_01HXQM8K7Z3V9N2P5R6T8W0Y1B');
+  });
 });

@@ -8,10 +8,9 @@
  * responses carry the same information.
  */
 
-import { randomUUID } from 'node:crypto';
-
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { newMessageId } from '#/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IPermissionModeService } from '#/permissionMode/permissionMode';
 import { IProfileService } from '#/profile/profile';
@@ -127,10 +126,13 @@ export class PromptLegacyService implements IPromptLegacyService {
   // --- internals -------------------------------------------------------------
 
   private createRecord(body: PromptSubmission): PromptRecord {
-    const promptId = `prompt_${randomUUID()}`;
+    // `prompt_id` IS the user-message id: the same `msg_<ulid>` is stamped onto
+    // the ContextMessage appended in `launch`, so the prompt and its message
+    // share one identity across the wire, the turn, and the snapshot.
+    const promptId = newMessageId();
     return {
       promptId,
-      userMessageId: `msg_${promptId}`,
+      userMessageId: promptId,
       body,
       createdAt: new Date().toISOString(),
     };
@@ -142,6 +144,7 @@ export class PromptLegacyService implements IPromptLegacyService {
       throw new KimiError(ErrorCodes.REQUEST_INVALID, 'prompt content has no supported parts');
     }
     const turn = this.prompt.prompt({
+      id: record.promptId,
       role: 'user',
       content: parts,
       toolCalls: [],

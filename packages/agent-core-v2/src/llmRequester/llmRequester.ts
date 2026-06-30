@@ -18,6 +18,8 @@ export type LLMEvent =
       readonly type: 'finish';
       readonly providerFinishReason?: FinishReason;
       readonly rawFinishReason?: string;
+      /** Provider-assigned response/message id, when available. */
+      readonly id?: string;
     }
   | {
       readonly type: 'timing';

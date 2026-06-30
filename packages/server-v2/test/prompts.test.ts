@@ -93,9 +93,10 @@ describe('server-v2 /api/v1 prompts', () => {
       content: [{ type: 'text', text: 'hello' }],
     });
     expect(submitted.body.code).toBe(0);
-    expect(submitted.body.data.prompt_id).toMatch(/^prompt_/);
+    expect(submitted.body.data.prompt_id).toMatch(/^msg_/);
     expect(submitted.body.data.status).toBe('running');
-    expect(submitted.body.data.user_message_id).toBeTruthy();
+    // prompt_id IS the user_message_id now (one identity for prompt + message).
+    expect(submitted.body.data.user_message_id).toBe(submitted.body.data.prompt_id);
 
     const list = await call<{ active: PromptItemWire | null; queued: PromptItemWire[] }>(
       'GET',

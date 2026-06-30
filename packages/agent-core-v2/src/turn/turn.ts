@@ -9,6 +9,8 @@ export interface TurnResult {
 
 export interface Turn {
   readonly id: number;
+  /** Id of the user message that triggered this turn, when launched from a prompt. */
+  readonly promptMessageId?: string;
   readonly abortController: AbortController;
   readonly ready: Promise<void>;
   readonly result: Promise<TurnResult>;
@@ -39,7 +41,7 @@ export interface TurnEndedContext {
 
 export interface ITurnService {
   readonly _serviceBrand: undefined;
-  launch(origin: PromptOrigin): Turn;
+  launch(origin: PromptOrigin, promptMessageId?: string): Turn;
   getActiveTurn(): Turn | undefined;
   /**
    * Reason the most recently finished turn ended with, or `undefined` when no
