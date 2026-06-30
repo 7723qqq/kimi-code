@@ -1,11 +1,10 @@
 export default {
   help: { desc: 'Show the list of available commands' },
   new: { desc: 'Create a new session' },
-  sessions: { desc: 'Browse & switch sessions' },
   clear: { desc: 'Clear and start a new session' },
   model: { desc: 'Switch model' },
   provider: { desc: 'Manage providers (add / remove / refresh)' },
-  login: { desc: 'Sign in to the platform with an API key' },
+  login: { desc: 'Sign in to Kimi in the browser' },
   permission: { desc: 'Switch approval mode (manual / auto / yolo)' },
   plan: { desc: 'Toggle plan mode on/off' },
   swarm: { desc: 'Toggle swarm mode; /swarm <task> runs a task in swarm' },

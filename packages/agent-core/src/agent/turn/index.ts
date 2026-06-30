@@ -33,13 +33,14 @@ import {
   type LoopTurnInterruptedEvent,
   type LoopTurnStopReason,
 } from '../../loop/index';
-import type { AgentEvent, TurnEndedEvent } from '../../rpc';
+import type { AgentEvent, TurnEndedEvent, TurnEndReason } from '../../rpc';
 import type { TelemetryPropertyValue } from '../../telemetry';
 import { abortable, isUserCancellation, userCancellationReason } from '../../utils/abort';
 import { USER_PROMPT_ORIGIN, type PromptOrigin } from '../context';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
 import { canonicalTelemetryArgs, isPlainRecord } from './canonical-args';
 import { ToolCallDeduplicator } from './tool-dedup';
+import { budgetToolResultForModel } from './tool-result-budget';
 
 interface ActiveTurn {
   readonly turnId: number;
@@ -76,6 +77,7 @@ const GOAL_PROVIDER_AUTH_PAUSE_PREFIX = 'Paused after provider authentication er
 const GOAL_PROVIDER_API_PAUSE_PREFIX = 'Paused after provider API error';
 const GOAL_MODEL_CONFIG_PAUSE_PREFIX = 'Paused after model configuration error';
 const GOAL_RUNTIME_PAUSE_PREFIX = 'Paused after runtime error';
+const GOAL_PROVIDER_FILTERED_PAUSE_REASON = 'Paused after provider safety policy block';
 
 /**
  * The prompt the goal driver appends to start each continuation turn — the
@@ -316,14 +318,17 @@ export class TurnFlow {
         return await this.driveGoal(firstTurnId, input, origin, signal);
       }
       const end = await this.runOneTurn(firstTurnId, input, origin, signal, true);
-      const resumedFromPausedOrBlocked =
-        initialGoalStatus === 'paused' || initialGoalStatus === 'blocked';
-      const currentGoalStatus = this.agent.goal.getGoal().goal?.status;
+      // A goal can become active during an ordinary turn: the model creates one
+      // with CreateGoal, or resumes a paused/blocked goal via UpdateGoal. Either
+      // way, hand the now-active goal to the driver so it is actually pursued,
+      // instead of stopping after the turn that merely started it. (The
+      // already-active case took the early return above.)
+      const goalBecameActive = this.agent.goal.getGoal().goal?.status === 'active';
       if (
-        resumedFromPausedOrBlocked &&
-        currentGoalStatus === 'active' &&
+        goalBecameActive &&
         end.event.reason !== 'cancelled' &&
-        end.event.reason !== 'failed'
+        end.event.reason !== 'failed' &&
+        end.event.reason !== 'filtered'
       ) {
         return await this.driveGoal(
           this.allocateTurnId(),
@@ -380,6 +385,10 @@ export class TurnFlow {
       }
       if (end.event.reason === 'failed') {
         await this.agent.goal.pauseActiveGoal({ reason: goalFailurePauseReason(end.event.error) });
+        return end;
+      }
+      if (end.event.reason === 'filtered') {
+        await this.agent.goal.pauseActiveGoal({ reason: GOAL_PROVIDER_FILTERED_PAUSE_REASON });
         return end;
       }
       if (end.blockedByUserPromptHook === true) {
@@ -446,7 +455,7 @@ export class TurnFlow {
     const telemetryMode = this.telemetryMode();
     this.telemetryModeByTurn.set(turnId, telemetryMode);
     this.currentStepByTurn.set(turnId, 0);
-    this.agent.telemetry.track('turn_started', { mode: telemetryMode });
+    this.agent.telemetry.track('turn_started', { mode: telemetryMode, ...this.requestProtocolProps() });
     this.agent.fullCompaction.resetForTurn();
     this.agent.usage.beginTurn();
     this.agent.emitEvent({ type: 'turn.started', turnId, origin });
@@ -467,10 +476,12 @@ export class TurnFlow {
       } else {
         const stopReason = await this.runStepLoop(turnId, signal);
         completedStopReason = stopReason;
+        const reason: TurnEndReason =
+          stopReason === 'aborted' ? 'cancelled' : stopReason === 'filtered' ? 'filtered' : 'completed';
         ended = {
           type: 'turn.ended',
           turnId,
-          reason: stopReason === 'aborted' ? 'cancelled' : 'completed',
+          reason,
           durationMs: Date.now() - startedAt,
         };
       }
@@ -490,6 +501,8 @@ export class TurnFlow {
           const properties: Record<string, TelemetryPropertyValue> = {
             error_type: classification.errorType,
             model: this.agent.config.model,
+            alias: this.agent.config.modelAlias,
+            ...this.requestProtocolProps(),
             retryable: summary.retryable,
             duration_ms: Date.now() - startedAt,
           };
@@ -523,8 +536,25 @@ export class TurnFlow {
         inputData: { turnId, reason: 'cancelled' },
       });
     }
+    this.agent.telemetry.track('turn_ended', {
+      reason: ended.reason,
+      duration_ms: ended.durationMs,
+      mode: this.telemetryModeByTurn.get(turnId) ?? this.telemetryMode(),
+      ...this.requestProtocolProps(),
+    });
     this.agent.emitEvent(ended);
-    if (standalone && this.currentId === turnId) {
+    // Release the active turn in the same frame as turn.ended for a standalone
+    // turn, so the session is observably idle the instant turn.ended fires.
+    // Exception: if the model turned the goal active during this turn (e.g.
+    // CreateGoal), the session is NOT idle — turnWorker is about to drive the
+    // goal. Keep the active turn alive (as the already-active goal path does) so
+    // those autonomous continuations stay cancelable and exclude concurrent
+    // turns; turnWorker releases it after the drive.
+    if (
+      standalone &&
+      this.currentId === turnId &&
+      this.agent.goal.getGoal().goal?.status !== 'active'
+    ) {
       this.activeTurn = null;
     }
     if (this.agent.swarmMode.shouldAutoExit) {
@@ -726,17 +756,31 @@ export class TurnFlow {
                   toolOutput: isError === true ? undefined : toolOutputText(output).slice(0, 2000),
                 },
               });
-              return finalResult;
+              return budgetToolResultForModel({
+                homedir: this.agent.homedir,
+                toolName: ctx.toolCall.name,
+                toolCallId: ctx.toolCall.id,
+                result: finalResult,
+              });
             },
           },
         });
 
         return result.stopReason;
       } catch (error) {
-        if (
+        const isContextOverflow =
           error instanceof APIContextOverflowError ||
-          (isKimiError(error) && error.code === ErrorCodes.CONTEXT_OVERFLOW)
+          (isKimiError(error) && error.code === ErrorCodes.CONTEXT_OVERFLOW);
+        const estimatedRequestTokens = isContextOverflow
+          ? this.agent.fullCompaction.estimateCurrentRequestTokens()
+          : undefined;
+        if (
+          isContextOverflow ||
+          this.agent.fullCompaction.shouldRecoverFromContextOverflow(error, estimatedRequestTokens)
         ) {
+          this.agent.fullCompaction.observeContextOverflow(
+            estimatedRequestTokens ?? this.agent.fullCompaction.estimateCurrentRequestTokens(),
+          );
           await this.agent.fullCompaction.handleOverflowError(signal, error);
           continue; // Retry with compacted context
         }
@@ -887,11 +931,33 @@ export class TurnFlow {
     this.agent.telemetry.track('turn_interrupted', {
       mode: this.telemetryModeByTurn.get(turnId) ?? this.telemetryMode(),
       at_step: atStep,
+      ...this.requestProtocolProps(),
     });
   }
 
   private telemetryMode(): 'agent' | 'plan' {
     return this.agent.planMode.isActive ? 'plan' : 'agent';
+  }
+
+  /**
+   * Resolve the current model's provider wire type and any model-level protocol
+   * override for request telemetry. Never throws — telemetry must not break a
+   * turn over an unresolvable provider config (the step loop will surface that
+   * error on its own).
+   */
+  private requestProtocolProps(): { provider_type?: string; protocol?: string } {
+    const model = this.agent.config.modelAlias;
+    if (model === undefined) return {};
+    try {
+      const resolved = this.agent.modelProvider?.resolveProviderConfig(model);
+      if (resolved === undefined) return {};
+      return {
+        provider_type: resolved.type,
+        protocol: resolved.protocol ?? resolved.type,
+      };
+    } catch {
+      return {};
+    }
   }
 
   private shouldTrackApiError(turnId: number): boolean {

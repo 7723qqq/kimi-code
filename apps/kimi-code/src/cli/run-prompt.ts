@@ -78,11 +78,12 @@ export async function runPrompt(
     telemetry: telemetryClient,
     onOAuthRefresh: (outcome) => {
       if (outcome.success) {
-        track('oauth_refresh', { success: true });
+        track('oauth_refresh', { outcome: 'success' });
         return;
       }
-      track('oauth_refresh', { success: false, reason: outcome.reason });
+      track('oauth_refresh', { outcome: 'error', reason: outcome.reason });
     },
+    sessionStartedProperties: { yolo: false, plan: false, afk: true },
   });
   log.info('kimi-code starting', {
     version,
@@ -115,7 +116,7 @@ export async function runPrompt(
     for (const warning of (await harness.getConfigDiagnostics()).warnings) {
       stderr.write(`Warning: ${warning}\n`);
     }
-    const { session, resumed, restorePermission, telemetryModel, goalModel } =
+    const { session, restorePermission, telemetryModel, goalModel } =
       await resolvePromptSession(
         harness,
         opts,
@@ -138,13 +139,6 @@ export async function runPrompt(
     });
     setCrashPhase('runtime');
 
-    withTelemetryContext({ sessionId: session.id }).track('started', {
-      resumed,
-      yolo: false,
-      plan: false,
-      afk: true,
-    });
-
     const outputFormat = opts.outputFormat ?? 'text';
     // Headless goal mode: `kimi -p "/goal <objective>"`. The goal driver keeps
     // the turn-run alive across continuation turns, so the normal prompt-turn
@@ -159,7 +153,7 @@ export async function runPrompt(
     writeResumeHint(session.id, outputFormat, stdout, stderr);
 
     withTelemetryContext({ sessionId: session.id }).track('exit', {
-      duration_s: (Date.now() - startedAt) / 1000,
+      duration_ms: Date.now() - startedAt,
     });
   } finally {
     await cleanupPromptRun();
@@ -243,7 +237,10 @@ async function resolvePromptSession(
         `Session "${opts.session}" was created under a different directory.`,
       );
     }
-    const session = await harness.resumeSession({ id: opts.session });
+    const session = await harness.resumeSession({
+      id: opts.session,
+      additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
+    });
     const status = await session.getStatus();
     const restorePermission = await forcePromptPermission(
       session,
@@ -267,7 +264,10 @@ async function resolvePromptSession(
     const sessions = await harness.listSessions({ workDir });
     const previous = sessions[0];
     if (previous !== undefined) {
-      const session = await harness.resumeSession({ id: previous.id });
+      const session = await harness.resumeSession({
+        id: previous.id,
+        additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
+      });
       const status = await session.getStatus();
       const restorePermission = await forcePromptPermission(
         session,
@@ -290,7 +290,12 @@ async function resolvePromptSession(
   }
 
   const model = requireConfiguredModel(opts.model, defaultModel);
-  const session = await harness.createSession({ workDir, model, permission: 'auto' });
+  const session = await harness.createSession({
+    workDir,
+    model,
+    permission: 'auto',
+    additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
+  });
   installHeadlessHandlers(session);
   return {
     session,
@@ -801,5 +806,8 @@ function hasTurnId(event: Event): event is Event & { readonly turnId: number } {
 
 function formatTurnEndedFailure(event: Extract<Event, { type: 'turn.ended' }>): string {
   if (event.error !== undefined) return `${event.error.code}: ${event.error.message}`;
+  if (event.reason === 'filtered') {
+    return 'Provider safety policy blocked the response.';
+  }
   return `Prompt turn ended with reason: ${event.reason}`;
 }

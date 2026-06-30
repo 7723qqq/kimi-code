@@ -99,6 +99,7 @@ export function toAppSession(wire: WireSession): AppSession {
     status: toAppSessionStatus(wire.status),
     archived: wire.archived ?? false,
     currentPromptId: wire.current_prompt_id,
+    lastPrompt: wire.last_prompt,
     cwd: wire.metadata.cwd,
     model: wire.agent_config.model,
     usage: toAppSessionUsage(wire.usage),
@@ -328,7 +329,6 @@ export function toAppQuestionRequest(wire: WireQuestionRequest): AppQuestionRequ
     turnId: wire.turn_id,
     toolCallId: wire.tool_call_id,
     questions: wire.questions.map(toAppQuestionItem),
-    expiresAt: wire.expires_at,
     createdAt: wire.created_at,
   };
 }
@@ -644,13 +644,6 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         dismissedAt: w.payload.dismissed_at,
       };
 
-    case 'event.question.expired':
-      return {
-        type: 'questionExpired',
-        sessionId: w.session_id,
-        questionId: w.payload.question_id,
-      };
-
     // ----- Background tasks -----
     case 'event.task.created':
       return {
@@ -683,6 +676,21 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         type: 'configChanged',
         changedFields: w.payload.changed_fields,
         config: toAppConfig(w.payload.config),
+      };
+
+    case 'event.model_catalog.changed':
+      return {
+        type: 'modelCatalogChanged',
+        changed: w.payload.changed.map(
+          (item: { provider_id: string; provider_name: string; added: number; removed: number }) => ({
+            providerId: item.provider_id,
+            providerName: item.provider_name,
+            added: item.added,
+            removed: item.removed,
+          }),
+        ),
+        unchanged: w.payload.unchanged,
+        failed: w.payload.failed,
       };
 
     default: {

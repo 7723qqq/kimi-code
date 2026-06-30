@@ -1,5 +1,6 @@
 export default {
   title: 'Settings',
+  close: 'Close (Esc)',
   tabs: {
     general: 'General',
     agent: 'Agent',
@@ -9,8 +10,11 @@ export default {
   appearance: 'Appearance',
   notifications: 'Notifications',
   notifyOnComplete: 'Notify when a turn completes',
+  notifyOnQuestion: 'Notify when a question needs an answer',
+  soundOnComplete: 'Play a sound when a turn completes or needs an answer',
   notifyDenied: 'Blocked in browser settings',
   notifyBody: 'Finished a turn',
+  notifyQuestionBody: 'A question is waiting for your answer',
   account: 'Account',
   uiFontSize: 'Font size',
   agentDefaults: 'Agent defaults',
@@ -37,6 +41,7 @@ export default {
   configUnavailable: 'The server did not return config yet. These settings are unavailable.',
   advanced: 'Advanced',
   build: 'Build',
+  serverVersion: 'Server version',
   exportLog: 'Troubleshooting log',
   logHint: 'Enable with ?debug=1 to capture',
   exportLogBtn: 'Export log',

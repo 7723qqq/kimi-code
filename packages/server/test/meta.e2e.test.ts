@@ -33,6 +33,7 @@ import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';
+import { fixedTokenAuth } from './helpers/serverHarness';
 
 let tmpDir: string;
 let lockPath: string;
@@ -59,6 +60,7 @@ afterEach(async () => {
 
 async function bootDaemon(): Promise<RunningServer> {
   server = await startServer({
+    serviceOverrides: [fixedTokenAuth()],
     host: '127.0.0.1',
     port: 0,
     lockPath,
@@ -75,16 +77,24 @@ async function bootDaemon(): Promise<RunningServer> {
 function appOf(r: RunningServer): {
   inject: (req: unknown) => Promise<{ statusCode: number; json: () => unknown }>;
 } {
-  // We use the same accessor pattern start.ts uses internally. IRestGateway
-  // is registered with the `FastifyLike` structural type; `.inject()` is the
-  // Fastify-specific method we need for hermetic tests — it lives on the
-  // underlying instance, not on FastifyLike. The cast is local to this test.
-  return r.services.invokeFunction((a) => {
+  const app = r.services.invokeFunction((a) => {
     const gw = a.get(IRestGateway);
     return gw.app as unknown as {
-      inject: (req: unknown) => Promise<{ statusCode: number; json: () => unknown }>;
-    };
+  inject: (req: unknown) => Promise<{ statusCode: number; json: () => unknown }>;
+};
   });
+  // Auto-attach the fixed bearer token so the M5.1 auth hook passes. A
+  // caller-supplied `authorization` header wins, so explicit token tests keep
+  // working; every other header (Range, content-type, …) is preserved.
+  return {
+    inject(req: unknown) {
+      const q = req as { headers?: Record<string, string | string[] | undefined> };
+      return app.inject({
+        ...q,
+        headers: { authorization: 'Bearer test-token', ...q.headers },
+      });
+    },
+  };
 }
 
 describe('GET /api/v1/meta — envelope + metaResponseSchema', () => {
@@ -137,6 +147,7 @@ describe('GET /api/v1/meta — envelope + metaResponseSchema', () => {
     const homeA = mkdtempSync(join(tmpdir(), 'kimi-server-meta-home-a-'));
     const homeB = mkdtempSync(join(tmpdir(), 'kimi-server-meta-home-b-'));
     const r1 = await startServer({
+      serviceOverrides: [fixedTokenAuth()],
       host: '127.0.0.1',
       port: 0,
       lockPath: lockA,
@@ -144,6 +155,7 @@ describe('GET /api/v1/meta — envelope + metaResponseSchema', () => {
       coreProcessOptions: { homeDir: homeA },
     });
     const r2 = await startServer({
+      serviceOverrides: [fixedTokenAuth()],
       host: '127.0.0.1',
       port: 0,
       lockPath: lockB,
@@ -162,6 +174,25 @@ describe('GET /api/v1/meta — envelope + metaResponseSchema', () => {
       rmSync(homeA, { recursive: true, force: true });
       rmSync(homeB, { recursive: true, force: true });
     }
+  });
+});
+
+describe('GET /api/v1/meta — server_version precedence', () => {
+  it('reports the host kimi-code identity version when provided', async () => {
+    server = await startServer({
+      serviceOverrides: [fixedTokenAuth()],
+      host: '127.0.0.1',
+      port: 0,
+      lockPath,
+      logger: pino({ level: 'silent' }),
+      coreProcessOptions: {
+        homeDir: bridgeHome,
+        identity: { userAgentProduct: 'kimi-code-cli', version: '9.9.9-test' },
+      },
+    });
+    const res = await appOf(server).inject({ method: 'GET', url: '/api/v1/meta' });
+    const data = (res.json() as { data: { server_version: string } }).data;
+    expect(data.server_version).toBe('9.9.9-test');
   });
 });
 

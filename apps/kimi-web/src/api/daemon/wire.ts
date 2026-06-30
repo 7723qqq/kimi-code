@@ -69,6 +69,8 @@ export interface WireSession {
   status: WireSessionStatus;
   archived: boolean;
   current_prompt_id?: string;
+  /** Text of the most recent user prompt, for search/preview. */
+  last_prompt?: string;
   // PRESUMED — daemon adds this once it ships the workspace registry; until then
   // it is absent and the client maps sessions by metadata.cwd === workspace.root.
   workspace_id?: string;
@@ -106,6 +108,17 @@ export interface WireSessionRuntimeStatus {
   context_tokens: number;
   max_context_tokens: number;
   context_usage: number;
+}
+
+// GET /sessions/{id}/warnings — session-level warnings (e.g. oversized AGENTS.md).
+export interface WireSessionWarning {
+  code: string;
+  message: string;
+  severity: 'info' | 'warning' | 'error';
+}
+
+export interface WireSessionWarningsResponse {
+  warnings: WireSessionWarning[];
 }
 
 // ---------------------------------------------------------------------------
@@ -257,7 +270,6 @@ export interface WireQuestionRequest {
   turn_id?: number;
   tool_call_id?: string;
   questions: WireQuestionItem[];
-  expires_at: string;
   created_at: string;
 }
 
@@ -726,8 +738,6 @@ type WireEventQuestionDismissed = WireEventBase<'event.question.dismissed', {
   dismissed_by: string;
   dismissed_at: string;
 }>;
-type WireEventQuestionExpired = WireEventBase<'event.question.expired', { question_id: string }>;
-
 // Background tasks
 type WireEventTaskCreated = WireEventBase<'event.task.created', { task: WireBackgroundTask }>;
 type WireEventTaskProgress = WireEventBase<'event.task.progress', {
@@ -745,6 +755,17 @@ type WireEventTaskCompleted = WireEventBase<'event.task.completed', {
 type WireEventConfigChanged = WireEventBase<'event.config.changed', {
   changed_fields: string[];
   config: WireConfig;
+}>;
+
+type WireEventModelCatalogChanged = WireEventBase<'event.model_catalog.changed', {
+  changed: Array<{
+    provider_id: string;
+    provider_name: string;
+    added: number;
+    removed: number;
+  }>;
+  unchanged: string[];
+  failed: Array<{ provider: string; reason: string }>;
 }>;
 
 /** Catch-all for unrecognised event frames — keeps lastSeq advancing without warnings */
@@ -789,12 +810,12 @@ export type WireEvent =
   | WireEventQuestionRequested
   | WireEventQuestionAnswered
   | WireEventQuestionDismissed
-  | WireEventQuestionExpired
   // Background tasks
   | WireEventTaskCreated
   | WireEventTaskProgress
   | WireEventTaskCompleted
   // Config
   | WireEventConfigChanged
+  | WireEventModelCatalogChanged
   // Unknown / future events
   | WireEventUnknown;

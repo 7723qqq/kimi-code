@@ -16,7 +16,7 @@ All flags are optional — run `kimi` directly to enter an interactive session:
 | `--version` | `-V` | Print the version number and exit |
 | `--help` | `-h` | Show help information and exit |
 | `--session [id]` | `-S` | Resume a session. With an ID, opens that session directly; without an ID, enters an interactive selector |
-| `--continue` | `-C` | Continue the most recent session in the current working directory, without specifying an ID manually |
+| `--continue` | `-c` | Continue the most recent session in the current working directory, without specifying an ID manually |
 | `--model <model>` | `-m` | Specify a model alias for this launch. When omitted, new sessions use `default_model` from the config file |
 | `--prompt <prompt>` | `-p` | Run a single prompt non-interactively and stream the Assistant output to stdout. This mode does not open the TUI |
 | `--output-format <format>` | | Set the non-interactive output format; supports `text` and `stream-json`. Can only be used with `--prompt`; defaults to `text` |
@@ -24,6 +24,7 @@ All flags are optional — run `kimi` directly to enter an interactive session:
 | `--auto` | | Start with auto permission mode; tool approvals are handled automatically and the Agent will not ask the user questions |
 | `--plan` | | Start a new session in Plan mode — the AI will prioritize read-only tools for exploration and planning |
 | `--skills-dir <dir>` | | Load Skills from the specified directory, replacing the automatically discovered user and project directories. Can be repeated |
+| `--add-dir <dir>` | | Add an extra workspace directory for this session. Relative paths resolve against the current working directory. Can be repeated |
 
 `-r` / `--resume` is a hidden alias for `--session`; `--yes` and `--auto-approve` are hidden aliases for `--yolo` and are not shown in help output.
 
@@ -194,14 +195,17 @@ The loopback host, chosen port, and log level are recorded to `~/.kimi-code/serv
 
 #### `kimi web`
 
-Alias for `kimi server run` with `--open` defaulted to `true` — runs the server in the foreground and opens the web UI in the default browser once it is healthy. Use `--no-open` to skip the browser launch (effectively turning it back into `kimi server run`).
+Opens Kimi's graphical session in the browser as an alternative to the terminal TUI.
+
+Equivalent to `kimi server run --open`: it starts a local Kimi server in the background (reusing one already running), opens the web UI in the default browser, and returns, leaving the server resident in the background. The only difference from `kimi server run` is that `--open` is enabled by default (auto-launches the browser); all other behavior is identical.
 
 ```sh
-kimi web                        # foreground + open browser
-kimi web --no-open              # equivalent to `kimi server run`
+kimi web                 # start the server in the background and open the browser (reuses a running one)
+kimi web --no-open       # don't open the browser; same as `kimi server run`
+kimi web --foreground    # run attached to the current terminal and open the browser
 ```
 
-The same `--port`, `--log-level`, and `--debug-endpoints` flags work as on `kimi server run`.
+Stop the server with `kimi server kill` and list active connections with `kimi server ps`; `--port`, `--log-level`, and the other flags match `kimi server run`.
 
 ### `kimi doctor`
 
@@ -270,7 +274,7 @@ For full migration instructions, see [Migrating from kimi-cli](../guides/migrati
 
 ### `kimi upgrade`
 
-Immediately check for the latest version and display an update prompt; exits after you make a selection.
+Immediately check for the latest version and display an update prompt; exits after you make a selection. `kimi update` is an alias for this command.
 
 ```sh
 kimi upgrade

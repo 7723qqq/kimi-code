@@ -6,6 +6,231 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## 0.20.3 (2026-06-30)
+
+### Bug Fixes
+
+- Fix provider error messages rendering as blank lines in the TUI when the server returns an HTML error page.
+- Fix the web composer being hidden behind the mobile Safari toolbar and the page auto-zooming when the composer is focused.
+
+### Polish
+
+- Refresh provider model lists automatically in the background instead of only at startup, so newly available models appear without restarting.
+- Glob now uses ripgrep, so it respects .gitignore by default, supports brace patterns, returns only files, and keeps partial results with a warning when some directories are unreadable.
+
+### Refactors
+
+- Align malformed tool call argument handling with schema validation fallback.
+
+## 0.20.2 (2026-06-29)
+
+### Features
+
+- Support the Anthropic-compatible protocol for Kimi Code, including video input.
+- Add a completion sound and question notifications to the web UI, with separate Settings toggles for completion notifications, question notifications, and sound. Question notifications default off so question text only reaches your desktop after you opt in.
+- Add `KIMI_CODE_CUSTOM_HEADERS` for custom outbound LLM request headers, and send the `User-Agent` header to non-Kimi providers. Set `KIMI_CODE_CUSTOM_HEADERS` to newline-separated `Name: Value` lines.
+- Add an optional `exclude_empty` parameter to the session list API to omit sessions that have no messages.
+
+### Bug Fixes
+
+- Recover from provider 413 context overflows by compacting before retrying.
+- Cap compaction output at 128k tokens by default to avoid provider `max_tokens` errors.
+- Fix compaction ignoring the configured max output size.
+- Fix unnecessary full-screen redraws when typing in the input box or toggling the slash panel.
+- Keep unsent composer attachments scoped to their session in the web UI, so switching sessions no longer leaks them into another session's next message.
+- Fix the web composer occasionally keeping typed text after sending the first message of a new session.
+- Fix debug timing output lingering after undoing a turn.
+- Fix working tips getting squeezed against the agent swarm progress bar.
+
+### Polish
+
+- Rework the web ask-user-question card into a step-by-step wizard so multi-question navigation and the final Submit action are easier to see.
+- In the bundled web UI, a new session is now created only when the first message is sent, so `+ New` without a workspace opens the composer instead of making an empty session.
+- Restore each session's scroll position when switching back to it in the web UI.
+- Keep the open side panel when switching between sessions in the web UI.
+- Scope the web composer's up/down input history to the current session instead of sharing it across all sessions.
+- In the bundled web UI, `/new` and `/clear` are now aliases that open the session onboarding composer and focus the input. iOS auto-zoom is prevented by keeping text inputs at 16px instead of disabling viewport scaling.
+- Hide unused "New Session" entries from the web session list by default.
+- Remove the `/sessions` slash command from the web UI; the sidebar already covers session browsing.
+- Show the first five sessions per workspace in the web sidebar instead of ten.
+- Replace the web composer attach button's plus icon with an image icon.
+
+### Refactors
+
+- Route Kimi Code models on the Anthropic-compatible protocol through the beta Messages API.
+- Upgrade web markdown renderer dependencies (katex, markstream-vue, shiki) for bug fixes and performance improvements.
+- Add provider type and protocol attributes to turn and API error telemetry.
+
+## 0.20.1 (2026-06-26)
+
+### Features
+
+- Plugins now support declaring lifecycle hooks in `kimi.plugin.json` to run scripts at specific stages. See [Hooks in Plugins](../customization/plugins.md#hooks-in-plugins).
+- `/feedback` now supports attaching diagnostic logs and codebase context.
+- Add the `kimi update` command, equivalent to `kimi upgrade`, for upgrading to the latest version.
+- `kimi web` adds the `--allowed-host <host>` option to add a specified Host to the DNS-rebinding allowlist; 403 errors now explain how to allow it via `--allowed-host` or `KIMI_CODE_ALLOWED_HOSTS`, e.g. `kimi web --allowed-host example.com`.
+
+### Bug Fixes
+
+- Fix kimi server failing to start on Windows after the first run.
+- Fix the Web UI opened by the `/web` command not signing in automatically; the terminal now prints the access token.
+- Cap chat-completions providers' `max_tokens` to the remaining context window, avoiding context overflow and invalid parameter errors.
+
+### Polish
+
+- Optimize the default system prompt and built-in tool descriptions to stop the agent from blocking background tasks, unify tool guidance across profiles, and surface previously missing tool-result details (fetched-page mode, Grep match totals).
+- Cache rendered message lines to keep the terminal responsive in long conversations.
+- Retain only recent turns in the transcript and collapse older steps within each turn to keep long sessions responsive.
+- Make the web chat input grow with its content and add an expandable editor for longer messages.
+- Show the done / in progress / pending breakdown of hidden todos in the collapsed todo panel.
+
+## 0.20.0 (2026-06-26)
+
+### Features
+
+- Add shell mode to the TUI. Type `!` in the input box to enable it. For long-running commands, press Ctrl+B to move them to the background. For example, you can run `!gh auth login` to sign in to the GitHub CLI without opening a new terminal.
+- Add a `--host` CLI option so `kimi web --host` can expose the server to the internet, with hardened token authentication, rate limiting, and other security measures.
+- Render LaTeX display math (`$$…$$`) in the web UI.
+
+### Bug Fixes
+
+- Fix a startup crash on Linux caused by an unhandled native clipboard error.
+- Fix `kimi web` and `/web` failing to start the background server daemon on Windows with `spawn EFTYPE` when the CLI is installed via npm/pnpm or run from source. The official single-binary install script was not affected.
+- Fix the terminal window repeatedly losing focus on Linux Wayland, which broke IME input.
+- Stop auto-dismissing questions in the web UI after 60 seconds so they wait for the user's answer.
+- Fix explore subagents silently losing git context when git commands time out or the directory is not a repository.
+- Fix Ctrl-C during compaction so it clears a pending editor draft first instead of cancelling immediately.
+- Fix MCP server working directories when sessions are hosted by the web server.
+- Fix duplicate session snapshot reloads in the bundled web UI during resync.
+- Fix truncated skill descriptions missing an ellipsis in the model's skill listing.
+
+### Polish
+
+- Redesign `/plugins` as a single tabbed panel: **Installed** (manage installed plugins — toggle, remove, MCP, details, reload), **Official** (Kimi-maintained marketplace plugins), **Third-party** (marketplace plugins from other publishers), and **Custom** (install straight from a GitHub URL, zip URL, or local path). Use `Tab` / `Shift-Tab` to switch tabs.
+- Show a line-by-line diff when the agent edits or writes a file in the web chat.
+- Show the plan body and approach choices in the plan review card when exiting plan mode in the web UI.
+- Show the full accumulated progress of a subagent in its detail panel, with concise tool-call summaries instead of raw JSON.
+- `/reload` now refreshes the assistant's view of plugin skills, so plugin changes take effect in the current session instead of requiring a new one.
+- Replace silent AGENTS.md truncation with a visible warning in the TUI status bar and web UI.
+- Add a confirmation prompt before installing third-party plugins.
+- Show update badges on the `/plugins` Installed tab, where Enter now installs the available update and I opens plugin details.
+- Add a copy button to user messages in the web chat.
+- Preserve full tool output logs when previews are truncated and link background task completion notifications to saved output.
+- Sync session title changes across all connected clients in server mode.
+- Add Ctrl+U and Ctrl+D as page up and page down shortcuts in the task output viewer.
+- Add a hint to the per-turn step limit error pointing users to the `loop_control.max_steps_per_turn` config option.
+- Reduce streaming redraw cost for long assistant messages with code blocks.
+- Page the web session list per workspace so the first screen no longer fetches every session up front.
+- Keep the web session sidebar from re-rendering on every streaming token to improve rendering performance.
+- Create missing parent directories automatically when writing a file.
+- Improve the image paste hint.
+
+## 0.19.2 (2026-06-24)
+
+### Features
+
+- Keep drag-and-drop workspace reordering in the web sidebar, with sort order persisted locally; sessions now also float to the top of their group as soon as a new message arrives.
+- Add an Alt+S shortcut in the model picker to switch the model for the current session only, without saving it as the default.
+- Add a Ctrl+T shortcut to expand and collapse a truncated todo list.
+- Add `-c` as a shorthand for `--continue`.
+
+### Bug Fixes
+
+- Fix yolo mode in the web app auto-approving plan reviews and sensitive file access.
+- Fix resume not realigning a tool call that was interrupted mid-history.
+- Fix the composer's ↑/↓ input-history recall doing nothing right after the first message of a new session.
+- Fix stale rows occasionally leaving duplicate input boxes after tall content shrinks.
+- Fix inline images being rendered as broken escape sequences in the transcript.
+- Fix code blocks nested inside list items rendering blank in the web chat after a turn finishes generating.
+- Fix the Tab key unexpectedly opening the file completion list.
+- Fix clipboard copy actions in the web UI when served over plain HTTP.
+- Fix the web question prompt missing the free-text Other option.
+- Fix web chat stop actions so stale prompt ids fall back to cancelling the active session.
+
+### Polish
+
+- Read large text files in bounded memory and read tail lines without scanning whole files.
+- Show the command in running Bash tool cards and allow expanding it with Ctrl+O before the result arrives.
+- Allow the web sidebar and detail panel to be resized up to the available viewport width, keeping their resize handles reachable on narrow windows.
+- Show subcommand suggestions after Tab-completing a slash command name.
+- Show a transient footer hint when an image is detected in the clipboard, displaying the platform-appropriate paste shortcut.
+- Persist the collapsed state of workspace groups in the web sidebar across page reloads.
+- Add a development-mode indicator to the web sidebar for local development.
+- Optimize the loading tips display.
+
+### Refactors
+
+- Reorganize the web app's components into area subdirectories (chat/settings/dialogs/mobile) and refresh the component path comments.
+- Extract several composer pieces into reusable composables.
+- Extract pure turn-rendering helpers out of the chat pane into their own module.
+- Extract the beta conversation outline (table of contents) into its own component.
+- Extract the workspace group rendering out of the sidebar into its own component.
+
+## 0.19.1 (2026-06-23)
+
+### Bug Fixes
+
+- Fix ACP editors such as Zed failing to start a new thread.
+- Fix the web sidebar's unread dots getting out of sync across browser tabs.
+- Clear all per-session state when a session is archived or removed, so archived sessions no longer leave orphaned data behind.
+
+### Refactors
+
+- Consolidate web client localStorage access and split the root state store and app shell into focused composables.
+
+## 0.19.0 (2026-06-22)
+
+### Features
+
+- Added the ability to add extra workspace directories:
+  - Use the `/add-dir <path>` command to add extra working directories to the current session, or remember them for the project.
+  - Use `kimi --add-dir <path>` to add them on startup.
+  - Project-level local config is now managed in `.kimi-code/local.toml`; we recommend adding it to your `.gitignore`.
+- Allow long-running foreground commands and subagents to be moved into background tasks with `Ctrl+B`, and inspect them via the `/tasks` panel.
+
+### Bug Fixes
+
+- Surface provider safety-policy blocks instead of silently treating them as completed turns, and prevent the context token count from dropping to zero after a filtered response.
+- Fix provider requests failing when restored conversation history contains empty text content blocks.
+- Detect the real image format from file contents when reading media, so a mismatched filename extension no longer produces a data URL the model API rejects.
+- Fix commands flashing an empty console window on Windows.
+- Stop showing unread dots on cancelled or failed sessions in the web sidebar.
+
+### Polish
+
+- Speed up session snapshot loading with a direct disk reader and a request timeout safeguard, keeping the previous path as a legacy fallback.
+- Show longer branch names in the web chat header and expose the full name on hover.
+- Keep the web page title fixed instead of changing with the session or workspace name.
+- Polish file mention UX.
+
+### Refactors
+
+- Unify image format detection when sniffing fails.
+- Consolidate web client localStorage access and decouple appearance/notification state into dedicated modules.
+
+## 0.18.0 (2026-06-18)
+
+### Features
+
+- Add session filtering to the web sidebar, filtering by title and the last user prompt.
+- Add scroll-up lazy loading for older messages in the web chat session view.
+- Add an environment variable to cap AgentSwarm concurrency during the initial ramp, so large swarms do not trip provider rate limits as easily.
+
+### Bug Fixes
+
+- Fix the web app only loading the 20 most recent sessions.
+- Fix web slash skill selection sending immediately and allow slash search to match skill names by substring.
+- Fix the highlighted web slash command not staying visible while navigating a long slash menu.
+- Fix incorrect display after archiving the last session.
+- Fix the web login slash command description to match the browser authorization flow.
+
+### Polish
+
+- Redesign the web OAuth login dialog so the order of steps is unambiguous.
+- Show the current version in web settings.
+- Allow long web slash command names and descriptions to wrap without overflowing the slash menu.
+- Add `/reload` suggestion in plugin-change hints.
+
 ## 0.17.1 (2026-06-17)
 
 ### Bug Fixes

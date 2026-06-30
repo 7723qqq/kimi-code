@@ -24,7 +24,6 @@ export interface SlashCommand {
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/help',       desc: 'commands.help.desc' },
   { name: '/new',        desc: 'commands.new.desc' },
-  { name: '/sessions',   desc: 'commands.sessions.desc' },
   { name: '/clear',      desc: 'commands.clear.desc' },
   { name: '/model',      desc: 'commands.model.desc' },
   { name: '/provider',   desc: 'commands.provider.desc' },
@@ -79,20 +78,38 @@ export function buildSlashItems(
     name: `/${s.name}`,
     desc: s.description,
     isSkill: true,
+    // Keep the selected skill in the composer so arguments can be appended.
+    acceptsInput: true,
   }));
   return [...SLASH_COMMANDS, ...skillItems];
 }
 
 /**
- * Filter slash items by a query string (case-insensitive substring on the name).
- * If query is empty or just "/", returns all items. Defaults to the built-in
- * commands; pass a merged list (see buildSlashItems) to include skills.
+ * Filter slash items by a query string. Matches are ranked so exact and prefix
+ * matches come before arbitrary substring matches. If query is empty or just
+ * "/", returns all items. Defaults to the built-in commands; pass a merged list
+ * (see buildSlashItems) to include skills.
  */
 export function filterCommands(
   query: string,
   items: SlashCommand[] = SLASH_COMMANDS,
 ): SlashCommand[] {
-  const q = query.toLowerCase().trim();
-  if (q === '' || q === '/') return items;
-  return items.filter((c) => c.name.toLowerCase().includes(q));
+  const q = query.toLowerCase().trim().replace(/^\//, '');
+  if (q === '') return items;
+
+  return items
+    .map((item, index) => {
+      const name = item.name.toLowerCase().replace(/^\//, '');
+      let score = 0;
+      if (name === q) score = 3;
+      else if (name.startsWith(q)) score = 2;
+      else if (name.includes(q)) score = 1;
+      return { item, index, score };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      return a.index - b.index;
+    })
+    .map(({ item }) => item);
 }

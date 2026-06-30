@@ -1,5 +1,6 @@
 export default {
   title: '设置',
+  close: '关闭 (Esc)',
   tabs: {
     general: '通用',
     agent: 'Agent',
@@ -9,8 +10,11 @@ export default {
   appearance: '外观',
   notifications: '通知',
   notifyOnComplete: '会话完成时通知',
+  notifyOnQuestion: '待回答时通知',
+  soundOnComplete: '会话完成或待回答时播放提示音',
   notifyDenied: '已在浏览器设置中被阻止',
   notifyBody: '已完成一轮',
+  notifyQuestionBody: '有提问等待你回答',
   account: '账户',
   uiFontSize: '字体大小',
   agentDefaults: 'Agent 默认值',
@@ -37,6 +41,7 @@ export default {
   configUnavailable: '当前服务端没有返回 config，设置项暂不可用。',
   advanced: '高级',
   build: '构建',
+  serverVersion: '服务端版本',
   exportLog: '故障排查日志',
   logHint: '加 ?debug=1 开启采集',
   exportLogBtn: '导出日志',

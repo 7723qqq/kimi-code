@@ -25,7 +25,7 @@
  * bearing piece of Chain 2).
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -36,6 +36,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';
+import { fixedTokenAuth } from './helpers/serverHarness';
 
 let tmpDir: string;
 let lockPath: string;
@@ -67,6 +68,7 @@ afterEach(async () => {
 
 async function bootDaemon(options: { telemetry?: TelemetryClient } = {}): Promise<RunningServer> {
   server = await startServer({
+    serviceOverrides: [fixedTokenAuth()],
     host: '127.0.0.1',
     port: 0,
     lockPath,
@@ -92,12 +94,24 @@ function recordingTelemetry(records: TelemetryRecord[]): TelemetryClient {
 function appOf(r: RunningServer): {
   inject: (req: unknown) => Promise<{ statusCode: number; json: () => unknown }>;
 } {
-  return r.services.invokeFunction((a) => {
+  const app = r.services.invokeFunction((a) => {
     const gw = a.get(IRestGateway);
     return gw.app as unknown as {
-      inject: (req: unknown) => Promise<{ statusCode: number; json: () => unknown }>;
-    };
+  inject: (req: unknown) => Promise<{ statusCode: number; json: () => unknown }>;
+};
   });
+  // Auto-attach the fixed bearer token so the M5.1 auth hook passes. A
+  // caller-supplied `authorization` header wins, so explicit token tests keep
+  // working; every other header (Range, content-type, …) is preserved.
+  return {
+    inject(req: unknown) {
+      const q = req as { headers?: Record<string, string | string[] | undefined> };
+      return app.inject({
+        ...q,
+        headers: { authorization: 'Bearer test-token', ...q.headers },
+      });
+    },
+  };
 }
 
 function envelopeOf<T>(body: unknown): { code: number; msg: string; data: T | null; request_id: string; details?: unknown } {
@@ -118,7 +132,7 @@ async function openSessionListListener(r: RunningServer): Promise<{
   const wsUrl = r.address.replace('http://', 'ws://') + '/api/v1/ws';
   const received: Record<string, unknown>[] = [];
   const ws = await new Promise<WebSocket>((resolve, reject) => {
-    const sock = new WebSocket(wsUrl);
+    const sock = new WebSocket(wsUrl, ['kimi-code.bearer.test-token']);
     sock.on('message', (data) => {
       try {
         received.push(JSON.parse(wsDataToString(data)) as Record<string, unknown>);
@@ -446,6 +460,37 @@ describe('POST /api/v1/sessions/{session_id}/profile — update profile', () => 
     const env = envelopeOf<unknown>(res.json());
     expect(env.code).toBe(40401);
   });
+
+  it('broadcasts session.meta.updated to clients not subscribed to the session on rename', async () => {
+    const r = await bootDaemon();
+    const { ws, received } = await openSessionListListener(r);
+    const cwd = join(tmpDir, 'workspace-profile-rename-broadcast');
+    const created = envelopeOf<{ id: string }>(
+      (
+        await appOf(r).inject({
+          method: 'POST',
+          url: '/api/v1/sessions',
+          payload: { metadata: { cwd } },
+        })
+      ).json(),
+    ).data!;
+
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${created.id}/profile`,
+      payload: { title: 'Renamed' },
+    });
+    expect(envelopeOf<unknown>(res.json()).code).toBe(0);
+
+    const frame = await waitFor(received, (f) => f['type'] === 'session.meta.updated');
+    expect(frame['session_id']).toBe(created.id);
+    expect(frame['payload']).toMatchObject({
+      title: 'Renamed',
+      patch: { title: 'Renamed', isCustomTitle: true },
+    });
+
+    ws.close();
+  });
 });
 
 describe('POST /api/v1/sessions/{session_id}:fork — fork', () => {
@@ -710,6 +755,45 @@ describe('POST /api/v1/sessions/{session_id}:archive — archive', () => {
     const listEnv = envelopeOf<{ items: Array<{ id: string }>; has_more: boolean }>(listRes.json());
     expect(listEnv.code).toBe(0);
     expect(listEnv.data!.items.find((s) => s.id === created.id)).toBeUndefined();
+  });
+
+  it('updates the workspace session_count to 0 when the last session is archived', async () => {
+    const r = await bootDaemon();
+    const cwd = join(tmpDir, 'workspace-archive-count');
+    mkdirSync(cwd, { recursive: true });
+    const ws = envelopeOf<{ id: string; session_count: number; root: string }>(
+      (await appOf(r).inject({ method: 'POST', url: '/api/v1/workspaces', payload: { root: cwd } })).json(),
+    ).data!;
+    expect(ws.session_count).toBe(0);
+
+    const created = envelopeOf<{ id: string }>(
+      (await appOf(r).inject({
+        method: 'POST',
+        url: '/api/v1/sessions',
+        payload: { workspace_id: ws.id, metadata: { cwd: ws.root } },
+      })).json(),
+    ).data!;
+
+    const listBefore = envelopeOf<{ items: Array<{ id: string; session_count: number }> }>(
+      (await appOf(r).inject({ method: 'GET', url: '/api/v1/workspaces' })).json(),
+    ).data!;
+    const before = listBefore.items.find((w) => w.id === ws.id);
+    expect(before).toBeDefined();
+    expect(before!.session_count).toBe(1);
+
+    const archiveRes = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${created.id}:archive`,
+      payload: {},
+    });
+    expect(envelopeOf<{ archived: boolean }>(archiveRes.json()).data).toEqual({ archived: true });
+
+    const listAfter = envelopeOf<{ items: Array<{ id: string; session_count: number }> }>(
+      (await appOf(r).inject({ method: 'GET', url: '/api/v1/workspaces' })).json(),
+    ).data!;
+    const after = listAfter.items.find((w) => w.id === ws.id);
+    expect(after).toBeDefined();
+    expect(after!.session_count).toBe(0);
   });
 
   it('includes archived sessions when include_archive=true and marks archived flag', async () => {

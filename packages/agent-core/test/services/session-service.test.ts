@@ -384,6 +384,27 @@ describe('toProtocolSession adapter', () => {
     expect(proto.created_at.endsWith('Z')).toBe(true);
   });
 
+  it('surfaces last_prompt from the summary when present', () => {
+    const withPrompt: SessionSummary = {
+      id: 'sess_lp_1',
+      workDir: '/tmp/wd',
+      sessionDir: '/tmp/sd',
+      createdAt: 0,
+      updatedAt: 0,
+      lastPrompt: 'what is 2 + 2?',
+    };
+    expect(toProtocolSession(withPrompt).last_prompt).toBe('what is 2 + 2?');
+
+    const withoutPrompt: SessionSummary = {
+      id: 'sess_lp_2',
+      workDir: '/tmp/wd',
+      sessionDir: '/tmp/sd',
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    expect(toProtocolSession(withoutPrompt).last_prompt).toBeUndefined();
+  });
+
   it('fills documented defaults when CoreAPI does not surface a field', () => {
     const summary: SessionSummary = {
       id: 'sess_02',
@@ -586,6 +607,46 @@ describe('SessionService.list', () => {
     const page = await svc.list({ workDir: '/tmp/nonexistent' });
     expect(page.items).toEqual([]);
     expect(page.has_more).toBe(false);
+  });
+
+  it('excludeEmpty drops sessions without a lastPrompt before pagination', async () => {
+    const ts = (n: number) => 1_000_000 + n * 1_000;
+    const summary = (
+      id: string,
+      updatedAt: number,
+      lastPrompt?: string,
+    ): SessionSummary => ({
+      id,
+      workDir: '/tmp/a',
+      sessionDir: `/tmp/sessions/${id}`,
+      createdAt: updatedAt,
+      updatedAt,
+      metadata: { cwd: '/tmp/a' },
+      title: undefined,
+      lastPrompt,
+    });
+    state.sessions = [
+      summary('e1', ts(3)),
+      summary('u1', ts(2), 'hi'),
+      summary('e2', ts(1)),
+      summary('u2', ts(0), 'yo'),
+    ];
+
+    const all = await svc.list({});
+    expect(all.items.map((s) => s.id)).toEqual(['e1', 'u1', 'e2', 'u2']);
+
+    const visible = await svc.list({ excludeEmpty: true });
+    expect(visible.items.map((s) => s.id)).toEqual(['u1', 'u2']);
+    expect(visible.has_more).toBe(false);
+
+    // Pagination + cursor operate on the filtered set.
+    const first = await svc.list({ excludeEmpty: true, page_size: 1 });
+    expect(first.items.map((s) => s.id)).toEqual(['u1']);
+    expect(first.has_more).toBe(true);
+
+    const next = await svc.list({ excludeEmpty: true, page_size: 1, before_id: 'u1' });
+    expect(next.items.map((s) => s.id)).toEqual(['u2']);
+    expect(next.has_more).toBe(false);
   });
 });
 

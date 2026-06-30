@@ -64,14 +64,15 @@ export async function runShell(
     telemetry: telemetryClient,
     onOAuthRefresh: (outcome) => {
       if (outcome.success) {
-        track('oauth_refresh', { success: true });
+        track('oauth_refresh', { outcome: 'success' });
         return;
       }
       track('oauth_refresh', {
-        success: false,
+        outcome: 'error',
         reason: outcome.reason,
       });
     },
+    sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   });
   log.info('kimi-code starting', {
     version,
@@ -99,6 +100,7 @@ export async function runShell(
   const configMs = Date.now() - configStartedAt;
   const tui = new KimiTUI(harness, {
     cliOptions: opts,
+    additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     tuiConfig,
     version,
     workDir,
@@ -116,7 +118,6 @@ export async function runShell(
   });
   setCrashPhase('runtime');
 
-  const resumed = opts.continue || opts.session !== undefined;
   const trackLifecycleForSession = (
     sessionId: string,
     event: string,
@@ -136,7 +137,7 @@ export async function runShell(
     const sessionId = tui.getCurrentSessionId();
     const hasContent = tui.hasSessionContent();
     setCrashPhase('shutdown');
-    trackLifecycle('exit', { duration_s: (Date.now() - startedAt) / 1000 });
+    trackLifecycle('exit', { duration_ms: Date.now() - startedAt });
     await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
     const gutter = ' '.repeat(CHROME_GUTTER);
     process.stdout.write(`${gutter}Bye!\n`);
@@ -161,13 +162,6 @@ export async function runShell(
     const initStartedAt = Date.now();
     await tui.start();
     const initMs = Date.now() - initStartedAt;
-    trackLifecycle('started', {
-      resumed,
-      yolo: opts.yolo,
-      auto: opts.auto,
-      plan: opts.plan,
-      afk: false,
-    });
     const startupSessionId = tui.getCurrentSessionId();
     const mcpMs = await tui.getStartupMcpMs();
     trackLifecycleForSession(startupSessionId, 'startup_perf', {
@@ -178,7 +172,7 @@ export async function runShell(
     });
   } catch (error) {
     setCrashPhase('shutdown');
-    trackLifecycle('exit', { duration_s: (Date.now() - startedAt) / 1000 });
+    trackLifecycle('exit', { duration_ms: Date.now() - startedAt });
     await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
     await harness.close();
     throw error;
