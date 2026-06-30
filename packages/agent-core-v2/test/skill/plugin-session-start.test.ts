@@ -4,7 +4,7 @@ import { IContextInjector } from '#/contextInjector';
 import type { ContextMessage } from '#/contextMemory';
 import type { LogContext, LogPayload } from '#/log';
 import type { EnabledPluginSessionStart } from '#/plugin/types';
-import { SessionSkillRegistry } from '#/skill';
+import { InMemorySkillCatalog } from '#/skill';
 import type { SkillDefinition } from '#/skill/types';
 import { testAgent } from '../harness';
 import { stubSkill } from './stubs';
@@ -63,7 +63,7 @@ function sessionStartRuntime(input: {
   readonly warnings: readonly CapturedWarn[];
 } {
   const warnings: CapturedWarn[] = [];
-  const skills = new SessionSkillRegistry();
+  const skills = new InMemorySkillCatalog();
   for (const skill of input.skills) {
     skills.register(skill);
   }

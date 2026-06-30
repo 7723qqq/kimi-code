@@ -146,6 +146,10 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  * shape for several of them. They are surfaced here (and in the dependency
  * report) for review rather than hidden.
  *
+ *  - `bootstrap>skill`        : composition root wires the skill catalog Store
+ *                              to its filesystem backend (same role as the
+ *                              storage backend bindings).
+ *
  *  - `permission>approval`  : permission(Agent) requests approval(Session broker).
  *  - `skill>turn`           : skill activate starts a turn (same Agent scope intent).
  *  - `turn>agent-lifecycle` : turn cancels sub-agents via lifecycle handle.
@@ -167,6 +171,7 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  * layering violation to fix here.
  */
 const ALLOWED_EXCEPTIONS = new Set([
+  'bootstrap>skill',
   'permission>approval',
   'skill>turn',
   'turn>agent-lifecycle',

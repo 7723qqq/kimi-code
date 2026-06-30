@@ -17,7 +17,6 @@ import type { ExecutableToolResult } from '#/tool';
 import {
   isInlineSkillType,
   isUserActivatableSkillType,
-  type SkillCatalog,
   type SkillDefinition,
 } from './types';
 import { IEventSink } from '../eventSink';
@@ -27,10 +26,10 @@ import type { Turn } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 import {
   IAgentSkillService,
-  type AgentSkillServiceOptions,
   type ModelSkillActivationInput,
   type SkillActivationInput,
 } from './skill';
+import { ISkillCatalog } from './skillCatalog';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -43,17 +42,14 @@ declare module '#/wireRecord' {
 export class AgentSkillService extends Disposable implements IAgentSkillService {
   declare readonly _serviceBrand: undefined;
 
-  private readonly catalog: SkillCatalog | undefined;
-
   constructor(
-    options: AgentSkillServiceOptions = {},
+    @ISkillCatalog private readonly skillCatalog: ISkillCatalog,
     @IPromptService private readonly prompt: IPromptService,
     @IEventSink private readonly events: IEventSink,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
-    this.catalog = options.catalog === null ? undefined : options.catalog;
     this._register(
       this.wireRecord.register('skill.activate', (record) => {
         this.publishActivation(record.origin);
@@ -61,8 +57,9 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
     );
   }
 
-  activate(input: SkillActivationInput): Turn {
-    const skill = this.catalog?.getSkill(input.name);
+  async activate(input: SkillActivationInput): Promise<Turn> {
+    await this.skillCatalog.ready;
+    const skill = this.skillCatalog.catalog.getSkill(input.name);
     if (skill === undefined) {
       throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, `Skill "${input.name}" was not found`);
     }
@@ -103,8 +100,9 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
     )!;
   }
 
-  activateFromModel(input: ModelSkillActivationInput): ExecutableToolResult {
-    const skill = this.catalog?.getSkill(input.name);
+  async activateFromModel(input: ModelSkillActivationInput): Promise<ExecutableToolResult> {
+    await this.skillCatalog.ready;
+    const skill = this.skillCatalog.catalog.getSkill(input.name);
     if (skill === undefined) {
       return errorResult(`Skill "${input.name}" not found in the current skill listing.`);
     }
@@ -174,8 +172,7 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
   }
 
   private renderSkillPrompt(skill: SkillDefinition, rawArgs: string): string {
-    const catalog = this.requireCatalog();
-    return catalog.renderSkillPrompt(skill, rawArgs);
+    return this.skillCatalog.catalog.renderSkillPrompt(skill, rawArgs);
   }
 
   private publishActivation(origin: SkillActivationOrigin): void {
@@ -198,11 +195,6 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
         flow_name: origin.skillName,
       });
     }
-  }
-
-  private requireCatalog(): SkillCatalog {
-    if (this.catalog !== undefined) return this.catalog;
-    throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, 'Skill catalog is not available');
   }
 }
 

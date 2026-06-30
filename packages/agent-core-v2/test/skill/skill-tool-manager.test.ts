@@ -9,7 +9,7 @@ import { IContextMemory } from '#/contextMemory';
 import { IEventSink } from '#/eventSink';
 import { IProfileService } from '#/profile';
 import { IReplayBuilderService } from '#/replayBuilder';
-import { SessionSkillRegistry, type SkillCatalog, type SkillDefinition } from '#/skill';
+import { InMemorySkillCatalog, type SkillCatalog, type SkillDefinition } from '#/skill';
 import { IToolRegistry } from '#/toolRegistry';
 import {
   InMemoryWireRecordPersistence,
@@ -85,10 +85,10 @@ describe('ToolManager SkillTool registration with an empty model skill catalog',
   let ctx: TestAgentContext;
   let profile: IProfileService;
   let tools: IToolRegistry;
-  let skills: SessionSkillRegistry;
+  let skills: InMemorySkillCatalog;
 
   beforeEach(() => {
-    skills = new SessionSkillRegistry();
+    skills = new InMemorySkillCatalog();
     skills.register(makeSkill('private', { disableModelInvocation: true }));
     ctx = createTestAgent(skillServices(skills));
     profile = ctx.get(IProfileService);
@@ -115,10 +115,10 @@ describe('ToolManager SkillTool registration with inline skills', () => {
   let ctx: TestAgentContext;
   let profile: IProfileService;
   let tools: IToolRegistry;
-  let skills: SessionSkillRegistry;
+  let skills: InMemorySkillCatalog;
 
   beforeEach(() => {
-    skills = new SessionSkillRegistry();
+    skills = new InMemorySkillCatalog();
     skills.register(makeSkill('review'));
     skills.register(makeSkill('flow-only', { type: 'flow' }));
     ctx = createTestAgent(skillServices(skills));
@@ -160,6 +160,7 @@ describe('ToolManager SkillTool registration with a structural catalog', () => {
       getSkill: (name) => (name === skill.name ? skill : undefined),
       getPluginSkill: () => undefined,
       renderSkillPrompt: () => skill.content,
+      listSkills: () => [skill],
       listInvocableSkills: () => [skill],
       getSkillRoots: () => ['/skills/review'],
       getModelSkillListing: () => '- review: desc for review',
@@ -190,10 +191,10 @@ describe('ToolManager SkillTool wire behavior', () => {
   let context: IContextMemory;
   let profile: IProfileService;
   let persistence: InMemoryWireRecordPersistence;
-  let skills: SessionSkillRegistry;
+  let skills: InMemorySkillCatalog;
 
   beforeEach(() => {
-    skills = new SessionSkillRegistry();
+    skills = new InMemorySkillCatalog();
     skills.register(makeSkill('review'));
     persistence = new InMemoryWireRecordPersistence();
     ctx = createTestAgent(
@@ -279,12 +280,12 @@ describe('ToolManager SkillTool restore behavior', () => {
   let ctx: TestAgentContext;
   let context: IContextMemory;
   let replay: IReplayBuilderService;
-  let skills: SessionSkillRegistry;
+  let skills: InMemorySkillCatalog;
   let emit: ReturnType<typeof vi.spyOn>;
   let track: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    skills = new SessionSkillRegistry();
+    skills = new InMemorySkillCatalog();
     skills.register(makeSkill('review'));
     const telemetry = recordingTelemetry([]);
     track = vi.spyOn(telemetry, 'track');
@@ -379,7 +380,7 @@ describe('ToolManager SkillTool workspace refresh', () => {
       ['---', 'name: review', 'description: Review code', '---', '', 'Review body.'].join('\n'),
     );
 
-    const skills = new SessionSkillRegistry();
+    const skills = new InMemorySkillCatalog();
     const skill = {
       ...makeSkill('review'),
       description: 'Review code',

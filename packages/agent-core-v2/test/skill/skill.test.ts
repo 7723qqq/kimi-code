@@ -6,7 +6,7 @@ import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/contextMemory';
 import { IEventSink } from '#/eventSink';
 import { IPromptService } from '#/prompt';
-import { IAgentSkillService, SessionSkillRegistry } from '#/skill';
+import { IAgentSkillService, InMemorySkillCatalog, ISkillCatalog } from '#/skill';
 import { AgentSkillService } from '#/skill/skillService';
 import { ITelemetryService } from '#/telemetry';
 import type { Turn } from '#/turn';
@@ -60,18 +60,23 @@ describe('AgentSkillService', () => {
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
       },
     });
-    const skills = new SessionSkillRegistry();
+    const skills = new InMemorySkillCatalog();
     skills.register(COMMIT_SKILL);
-    ix.set(
-      IAgentSkillService,
-      new SyncDescriptor(AgentSkillService, [{ catalog: skills }]),
-    );
+    const skillCatalog: ISkillCatalog = {
+      _serviceBrand: undefined,
+      catalog: skills,
+      ready: Promise.resolve(),
+      load: async () => {},
+      reload: async () => {},
+    };
+    ix.set(ISkillCatalog, skillCatalog);
+    ix.set(IAgentSkillService, new SyncDescriptor(AgentSkillService));
   });
   afterEach(() => disposables.dispose());
 
-  it('activate prompts with the rendered skill for a known skill', () => {
+  it('activate prompts with the rendered skill for a known skill', async () => {
     const svc = ix.get(IAgentSkillService);
-    const turn = svc.activate({ name: 'commit' });
+    const turn = await svc.activate({ name: 'commit' });
 
     expect(turn).toBeDefined();
     expect(prompted).toHaveLength(1);
@@ -82,8 +87,40 @@ describe('AgentSkillService', () => {
     });
   });
 
-  it('activate throws for an unknown skill', () => {
+  it('activate throws for an unknown skill', async () => {
     const svc = ix.get(IAgentSkillService);
-    expect(() => svc.activate({ name: 'missing' })).toThrow(/not found/i);
+    await expect(svc.activate({ name: 'missing' })).rejects.toThrow(/not found/i);
+  });
+
+  it('activate waits for the catalog to be ready before resolving', async () => {
+    let resolveReady!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      resolveReady = resolve;
+    });
+    const skills = new InMemorySkillCatalog();
+    skills.register(COMMIT_SKILL);
+    ix.set(ISkillCatalog, {
+      _serviceBrand: undefined,
+      catalog: skills,
+      ready,
+      load: async () => {},
+      reload: async () => {},
+    } satisfies ISkillCatalog);
+    ix.set(IAgentSkillService, new SyncDescriptor(AgentSkillService));
+
+    const svc = ix.get(IAgentSkillService);
+    let finished = false;
+    const activation = svc.activate({ name: 'commit' }).then(() => {
+      finished = true;
+    });
+
+    await Promise.resolve();
+    expect(finished).toBe(false);
+
+    resolveReady();
+    await activation;
+
+    expect(finished).toBe(true);
+    expect(prompted).toHaveLength(1);
   });
 });

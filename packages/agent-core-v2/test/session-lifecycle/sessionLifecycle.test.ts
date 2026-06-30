@@ -13,6 +13,7 @@ import { ISessionService } from '#/session';
 import { ISessionLifecycleService } from '#/session-lifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/session-lifecycle/sessionLifecycleService';
 import { ISessionMetadata } from '#/session-metadata';
+import { ISkillCatalog } from '#/skill';
 
 function bootstrapStub(): IBootstrapService {
   return {
@@ -53,6 +54,24 @@ function kaosFactoryStub(): IKaosFactory {
   };
 }
 
+function skillCatalogStub(): ISkillCatalog {
+  return {
+    _serviceBrand: undefined,
+    catalog: {
+      getSkill: () => undefined,
+      getPluginSkill: () => undefined,
+      renderSkillPrompt: () => '',
+      listSkills: () => [],
+      listInvocableSkills: () => [],
+      getSkillRoots: () => [],
+      getModelSkillListing: () => '',
+    },
+    ready: Promise.resolve(),
+    load: () => Promise.resolve(),
+    reload: () => Promise.resolve(),
+  };
+}
+
 describe('SessionLifecycleService', () => {
   let host: ScopedTestHost | undefined;
 
@@ -77,6 +96,7 @@ describe('SessionLifecycleService', () => {
       stubPair(IBootstrapService, bootstrapStub()),
       stubPair(ISessionMetadata, metadataStub()),
       stubPair(IKaosFactory, kaosFactoryStub()),
+      stubPair(ISkillCatalog, skillCatalogStub()),
       ...extra,
     ]);
     return host.core.accessor.get(ISessionLifecycleService);

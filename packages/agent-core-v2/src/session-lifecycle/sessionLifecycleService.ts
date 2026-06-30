@@ -26,6 +26,7 @@ import { sessionLogSeed } from '#/log';
 import { ISessionService } from '#/session';
 import { type ISessionContext, sessionContextSeed } from '#/session-context';
 import { ISessionMetadata } from '#/session-metadata';
+import { ISkillCatalog } from '#/skill';
 
 import {
   type CreateSessionOptions,
@@ -69,6 +70,7 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     );
     this.sessions.set(opts.sessionId, handle);
     await handle.accessor.get(ISessionMetadata).ready;
+    void handle.accessor.get(ISkillCatalog).load();
     return handle;
   }
 

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { SessionSkillRegistry } from '#/skill';
+import { InMemorySkillCatalog } from '#/skill';
 import type { SkillDefinition, SkillSource } from '#/skill/types';
 import { stubSkill } from './stubs';
 
-describe('SessionSkillRegistry skill listing', () => {
+describe('InMemorySkillCatalog skill listing', () => {
   it('groups skills by source under canonical section headings', () => {
     const registry = makeRegistry([
       makeSkill('builtin-a', 'builtin'),
@@ -46,7 +46,7 @@ describe('SessionSkillRegistry skill listing', () => {
   });
 
   it('renders a No skills placeholder for an empty registry', () => {
-    const rendered = new SessionSkillRegistry().getKimiSkillsDescription();
+    const rendered = new InMemorySkillCatalog().getKimiSkillsDescription();
 
     expect(rendered.trim()).not.toBe('');
     expect(rendered).toMatch(/no skills/i);
@@ -78,7 +78,7 @@ describe('SessionSkillRegistry skill listing', () => {
   });
 
   it('keeps the first registered same-name skill unless replacement is requested', () => {
-    const registry = new SessionSkillRegistry();
+    const registry = new InMemorySkillCatalog();
     registry.register(makeSkill('foo', 'project', 'project version'));
     registry.register(makeSkill('foo', 'user', 'user version'));
     registry.register(makeSkill('foo', 'builtin', 'builtin version'));
@@ -93,7 +93,7 @@ describe('SessionSkillRegistry skill listing', () => {
   });
 
   it('registerBuiltinSkill stamps non-builtin skills as builtin', () => {
-    const registry = new SessionSkillRegistry();
+    const registry = new InMemorySkillCatalog();
     registry.registerBuiltinSkill(makeSkill('theme', 'user'));
 
     expect(registry.getSkill('theme')).toMatchObject({
@@ -104,7 +104,7 @@ describe('SessionSkillRegistry skill listing', () => {
   });
 });
 
-describe('SessionSkillRegistry model skill listing', () => {
+describe('InMemorySkillCatalog model skill listing', () => {
   it('lists only model-invocable inline skills', () => {
     const registry = makeRegistry([
       makeSkill('review', 'user', 'Review code', undefined, {
@@ -168,9 +168,9 @@ describe('SessionSkillRegistry model skill listing', () => {
   });
 });
 
-describe('SessionSkillRegistry prompt rendering', () => {
+describe('InMemorySkillCatalog prompt rendering', () => {
   it('expands raw, positional, named, and context placeholders', () => {
-    const rendered = new SessionSkillRegistry({ sessionId: 'ses_1' }).renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog({ sessionId: 'ses_1' }).renderSkillPrompt(
       stubSkill('commit', {
         dir: '/tmp/skills/commit',
         content:
@@ -186,7 +186,7 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 
   it('leaves unknown placeholders alone and clears missing indexed values', () => {
-    const rendered = new SessionSkillRegistry({ sessionId: 's' }).renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog({ sessionId: 's' }).renderSkillPrompt(
       stubSkill('review', {
         dir: '/x',
         content: 'unknown=$missing actual=$0 missing=$1',
@@ -198,7 +198,7 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 
   it('treats backslash-dollar as a normal backslash before placeholders', () => {
-    const rendered = new SessionSkillRegistry().renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
       stubSkill('review', {
         dir: '/x',
         content: String.raw`raw=\$ARGUMENTS zero=\$0 indexed=\$ARGUMENTS[1] target=\$target`,
@@ -213,7 +213,7 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 
   it('appends ARGUMENTS when the body has no argument placeholders', () => {
-    const rendered = new SessionSkillRegistry().renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
       stubSkill('review', { content: 'Review this file.' }),
       'src/app.ts',
     );
@@ -222,7 +222,7 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 
   it('expands context placeholders and still appends args when no argument placeholder is used', () => {
-    const rendered = new SessionSkillRegistry({ sessionId: 'ses_1' }).renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog({ sessionId: 'ses_1' }).renderSkillPrompt(
       stubSkill('review', {
         dir: '/skills/review',
         content: 'Use ${KIMI_SKILL_DIR}/references/checklist.md.',
@@ -236,7 +236,7 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 
   it('does not treat longer variable names as declared argument placeholders', () => {
-    const rendered = new SessionSkillRegistry().renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
       stubSkill('review', {
         content: 'Leave $targeted alone.',
         metadata: { arguments: ['target'] },
@@ -248,7 +248,7 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 
   it('accepts space-separated argument names', () => {
-    const rendered = new SessionSkillRegistry().renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
       stubSkill('review', {
         content: 'Target: $target\nMode: $mode',
         metadata: { arguments: 'target mode' },
@@ -260,7 +260,7 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 
   it('ignores numeric argument names so positional placeholders keep shell-like semantics', () => {
-    const rendered = new SessionSkillRegistry().renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
       stubSkill('review', {
         content: 'Zero: $0\nOne: $1',
         metadata: { arguments: ['1'] },
@@ -272,7 +272,7 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 
   it('escapes argument values expanded into loaded skill content', () => {
-    const rendered = new SessionSkillRegistry().renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
       stubSkill('review', {
         content: 'target=$target raw=$ARGUMENTS',
         metadata: { arguments: ['target'] },
@@ -284,7 +284,7 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 
   it('prepends plugin instructions when a skill came from a plugin root', () => {
-    const rendered = new SessionSkillRegistry().renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
       stubSkill('brainstorm', {
         content: 'Brainstorm body.',
         plugin: {
@@ -303,7 +303,7 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 
   it('skips blank plugin instructions', () => {
-    const rendered = new SessionSkillRegistry().renderSkillPrompt(
+    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
       stubSkill('brainstorm', {
         content: 'Brainstorm body.',
         plugin: { id: 'superpowers', instructions: '  ' },
@@ -315,9 +315,9 @@ describe('SessionSkillRegistry prompt rendering', () => {
   });
 });
 
-describe('SessionSkillRegistry plugin lookup', () => {
+describe('InMemorySkillCatalog plugin lookup', () => {
   it('keeps plugin-specific lookup when a same-name project skill is registered first', () => {
-    const registry = new SessionSkillRegistry();
+    const registry = new InMemorySkillCatalog();
     registry.register(makeSkill('review', 'project', 'project skill'));
     registry.register(
       makeSkill('review', 'extra', 'plugin skill', undefined, {}, {
@@ -338,7 +338,7 @@ describe('SessionSkillRegistry plugin lookup', () => {
   });
 
   it('replaces both global and plugin indexes when requested', () => {
-    const registry = new SessionSkillRegistry();
+    const registry = new InMemorySkillCatalog();
     registry.register(
       makeSkill('review', 'extra', 'first', undefined, {}, {
         id: 'superpowers',
@@ -358,8 +358,8 @@ describe('SessionSkillRegistry plugin lookup', () => {
   });
 });
 
-function makeRegistry(skills: readonly SkillDefinition[]): SessionSkillRegistry {
-  const registry = new SessionSkillRegistry();
+function makeRegistry(skills: readonly SkillDefinition[]): InMemorySkillCatalog {
+  const registry = new InMemorySkillCatalog();
   for (const skill of skills) registry.register(skill);
   return registry;
 }

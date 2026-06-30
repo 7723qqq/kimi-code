@@ -31,6 +31,8 @@ import {
   IBlobStorage,
   IStorageService,
 } from '#/storage';
+import { FileSkillCatalogStore } from '#/skill/fileSkillCatalogStore';
+import { ISkillCatalogStore } from '#/skill/skillCatalogStore';
 
 export interface IBootstrapOptions {
   readonly homeDir: string;
@@ -105,7 +107,7 @@ export interface BootstrapResult {
 export function bootstrap(input: BootstrapInput = {}, extraSeeds: ScopeSeed = []): BootstrapResult {
   const options = resolveBootstrapOptions(input);
   const core = createCoreScope({
-    extra: [...bootstrapSeed(input), ...storageSeed(options), ...extraSeeds],
+    extra: [...bootstrapSeed(input), ...storageSeed(options), ...skillSeed(), ...extraSeeds],
   });
   return { core };
 }
@@ -126,6 +128,18 @@ function storageSeed(options: IBootstrapOptions): ScopeSeed {
     [IAppendLogStorage as ServiceIdentifier<unknown>, file()],
     [IAtomicDocumentStorage as ServiceIdentifier<unknown>, file()],
     [IBlobStorage as ServiceIdentifier<unknown>, file()],
+  ];
+}
+
+function skillSeed(): ScopeSeed {
+  // The skill catalog Store is bound to the filesystem backend so skill
+  // discovery reads from disk. Tests rely on the in-memory backend registered
+  // in the skill domain (this `extra` seed overrides it in production).
+  return [
+    [
+      ISkillCatalogStore as ServiceIdentifier<unknown>,
+      new SyncDescriptor(FileSkillCatalogStore, [], true),
+    ],
   ];
 }
 

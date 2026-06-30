@@ -56,6 +56,7 @@ export interface SkillCatalog {
   getSkill(name: string): SkillDefinition | undefined;
   getPluginSkill(pluginId: string, name: string): SkillDefinition | undefined;
   renderSkillPrompt(skill: SkillDefinition, rawArgs: string): string;
+  listSkills(): readonly SkillDefinition[];
   listInvocableSkills(): readonly SkillDefinition[];
   getSkillRoots(): readonly string[];
   getModelSkillListing(): string;
