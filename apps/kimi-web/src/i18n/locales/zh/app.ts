@@ -6,5 +6,5 @@ export default {
   authPageLogin: '登录',
   connecting: '连接中…',
   comingSoon: '敬请期待',
-  internalBuildBanner: '内部测试版本',
+  internalBuildBanner: '内部测试 · 禁止外传',
 } as const;
