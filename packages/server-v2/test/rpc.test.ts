@@ -209,7 +209,7 @@ describe('server-v2 /api/v2 RPC', () => {
     const id = await createSession(home as string);
     const { body } = await call<null>(
       'POST',
-      `/api/v2/session/${id}/agent/main/prompts:submit`,
+      `/api/v2/session/${id}/agent/does-not-exist/prompts:submit`,
       { input: [{ type: 'text', text: 'hello' }] },
     );
     expect(body.code).toBe(40401);

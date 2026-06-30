@@ -1,11 +1,10 @@
 /**
- * `process` domain (L1) — the Agent's process runner and its pluggable backend.
+ * `process` domain (L1) — the Agent's process runner.
  *
  * Defines the `IProcessRunner` that business code injects to spawn processes
- * inside the Agent's execution environment, the `IProcess` handle it returns,
- * and the internal `IProcessBackend` provider that hides the
- * local/ssh/container split. Session-scoped. Business code depends on
- * `IProcessRunner` only; the backend is wired through the scope registry.
+ * inside the Agent's execution environment, plus the `IProcess` handle it
+ * returns. Session-scoped and backed by the session `IKaos`; business code
+ * depends on `IProcessRunner` only.
  */
 
 import type { Readable, Writable } from 'node:stream';
@@ -17,8 +16,10 @@ export interface IProcess {
   readonly stdout: Readable;
   readonly stderr: Readable;
   readonly pid: number;
+  readonly exitCode: number | null;
   wait(): Promise<number>;
   kill(signal?: NodeJS.Signals): Promise<void>;
+  dispose(): Promise<void> | void;
 }
 
 export interface ProcessExecOptions {
@@ -34,15 +35,3 @@ export interface IProcessRunner {
 
 export const IProcessRunner: ServiceIdentifier<IProcessRunner> =
   createDecorator<IProcessRunner>('processRunner');
-
-export interface IProcessBackend {
-  readonly _serviceBrand: undefined;
-
-  spawn(
-    args: readonly string[],
-    options: { readonly cwd: string; readonly env?: Record<string, string> },
-  ): Promise<IProcess>;
-}
-
-export const IProcessBackend: ServiceIdentifier<IProcessBackend> =
-  createDecorator<IProcessBackend>('processBackend');

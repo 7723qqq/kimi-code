@@ -8,7 +8,7 @@
 
 import { join } from 'pathe';
 
-import { type Environment, detectEnvironmentFromNode } from '@moonshot-ai/kaos';
+import { type Environment, detectEnvironmentFromNode } from '#/kaos';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';

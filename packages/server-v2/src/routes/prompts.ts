@@ -6,7 +6,6 @@
  */
 
 import {
-  IAgentLifecycleService,
   IPromptLegacyService,
   ISessionLifecycleService,
   isKimiError,
@@ -26,6 +25,7 @@ import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
+import { ensureMainAgent } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 
 interface PromptRouteHost {
@@ -53,17 +53,12 @@ const sessionIdParamSchema = z.object({
 
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
-const MAIN_AGENT_ID = 'main';
-
-function resolveLegacy(core: Scope, sessionId: string): IPromptLegacyService {
+async function resolveLegacy(core: Scope, sessionId: string): Promise<IPromptLegacyService> {
   const session = core.accessor.get(ISessionLifecycleService).get(sessionId);
   if (session === undefined) {
     throw new KimiError('session.not_found', `session ${sessionId} does not exist`);
   }
-  const agent = session.accessor.get(IAgentLifecycleService).getHandle(MAIN_AGENT_ID);
-  if (agent === undefined) {
-    throw new KimiError('agent.not_found', `main agent not found for session ${sessionId}`);
-  }
+  const agent = await ensureMainAgent(session);
   return agent.accessor.get(IPromptLegacyService);
 }
 
@@ -82,7 +77,7 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const result = resolveLegacy(core, session_id).list();
+        const result = (await resolveLegacy(core, session_id)).list();
         reply.send(okEnvelope(result, req.id));
       } catch (error) {
         sendMappedError(reply, req.id, error);
@@ -111,7 +106,8 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const result = await resolveLegacy(core, session_id).submit(req.body);
+        const legacy = await resolveLegacy(core, session_id);
+        const result = await legacy.submit(req.body);
         reply.send(okEnvelope(result, req.id));
       } catch (error) {
         sendMappedError(reply, req.id, error);
@@ -139,7 +135,8 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const result = await resolveLegacy(core, session_id).steer(req.body.prompt_ids);
+        const legacy = await resolveLegacy(core, session_id);
+        const result = await legacy.steer(req.body.prompt_ids);
         reply.send(okEnvelope(result, req.id));
       } catch (error) {
         sendMappedError(reply, req.id, error);
@@ -176,7 +173,7 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, message, req.id));
           return;
         }
-        const legacy = resolveLegacy(core, session_id);
+        const legacy = await resolveLegacy(core, session_id);
         const result =
           parsed.action === 'abort'
             ? await legacy.abort(parsed.id)

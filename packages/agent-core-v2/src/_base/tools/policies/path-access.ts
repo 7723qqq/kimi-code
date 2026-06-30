@@ -14,7 +14,7 @@
 
 import * as pathe from 'pathe';
 
-import type { Kaos } from '@moonshot-ai/kaos';
+import type { IKaos } from '#/kaos';
 
 import type { WorkspaceConfig } from '../support/workspace';
 import { isSensitiveFile } from './sensitive';
@@ -178,7 +178,7 @@ export interface ResolvePathAccessOptions {
 }
 
 export interface ResolvePathAccessPathOptions {
-  readonly kaos: Pick<Kaos, 'pathClass' | 'gethome'>;
+  readonly kaos: Pick<IKaos, 'pathClass' | 'gethome'>;
   readonly workspace: WorkspaceConfig;
   readonly operation: PathAccessOperation;
   readonly policy?: WorkspaceAccessPolicy;

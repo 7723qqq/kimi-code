@@ -172,7 +172,7 @@ export class WsConnection {
     }
   }
 
-  private onListen(msg: ListenMessage): void {
+  private async onListen(msg: ListenMessage): Promise<void> {
     if (!this.gotHello) {
       this.send({ type: 'error', id: msg.id, code: 40112, msg: 'hello required' });
       return;
@@ -190,7 +190,7 @@ export class WsConnection {
 
     let scope;
     try {
-      scope = resolveScope(this.core, msg.scope as ScopeKind, scopeParams(msg));
+      scope = await resolveScope(this.core, msg.scope as ScopeKind, scopeParams(msg));
     } catch {
       scope = undefined;
     }

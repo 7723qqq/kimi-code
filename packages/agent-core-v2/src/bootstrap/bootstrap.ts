@@ -19,7 +19,7 @@ import { homedir } from 'node:os';
 
 import { join } from 'pathe';
 
-import type { Environment } from '@moonshot-ai/kaos';
+import type { Environment } from '#/kaos';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';

@@ -13,16 +13,18 @@
  * left to the composition root, which owns the auth resolver.
  */
 
-import type { Kaos } from '@moonshot-ai/kaos';
 import type { ChatProvider, ModelCapability } from '@moonshot-ai/kosong';
 
 import { toDisposable, type IDisposable } from '#/_base/di';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
+import type { IAgentFileSystem } from '#/agentFs';
+import type { IKaos } from '#/kaos';
 import type { IToolRegistry } from '#/toolRegistry';
 import { ReadMediaFileTool, type VideoUploader } from './tools/read-media';
 
 export interface RegisterMediaToolsDeps {
-  readonly kaos: Kaos;
+  readonly fs: IAgentFileSystem;
+  readonly kaos: IKaos;
   readonly workspace: WorkspaceConfig;
   readonly capabilities: ModelCapability;
   readonly videoUploader?: VideoUploader;
@@ -44,7 +46,13 @@ export function registerMediaTools(
     return toDisposable(() => {});
   }
   return toolRegistry.register(
-    new ReadMediaFileTool(deps.kaos, deps.workspace, deps.capabilities, deps.videoUploader),
+    new ReadMediaFileTool(
+      deps.fs,
+      deps.kaos,
+      deps.workspace,
+      deps.capabilities,
+      deps.videoUploader,
+    ),
   );
 }
 

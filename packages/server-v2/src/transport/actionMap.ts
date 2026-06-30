@@ -22,6 +22,7 @@
  */
 
 import {
+  IAgentFileSystem,
   IAgentRPCService,
   IApprovalService,
   IAuthSummaryService,
@@ -31,6 +32,7 @@ import {
   IContextMemory,
   IContextSizeService,
   IFlagService,
+  IFsService,
   IGoalService,
   IHostFolderBrowser,
   IInteractionService,
@@ -139,6 +141,17 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'workspace:setWorkDir': { service: IWorkspaceContext, method: 'setWorkDir' },
     'workspace:addAdditionalDir': { service: IWorkspaceContext, method: 'addAdditionalDir' },
     'workspace:removeAdditionalDir': { service: IWorkspaceContext, method: 'removeAdditionalDir' },
+
+    'agentFs:readText': { service: IAgentFileSystem, method: 'readText', readonly: true },
+    'agentFs:writeText': { service: IAgentFileSystem, method: 'writeText' },
+    'agentFs:stat': { service: IAgentFileSystem, method: 'stat', readonly: true },
+    'agentFs:readdir': { service: IAgentFileSystem, method: 'readdir', readonly: true },
+    'agentFs:mkdir': { service: IAgentFileSystem, method: 'mkdir' },
+
+    'fs:search': { service: IFsService, method: 'search', readonly: true },
+    'fs:grep': { service: IFsService, method: 'grep', readonly: true },
+    'fs:gitStatus': { service: IFsService, method: 'gitStatus', readonly: true },
+    'fs:diff': { service: IFsService, method: 'diff', readonly: true },
   },
 
   // -------------------------------------------------------------------------

@@ -52,6 +52,7 @@ export * from './gateway/index';
 export * from './workspaceContext/index';
 export * from './workspaceRegistry/index';
 export * from './hostFolderBrowser/index';
+export * from './kaos/index';
 export * from './agentFs/index';
 export * from './process/index';
 export * from './terminal/index';

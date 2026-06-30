@@ -1,5 +1,6 @@
-import type { KaosProcess } from '@moonshot-ai/kaos';
 import type { Readable } from 'node:stream';
+
+import type { IProcess } from '#/process';
 
 import type {
   BackgroundTask,
@@ -30,7 +31,7 @@ export class ProcessBackgroundTask implements BackgroundTask {
   private exitCode: number | null = null;
 
   constructor(
-    readonly proc: KaosProcess,
+    readonly proc: IProcess,
     readonly command: string,
     readonly description: string,
     private readonly onOutput?: ProcessBackgroundTaskOutputCallback,

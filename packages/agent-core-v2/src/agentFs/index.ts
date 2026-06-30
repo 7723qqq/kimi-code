@@ -1,9 +1,9 @@
 /**
  * `agentFs` domain barrel — re-exports the agent-filesystem contract
- * (`agentFs`), its scoped service (`agentFsService`), and the backend
- * implementations (`localFileSystemBackend`, `sshFileSystemBackend`).
- * Importing this barrel registers the `IAgentFileSystem` and default local
- * `IFileSystemBackend` bindings into the scope registry.
+ * (`agentFs`) and its scoped service (`agentFsService`), the wire-shaped fs
+ * service (`fs`, `fsService`), and the fs error codes (`errors`). Importing
+ * this barrel registers the `IAgentFileSystem` and `IFsService` bindings into
+ * the scope registry.
  */
 
 export * from './agentFs';
@@ -11,5 +11,3 @@ export * from './agentFsService';
 export * from './errors';
 export * from './fs';
 export * from './fsService';
-export * from './localFileSystemBackend';
-export * from './sshFileSystemBackend';

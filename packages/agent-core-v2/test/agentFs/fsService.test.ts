@@ -87,8 +87,10 @@ function fakeProcess(stdout: string, stderr: string, exitCode: number): IProcess
     stdout: Readable.from([stdout]),
     stderr: Readable.from([stderr]),
     pid: 1,
+    exitCode,
     wait: () => Promise.resolve(exitCode),
     kill: () => Promise.resolve(),
+    dispose: () => undefined,
   };
 }
 

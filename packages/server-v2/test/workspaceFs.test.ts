@@ -1,6 +1,6 @@
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -79,12 +79,21 @@ describe('server-v2 /api/v1 fs folder picker', () => {
   }
 
   it('defaults browse to $HOME when path is omitted', async () => {
-    const { status, body } = await getJson<BrowseWire>('/api/v1/fs::browse');
+    const { status, body } = await getJson<BrowseWire>('/api/v1/fs:browse');
     expect(status).toBe(200);
     expect(body.code).toBe(0);
     expect(body.data.path).toBe(await realpath(homedir()));
     expect(typeof body.data.parent === 'string' || body.data.parent === null).toBe(true);
     expect(Array.isArray(body.data.entries)).toBe(true);
+  });
+
+  it('does not serve the double-colon URL (v1 parity: only /fs:browse is valid)', async () => {
+    // v1 registers the source path `/fs::browse`, but find-my-way serves it on
+    // the wire as single-colon `/fs:browse`; the double-colon form 404s. This
+    // guards against reintroducing a `/fs:action` parametric dispatcher that
+    // would accept the non-v1 double-colon URL.
+    const res = await fetch(`${base}/api/v1/fs::browse`);
+    expect(res.status).toBe(404);
   });
 
   it('lists only directories and filters files', async () => {
@@ -94,7 +103,7 @@ describe('server-v2 /api/v1 fs folder picker', () => {
     await writeFile(join(root, 'README.md'), 'hi');
 
     const { body } = await getJson<BrowseWire>(
-      `/api/v1/fs::browse?path=${encodeURIComponent(root)}`,
+      `/api/v1/fs:browse?path=${encodeURIComponent(root)}`,
     );
     expect(body.code).toBe(0);
     expect(body.data.path).toBe(await realpath(root));
@@ -115,7 +124,7 @@ describe('server-v2 /api/v1 fs folder picker', () => {
     await mkdir(join(root, 'plain'));
 
     const { body } = await getJson<BrowseWire>(
-      `/api/v1/fs::browse?path=${encodeURIComponent(root)}`,
+      `/api/v1/fs:browse?path=${encodeURIComponent(root)}`,
     );
     expect(body.code).toBe(0);
     const byName = new Map(body.data.entries.map((e) => [e.name, e]));
@@ -131,14 +140,14 @@ describe('server-v2 /api/v1 fs folder picker', () => {
     await mkdir(join(root, 'alpha'));
 
     const { body } = await getJson<BrowseWire>(
-      `/api/v1/fs::browse?path=${encodeURIComponent(root)}`,
+      `/api/v1/fs:browse?path=${encodeURIComponent(root)}`,
     );
     expect(body.code).toBe(0);
     expect(body.data.entries.map((e) => e.name)).toEqual(['alpha', '.zeta']);
   });
 
   it('returns parent=null for the filesystem root', async () => {
-    const { body } = await getJson<BrowseWire>('/api/v1/fs::browse?path=%2F');
+    const { body } = await getJson<BrowseWire>('/api/v1/fs:browse?path=%2F');
     expect(body.code).toBe(0);
     expect(body.data.path).toBe('/');
     expect(body.data.parent).toBeNull();
@@ -146,21 +155,19 @@ describe('server-v2 /api/v1 fs folder picker', () => {
 
   it('rejects a relative path (40001)', async () => {
     const { body } = await getJson<null>(
-      `/api/v1/fs::browse?path=${encodeURIComponent('relative/path')}`,
+      `/api/v1/fs:browse?path=${encodeURIComponent('relative/path')}`,
     );
     expect(body.code).toBe(40001);
   });
 
   it('rejects a nonexistent path (40409)', async () => {
     const missing = join(home as string, 'does-not-exist');
-    const { body } = await getJson<null>(
-      `/api/v1/fs::browse?path=${encodeURIComponent(missing)}`,
-    );
+    const { body } = await getJson<null>(`/api/v1/fs:browse?path=${encodeURIComponent(missing)}`);
     expect(body.code).toBe(40409);
   });
 
   it('returns an empty recent_roots when no workspaces are registered', async () => {
-    const { status, body } = await getJson<HomeWire>('/api/v1/fs::home');
+    const { status, body } = await getJson<HomeWire>('/api/v1/fs:home');
     expect(status).toBe(200);
     expect(body.code).toBe(0);
     expect(body.data.home).toBe(homedir());
@@ -172,7 +179,7 @@ describe('server-v2 /api/v1 fs folder picker', () => {
     const created = await postJson<{ id: string }>('/api/v1/workspaces', { root });
     expect(created.body.code).toBe(0);
 
-    const { body } = await getJson<HomeWire>('/api/v1/fs::home');
+    const { body } = await getJson<HomeWire>('/api/v1/fs:home');
     expect(body.code).toBe(0);
     expect(body.data.recent_roots).toContain(root);
   });
