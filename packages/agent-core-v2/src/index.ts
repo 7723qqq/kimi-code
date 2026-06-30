@@ -61,6 +61,7 @@ export * from './terminal/index';
 export * from './storage/index';
 export * from './filestore/index';
 export * from './auth/index';
+export * from './authLegacy/index';
 
 // Ported agent services. These keep the current service boundaries during the migration.
 export * from './blobStore/index';

@@ -12,6 +12,7 @@ import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IAuthSummaryService, IOAuthService, IOAuthToolkit } from '#/auth/auth';
 import { AuthSummaryService, OAuthService } from '#/auth/authService';
+import { AuthLegacyService, IAuthLegacyService } from '#/authLegacy';
 import { IConfigService } from '#/config/config';
 import { ILogService } from '#/log/log';
 import { type ModelAlias } from '#/model/model';
@@ -388,5 +389,116 @@ describe('AuthSummaryService', () => {
   it('ensureReady resolves when the provider is logged in', async () => {
     oauthStatus.mockResolvedValue({ loggedIn: true, provider: OAUTH_PROVIDER });
     await expect(createSummary().ensureReady(OAUTH_PROVIDER)).resolves.toBeUndefined();
+  });
+});
+
+describe('AuthLegacyService', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+  let providers: Record<string, ProviderConfig>;
+  let defaultModel: string | undefined;
+  let oauthStatus: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    providers = {};
+    defaultModel = undefined;
+    oauthStatus = vi.fn();
+    ix = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.definePartialInstance(IProviderService, {
+          list: (() => providers) as IProviderService['list'],
+        });
+        reg.definePartialInstance(IConfigService, {
+          ready: Promise.resolve(),
+          get: ((domain: string) =>
+            domain === 'defaultModel' ? defaultModel : undefined) as IConfigService['get'],
+        });
+        reg.definePartialInstance(IOAuthService, {
+          status: oauthStatus as unknown as IOAuthService['status'],
+        });
+        reg.define(IAuthLegacyService, AuthLegacyService);
+      },
+    });
+  });
+  afterEach(() => disposables.dispose());
+
+  function createService(): IAuthLegacyService {
+    return ix.get(IAuthLegacyService);
+  }
+
+  it('returns an empty snapshot when no providers are configured', async () => {
+    await expect(createService().get()).resolves.toEqual({
+      ready: false,
+      providers_count: 0,
+      default_model: null,
+      managed_provider: null,
+    });
+    expect(oauthStatus).not.toHaveBeenCalled();
+  });
+
+  it('counts every configured provider, not only oauth ones', async () => {
+    providers = {
+      [OAUTH_PROVIDER]: { type: 'kimi', oauth: { storage: 'file', key: 'oauth/kimi-code' } },
+      [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' },
+    };
+    oauthStatus.mockResolvedValue({ loggedIn: false });
+    const summary = await createService().get();
+    expect(summary.providers_count).toBe(2);
+  });
+
+  it('reflects the configured default model', async () => {
+    providers = { [NON_OAUTH_PROVIDER]: { type: 'kimi', apiKey: 'sk-test' } };
+    defaultModel = 'k2';
+    const summary = await createService().get();
+    expect(summary.default_model).toBe('k2');
+    expect(summary.managed_provider).toBeNull();
+    expect(summary.ready).toBe(true);
+  });
+
+  it('is not ready when a provider exists but no default model is set', async () => {
+    providers = { [NON_OAUTH_PROVIDER]: { type: 'kimi', apiKey: 'sk-test' } };
+    const summary = await createService().get();
+    expect(summary.providers_count).toBe(1);
+    expect(summary.default_model).toBeNull();
+    expect(summary.managed_provider).toBeNull();
+    expect(summary.ready).toBe(false);
+  });
+
+  it('surfaces managed_provider.unauthenticated when configured without a cached token', async () => {
+    providers = {
+      [OAUTH_PROVIDER]: { type: 'kimi', oauth: { storage: 'file', key: 'oauth/kimi-code' } },
+    };
+    oauthStatus.mockResolvedValue({ loggedIn: false });
+    const summary = await createService().get();
+    expect(summary.managed_provider).toEqual({
+      name: OAUTH_PROVIDER,
+      status: 'unauthenticated',
+    });
+    expect(summary.ready).toBe(false);
+  });
+
+  it('surfaces managed_provider.authenticated when a cached token exists', async () => {
+    providers = {
+      [OAUTH_PROVIDER]: { type: 'kimi', oauth: { storage: 'file', key: 'oauth/kimi-code' } },
+    };
+    defaultModel = 'k2';
+    oauthStatus.mockResolvedValue({ loggedIn: true, provider: OAUTH_PROVIDER });
+    const summary = await createService().get();
+    expect(summary.managed_provider).toEqual({
+      name: OAUTH_PROVIDER,
+      status: 'authenticated',
+    });
+    expect(summary.ready).toBe(true);
+  });
+
+  it('treats a throwing oauth status as unauthenticated', async () => {
+    providers = {
+      [OAUTH_PROVIDER]: { type: 'kimi', oauth: { storage: 'file', key: 'oauth/kimi-code' } },
+    };
+    oauthStatus.mockRejectedValue(new Error('token storage unavailable'));
+    await expect(createService().get()).resolves.toMatchObject({
+      managed_provider: { name: OAUTH_PROVIDER, status: 'unauthenticated' },
+    });
   });
 });
