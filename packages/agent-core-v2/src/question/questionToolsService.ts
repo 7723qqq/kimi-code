@@ -1,29 +1,29 @@
 /**
- * `question` domain (L7) — `IQuestionToolsService` implementation.
+ * `question` domain (L7) — `IAgentQuestionToolsService` implementation.
  *
- * Registers the built-in `AskUserQuestion` tool into the agent `IToolRegistry`
- * on construction, wiring it to the session `IQuestionService` (ask-user
- * broker), the agent `IBackgroundService` (background-question lifecycle) and
+ * Registers the built-in `AskUserQuestion` tool into the agent `IAgentToolRegistryService`
+ * on construction, wiring it to the session `ISessionQuestionService` (ask-user
+ * broker), the agent `IAgentBackgroundService` (background-question lifecycle) and
  * `ITelemetryService`. Bound at Agent scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IBackgroundService } from '#/background';
+import { IAgentBackgroundService } from '#/background';
 import { ITelemetryService } from '#/telemetry';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 
-import { IQuestionService } from './question';
-import { IQuestionToolsService } from './questionTools';
+import { ISessionQuestionService } from './question';
+import { IAgentQuestionToolsService } from './questionTools';
 import { AskUserQuestionTool } from './tools/ask-user';
 
-export class QuestionToolsService implements IQuestionToolsService {
+export class AgentQuestionToolsService implements IAgentQuestionToolsService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IToolRegistry toolRegistry: IToolRegistry,
-    @IQuestionService question: IQuestionService,
-    @IBackgroundService background: IBackgroundService,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
+    @ISessionQuestionService question: ISessionQuestionService,
+    @IAgentBackgroundService background: IAgentBackgroundService,
     @ITelemetryService telemetry: ITelemetryService,
   ) {
     toolRegistry.register(new AskUserQuestionTool(question, background, telemetry));
@@ -32,8 +32,8 @@ export class QuestionToolsService implements IQuestionToolsService {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IQuestionToolsService,
-  QuestionToolsService,
+  IAgentQuestionToolsService,
+  AgentQuestionToolsService,
   InstantiationType.Delayed,
   'questionTools',
 );

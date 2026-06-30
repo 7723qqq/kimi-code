@@ -172,7 +172,7 @@ interface PermissionPolicyEntry {
   factory: (accessor: ServicesAccessor) => PermissionPolicy;
 }
 
-// Core scope —— 收集所有 domain 的注册
+// App scope —— 收集所有 domain 的注册
 interface IPermissionPolicyRegistry {
   register(entry: PermissionPolicyEntry): IDisposable;
   list(): readonly PermissionPolicyEntry[];
@@ -192,7 +192,7 @@ this.policies = registry.list()
 要点：
 
 - `modes`/`agentTypes` 是**声明**，把现在 `YoloModeApprove` 里的 `if (mode !== 'yolo') return` 提到元数据。
-- `factory` 而非 `instance`：节点可能依赖 agent-scoped 服务（mode、rules），需在 Agent scope 实例化——对称 `IToolDefinitionRegistry`(Core) 存 factory、`IToolService`(Agent) 实例化工具。
+- `factory` 而非 `instance`：节点可能依赖 agent-scoped 服务（mode、rules），需在 Agent scope 实例化——对称 `IToolDefinitionRegistry`(App) 存 factory、`IToolService`(Agent) 实例化工具。
 - **不同 (agent, mode) 产出形状不同的链**：yolo 下 ask/fallback 阶段被物理过滤掉。
 
 ### 5.3 两条贡献路径
@@ -212,11 +212,11 @@ this.policies = registry.list()
 // src/plan/planService.ts
 constructor(@IPermissionPolicyRegistry registry: IPermissionPolicyRegistry) {
   registry.register({ name: 'plan-mode-guard-deny', phase: 'guard',
-    factory: a => new PlanModeGuardDenyPolicy(a.get(IPlanService)) });
+    factory: a => new PlanModeGuardDenyPolicy(a.get(IAgentPlanService)) });
   registry.register({ name: 'plan-mode-tool-approve', phase: 'mode',
-    factory: a => new PlanModeToolApprovePolicy(a.get(IPlanService)) });
+    factory: a => new PlanModeToolApprovePolicy(a.get(IAgentPlanService)) });
   registry.register({ name: 'exit-plan-mode-review-ask', phase: 'user-ask',
-    factory: a => new ExitPlanModeReviewAskPolicy(a.get(IPlanService), a.get(IPermissionModeService)) });
+    factory: a => new ExitPlanModeReviewAskPolicy(a.get(IAgentPlanService), a.get(IAgentPermissionModeService)) });
 }
 ```
 

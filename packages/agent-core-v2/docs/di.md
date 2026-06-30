@@ -64,7 +64,7 @@ export class Greeter implements IGreeter {
 ```ts
 // greet/greetService.ts（文件顶层，import 时执行）
 registerScopedService(
-  LifecycleScope.Core,     // 活多久：进程级
+  LifecycleScope.App,     // 活多久：进程级
   IGreeter,                // 身份
   Greeter,                 // 实现
   InstantiationType.Eager, // 创建时机：立刻
@@ -143,7 +143,7 @@ const session = accessor.get(ISessionService);   // 类型是 ISessionService
 
 ```ts
 export enum LifecycleScope {
-  Core = 0,    // 进程级，全局一份
+  App = 0,    // 进程级，全局一份
   Session = 1, // 一次会话
   Agent = 2,   // 一个 agent
 }
@@ -155,14 +155,14 @@ export enum LifecycleScope {
 registerScopedService(LifecycleScope.Session, ISessionService, SessionService, InstantiationType.Delayed, 'session');
 ```
 
-「单例」的粒度是**每个 scope 一份**：Core 的 `ILogService` 全局只有一份；每个 Session scope 各有自己的 `ISessionService`。
+「单例」的粒度是**每个 scope 一份**：App 的 `ILogService` 全局只有一份；每个 Session scope 各有自己的 `ISessionService`。
 
 ### 3.2 子 scope 看得见父 scope，反之不行
 
 Scope 是一棵树，`kind` 必须沿父子方向**严格递增**：
 
 ```
-Core (0)
+App (0)
  └── Session (1)
       └── Agent (2)
 ```
@@ -171,8 +171,8 @@ Core (0)
 
 > **短寿命的服务可以注入长寿命的服务，反过来不行。**
 
-- ✅ Agent 服务注入 Session / Core 服务（往上找，找得到）。
-- ❌ Core 服务注入 Session 服务（Core 创建时 Session 还不存在，且父不会往下找）。
+- ✅ Agent 服务注入 Session / App 服务（往上找，找得到）。
+- ❌ App 服务注入 Session 服务（App 创建时 Session 还不存在，且父不会往下找）。
 
 这条规则由树的结构强制保证，不靠纪律维持。
 
@@ -212,10 +212,10 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
 
 ```ts
 // Eager：scope 创建时立刻 new
-registerScopedService(LifecycleScope.Core, ILogService, LogService, InstantiationType.Eager, 'log');
+registerScopedService(LifecycleScope.App, ILogService, LogService, InstantiationType.Eager, 'log');
 
 // Delayed：第一次被 get 时才 new
-registerScopedService(LifecycleScope.Core, IScopeRegistry, ScopeRegistry, InstantiationType.Delayed, 'gateway');
+registerScopedService(LifecycleScope.App, IScopeRegistry, ScopeRegistry, InstantiationType.Delayed, 'gateway');
 ```
 
 Delayed 服务返回的是一个 **Proxy**：在首次访问任意属性时才真正构造。即便还没构造好，别人提前订阅它的 `onDid…` / `onWill…` 事件也不会丢——容器会先记下监听器，实例真正出来后再回放订阅。
@@ -300,7 +300,7 @@ export class ScopeRegistry implements IScopeRegistry {
 关键点：
 
 - `getScopedServiceDescriptors(scope)` 能拿回注册在某一层的所有描述符，装进一个 `ServiceCollection`。
-- `instantiation.createChild(collection)` 造一个子容器，它的父指针指向当前容器——于是子容器能向上解析到 Core 的服务（场景 3 的可见性规则）。
+- `instantiation.createChild(collection)` 造一个子容器，它的父指针指向当前容器——于是子容器能向上解析到 App 的服务（场景 3 的可见性规则）。
 - 给外部暴露时，用 `invokeFunction` 把子容器包成 `ServicesAccessor`（场景 6）。
 
 > 更高层通常直接用 [`Scope.createChild(kind, id)`](../src/_base/di/scope.ts)（它帮你做了「筛描述符 + 建子容器」）；只有需要手动控制 `ServiceCollection` 时才像上面这样写。
@@ -317,7 +317,7 @@ A 创建中要 B，B 创建中又要 A——容器会抛 `CyclicDependencyError`
 
 ### 9.2 为什么不允许
 
-- scope 分层让正常依赖天然是 DAG（Agent → Session → Core 向上找），一个环几乎总是设计味道。
+- scope 分层让正常依赖天然是 DAG（Agent → Session → App 向上找），一个环几乎总是设计味道。
 - 靠「让环刚好能跑」会把构造顺序变成隐式约定，难调试、难排错。
 
 所以 v2 的立场是：**依赖图必须是无环的。**

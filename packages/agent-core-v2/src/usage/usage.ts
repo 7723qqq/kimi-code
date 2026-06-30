@@ -13,10 +13,10 @@ export interface UsageStatus {
   readonly currentTurn?: TokenUsage;
 }
 
-export interface IUsageService {
+export interface IAgentUsageService {
   readonly _serviceBrand: undefined;
   record(model: string, usage: TokenUsage, context?: UsageRecordContext): void;
   status(): UsageStatus;
 }
 
-export const IUsageService = createDecorator<IUsageService>('usageService.agent');
+export const IAgentUsageService = createDecorator<IAgentUsageService>('agentUsageService');

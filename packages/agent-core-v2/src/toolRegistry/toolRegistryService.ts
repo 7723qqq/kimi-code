@@ -7,14 +7,14 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ExecutableTool, ToolInfo, ToolSource } from '#/tool';
 import { OrderedHookSlot } from '../hooks';
-import { IToolRegistry, type ToolRegistrationOptions } from './toolRegistry';
+import { IAgentToolRegistryService, type ToolRegistrationOptions } from './toolRegistry';
 
 interface ToolEntry {
   readonly tool: ExecutableTool;
   readonly source: ToolSource;
 }
 
-export class ToolRegistryService extends Disposable implements IToolRegistry {
+export class AgentToolRegistryService extends Disposable implements IAgentToolRegistryService {
   declare readonly _serviceBrand: undefined;
   private readonly tools = new Map<string, ToolEntry>();
 
@@ -68,8 +68,8 @@ export class ToolRegistryService extends Disposable implements IToolRegistry {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IToolRegistry,
-  ToolRegistryService,
+  IAgentToolRegistryService,
+  AgentToolRegistryService,
   InstantiationType.Delayed,
   'toolRegistry',
 );

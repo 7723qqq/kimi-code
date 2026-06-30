@@ -4,14 +4,14 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/contextMemory';
-import { IEventSink } from '#/eventSink';
-import { IPromptService } from '#/prompt';
-import { IAgentSkillService, InMemorySkillCatalog, ISkillCatalog } from '#/skill';
+import { IAgentEventSinkService } from '#/eventSink';
+import { IAgentPromptService } from '#/prompt';
+import { IAgentSkillService, InMemorySkillCatalog, ISessionSkillCatalog } from '#/skill';
 import { AgentSkillService } from '#/skill/skillService';
 import { ITelemetryService } from '#/telemetry';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import type { Turn } from '#/turn';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import { stubWireRecord } from '../contextMemory/stubs';
 import { stubSkill } from './stubs';
 
@@ -43,7 +43,7 @@ describe('AgentSkillService', () => {
     prompted = [];
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.definePartialInstance(IPromptService, {
+        reg.definePartialInstance(IAgentPromptService, {
           prompt: (message) => {
             prompted.push(message);
             return fakeTurn();
@@ -53,27 +53,27 @@ describe('AgentSkillService', () => {
           undo: () => 0,
           clear: () => {},
         });
-        reg.definePartialInstance(IEventSink, {
+        reg.definePartialInstance(IAgentEventSinkService, {
           emit: () => {},
           on: () => ({ dispose: () => {} }),
         });
-        reg.defineInstance(IWireRecord, stubWireRecord());
+        reg.defineInstance(IAgentWireRecordService, stubWireRecord());
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
-        reg.definePartialInstance(IToolRegistry, {
+        reg.definePartialInstance(IAgentToolRegistryService, {
           register: () => ({ dispose: () => {} }),
         });
       },
     });
     const skills = new InMemorySkillCatalog();
     skills.register(COMMIT_SKILL);
-    const skillCatalog: ISkillCatalog = {
+    const skillCatalog: ISessionSkillCatalog = {
       _serviceBrand: undefined,
       catalog: skills,
       ready: Promise.resolve(),
       load: async () => {},
       reload: async () => {},
     };
-    ix.set(ISkillCatalog, skillCatalog);
+    ix.set(ISessionSkillCatalog, skillCatalog);
     ix.set(IAgentSkillService, new SyncDescriptor(AgentSkillService));
   });
   afterEach(() => disposables.dispose());
@@ -103,13 +103,13 @@ describe('AgentSkillService', () => {
     });
     const skills = new InMemorySkillCatalog();
     skills.register(COMMIT_SKILL);
-    ix.set(ISkillCatalog, {
+    ix.set(ISessionSkillCatalog, {
       _serviceBrand: undefined,
       catalog: skills,
       ready,
       load: async () => {},
       reload: async () => {},
-    } satisfies ISkillCatalog);
+    } satisfies ISessionSkillCatalog);
     ix.set(IAgentSkillService, new SyncDescriptor(AgentSkillService));
 
     const svc = ix.get(IAgentSkillService);

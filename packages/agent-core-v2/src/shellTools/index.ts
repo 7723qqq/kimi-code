@@ -1,7 +1,7 @@
 /**
  * `shellTools` domain barrel — re-exports the built-in Bash tool, the shared
- * output `ToolResultBuilder`, and the `IShellToolsService` registration
- * contract + service. Importing this barrel registers the `IShellToolsService`
+ * output `ToolResultBuilder`, and the `IAgentShellToolsService` registration
+ * contract + service. Importing this barrel registers the `IAgentShellToolsService`
  * binding into the scope registry.
  */
 

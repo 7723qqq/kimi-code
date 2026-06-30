@@ -7,12 +7,12 @@ import type {
   ExecutableToolContext,
   ExecutableToolResult,
 } from '#/tool';
-import { IProfileService } from '#/profile';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentProfileService } from '#/profile';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import type { ToolResult } from '#/tool';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import {
-  IUserToolService,
+  IAgentUserToolService,
   type UserToolRegistration,
 } from './userTool';
 import { InstantiationType } from '#/_base/di/extensions';
@@ -27,15 +27,15 @@ declare module '#/wireRecord' {
   }
 }
 
-export class UserToolService extends Disposable implements IUserToolService {
+export class AgentUserToolService extends Disposable implements IAgentUserToolService {
   declare readonly _serviceBrand: undefined;
 
   private readonly registrations = new Map<string, IDisposable>();
 
   constructor(
-    @IToolRegistry private readonly registry: IToolRegistry,
-    @IProfileService private readonly profile: IProfileService,
-    @IWireRecord private readonly wireRecord: IWireRecord,
+    @IAgentToolRegistryService private readonly registry: IAgentToolRegistryService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
   ) {
     super();
     this._register(
@@ -112,8 +112,8 @@ function toExecutableToolResult(result: ToolResult): ExecutableToolResult {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IUserToolService,
-  UserToolService,
+  IAgentUserToolService,
+  AgentUserToolService,
   InstantiationType.Eager,
   'userTool',
 );

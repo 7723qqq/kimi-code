@@ -2,7 +2,7 @@
  * `background` domain (L5) — `background` config-section schema.
  *
  * Owns the `[background]` configuration section (background-task limits and
- * lifecycle tuning). Registered into `IConfigRegistry` by `BackgroundService`
+ * lifecycle tuning). Registered into `IConfigRegistry` by `AgentBackgroundService`
  * on construction, so the `config` domain never imports this domain's types.
  */
 

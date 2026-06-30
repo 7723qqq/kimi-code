@@ -3,9 +3,9 @@
  *
  * Ported from v1 (`packages/agent-core/test/tools/bash.test.ts`) and adapted
  * to the v2 constructor `(runner, kaos, background, options)`. Self-contained:
- * builds minimal fake `IProcessRunner` / `IProcess`, `IKaos`, and
- * `IBackgroundService` inline so the tool can be exercised without the
- * composition root. The fake `IBackgroundService` drives the real
+ * builds minimal fake `ISessionProcessRunner` / `IProcess`, `IKaos`, and
+ * `IAgentBackgroundService` inline so the tool can be exercised without the
+ * composition root. The fake `IAgentBackgroundService` drives the real
  * `ProcessBackgroundTask` so stream observation, timeout and user-interrupt
  * semantics match production.
  *
@@ -22,7 +22,7 @@ import { PassThrough, Readable, type Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  IBackgroundService,
+  IAgentBackgroundService,
   ProcessBackgroundTask,
   type BackgroundTask,
   type BackgroundTaskInfo,
@@ -33,7 +33,7 @@ import {
 } from '../../src/background';
 import type { BackgroundTaskSettlement } from '../../src/background/task';
 import type { Environment, IKaos } from '../../src/kaos';
-import type { IProcess, IProcessRunner } from '../../src/process';
+import type { IProcess, ISessionProcessRunner } from '../../src/process';
 import { type BashInput, BashInputSchema, BashTool } from '../../src/shellTools/tools/bash';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../src/tool';
 
@@ -287,15 +287,15 @@ function createTestKaos(osEnv: Environment = posixEnv, cwd = '/workspace'): IKao
   } as unknown as IKaos;
 }
 
-// ── Fake IProcessRunner ──────────────────────────────────────────────
+// ── Fake ISessionProcessRunner ──────────────────────────────────────────────
 
 function createTestRunner(proc: IProcess | ReturnType<typeof vi.fn>) {
   const exec = typeof proc === 'function' ? proc : vi.fn().mockResolvedValue(proc);
-  const runner = { exec } as unknown as IProcessRunner;
+  const runner = { exec } as unknown as ISessionProcessRunner;
   return { runner, exec };
 }
 
-// ── Fake IBackgroundService ──────────────────────────────────────────
+// ── Fake IAgentBackgroundService ──────────────────────────────────────────
 
 const TERMINAL_STATUSES: ReadonlySet<BackgroundTaskStatus> = new Set([
   'completed',
@@ -347,7 +347,7 @@ function errorMessage(error: unknown): string {
 }
 
 function createFakeBackgroundService(options: { maxRunningTasks?: number } = {}): {
-  readonly service: IBackgroundService;
+  readonly service: IAgentBackgroundService;
   readonly tasks: Map<string, ManagedEntry>;
 } {
   const tasks = new Map<string, ManagedEntry>();
@@ -433,7 +433,7 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
     return count;
   };
 
-  const service: IBackgroundService = {
+  const service: IAgentBackgroundService = {
     _serviceBrand: undefined,
 
     registerTask(task: BackgroundTask, registerOptions: RegisterBackgroundTaskOptions = {}): string {
@@ -647,9 +647,9 @@ async function executeTool(
 }
 
 function bashTool(
-  runner: IProcessRunner,
+  runner: ISessionProcessRunner,
   kaos: IKaos = createTestKaos(),
-  background: IBackgroundService = createFakeBackgroundService().service,
+  background: IAgentBackgroundService = createFakeBackgroundService().service,
   options?: ConstructorParameters<typeof BashTool>[3],
 ): BashTool {
   return new BashTool(runner, kaos, background, options);

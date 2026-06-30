@@ -9,7 +9,7 @@
  * session metadata) and `tomlDocumentCodec` backs `TomlAtomicDocumentStore`
  * (the `config` document). Reads and writes bytes through `IStorageService`
  * (the config document) or `IAtomicDocumentStorage` (everyone else). Bound at
- * Core scope.
+ * App scope.
  */
 
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
@@ -119,7 +119,7 @@ export class TomlAtomicDocumentStore extends AtomicDocumentStoreBase {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IAtomicDocumentStore,
   AtomicDocumentStore,
   InstantiationType.Delayed,
@@ -127,7 +127,7 @@ registerScopedService(
 );
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IAtomicTomlDocumentStore,
   TomlAtomicDocumentStore,
   InstantiationType.Delayed,

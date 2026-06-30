@@ -1,7 +1,7 @@
 /**
- * `node-pty` backed `ITerminalBackend` — server-v2 composition root.
+ * `node-pty` backed `ISessionTerminalBackend` — server-v2 composition root.
  *
- * `agent-core-v2`'s terminal domain ships a `NotImplementedTerminalBackend`
+ * `agent-core-v2`'s terminal domain ships a `SessionNotImplementedTerminalBackend`
  * stub so the binding graph is complete out of the box. That stub cannot spawn
  * a real PTY; this module supplies the real backend through the scope registry,
  * overriding the stub. Override works because `buildCollection`
@@ -17,14 +17,14 @@
 
 import {
   InstantiationType,
-  ITerminalBackend,
+  ISessionTerminalBackend,
   LifecycleScope,
   registerScopedService,
   type TerminalProcess,
   type TerminalSpawnOptions,
 } from '@moonshot-ai/agent-core-v2';
 
-export class NodePtyTerminalBackend implements ITerminalBackend {
+export class NodePtyTerminalBackend implements ISessionTerminalBackend {
   declare readonly _serviceBrand: undefined;
 
   async spawn(options: TerminalSpawnOptions): Promise<TerminalProcess> {
@@ -48,7 +48,7 @@ export class NodePtyTerminalBackend implements ITerminalBackend {
 
 registerScopedService(
   LifecycleScope.Session,
-  ITerminalBackend,
+  ISessionTerminalBackend,
   NodePtyTerminalBackend,
   InstantiationType.Delayed,
   'terminal',

@@ -18,7 +18,7 @@ describe('BootstrapService (scoped)', () => {
   beforeEach(() => {
     _clearScopedRegistryForTests();
     registerScopedService(
-      LifecycleScope.Core,
+      LifecycleScope.App,
       IBootstrapService,
       BootstrapService,
       InstantiationType.Eager,
@@ -28,7 +28,7 @@ describe('BootstrapService (scoped)', () => {
 
   it('resolves homeDir/configPath from the seeded context token', () => {
     const host = createScopedTestHost(bootstrapSeed({ homeDir: '/tmp/kimi-home' }));
-    const svc = host.core.accessor.get(IBootstrapService);
+    const svc = host.app.accessor.get(IBootstrapService);
     expect(svc.homeDir).toBe('/tmp/kimi-home');
     expect(svc.configPath).toBe('/tmp/kimi-home/config.toml');
     expect(svc.sessionsDir).toBe('/tmp/kimi-home/sessions');
@@ -37,7 +37,7 @@ describe('BootstrapService (scoped)', () => {
 
   it('getEnv reads from the seeded env bag', () => {
     const host = createScopedTestHost(bootstrapSeed({ env: { FOO: 'bar' } }));
-    const svc = host.core.accessor.get(IBootstrapService);
+    const svc = host.app.accessor.get(IBootstrapService);
     expect(svc.getEnv('FOO')).toBe('bar');
     expect(svc.getEnv('MISSING')).toBeUndefined();
     host.dispose();
@@ -45,7 +45,7 @@ describe('BootstrapService (scoped)', () => {
 
   it('detect() returns a cached OS/shell probe', async () => {
     const host = createScopedTestHost(bootstrapSeed({ homeDir: '/tmp/kimi-home' }));
-    const svc = host.core.accessor.get(IBootstrapService);
+    const svc = host.app.accessor.get(IBootstrapService);
     const a = await svc.detect();
     const b = await svc.detect();
     expect(a).toBe(b);
@@ -65,12 +65,12 @@ describe('resolveBootstrapOptions', () => {
 
 describe('bootstrap() storage seeding', () => {
   it('routes each storage role token to its own FileStorageService instance', () => {
-    const { core } = bootstrap({ homeDir: '/tmp/kimi-home' });
+    const { app } = bootstrap({ homeDir: '/tmp/kimi-home' });
     try {
-      const storage = core.accessor.get(IStorageService);
-      const appendLog = core.accessor.get(IAppendLogStorage);
-      const atomicDoc = core.accessor.get(IAtomicDocumentStorage);
-      const blob = core.accessor.get(IBlobStorage);
+      const storage = app.accessor.get(IStorageService);
+      const appendLog = app.accessor.get(IAppendLogStorage);
+      const atomicDoc = app.accessor.get(IAtomicDocumentStorage);
+      const blob = app.accessor.get(IBlobStorage);
 
       for (const instance of [storage, appendLog, atomicDoc, blob]) {
         expect(instance).toBeInstanceOf(FileStorageService);
@@ -80,7 +80,7 @@ describe('bootstrap() storage seeding', () => {
       // shared backend instance by default.
       expect(new Set([storage, appendLog, atomicDoc, blob]).size).toBe(4);
     } finally {
-      core.dispose();
+      app.dispose();
     }
   });
 });

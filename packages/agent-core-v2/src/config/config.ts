@@ -2,7 +2,7 @@
  * `config` domain (L2) — configuration registry and layered global config service.
  *
  * Defines the config service identifiers and section models: the
- * `IConfigRegistry` for section schemas, and the Core-scoped `IConfigService`
+ * `IConfigRegistry` for section schemas, and the App-scoped `IConfigService`
  * that resolves a value by precedence across layers (defaults → user config →
  * per-run memory overrides) and writes through a `ConfigTarget`. Owners react
  * to edits through two change events — `onDidChange` (a domain was touched) and

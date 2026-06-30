@@ -12,37 +12,37 @@ import type {
   ResolvedToolExecutionHookContext,
 } from '#/tool';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-import { IApprovalService } from "#/approval/approval";
-import { IExternalHooksService } from '#/externalHooks';
-import { IPermissionModeService } from '#/permissionMode';
+import { ISessionApprovalService } from "#/approval/approval";
+import { IAgentExternalHooksService } from '#/externalHooks';
+import { IAgentPermissionModeService } from '#/permissionMode';
 import {
-  IPermissionPolicyService,
+  IAgentPermissionPolicyService,
   type PermissionPolicyResolution,
   type PermissionPolicyResult,
 } from '#/permissionPolicy';
-import { IPermissionRulesService } from '#/permissionRules';
+import { IAgentPermissionRulesService } from '#/permissionRules';
 import { ISessionContext } from '#/session-context';
 import { ITelemetryService } from '#/telemetry';
-import { IToolExecutor } from '#/toolExecutor';
+import { IAgentToolExecutorService } from '#/toolExecutor';
 import {
-  IPermissionGate,
+  IAgentPermissionGate,
   type PermissionGateOptions,
 } from './permissionGate';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-export class PermissionGate extends Disposable implements IPermissionGate {
+export class AgentPermissionGate extends Disposable implements IAgentPermissionGate {
   declare readonly _serviceBrand: undefined;
   constructor(
     private readonly options: PermissionGateOptions = {},
-    @IPermissionModeService private readonly modeService: IPermissionModeService,
-    @IPermissionRulesService private readonly rulesService: IPermissionRulesService,
-    @IPermissionPolicyService private readonly policyService: IPermissionPolicyService,
-    @IExternalHooksService private readonly externalHooks: IExternalHooksService,
+    @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
+    @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
+    @IAgentPermissionPolicyService private readonly policyService: IAgentPermissionPolicyService,
+    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @ISessionContext private readonly session: ISessionContext,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IToolExecutor toolExecutor: IToolExecutor,
+    @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
     super();
     toolExecutor.hooks.onWillExecuteTool.register('permission', async (ctx, next) => {
@@ -230,10 +230,10 @@ export class PermissionGate extends Disposable implements IPermissionGate {
     };
   }
 
-  private tryApprovalService(): IApprovalService | undefined {
+  private tryApprovalService(): ISessionApprovalService | undefined {
     try {
       return this.instantiation.invokeFunction(
-        (accessor) => accessor.get(IApprovalService) as IApprovalService | undefined,
+        (accessor) => accessor.get(ISessionApprovalService) as ISessionApprovalService | undefined,
       );
     } catch {
       return undefined;
@@ -277,8 +277,8 @@ function numericTurnId(turnId: string): number {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IPermissionGate,
-  PermissionGate,
+  IAgentPermissionGate,
+  AgentPermissionGate,
   InstantiationType.Delayed,
   'permissionGate',
 );

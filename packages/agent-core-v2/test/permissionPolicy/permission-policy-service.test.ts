@@ -17,31 +17,31 @@ import {
 } from '#/_base/tools/support/rule-match';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { IKaos, type IKaos as KaosService } from '#/kaos';
-import { IPermissionModeService } from '#/permissionMode';
+import { IAgentPermissionModeService } from '#/permissionMode';
 import {
-  IPermissionPolicyService,
+  IAgentPermissionPolicyService,
   type PermissionMode,
   type PermissionPolicyEvaluation,
 } from '#/permissionPolicy';
-import { PermissionPolicyService } from '#/permissionPolicy/permissionPolicyService';
+import { AgentPermissionPolicyService } from '#/permissionPolicy/permissionPolicyService';
 import {
-  IPermissionRulesService,
-  type IPermissionRulesService as PermissionRulesServiceContract,
+  IAgentPermissionRulesService,
+  type IAgentPermissionRulesService as PermissionRulesServiceContract,
   type PermissionApprovalResultRecord,
   type PermissionRule,
 } from '#/permissionRules';
-import { IPlanService, type PlanData } from '#/plan';
-import { ISwarmService } from '#/swarm';
+import { IAgentPlanService, type PlanData } from '#/plan';
+import { IAgentSwarmService } from '#/swarm';
 import { ITelemetryService } from '#/telemetry';
 import { ToolAccesses, type ToolAccesses as ToolAccessList } from '#/tool';
-import { IWorkspaceContext } from '#/workspaceContext';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
 
 import { stubPermissionModeService } from '../permissionMode/stubs';
 import { recordingTelemetry } from '../telemetry/stubs';
 
 const signal = new AbortController().signal;
 
-describe('PermissionPolicyService chain', () => {
+describe('AgentPermissionPolicyService chain', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let mode: PermissionMode;
@@ -61,19 +61,19 @@ describe('PermissionPolicyService chain', () => {
     workspace = workspaceStub('/workspace');
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(IPermissionModeService, stubPermissionModeService(() => mode));
-        reg.definePartialInstance(IPermissionRulesService, permissionRulesStub({
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
+        reg.definePartialInstance(IAgentPermissionRulesService, permissionRulesStub({
           rules: () => rules,
           sessionApprovalRulePatterns: () => sessionApprovalRulePatterns,
         }));
-        reg.defineInstance(IWorkspaceContext, workspace);
+        reg.defineInstance(ISessionWorkspaceContext, workspace);
         reg.defineInstance(IKaos, kaosStub());
-        reg.definePartialInstance(IPlanService, planServiceStub(() => plan, () => {
+        reg.definePartialInstance(IAgentPlanService, planServiceStub(() => plan, () => {
           plan = null;
         }));
-        reg.definePartialInstance(ISwarmService, swarmServiceStub(() => swarmActive));
+        reg.definePartialInstance(IAgentSwarmService, swarmServiceStub(() => swarmActive));
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
-        reg.define(IPermissionPolicyService, PermissionPolicyService);
+        reg.define(IAgentPermissionPolicyService, AgentPermissionPolicyService);
       },
       strict: true,
     });
@@ -83,8 +83,8 @@ describe('PermissionPolicyService chain', () => {
     disposables.dispose();
   });
 
-  function service(): IPermissionPolicyService {
-    return ix.get(IPermissionPolicyService);
+  function service(): IAgentPermissionPolicyService {
+    return ix.get(IAgentPermissionPolicyService);
   }
 
   async function evaluate(
@@ -201,7 +201,7 @@ describe('PermissionPolicyService chain', () => {
   });
 });
 
-describe('PermissionPolicyService plan-mode policies', () => {
+describe('AgentPermissionPolicyService plan-mode policies', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let mode: PermissionMode;
@@ -215,18 +215,18 @@ describe('PermissionPolicyService plan-mode policies', () => {
     plan = null;
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(IPermissionModeService, stubPermissionModeService(() => mode));
-        reg.definePartialInstance(IPermissionRulesService, permissionRulesStub({
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
+        reg.definePartialInstance(IAgentPermissionRulesService, permissionRulesStub({
           sessionApprovalRulePatterns: () => sessionApprovalRulePatterns,
         }));
-        reg.defineInstance(IWorkspaceContext, workspaceStub('/workspace'));
+        reg.defineInstance(ISessionWorkspaceContext, workspaceStub('/workspace'));
         reg.defineInstance(IKaos, kaosStub());
-        reg.definePartialInstance(IPlanService, planServiceStub(() => plan, () => {
+        reg.definePartialInstance(IAgentPlanService, planServiceStub(() => plan, () => {
           plan = null;
         }));
-        reg.definePartialInstance(ISwarmService, swarmServiceStub(() => false));
+        reg.definePartialInstance(IAgentSwarmService, swarmServiceStub(() => false));
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
-        reg.define(IPermissionPolicyService, PermissionPolicyService);
+        reg.define(IAgentPermissionPolicyService, AgentPermissionPolicyService);
       },
       strict: true,
     });
@@ -239,7 +239,7 @@ describe('PermissionPolicyService plan-mode policies', () => {
   async function evaluate(
     input: PolicyContextInput,
   ): Promise<PermissionPolicyEvaluation | undefined> {
-    const svc = ix.get(IPermissionPolicyService);
+    const svc = ix.get(IAgentPermissionPolicyService);
     return svc.evaluate(policyContext(input));
   }
 
@@ -392,7 +392,7 @@ describe('PermissionPolicyService plan-mode policies', () => {
   );
 });
 
-describe('PermissionPolicyService git cwd write approval', () => {
+describe('AgentPermissionPolicyService git cwd write approval', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let mode: PermissionMode;
@@ -409,14 +409,14 @@ describe('PermissionPolicyService git cwd write approval', () => {
     workspace = workspaceStub(workspaceDir);
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(IPermissionModeService, stubPermissionModeService(() => mode));
-        reg.definePartialInstance(IPermissionRulesService, permissionRulesStub());
-        reg.defineInstance(IWorkspaceContext, workspace);
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
+        reg.definePartialInstance(IAgentPermissionRulesService, permissionRulesStub());
+        reg.defineInstance(ISessionWorkspaceContext, workspace);
         reg.defineInstance(IKaos, kaosStub());
-        reg.definePartialInstance(IPlanService, planServiceStub(() => null));
-        reg.definePartialInstance(ISwarmService, swarmServiceStub(() => false));
+        reg.definePartialInstance(IAgentPlanService, planServiceStub(() => null));
+        reg.definePartialInstance(IAgentSwarmService, swarmServiceStub(() => false));
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
-        reg.define(IPermissionPolicyService, PermissionPolicyService);
+        reg.define(IAgentPermissionPolicyService, AgentPermissionPolicyService);
       },
       strict: true,
     });
@@ -430,7 +430,7 @@ describe('PermissionPolicyService git cwd write approval', () => {
   async function evaluate(
     input: PolicyContextInput,
   ): Promise<PermissionPolicyEvaluation | undefined> {
-    const svc = ix.get(IPermissionPolicyService);
+    const svc = ix.get(IAgentPermissionPolicyService);
     return svc.evaluate(policyContext(input));
   }
 
@@ -707,7 +707,7 @@ function stringArg(
   return typeof value === 'string' ? value : fallback;
 }
 
-function workspaceStub(initialWorkDir: string): IWorkspaceContext {
+function workspaceStub(initialWorkDir: string): ISessionWorkspaceContext {
   let workDir = initialWorkDir;
   let additionalDirs: string[] = [];
   return {
@@ -753,15 +753,15 @@ function kaosStub(pathClass: ReturnType<KaosService['pathClass']> = 'posix'): Ka
 
 function planServiceStub(
   status: () => PlanData | Promise<PlanData>,
-  exit: IPlanService['exit'] = () => {},
-): Partial<IPlanService> {
+  exit: IAgentPlanService['exit'] = () => {},
+): Partial<IAgentPlanService> {
   return {
     status: async () => status(),
     exit,
   };
 }
 
-function swarmServiceStub(isActive: () => boolean): Partial<ISwarmService> {
+function swarmServiceStub(isActive: () => boolean): Partial<IAgentSwarmService> {
   return {
     get isActive() {
       return isActive();

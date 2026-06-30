@@ -13,7 +13,7 @@ describe('KaosFactory', () => {
   beforeEach(() => {
     _clearScopedRegistryForTests();
     registerScopedService(
-      LifecycleScope.Core,
+      LifecycleScope.App,
       IKaosFactory,
       KaosFactory,
       InstantiationType.Delayed,
@@ -23,7 +23,7 @@ describe('KaosFactory', () => {
 
   it('createLocal builds an IKaos rooted at the given cwd', async () => {
     const host = createScopedTestHost();
-    const factory = host.core.accessor.get(IKaosFactory);
+    const factory = host.app.accessor.get(IKaosFactory);
     const k = await factory.createLocal(process.cwd());
 
     expect(k.name).toBe('local');
@@ -38,7 +38,7 @@ describe('KaosFactory', () => {
 
   it('withCwd derives an independent env without mutating the parent', async () => {
     const host = createScopedTestHost();
-    const factory = host.core.accessor.get(IKaosFactory);
+    const factory = host.app.accessor.get(IKaosFactory);
     const k = await factory.createLocal('/tmp');
 
     const child = k.withCwd('/var');
@@ -50,7 +50,7 @@ describe('KaosFactory', () => {
 
   it('backend delegates fs operations to the kaos backend', async () => {
     const host = createScopedTestHost();
-    const factory = host.core.accessor.get(IKaosFactory);
+    const factory = host.app.accessor.get(IKaosFactory);
     const k = await factory.createLocal(process.cwd());
 
     const st = await k.backend.stat(process.cwd());

@@ -1,28 +1,28 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IBackgroundService } from '#/background';
-import { IContextMemory } from '#/contextMemory';
-import { IContextSizeService } from '#/contextSize';
-import { IFileToolsService } from '#/fileTools';
-import { IFullCompaction } from '#/fullCompaction';
-import { IGoalService } from '#/goal';
+import { IAgentBackgroundService } from '#/background';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentContextSizeService } from '#/contextSize';
+import { IAgentFileToolsService } from '#/fileTools';
+import { IAgentFullCompactionService } from '#/fullCompaction';
+import { IAgentGoalService } from '#/goal';
 import { userCancellationReason } from '#/_base/utils/abort';
-import { IPermissionGate } from '#/permissionGate';
-import { IPermissionModeService } from '#/permissionMode/permissionMode';
-import { IPlanService } from '../plan';
-import { IProfileService } from '#/profile';
-import { IPromptService } from '#/prompt';
-import { IQuestionToolsService } from '#/question';
-import { IShellToolsService } from '#/shellTools';
+import { IAgentPermissionGate } from '#/permissionGate';
+import { IAgentPermissionModeService } from '#/permissionMode/permissionMode';
+import { IAgentPlanService } from '../plan';
+import { IAgentProfileService } from '#/profile';
+import { IAgentPromptService } from '#/prompt';
+import { IAgentQuestionToolsService } from '#/question';
+import { IAgentShellToolsService } from '#/shellTools';
 import { IAgentSkillService } from '#/skill';
-import { ISubagentHost } from '#/subagentHost';
-import { ISwarmService } from '../swarm';
+import { ISessionSubagentHost } from '#/subagentHost';
+import { IAgentSwarmService } from '../swarm';
 import { ITelemetryService } from '#/telemetry';
-import { IToolRegistry } from '#/toolRegistry';
-import { ITurnService } from '../turn';
-import { IUsageService } from '#/usage';
-import { IUserToolService } from '#/userTool';
-import { IWebService } from '#/web';
+import { IAgentToolRegistryService } from '#/toolRegistry';
+import { IAgentTurnService } from '../turn';
+import { IAgentUsageService } from '#/usage';
+import { IAgentUserToolService } from '#/userTool';
+import { IAgentWebService } from '#/web';
 import type {
   ActivateSkillPayload,
   BeginCompactionPayload,
@@ -51,28 +51,28 @@ import { IAgentRPCService } from './rpc';
 export class AgentRPCService implements IAgentRPCService {
   declare readonly _serviceBrand: undefined;
   constructor(
-    @IPromptService private readonly promptService: IPromptService,
-    @ITurnService private readonly turnService: ITurnService,
-    @IProfileService private readonly profile: IProfileService,
-    @IPermissionModeService private readonly permissionMode: IPermissionModeService,
-    @IPermissionGate private readonly permission: IPermissionGate,
-    @IPlanService private readonly planMode: IPlanService,
-    @ISwarmService private readonly swarmMode: ISwarmService,
-    @IFullCompaction private readonly fullCompaction: IFullCompaction,
-    @IUserToolService private readonly userTools: IUserToolService,
-    @IToolRegistry private readonly toolRegistry: IToolRegistry,
-    @IFileToolsService private readonly fileTools: IFileToolsService,
-    @IShellToolsService private readonly shellTools: IShellToolsService,
-    @IBackgroundService private readonly background: IBackgroundService,
-    @IContextMemory private readonly context: IContextMemory,
-    @IContextSizeService private readonly contextSize: IContextSizeService,
+    @IAgentPromptService private readonly promptService: IAgentPromptService,
+    @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
+    @IAgentPermissionGate private readonly permission: IAgentPermissionGate,
+    @IAgentPlanService private readonly planMode: IAgentPlanService,
+    @IAgentSwarmService private readonly swarmMode: IAgentSwarmService,
+    @IAgentFullCompactionService private readonly fullCompaction: IAgentFullCompactionService,
+    @IAgentUserToolService private readonly userTools: IAgentUserToolService,
+    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @IAgentFileToolsService private readonly fileTools: IAgentFileToolsService,
+    @IAgentShellToolsService private readonly shellTools: IAgentShellToolsService,
+    @IAgentBackgroundService private readonly background: IAgentBackgroundService,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentSkillService private readonly skills: IAgentSkillService,
-    @ISubagentHost private readonly subagentHost: ISubagentHost,
-    @IUsageService private readonly usage: IUsageService,
+    @ISessionSubagentHost private readonly subagentHost: ISessionSubagentHost,
+    @IAgentUsageService private readonly usage: IAgentUsageService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IGoalService private readonly goal: IGoalService,
-    @IQuestionToolsService private readonly questionTools: IQuestionToolsService,
-    @IWebService private readonly web: IWebService,
+    @IAgentGoalService private readonly goal: IAgentGoalService,
+    @IAgentQuestionToolsService private readonly questionTools: IAgentQuestionToolsService,
+    @IAgentWebService private readonly web: IAgentWebService,
   ) { }
 
   prompt(payload: PromptPayload): PromptLaunchResult | undefined {

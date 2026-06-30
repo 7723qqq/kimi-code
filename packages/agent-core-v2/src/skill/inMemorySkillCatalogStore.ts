@@ -2,9 +2,9 @@
  * `skill` domain (L5) — in-memory `ISkillCatalogStore` backend.
  *
  * Returns preset skill lists for project / user discovery without any IO.
- * Registered as the Core-scope default so tests and scopes work without a
+ * Registered as the App-scope default so tests and scopes work without a
  * filesystem; the production composition root overrides it with the filesystem
- * backend. Core-scoped.
+ * backend. App-scoped.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -38,7 +38,7 @@ export class InMemorySkillCatalogStore implements ISkillCatalogStore {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   ISkillCatalogStore,
   InMemorySkillCatalogStore,
   InstantiationType.Delayed,

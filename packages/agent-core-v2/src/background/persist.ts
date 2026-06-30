@@ -1,6 +1,6 @@
 /**
  * `background` domain (L5) — `BackgroundTaskPersistence`, the per-session
- * persistence helper behind `BackgroundService`.
+ * persistence helper behind `AgentBackgroundService`.
  *
  * Persists task state (`<taskId>.json`) and raw task output (`output.log`)
  * through the `storage` access-pattern stores (`IAtomicDocumentStore` for
@@ -10,7 +10,7 @@
  * `{prefix}-{8 hex}` shape before use as path segments (path-traversal and
  * legacy `bg_<hex>` guard), and legacy snake_case records are normalized to
  * the current shape on read. Not scope-bound; constructed by
- * `BackgroundService`.
+ * `AgentBackgroundService`.
  */
 
 import { join } from 'pathe';

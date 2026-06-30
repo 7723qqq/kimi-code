@@ -16,7 +16,7 @@
 import {
   IAgentLifecycleService,
   IContextMemory,
-  IInteractionService,
+  ISessionInteractionService,
   ISessionContext,
   ISessionLifecycleService,
   ISessionMetadata,
@@ -107,7 +107,7 @@ export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRou
       }
 
       // Pending approvals / questions.
-      const interaction = handle.accessor.get(IInteractionService);
+      const interaction = handle.accessor.get(ISessionInteractionService);
       const pendingApprovals = interaction
         .listPending('approval')
         .map((i) => toWireApproval(i, session_id));

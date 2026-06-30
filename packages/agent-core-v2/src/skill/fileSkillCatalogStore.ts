@@ -4,7 +4,7 @@
  * Discovers skill bundles by walking skill roots on the local filesystem and
  * parsing each SKILL.md through `parser`. This is the only file in the skill
  * domain that imports `node:fs`; the rest of the domain depends on the
- * `ISkillCatalogStore` interface and stays filesystem-agnostic. Bound at Core
+ * `ISkillCatalogStore` interface and stays filesystem-agnostic. Bound at App
  * scope by the composition root (tests register the in-memory backend instead).
  */
 

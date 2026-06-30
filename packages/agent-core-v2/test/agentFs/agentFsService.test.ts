@@ -11,16 +11,16 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { AgentFileSystem, IAgentFileSystem } from '#/agentFs';
+import { SessionAgentFileSystem, ISessionAgentFileSystem } from '#/agentFs';
 import { IKaos, IKaosFactory, KaosFactory } from '#/kaos';
 
-describe('AgentFileSystem (backed by IKaos)', () => {
+describe('SessionAgentFileSystem (backed by IKaos)', () => {
   let dir: string;
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
     registerScopedService(
-      LifecycleScope.Core,
+      LifecycleScope.App,
       IKaosFactory,
       KaosFactory,
       InstantiationType.Delayed,
@@ -28,8 +28,8 @@ describe('AgentFileSystem (backed by IKaos)', () => {
     );
     registerScopedService(
       LifecycleScope.Session,
-      IAgentFileSystem,
-      AgentFileSystem,
+      ISessionAgentFileSystem,
+      SessionAgentFileSystem,
       InstantiationType.Delayed,
       'agentFs',
     );
@@ -40,12 +40,12 @@ describe('AgentFileSystem (backed by IKaos)', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  async function makeFs(): Promise<IAgentFileSystem> {
+  async function makeFs(): Promise<ISessionAgentFileSystem> {
     const host = createScopedTestHost();
-    const factory = host.core.accessor.get(IKaosFactory);
+    const factory = host.app.accessor.get(IKaosFactory);
     const kaos = await factory.createLocal(dir);
     const session = host.child(LifecycleScope.Session, 's', [stubPair(IKaos, kaos)]);
-    return session.accessor.get(IAgentFileSystem);
+    return session.accessor.get(ISessionAgentFileSystem);
   }
 
   it('writes and reads text relative to cwd', async () => {

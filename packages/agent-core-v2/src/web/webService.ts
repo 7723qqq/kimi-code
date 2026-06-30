@@ -1,7 +1,7 @@
 /**
- * `web` domain (L4) — `IWebService` implementation.
+ * `web` domain (L4) — `IAgentWebService` implementation.
  *
- * Registers the built-in web tools into the agent `IToolRegistry` on
+ * Registers the built-in web tools into the agent `IAgentToolRegistryService` on
  * construction: `FetchURL` is always registered (using the injected
  * `UrlFetcher` or the built-in `LocalFetchURLProvider` fallback); `WebSearch`
  * is registered only when a `WebSearchProvider` is supplied via options, since
@@ -10,19 +10,19 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 
 import { LocalFetchURLProvider } from './providers/local-fetch-url';
 import { FetchURLTool } from './tools/fetch-url';
 import { WebSearchTool } from './tools/web-search';
-import { IWebService, type WebServiceOptions } from './web';
+import { IAgentWebService, type WebServiceOptions } from './web';
 
-export class WebService implements IWebService {
+export class AgentWebService implements IAgentWebService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
     private readonly options: WebServiceOptions = {},
-    @IToolRegistry toolRegistry: IToolRegistry,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
   ) {
     const fetcher = options.urlFetcher ?? new LocalFetchURLProvider();
     toolRegistry.register(new FetchURLTool(fetcher));
@@ -34,8 +34,8 @@ export class WebService implements IWebService {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IWebService,
-  WebService,
+  IAgentWebService,
+  AgentWebService,
   InstantiationType.Delayed,
   'web',
 );

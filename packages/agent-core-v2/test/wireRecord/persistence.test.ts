@@ -8,22 +8,22 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IBlobStoreService } from '#/blobStore';
-import { BlobStoreService } from '#/blobStore/blobStoreService';
+import { IAgentBlobStoreService } from '#/blobStore';
+import { AgentBlobStoreService } from '#/blobStore/blobStoreService';
 import { IBootstrapService } from '#/bootstrap';
 import { IHostFileSystem, HostFileSystem } from '#/hostFs';
-import { ContextMemoryService } from '#/contextMemory/contextMemoryService';
-import { IContextMemory, type ContextMessage } from '#/contextMemory';
-import { IReplayBuilderService } from '#/replayBuilder';
+import { AgentContextMemoryService } from '#/contextMemory/contextMemoryService';
+import { IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
 import {
   AppendLogStore,
   AGENT_WIRE_PROTOCOL_VERSION,
   IAppendLogStorage,
   IAppendLogStore,
   IBlobStorage,
-  IWireRecord,
+  IAgentWireRecordService,
   type PersistedWireRecord,
-  WireRecordService,
+  AgentWireRecordService,
 } from '#/index';
 import { FileStorageService } from '#/storage/fileStorageService';
 import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
@@ -89,7 +89,7 @@ async function collect<R>(log: IAppendLogStore, scope = SCOPE, key = KEY): Promi
 async function createWireHarness(): Promise<{
   readonly dir: string;
   readonly storage: IStorageService;
-  readonly wire: IWireRecord;
+  readonly wire: IAgentWireRecordService;
 }> {
   const dir = await makeDir('wire-service-test');
   const disposable = new DisposableStore();
@@ -101,17 +101,17 @@ async function createWireHarness(): Promise<{
   ix.stub(IBlobStorage, storage);
   ix.stub(IBootstrapService, stubBootstrap(dir));
   ix.stub(IHostFileSystem, new HostFileSystem());
-  ix.stub(IReplayBuilderService, stubReplayBuilder());
+  ix.stub(IAgentReplayBuilderService, stubReplayBuilder());
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-  ix.set(IBlobStoreService, new SyncDescriptor(BlobStoreService));
-  ix.set(IWireRecord, new SyncDescriptor(WireRecordService));
-  ix.set(IContextMemory, new SyncDescriptor(ContextMemoryService));
-  ix.get(IContextMemory);
+  ix.set(IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService));
+  ix.set(IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService));
+  ix.set(IAgentContextMemoryService, new SyncDescriptor(AgentContextMemoryService));
+  ix.get(IAgentContextMemoryService);
 
   return {
     dir,
     storage,
-    wire: ix.get(IWireRecord),
+    wire: ix.get(IAgentWireRecordService),
   };
 }
 
@@ -287,7 +287,7 @@ describe('AppendLogStore file persistence', () => {
   });
 });
 
-describe('WireRecordService persistence', () => {
+describe('AgentWireRecordService persistence', () => {
   it('offloads large content part data URIs to blobsDir during append', async () => {
     const { dir, storage, wire } = await createWireHarness();
     const payload = 'X'.repeat(5000);

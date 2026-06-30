@@ -6,7 +6,7 @@
  * (stdio / SSE / HTTP), discovers and registers tools, attaches the OAuth
  * provider through `mcp/oauth` when tokens are present, flips failing
  * servers into `needs-auth` on 401, and reconnects after authentication.
- * Emits server status changes to subscribers. Constructed by `McpService`.
+ * Emits server status changes to subscribers. Constructed by `AgentMcpService`.
  */
 
 import { ErrorCodes, KimiError } from '#/errors';

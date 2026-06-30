@@ -5,21 +5,21 @@ import {
   createServices,
   type TestInstantiationService,
 } from '#/_base/di/test';
-import { IContextInjector } from '#/contextInjector';
-import { ContextInjectorService } from '#/contextInjector/contextInjectorService';
-import { IContextMemory, type ContextMessage } from '#/contextMemory';
-import { IProfileService } from '#/profile';
-import { ISystemReminderService } from '#/systemReminder';
-import { SystemReminderService } from '#/systemReminder/systemReminderService';
-import { ITodoListService, TODO_LIST_REMINDER_VARIANT } from '#/todoList';
-import { TodoListService } from '#/todoList/todoListService';
-import { IToolRegistry } from '#/toolRegistry';
-import { IToolStoreService } from '#/toolStore';
-import { ITurnService } from '#/turn';
+import { IAgentContextInjectorService } from '#/contextInjector';
+import { AgentContextInjectorService } from '#/contextInjector/contextInjectorService';
+import { IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
+import { IAgentProfileService } from '#/profile';
+import { IAgentSystemReminderService } from '#/systemReminder';
+import { AgentSystemReminderService } from '#/systemReminder/systemReminderService';
+import { IAgentTodoListService, TODO_LIST_REMINDER_VARIANT } from '#/todoList';
+import { AgentTodoListService } from '#/todoList/todoListService';
+import { IAgentToolRegistryService } from '#/toolRegistry';
+import { IAgentToolStoreService } from '#/toolStore';
+import { IAgentTurnService } from '#/turn';
 import { registerContextMemoryServices } from '../contextMemory/stubs';
 import { stubTurnWithHooks } from '../turn/stubs';
 
-type InjectableContextInjector = IContextInjector & {
+type InjectableContextInjector = IAgentContextInjectorService & {
   inject(): Promise<void>;
 };
 
@@ -28,7 +28,7 @@ type ContextInjectorInternals = {
 };
 
 function injector(ix: TestInstantiationService): InjectableContextInjector {
-  return ix.get(IContextInjector) as InjectableContextInjector;
+  return ix.get(IAgentContextInjectorService) as InjectableContextInjector;
 }
 
 function userMessage(text: string): ContextMessage {
@@ -49,16 +49,16 @@ function compactionSummary(text: string): ContextMessage {
   };
 }
 
-function lastText(context: IContextMemory): string | undefined {
+function lastText(context: IAgentContextMemoryService): string | undefined {
   const message = context.get().at(-1);
   const part = message?.content[0];
   return part?.type === 'text' ? part.text : undefined;
 }
 
-describe('ContextInjectorService', () => {
+describe('AgentContextInjectorService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let context: IContextMemory;
+  let context: IAgentContextMemoryService;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -66,12 +66,12 @@ describe('ContextInjectorService', () => {
       base: [registerContextMemoryServices],
       strict: true,
       additionalServices: (reg) => {
-        reg.defineInstance(ITurnService, stubTurnWithHooks());
-        reg.define(ISystemReminderService, SystemReminderService);
-        reg.define(IContextInjector, ContextInjectorService);
+        reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
+        reg.define(IAgentSystemReminderService, AgentSystemReminderService);
+        reg.define(IAgentContextInjectorService, AgentContextInjectorService);
       },
     });
-    context = ix.get(IContextMemory);
+    context = ix.get(IAgentContextMemoryService);
   });
 
   afterEach(() => disposables.dispose());
@@ -208,7 +208,7 @@ describe('ContextInjectorService', () => {
   });
 });
 
-describe('ContextInjectorService registration', () => {
+describe('AgentContextInjectorService registration', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
 
@@ -218,19 +218,19 @@ describe('ContextInjectorService registration', () => {
       base: [registerContextMemoryServices],
       strict: true,
       additionalServices: (reg) => {
-        reg.defineInstance(ITurnService, stubTurnWithHooks());
-        reg.define(ISystemReminderService, SystemReminderService);
-        reg.define(IContextInjector, ContextInjectorService);
-        reg.definePartialInstance(IProfileService, {
+        reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
+        reg.define(IAgentSystemReminderService, AgentSystemReminderService);
+        reg.define(IAgentContextInjectorService, AgentContextInjectorService);
+        reg.definePartialInstance(IAgentProfileService, {
           isToolActive: () => false,
         });
-        reg.definePartialInstance(IToolStoreService, {
+        reg.definePartialInstance(IAgentToolStoreService, {
           data: () => ({}),
         });
-        reg.definePartialInstance(IToolRegistry, {
+        reg.definePartialInstance(IAgentToolRegistryService, {
           register: () => toDisposable(() => {}),
         });
-        reg.define(ITodoListService, TodoListService);
+        reg.define(IAgentTodoListService, AgentTodoListService);
       },
     });
   });
@@ -238,7 +238,7 @@ describe('ContextInjectorService registration', () => {
   afterEach(() => disposables.dispose());
 
   it('registers the todo-list reminder when the todo-list service is resolved', () => {
-    ix.get(ITodoListService);
+    ix.get(IAgentTodoListService);
 
     const entries = [
       ...(injector(ix) as unknown as ContextInjectorInternals).entries,

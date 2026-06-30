@@ -1,30 +1,30 @@
 /**
- * `shellTools` domain (L4) — `IShellToolsService` implementation.
+ * `shellTools` domain (L4) — `IAgentShellToolsService` implementation.
  *
- * Registers the built-in Bash tool into the agent `IToolRegistry` on
- * construction, wiring it to the session `IProcessRunner` (process spawn),
- * `IKaos` (cwd + OS/shell probe) and `IBackgroundService` (background-task
+ * Registers the built-in Bash tool into the agent `IAgentToolRegistryService` on
+ * construction, wiring it to the session `ISessionProcessRunner` (process spawn),
+ * `IKaos` (cwd + OS/shell probe) and `IAgentBackgroundService` (background-task
  * lifecycle). Bound at Agent scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IBackgroundService } from '#/background';
+import { IAgentBackgroundService } from '#/background';
 import { IKaos } from '#/kaos';
-import { IProcessRunner } from '#/process';
-import { IToolRegistry } from '#/toolRegistry';
+import { ISessionProcessRunner } from '#/process';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 
-import { IShellToolsService } from './shellTools';
+import { IAgentShellToolsService } from './shellTools';
 import { BashTool } from './tools/bash';
 
-export class ShellToolsService implements IShellToolsService {
+export class AgentShellToolsService implements IAgentShellToolsService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IToolRegistry toolRegistry: IToolRegistry,
-    @IProcessRunner runner: IProcessRunner,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
+    @ISessionProcessRunner runner: ISessionProcessRunner,
     @IKaos kaos: IKaos,
-    @IBackgroundService background: IBackgroundService,
+    @IAgentBackgroundService background: IAgentBackgroundService,
   ) {
     toolRegistry.register(new BashTool(runner, kaos, background));
   }
@@ -32,8 +32,8 @@ export class ShellToolsService implements IShellToolsService {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IShellToolsService,
-  ShellToolsService,
+  IAgentShellToolsService,
+  AgentShellToolsService,
   InstantiationType.Delayed,
   'shellTools',
 );

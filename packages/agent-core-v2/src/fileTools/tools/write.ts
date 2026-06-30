@@ -6,7 +6,7 @@
  * (mirroring `mkdir(parents=True, exist_ok=True)`). Path access policy is
  * resolved before any filesystem I/O.
  *
- * v2's `IAgentFileSystem.writeText` has no mode flag: overwrite maps to a
+ * v2's `ISessionAgentFileSystem.writeText` has no mode flag: overwrite maps to a
  * direct write, while append reads the existing content first (treating a
  * missing file as empty) and writes the concatenation back.
  *
@@ -19,7 +19,7 @@
 import { dirname } from 'pathe';
 import { z } from 'zod';
 
-import type { AgentFileStat, IAgentFileSystem } from '#/agentFs';
+import type { AgentFileStat, ISessionAgentFileSystem } from '#/agentFs';
 import { IKaos } from '#/kaos';
 import { ToolAccesses } from '#/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool';
@@ -62,7 +62,7 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WriteInputSchema);
 
   constructor(
-    private readonly fs: IAgentFileSystem,
+    private readonly fs: ISessionAgentFileSystem,
     private readonly kaos: IKaos,
     private readonly workspace: WorkspaceConfig,
   ) {}

@@ -17,8 +17,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
-import { IPromptService } from '#/prompt';
-import { ICronService } from '#/cron';
+import { IAgentPromptService } from '#/prompt';
+import { IAgentCronService } from '#/cron';
 import { createCronPersistStore } from '#/cron/tools/persist';
 import type { CronTask } from '#/cron/tools/types';
 import { IAtomicDocumentStore } from '#/storage';
@@ -59,7 +59,7 @@ interface SteerCall {
   readonly origin: PromptOrigin;
 }
 
-function captureSteer(prompt: IPromptService): SteerCall[] {
+function captureSteer(prompt: IAgentPromptService): SteerCall[] {
   const calls: SteerCall[] = [];
   prompt.steer = (message: ContextMessage) => {
     calls.push({ content: message.content, origin: message.origin as PromptOrigin });
@@ -101,11 +101,11 @@ async function readPersistedTask(
 describe('CronManager — persistence and resume', () => {
   let sessionDir: string;
   let ctx: TestAgentContext;
-  let cron: ICronService;
-  let prompt: IPromptService;
+  let cron: IAgentCronService;
+  let prompt: IAgentPromptService;
   let resumedCtx: TestAgentContext | undefined;
-  let resumedCron: ICronService | undefined;
-  let resumedPrompt: IPromptService | undefined;
+  let resumedCron: IAgentCronService | undefined;
+  let resumedPrompt: IAgentPromptService | undefined;
 
   beforeEach(async () => {
     vi.stubEnv('KIMI_CRON_NO_JITTER', '1');
@@ -140,7 +140,7 @@ describe('CronManager — persistence and resume', () => {
         sessionDir,
         cronServices({}),
       );
-      cron = ctx.get(ICronService);
+      cron = ctx.get(IAgentCronService);
     });
 
     it('addTask writes a JSON record to <sessionDir>/cron/<id>.json', async () => {
@@ -184,13 +184,13 @@ describe('CronManager — persistence and resume', () => {
         sessionDir,
         cronServices({}),
       );
-      cron = ctx.get(ICronService);
+      cron = ctx.get(IAgentCronService);
       clockB.install();
       resumedCtx = createCronAgent(
         sessionDir,
         cronServices({}),
       );
-      resumedCron = resumedCtx.get(ICronService);
+      resumedCron = resumedCtx.get(IAgentCronService);
     });
 
     it('re-adopts tasks with original id and createdAt', async () => {
@@ -232,14 +232,14 @@ describe('CronManager — persistence and resume', () => {
         sessionDir,
         cronServices({}),
       );
-      cron = ctx.get(ICronService);
+      cron = ctx.get(IAgentCronService);
       clockB.install();
       resumedCtx = createCronAgent(
         sessionDir,
         cronServices({}),
       );
-      resumedCron = resumedCtx.get(ICronService);
-      resumedPrompt = resumedCtx.get(IPromptService);
+      resumedCron = resumedCtx.get(IAgentCronService);
+      resumedPrompt = resumedCtx.get(IAgentPromptService);
     });
 
     it('recurring task missed during downtime fires once with coalescedCount > 1', async () => {
@@ -273,14 +273,14 @@ describe('CronManager — persistence and resume', () => {
         sessionDir,
         cronServices({}),
       );
-      cron = ctx.get(ICronService);
+      cron = ctx.get(IAgentCronService);
       clockB.install();
       resumedCtx = createCronAgent(
         sessionDir,
         cronServices({}),
       );
-      resumedCron = resumedCtx.get(ICronService);
-      resumedPrompt = resumedCtx.get(IPromptService);
+      resumedCron = resumedCtx.get(IAgentCronService);
+      resumedPrompt = resumedCtx.get(IAgentPromptService);
     });
 
     it('one-shot scheduled in the past fires once on resume and the file is removed', async () => {
@@ -322,15 +322,15 @@ describe('CronManager — persistence and resume', () => {
         sessionDir,
         cronServices({}),
       );
-      cron = ctx.get(ICronService);
-      prompt = ctx.get(IPromptService);
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
       clockB.install();
       resumedCtx = createCronAgent(
         sessionDir,
         cronServices({}),
       );
-      resumedCron = resumedCtx.get(ICronService);
-      resumedPrompt = resumedCtx.get(IPromptService);
+      resumedCron = resumedCtx.get(IAgentCronService);
+      resumedPrompt = resumedCtx.get(IAgentPromptService);
     });
 
     it('does NOT replay on resume', async () => {
@@ -375,14 +375,14 @@ describe('CronManager — persistence and resume', () => {
         sessionDir,
         cronServices({}),
       );
-      cron = ctx.get(ICronService);
+      cron = ctx.get(IAgentCronService);
       clockB.install();
       resumedCtx = createCronAgent(
         sessionDir,
         cronServices({}),
       );
-      resumedCron = resumedCtx.get(ICronService);
-      resumedPrompt = resumedCtx.get(IPromptService);
+      resumedCron = resumedCtx.get(IAgentCronService);
+      resumedPrompt = resumedCtx.get(IAgentPromptService);
     });
 
     it('treats a future lastFiredAt as corrupt and falls back to createdAt', async () => {
@@ -418,7 +418,7 @@ describe('CronManager — persistence and resume', () => {
       ctx = createTestAgent(
         cronServices({}),
       );
-      cron = ctx.get(ICronService);
+      cron = ctx.get(IAgentCronService);
     });
 
     it('no sessionDir = pure in-memory: no FS side effects, loadFromDisk is a no-op', async () => {

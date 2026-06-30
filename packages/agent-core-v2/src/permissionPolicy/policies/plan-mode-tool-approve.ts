@@ -1,5 +1,5 @@
-import { IPlanService } from '#/plan';
-import type { IPlanService as PlanService } from '#/plan';
+import { IAgentPlanService } from '#/plan';
+import type { IAgentPlanService as AgentPlanService } from '#/plan';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import type {
   PermissionPolicy,
@@ -10,7 +10,7 @@ import { writesOnlyPlanFile } from './path-utils';
 export class PlanModeToolApprovePermissionPolicyService implements PermissionPolicy {
   readonly name = 'plan-mode-tool-approve';
 
-  constructor(@IPlanService private readonly plan: PlanService) {}
+  constructor(@IAgentPlanService private readonly plan: AgentPlanService) {}
 
   async evaluate(
     context: ResolvedToolExecutionHookContext,

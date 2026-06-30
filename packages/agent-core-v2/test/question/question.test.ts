@@ -9,8 +9,8 @@ import {
   type Scope,
 } from '#/_base/di/scope';
 import { createScopedTestHost, type ScopedTestHost } from '#/_base/di/test';
-import { IInteractionService, InteractionService } from '#/interaction';
-import { type QuestionRequest, IQuestionService, QuestionService } from '#/question';
+import { ISessionInteractionService, SessionInteractionService } from '#/interaction';
+import { type QuestionRequest, ISessionQuestionService, SessionQuestionService } from '#/question';
 
 function makeRequest(id: string): QuestionRequest {
   return {
@@ -25,15 +25,15 @@ function makeRequest(id: string): QuestionRequest {
   };
 }
 
-describe('IQuestionService (Session scope facade over the interaction kernel)', () => {
+describe('ISessionQuestionService (Session scope facade over the interaction kernel)', () => {
   let disposables: DisposableStore;
   let host: ScopedTestHost;
   let session: Scope;
 
   beforeEach(() => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.Session, IInteractionService, InteractionService, InstantiationType.Delayed, 'interaction');
-    registerScopedService(LifecycleScope.Session, IQuestionService, QuestionService, InstantiationType.Delayed, 'question');
+    registerScopedService(LifecycleScope.Session, ISessionInteractionService, SessionInteractionService, InstantiationType.Delayed, 'interaction');
+    registerScopedService(LifecycleScope.Session, ISessionQuestionService, SessionQuestionService, InstantiationType.Delayed, 'question');
 
     disposables = new DisposableStore();
     host = createScopedTestHost();
@@ -46,7 +46,7 @@ describe('IQuestionService (Session scope facade over the interaction kernel)', 
   });
 
   it('request parks until answer resolves it with the rich result', async () => {
-    const questions = session.accessor.get(IQuestionService);
+    const questions = session.accessor.get(ISessionQuestionService);
 
     const pending = questions.request(makeRequest('q1'));
     expect(questions.listPending().map((r) => r.id)).toEqual(['q1']);
@@ -57,8 +57,8 @@ describe('IQuestionService (Session scope facade over the interaction kernel)', 
   });
 
   it('enqueue returns immediately and the answer streams over onDidResolve', () => {
-    const interaction = session.accessor.get(IInteractionService);
-    const questions = session.accessor.get(IQuestionService);
+    const interaction = session.accessor.get(ISessionInteractionService);
+    const questions = session.accessor.get(ISessionQuestionService);
 
     const resolved: { id: string; response: unknown }[] = [];
     disposables.add(interaction.onDidResolve((r) => resolved.push(r)));
@@ -73,7 +73,7 @@ describe('IQuestionService (Session scope facade over the interaction kernel)', 
   });
 
   it('dismiss resolves a pending request with null', async () => {
-    const questions = session.accessor.get(IQuestionService);
+    const questions = session.accessor.get(ISessionQuestionService);
 
     const pending = questions.request(makeRequest('q1'));
     questions.dismiss('q1');
@@ -83,7 +83,7 @@ describe('IQuestionService (Session scope facade over the interaction kernel)', 
   });
 
   it('listPending returns the stored in-process payload', () => {
-    const questions = session.accessor.get(IQuestionService);
+    const questions = session.accessor.get(ISessionQuestionService);
     questions.enqueue(makeRequest('q1'));
 
     const pending = questions.listPending();
@@ -97,8 +97,8 @@ describe('IQuestionService (Session scope facade over the interaction kernel)', 
 
   it('Session scope isolates brokers: a question parked in A is invisible to B', () => {
     const sessionB = host.child(LifecycleScope.Session, 'session-b');
-    const questionsA = session.accessor.get(IQuestionService);
-    const questionsB = sessionB.accessor.get(IQuestionService);
+    const questionsA = session.accessor.get(ISessionQuestionService);
+    const questionsB = sessionB.accessor.get(ISessionQuestionService);
 
     questionsA.enqueue(makeRequest('q1'));
     expect(questionsA.listPending().map((r) => r.id)).toEqual(['q1']);

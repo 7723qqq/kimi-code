@@ -4,7 +4,7 @@
  * Defines the public contract of session lifecycle: the `CreateSessionOptions`,
  * `ForkSessionOptions`, and the `ISessionLifecycleService` used to create
  * sessions (`create`), look up the live ones (`get` / `list`), close them
- * (`close`), archive them (`archive`), and fork them (`fork`). Core-scoped — a
+ * (`close`), archive them (`archive`), and fork them (`fork`). App-scoped — a
  * single process-wide instance owns the live session scope tree. Persisted
  * sessions (open or closed) are the `session-index` read model; per-session
  * behaviour lives in the Session-scoped domains.

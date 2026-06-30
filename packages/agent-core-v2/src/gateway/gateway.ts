@@ -4,7 +4,7 @@
  * Defines the public contracts of the gateway layer: the `IRestGateway` /
  * `IWSGateway` / `IWSBroadcastService` entry points. Session scope creation is
  * owned by `session-lifecycle`; the gateway resolves sessions through it.
- * Core-scoped — shared across the application.
+ * App-scoped — shared across the application.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';

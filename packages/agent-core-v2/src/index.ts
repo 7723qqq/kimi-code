@@ -22,7 +22,7 @@ export * from './modelCatalog/index';
 export * from './modelRuntime/index';
 
 import './skill/index';
-export { IAgentSkillService, ISkillCatalog } from './skill/index';
+export { IAgentSkillService, ISessionSkillCatalog } from './skill/index';
 export * from './permissionGate/index';
 import './flag/index';
 export * from './flag/index';
@@ -47,7 +47,7 @@ export * from './session/index';
 
 export * from './eventSink/index';
 import './approval/index';
-export { IApprovalService } from './approval/index';
+export { ISessionApprovalService } from './approval/index';
 export * from './question/index';
 export * from './gateway/index';
 
@@ -92,7 +92,7 @@ export * from './todoList/index';
 export * from './tool/index';
 export * from './toolExecutor/index';
 import './toolRegistry/index';
-export { IToolRegistry } from './toolRegistry/index';
+export { IAgentToolRegistryService } from './toolRegistry/index';
 export * from './toolStore/index';
 export * from './userTool/index';
 export * from './wireRecord/index';

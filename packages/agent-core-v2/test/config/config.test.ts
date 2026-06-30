@@ -2,7 +2,7 @@ import type { Environment } from '@moonshot-ai/kaos';
 import type { ModelCapability, ProviderConfig, ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IProfileService, type ResolvedAgentProfile } from '#/profile';
+import { IAgentProfileService, type ResolvedAgentProfile } from '#/profile';
 import { AGENT_WIRE_PROTOCOL_VERSION } from '#/wireRecord';
 import { createTestAgent, type TestAgentContext } from '../harness';
 import { DEFAULT_TEST_SYSTEM_PROMPT } from '../harness/snapshots';
@@ -17,11 +17,11 @@ const TEST_OS_ENV: Environment = {
 
 describe('Agent config', () => {
   let ctx: TestAgentContext;
-  let profile: IProfileService;
+  let profile: IAgentProfileService;
 
   beforeEach(() => {
     ctx = createTestAgent();
-    profile = ctx.get(IProfileService);
+    profile = ctx.get(IAgentProfileService);
   });
 
   afterEach(async () => {

@@ -1,5 +1,5 @@
 /**
- * `interaction` domain (L6) — `IInteractionService` implementation.
+ * `interaction` domain (L6) — `ISessionInteractionService` implementation.
  *
  * Owns the pending interaction set and resolves requests when a response
  * arrives; announces add/remove through a typed `onDidChange`. Bound at
@@ -17,7 +17,7 @@ import {
   type InteractionOrigin,
   type InteractionRequest,
   type InteractionResolution,
-  IInteractionService,
+  ISessionInteractionService,
 } from './interaction';
 
 interface Pending {
@@ -30,7 +30,7 @@ const RECENTLY_RESOLVED_TTL_MS = 60_000;
 /** Upper bound on the resolved-ledger size; oldest entries are swept first. */
 const RECENTLY_RESOLVED_MAX = 256;
 
-export class InteractionService extends Disposable implements IInteractionService {
+export class SessionInteractionService extends Disposable implements ISessionInteractionService {
   declare readonly _serviceBrand: undefined;
 
   private readonly pending = new Map<string, Pending>();
@@ -116,8 +116,8 @@ export class InteractionService extends Disposable implements IInteractionServic
 
 registerScopedService(
   LifecycleScope.Session,
-  IInteractionService,
-  InteractionService,
+  ISessionInteractionService,
+  SessionInteractionService,
   InstantiationType.Delayed,
   'interaction',
 );

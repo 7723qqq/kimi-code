@@ -21,7 +21,7 @@ import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool';
 import type {
   BackgroundTaskInfo,
   BackgroundTaskOutputSnapshot,
-  IBackgroundService,
+  IAgentBackgroundService,
 } from '../background';
 import { type BackgroundTaskStatus, TERMINAL_STATUSES } from '../task';
 import { formatPlainObject } from './format';
@@ -98,7 +98,7 @@ export class TaskOutputTool implements BuiltinTool<TaskOutputInput> {
   readonly description: string = TASK_OUTPUT_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskOutputInputSchema);
 
-  constructor(private readonly background: IBackgroundService) {}
+  constructor(private readonly background: IAgentBackgroundService) {}
 
   resolveExecution(args: TaskOutputInput): ToolExecution {
     return {

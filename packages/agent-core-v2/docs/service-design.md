@@ -37,11 +37,11 @@ Every principle below derives from two root questions:
 
 **First principle: Scope = the identity + lifetime of the owned state.**
 
-`Core` / `Session` / `Agent` are three tiers of identity + lifetime:
+`App` / `Session` / `Agent` are three tiers of identity + lifetime:
 
 | Scope | State identity (keyed by) | Lifetime |
 |---|---|---|
-| `Core` | none (single global instance) | the process |
+| `App` | none (single global instance) | the process |
 | `Session` | `sessionId` | one session |
 | `Agent` | `agentId` | one agent |
 
@@ -54,7 +54,7 @@ Every principle below derives from two root questions:
 
 **Q2. What is the identity of that state?**
 
-- one global instance → **`Core`**
+- one global instance → **`App`**
 - one per session → **`Session`**
 - one per agent → **`Agent`**
 - a mix (a global registry *and* per-instance state) → **do not put it in one Service;
@@ -63,8 +63,8 @@ Every principle below derives from two root questions:
 **Q3 (stateless). What is the shortest-lived dependency it must inject?**
 
 A stateless Service is pulled *down* by its shortest-lived dependency: if it injects an
-`Agent`-scoped Service, it cannot be `Core`. Among the scopes that still satisfy every
-dependency, **default to the longest-lived one** (usually `Core`) to maximize reuse and
+`Agent`-scoped Service, it cannot be `App`. Among the scopes that still satisfy every
+dependency, **default to the longest-lived one** (usually `App`) to maximize reuse and
 singleton sharing. Push it down only when:
 
 1. it must inject a shorter-lived Service (enforced by the container); or
@@ -73,10 +73,10 @@ singleton sharing. Push it down only when:
 
 ### The core anti-pattern (a litmus test)
 
-> **Do not store per-session state in a `Map<sessionId, …>` inside a `Core` Service.**
+> **Do not store per-session state in a `Map<sessionId, …>` inside a `App` Service.**
 
 This is the tell-tale sign of "this should have been `Session`-scoped but was lazily parked
-at `Core`". Consequences:
+at `App`". Consequences:
 
 - nobody cleans the entry up when the session ends → **leak**;
 - every consumer threads `sessionId` around → **loss of type safety**;
@@ -107,36 +107,36 @@ job well.
 
 | Tier | Role | Naming tends to |
 |---|---|---|
-| `Core` | **global registry / catalog / factory** — knows "all of them" and how to create one | `XxxStore` / `XxxRegistry` / `XxxCatalog` |
+| `App` | **global registry / catalog / factory** — knows "all of them" and how to create one | `XxxStore` / `XxxRegistry` / `XxxCatalog` |
 | `Session` / `Agent` | **one instance** — only the state of "this one" | `XxxService` / `ISessionXxx` / `IAgentXxx` |
 
 This pattern recurs throughout the codebase and confirms the rule:
 
-- **`records`** — `ISessionIndex` (`Core`, read model of all persisted sessions) +
-  `ISessionMetadata` (`Session`, this session's metadata) + `IWireRecord` (`Agent`, this
+- **`records`** — `ISessionIndex` (`App`, read model of all persisted sessions) +
+  `ISessionMetadata` (`Session`, this session's metadata) + `IAgentWireRecordService` (`Agent`, this
   agent's record stream).
-- **`config`** — `IConfigRegistry` / `IConfigService` (`Core`, global config).
-- **`chatProvider` / `model` / `modelRuntime`** — `IChatProviderFactory` (`Core`,
-  protocol adapters keyed by provider type), `IModelService` (`Core`, model-alias
+- **`config`** — `IConfigRegistry` / `IConfigService` (`App`, global config).
+- **`chatProvider` / `model` / `modelRuntime`** — `IChatProviderFactory` (`App`,
+  protocol adapters keyed by provider type), `IModelService` (`App`, model-alias
   configuration), and `IModelResolver` (`Session`, resolves the active model into a
   runtime provider config plus request authorization). Provider connection
-  configuration lives in the sibling `provider` domain (`IProviderService`, `Core`).
-  Generation itself is driven by `ILLMRequester` (`Agent`) in the `llmRequester`
+  configuration lives in the sibling `provider` domain (`IProviderService`, `App`).
+  Generation itself is driven by `IAgentLLMRequesterService` (`Agent`) in the `llmRequester`
   domain.
-- **`tool`** — `IToolDefinitionRegistry` (`Core`, tool-definition registry) + `IToolService`
+- **`tool`** — `IToolDefinitionRegistry` (`App`, tool-definition registry) + `IToolService`
   (`Agent`, this agent's execution).
 
 ### When to split and when not to
 
 - **Split** when the domain genuinely has both a global view and per-instance state.
-- **Do not split** when the domain has state at only one lifetime (e.g. purely `Core` like
+- **Do not split** when the domain has state at only one lifetime (e.g. purely `App` like
   `log` / `telemetry`; purely `Agent` like `prompt`). **Do not pre-split for symmetry.**
 
 ### Dependency direction after the split
 
-The `Core` Service usually plays the **factory**: it knows how to create or locate the
+The `App` Service usually plays the **factory**: it knows how to create or locate the
 per-instance one. Most consumers inject the **per-instance** Service, because it serves the
-current session/agent directly without threading an id. Inject the `Core` factory only when
+current session/agent directly without threading an id. Inject the `App` factory only when
 you genuinely need cross-instance management.
 
 ---
@@ -277,8 +277,8 @@ The complete checklist for a new `IXxxService`:
 ## 7. Summary
 
 - **Scope**: the **identity** of the state fixes the scope; do not fake per-instance state
-  at `Core` with a `Map<id, …>`.
-- **Multi-Scope**: a domain with state at several lifetimes → split into "a `Core` registry
+  at `App` with a `Map<id, …>`.
+- **Multi-Scope**: a domain with state at several lifetimes → split into "a `App` registry
   + per-instance Services".
 - **Calling style**: need a result / I orchestrate → direct call; stating a fact / react if
   you care → event; ordered participation / may veto → hook.

@@ -2,7 +2,7 @@
  * `hostFs` domain (L1) — `IHostFileSystem` implementation.
  *
  * Reads and writes the app's own files on the real local disk through
- * `node:fs/promises`. Bound at Core scope.
+ * `node:fs/promises`. Bound at App scope.
  */
 
 import { open, readFile, readdir, stat, mkdir, rm, writeFile } from 'node:fs/promises';
@@ -72,7 +72,7 @@ export class HostFileSystem implements IHostFileSystem {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IHostFileSystem,
   HostFileSystem,
   InstantiationType.Delayed,

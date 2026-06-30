@@ -3,7 +3,7 @@
  *
  * Holds the resolved startup snapshot from the seeded `IBootstrapOptions` and
  * exposes the host facts and app path layout; `detect()` probes the host through
- * `kaos` on demand. Bound at Core scope.
+ * `kaos` on demand. Bound at App scope.
  */
 
 import { join } from 'pathe';
@@ -57,4 +57,4 @@ export class BootstrapService implements IBootstrapService {
   }
 }
 
-registerScopedService(LifecycleScope.Core, IBootstrapService, BootstrapService, InstantiationType.Eager, 'bootstrap');
+registerScopedService(LifecycleScope.App, IBootstrapService, BootstrapService, InstantiationType.Eager, 'bootstrap');

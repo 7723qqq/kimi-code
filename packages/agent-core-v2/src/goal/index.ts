@@ -1,6 +1,6 @@
 /**
  * `goal` domain barrel — re-exports the goal contract (`goal`) and its scoped
- * service (`goalService`). Importing this barrel registers the `IGoalService`
+ * service (`goalService`). Importing this barrel registers the `IAgentGoalService`
  * binding into the scope registry.
  */
 

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IProfileService } from '#/profile';
+import { IAgentProfileService } from '#/profile';
 import type { SessionSubagentHost } from '#/subagentHost';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import { executeTool } from '../tools/fixtures/execute-tool';
 import {
   createTestAgent,
@@ -15,12 +15,12 @@ const signal = new AbortController().signal;
 describe('Agent tool service runtime', () => {
   describe('with a default subagent host', () => {
     let ctx: TestAgentContext;
-    let profile: IProfileService;
+    let profile: IAgentProfileService;
 
     beforeEach(() => {
       const subagentHost = createSubagentHost();
       ctx = createTestAgent(subagentHostServices(subagentHost));
-      profile = ctx.get(IProfileService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Agent'] });
     });
 
@@ -46,8 +46,8 @@ describe('Agent tool service runtime', () => {
   describe('with a resolving subagent host', () => {
     let ctx: TestAgentContext;
     let subagentHost: SessionSubagentHost;
-    let profile: IProfileService;
-    let tools: IToolRegistry;
+    let profile: IAgentProfileService;
+    let tools: IAgentToolRegistryService;
 
     beforeEach(() => {
       subagentHost = createSubagentHost({
@@ -59,8 +59,8 @@ describe('Agent tool service runtime', () => {
         }),
       });
       ctx = createTestAgent(subagentHostServices(subagentHost));
-      profile = ctx.get(IProfileService);
-      tools = ctx.get(IToolRegistry);
+      profile = ctx.get(IAgentProfileService);
+      tools = ctx.get(IAgentToolRegistryService);
       profile.update({ activeToolNames: ['Agent'] });
     });
 
@@ -164,14 +164,14 @@ describe('Agent tool service runtime', () => {
   describe('with a non-resuming subagent host', () => {
     let ctx: TestAgentContext;
     let subagentHost: SessionSubagentHost;
-    let profile: IProfileService;
-    let tools: IToolRegistry;
+    let profile: IAgentProfileService;
+    let tools: IAgentToolRegistryService;
 
     beforeEach(() => {
       subagentHost = createSubagentHost();
       ctx = createTestAgent(subagentHostServices(subagentHost));
-      profile = ctx.get(IProfileService);
-      tools = ctx.get(IToolRegistry);
+      profile = ctx.get(IAgentProfileService);
+      tools = ctx.get(IAgentToolRegistryService);
       profile.update({ activeToolNames: ['Agent'] });
     });
 

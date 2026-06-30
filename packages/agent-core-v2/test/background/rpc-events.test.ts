@@ -1,5 +1,5 @@
 /**
- * Covers BackgroundService event emission and notification delivery.
+ * Covers AgentBackgroundService event emission and notification delivery.
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -14,13 +14,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AgentBackgroundTask,
   type BackgroundTaskInfo,
-  IBackgroundService,
+  IAgentBackgroundService,
   ProcessBackgroundTask,
 } from '#/background';
-import { IContextMemory } from '#/contextMemory';
-import { IEventSink } from '#/eventSink';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentEventSinkService } from '#/eventSink';
 import type { HookEngine } from '#/externalHooks/engine';
-import { IPromptService } from '#/prompt';
+import { IAgentPromptService } from '#/prompt';
 import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
 import {
   configServices,
@@ -200,13 +200,13 @@ function createBackgroundManager(options: {
   const ctx = createTestAgent(...overrides);
 
   const emittedEvents: Array<{ type: string; info?: unknown }> = [];
-  const events = ctx.get(IEventSink);
+  const events = ctx.get(IAgentEventSinkService);
   const disposable = events.on((event) => {
     emittedEvents.push(event as { type: string; info?: unknown });
   });
 
-  const steerSpy = vi.spyOn(ctx.get(IPromptService), 'steer').mockReturnValue(undefined);
-  const context = ctx.get(IContextMemory);
+  const steerSpy = vi.spyOn(ctx.get(IAgentPromptService), 'steer').mockReturnValue(undefined);
+  const context = ctx.get(IAgentContextMemoryService);
   const spliceHistorySpy = vi.spyOn(context, 'splice');
 
   const agent: FakeBackgroundAgent = {
@@ -232,7 +232,7 @@ function createBackgroundManager(options: {
   return {
     ctx,
     agent,
-    manager: ctx.get(IBackgroundService) as BackgroundServiceTestManager,
+    manager: ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager,
     persistence,
   };
 }
@@ -249,7 +249,7 @@ function firstAppendedContextMessage(agent: FakeBackgroundAgent): TestContextMes
 }
 
 function registerProcess(
-  manager: IBackgroundService,
+  manager: IAgentBackgroundService,
   proc: KaosProcess,
   command: string,
   description: string,
@@ -578,7 +578,7 @@ describe('BackgroundManager — notification delivery', () => {
       await persistence.writeTask(persistedAgent({ taskId: 'agent-seen0000' }));
       await persistence.appendTaskOutput('agent-seen0000', 'already delivered summary');
       const { agent, ctx, manager } = createBackgroundManager({ sessionDir });
-      const context = ctx.get(IContextMemory);
+      const context = ctx.get(IAgentContextMemoryService);
       context.splice(context.get().length, 0, [
         {
           role: 'user',

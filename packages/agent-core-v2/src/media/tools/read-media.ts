@@ -27,7 +27,7 @@ import type {
 } from '@moonshot-ai/kosong';
 import { z } from 'zod';
 
-import { IAgentFileSystem } from '#/agentFs';
+import { ISessionAgentFileSystem } from '#/agentFs';
 import { IKaos } from '#/kaos';
 import { ToolAccesses } from '#/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool';
@@ -136,7 +136,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
   readonly description: string;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ReadMediaFileInputSchema);
   constructor(
-    private readonly fs: IAgentFileSystem,
+    private readonly fs: ISessionAgentFileSystem,
     private readonly kaos: IKaos,
     private readonly workspace: WorkspaceConfig,
     private readonly capabilities: ModelCapability,

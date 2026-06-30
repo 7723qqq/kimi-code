@@ -4,7 +4,7 @@
  *
  * Owns the REST/WS entry points; resolves sessions through `session-lifecycle`,
  * agents through `agent-lifecycle`, drives turns through `turn`, flushes logs
- * through `log`, and subscribes to broadcasts through `event`. Bound at Core
+ * through `log`, and subscribes to broadcasts through `event`. Bound at App
  * scope.
  */
 
@@ -12,11 +12,11 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { type IScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Disposable } from '#/_base/di/lifecycle';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IEventSink } from '#/eventSink';
+import { IAgentEventSinkService } from '#/eventSink';
 import { ILogService, ISessionLogService } from '#/log';
-import { IPromptService } from '#/prompt';
+import { IAgentPromptService } from '#/prompt';
 import { ISessionLifecycleService } from '#/session-lifecycle';
-import { ITurnService } from '#/turn';
+import { IAgentTurnService } from '#/turn';
 
 import { IRestGateway, IWSBroadcastService, IWSGateway } from './gateway';
 
@@ -42,7 +42,7 @@ export class RestGateway implements IRestGateway {
     agentId: string,
     input: string,
   ): Promise<{ readonly turn_id: number } | undefined> {
-    const turn = this.agent(sessionId, agentId).accessor.get(IPromptService).prompt({
+    const turn = this.agent(sessionId, agentId).accessor.get(IAgentPromptService).prompt({
       role: 'user',
       content: [{ type: 'text', text: input }],
       toolCalls: [],
@@ -56,17 +56,17 @@ export class RestGateway implements IRestGateway {
     content: string,
   ): Promise<{ readonly turn_id: number } | undefined> {
     const agent = this.agent(sessionId, agentId);
-    const turn = agent.accessor.get(IPromptService).steer({
+    const turn = agent.accessor.get(IAgentPromptService).steer({
       role: 'user',
       content: [{ type: 'text', text: content }],
       toolCalls: [],
       origin: { kind: 'user' },
     });
-    const id = turn?.id ?? agent.accessor.get(ITurnService).getActiveTurn()?.id;
+    const id = turn?.id ?? agent.accessor.get(IAgentTurnService).getActiveTurn()?.id;
     return Promise.resolve(id === undefined ? undefined : { turn_id: id });
   }
   cancel(sessionId: string, agentId: string, reason?: string): Promise<void> {
-    const activeTurn = this.agent(sessionId, agentId).accessor.get(ITurnService).getActiveTurn();
+    const activeTurn = this.agent(sessionId, agentId).accessor.get(IAgentTurnService).getActiveTurn();
     activeTurn?.abortController.abort(reason);
     return Promise.resolve();
   }
@@ -91,7 +91,7 @@ export class WSGateway implements IWSGateway {
 
   constructor(
     @ISessionLifecycleService _sessions: ISessionLifecycleService,
-    @IEventSink _event: IEventSink,
+    @IAgentEventSinkService _event: IAgentEventSinkService,
   ) {}
 
   connect(connectionId: string): void {
@@ -104,7 +104,7 @@ export class WSGateway implements IWSGateway {
 export class WSBroadcastService extends Disposable implements IWSBroadcastService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IEventSink event: IEventSink) {
+  constructor(@IAgentEventSinkService event: IAgentEventSinkService) {
     super();
     this._register(
       event.on(() => {
@@ -113,6 +113,6 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
   }
 }
 
-registerScopedService(LifecycleScope.Core, IRestGateway, RestGateway, InstantiationType.Delayed, 'gateway');
-registerScopedService(LifecycleScope.Core, IWSGateway, WSGateway, InstantiationType.Delayed, 'gateway');
-registerScopedService(LifecycleScope.Core, IWSBroadcastService, WSBroadcastService, InstantiationType.Delayed, 'gateway');
+registerScopedService(LifecycleScope.App, IRestGateway, RestGateway, InstantiationType.Delayed, 'gateway');
+registerScopedService(LifecycleScope.App, IWSGateway, WSGateway, InstantiationType.Delayed, 'gateway');
+registerScopedService(LifecycleScope.App, IWSBroadcastService, WSBroadcastService, InstantiationType.Delayed, 'gateway');

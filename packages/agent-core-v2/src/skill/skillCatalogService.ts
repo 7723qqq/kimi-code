@@ -1,5 +1,5 @@
 /**
- * `skill` domain (L5) — `ISkillCatalog` implementation.
+ * `skill` domain (L5) — `ISessionSkillCatalog` implementation.
  *
  * Merges the global catalog (`IGlobalSkillCatalog`) with the project skills
  * discovered through `ISkillCatalogStore` for the session's current workDir
@@ -11,15 +11,15 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IWorkspaceContext } from '#/workspaceContext';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
 
 import { IGlobalSkillCatalog } from './globalSkillCatalog';
 import { InMemorySkillCatalog } from './registry';
-import { ISkillCatalog } from './skillCatalog';
+import { ISessionSkillCatalog } from './skillCatalog';
 import { ISkillCatalogStore } from './skillCatalogStore';
 import type { SkillCatalog } from './types';
 
-export class SkillCatalogService implements ISkillCatalog {
+export class SessionSkillCatalogService implements ISessionSkillCatalog {
   declare readonly _serviceBrand: undefined;
 
   private inner = new InMemorySkillCatalog();
@@ -29,7 +29,7 @@ export class SkillCatalogService implements ISkillCatalog {
   constructor(
     @IGlobalSkillCatalog private readonly global: IGlobalSkillCatalog,
     @ISkillCatalogStore private readonly store: ISkillCatalogStore,
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
+    @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
   ) {}
 
   get catalog(): SkillCatalog {
@@ -69,8 +69,8 @@ export class SkillCatalogService implements ISkillCatalog {
 
 registerScopedService(
   LifecycleScope.Session,
-  ISkillCatalog,
-  SkillCatalogService,
+  ISessionSkillCatalog,
+  SessionSkillCatalogService,
   InstantiationType.Delayed,
   'skill',
 );

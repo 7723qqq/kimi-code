@@ -5,14 +5,14 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IContextInjector } from '../contextInjector';
-import { IEventSink } from '../eventSink';
+import { IAgentContextInjectorService } from '../contextInjector';
+import { IAgentEventSinkService } from '../eventSink';
 import { OrderedHookSlot } from '../hooks';
-import { IReplayBuilderService } from '#/replayBuilder';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
 import type { WireRecord } from '#/wireRecord';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import { registerPermissionModeInjection } from './injection/permissionModeInjection';
-import { IPermissionModeService } from './permissionMode';
+import { IAgentPermissionModeService } from './permissionMode';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -22,7 +22,7 @@ declare module '#/wireRecord' {
   }
 }
 
-export class PermissionModeService extends Disposable implements IPermissionModeService {
+export class AgentPermissionModeService extends Disposable implements IAgentPermissionModeService {
   declare readonly _serviceBrand: undefined;
 
   private currentMode: PermissionMode = 'manual';
@@ -35,10 +35,10 @@ export class PermissionModeService extends Disposable implements IPermissionMode
   };
 
   constructor(
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventSink private readonly events: IEventSink,
-    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
-    @IContextInjector dynamicInjector: IContextInjector,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
+    @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
   ) {
     super();
     this._register(
@@ -74,8 +74,8 @@ export class PermissionModeService extends Disposable implements IPermissionMode
 
 registerScopedService(
   LifecycleScope.Agent,
-  IPermissionModeService,
-  PermissionModeService,
+  IAgentPermissionModeService,
+  AgentPermissionModeService,
   InstantiationType.Delayed,
   'permissionMode',
 );

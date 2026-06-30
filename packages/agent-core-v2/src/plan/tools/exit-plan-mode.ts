@@ -13,7 +13,7 @@ import type { BuiltinTool } from '#/tool';
 import type { ExecutableToolResult, ToolExecution } from '#/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { ITelemetryService } from '#/telemetry';
-import type { IPlanService, PlanData } from '../plan';
+import type { IAgentPlanService, PlanData } from '../plan';
 import DESCRIPTION from './exit-plan-mode.md?raw';
 
 // ── Input schema ─────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ export class ExitPlanModeTool implements BuiltinTool<ExitPlanModeInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ExitPlanModeInputSchema);
 
   constructor(
-    private readonly planMode: IPlanService,
+    private readonly planMode: IAgentPlanService,
     private readonly telemetry: ITelemetryService,
   ) {}
 

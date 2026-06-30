@@ -1,5 +1,5 @@
 /**
- * `toolDedup` domain (L4) — `IToolDedupe` implementation.
+ * `toolDedup` domain (L4) — `IAgentToolDedupeService` implementation.
  *
  * Self-wiring plugin: its constructor registers `turn` beforeStep/afterStep
  * hooks and `toolExecutor` onWillExecuteTool/onDidExecuteTool hooks to drive
@@ -13,10 +13,10 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
 import { ITelemetryService } from '#/telemetry/telemetry';
-import { IToolExecutor } from '#/toolExecutor';
-import { ITurnService } from '#/turn';
+import { IAgentToolExecutorService } from '#/toolExecutor';
+import { IAgentTurnService } from '#/turn';
 import type { ContentPart } from '@moonshot-ai/kosong';
-import { IToolDedupe, type ToolDedupResult } from './toolDedupe';
+import { IAgentToolDedupeService, type ToolDedupResult } from './toolDedupe';
 
 const REMINDER_TEXT_1 =
   '\n\n<system-reminder>\n' +
@@ -97,7 +97,7 @@ function forceStopResult(result: ToolDedupResult, reminderText: string): ToolDed
 
 const DEDUP_PLACEHOLDER_RESULT: ToolDedupResult = { output: '' };
 
-export class ToolDedupeService extends Disposable implements IToolDedupe {
+export class AgentToolDedupeService extends Disposable implements IAgentToolDedupeService {
   declare readonly _serviceBrand: undefined;
   private readonly stepDeferreds = new Map<string, Deferred<ToolDedupResult>>();
   private stepCalls: string[] = [];
@@ -109,8 +109,8 @@ export class ToolDedupeService extends Disposable implements IToolDedupe {
 
   constructor(
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @ITurnService turn: ITurnService,
-    @IToolExecutor toolExecutor: IToolExecutor,
+    @IAgentTurnService turn: IAgentTurnService,
+    @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
     super();
     turn.hooks.beforeStep.register('toolDedup', async (_ctx, next) => {
@@ -260,8 +260,8 @@ export const __testing = {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IToolDedupe,
-  ToolDedupeService,
+  IAgentToolDedupeService,
+  AgentToolDedupeService,
   InstantiationType.Eager,
   'toolDedup',
 );

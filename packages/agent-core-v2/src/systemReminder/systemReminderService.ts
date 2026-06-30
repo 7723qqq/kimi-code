@@ -3,16 +3,16 @@ import {
 } from "#/_base/di";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IContextMemory } from '#/contextMemory';
+import { IAgentContextMemoryService } from '#/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
 
-import { ISystemReminderService } from './systemReminder';
+import { IAgentSystemReminderService } from './systemReminder';
 
-export class SystemReminderService extends Disposable implements ISystemReminderService {
+export class AgentSystemReminderService extends Disposable implements IAgentSystemReminderService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IContextMemory private readonly context: IContextMemory,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
   ) {
     super();
   }
@@ -47,8 +47,8 @@ export class SystemReminderService extends Disposable implements ISystemReminder
 
 registerScopedService(
   LifecycleScope.Agent,
-  ISystemReminderService,
-  SystemReminderService,
+  IAgentSystemReminderService,
+  AgentSystemReminderService,
   InstantiationType.Delayed,
   'systemReminder',
 );

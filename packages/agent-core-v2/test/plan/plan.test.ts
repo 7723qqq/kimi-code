@@ -6,11 +6,11 @@ import type { ToolCall } from '@moonshot-ai/kosong';
 import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IContextInjector } from '#/contextInjector';
-import { IContextMemory } from '#/contextMemory';
-import { IPlanService, type PlanData } from '#/plan';
-import { IPermissionRulesService } from '#/permissionRules';
-import { IProfileService } from '#/profile';
+import { IAgentContextInjectorService } from '#/contextInjector';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentPlanService, type PlanData } from '#/plan';
+import { IAgentPermissionRulesService } from '#/permissionRules';
+import { IAgentProfileService } from '#/profile';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import {
   createCommandKaos,
@@ -59,23 +59,23 @@ type InjectableDynamicInjector = {
 
 describe('Plan service', () => {
   let activeKaos: Kaos;
-  let context: IContextMemory;
+  let context: IAgentContextMemoryService;
   let ctx: TestAgentContext;
   let injector: InjectableDynamicInjector;
-  let permissionRules: IPermissionRulesService;
-  let plan: IPlanService;
-  let profile: IProfileService;
+  let permissionRules: IAgentPermissionRulesService;
+  let plan: IAgentPlanService;
+  let profile: IAgentProfileService;
   let tempDirs: string[];
 
   beforeEach(() => {
     activeKaos = createPlanKaos();
     tempDirs = [];
     ctx = createTestAgent(kaosServices(delegatingKaos()));
-    context = ctx.get(IContextMemory);
-    injector = ctx.get(IContextInjector) as unknown as InjectableDynamicInjector;
-    permissionRules = ctx.get(IPermissionRulesService);
-    plan = ctx.get(IPlanService);
-    profile = ctx.get(IProfileService);
+    context = ctx.get(IAgentContextMemoryService);
+    injector = ctx.get(IAgentContextInjectorService) as unknown as InjectableDynamicInjector;
+    permissionRules = ctx.get(IAgentPermissionRulesService);
+    plan = ctx.get(IAgentPlanService);
+    profile = ctx.get(IAgentProfileService);
   });
 
   afterEach(async () => {

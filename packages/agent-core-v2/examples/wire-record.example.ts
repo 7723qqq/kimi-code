@@ -2,7 +2,7 @@
  * Scenario: the **wire-record** module — a durable-record + replay chain built
  * on the append-log Store.
  *
- * Shows how a real Domain Service (`IWireRecord` / `WireRecordService`)
+ * Shows how a real Domain Service (`IAgentWireRecordService` / `AgentWireRecordService`)
  * aggregates the `IAppendLogStore` access pattern into a complete engine call
  * chain: `append` stamps and persists records (writing a `metadata` header
  * first), and `restore` reads the log back and replays each record through the
@@ -11,8 +11,8 @@
  * `swarm` domain's `WireRecordMap` declaration merge.
  *
  * Persistence is gated on the `homedir` option: the scoped-registered
- * `IWireRecord` passes no options and is therefore in-memory only, so this
- * scenario constructs the real `WireRecordService` with `createInstance(...,
+ * `IAgentWireRecordService` passes no options and is therefore in-memory only, so this
+ * scenario constructs the real `AgentWireRecordService` with `createInstance(...,
  * { homedir })` — the same way production wires a persisting wire record —
  * resolving its `IAppendLogStore` dependency from the container. The resumers
  * are small side callbacks (not Services). All resolved Services come from
@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, test } from 'vitest';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { FileStorageService, IAppendLogStorage, IAppendLogStore, AppendLogStore } from '#/storage';
-import { WireRecordService, type IWireRecord } from '#/wireRecord';
+import { AgentWireRecordService, type IAgentWireRecordService } from '#/wireRecord';
 import '#/swarm/swarm';
 
 const textDecoder = new TextDecoder();
@@ -61,7 +61,7 @@ describe('wire-record module (durable record + replay over IAppendLogStore)', ()
     const logBytes = ix.get(IAppendLogStorage);
 
     // --- writer side: append records, which persist to wire/<hash>.jsonl ---
-    const writer: IWireRecord = ix.createInstance(WireRecordService, { homedir: homeDir });
+    const writer: IAgentWireRecordService = ix.createInstance(AgentWireRecordService, { homedir: homeDir });
 
     writer.append({ type: 'swarm_mode.enter', trigger: 'manual' });
     writer.append({ type: 'swarm_mode.exit' });
@@ -77,7 +77,7 @@ describe('wire-record module (durable record + replay over IAppendLogStore)', ()
 
     // --- reader side: a fresh instance on the same log replays the records ---
     const replayed: string[] = [];
-    const reader: IWireRecord = ix.createInstance(WireRecordService, { homedir: homeDir });
+    const reader: IAgentWireRecordService = ix.createInstance(AgentWireRecordService, { homedir: homeDir });
     reader.register('swarm_mode.enter', (rec) => {
       replayed.push(`enter(trigger=${rec.trigger})`);
     });

@@ -1,7 +1,7 @@
 /**
  * `skill` domain barrel — re-exports the skill contracts and their scoped
  * services plus the in-memory catalog Store backend. Importing this barrel
- * registers the `IAgentSkillService`, `IGlobalSkillCatalog`, `ISkillCatalog`,
+ * registers the `IAgentSkillService`, `IGlobalSkillCatalog`, `ISessionSkillCatalog`,
  * and the default in-memory `ISkillCatalogStore` bindings into the scope
  * registry.
  */

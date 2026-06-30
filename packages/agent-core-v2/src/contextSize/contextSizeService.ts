@@ -5,11 +5,11 @@ import {
   estimateTokensForMessage,
 } from "#/_base/utils/tokens";
 import type { ContextMessage } from '#/contextMemory';
-import { IContextMemory } from '#/contextMemory';
-import { IEventSink } from '../eventSink';
-import { IWireRecord, type WireRecord } from '#/wireRecord';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentEventSinkService } from '../eventSink';
+import { IAgentWireRecordService, type WireRecord } from '#/wireRecord';
 import {
-  IContextSizeService,
+  IAgentContextSizeService,
   type ContextSizeStatus,
 } from './contextSize';
 import { InstantiationType } from '#/_base/di/extensions';
@@ -24,9 +24,9 @@ declare module '#/wireRecord' {
   }
 }
 
-export class ContextSizeService
+export class AgentContextSizeService
   extends Disposable
-  implements IContextSizeService
+  implements IAgentContextSizeService
 {
   declare readonly _serviceBrand: undefined;
 
@@ -38,9 +38,9 @@ export class ContextSizeService
   };
 
   constructor(
-    @IContextMemory private readonly context: IContextMemory,
-    @IEventSink private readonly events: IEventSink,
-    @IWireRecord private readonly wireRecord: IWireRecord,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
   ) {
     super();
     this._register(
@@ -157,8 +157,8 @@ function sum(values: readonly number[]): number {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IContextSizeService,
-  ContextSizeService,
+  IAgentContextSizeService,
+  AgentContextSizeService,
   InstantiationType.Delayed,
   'contextSize',
 );

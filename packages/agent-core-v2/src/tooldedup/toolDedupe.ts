@@ -2,7 +2,7 @@
  * `toolDedup` domain (L4) — per-turn tool-call deduplication.
  *
  * A self-wiring plugin: it participates in `turn` step boundaries and
- * `IToolExecutor`'s will/did hooks to suppress same-step duplicates and inject
+ * `IAgentToolExecutorService`'s will/did hooks to suppress same-step duplicates and inject
  * cross-step repeat reminders. No other service injects it — the container
  * constructs it eagerly at Agent scope so its constructor registers the hooks.
  * The only public surface is the read-only `currentStreak` observation; the
@@ -34,10 +34,10 @@ export interface ToolDedupErrorResult {
 
 export type ToolDedupResult = ToolDedupSuccessResult | ToolDedupErrorResult;
 
-export interface IToolDedupe {
+export interface IAgentToolDedupeService {
   readonly _serviceBrand: undefined;
   readonly currentStreak: number;
 }
 
-export const IToolDedupe: ServiceIdentifier<IToolDedupe> =
-  createDecorator<IToolDedupe>('toolDedupe');
+export const IAgentToolDedupeService: ServiceIdentifier<IAgentToolDedupeService> =
+  createDecorator<IAgentToolDedupeService>('agentToolDedupeService');

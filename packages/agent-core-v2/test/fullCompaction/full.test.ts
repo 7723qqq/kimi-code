@@ -27,13 +27,13 @@ import { microCompactionFlag } from '#/microCompaction/flag';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import type { TestAgentContext, TestAgentOptions, TestAgentServiceOverride } from '../harness';
-import { coreServices, testAgent } from '../harness';
+import { appServices, testAgent } from '../harness';
 import {
-  IFullCompaction,
-  IMicroCompactionService,
+  IAgentFullCompactionService,
+  IAgentMicroCompactionService,
   IOAuthService,
-  IProfileService,
-  IToolStoreService,
+  IAgentProfileService,
+  IAgentToolStoreService,
 } from '#/index';
 import { TODO_STORE_KEY } from '#/todoList/tools/todo-list';
 
@@ -352,7 +352,7 @@ describe('FullCompaction', () => {
     // onSpliced observer before the tool exchanges are appended (otherwise the
     // lazily-instantiated service never records the assistant cache anchor that
     // `detect()` needs).
-    (ctx.get(IMicroCompactionService) as any).compact([]);
+    (ctx.get(IAgentMicroCompactionService) as any).compact([]);
 
     vi.setSystemTime(0);
     ctx.appendToolExchange();
@@ -360,7 +360,7 @@ describe('FullCompaction', () => {
 
     vi.setSystemTime(61 * 60 * 1000);
 
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     const compacted = ctx.once('full_compaction.complete');
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
     await ctx.rpc.beginCompaction({ instruction: 'Summarize tool exchanges.' });
@@ -466,7 +466,7 @@ describe('FullCompaction', () => {
     const compacted = ctx.once('full_compaction.complete');
 
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
-    ctx.get(IFullCompaction).begin({ source: 'auto', instruction: undefined });
+    ctx.get(IAgentFullCompactionService).begin({ source: 'auto', instruction: undefined });
     await compacted;
     await vi.waitFor(() => {
       expect(readHookPayloads(hookLog).map((payload) => payload['hook_event_name'])).toEqual([
@@ -1132,7 +1132,7 @@ describe('FullCompaction', () => {
       ctx.mockNextResponse({ type: 'text', text: `Auto summary ${String(i)}.` });
     }
 
-    ctx.get(IFullCompaction).begin({ source: 'auto', instruction: undefined });
+    ctx.get(IAgentFullCompactionService).begin({ source: 'auto', instruction: undefined });
     await completed;
 
     const events = ctx.newEvents();
@@ -1726,7 +1726,7 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    ctx.get(IProfileService).update({ thinkingLevel: 'high' });
+    ctx.get(IAgentProfileService).update({ thinkingLevel: 'high' });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.newEvents();
 
@@ -1777,7 +1777,7 @@ describe('FullCompaction', () => {
       ...resolve(model),
       modelCapabilities: UNKNOWN_CAPABILITY,
     });
-    expect(ctx.get(IProfileService).data().modelCapabilities.max_context_tokens).toBe(0);
+    expect(ctx.get(IAgentProfileService).data().modelCapabilities.max_context_tokens).toBe(0);
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.newEvents();
 
@@ -1998,7 +1998,7 @@ describe('FullCompaction', () => {
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
 
-    ctx.get(IToolStoreService).set(TODO_STORE_KEY, [
+    ctx.get(IAgentToolStoreService).set(TODO_STORE_KEY, [
       { title: 'Fix the auth bug', status: 'in_progress' },
       { title: 'Add tests', status: 'pending' },
     ]);
@@ -2087,7 +2087,7 @@ function oauthTestAgentOptions(
         },
       },
     },
-    services: coreServices((reg) => {
+    services: appServices((reg) => {
       reg.definePartialInstance(IOAuthService, {
         resolveTokenProvider: () => ({ getAccessToken }),
       });

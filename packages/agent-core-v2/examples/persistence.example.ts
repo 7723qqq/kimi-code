@@ -55,7 +55,7 @@ const WIRE_KEY = 'example';
 
 describe('persistence module (Store → Storage → backend, real ~/.kimi-code files)', () => {
   let homeDir: string;
-  let core: Scope;
+  let app: Scope;
 
   beforeEach(() => {
     const resolved = process.env['KIMI_CODE_HOME'];
@@ -64,17 +64,17 @@ describe('persistence module (Store → Storage → backend, real ~/.kimi-code f
     }
     homeDir = resolved;
     mkdirSync(homeDir, { recursive: true });
-    core = bootstrap({ homeDir }).core;
+    app = bootstrap({ homeDir }).app;
   });
 
   afterEach(() => {
-    core.dispose();
+    app.dispose();
   });
 
   test('typed Store → raw Storage bytes → real file path', async () => {
     // 1) Atomic document, TOML codec → config.toml
-    const tomlDocs = core.accessor.get(IAtomicTomlDocumentStore);
-    const configBytes = core.accessor.get(IStorageService);
+    const tomlDocs = app.accessor.get(IAtomicTomlDocumentStore);
+    const configBytes = app.accessor.get(IStorageService);
     const configValue = { theme: 'dark', telemetry: { enabled: true } };
     await tomlDocs.set('', 'config.toml', configValue);
     console.log('1) config.toml (atomic doc, TOML):');
@@ -86,8 +86,8 @@ describe('persistence module (Store → Storage → backend, real ~/.kimi-code f
     console.log('   path      :', join(homeDir, 'config.toml'));
 
     // 2) Atomic document, JSON codec → sessions/.../session-meta/state.json
-    const docs = core.accessor.get(IAtomicDocumentStore);
-    const docBytes = core.accessor.get(IAtomicDocumentStorage);
+    const docs = app.accessor.get(IAtomicDocumentStore);
+    const docBytes = app.accessor.get(IAtomicDocumentStorage);
     const metaScope = 'sessions/example/s-example/session-meta';
     const meta = {
       id: 's-example',
@@ -103,8 +103,8 @@ describe('persistence module (Store → Storage → backend, real ~/.kimi-code f
     console.log('   path      :', join(homeDir, metaScope, 'state.json'));
 
     // 3) Append log, JSONL framing → wire/<hash>.jsonl
-    const logs = core.accessor.get(IAppendLogStore);
-    const logBytes = core.accessor.get(IAppendLogStorage);
+    const logs = app.accessor.get(IAppendLogStore);
+    const logBytes = app.accessor.get(IAppendLogStorage);
     const key = WIRE_KEY;
     logs.append('wire', key, { type: 'metadata', protocol_version: '1.5' });
     logs.append('wire', key, { type: 'swarm_mode.enter', trigger: 'manual' });

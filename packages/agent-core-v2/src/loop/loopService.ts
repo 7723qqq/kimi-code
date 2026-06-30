@@ -37,26 +37,26 @@ import {
   type KimiErrorPayload,
 } from "#/errors";
 import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
-import { IContextMemory, newMessageId, type ContextMessage } from '#/contextMemory';
-import { IContextProjector } from '#/contextProjector';
-import { IContextSizeService } from '#/contextSize';
-import { IEventSink } from '../eventSink';
-import { IExternalHooksService } from '#/externalHooks';
-import { ILLMRequester } from '#/llmRequester';
-import { IProfileService } from '#/profile';
+import { IAgentContextMemoryService, newMessageId, type ContextMessage } from '#/contextMemory';
+import { IAgentContextProjectorService } from '#/contextProjector';
+import { IAgentContextSizeService } from '#/contextSize';
+import { IAgentEventSinkService } from '../eventSink';
+import { IAgentExternalHooksService } from '#/externalHooks';
+import { IAgentLLMRequesterService } from '#/llmRequester';
+import { IAgentProfileService } from '#/profile';
 import { IConfigRegistry, IConfigService } from '#/config';
 import { ITelemetryService } from '#/telemetry';
-import { IToolExecutor } from '#/toolExecutor';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolExecutorService } from '#/toolExecutor';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import type { Turn, TurnResult } from '#/turn';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import type {
   LoopEvent,
   LoopEventDispatcher,
   LoopRecordedEvent,
 } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
-import { ILoopService, type LoopRunHooks } from './loop';
+import { IAgentLoopService, type LoopRunHooks } from './loop';
 import {
   LOOP_CONTROL_SECTION,
   LoopControlSchema,
@@ -79,7 +79,7 @@ const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
 type ToolTelemetryEvent = 'tool_call' | 'tool_call_dedup_detected' | 'tool_call_repeat';
 type TelemetryProperties = Record<string, unknown>;
 
-export class LoopService extends Disposable implements ILoopService {
+export class AgentLoopService extends Disposable implements IAgentLoopService {
   declare readonly _serviceBrand: undefined;
   private readonly openSteps = new Map<string, OpenStep>();
   private readonly toolCallStartedAt = new Map<string, ToolCallTelemetryStart>();
@@ -91,17 +91,17 @@ export class LoopService extends Disposable implements ILoopService {
   private protocolTurnId: number | undefined;
 
   constructor(
-    @IContextMemory private readonly context: IContextMemory,
-    @IContextProjector private readonly projector: IContextProjector,
-    @IContextSizeService private readonly contextSize: IContextSizeService,
-    @ILLMRequester private readonly llmRequester: ILLMRequester,
-    @IEventSink private readonly events: IEventSink,
-    @IToolRegistry private readonly toolRegistry: IToolRegistry,
-    @IToolExecutor private readonly toolExecutor: IToolExecutor,
-    @IProfileService private readonly profile: IProfileService,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
+    @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
+    @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IExternalHooksService private readonly externalHooks: IExternalHooksService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
   ) {
@@ -1059,8 +1059,8 @@ interface ToolCallDelta {
 
 registerScopedService(
   LifecycleScope.Agent,
-  ILoopService,
-  LoopService,
+  IAgentLoopService,
+  AgentLoopService,
   InstantiationType.Delayed,
   'loop',
 );

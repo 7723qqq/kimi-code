@@ -1,8 +1,8 @@
 /**
- * `promptLegacy` domain — `IPromptLegacyService` implementation.
+ * `promptLegacy` domain — `IAgentPromptLegacyService` implementation.
  *
  * Per-agent v1-compatible scheduler. Owns the active submission and a FIFO
- * queue; launches turns through `IPromptService` and observes them to
+ * queue; launches turns through `IAgentPromptService` and observes them to
  * auto-start the next queued prompt. Legacy `prompt.*` lifecycle events are
  * not emitted (they are not part of the v2 `AgentEvent` union); the HTTP
  * responses carry the same information.
@@ -12,10 +12,10 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { newMessageId } from '#/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IPermissionModeService } from '#/permissionMode/permissionMode';
-import { IProfileService } from '#/profile/profile';
-import { IPromptService } from '#/prompt/prompt';
-import { ITurnService, type Turn, type TurnResult } from '#/turn/turn';
+import { IAgentPermissionModeService } from '#/permissionMode/permissionMode';
+import { IAgentProfileService } from '#/profile/profile';
+import { IAgentPromptService } from '#/prompt/prompt';
+import { IAgentTurnService, type Turn, type TurnResult } from '#/turn/turn';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import type {
   PromptAbortResponse,
@@ -26,7 +26,7 @@ import type {
   PromptSubmitResult,
 } from '@moonshot-ai/protocol';
 
-import { IPromptLegacyService } from './promptLegacy';
+import { IAgentPromptLegacyService } from './promptLegacy';
 
 interface PromptRecord {
   readonly promptId: string;
@@ -39,7 +39,7 @@ interface ActivePrompt extends PromptRecord {
   readonly turn: Turn;
 }
 
-export class PromptLegacyService implements IPromptLegacyService {
+export class AgentPromptLegacyService implements IAgentPromptLegacyService {
   declare readonly _serviceBrand: undefined;
 
   private active: ActivePrompt | undefined;
@@ -48,10 +48,10 @@ export class PromptLegacyService implements IPromptLegacyService {
   private readonly abortedPromptIds = new Set<string>();
 
   constructor(
-    @IPromptService private readonly prompt: IPromptService,
-    @ITurnService private readonly turnService: ITurnService,
-    @IProfileService private readonly profile: IProfileService,
-    @IPermissionModeService private readonly permissionMode: IPermissionModeService,
+    @IAgentPromptService private readonly prompt: IAgentPromptService,
+    @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
   ) {}
 
   list(): PromptListResponse {
@@ -234,8 +234,8 @@ function contentToCoreParts(content: PromptSubmission['content']): ContentPart[]
 
 registerScopedService(
   LifecycleScope.Agent,
-  IPromptLegacyService,
-  PromptLegacyService,
+  IAgentPromptLegacyService,
+  AgentPromptLegacyService,
   InstantiationType.Delayed,
   'promptLegacy',
 );

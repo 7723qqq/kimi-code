@@ -1,4 +1,4 @@
-import { IPermissionModeService } from '../../permissionMode/permissionMode';
+import { IAgentPermissionModeService } from '../../permissionMode/permissionMode';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
@@ -8,7 +8,7 @@ export class YoloModeApprovePermissionPolicyService implements PermissionPolicy 
   readonly name = 'yolo-mode-approve';
 
   constructor(
-    @IPermissionModeService private readonly modeService: IPermissionModeService,
+    @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
   ) {}
 
   evaluate(): PermissionPolicyResult | undefined {

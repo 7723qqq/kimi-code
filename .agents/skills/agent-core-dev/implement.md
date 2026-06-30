@@ -42,7 +42,7 @@ export class Greeter implements IGreeter {
 }
 
 registerScopedService(
-  LifecycleScope.Core,     // lifetime: process-wide
+  LifecycleScope.App,     // lifetime: process-wide
   IGreeter,                // identity
   Greeter,                 // implementation
   InstantiationType.Eager, // when to construct: immediately
@@ -130,10 +130,10 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
 
 ```ts
 // Eager: constructed when the scope is created
-registerScopedService(LifecycleScope.Core, ILogService, LogService, InstantiationType.Eager, 'log');
+registerScopedService(LifecycleScope.App, ILogService, LogService, InstantiationType.Eager, 'log');
 
 // Delayed: constructed on first get
-registerScopedService(LifecycleScope.Core, IScopeRegistry, ScopeRegistry, InstantiationType.Delayed, 'gateway');
+registerScopedService(LifecycleScope.App, IScopeRegistry, ScopeRegistry, InstantiationType.Delayed, 'gateway');
 ```
 
 A `Delayed` service returns a **Proxy** that constructs the real instance on first property access. Listeners registered on its `onDid…` / `onWill…` events before construction are not lost — the container records them and replays the subscriptions once the instance exists.

@@ -7,7 +7,7 @@
  * absent or malformed, it is rebuilt once from the legacy
  * `<homeDir>/session_index.jsonl` (one workspace per distinct absolute
  * `workDir`) and then persisted. All access is serialized through a
- * promise-chain mutex so load/rebuild/mutations never race. Bound at Core
+ * promise-chain mutex so load/rebuild/mutations never race. Bound at App
  * scope.
  */
 
@@ -175,7 +175,7 @@ function parseSessionIndexLine(line: string): SessionIndexLine | undefined {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IWorkspaceRegistry,
   WorkspaceRegistryService,
   InstantiationType.Delayed,

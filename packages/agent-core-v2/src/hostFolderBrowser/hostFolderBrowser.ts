@@ -4,7 +4,7 @@
  * Defines the `IHostFolderBrowser` used by the program side (TUI / server) to
  * let the user browse the real local filesystem when choosing a workspace
  * folder. Distinct from the Agent-side `agentFs`, which is sandboxed and may
- * be remote. Core-scoped.
+ * be remote. App-scoped.
  *
  * The wire shapes (`FsBrowseResponse` / `FsHomeResponse`) are sourced from
  * `@moonshot-ai/protocol` so the `/api/v1` and `/api/v2` transports share one

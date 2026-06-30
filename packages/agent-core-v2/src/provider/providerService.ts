@@ -3,7 +3,7 @@
  *
  * Owns the in-memory view of the `providers` config section, persists changes
  * through `config`, registers the section schema on construction, and forwards
- * section changes as `onDidChange`. Bound at Core scope.
+ * section changes as `onDidChange`. Bound at App scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -72,4 +72,4 @@ export class ProviderService extends Disposable implements IProviderService {
   }
 }
 
-registerScopedService(LifecycleScope.Core, IProviderService, ProviderService, InstantiationType.Delayed, 'provider');
+registerScopedService(LifecycleScope.App, IProviderService, ProviderService, InstantiationType.Delayed, 'provider');

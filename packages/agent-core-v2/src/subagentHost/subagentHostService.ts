@@ -7,25 +7,25 @@ import type {
   SubagentHandle,
 } from './subagentHost';
 import {
-  ISubagentHost,
+  ISessionSubagentHost,
 } from './subagentHost';
 import { Disposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IBackgroundService } from '#/background';
+import { IAgentBackgroundService } from '#/background';
 import { ILogService } from '#/log';
-import { IProfileService } from '#/profile';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentProfileService } from '#/profile';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import { AgentTool } from './agentTool';
 
-export class SubagentHostService extends Disposable implements ISubagentHost {
+export class SessionSubagentHostService extends Disposable implements ISessionSubagentHost {
   declare readonly _serviceBrand: undefined;
 
   constructor(
     private readonly subagentHost: SessionSubagentHost,
-    @IToolRegistry toolRegistry: IToolRegistry,
-    @IBackgroundService background: IBackgroundService,
-    @IProfileService profile: IProfileService,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
+    @IAgentBackgroundService background: IAgentBackgroundService,
+    @IAgentProfileService profile: IAgentProfileService,
     @ILogService log?: ILogService,
   ) {
     super();
@@ -93,8 +93,8 @@ export class SubagentHostService extends Disposable implements ISubagentHost {
 
 registerScopedService(
   LifecycleScope.Session,
-  ISubagentHost,
-  SubagentHostService,
+  ISessionSubagentHost,
+  SessionSubagentHostService,
   InstantiationType.Delayed,
   'subagentHost',
 );

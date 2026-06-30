@@ -59,7 +59,7 @@ export type PermissionResultHookPayload =
       readonly error: string;
     };
 
-export interface IExternalHooksService {
+export interface IAgentExternalHooksService {
   readonly _serviceBrand: undefined;
   triggerPreToolUse(
     payload: {
@@ -98,5 +98,5 @@ export interface IExternalHooksService {
   }): void;
 }
 
-export const IExternalHooksService =
-  createDecorator<IExternalHooksService>('agentExternalHooksService');
+export const IAgentExternalHooksService =
+  createDecorator<IAgentExternalHooksService>('agentExternalHooksService');

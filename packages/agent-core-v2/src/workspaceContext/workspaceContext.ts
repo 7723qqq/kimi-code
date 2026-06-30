@@ -1,7 +1,7 @@
 /**
  * `workspaceContext` domain (L1) — session workspace root and path access.
  *
- * Defines the `IWorkspaceContext` used by the Agent side to resolve relative
+ * Defines the `ISessionWorkspaceContext` used by the Agent side to resolve relative
  * paths against the session work directory and to enforce that file/process
  * operations stay within the workspace (plus any additional dirs). Pure
  * configuration + boundary — it performs no IO. Session-scoped.
@@ -11,7 +11,7 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 
 export type PathAccessOperation = 'read' | 'write' | 'execute';
 
-export interface IWorkspaceContext {
+export interface ISessionWorkspaceContext {
   readonly _serviceBrand: undefined;
 
   readonly workDir: string;
@@ -25,5 +25,5 @@ export interface IWorkspaceContext {
   removeAdditionalDir(dir: string): void;
 }
 
-export const IWorkspaceContext: ServiceIdentifier<IWorkspaceContext> =
-  createDecorator<IWorkspaceContext>('workspaceContext');
+export const ISessionWorkspaceContext: ServiceIdentifier<ISessionWorkspaceContext> =
+  createDecorator<ISessionWorkspaceContext>('sessionWorkspaceContext');

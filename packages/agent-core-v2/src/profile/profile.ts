@@ -78,7 +78,7 @@ export interface ProfileSetModelResult {
   readonly providerName?: string | undefined;
 }
 
-export interface IProfileService {
+export interface IAgentProfileService {
   readonly _serviceBrand: undefined;
   configure(options: ProfileServiceOptions): void;
   update(changed: ProfileUpdateData): void;
@@ -106,4 +106,4 @@ export interface IProfileService {
   removeActiveTool(name: string): void;
 }
 
-export const IProfileService = createDecorator<IProfileService>('profileService.agent');
+export const IAgentProfileService = createDecorator<IAgentProfileService>('agentProfileService');

@@ -6,7 +6,7 @@
  * rules), including the snake_case ↔ camelCase TOML transforms that reshape the
  * on-disk `deny` / `allow` / `ask` lists and the `tool`/`match` shorthand into
  * the in-memory `rules` array. Registered into `IConfigRegistry` by
- * `PermissionRulesService` on construction, so the `config` domain never
+ * `AgentPermissionRulesService` on construction, so the `config` domain never
  * imports this domain's types.
  */
 

@@ -48,7 +48,7 @@ export interface WireRecordRegisterOptions<T extends keyof WireRecordMap> {
   readonly blobs?: WireRecordBlobSelector<WireRecord<T>>;
 }
 
-export interface IWireRecord {
+export interface IAgentWireRecordService {
   readonly _serviceBrand: undefined;
   readonly restoring: WireRecordRestoringContext | null;
   readonly postRestoring: boolean;
@@ -79,4 +79,4 @@ export interface IWireRecord {
   }>;
 }
 
-export const IWireRecord = createDecorator<IWireRecord>('agentWireRecordService');
+export const IAgentWireRecordService = createDecorator<IAgentWireRecordService>('agentWireRecordService');

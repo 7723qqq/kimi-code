@@ -2,7 +2,7 @@
  * `microCompaction` domain (L4) - micro-compaction service contract.
  *
  * Defines the truncation tuning model and the Agent-scoped
- * `IMicroCompactionService` used by context projection. Bound at Agent scope.
+ * `IAgentMicroCompactionService` used by context projection. Bound at Agent scope.
  */
 
 import { createDecorator } from "#/_base/di";
@@ -22,10 +22,10 @@ export interface MicroCompactionEffect {
   readonly truncatedToolResultTokensAfter: number;
 }
 
-export interface IMicroCompactionService {
+export interface IAgentMicroCompactionService {
   readonly _serviceBrand: undefined;
   compact(messages: readonly ContextMessage[]): readonly ContextMessage[];
 }
 
-export const IMicroCompactionService =
-  createDecorator<IMicroCompactionService>('agentMicroCompactionService');
+export const IAgentMicroCompactionService =
+  createDecorator<IAgentMicroCompactionService>('agentMicroCompactionService');

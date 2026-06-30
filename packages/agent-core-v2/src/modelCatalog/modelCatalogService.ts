@@ -3,7 +3,7 @@
  *
  * Projects the `provider` / `model` registries into protocol catalog items,
  * resolves credential state through `config` and `auth`, and persists the
- * global default-model selection through `config`. Bound at Core scope. The
+ * global default-model selection through `config`. Bound at App scope. The
  * The managed OAuth-provider refresh lives in `auth` (`IOAuthService`), not here.
  */
 
@@ -139,7 +139,7 @@ function nonEmpty(value: string | undefined): string | undefined {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IModelCatalogService,
   ModelCatalogService,
   InstantiationType.Delayed,

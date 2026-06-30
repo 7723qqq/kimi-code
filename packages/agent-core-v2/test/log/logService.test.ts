@@ -171,14 +171,14 @@ describe('ILogService (scoped)', () => {
   beforeEach(() => {
     _clearScopedRegistryForTests();
     registerScopedService(
-      LifecycleScope.Core,
+      LifecycleScope.App,
       ILogWriterService,
       ConsoleLogWriterService,
       InstantiationType.Eager,
       'log',
     );
     registerScopedService(
-      LifecycleScope.Core,
+      LifecycleScope.App,
       ILogService,
       LogService,
       InstantiationType.Eager,
@@ -186,10 +186,10 @@ describe('ILogService (scoped)', () => {
     );
   });
 
-  it('resolves ILogService from the Core scope with its sink injected', () => {
+  it('resolves ILogService from the App scope with its sink injected', () => {
     const sink = new MemoryLogWriterService();
     const host = createScopedTestHost([stubPair(ILogWriterService, sink)]);
-    const log = host.core.accessor.get(ILogService);
+    const log = host.app.accessor.get(ILogService);
     log.info('scoped-hello');
     expect(sink.entries.map((e) => e.msg)).toEqual(['scoped-hello']);
     host.dispose();
@@ -198,7 +198,7 @@ describe('ILogService (scoped)', () => {
   it('a scoped child logger bound to sessionId is resolvable downstream', () => {
     const sink = new MemoryLogWriterService();
     const host = createScopedTestHost([stubPair(ILogWriterService, sink)]);
-    const root = host.core.accessor.get(ILogService);
+    const root = host.app.accessor.get(ILogService);
     const sessionLog = root.child({ sessionId: 's1' });
     sessionLog.warn('bound');
     expect(sink.entries[0]?.ctx).toEqual({ sessionId: 's1' });

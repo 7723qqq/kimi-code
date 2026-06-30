@@ -1,14 +1,14 @@
 /**
  * ReadMediaFileTool tests for the v2 output/capability contract.
  *
- * Self-contained: builds minimal fake `IAgentFileSystem` and `IKaos` inline
+ * Self-contained: builds minimal fake `ISessionAgentFileSystem` and `IKaos` inline
  * so the tool can be exercised without the missing composition root.
  */
 
 import type { ContentPart, ModelCapability } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { IAgentFileSystem } from '../../src/agentFs';
+import type { ISessionAgentFileSystem } from '../../src/agentFs';
 import type { IKaos } from '../../src/kaos';
 import {
   ReadMediaFileInputSchema,
@@ -16,7 +16,7 @@ import {
   type VideoUploader,
 } from '../../src/media/tools/read-media';
 import { registerMediaTools } from '../../src/media/registerMediaTools';
-import { ToolRegistryService } from '../../src/toolRegistry';
+import { AgentToolRegistryService } from '../../src/toolRegistry';
 import { ToolAccesses } from '../../src/tool';
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../src/tool';
@@ -65,7 +65,7 @@ interface FakeFile {
   readonly size?: number;
 }
 
-function createTestFs(files: Record<string, FakeFile>): IAgentFileSystem {
+function createTestFs(files: Record<string, FakeFile>): ISessionAgentFileSystem {
   const lookup = (path: string): FakeFile | undefined => files[path];
   return {
     cwd: '/workspace',
@@ -78,7 +78,7 @@ function createTestFs(files: Record<string, FakeFile>): IAgentFileSystem {
         size: file?.size ?? file?.data.length ?? 0,
       };
     }),
-  } as unknown as IAgentFileSystem;
+  } as unknown as ISessionAgentFileSystem;
 }
 
 function createTestKaos(): IKaos {
@@ -264,7 +264,7 @@ describe('registerMediaTools', () => {
   const kaos = createTestKaos();
 
   it('registers ReadMediaFile when the model supports image input', () => {
-    const registry = new ToolRegistryService();
+    const registry = new AgentToolRegistryService();
     const disposable = registerMediaTools(registry, {
       fs,
       kaos,
@@ -277,7 +277,7 @@ describe('registerMediaTools', () => {
   });
 
   it('registers ReadMediaFile when the model supports video input', () => {
-    const registry = new ToolRegistryService();
+    const registry = new AgentToolRegistryService();
     registerMediaTools(registry, {
       fs,
       kaos,
@@ -288,7 +288,7 @@ describe('registerMediaTools', () => {
   });
 
   it('does not register anything when the model lacks media capability', () => {
-    const registry = new ToolRegistryService();
+    const registry = new AgentToolRegistryService();
     const disposable = registerMediaTools(registry, {
       fs,
       kaos,

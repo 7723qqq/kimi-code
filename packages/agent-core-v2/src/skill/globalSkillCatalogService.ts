@@ -3,7 +3,7 @@
  *
  * Registers the builtin skills and discovers user / brand skills through the
  * `ISkillCatalogStore`, using the user home directories from `bootstrap`. The
- * result is cached after the first `load()`. Bound at Core scope.
+ * result is cached after the first `load()`. Bound at App scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -46,7 +46,7 @@ export class GlobalSkillCatalogService implements IGlobalSkillCatalog {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IGlobalSkillCatalog,
   GlobalSkillCatalogService,
   InstantiationType.Delayed,

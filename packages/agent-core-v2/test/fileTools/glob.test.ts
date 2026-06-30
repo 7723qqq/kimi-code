@@ -3,10 +3,10 @@
  *
  * Ported from v1 (`packages/agent-core/test/tools/glob.test.ts`) and adapted
  * to the v2 constructor `(fs, kaos, workspace)`. Self-contained: builds minimal
- * fake `IAgentFileSystem` (map/spied `glob` + `stat` + `readdir` + `withCwd`)
+ * fake `ISessionAgentFileSystem` (map/spied `glob` + `stat` + `readdir` + `withCwd`)
  * and `IKaos` inline so the tool can be exercised without the composition root.
  *
- * v2 `IAgentFileSystem.glob(pattern)` searches from `fs.cwd` and returns a
+ * v2 `ISessionAgentFileSystem.glob(pattern)` searches from `fs.cwd` and returns a
  * collected array (no per-root async generator), so the v1 `(root, pattern)`
  * call assertions become `withCwd(root)` + `glob(pattern)` pairs. v2
  * `AgentFileStat` carries no mtime, so the mtime-sort test is adapted to
@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError, type PathClass } from '../../src/_base/tools/policies/path-access';
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
-import type { AgentFileStat, IAgentFileSystem } from '../../src/agentFs';
+import type { AgentFileStat, ISessionAgentFileSystem } from '../../src/agentFs';
 import {
   expandBraces,
   type GlobInput,
@@ -49,7 +49,7 @@ function createTestKaos(opts: { home?: string; pathClass?: PathClass } = {}): IK
 /**
  * Fake fs with spied `glob` / `stat` / `readdir` / `withCwd`. `withCwd` returns
  * a derived fs that shares the same spied IO mocks but carries the new `cwd`,
- * mirroring the real `AgentFileSystem.withCwd` semantics. The base fs's
+ * mirroring the real `SessionAgentFileSystem.withCwd` semantics. The base fs's
  * `withCwd` is exposed so tests can assert the resolved search root.
  */
 function createSpiedGlobFs(opts: {
@@ -62,9 +62,9 @@ function createSpiedGlobFs(opts: {
   const stat = opts.stat ?? vi.fn(async (): Promise<AgentFileStat> => fileStat());
   const readdir = opts.readdir ?? vi.fn(async (): Promise<readonly string[]> => []);
 
-  function build(cwd: string): { fs: IAgentFileSystem; withCwd: ReturnType<typeof vi.fn> } {
+  function build(cwd: string): { fs: ISessionAgentFileSystem; withCwd: ReturnType<typeof vi.fn> } {
     const withCwd = vi.fn((nextCwd: string) => build(nextCwd).fs);
-    const fs = { cwd, glob, stat, readdir, withCwd } as unknown as IAgentFileSystem;
+    const fs = { cwd, glob, stat, readdir, withCwd } as unknown as ISessionAgentFileSystem;
     return { fs, withCwd };
   }
 

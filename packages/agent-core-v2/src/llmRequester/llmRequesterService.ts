@@ -1,9 +1,9 @@
 /**
- * `llmRequester` domain (L3) — `ILLMRequester` implementation.
+ * `llmRequester` domain (L3) — `IAgentLLMRequesterService` implementation.
  *
  * Assembles one LLM request from `profile` (provider / system prompt),
  * `contextMemory` + `contextProjector` (history), and `toolRegistry` (tools),
- * resolves request authorization through `modelRuntime` `IModelResolver`, drives
+ * resolves request authorization through `modelRuntime` `ISessionModelResolver`, drives
  * `@moonshot-ai/kosong` `generate()`, and logs each request through
  * `llmRequestLog`. Bound at Agent scope.
  */
@@ -20,39 +20,39 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IModelResolver } from '#/modelRuntime';
+import { ISessionModelResolver } from '#/modelRuntime';
 import {
   applyCompletionBudget,
   resolveCompletionBudget,
 } from "#/_base/utils/completion-budget";
 import { IConfigService } from '#/config';
 import type { KimiModelOverrides } from '#/chatProvider';
-import { IProfileService } from '#/profile';
-import { IContextMemory } from '#/contextMemory';
-import { IContextProjector } from '#/contextProjector';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentProfileService } from '#/profile';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentContextProjectorService } from '#/contextProjector';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import type { LLMEvent, LLMRequestOverrides } from '.';
-import { ILLMRequestLogService } from '#/llmRequestLog';
-import { IUsageService } from '#/usage';
+import { IAgentLLMRequestLogService } from '#/llmRequestLog';
+import { IAgentUsageService } from '#/usage';
 import { AsyncEventQueue } from './asyncEventQueue';
-import { ILLMRequester } from './llmRequester';
+import { IAgentLLMRequesterService } from './llmRequester';
 
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {},
 };
 
-export class LLMRequesterService implements ILLMRequester {
+export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IContextMemory private readonly context: IContextMemory,
-    @IContextProjector private readonly projector: IContextProjector,
-    @IToolRegistry private readonly tools: IToolRegistry,
-    @IProfileService private readonly profile: IProfileService,
-    @ILLMRequestLogService private readonly requestLog: ILLMRequestLogService,
-    @IUsageService private readonly usage: IUsageService,
-    @IModelResolver private readonly modelResolver: IModelResolver,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
+    @IAgentToolRegistryService private readonly tools: IAgentToolRegistryService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentLLMRequestLogService private readonly requestLog: IAgentLLMRequestLogService,
+    @IAgentUsageService private readonly usage: IAgentUsageService,
+    @ISessionModelResolver private readonly modelResolver: ISessionModelResolver,
     @IConfigService private readonly config: IConfigService,
   ) {}
 
@@ -219,8 +219,8 @@ interface ResolvedLLMRequest {
 
 registerScopedService(
   LifecycleScope.Agent,
-  ILLMRequester,
-  LLMRequesterService,
+  IAgentLLMRequesterService,
+  AgentLLMRequesterService,
   InstantiationType.Delayed,
   'llmRequester',
 );

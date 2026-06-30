@@ -3,11 +3,11 @@ import type { Message } from '@moonshot-ai/kosong';
 
 import type { ContextMessage } from '#/contextMemory';
 
-export interface IContextProjector {
+export interface IAgentContextProjectorService {
   readonly _serviceBrand: undefined;
   project(messages: readonly ContextMessage[]): readonly Message[];
 }
 
-export const IContextProjector = createDecorator<IContextProjector>(
+export const IAgentContextProjectorService = createDecorator<IAgentContextProjectorService>(
   'agentContextProjectorService',
 );

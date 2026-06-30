@@ -2,16 +2,16 @@
  * `shellTools` domain — BashTool, the model's shell command runner.
  *
  * Invokes the execution-environment shell (POSIX bash; Git Bash on Windows)
- * through the injected `IProcessRunner`. The command runs as
+ * through the injected `ISessionProcessRunner`. The command runs as
  * `cd <cwd> && <command>` inside the environment's working directory.
  *
  * Dependencies injected via constructor:
- *   - `runner`   — `IProcessRunner`, spawns the shell process
+ *   - `runner`   — `ISessionProcessRunner`, spawns the shell process
  *   - `kaos`     — `IKaos`, the execution environment (cwd / osEnv / shellPath)
- *   - `background` — `IBackgroundService`, owns foreground/background task
+ *   - `background` — `IAgentBackgroundService`, owns foreground/background task
  *                  lifecycle (timeouts, detach, user interrupt)
  *
- * Execution goes through `IProcessRunner`, never directly via
+ * Execution goes through `ISessionProcessRunner`, never directly via
  * `node:child_process`.
  *
  * Hardening:
@@ -19,12 +19,12 @@
  *     manager-owned process task on either edge.
  *   - stdin is closed immediately so interactive commands (`cat`, `read`,
  *     `python -c 'input()'`) receive EOF instead of hanging.
- *   - Two-phase kill is owned by `IBackgroundService`: SIGTERM → grace → SIGKILL.
+ *   - Two-phase kill is owned by `IAgentBackgroundService`: SIGTERM → grace → SIGKILL.
  *   - stdout/stderr are captured by `ProcessBackgroundTask` for task output;
  *     foreground runs pass a callback to collect chunks for this call.
  *
  * Ported from v1 (`packages/agent-core/src/tools/builtin/shell/bash.ts`). The
- * v1 `process.env` spread is intentionally dropped: v2's `IProcessRunner.exec`
+ * v1 `process.env` spread is intentionally dropped: v2's `ISessionProcessRunner.exec`
  * already overlays the per-call `env` on `process.env`, so only the
  * noninteractive knobs are passed here.
  */
@@ -32,9 +32,9 @@
 import { z } from 'zod';
 
 import { ProcessBackgroundTask } from '#/background';
-import type { IBackgroundService } from '#/background';
+import type { IAgentBackgroundService } from '#/background';
 import type { IKaos } from '#/kaos';
-import type { IProcess, IProcessRunner } from '#/process';
+import type { IProcess, ISessionProcessRunner } from '#/process';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution, ToolUpdate } from '#/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
@@ -165,9 +165,9 @@ export class BashTool implements BuiltinTool<BashInput> {
   private readonly allowBackground: boolean;
 
   constructor(
-    private readonly runner: IProcessRunner,
+    private readonly runner: ISessionProcessRunner,
     private readonly kaos: IKaos,
-    private readonly background: IBackgroundService,
+    private readonly background: IAgentBackgroundService,
     options?: {
       allowBackground?: boolean;
     },
@@ -215,7 +215,7 @@ export class BashTool implements BuiltinTool<BashInput> {
       SHELL: this.kaos.osEnv.shellPath,
     };
 
-    // v2's IProcessRunner.exec overlays this env on process.env, so we pass
+    // v2's ISessionProcessRunner.exec overlays this env on process.env, so we pass
     // only the noninteractive knobs (the v1 spread of process.env is handled
     // by the runner).
     return this.runner.exec(shellArgs, { env: noninteractiveEnv });

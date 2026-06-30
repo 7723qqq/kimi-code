@@ -15,21 +15,21 @@ import {
 import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/errors";
 import { renderPrompt } from "#/_base/utils/render-prompt";
 import { estimateTokens, estimateTokensForMessages } from "#/_base/utils/tokens";
-import { IContextMemory } from '#/contextMemory';
-import { IContextProjector } from '#/contextProjector';
-import { IContextSizeService } from '#/contextSize';
-import { IEventSink } from '../eventSink';
-import { IExternalHooksService } from '#/externalHooks';
-import { ILLMRequester, type LLMEvent } from '#/llmRequester';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentContextProjectorService } from '#/contextProjector';
+import { IAgentContextSizeService } from '#/contextSize';
+import { IAgentEventSinkService } from '../eventSink';
+import { IAgentExternalHooksService } from '#/externalHooks';
+import { IAgentLLMRequesterService, type LLMEvent } from '#/llmRequester';
 import { isAbortError } from '#/loop/errors';
 import { retryBackoffDelays, sleepForRetry } from '#/loop/retry';
-import { IProfileService } from '#/profile';
-import { IReplayBuilderService } from '#/replayBuilder';
+import { IAgentProfileService } from '#/profile';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
 import { ITelemetryService } from '#/telemetry';
-import { IToolStoreService } from '#/toolStore';
-import { ITurnService, type TurnContextOverflowContext } from '#/turn';
+import { IAgentToolStoreService } from '#/toolStore';
+import { IAgentTurnService, type TurnContextOverflowContext } from '#/turn';
 import type { ContextMessage } from '#/contextMemory';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import {
   TODO_STORE_KEY,
   renderTodoList,
@@ -37,7 +37,7 @@ import {
 } from '#/todoList/tools/todo-list';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
 import {
-  IFullCompaction,
+  IAgentFullCompactionService,
   type CompactInput,
   type FullCompactionCompleteData,
 } from './fullCompaction';
@@ -88,7 +88,7 @@ class CompactionTruncatedError extends Error {
   }
 }
 
-export class FullCompactionService extends Disposable implements IFullCompaction {
+export class AgentFullCompactionService extends Disposable implements IAgentFullCompactionService {
   declare readonly _serviceBrand: undefined;
   private readonly strategy: CompactionStrategy;
   private compactionCountInTurn = 0;
@@ -96,18 +96,18 @@ export class FullCompactionService extends Disposable implements IFullCompaction
 
   constructor(
     private readonly options: FullCompactionServiceOptions = {},
-    @IContextMemory private readonly context: IContextMemory,
-    @IContextProjector private readonly projector: IContextProjector,
-    @IContextSizeService private readonly contextSize: IContextSizeService,
-    @ILLMRequester private readonly llmRequester: ILLMRequester,
-    @IProfileService private readonly profile: IProfileService,
-    @IToolStoreService private readonly toolStore: IToolStoreService,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
+    @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
+    @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentToolStoreService private readonly toolStore: IAgentToolStoreService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventSink private readonly events: IEventSink,
-    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
-    @IExternalHooksService private readonly externalHooks: IExternalHooksService,
-    @ITurnService turnService: ITurnService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
+    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
+    @IAgentTurnService turnService: IAgentTurnService,
   ) {
     super();
     this.strategy =
@@ -579,17 +579,17 @@ function isTodoItem(value: unknown): value is TodoItem {
   );
 }
 
-export { FullCompactionService as FullCompaction };
+export { AgentFullCompactionService as FullCompaction };
 
 // Construct eagerly (not delayed): the service registers turn-lifecycle hooks
 // (onLaunched / beforeStep / afterStep) in its constructor that drive auto
-// compaction. With delayed instantiation the eager `accessor.get(IFullCompaction)`
+// compaction. With delayed instantiation the eager `accessor.get(IAgentFullCompactionService)`
 // only realizes a proxy, so the hooks would not register until the first RPC —
 // after turns have already run without the auto-compaction gate.
 registerScopedService(
   LifecycleScope.Agent,
-  IFullCompaction,
-  FullCompactionService,
+  IAgentFullCompactionService,
+  AgentFullCompactionService,
   InstantiationType.Eager,
   'fullCompaction',
 );

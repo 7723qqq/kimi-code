@@ -3,10 +3,10 @@
  *
  * Ported from v1 (`packages/agent-core/test/tools/grep.test.ts`) and adapted
  * to the v2 constructor `(fs, kaos, workspace)`. Self-contained: builds a
- * minimal fake `IFsService` returning canned `FsGrepResponse`s so the tool's
+ * minimal fake `ISessionFsService` returning canned `FsGrepResponse`s so the tool's
  * argument mapping and result rendering can be exercised without the
  * composition root or a real ripgrep. The v1 tests that asserted on the exact
- * `rg` argv (which the tool no longer builds — `IFsService.grep` owns the
+ * `rg` argv (which the tool no longer builds — `ISessionFsService.grep` owns the
  * subprocess) are intentionally dropped here.
  */
 
@@ -14,7 +14,7 @@ import type { FsGrepFileHit, FsGrepRequest, FsGrepResponse } from '@moonshot-ai/
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
-import type { IFsService } from '../../src/agentFs';
+import type { ISessionFsService } from '../../src/agentFs';
 import {
   type GrepInput,
   GrepInputSchema,
@@ -43,7 +43,7 @@ function createFakeFs(
   const grep = vi.fn(async (req: FsGrepRequest) =>
     typeof response === 'function' ? response(req) : response,
   );
-  const fs = { grep } as unknown as IFsService;
+  const fs = { grep } as unknown as ISessionFsService;
   return { fs, grep };
 }
 

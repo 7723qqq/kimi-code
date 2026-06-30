@@ -21,7 +21,7 @@ import {
 } from '#/_base/di/scope';
 import { ISessionContext } from '#/session-context';
 import { ISessionMetadata } from '#/session-metadata';
-import { IWireRecord, WireRecordService } from '#/wireRecord';
+import { IAgentWireRecordService, AgentWireRecordService } from '#/wireRecord';
 
 import { type CreateAgentOptions, IAgentLifecycleService } from './agentLifecycle';
 
@@ -58,7 +58,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       LifecycleScope.Agent,
       agentId,
       {
-        extra: [[IWireRecord, new SyncDescriptor(WireRecordService, [{ homedir: agentHomedir }])]],
+        extra: [[IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])]],
       },
     );
     this.handles.set(agentId, handle);

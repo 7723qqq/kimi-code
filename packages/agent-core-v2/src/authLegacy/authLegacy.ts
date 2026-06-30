@@ -5,7 +5,7 @@
  * native v2 services (`IProviderService`, `IConfigService`, `IOAuthService`).
  * The native `IAuthSummaryService` keeps serving `/api/v2` (`auth:summarize` /
  * `auth:ensureReady`) and is left untouched; this adapter exists only so v1
- * clients keep working against server-v2. Bound at Core scope — it is a
+ * clients keep working against server-v2. Bound at App scope — it is a
  * stateless projector over the global provider / model / credential state.
  */
 

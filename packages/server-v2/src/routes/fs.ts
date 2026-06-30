@@ -3,16 +3,16 @@
  *
  * Mirrors `packages/server/src/routes/fs.ts` path-for-path and schema-for-schema
  * so existing v1 clients keep working against server-v2. Backed by the v2
- * Session-scoped `IFsService` (`agent-core-v2/src/agentFs`): the route resolves
+ * Session-scoped `ISessionFsService` (`agent-core-v2/src/agentFs`): the route resolves
  * the session from the URL, then dispatches `fs:<action>` to the matching
- * `IFsService` method. The wire schema is reused from `@moonshot-ai/protocol`.
+ * `ISessionFsService` method. The wire schema is reused from `@moonshot-ai/protocol`.
  */
 
 import { createReadStream } from 'node:fs';
 
 import {
   ErrorCodes,
-  IFsService,
+  ISessionFsService,
   ISessionLifecycleService,
   isKimiError,
   KimiError,
@@ -94,12 +94,12 @@ const FS_ACTIONS = [
 type FsAction = (typeof FS_ACTIONS)[number];
 const FS_TAIL_PREFIX = 'fs:';
 
-function resolveFs(core: Scope, sessionId: string): IFsService {
+function resolveFs(core: Scope, sessionId: string): ISessionFsService {
   const session = core.accessor.get(ISessionLifecycleService).get(sessionId);
   if (session === undefined) {
     throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
   }
-  return session.accessor.get(IFsService);
+  return session.accessor.get(ISessionFsService);
 }
 
 export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
@@ -232,7 +232,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         return;
       }
 
-      let resolved: Awaited<ReturnType<IFsService['resolveDownload']>>;
+      let resolved: Awaited<ReturnType<ISessionFsService['resolveDownload']>>;
       try {
         resolved = await resolveFs(core, session_id).resolveDownload(relPath);
       } catch (err) {
@@ -297,7 +297,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
 }
 
 // ---------------------------------------------------------------------------
-// Action handlers — thin adapters: parse body, call IFsService, wrap result.
+// Action handlers — thin adapters: parse body, call ISessionFsService, wrap result.
 // ---------------------------------------------------------------------------
 
 type Req = { id: string; body: unknown };

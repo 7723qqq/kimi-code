@@ -10,8 +10,8 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IInteractionService } from '#/interaction';
-import { ITurnService } from '#/turn';
+import { ISessionInteractionService } from '#/interaction';
+import { IAgentTurnService } from '#/turn';
 
 import { ISessionActivity, type SessionStatus } from './sessionActivity';
 
@@ -20,7 +20,7 @@ export class SessionActivity implements ISessionActivity {
 
   constructor(
     @IAgentLifecycleService private readonly agents: IAgentLifecycleService,
-    @IInteractionService private readonly interaction: IInteractionService,
+    @ISessionInteractionService private readonly interaction: ISessionInteractionService,
   ) {}
 
   status(): SessionStatus {
@@ -37,7 +37,7 @@ export class SessionActivity implements ISessionActivity {
 
   private hasActiveTurn(): boolean {
     for (const handle of this.agents.list()) {
-      const turn = handle.accessor.get(ITurnService);
+      const turn = handle.accessor.get(IAgentTurnService);
       if (turn.getActiveTurn() !== undefined) return true;
     }
     return false;
@@ -45,7 +45,7 @@ export class SessionActivity implements ISessionActivity {
 
   private hasAbortedTurn(): boolean {
     for (const handle of this.agents.list()) {
-      const reason = handle.accessor.get(ITurnService).lastEndedReason();
+      const reason = handle.accessor.get(IAgentTurnService).lastEndedReason();
       if (reason === 'cancelled' || reason === 'failed' || reason === 'filtered') {
         return true;
       }

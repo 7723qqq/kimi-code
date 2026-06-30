@@ -207,7 +207,7 @@ function encodeBatch(records: readonly unknown[]): Uint8Array {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IAppendLogStore,
   AppendLogStore,
   InstantiationType.Delayed,

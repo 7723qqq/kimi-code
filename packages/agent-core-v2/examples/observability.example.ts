@@ -3,7 +3,7 @@
  *
  * Builds a flat container that runs both services for real (neither has
  * cross-domain collaborators, so nothing is stubbed). `ILogService` writes
- * through the Core console writer; `ITelemetryService` fans events out to a
+ * through the App console writer; `ITelemetryService` fans events out to a
  * console appender while merging bound context. The two compose: a child
  * logger and a context-scoped telemetry both carry their bound fields into
  * the output.

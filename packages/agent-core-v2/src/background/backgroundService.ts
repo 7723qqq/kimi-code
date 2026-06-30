@@ -1,5 +1,5 @@
 /**
- * `background` domain (L5) — `BackgroundService` implementation.
+ * `background` domain (L5) — `AgentBackgroundService` implementation.
  *
  * Owns the agent's registry of running and restored background tasks:
  * registers and drives tasks to completion, retains a bounded output ring,
@@ -25,19 +25,19 @@ import {
   type BackgroundTaskSettlement,
 } from './task';
 
-import { IContextMemory } from '#/contextMemory';
+import { IAgentContextMemoryService } from '#/contextMemory';
 import { IConfigRegistry, IConfigService } from '#/config';
-import { IEventSink } from '../eventSink';
-import { IExternalHooksService } from '#/externalHooks';
-import { IPromptService } from '#/prompt';
+import { IAgentEventSinkService } from '../eventSink';
+import { IAgentExternalHooksService } from '#/externalHooks';
+import { IAgentPromptService } from '#/prompt';
 import { ISessionContext } from '#/session-context';
 import { IAtomicDocumentStore, IStorageService } from '#/storage';
 import { ITelemetryService } from '#/telemetry';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import type { WireRecord } from '#/wireRecord';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import {
-  IBackgroundService,
+  IAgentBackgroundService,
   type BackgroundLoadOptions,
   type BackgroundTask,
   type BackgroundTaskInfo,
@@ -123,7 +123,7 @@ export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean 
   return TERMINAL_STATUSES.has(status);
 }
 
-export class BackgroundService extends Disposable implements IBackgroundService {
+export class AgentBackgroundService extends Disposable implements IAgentBackgroundService {
   declare readonly _serviceBrand: undefined;
 
   private readonly tasks = new Map<string, ManagedTask>();
@@ -133,13 +133,13 @@ export class BackgroundService extends Disposable implements IBackgroundService 
   private readonly persistence: BackgroundTaskPersistence;
 
   constructor(
-    @IEventSink private readonly events: IEventSink,
-    @IWireRecord private readonly wireRecord: IWireRecord,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IPromptService private readonly prompt: IPromptService,
-    @IExternalHooksService private readonly externalHooks: IExternalHooksService,
-    @IContextMemory private readonly context: IContextMemory,
-    @IToolRegistry toolRegistry: IToolRegistry,
+    @IAgentPromptService private readonly prompt: IAgentPromptService,
+    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore atomicDocs: IAtomicDocumentStore,
@@ -944,12 +944,12 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-export { BackgroundService as Background };
+export { AgentBackgroundService as Background };
 
 registerScopedService(
   LifecycleScope.Agent,
-  IBackgroundService,
-  BackgroundService,
+  IAgentBackgroundService,
+  AgentBackgroundService,
   InstantiationType.Delayed,
   'background',
 );

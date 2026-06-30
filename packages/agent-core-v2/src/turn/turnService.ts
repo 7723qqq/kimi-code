@@ -3,13 +3,13 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { toKimiErrorPayload, type KimiErrorPayload } from "#/errors";
 import { isUserCancellation } from "#/_base/utils/abort";
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
-import { IContextMemory, USER_PROMPT_ORIGIN } from '#/contextMemory';
-import { IEventSink } from '../eventSink';
-import { IExternalHooksService } from '#/externalHooks';
+import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/contextMemory';
+import { IAgentEventSinkService } from '../eventSink';
+import { IAgentExternalHooksService } from '#/externalHooks';
 import { OrderedHookSlot } from '#/hooks';
-import { ILoopService } from '#/loop';
+import { IAgentLoopService } from '#/loop';
 import { ITelemetryService } from '#/telemetry';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import type {
   Turn,
   TurnContextOverflowContext,
@@ -17,7 +17,7 @@ import type {
   TurnResult,
   TurnStepContext,
 } from './turn';
-import { ITurnService } from './turn';
+import { IAgentTurnService } from './turn';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -29,7 +29,7 @@ declare module '#/wireRecord' {
   }
 }
 
-export class TurnService implements ITurnService {
+export class AgentTurnService implements IAgentTurnService {
   declare readonly _serviceBrand: undefined;
   private nextTurnId = 0;
   private activeTurn: Turn | undefined;
@@ -49,11 +49,11 @@ export class TurnService implements ITurnService {
   };
 
   constructor(
-    @ILoopService private readonly loop: ILoopService,
-    @IEventSink private readonly events: IEventSink,
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IContextMemory private readonly context: IContextMemory,
-    @IExternalHooksService private readonly externalHooks: IExternalHooksService,
+    @IAgentLoopService private readonly loop: IAgentLoopService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     wireRecord.register('turn.launch', (record) => {
@@ -325,8 +325,8 @@ function createControlledPromise<T>(): ControlledPromise<T> {
 
 registerScopedService(
   LifecycleScope.Agent,
-  ITurnService,
-  TurnService,
+  IAgentTurnService,
+  AgentTurnService,
   InstantiationType.Delayed,
   'turn',
 );

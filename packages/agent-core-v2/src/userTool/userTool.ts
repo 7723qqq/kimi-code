@@ -6,11 +6,11 @@ export interface UserToolRegistration {
   readonly parameters: Record<string, unknown>;
 }
 
-export interface IUserToolService {
+export interface IAgentUserToolService {
   readonly _serviceBrand: undefined;
 
   register(input: UserToolRegistration): void;
   unregister(name: string): void;
 }
 
-export const IUserToolService = createDecorator<IUserToolService>('agentUserToolService');
+export const IAgentUserToolService = createDecorator<IAgentUserToolService>('agentUserToolService');

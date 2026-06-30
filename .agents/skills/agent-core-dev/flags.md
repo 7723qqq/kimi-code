@@ -1,22 +1,22 @@
 # Topic — Flags
 
-Experimental feature-flag gating for agent-core-v2 — a Core-scope `IFlagService` resolver plus a writable `IFlagRegistry` catalog that domains contribute their flags to, backed by the `[experimental]` config section.
+Experimental feature-flag gating for agent-core-v2 — a App-scope `IFlagService` resolver plus a writable `IFlagRegistry` catalog that domains contribute their flags to, backed by the `[experimental]` config section.
 
 Gate not-yet-public features behind `IFlagService.enabled(id)`, per the repository hard rule that unreleased behavior must be flag-gated. v1 was a process-global `FlagResolver` singleton over a central `FLAG_DEFINITIONS` array; v2 is a scoped DI service whose flag definitions are registered **decentrally** by each owning domain — there is no central catalog to edit.
 
 ## Layout
 
 - `src/flag/flagRegistry.ts` — `IFlagRegistry` token + `FlagDefinitionInput` / `FlagId` / `FlagSurface` types + `registerFlagDefinition` / `getContributedFlags` (import-time contribution queue).
-- `src/flag/flagRegistryService.ts` — `FlagRegistryService` impl; in-memory catalog seeded from import-time contributions; Core scope.
+- `src/flag/flagRegistryService.ts` — `FlagRegistryService` impl; in-memory catalog seeded from import-time contributions; App scope.
 - `src/flag/flag.ts` — `IFlagService` token + resolver types (`ExperimentalFlagMap`, `ExperimentalFlagConfig`, `ExperimentalFlagSource`, `ExperimentalFeatureState`) + `ExperimentalConfigSchema` / `ExperimentalConfig` (zod).
-- `src/flag/flagService.ts` — `FlagService` impl + `MASTER_ENV` (`KIMI_CODE_EXPERIMENTAL_FLAG`) + `EXPERIMENTAL_SECTION` (`experimental`); reads definitions from `IFlagRegistry`; self-registers at Core scope.
+- `src/flag/flagService.ts` — `FlagService` impl + `MASTER_ENV` (`KIMI_CODE_EXPERIMENTAL_FLAG`) + `EXPERIMENTAL_SECTION` (`experimental`); reads definitions from `IFlagRegistry`; self-registers at App scope.
 - `src/flag/index.ts` — barrel; re-exported by `src/index.ts` at the L3 block.
 - `src/<domain>/flag.ts` — each domain that owns a flag declares it here and calls `registerFlagDefinition` at the module top level (e.g. `src/microCompaction/flag.ts`). The directory already names the domain, so the file is just `flag.ts`.
 
 ## Public surface
 
-- `IFlagService` (DI token, Core scope): `enabled(id)`, `explain(id)`, `snapshot()`, `enabledIds()`, `explainAll()`, `setConfigOverrides(overrides)`, `registry`.
-- `IFlagRegistry` (DI token, Core scope): `register(definition)`, `get(id)`, `list()` — writable catalog. `register` is the **runtime** path (tests, dynamic registration); `IFlagService.registry` exposes the same instance for hosts/UI to enumerate flags without resolving them.
+- `IFlagService` (DI token, App scope): `enabled(id)`, `explain(id)`, `snapshot()`, `enabledIds()`, `explainAll()`, `setConfigOverrides(overrides)`, `registry`.
+- `IFlagRegistry` (DI token, App scope): `register(definition)`, `get(id)`, `list()` — writable catalog. `register` is the **runtime** path (tests, dynamic registration); `IFlagService.registry` exposes the same instance for hosts/UI to enumerate flags without resolving them.
 - `registerFlagDefinition(definition)` — the **import-time** path. Domains call this from their `flag.ts` top level; contributions are queued and drained by `FlagRegistryService` when it is instantiated.
 - `FlagService` / `FlagRegistryService`: exported for tests and hosts that construct them directly.
 

@@ -4,13 +4,13 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { ITelemetryService } from '#/telemetry';
 import {
-  IToolDedupe,
-  ToolDedupeService,
+  IAgentToolDedupeService,
+  AgentToolDedupeService,
   __testing as toolDedupTesting,
 } from '#/tooldedup';
 import type { ToolDedupResult } from '#/tooldedup';
-import { IToolExecutor } from '#/toolExecutor';
-import { ITurnService } from '#/turn';
+import { IAgentToolExecutorService } from '#/toolExecutor';
+import { IAgentTurnService } from '#/turn';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import { stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';
 
@@ -26,17 +26,17 @@ beforeEach(() => {
 
 afterEach(() => disposables.dispose());
 
-function createDeduper(telemetry = recordingTelemetry(telemetryEvents)): IToolDedupe {
+function createDeduper(telemetry = recordingTelemetry(telemetryEvents)): IAgentToolDedupeService {
   const ix = createServices(disposables, {
     additionalServices: (reg) => {
       reg.defineInstance(ITelemetryService, telemetry);
-      reg.defineInstance(ITurnService, stubTurnWithHooks());
-      reg.defineInstance(IToolExecutor, stubToolExecutor());
-      reg.define(IToolDedupe, ToolDedupeService);
+      reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
+      reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
+      reg.define(IAgentToolDedupeService, AgentToolDedupeService);
     },
     strict: true,
   });
-  return ix.get(IToolDedupe);
+  return ix.get(IAgentToolDedupeService);
 }
 
 function okResult(text: string): ToolDedupResult {
@@ -53,7 +53,7 @@ function errResult(text: string): ToolDedupResult {
  * + finalizeResult for the original (first-occurrence) call.
  */
 async function runOriginal(
-  deduper: IToolDedupe,
+  deduper: IAgentToolDedupeService,
   callId: string,
   tool: string,
   args: unknown,
@@ -64,7 +64,7 @@ async function runOriginal(
   return deduper.finalizeResult(callId, tool, args, result);
 }
 
-describe('ToolDedupeService', () => {
+describe('AgentToolDedupeService', () => {
   describe('same-step dedup', () => {
     it('returns a placeholder synchronously and resolves to the real result on finalize', async () => {
       const dedup = createDeduper();
@@ -404,7 +404,7 @@ describe('ToolDedupeService', () => {
     }
 
     async function runStreak(
-      dedup: IToolDedupe,
+      dedup: IAgentToolDedupeService,
       count: number,
     ): Promise<ToolDedupResult> {
       let last: ToolDedupResult | undefined;

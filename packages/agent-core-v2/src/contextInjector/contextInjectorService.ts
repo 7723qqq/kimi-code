@@ -5,12 +5,12 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IContextMemory } from '../contextMemory';
-import { ISystemReminderService } from '../systemReminder';
-import { ITurnService } from '../turn';
+import { IAgentContextMemoryService } from '../contextMemory';
+import { IAgentSystemReminderService } from '../systemReminder';
+import { IAgentTurnService } from '../turn';
 import type { ContextMessage } from '#/contextMemory';
 import {
-  IContextInjector,
+  IAgentContextInjectorService,
   type ContextInjectionOptions,
   type ContextInjectionProvider,
 } from './contextInjector';
@@ -24,15 +24,15 @@ interface ContextInjectionEntry {
   turnConsumed: boolean;
 }
 
-export class ContextInjectorService extends Disposable implements IContextInjector {
+export class AgentContextInjectorService extends Disposable implements IAgentContextInjectorService {
   declare readonly _serviceBrand: undefined;
   private readonly entries = new Set<ContextInjectionEntry>();
   private readonly selfInsertedMessages = new WeakMap<ContextMessage, ContextInjectionEntry>();
 
   constructor(
-    @IContextMemory private readonly context: IContextMemory,
-    @ITurnService turnService: ITurnService,
-    @ISystemReminderService private readonly reminders: ISystemReminderService,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentTurnService turnService: IAgentTurnService,
+    @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
   ) {
     super();
     this._register(
@@ -186,8 +186,8 @@ function findLastInjection(
 
 registerScopedService(
   LifecycleScope.Agent,
-  IContextInjector,
-  ContextInjectorService,
+  IAgentContextInjectorService,
+  AgentContextInjectorService,
   InstantiationType.Delayed,
   'contextInjector',
 );

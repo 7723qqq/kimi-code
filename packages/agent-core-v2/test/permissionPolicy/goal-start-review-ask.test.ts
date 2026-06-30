@@ -3,12 +3,12 @@ import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { describe, expect, it } from 'vitest';
 
 import type { ResolvedToolExecutionHookContext } from '#/tool';
-import type { IPermissionModeService } from '#/permissionMode';
+import type { IAgentPermissionModeService } from '#/permissionMode';
 import { GoalStartReviewAskPermissionPolicyService } from '#/permissionPolicy/policies/goal-start-review-ask';
 import { ToolAccesses } from '#/tool';
 
 const signal = new AbortController().signal;
-type PermissionMode = IPermissionModeService['mode'];
+type PermissionMode = IAgentPermissionModeService['mode'];
 
 function fakeModeService(initialMode: PermissionMode) {
   let currentMode = initialMode;
@@ -19,7 +19,7 @@ function fakeModeService(initialMode: PermissionMode) {
     setMode(mode: PermissionMode) {
       currentMode = mode;
     },
-  } as IPermissionModeService;
+  } as IAgentPermissionModeService;
 }
 
 function policyContext(

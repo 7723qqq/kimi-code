@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { IInteractionService, type IDisposable } from '@moonshot-ai/agent-core-v2';
+import { ISessionInteractionService, type IDisposable } from '@moonshot-ai/agent-core-v2';
 
 import { resolveEventSource } from '../src/transport/ws/eventMap';
 
@@ -32,7 +32,7 @@ describe('session `interactions` event source', () => {
     };
     const scope = {
       accessor: {
-        get: (id: unknown) => (id === IInteractionService ? interaction : undefined),
+        get: (id: unknown) => (id === ISessionInteractionService ? interaction : undefined),
       },
     };
 
@@ -67,7 +67,7 @@ describe('session `interactions:resolved` event source', () => {
     };
     const scope = {
       accessor: {
-        get: (id: unknown) => (id === IInteractionService ? interaction : undefined),
+        get: (id: unknown) => (id === ISessionInteractionService ? interaction : undefined),
       },
     };
 

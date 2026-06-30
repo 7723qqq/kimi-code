@@ -8,7 +8,7 @@ import {
   type PermissionRuleMatch,
 } from '#/permissionRules';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
-import type { IPermissionRulesService } from '../../permissionRules/permissionRules';
+import type { IAgentPermissionRulesService } from '../../permissionRules/permissionRules';
 import type { PermissionPolicyResult } from '../types';
 
 const USER_CONFIGURED_SCOPES = new Set<PermissionRuleScope>([
@@ -20,7 +20,7 @@ const USER_CONFIGURED_SCOPES = new Set<PermissionRuleScope>([
 export function evaluateUserConfiguredRule(
   context: ResolvedToolExecutionHookContext,
   decision: PermissionRuleDecision,
-  rulesService: IPermissionRulesService,
+  rulesService: IAgentPermissionRulesService,
 ): PermissionPolicyResult | undefined {
   const match = firstMatchingRule(context, decision, rulesService, USER_CONFIGURED_SCOPES);
   if (match === undefined) return undefined;
@@ -42,7 +42,7 @@ function defaultPermissionRuleDenyMessage(tool: string, reason: string | undefin
 function firstMatchingRule(
   context: ResolvedToolExecutionHookContext,
   decision: PermissionRuleDecision,
-  rulesService: IPermissionRulesService,
+  rulesService: IAgentPermissionRulesService,
   scopes: ReadonlySet<PermissionRuleScope>,
 ): PermissionRuleMatch | undefined {
   const rules = rulesService.rules.filter((rule): rule is PermissionRule =>

@@ -1,6 +1,6 @@
 /**
  * `permissionPolicy` test stubs — shared doubles for
- * `IPermissionPolicyService`.
+ * `IAgentPermissionPolicyService`.
  *
  * Lives under `test/` (not `src/`) so test-support code stays out of the
  * production tree. Import from a relative path (`./stubs` or
@@ -8,13 +8,13 @@
  */
 
 import type {
-  IPermissionPolicyService,
+  IAgentPermissionPolicyService,
   PermissionPolicyEvaluation,
 } from '#/permissionPolicy';
 
 export function stubPermissionPolicyService(
   next: () => PermissionPolicyEvaluation | undefined,
-): IPermissionPolicyService {
+): IAgentPermissionPolicyService {
   return {
     _serviceBrand: undefined,
     evaluate: () => Promise.resolve(next()),

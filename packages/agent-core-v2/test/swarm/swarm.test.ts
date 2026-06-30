@@ -3,40 +3,40 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IContextMemory } from '#/contextMemory';
-import { IEventSink } from '../../src/eventSink';
-import { ISubagentHost } from '#/subagentHost';
-import { ISystemReminderService } from '#/systemReminder';
-import { SystemReminderService } from '#/systemReminder/systemReminderService';
-import { ISwarmService } from '#/swarm';
-import { SwarmService } from '#/swarm/swarmService';
-import { IToolRegistry, ToolRegistryService } from '#/toolRegistry';
-import { ITurnService } from '#/turn';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentEventSinkService } from '../../src/eventSink';
+import { ISessionSubagentHost } from '#/subagentHost';
+import { IAgentSystemReminderService } from '#/systemReminder';
+import { AgentSystemReminderService } from '#/systemReminder/systemReminderService';
+import { IAgentSwarmService } from '#/swarm';
+import { AgentSwarmService } from '#/swarm/swarmService';
+import { IAgentToolRegistryService, AgentToolRegistryService } from '#/toolRegistry';
+import { IAgentTurnService } from '#/turn';
+import { IAgentWireRecordService } from '#/wireRecord';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
 import { stubTurnWithHooks } from '../turn/stubs';
 
-describe('SwarmService', () => {
+describe('AgentSwarmService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    ix.stub(IContextMemory, stubContextMemory());
-    ix.stub(IWireRecord, stubWireRecord());
-    ix.stub(IEventSink, { emit: () => {}, on: () => toDisposable(() => {}) });
-    ix.stub(ITurnService, stubTurnWithHooks());
-    ix.set(IToolRegistry, new SyncDescriptor(ToolRegistryService));
-    ix.stub(ISubagentHost, {});
-    ix.set(ISystemReminderService, new SyncDescriptor(SystemReminderService));
-    ix.set(ISwarmService, new SyncDescriptor(SwarmService));
+    ix.stub(IAgentContextMemoryService, stubContextMemory());
+    ix.stub(IAgentWireRecordService, stubWireRecord());
+    ix.stub(IAgentEventSinkService, { emit: () => {}, on: () => toDisposable(() => {}) });
+    ix.stub(IAgentTurnService, stubTurnWithHooks());
+    ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
+    ix.stub(ISessionSubagentHost, {});
+    ix.set(IAgentSystemReminderService, new SyncDescriptor(AgentSystemReminderService));
+    ix.set(IAgentSwarmService, new SyncDescriptor(AgentSwarmService));
   });
   afterEach(() => disposables.dispose());
 
   it('enter / exit toggle isActive', async () => {
-    const swarm = ix.get(ISwarmService);
+    const swarm = ix.get(IAgentSwarmService);
     expect(swarm.isActive).toBe(false);
     swarm.enter('manual');
     expect(swarm.isActive).toBe(true);

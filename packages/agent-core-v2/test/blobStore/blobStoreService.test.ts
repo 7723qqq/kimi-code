@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { LifecycleScope } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IBlobStoreService } from '#/blobStore';
+import { IAgentBlobStoreService } from '#/blobStore';
 import { IBlobStorage, InMemoryStorageService } from '#/storage';
 
 function makeLargeDataUri(mimeType = 'image/png'): { uri: string; payload: string } {
@@ -17,7 +17,7 @@ function makeSmallDataUri(mimeType = 'image/png'): { uri: string; payload: strin
   return { uri: `data:${mimeType};base64,${payload}`, payload };
 }
 
-describe('BlobStoreService', () => {
+describe('AgentBlobStoreService', () => {
   let host: ReturnType<typeof createScopedTestHost>;
 
   beforeEach(() => {
@@ -28,9 +28,9 @@ describe('BlobStoreService', () => {
     host.dispose();
   });
 
-  function getBlobStore(): IBlobStoreService {
-    const agent = host.core.createChild(LifecycleScope.Agent, 'test-agent');
-    return agent.accessor.get(IBlobStoreService);
+  function getBlobStore(): IAgentBlobStoreService {
+    const agent = host.app.createChild(LifecycleScope.Agent, 'test-agent');
+    return agent.accessor.get(IAgentBlobStoreService);
   }
 
   it('leaves small data URIs unchanged', async () => {
@@ -56,7 +56,7 @@ describe('BlobStoreService', () => {
     expect(store.isBlobRef(newUrl)).toBe(true);
     expect(newUrl.startsWith('blobref:image/png;')).toBe(true);
 
-    const backend = host.core.accessor.get(IBlobStorage);
+    const backend = host.app.accessor.get(IBlobStorage);
     const keys = await backend.list('blobs');
     expect(keys).toHaveLength(1);
     expect(Buffer.from((await backend.read('blobs', keys[0]!))!).toString('base64')).toBe(payload);

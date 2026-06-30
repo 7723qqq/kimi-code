@@ -1,5 +1,5 @@
 import type { ResolvedToolExecutionHookContext } from '#/tool';
-import { IPermissionModeService } from '../../permissionMode/permissionMode';
+import { IAgentPermissionModeService } from '../../permissionMode/permissionMode';
 import type {
   PermissionPolicy,
   PermissionMode,
@@ -10,7 +10,7 @@ export class GoalStartReviewAskPermissionPolicyService implements PermissionPoli
   readonly name = 'goal-start-review-ask';
 
   constructor(
-    @IPermissionModeService private readonly modeService: IPermissionModeService,
+    @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
   ) {}
 
   evaluate(context: ResolvedToolExecutionHookContext): PermissionPolicyResult | undefined {

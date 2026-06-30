@@ -117,7 +117,7 @@ export type ShouldContinueAfterStopHook = (
  * Groups every awaited phase hook forwarded from the turn layer.
  *
  * Tool-execution gates (`onWillExecuteTool` / `onDidExecuteTool`) are owned by
- * `IToolExecutor` and run by it at the right transcript points.
+ * `IAgentToolExecutorService` and run by it at the right transcript points.
  * `shouldContinueAfterStop` is loop-local convergence control.
  */
 export interface LoopHooks {

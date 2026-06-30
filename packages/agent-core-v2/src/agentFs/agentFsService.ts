@@ -1,5 +1,5 @@
 /**
- * `agentFs` domain (L1) — `IAgentFileSystem` implementation.
+ * `agentFs` domain (L1) — `ISessionAgentFileSystem` implementation.
  *
  * Focused file-IO surface over the session execution environment (`IKaos.backend`).
  * Relative-path resolution (in the target path style) and symlink-safe glob are
@@ -12,7 +12,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IKaos, type StatResult } from '#/kaos';
 
-import { type AgentFileStat, IAgentFileSystem } from './agentFs';
+import { type AgentFileStat, ISessionAgentFileSystem } from './agentFs';
 
 const S_IFMT = 0o170000;
 const S_IFREG = 0o100000;
@@ -28,7 +28,7 @@ function basename(p: string): string {
   return parts[parts.length - 1] ?? p;
 }
 
-export class AgentFileSystem implements IAgentFileSystem {
+export class SessionAgentFileSystem implements ISessionAgentFileSystem {
   declare readonly _serviceBrand: undefined;
 
   constructor(@IKaos private readonly kaos: IKaos) {}
@@ -96,15 +96,15 @@ export class AgentFileSystem implements IAgentFileSystem {
     });
   }
 
-  withCwd(cwd: string): IAgentFileSystem {
-    return new AgentFileSystem(this.kaos.withCwd(cwd));
+  withCwd(cwd: string): ISessionAgentFileSystem {
+    return new SessionAgentFileSystem(this.kaos.withCwd(cwd));
   }
 }
 
 registerScopedService(
   LifecycleScope.Session,
-  IAgentFileSystem,
-  AgentFileSystem,
+  ISessionAgentFileSystem,
+  SessionAgentFileSystem,
   InstantiationType.Delayed,
   'agentFs',
 );

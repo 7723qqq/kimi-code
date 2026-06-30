@@ -1,6 +1,6 @@
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { matchPermissionRule } from '#/permissionRules';
-import { IPermissionRulesService } from '../../permissionRules/permissionRules';
+import { IAgentPermissionRulesService } from '../../permissionRules/permissionRules';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
@@ -10,7 +10,7 @@ export class SessionApprovalHistoryPermissionPolicyService implements Permission
   readonly name = 'session-approval-history';
 
   constructor(
-    @IPermissionRulesService private readonly rulesService: IPermissionRulesService,
+    @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
   ) {}
 
   evaluate(context: ResolvedToolExecutionHookContext): PermissionPolicyResult | undefined {

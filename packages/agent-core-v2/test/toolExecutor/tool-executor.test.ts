@@ -6,13 +6,13 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { LoopEvent } from '#/loop';
 import { ToolAccesses, type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolResult, type ToolUpdate } from '#/tool';
-import { IToolExecutor, ToolExecutorService } from '#/toolExecutor';
-import { IToolRegistry, ToolRegistryService } from '#/toolRegistry';
+import { IAgentToolExecutorService, AgentToolExecutorService } from '#/toolExecutor';
+import { IAgentToolRegistryService, AgentToolRegistryService } from '#/toolRegistry';
 
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
-let executor: IToolExecutor;
-let registry: IToolRegistry;
+let executor: IAgentToolExecutorService;
+let registry: IAgentToolRegistryService;
 let events: LoopEvent[];
 
 beforeEach(() => {
@@ -20,20 +20,20 @@ beforeEach(() => {
   events = [];
   ix = createServices(disposables, {
     additionalServices: (reg) => {
-      reg.define(IToolRegistry, ToolRegistryService);
-      reg.define(IToolExecutor, ToolExecutorService);
+      reg.define(IAgentToolRegistryService, AgentToolRegistryService);
+      reg.define(IAgentToolExecutorService, AgentToolExecutorService);
     },
     strict: true,
   });
-  executor = ix.get(IToolExecutor);
-  registry = ix.get(IToolRegistry);
+  executor = ix.get(IAgentToolExecutorService);
+  registry = ix.get(IAgentToolRegistryService);
 });
 
 afterEach(() => {
   disposables.dispose();
 });
 
-describe('ToolExecutorService', () => {
+describe('AgentToolExecutorService', () => {
   it('resolves by interface and routes a successful tool call through execute', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);

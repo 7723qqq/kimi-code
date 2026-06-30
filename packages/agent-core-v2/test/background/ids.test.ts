@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AgentBackgroundTask,
-  IBackgroundService,
+  IAgentBackgroundService,
   ProcessBackgroundTask,
 } from '#/background';
 import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
@@ -14,7 +14,7 @@ import { createTestAgent, type TestAgentContext } from '../harness';
 import { createBackgroundTaskPersistence } from './stubs';
 
 function registerProcess(
-  manager: IBackgroundService,
+  manager: IAgentBackgroundService,
   proc: KaosProcess,
   command: string,
   description: string,
@@ -69,11 +69,11 @@ function pendingProcess(): KaosProcess & { resolve(code: number): void } {
 
 describe('background task id format', () => {
   let ctx: TestAgentContext;
-  let background: IBackgroundService;
+  let background: IAgentBackgroundService;
 
   beforeEach(() => {
     ctx = createTestAgent();
-    background = ctx.get(IBackgroundService);
+    background = ctx.get(IAgentBackgroundService);
   });
 
   afterEach(async () => {

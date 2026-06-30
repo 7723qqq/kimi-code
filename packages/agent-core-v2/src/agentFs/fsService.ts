@@ -1,12 +1,12 @@
 /**
- * `agentFs` domain (L2) — `IFsService` implementation.
+ * `agentFs` domain (L2) — `ISessionFsService` implementation.
  *
  * Backs the fs REST surface (search / grep / git status / git diff) by
- * orchestrating `IAgentFileSystem` (file IO) and `IProcessRunner` (`rg` /
+ * orchestrating `ISessionAgentFileSystem` (file IO) and `ISessionProcessRunner` (`rg` /
  * `git` / `gh`). Bound at Session scope — the workspace root and execution
  * environment come from the scope, so no `sessionId` is threaded through.
  *
- * Path confinement is lexical (`IWorkspaceContext.isWithin`); it does not
+ * Path confinement is lexical (`ISessionWorkspaceContext.isWithin`); it does not
  * follow symlinks, matching the rest of v2 (`_base/tools/policies/path-access.ts`).
  */
 
@@ -45,11 +45,11 @@ import ignore, { type Ignore } from 'ignore';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IProcessRunner } from '#/process';
-import { IWorkspaceContext } from '#/workspaceContext';
+import { ISessionProcessRunner } from '#/process';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
 
-import { type AgentFileStat, IAgentFileSystem } from './agentFs';
-import { type FsDownloadResolved, type FsPathResolved, IFsService } from './fs';
+import { type AgentFileStat, ISessionAgentFileSystem } from './agentFs';
+import { type FsDownloadResolved, type FsPathResolved, ISessionFsService } from './fs';
 import { parseNumstat, parsePorcelain, parsePullRequest } from './fsGit';
 import { runCommand } from './fsProcess';
 import {
@@ -80,7 +80,7 @@ const FS_BINARY_NONPRINTABLE_FRACTION = 0.3;
 const HIDDEN_NAME_RE = /^\./;
 const MACOS_NOISE = new Set(['.DS_Store', '.AppleDouble', '.LSOverride']);
 
-export class FsService implements IFsService {
+export class SessionFsService implements ISessionFsService {
   declare readonly _serviceBrand: undefined;
 
   private readonly gitignoreCache = new Map<string, Ignore>();
@@ -91,9 +91,9 @@ export class FsService implements IFsService {
   private rgAvailable: boolean | undefined = undefined;
 
   constructor(
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
-    @IAgentFileSystem private readonly fs: IAgentFileSystem,
-    @IProcessRunner private readonly runner: IProcessRunner,
+    @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
+    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @ISessionProcessRunner private readonly runner: ISessionProcessRunner,
   ) {}
 
   async list(req: FsListRequest): Promise<FsListResponse> {
@@ -895,7 +895,7 @@ function parseRgJsonOutput(
 
 // ---------------------------------------------------------------------------
 // Helpers shared by the list/read/stat/mkdir methods. Ported from the v1
-// `FsService` so the `/api/v1` mirror stays byte-compatible.
+// `SessionFsService` so the `/api/v1` mirror stays byte-compatible.
 // ---------------------------------------------------------------------------
 
 function isHidden(name: string): boolean {
@@ -1074,8 +1074,8 @@ function guessLanguageId(relPath: string): string | undefined {
 
 registerScopedService(
   LifecycleScope.Session,
-  IFsService,
-  FsService,
+  ISessionFsService,
+  SessionFsService,
   InstantiationType.Delayed,
   'agentFs',
 );

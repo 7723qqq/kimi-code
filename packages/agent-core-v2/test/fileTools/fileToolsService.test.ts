@@ -1,27 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { IAgentFileSystem, IFsService } from '#/agentFs';
-import { FileToolsService } from '#/fileTools';
+import type { ISessionAgentFileSystem, ISessionFsService } from '#/agentFs';
+import { AgentFileToolsService } from '#/fileTools';
 import type { IKaos } from '#/kaos';
 import type { IDisposable } from '#/_base/di';
-import type { IToolRegistry } from '#/toolRegistry';
-import type { IWorkspaceContext } from '#/workspaceContext';
+import type { IAgentToolRegistryService } from '#/toolRegistry';
+import type { ISessionWorkspaceContext } from '#/workspaceContext';
 
-function fakeToolRegistry(): { registry: IToolRegistry; names: () => string[] } {
+function fakeToolRegistry(): { registry: IAgentToolRegistryService; names: () => string[] } {
   const tools = new Map<string, unknown>();
-  const registry: IToolRegistry = {
+  const registry: IAgentToolRegistryService = {
     _serviceBrand: undefined,
     register: vi.fn((tool: { name: string }): IDisposable => {
       tools.set(tool.name, tool);
       return { dispose: () => tools.delete(tool.name) };
     }),
     list: () => [...tools.values()] as never,
-  } as unknown as IToolRegistry;
+  } as unknown as IAgentToolRegistryService;
   return { registry, names: () => [...tools.keys()].sort() };
 }
 
-const fakeFs = { cwd: '/workspace' } as unknown as IAgentFileSystem;
-const fakeFsService = {} as unknown as IFsService;
+const fakeFs = { cwd: '/workspace' } as unknown as ISessionAgentFileSystem;
+const fakeFsService = {} as unknown as ISessionFsService;
 const fakeKaos = {
   cwd: '/workspace',
   pathClass: () => 'posix',
@@ -30,12 +30,12 @@ const fakeKaos = {
 const fakeWorkspace = {
   workDir: '/workspace',
   additionalDirs: [],
-} as unknown as IWorkspaceContext;
+} as unknown as ISessionWorkspaceContext;
 
-describe('FileToolsService', () => {
+describe('AgentFileToolsService', () => {
   it('registers Read/Write/Edit/Grep/Glob into the tool registry', () => {
     const { registry, names } = fakeToolRegistry();
-    new FileToolsService(registry, fakeFs, fakeKaos, fakeWorkspace, fakeFsService);
+    new AgentFileToolsService(registry, fakeFs, fakeKaos, fakeWorkspace, fakeFsService);
     expect(names()).toEqual(['Edit', 'Glob', 'Grep', 'Read', 'Write']);
   });
 });

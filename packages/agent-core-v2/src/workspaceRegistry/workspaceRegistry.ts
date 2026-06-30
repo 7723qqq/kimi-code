@@ -4,7 +4,7 @@
  * Defines the `IWorkspaceRegistry` used by the program side to remember the
  * folders the user has opened (backed by the app's own persistence). This is
  * a host-side catalog, distinct from the session-scoped `workspaceContext`
- * that describes one Agent's active work directory. Core-scoped.
+ * that describes one Agent's active work directory. App-scoped.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';

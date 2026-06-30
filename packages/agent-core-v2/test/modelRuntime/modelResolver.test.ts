@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { IOAuthService } from '#/auth';
 import type { IConfigService } from '#/config';
 import { ErrorCodes, KimiError } from '#/errors';
-import { ModelResolver } from '#/modelRuntime';
+import { SessionModelResolver } from '#/modelRuntime';
 
 function stubConfig(sections: Record<string, unknown>): IConfigService {
   return {
@@ -48,9 +48,9 @@ function baseSections(overrides: Record<string, unknown> = {}): Record<string, u
   };
 }
 
-describe('ModelResolver', () => {
+describe('SessionModelResolver', () => {
   it('resolves a configured model to its provider', () => {
-    const resolver = new ModelResolver(stubConfig(baseSections()), stubOAuth());
+    const resolver = new SessionModelResolver(stubConfig(baseSections()), stubOAuth());
     const resolved = resolver.resolve('k1');
     expect(resolved.providerName).toBe('kimi');
     expect(resolved.provider).toMatchObject({ model: 'kimi-model' });
@@ -58,19 +58,19 @@ describe('ModelResolver', () => {
   });
 
   it('exposes defaultModel from config', () => {
-    const resolver = new ModelResolver(stubConfig(baseSections()), stubOAuth());
+    const resolver = new SessionModelResolver(stubConfig(baseSections()), stubOAuth());
     expect(resolver.defaultModel).toBe('k1');
   });
 
   it('reads providers and models from the config service', () => {
     const config = stubConfig(baseSections());
-    const resolver = new ModelResolver(config, stubOAuth());
+    const resolver = new SessionModelResolver(config, stubOAuth());
     expect(resolver.defaultModel).toBe('k1');
     expect(resolver.resolve('k1').providerName).toBe('kimi');
   });
 
   it('throws CONFIG_INVALID for an unknown model', () => {
-    const resolver = new ModelResolver(stubConfig(baseSections()), stubOAuth());
+    const resolver = new SessionModelResolver(stubConfig(baseSections()), stubOAuth());
     expect(() => resolver.resolve('does-not-exist')).toThrowError(
       expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID } as Partial<KimiError>),
     );
@@ -86,7 +86,7 @@ describe('ModelResolver', () => {
         },
       }),
     );
-    const resolver = new ModelResolver(config, stubOAuth());
+    const resolver = new SessionModelResolver(config, stubOAuth());
     expect(() => resolver.resolve('orphan')).toThrowError(
       expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID } as Partial<KimiError>),
     );
@@ -101,7 +101,7 @@ describe('ModelResolver', () => {
         },
       }),
     );
-    const resolver = new ModelResolver(config, stubOAuth());
+    const resolver = new SessionModelResolver(config, stubOAuth());
     expect(() => resolver.resolve('ghost')).toThrowError(
       expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID } as Partial<KimiError>),
     );

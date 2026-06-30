@@ -36,14 +36,14 @@ describe('WorkspaceRegistryService (file-backed)', () => {
   beforeEach(async () => {
     _clearScopedRegistryForTests();
     registerScopedService(
-      LifecycleScope.Core,
+      LifecycleScope.App,
       IWorkspaceStore,
       FileWorkspaceStore,
       InstantiationType.Delayed,
       'workspaceRegistry',
     );
     registerScopedService(
-      LifecycleScope.Core,
+      LifecycleScope.App,
       IWorkspaceRegistry,
       WorkspaceRegistryService,
       InstantiationType.Delayed,
@@ -65,7 +65,7 @@ describe('WorkspaceRegistryService (file-backed)', () => {
       stubPair(IAtomicDocumentStore, new AtomicDocumentStore(fileStorage)),
     ]);
     currentHost = host;
-    return host.core.accessor.get(IWorkspaceRegistry);
+    return host.app.accessor.get(IWorkspaceRegistry);
   }
 
   function restart(): IWorkspaceRegistry {

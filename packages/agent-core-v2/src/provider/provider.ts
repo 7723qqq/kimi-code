@@ -3,7 +3,7 @@
  *
  * Owns the `ProviderConfig` / `OAuthRef` models and the `providers` config
  * section; exposes CRUD over provider configurations and persists them through
- * `config`. Core-scoped — provider configuration is global and shared across
+ * `config`. App-scoped — provider configuration is global and shared across
  * sessions. Higher-level services (OAuth, CLI, UI, modelRuntime) mutate providers
  * through this domain instead of writing config directly.
  */

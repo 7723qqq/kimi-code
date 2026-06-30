@@ -13,7 +13,7 @@ import { ISessionService } from '#/session';
 import { ISessionLifecycleService } from '#/session-lifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/session-lifecycle/sessionLifecycleService';
 import { ISessionMetadata } from '#/session-metadata';
-import { ISkillCatalog } from '#/skill';
+import { ISessionSkillCatalog } from '#/skill';
 
 function bootstrapStub(): IBootstrapService {
   return {
@@ -54,7 +54,7 @@ function kaosFactoryStub(): IKaosFactory {
   };
 }
 
-function skillCatalogStub(): ISkillCatalog {
+function skillCatalogStub(): ISessionSkillCatalog {
   return {
     _serviceBrand: undefined,
     catalog: {
@@ -78,7 +78,7 @@ describe('SessionLifecycleService', () => {
   beforeEach(() => {
     _clearScopedRegistryForTests();
     registerScopedService(
-      LifecycleScope.Core,
+      LifecycleScope.App,
       ISessionLifecycleService,
       SessionLifecycleService,
       InstantiationType.Delayed,
@@ -96,10 +96,10 @@ describe('SessionLifecycleService', () => {
       stubPair(IBootstrapService, bootstrapStub()),
       stubPair(ISessionMetadata, metadataStub()),
       stubPair(IKaosFactory, kaosFactoryStub()),
-      stubPair(ISkillCatalog, skillCatalogStub()),
+      stubPair(ISessionSkillCatalog, skillCatalogStub()),
       ...extra,
     ]);
-    return host.core.accessor.get(ISessionLifecycleService);
+    return host.app.accessor.get(ISessionLifecycleService);
   }
 
   it('create / get / list / close', async () => {

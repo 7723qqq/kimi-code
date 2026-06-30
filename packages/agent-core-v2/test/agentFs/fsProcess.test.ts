@@ -2,7 +2,7 @@ import { Readable, Writable } from 'node:stream';
 
 import { describe, expect, it } from 'vitest';
 
-import { type IProcess, type IProcessRunner } from '#/process';
+import { type IProcess, type ISessionProcessRunner } from '#/process';
 
 import { runCommand, type RunCommandOptions } from '#/agentFs/fsProcess';
 
@@ -29,7 +29,7 @@ function fakeProcess(opts: FakeProcessOptions = {}): IProcess {
   };
 }
 
-function fakeRunner(proc: IProcess): IProcessRunner {
+function fakeRunner(proc: IProcess): ISessionProcessRunner {
   return {
     _serviceBrand: undefined,
     exec: () => Promise.resolve(proc),
@@ -45,7 +45,7 @@ describe('runCommand', () => {
 
   it('passes cwd and env to the runner', async () => {
     let received: { args: readonly string[]; cwd?: string; env?: Record<string, string> } | undefined;
-    const runner: IProcessRunner = {
+    const runner: ISessionProcessRunner = {
       _serviceBrand: undefined,
       exec: (args, options) => {
         received = { args, cwd: options?.cwd, env: options?.env };

@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ToolCall } from '@moonshot-ai/kosong';
 
-import { IContextInjector } from '#/contextInjector';
-import { IContextMemory } from '#/contextMemory';
+import { IAgentContextInjectorService } from '#/contextInjector';
+import { IAgentContextMemoryService } from '#/contextMemory';
 import {
-  IGoalService,
-  type GoalService,
+  IAgentGoalService,
+  type AgentGoalService,
 } from '#/goal';
-import { IProfileService } from '#/profile';
+import { IAgentProfileService } from '#/profile';
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,
@@ -16,8 +16,8 @@ import {
   type TestAgentContext,
 } from '../harness';
 
-type GoalServiceTestManager = IGoalService & GoalService;
-type InjectableContextInjector = IContextInjector & { inject(): Promise<void> };
+type GoalServiceTestManager = IAgentGoalService & AgentGoalService;
+type InjectableContextInjector = IAgentContextInjectorService & { inject(): Promise<void> };
 
 async function injectDynamic(injector: InjectableContextInjector): Promise<void> {
   await injector.inject();
@@ -25,7 +25,7 @@ async function injectDynamic(injector: InjectableContextInjector): Promise<void>
 
 async function registerLookupTool(
   ctx: TestAgentContext,
-  profile: IProfileService,
+  profile: IAgentProfileService,
 ): Promise<void> {
   profile.update({ activeToolNames: ['Lookup'] });
   await ctx.rpc.registerTool({
@@ -54,14 +54,14 @@ function lookupCall(): ToolCall {
 describe('GoalInjection content', () => {
   let ctx: TestAgentContext;
   let goals: GoalServiceTestManager;
-  let context: IContextMemory;
+  let context: IAgentContextMemoryService;
   let injector: InjectableContextInjector;
 
   beforeEach(() => {
     ctx = createTestAgent();
-    goals = ctx.get(IGoalService) as GoalServiceTestManager;
-    context = ctx.get(IContextMemory);
-    injector = ctx.get(IContextInjector) as InjectableContextInjector;
+    goals = ctx.get(IAgentGoalService) as GoalServiceTestManager;
+    context = ctx.get(IAgentContextMemoryService);
+    injector = ctx.get(IAgentContextInjectorService) as InjectableContextInjector;
   });
 
   afterEach(async () => {
@@ -233,7 +233,7 @@ function goalReminderRecords(persistence: InMemoryWireRecordPersistence) {
   );
 }
 
-function lastGoalReminder(context: IContextMemory): string | undefined {
+function lastGoalReminder(context: IAgentContextMemoryService): string | undefined {
   const message = context.get().findLast((item) => {
     return item.origin?.kind === 'injection' && item.origin.variant === 'goal';
   });
@@ -245,16 +245,16 @@ describe('GoalInjection integration', () => {
   describe('enabled goal injection', () => {
     let ctx: TestAgentContext;
     let goals: GoalServiceTestManager;
-    let profile: IProfileService;
+    let profile: IAgentProfileService;
     let injector: InjectableContextInjector;
     let persistence: InMemoryWireRecordPersistence;
 
     beforeEach(() => {
       persistence = new InMemoryWireRecordPersistence();
       ctx = createTestAgent(wireRecordPersistenceServices(persistence));
-      goals = ctx.get(IGoalService) as GoalServiceTestManager;
-      profile = ctx.get(IProfileService);
-      injector = ctx.get(IContextInjector) as InjectableContextInjector;
+      goals = ctx.get(IAgentGoalService) as GoalServiceTestManager;
+      profile = ctx.get(IAgentProfileService);
+      injector = ctx.get(IAgentContextInjectorService) as InjectableContextInjector;
     });
 
     afterEach(async () => {
@@ -328,8 +328,8 @@ describe('GoalInjection integration', () => {
         wireRecordPersistenceServices(persistence),
         goalServices({ enabled: false }),
       );
-      goals = ctx.get(IGoalService) as GoalServiceTestManager;
-      injector = ctx.get(IContextInjector) as InjectableContextInjector;
+      goals = ctx.get(IAgentGoalService) as GoalServiceTestManager;
+      injector = ctx.get(IAgentContextInjectorService) as InjectableContextInjector;
     });
 
     afterEach(async () => {

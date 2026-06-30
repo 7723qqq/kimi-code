@@ -12,11 +12,11 @@ export interface LLMRequestLogInput {
   readonly fields?: LLMRequestLogFields;
 }
 
-export interface ILLMRequestLogService {
+export interface IAgentLLMRequestLogService {
   readonly _serviceBrand: undefined;
 
   logRequest(input: LLMRequestLogInput): void;
 }
 
-export const ILLMRequestLogService =
-  createDecorator<ILLMRequestLogService>('agentLLMRequestLogService');
+export const IAgentLLMRequestLogService =
+  createDecorator<IAgentLLMRequestLogService>('agentLLMRequestLogService');

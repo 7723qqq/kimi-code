@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { BuiltinTool, ToolExecution } from '#/tool';
 
-import type { IGoalService } from '../goal';
+import type { IAgentGoalService } from '../goal';
 import type { GoalBudgetLimits } from '../types';
 import DESCRIPTION from './set-goal-budget.md?raw';
 
@@ -33,7 +33,7 @@ export class SetGoalBudgetTool implements BuiltinTool<SetGoalBudgetToolInput> {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SetGoalBudgetToolInputSchema);
 
-  constructor(private readonly goal: IGoalService) {}
+  constructor(private readonly goal: IAgentGoalService) {}
 
   resolveExecution(args: SetGoalBudgetToolInput): ToolExecution {
     const normalizedArgs = normalizeBudgetInput(args);

@@ -4,7 +4,7 @@
  * Merges bound context into each tracked event and fans it out to the
  * registered `ITelemetryAppender` destinations; owns the appender set, the
  * enabled flag, and the bound context, but no enrichment or transport of its
- * own. Bound at Core scope; has no cross-domain collaborators.
+ * own. Bound at App scope; has no cross-domain collaborators.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -91,7 +91,7 @@ export class TelemetryService implements ITelemetryService {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   ITelemetryService,
   TelemetryService,
   InstantiationType.Delayed,

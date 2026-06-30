@@ -5,15 +5,15 @@
  *
  * Only the high-value streams are exposed for now:
  *   Core    `events`                — process-wide `DomainEvent` bus (`IEventService`)
- *   Session `interactions`          — pending human-in-the-loop requests (`IInteractionService.onDidChange`)
- *   Session `interactions:resolved` — request resolutions (`IInteractionService.onDidResolve`)
+ *   Session `interactions`          — pending human-in-the-loop requests (`ISessionInteractionService.onDidChange`)
+ *   Session `interactions:resolved` — request resolutions (`ISessionInteractionService.onDidResolve`)
  *   Agent   `events`                — per-agent `AgentEvent` stream (`IEventSink`)
  */
 
 import {
   IEventService,
   IEventSink,
-  IInteractionService,
+  ISessionInteractionService,
   type DomainEvent,
   type IDisposable,
   type IScopeHandle,
@@ -42,7 +42,7 @@ export const eventMap: Record<ScopeKind, Record<string, EventSource>> = {
     // out of band: `call interactions:listPending` before `listen`.
     interactions: {
       subscribe: (scope, listener) => {
-        const interaction = scope.accessor.get(IInteractionService);
+        const interaction = scope.accessor.get(ISessionInteractionService);
         return interaction.onDidChange(() => listener(interaction.listPending()));
       },
     },
@@ -51,7 +51,7 @@ export const eventMap: Record<ScopeKind, Record<string, EventSource>> = {
     // caller posts a request, then matches the resolution here by `id`.
     'interactions:resolved': {
       subscribe: (scope, listener) => {
-        const interaction = scope.accessor.get(IInteractionService);
+        const interaction = scope.accessor.get(ISessionInteractionService);
         return interaction.onDidResolve((resolution) => listener(resolution));
       },
     },

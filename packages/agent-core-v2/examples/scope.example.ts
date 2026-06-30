@@ -2,8 +2,8 @@
  * Scenario: the **DI Scope** foundation — how resolution follows the tree.
  *
  * Not a business slice but the model every other slice rests on. Two rules,
- * shown with real services: a Core-scoped service (`ILogService`) resolves to
- * the same instance whether you ask the Core scope or a child Session scope
+ * shown with real services: a App-scoped service (`ILogService`) resolves to
+ * the same instance whether you ask the App scope or a child Session scope
  * (it is found by walking up), while a Session-scoped service
  * (`ISessionMetadata`) is one distinct instance per session, so two sessions
  * hold independent state. Loads only `log` and `session-metadata`.
@@ -31,9 +31,9 @@ function diskStorageSeed(homeDir: string): ScopeSeed {
   return [[IAtomicDocumentStorage as ServiceIdentifier<unknown>, new FileStorageService(homeDir)]];
 }
 
-describe('di scope foundation (Core singletons vs. per-Session instances)', () => {
+describe('di scope foundation (App singletons vs. per-Session instances)', () => {
   let homeDir: string;
-  let core: Scope;
+  let app: Scope;
 
   beforeEach(() => {
     const resolved = process.env['KIMI_CODE_HOME'];
@@ -42,18 +42,18 @@ describe('di scope foundation (Core singletons vs. per-Session instances)', () =
     }
     homeDir = resolved;
     mkdirSync(homeDir, { recursive: true });
-    core = bootstrap({}, [
+    app = bootstrap({}, [
       ...logSeed(resolveLoggingConfig({ homeDir, env: process.env })),
       ...diskStorageSeed(homeDir),
-    ]).core;
+    ]).app;
   });
   afterEach(() => {
-    core.dispose();
+    app.dispose();
   });
 
   function createSession(sessionId: string): Scope {
     const sessionDir = join(homeDir, 'sessions', 'example', sessionId);
-    return core.createChild(LifecycleScope.Session, sessionId, {
+    return app.createChild(LifecycleScope.Session, sessionId, {
       extra: [
         ...sessionContextSeed({
           _serviceBrand: undefined,
@@ -67,14 +67,14 @@ describe('di scope foundation (Core singletons vs. per-Session instances)', () =
     });
   }
 
-  test('Core services are shared; Session services are per-session', async () => {
+  test('App services are shared; Session services are per-session', async () => {
     console.log('KIMI_CODE_HOME =', homeDir);
     const sessionA = createSession('scope-a');
     const sessionB = createSession('scope-b');
 
-    const logFromCore = core.accessor.get(ILogService);
+    const logFromCore = app.accessor.get(ILogService);
     const logFromSession = sessionA.accessor.get(ILogService);
-    console.log('Core ILogService shared across scopes:', logFromCore === logFromSession);
+    console.log('App ILogService shared across scopes:', logFromCore === logFromSession);
 
     const metaA = sessionA.accessor.get(ISessionMetadata);
     const metaB = sessionB.accessor.get(ISessionMetadata);

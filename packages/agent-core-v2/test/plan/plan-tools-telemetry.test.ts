@@ -1,14 +1,14 @@
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { IPlanService, PlanData } from '#/plan';
+import type { IAgentPlanService, PlanData } from '#/plan';
 import { EnterPlanModeTool } from '#/plan/tools/enter-plan-mode';
 import {
   ExitPlanModeTool,
   type ExitPlanModeInput,
 } from '#/plan/tools/exit-plan-mode';
 import type { ITelemetryService } from '#/telemetry';
-import { IToolExecutor } from '#/toolExecutor';
+import { IAgentToolExecutorService } from '#/toolExecutor';
 
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
@@ -63,9 +63,9 @@ function planService({
   exit,
 }: {
   readonly status?: PlanData;
-  readonly enter?: IPlanService['enter'];
-  readonly exit?: IPlanService['exit'];
-} = {}): IPlanService {
+  readonly enter?: IAgentPlanService['enter'];
+  readonly exit?: IAgentPlanService['exit'];
+} = {}): IAgentPlanService {
   return {
     _serviceBrand: undefined,
     enter: enter ?? vi.fn(async () => {}),
@@ -102,11 +102,11 @@ describe('EnterPlanModeTool telemetry', () => {
   });
 });
 
-describe('PlanService EnterPlanMode telemetry', () => {
+describe('AgentPlanService EnterPlanMode telemetry', () => {
   for (const mode of ['manual', 'auto', 'yolo'] as const) {
     describe(`${mode} mode`, () => {
       let ctx: TestAgentContext;
-      let toolExecutor: IToolExecutor;
+      let toolExecutor: IAgentToolExecutorService;
       const records: TelemetryRecord[] = [];
 
       beforeEach(() => {
@@ -118,7 +118,7 @@ describe('PlanService EnterPlanMode telemetry', () => {
           permissionModeServices(mode),
           telemetryServices(captureTelemetry(records)),
         );
-        toolExecutor = ctx.get(IToolExecutor);
+        toolExecutor = ctx.get(IAgentToolExecutorService);
       });
 
       afterEach(async () => {

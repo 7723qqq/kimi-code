@@ -5,10 +5,10 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Disposable } from '#/_base/di/lifecycle';
 
-import { IEventSink } from '../eventSink';
+import { IAgentEventSinkService } from '../eventSink';
 import type { UsageRecordContext, UsageStatus } from './usage';
-import { IUsageService } from './usage';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentUsageService } from './usage';
+import { IAgentWireRecordService } from '#/wireRecord';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -20,15 +20,15 @@ declare module '#/wireRecord' {
   }
 }
 
-export class UsageService extends Disposable implements IUsageService {
+export class AgentUsageService extends Disposable implements IAgentUsageService {
   declare readonly _serviceBrand: undefined;
   private readonly byModel: Record<string, TokenUsage> = {};
   private currentTurnId: number | undefined;
   private currentTurn: TokenUsage | undefined;
 
   constructor(
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventSink private readonly events: IEventSink,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
   ) {
     super();
     this._register(
@@ -102,8 +102,8 @@ function totalUsage(byModel: Record<string, TokenUsage>): TokenUsage | undefined
 
 registerScopedService(
   LifecycleScope.Agent,
-  IUsageService,
-  UsageService,
+  IAgentUsageService,
+  AgentUsageService,
   InstantiationType.Delayed,
   'usage',
 );

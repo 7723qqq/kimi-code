@@ -19,18 +19,18 @@ import {
   isUserActivatableSkillType,
   type SkillDefinition,
 } from './types';
-import { IEventSink } from '../eventSink';
-import { IPromptService } from '#/prompt';
+import { IAgentEventSinkService } from '../eventSink';
+import { IAgentPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import type { Turn } from '#/turn';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import {
   IAgentSkillService,
   type ModelSkillActivationInput,
   type SkillActivationInput,
 } from './skill';
-import { ISkillCatalog } from './skillCatalog';
+import { ISessionSkillCatalog } from './skillCatalog';
 import { SkillTool } from './tools/skill';
 
 declare module '#/wireRecord' {
@@ -45,12 +45,12 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @ISkillCatalog private readonly skillCatalog: ISkillCatalog,
-    @IPromptService private readonly prompt: IPromptService,
-    @IEventSink private readonly events: IEventSink,
-    @IWireRecord private readonly wireRecord: IWireRecord,
+    @ISessionSkillCatalog private readonly skillCatalog: ISessionSkillCatalog,
+    @IAgentPromptService private readonly prompt: IAgentPromptService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IToolRegistry toolRegistry: IToolRegistry,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
   ) {
     super();
     this._register(

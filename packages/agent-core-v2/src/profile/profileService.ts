@@ -1,9 +1,9 @@
 /**
- * `profile` domain (L3) — `IProfileService` implementation.
+ * `profile` domain (L3) — `IAgentProfileService` implementation.
  *
  * Owns the active agent's model alias, thinking level, system prompt, and
  * active-tool set; resolves the runtime provider through `modelRuntime`
- * `IModelResolver`, builds the protocol adapter through `chatProvider`
+ * `ISessionModelResolver`, builds the protocol adapter through `chatProvider`
  * `IChatProviderFactory`, applies completion budget through
  * `completion-budget`, persists profile changes through `wireRecord`, and
  * emits status through `eventBus`. Bound at Agent scope.
@@ -25,14 +25,14 @@ import { resolveThinkingEffort, type ThinkingEffort } from '#/config/thinking';
 import { applyKimiModelOverrides, IChatProviderFactory, type KimiModelOverrides } from '#/chatProvider';
 import type { LoopControl } from '#/loop/configSection';
 import { isMcpToolName } from '#/tool';
-import { IModelResolver, type ResolvedModel } from '#/modelRuntime';
+import { ISessionModelResolver, type ResolvedModel } from '#/modelRuntime';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/profile';
 
-import { IEventSink } from '../eventSink';
-import { IReplayBuilderService } from '#/replayBuilder';
+import { IAgentEventSinkService } from '../eventSink';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
 import { ITelemetryService } from '#/telemetry';
 import type { ToolSource } from '#/tool';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import type {
   ProfileData,
   ProfileModelContext,
@@ -40,7 +40,7 @@ import type {
   ProfileSetModelResult,
   ProfileUpdateData,
 } from './profile';
-import { IProfileService } from './profile';
+import { IAgentProfileService } from './profile';
 import {
   DEFAULT_THINKING_SECTION,
   defaultThinkingEnvBindings,
@@ -59,7 +59,7 @@ declare module '#/wireRecord' {
   }
 }
 
-export class ProfileService implements IProfileService {
+export class AgentProfileService implements IAgentProfileService {
   declare readonly _serviceBrand: undefined;
 
   private optionsValue: ProfileServiceOptions = {};
@@ -71,13 +71,13 @@ export class ProfileService implements IProfileService {
   private activeToolNames: readonly string[] | undefined;
 
   constructor(
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventSink private readonly events: IEventSink,
-    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
-    @IModelResolver private readonly modelResolver: IModelResolver,
+    @ISessionModelResolver private readonly modelResolver: ISessionModelResolver,
     @IChatProviderFactory private readonly chatProviders: IChatProviderFactory,
   ) {
     configRegistry.registerSection(THINKING_SECTION, ThinkingConfigSchema, {
@@ -355,8 +355,8 @@ export class ProfileService implements IProfileService {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IProfileService,
-  ProfileService,
+  IAgentProfileService,
+  AgentProfileService,
   InstantiationType.Delayed,
   'profile',
 );

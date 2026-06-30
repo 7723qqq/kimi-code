@@ -87,7 +87,7 @@ pass `ConfigTarget.Memory` for a per-run override that is never written to disk.
 ## Layout
 
 - `src/config/config.ts` — `IConfigRegistry` / `IConfigService` tokens, `ConfigSection`, `ConfigEffectiveOverlay`, event types.
-- `src/config/configService.ts` — `ConfigRegistry` + `ConfigService` impl; self-registers at Core scope.
+- `src/config/configService.ts` — `ConfigRegistry` + `ConfigService` impl; self-registers at App scope.
 - `src/config/toml.ts` — generic snake_case ↔ camelCase machinery plus the registry-aware `transformTomlData` / `applySectionToToml` entry points. Per-domain normalization lives in the section owner's `configSection.ts` (registered as `fromToml` / `toToml`); this module stays free of any other domain's semantics.
 - `src/config/thinking.ts` — `resolveThinkingEffort` / `resolveThinkingLevel` helpers (own a local `ThinkingConfigDefaults` structural type; do not import `profile`).
 - `src/config/configPure.ts` — `isPlainObject`, `deepMerge`, `omitUndefined`, `describeUnknownError`.

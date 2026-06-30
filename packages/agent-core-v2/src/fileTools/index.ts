@@ -1,8 +1,8 @@
 /**
  * `fileTools` domain barrel — re-exports the built-in file tools (Read / Write
  * / Edit / Grep / Glob), the shared line-ending helpers, and the
- * `IFileToolsService` registration contract + service. Importing this barrel
- * registers the `IFileToolsService` binding into the scope registry.
+ * `IAgentFileToolsService` registration contract + service. Importing this barrel
+ * registers the `IAgentFileToolsService` binding into the scope registry.
  */
 
 export * from './fileTools';

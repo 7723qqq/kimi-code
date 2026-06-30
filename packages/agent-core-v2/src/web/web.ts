@@ -1,10 +1,10 @@
 /**
  * `web` domain (L4) — web tool registration contract and provider options.
  *
- * `IWebService` is a marker: its implementation registers the built-in
+ * `IAgentWebService` is a marker: its implementation registers the built-in
  * `FetchURL` tool (always, falling back to `LocalFetchURLProvider`) and the
  * `WebSearch` tool (only when a `WebSearchProvider` is supplied) into the
- * agent `IToolRegistry` on construction. Bound at Agent scope.
+ * agent `IAgentToolRegistryService` on construction. Bound at Agent scope.
  *
  * The actual fetch/search backends are host-injected through
  * `WebServiceOptions` so this domain stays independent of config and OAuth.
@@ -22,9 +22,9 @@ export interface WebServiceOptions {
   readonly webSearcher?: WebSearchProvider;
 }
 
-export interface IWebService {
+export interface IAgentWebService {
   readonly _serviceBrand: undefined;
 }
 
-export const IWebService: ServiceIdentifier<IWebService> =
-  createDecorator<IWebService>('webService');
+export const IAgentWebService: ServiceIdentifier<IAgentWebService> =
+  createDecorator<IAgentWebService>('agentWebService');

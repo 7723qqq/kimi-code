@@ -4,7 +4,7 @@
  * Owns the process-wide registry of open Session child scopes, creating them
  * through the DI scope tree and seeding each with its identity and storage
  * addressing. Materializes the session's initial metadata on creation by
- * resolving `session-metadata`. Bound at Core scope. Persisted sessions are
+ * resolving `session-metadata`. Bound at App scope. Persisted sessions are
  * the `session-index` read model.
  */
 
@@ -31,10 +31,10 @@ import { IWorkspaceRegistry } from '#/workspaceRegistry';
 import { ISessionService } from '#/session';
 import { ISessionContext, sessionContextSeed } from '#/session-context';
 import { ISessionMetadata, type SessionMeta } from '#/session-metadata';
-import { ISkillCatalog } from '#/skill';
+import { ISessionSkillCatalog } from '#/skill';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
-  IWireRecord,
+  IAgentWireRecordService,
   wireRecordPersistKey,
   type PersistedWireRecord,
 } from '#/wireRecord';
@@ -87,7 +87,7 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     );
     this.sessions.set(opts.sessionId, handle);
     await handle.accessor.get(ISessionMetadata).ready;
-    void handle.accessor.get(ISkillCatalog).load();
+    void handle.accessor.get(ISessionSkillCatalog).load();
     return handle;
   }
 
@@ -168,7 +168,7 @@ export class SessionLifecycleService implements ISessionLifecycleService {
 
     // 7. Copy every source agent's wire log into the target's per-agent log
     // (BEFORE the target agents are created, so the logs are in place when
-    // their WireRecordService restores them in step 9).
+    // their AgentWireRecordService restores them in step 9).
     const sourceAgents = sourceMeta?.agents ?? {};
     const agentIds = Object.keys(sourceAgents);
     for (const agentId of agentIds) {
@@ -195,7 +195,7 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     // log. Creating them registers fresh agent entries with TARGET homedirs.
     for (const agentId of agentIds) {
       const agentHandle = await target.accessor.get(IAgentLifecycleService).create({ agentId });
-      await agentHandle.accessor.get(IWireRecord).restore();
+      await agentHandle.accessor.get(IAgentWireRecordService).restore();
     }
 
     return target;
@@ -218,7 +218,7 @@ export class SessionLifecycleService implements ISessionLifecycleService {
         .accessor.get(IAgentLifecycleService)
         .getHandle(args.agentId);
       if (agentHandle !== undefined) {
-        await agentHandle.accessor.get(IWireRecord).flush();
+        await agentHandle.accessor.get(IAgentWireRecordService).flush();
       }
     }
 
@@ -248,7 +248,7 @@ export class SessionLifecycleService implements ISessionLifecycleService {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   ISessionLifecycleService,
   SessionLifecycleService,
   InstantiationType.Delayed,

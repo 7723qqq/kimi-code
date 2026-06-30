@@ -17,7 +17,7 @@ Classes talk only to interfaces and never care how an implementation is construc
 Lifetimes form a tree, from longest to shortest:
 
 ```text
-Core (0)        process-wide, single global instance
+App (0)         process-wide, single global instance
  └── Session (1)    one session
       └── Agent (2)    one agent
            └── Turn (3)    one turn of conversation
@@ -25,7 +25,7 @@ Core (0)        process-wide, single global instance
 
 ```ts
 export enum LifecycleScope {
-  Core = 0,
+  App = 0,
   Session = 1,
   Agent = 2,
   Turn = 3,
@@ -40,8 +40,8 @@ export enum LifecycleScope {
 
 A child scope sees its ancestors; a parent never sees its children. Resolution walks *up* the tree:
 
-- ✅ A `Turn` service injects a `Session` or `Core` service (found upward).
-- ❌ A `Core` service injects a `Session` service (the parent does not look down, and the child may not exist yet).
+- ✅ A `Turn` service injects a `Session` or `App` service (found upward).
+- ❌ An `App` service injects a `Session` service (the parent does not look down, and the child may not exist yet).
 
 > **Short-lived may inject long-lived; never the reverse.** The tree structure enforces this — it is not a matter of discipline.
 
@@ -55,19 +55,33 @@ Deterministic: **child scopes die first; within one scope, instances dispose in 
 
 - **Header only.** Comments live solely in the top-of-file `/** */` block — never beside functions, methods, or statements. The code is the source of truth for *how*; the header states *what the module exposes and the responsibility it owns*.
 - **Identity line first.** Start with `` `<domain>` domain (Ln) — <one-line role>. `` Keep an existing `(cross-cutting)` label as-is; barrels omit the layer (`` `<domain>` domain barrel — … ``). Write the role as a responsibility ("drives the turn lifecycle"), not a symbol list.
-- **Impl files** add collaborators + scope: list every imported cross-domain collaborator as a role ("persists records through `records`"); read scope from `registerScopedService(LifecycleScope.X, …)`.
-- **Contract files** add the public contract + scope.
+- **Scope is in the filename.** `session*.ts` = Session, `agent*.ts` = Agent, no prefix = App (see service-authoring.md). State the same scope in the header so the two never drift.
+- **Interface files** (`<name>.ts`) state the public contract + scope: which `IXxx` they define and what it is for.
+- **Impl files** (`<name>Service.ts`) add collaborators + scope: list every imported cross-domain collaborator as a role ("persists records through `records`"); read scope from `registerScopedService(LifecycleScope.X, …)`.
+- **Contribution files** (`<targetDomain>.ts` / `<what>.contrib.ts`) state what they register into the target domain (e.g. "registers the `log` config section into `config`").
+- **Pure-function / `.types` / `.errors` files** state the responsibility only — they own no scoped state, so no scope line.
 
-Impl example:
+Impl file example (`sessionService.ts`):
 
 ```ts
 /**
  * `session` domain (L6) — `ISessionService` implementation.
  *
  * Owns the session's child-agent set and session-level operations; drives
- * agent lifecycle through `agent-lifecycle`, broadcasts through `event`,
+ * agent lifecycle through `agentLifecycle`, broadcasts through `event`,
  * persists session metadata through `records`, and records activity through
- * `session-activity`. Bound at Session scope.
+ * `sessionActivity`. Bound at Session scope.
+ */
+```
+
+Contribution file example (`config.ts` inside `log/`):
+
+```ts
+/**
+ * `log` domain — registers the `log` config section into `config`.
+ *
+ * Owns the `log` section schema and its env overlay; imported for the
+ * registration side effect. Bound at App scope.
  */
 ```
 
@@ -75,9 +89,9 @@ Barrel example:
 
 ```ts
 /**
- * `session` domain barrel — re-exports the session facade contract
- * (`session`) and its scoped service (`sessionService`). Importing this
- * barrel registers the `ISessionService` binding into the scope registry.
+ * `session` domain barrel — re-exports the session contract (`session`),
+ * its scoped service (`sessionService`), and its contribution files. Importing
+ * this barrel registers the `ISessionService` binding into the scope registry.
  */
 ```
 

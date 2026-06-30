@@ -13,7 +13,7 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { IKaos, IKaosFactory, KaosFactory } from '#/kaos';
-import { IProcessRunner, ProcessRunner } from '#/process';
+import { ISessionProcessRunner, SessionProcessRunner } from '#/process';
 
 async function collect(stream: Readable): Promise<string> {
   const chunks: Buffer[] = [];
@@ -23,13 +23,13 @@ async function collect(stream: Readable): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-describe('ProcessRunner (backed by IKaos)', () => {
+describe('SessionProcessRunner (backed by IKaos)', () => {
   let dir: string;
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
     registerScopedService(
-      LifecycleScope.Core,
+      LifecycleScope.App,
       IKaosFactory,
       KaosFactory,
       InstantiationType.Delayed,
@@ -37,8 +37,8 @@ describe('ProcessRunner (backed by IKaos)', () => {
     );
     registerScopedService(
       LifecycleScope.Session,
-      IProcessRunner,
-      ProcessRunner,
+      ISessionProcessRunner,
+      SessionProcessRunner,
       InstantiationType.Delayed,
       'process',
     );
@@ -49,12 +49,12 @@ describe('ProcessRunner (backed by IKaos)', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  async function makeRunner(): Promise<IProcessRunner> {
+  async function makeRunner(): Promise<ISessionProcessRunner> {
     const host = createScopedTestHost();
-    const factory = host.core.accessor.get(IKaosFactory);
+    const factory = host.app.accessor.get(IKaosFactory);
     const kaos = await factory.createLocal(dir);
     const session = host.child(LifecycleScope.Session, 's', [stubPair(IKaos, kaos)]);
-    return session.accessor.get(IProcessRunner);
+    return session.accessor.get(ISessionProcessRunner);
   }
 
   it('exec runs a command and captures stdout + exit code', async () => {

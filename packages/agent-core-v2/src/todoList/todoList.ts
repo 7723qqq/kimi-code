@@ -1,7 +1,7 @@
 import { createDecorator } from "#/_base/di";
 
-export interface ITodoListService {
+export interface IAgentTodoListService {
   readonly _serviceBrand: undefined;
 }
 
-export const ITodoListService = createDecorator<ITodoListService>('agentTodoListService');
+export const IAgentTodoListService = createDecorator<IAgentTodoListService>('agentTodoListService');

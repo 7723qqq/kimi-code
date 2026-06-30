@@ -1,5 +1,5 @@
-import { ISwarmService } from '#/swarm';
-import type { ISwarmService as SwarmService } from '#/swarm';
+import { IAgentSwarmService } from '#/swarm';
+import type { IAgentSwarmService as AgentSwarmService } from '#/swarm';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import type {
   PermissionPolicy,
@@ -9,7 +9,7 @@ import type {
 export class SwarmModeAgentSwarmApprovePermissionPolicyService implements PermissionPolicy {
   readonly name = 'swarm-mode-agent-swarm-approve';
 
-  constructor(@ISwarmService private readonly swarm: SwarmService) {}
+  constructor(@IAgentSwarmService private readonly swarm: AgentSwarmService) {}
 
   evaluate(context: ResolvedToolExecutionHookContext): PermissionPolicyResult | undefined {
     if (context.toolCall.name !== 'AgentSwarm') return undefined;

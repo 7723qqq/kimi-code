@@ -6,14 +6,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
-  IReplayBuilderService,
+  IAgentReplayBuilderService,
   type PersistedWireRecord,
   type PromptOrigin,
 } from '#/index';
-import { IBackgroundService } from '#/background';
-import { IPlanService } from '#/plan';
-import { IPromptService } from '#/prompt';
-import { ITurnService } from '#/turn';
+import { IAgentBackgroundService } from '#/background';
+import { IAgentPlanService } from '#/plan';
+import { IAgentPromptService } from '#/prompt';
+import { IAgentTurnService } from '#/turn';
 import {
   createBackgroundTaskPersistence,
   type BackgroundServiceTestManager,
@@ -34,7 +34,7 @@ const MOCK_PROVIDER = {
 } as const;
 
 function turnCurrentId(ctx: ReturnType<typeof testAgent>): number {
-  const runner = ctx.get(ITurnService) as unknown as { nextTurnId: number };
+  const runner = ctx.get(IAgentTurnService) as unknown as { nextTurnId: number };
   return runner.nextTurnId - 1;
 }
 
@@ -70,7 +70,7 @@ describe('Agent resume', () => {
     );
 
     await ctx.restorePersisted();
-    const plan = await ctx.get(IPlanService).status();
+    const plan = await ctx.get(IAgentPlanService).status();
     expect(plan?.path).toContain('resume-plan');
     expect(ctx.newEvents()).toMatchInlineSnapshot(`[]`);
     expect(ctx.llmCalls).toHaveLength(0);
@@ -420,14 +420,14 @@ describe('Agent resume', () => {
         'agent-seen0000',
         'already delivered summary',
       );
-      const steer = vi.spyOn(ctx.get(IPromptService), 'steer');
+      const steer = vi.spyOn(ctx.get(IAgentPromptService), 'steer');
 
       await ctx.restorePersisted();
       expect(
         ctx.context.get().some((message) => message.origin?.kind === 'background_task'),
       ).toBe(false);
 
-      const background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
+      const background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
       await background.loadFromDisk();
       await background.reconcile();
 
@@ -480,7 +480,7 @@ describe('Agent resume', () => {
         origin: { kind: 'compaction_summary' },
       }),
     ]);
-    expect(ctx.get(IReplayBuilderService).buildResult()).toEqual([
+    expect(ctx.get(IAgentReplayBuilderService).buildResult()).toEqual([
       expect.objectContaining({
         type: 'message',
         message: expect.objectContaining({
@@ -516,7 +516,7 @@ describe('Agent resume', () => {
 
     await ctx.restorePersisted();
 
-    expect(ctx.get(IReplayBuilderService).buildResult()).toEqual([
+    expect(ctx.get(IAgentReplayBuilderService).buildResult()).toEqual([
       expect.objectContaining({
         type: 'compaction',
         result: 'cancelled',
@@ -551,7 +551,7 @@ describe('Agent resume', () => {
         status: 'completed',
       });
       await backgroundPersistence.appendTaskOutput('agent-new00000', 'newly delivered summary');
-      const steer = vi.spyOn(ctx.get(IPromptService), 'steer');
+      const steer = vi.spyOn(ctx.get(IAgentPromptService), 'steer');
 
       await ctx.restorePersisted();
 
@@ -629,7 +629,7 @@ describe('Agent resume', () => {
 
     await ctx.restorePersisted();
 
-    expect(ctx.get(IReplayBuilderService).buildResult()).toContainEqual(
+    expect(ctx.get(IAgentReplayBuilderService).buildResult()).toContainEqual(
       expect.objectContaining({
         type: 'message',
         message: expect.objectContaining({
@@ -730,7 +730,7 @@ describe('Agent resume', () => {
     await ctx.restorePersisted();
 
     expect(ctx.context.get()).toHaveLength(0);
-    expect(ctx.get(IReplayBuilderService).buildResult()).toContainEqual(
+    expect(ctx.get(IAgentReplayBuilderService).buildResult()).toContainEqual(
       expect.objectContaining({
         type: 'goal_updated',
         snapshot: expect.objectContaining({
@@ -844,7 +844,7 @@ describe('Agent resume', () => {
     expect(ctx.context.get()[0]?.role).toBe('user');
     expect(ctx.context.get()[1]?.role).toBe('assistant');
 
-    const replay = ctx.get(IReplayBuilderService).buildResult();
+    const replay = ctx.get(IAgentReplayBuilderService).buildResult();
     expect(replay).toHaveLength(2);
     expect(replay[0]).toMatchObject({
       type: 'message',

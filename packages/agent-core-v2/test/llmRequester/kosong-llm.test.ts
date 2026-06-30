@@ -2,8 +2,8 @@ import { emptyUsage } from '@moonshot-ai/kosong';
 import type { StreamedMessagePart } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { ILLMRequester } from '#/llmRequester';
-import { IProfileService } from '#/profile';
+import { IAgentLLMRequesterService } from '#/llmRequester';
+import { IAgentProfileService } from '#/profile';
 import {
   configServices,
   createTestAgent,
@@ -14,11 +14,11 @@ import {
 describe('LLMRequester service migration coverage', () => {
   describe('tool-call deltas', () => {
     let ctx: TestAgentContext;
-    let profile: IProfileService;
+    let profile: IAgentProfileService;
 
     beforeEach(() => {
       ctx = createTestAgent();
-      profile = ctx.get(IProfileService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Lookup'] });
     });
 
@@ -30,7 +30,7 @@ describe('LLMRequester service migration coverage', () => {
       }
     });
 
-    it('preserves indexed tool-call deltas through LoopService protocol events', async () => {
+    it('preserves indexed tool-call deltas through AgentLoopService protocol events', async () => {
       await ctx.rpc.setPermission({ mode: 'auto' });
       await ctx.rpc.registerTool({
         name: 'Lookup',
@@ -84,8 +84,8 @@ describe('LLMRequester service migration coverage', () => {
 
   describe('request timing and budget', () => {
     let ctx: TestAgentContext;
-    let llmRequester: ILLMRequester;
-    let profile: IProfileService;
+    let llmRequester: IAgentLLMRequesterService;
+    let profile: IAgentProfileService;
     let requestMaxTokens: unknown;
 
     beforeEach(() => {
@@ -130,8 +130,8 @@ describe('LLMRequester service migration coverage', () => {
           },
         })),
       );
-      llmRequester = ctx.get(ILLMRequester);
-      profile = ctx.get(IProfileService);
+      llmRequester = ctx.get(IAgentLLMRequesterService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({
         modelAlias: 'deepseek/deepseek-v4-flash',
         systemPrompt: 'system',
@@ -147,7 +147,7 @@ describe('LLMRequester service migration coverage', () => {
       }
     });
 
-    it('emits stream timing and applies the model output budget through ILLMRequester', async () => {
+    it('emits stream timing and applies the model output budget through IAgentLLMRequesterService', async () => {
       const events = await collectLLMEvents(llmRequester.request());
 
       expect(requestMaxTokens).toBe(384_000);

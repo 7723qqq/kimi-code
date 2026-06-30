@@ -1,5 +1,5 @@
 /**
- * `microCompaction` domain (L4) - `IMicroCompactionService` implementation.
+ * `microCompaction` domain (L4) - `IAgentMicroCompactionService` implementation.
  *
  * Tracks cache-miss compaction cutoffs over `contextMemory`, sizes context via
  * `contextSize`, resolves model capacity through `profile`, persists cutoffs
@@ -20,16 +20,16 @@ import {
 } from "#/_base/utils/tokens";
 import type { TelemetryProperties } from '#/telemetry';
 import { IConfigRegistry, IConfigService } from '#/config';
-import { IContextMemory } from '#/contextMemory';
-import { IContextSizeService } from '#/contextSize';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentContextSizeService } from '#/contextSize';
 import { IFlagService } from '#/flag';
-import { IProfileService } from '#/profile';
+import { IAgentProfileService } from '#/profile';
 import { ITelemetryService } from '#/telemetry';
-import { ITurnService } from '#/turn';
+import { IAgentTurnService } from '#/turn';
 import type { ContextMessage } from '../contextMemory';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import {
-  IMicroCompactionService,
+  IAgentMicroCompactionService,
   type MicroCompactionConfig,
   type MicroCompactionEffect,
 } from './microCompaction';
@@ -55,9 +55,9 @@ const DEFAULT_CONFIG: MicroCompactionConfig = {
   minContextUsageRatio: 0.5,
 };
 
-export class MicroCompactionService
+export class AgentMicroCompactionService
   extends Disposable
-  implements IMicroCompactionService
+  implements IAgentMicroCompactionService
 {
   declare readonly _serviceBrand: undefined;
   private cutoff = 0;
@@ -65,13 +65,13 @@ export class MicroCompactionService
   private _lastAssistantAt: number | null = null;
 
   constructor(
-    @IContextMemory private readonly context: IContextMemory,
-    @IContextSizeService private readonly contextSize: IContextSizeService,
-    @IWireRecord private readonly wireRecord: IWireRecord,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
     @IFlagService private readonly flags: IFlagService,
-    @IProfileService private readonly profile: IProfileService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @ITurnService turn: ITurnService,
+    @IAgentTurnService turn: IAgentTurnService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
   ) {
@@ -273,8 +273,8 @@ function isAssistantCacheAnchor(message: ContextMessage): boolean {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IMicroCompactionService,
-  MicroCompactionService,
+  IAgentMicroCompactionService,
+  AgentMicroCompactionService,
   InstantiationType.Eager,
   'microCompaction',
 );

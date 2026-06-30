@@ -5,9 +5,9 @@
  * `compact` / `undo` / `abort` / `btw`) and the `/sessions/{id}/children`
  * endpoints (`createChild` / `listChildren`) on top of the native v2 services
  * (`ISessionLifecycleService`, `ISessionIndex`, `IAgentRPCService`,
- * `IFullCompaction`, `IPromptService`, …). The native services keep serving
+ * `IAgentFullCompactionService`, `IAgentPromptService`, …). The native services keep serving
  * `/api/v2` and are left untouched; this adapter exists only so clients of the
- * v1 server keep working against server-v2. Bound at Core scope — it is a
+ * v1 server keep working against server-v2. Bound at App scope — it is a
  * stateless dispatcher that resolves the target session/agent per call.
  */
 

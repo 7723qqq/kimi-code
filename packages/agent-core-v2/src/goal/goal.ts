@@ -11,7 +11,7 @@ export interface GoalReasonInput {
   readonly reason?: string;
 }
 
-export interface IGoalService {
+export interface IAgentGoalService {
   readonly _serviceBrand: undefined;
   getGoal(): GoalToolResult;
   createGoal(input: CreateGoalInput, actor?: GoalActor): Promise<GoalSnapshot>;
@@ -26,4 +26,4 @@ export interface IGoalService {
   markBlocked(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
 }
 
-export const IGoalService = createDecorator<IGoalService>('agentGoalService');
+export const IAgentGoalService = createDecorator<IAgentGoalService>('agentGoalService');

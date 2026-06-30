@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
-import { IContextInjector } from '#/contextInjector';
-import { IContextMemory, type ContextMessage } from '#/contextMemory';
-import { IPlanService } from '#/plan';
+import { IAgentContextInjectorService } from '#/contextInjector';
+import { IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
+import { IAgentPlanService } from '#/plan';
 import {
   createTestAgent,
   kaosServices,
@@ -15,7 +15,7 @@ type InjectableDynamicInjector = {
 };
 
 async function enterPlan(
-  plan: IPlanService,
+  plan: IAgentPlanService,
   id = 'test-plan',
 ): Promise<string> {
   await plan.enter(id, false);
@@ -32,19 +32,19 @@ async function injectDynamic(injector: InjectableDynamicInjector): Promise<void>
 
 function appendAssistantTurn(
   ctx: TestAgentContext,
-  context: IContextMemory,
+  context: IAgentContextMemoryService,
   text: string,
 ): void {
   ctx.appendAssistantTurn(context.get().length, text);
 }
 
-function planReminderMessages(context: IContextMemory): readonly ContextMessage[] {
+function planReminderMessages(context: IAgentContextMemoryService): readonly ContextMessage[] {
   return context.get().filter((message) => {
     return message.origin?.kind === 'injection' && message.origin.variant === 'plan_mode';
   });
 }
 
-function lastPlanReminder(context: IContextMemory): string {
+function lastPlanReminder(context: IAgentContextMemoryService): string {
   const message = planReminderMessages(context).at(-1);
   if (message === undefined) return '';
   return message.content
@@ -54,9 +54,9 @@ function lastPlanReminder(context: IContextMemory): string {
 
 describe('PlanModeService dynamic injection content', () => {
   let ctx: TestAgentContext;
-  let context: IContextMemory;
+  let context: IAgentContextMemoryService;
   let injector: InjectableDynamicInjector;
-  let plan: IPlanService;
+  let plan: IAgentPlanService;
   let readText: (path: string) => Promise<string>;
 
   beforeEach(() => {
@@ -66,9 +66,9 @@ describe('PlanModeService dynamic injection content', () => {
       readText: (path: string) => readText(path),
       writeText: vi.fn(async (_path: string, content: string) => content.length),
     })));
-    context = ctx.get(IContextMemory);
-    injector = ctx.get(IContextInjector) as unknown as InjectableDynamicInjector;
-    plan = ctx.get(IPlanService);
+    context = ctx.get(IAgentContextMemoryService);
+    injector = ctx.get(IAgentContextInjectorService) as unknown as InjectableDynamicInjector;
+    plan = ctx.get(IAgentPlanService);
   });
 
   afterEach(async () => {
@@ -136,9 +136,9 @@ describe('PlanModeService dynamic injection content', () => {
 
 describe('PlanModeService dynamic injection cadence', () => {
   let ctx: TestAgentContext;
-  let context: IContextMemory;
+  let context: IAgentContextMemoryService;
   let injector: InjectableDynamicInjector;
-  let plan: IPlanService;
+  let plan: IAgentPlanService;
 
   beforeEach(() => {
     ctx = createTestAgent(kaosServices(createFakeKaos({
@@ -146,9 +146,9 @@ describe('PlanModeService dynamic injection cadence', () => {
       readText: async () => '',
       writeText: vi.fn(async (_path: string, content: string) => content.length),
     })));
-    context = ctx.get(IContextMemory);
-    injector = ctx.get(IContextInjector) as unknown as InjectableDynamicInjector;
-    plan = ctx.get(IPlanService);
+    context = ctx.get(IAgentContextMemoryService);
+    injector = ctx.get(IAgentContextInjectorService) as unknown as InjectableDynamicInjector;
+    plan = ctx.get(IAgentPlanService);
   });
 
   afterEach(async () => {

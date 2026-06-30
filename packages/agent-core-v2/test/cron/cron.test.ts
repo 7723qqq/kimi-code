@@ -7,10 +7,10 @@ import { IBootstrapService } from '#/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/config';
 import { ConfigRegistry, ConfigService } from '#/config/configService';
 import type { ContextMessage } from '#/contextMemory';
-import { ICronService } from '#/cron';
-import { CronService } from '#/cron/cronService';
+import { IAgentCronService } from '#/cron';
+import { AgentCronService } from '#/cron/cronService';
 import { ILogService } from '#/log';
-import { IPromptService } from '#/prompt';
+import { IAgentPromptService } from '#/prompt';
 import {
   InMemoryStorageService,
   IStorageService,
@@ -19,11 +19,11 @@ import {
   TomlAtomicDocumentStore,
 } from '#/storage';
 import { ITelemetryService } from '#/telemetry';
-import { IToolRegistry } from '#/toolRegistry';
-import { ITurnService, type Turn } from '#/turn';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentToolRegistryService } from '#/toolRegistry';
+import { IAgentTurnService, type Turn } from '#/turn';
+import { IAgentWireRecordService } from '#/wireRecord';
 
-import { IEventSink } from '../../src/eventSink';
+import { IAgentEventSinkService } from '../../src/eventSink';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubWireRecord } from '../contextMemory/stubs';
 import { stubLog } from '../log/stubs';
@@ -45,12 +45,12 @@ function textOf(message: ContextMessage): string {
 }
 
 // NOTE: the legacy `CronFireCoordinator` (which steered the main agent on fire
-// through `ITurnService.steer`) no longer exists in HEAD. Fire delivery now
-// lives inside `CronService` itself: a due, idle task is delivered via
-// `IPromptService.steer`. The cases below cover that path directly, so there is
+// through `IAgentTurnService.steer`) no longer exists in HEAD. Fire delivery now
+// lives inside `AgentCronService` itself: a due, idle task is delivered via
+// `IAgentPromptService.steer`. The cases below cover that path directly, so there is
 // no separate coordinator suite to migrate.
 
-describe('CronService', () => {
+describe('AgentCronService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let now: number;
@@ -66,12 +66,12 @@ describe('CronService', () => {
     steered = [];
     vi.spyOn(Date, 'now').mockImplementation(() => now);
 
-    const turnService: ITurnService = {
+    const turnService: IAgentTurnService = {
       ...stubTurn(),
       getActiveTurn: () => activeTurn,
     };
 
-    ix.stub(IPromptService, {
+    ix.stub(IAgentPromptService, {
       prompt: () => undefined,
       steer: (message) => {
         steered.push(message);
@@ -81,11 +81,11 @@ describe('CronService', () => {
       undo: () => 0,
       clear: () => {},
     });
-    ix.stub(IEventSink, { emit: () => {}, on: () => ({ dispose: () => {} }) });
-    ix.stub(IWireRecord, stubWireRecord());
-    ix.stub(ITurnService, turnService);
+    ix.stub(IAgentEventSinkService, { emit: () => {}, on: () => ({ dispose: () => {} }) });
+    ix.stub(IAgentWireRecordService, stubWireRecord());
+    ix.stub(IAgentTurnService, turnService);
     ix.stub(ITelemetryService, { track: () => {} });
-    ix.stub(IToolRegistry, { register: () => ({ dispose: () => {} }) });
+    ix.stub(IAgentToolRegistryService, { register: () => ({ dispose: () => {} }) });
     ix.stub(IBootstrapService, stubBootstrap());
     ix.stub(ILogService, stubLog());
     ix.stub(IStorageService, new InMemoryStorageService());
@@ -99,8 +99,8 @@ describe('CronService', () => {
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
     ix.set(IConfigService, new SyncDescriptor(ConfigService));
     ix.set(
-      ICronService,
-      new SyncDescriptor(CronService, [{}]),
+      IAgentCronService,
+      new SyncDescriptor(AgentCronService, [{}]),
     );
   });
   afterEach(() => {
@@ -110,7 +110,7 @@ describe('CronService', () => {
   });
 
   it('addTask / list / removeTasks', () => {
-    const svc = ix.get(ICronService);
+    const svc = ix.get(IAgentCronService);
     const task = svc.addTask({ cron: '* * * * *', prompt: 'hi', recurring: false });
 
     expect(svc.list()).toHaveLength(1);
@@ -119,7 +119,7 @@ describe('CronService', () => {
   });
 
   it('does not fire while a turn is active', () => {
-    const svc = ix.get(ICronService);
+    const svc = ix.get(IAgentCronService);
     svc.addTask({ cron: '* * * * *', prompt: 'fire-me', recurring: false });
 
     activeTurn = fakeTurn();
@@ -130,7 +130,7 @@ describe('CronService', () => {
   });
 
   it('fires a due task when idle', () => {
-    const svc = ix.get(ICronService);
+    const svc = ix.get(IAgentCronService);
     svc.addTask({ cron: '* * * * *', prompt: 'fire-me', recurring: false });
 
     now = FAR_FUTURE_MS;
@@ -142,7 +142,7 @@ describe('CronService', () => {
   });
 
   it('removes one-shot tasks after firing', () => {
-    const svc = ix.get(ICronService);
+    const svc = ix.get(IAgentCronService);
     svc.addTask({ cron: '* * * * *', prompt: 'x', recurring: false });
 
     now = FAR_FUTURE_MS;

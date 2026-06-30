@@ -3,7 +3,7 @@
  *
  * Ported from v1 (`packages/agent-core/test/tools/edit.test.ts`) and adapted
  * to the v2 constructor `(fs, kaos, workspace)`. Self-contained: builds minimal
- * fake `IAgentFileSystem` (spied readText/writeText) and `IKaos` inline so the
+ * fake `ISessionAgentFileSystem` (spied readText/writeText) and `IKaos` inline so the
  * tool can be exercised without the composition root, mirroring
  * `test/fileTools/read.test.ts`.
  */
@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
-import type { IAgentFileSystem } from '../../src/agentFs';
+import type { ISessionAgentFileSystem } from '../../src/agentFs';
 import { type EditInput, EditInputSchema, EditTool } from '../../src/fileTools/tools/edit';
 import type { IKaos } from '../../src/kaos';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../src/tool';
@@ -41,7 +41,7 @@ function createSpiedEditFs(
   const readText = options.readText ?? vi.fn(async () => '');
   const writeText = options.writeText ?? vi.fn(async () => undefined);
   const stat = vi.fn(async () => ({ isFile: true, isDirectory: false, size: 0 }));
-  const fs = { cwd: '/', readText, writeText, stat } as unknown as IAgentFileSystem;
+  const fs = { cwd: '/', readText, writeText, stat } as unknown as ISessionAgentFileSystem;
   return { fs, readText, writeText };
 }
 

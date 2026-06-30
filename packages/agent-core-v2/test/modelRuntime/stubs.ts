@@ -1,6 +1,6 @@
 import type { IOAuthService } from '#/auth';
 import type { IConfigService } from '#/config';
-import { ModelResolver, type IModelResolver } from '#/modelRuntime';
+import { SessionModelResolver, type ISessionModelResolver } from '#/modelRuntime';
 import type { ProviderConfig } from '#/provider';
 
 export type TestOAuthAccessTokenProvider = (
@@ -44,9 +44,9 @@ export function stubOAuth(getAccessToken?: TestOAuthAccessTokenProvider): IOAuth
 export function oauthAgentOptions(
   getAccessToken: TestOAuthAccessTokenProvider,
   capabilities: readonly string[] = ['image_in', 'video_in', 'tool_use'],
-): { readonly modelResolver: IModelResolver } {
+): { readonly modelResolver: ISessionModelResolver } {
   return {
-    modelResolver: new ModelResolver(
+    modelResolver: new SessionModelResolver(
       stubConfig({
         defaultModel: 'kimi-code',
         providers: {

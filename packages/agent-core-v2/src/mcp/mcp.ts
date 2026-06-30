@@ -14,7 +14,7 @@ export interface McpResolvedServer {
   readonly enabledNames: ReadonlySet<string>;
 }
 
-export interface IMcpService {
+export interface IAgentMcpService {
   readonly _serviceBrand: undefined;
   readonly oauthService: McpOAuthService | undefined;
 
@@ -31,4 +31,4 @@ export interface McpServiceOptions {
   readonly manager?: McpConnectionManager;
 }
 
-export const IMcpService = createDecorator<IMcpService>('agentMcpService');
+export const IAgentMcpService = createDecorator<IAgentMcpService>('agentMcpService');

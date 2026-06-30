@@ -45,7 +45,7 @@ interface SeedMeta {
 
 describe('session-index module (business Store over storage Stores)', () => {
   let homeDir: string;
-  let core: Scope;
+  let app: Scope;
   let sessionsScope: string;
   let docs: IAtomicDocumentStore;
   let index: ISessionIndex;
@@ -58,11 +58,11 @@ describe('session-index module (business Store over storage Stores)', () => {
     homeDir = resolved;
     mkdirSync(homeDir, { recursive: true });
 
-    core = bootstrap({ homeDir }).core;
-    const layout = core.accessor.get(IBootstrapService);
+    app = bootstrap({ homeDir }).app;
+    const layout = app.accessor.get(IBootstrapService);
     sessionsScope = relative(layout.homeDir, layout.sessionsDir);
-    docs = core.accessor.get(IAtomicDocumentStore);
-    index = core.accessor.get(ISessionIndex);
+    docs = app.accessor.get(IAtomicDocumentStore);
+    index = app.accessor.get(ISessionIndex);
 
     await seed('ws-a', 's1', {
       title: 'first session',
@@ -91,7 +91,7 @@ describe('session-index module (business Store over storage Stores)', () => {
   });
 
   afterEach(() => {
-    core.dispose();
+    app.dispose();
   });
 
   async function seed(workspaceId: string, sessionId: string, meta: SeedMeta): Promise<void> {

@@ -5,7 +5,7 @@
  * keeps a JSON `FileMeta` index in the same backend under the `filestore`
  * scope. Enforces the 50 MiB upload cap while collecting the stream, prunes the
  * index when a referenced blob is missing, and hands downloads back as a lazy
- * `Readable` over `readStream`. Bound at Core scope.
+ * `Readable` over `readStream`. Bound at App scope.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -165,7 +165,7 @@ export class FileStoreService implements IFileStore {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IFileStore,
   FileStoreService,
   InstantiationType.Delayed,

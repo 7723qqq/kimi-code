@@ -2,7 +2,7 @@
  * `kaos` domain (L1) — `IKaosFactory` implementation.
  *
  * Builds an `IKaos` for a session. Today only local (`LocalKaos`); ssh/container
- * are added behind the same factory later. Bound at Core scope.
+ * are added behind the same factory later. Bound at App scope.
  */
 
 import { LocalKaos } from '@moonshot-ai/kaos';
@@ -23,7 +23,7 @@ export class KaosFactory implements IKaosFactory {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IKaosFactory,
   KaosFactory,
   InstantiationType.Delayed,

@@ -5,7 +5,7 @@ import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IBackgroundService, ProcessBackgroundTask } from '#/background';
+import { IAgentBackgroundService, ProcessBackgroundTask } from '#/background';
 import { createBackgroundTaskPersistence, type BackgroundServiceTestManager } from './stubs';
 import { backgroundServices, createTestAgent, homeDirServices, type TestAgentContext } from '../harness';
 
@@ -18,7 +18,7 @@ interface BackgroundServiceFixture {
 function createBackgroundService(homedir: string): BackgroundServiceFixture {
   const persistence = createBackgroundTaskPersistence(homedir);
   const ctx = createTestAgent(homeDirServices(homedir), backgroundServices());
-  const manager = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
+  const manager = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
   return {
     ctx,
     manager,
@@ -27,7 +27,7 @@ function createBackgroundService(homedir: string): BackgroundServiceFixture {
 }
 
 function registerProcess(
-  manager: IBackgroundService,
+  manager: IAgentBackgroundService,
   proc: KaosProcess,
   command: string,
   description: string,
@@ -36,7 +36,7 @@ function registerProcess(
 }
 
 async function waitForOutput(
-  manager: IBackgroundService,
+  manager: IAgentBackgroundService,
   taskId: string,
   expected: string,
 ): Promise<void> {

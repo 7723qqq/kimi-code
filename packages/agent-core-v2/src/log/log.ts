@@ -4,7 +4,7 @@
  * Defines the public contract of logging: the `LogEntry` / `LogLevel` model,
  * the `ILogger` / `ILogService` used by other domains to emit leveled entries,
  * the `ILogWriterService` they are written to, and the per-session `ISessionLogService`
- * that owns a session-scoped sink. `ILogService` is Core-scoped;
+ * that owns a session-scoped sink. `ILogService` is App-scoped;
  * `ISessionLogService` is Session-scoped.
  */
 

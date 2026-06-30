@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import type { TokenUsage } from '@moonshot-ai/kosong';
 import type { ILogger as Logger } from '#/log';
 
-import type { IToolExecutor } from '#/toolExecutor';
+import type { IAgentToolExecutorService } from '#/toolExecutor';
 import type { LoopEventDispatcher } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { chatWithRetry } from './retry';
@@ -41,7 +41,7 @@ export interface ExecuteLoopStepDeps {
   readonly log?: Logger | undefined;
   readonly currentStep: number;
   readonly maxRetryAttempts?: number;
-  readonly toolExecutor: IToolExecutor;
+  readonly toolExecutor: IAgentToolExecutorService;
   readonly recordUsage: (
     usage: TokenUsage,
     context: RecordStepUsageContext,

@@ -4,33 +4,57 @@ How to write a Service in `packages/agent-core-v2`: file layout, naming, what go
 
 ## File layout
 
-One folder per domain, **kebab-case**: `session/`, `session-activity/`, `contextMemory/`. Inside:
+One folder per domain, **camelCase**: `session/`, `sessionActivity/`, `contextMemory/`, `toolDedup/`. Inside, six kinds of files, all flat (no subdirectories):
 
 ```text
 <domain>/
-├── <domain>.ts          ← contract: model types + interface(s) + decorator(s) + helpers
-├── <domain>Service.ts   ← impl: class(es) + top-level registerScopedService(...)
-└── index.ts             ← barrel: re-exports contract + impl (+ helpers)
+├── <name>.ts            ← interface file: exactly one IXxx + its createDecorator + the types it owns
+├── <name>Service.ts     ← impl file: exactly one class + exactly one registerScopedService(...)
+├── <concern>.ts         ← pure function(s): no Service suffix, no class, no registration
+├── <targetDomain>.ts    ← contribution file (common): registers into another domain's extension point
+├── <what>.contrib.ts    ← contribution file (uncommon / ad-hoc)
+├── <domain>.types.ts    ← shared types that no single interface owns
+└── index.ts             ← barrel: re-exports everything; importing it runs the domain's registrations
 ```
 
-A domain may have more than one impl file when its Services live at different scopes or carry independent responsibilities (e.g. `logService.ts` for the Core `ILogService`, `sessionLogService.ts` for the Session `ISessionLogService`). See [Multi-Service domains](#multi-service-domains).
+- **One service per file.** An interface file holds exactly one injectable interface; an impl file holds exactly one class and exactly one `registerScopedService(...)`. A multi-service domain splits into one interface-file + one impl-file per service.
+- **Scope is in the filename.** `session*.ts` = Session, `agent*.ts` = Agent, no scope prefix = App (see [Naming](#naming)). The header comment restates the same scope.
+- A domain therefore has as many impl files as it has services (e.g. `logService.ts` for the App `ILogService`, `sessionLogService.ts` for the Session `ISessionLogService`). See [Multi-Service domains](#multi-service-domains).
 
 The package entry `src/index.ts` re-exports each domain barrel so that importing the package runs every registration side effect.
 
 ## Naming
 
+### Interfaces and classes
+
 | Artifact | Rule | Example |
 |---|---|---|
-| Interface | `I` + PascalCase + `Service` suffix | `ISessionService`, `ILogService` |
-| Class | PascalCase + `Service` suffix, `implements` the interface | `SessionService implements ISessionService` |
-| Decorator string | lowerCamelCase of the interface name minus the leading `I`; **globally unique and stable** (it surfaces in `CyclicDependencyError.path` and "no service registered" errors) | `createDecorator<ISessionService>('sessionService')` |
-| Contract file | `<domain>.ts` (kebab domain, no `Service` suffix) | `session.ts`, `session-activity.ts` |
-| Impl file | `<domain>Service.ts` (with `Service` suffix) | `sessionService.ts` |
+| Interface | `I` + scope prefix + PascalCase domain + role suffix. Scope prefix: `Session` / `Agent` / none (= App). Role suffix is usually `Service`. | `ISessionLogService`, `IAgentLoopService`, `ILogService` (App) |
+| Class | the interface name minus the leading `I`, plus `Service` if it does not already end in `Service`; `implements` the interface | `SessionLogService implements ISessionLogService`, `AppendLogStoreService implements IAppendLogStore` |
+| Decorator string | lowerCamelCase of the interface name minus the leading `I`; **globally unique and stable** (it surfaces in `CyclicDependencyError.path` and "no service registered" errors) | `createDecorator<ISessionLogService>('sessionLogService')` |
 | Model / non-service types | PascalCase, no `I` prefix | `SessionMeta`, `LogEntry`, `ConfigSection` |
 
-> The `Service` suffix is the norm for injectables. Roles (facade / bus / broker / adapter) are conveyed by the interface shape and the file-header comment, not by inventing new suffixes.
+The scope prefix makes a service's lifetime readable from its name. App services carry **no** prefix (App is the default, longest-lived tier); Session and Agent services always carry `Session` / `Agent`. The prefix applies to the interface, the class, and therefore the file names.
 
-Do not name a Service after a scope or a god-object-shaped data bag. `IAgentEntityService`, `IAgentDataService`, `ISessionEntityService`, and `ITurnEntityService` re-merge domains by lifetime; name Services after the real owning domain (`IBackgroundTaskEntityService`, `ISessionMetadata`, `IPermissionRulesService`). See [domain-boundaries.md](domain-boundaries.md).
+> Do **not** use the scope prefix to re-merge domains by lifetime. `IAgentEntityService`, `IAgentDataService`, `ISessionEntityService`, and `ITurnEntityService` are still banned — the prefix marks lifetime, the rest of the name must still be the real owning domain (`IBackgroundTaskEntityService`, `ISessionMetadata`, `IPermissionRulesService`). See [domain-boundaries.md](domain-boundaries.md).
+
+### File names
+
+File names derive from the interface / class names so that scope and role are visible in the tree:
+
+| File kind | Rule | Example (interface → file) |
+|---|---|---|
+| Interface file | interface name minus leading `I`, minus trailing `Service` if present; acronym-aware lowerCamelCase | `ISessionLogService` → `sessionLog.ts`; `IAppendLogStore` → `appendLogStore.ts`; `ILogService` → `log.ts` |
+| Impl file | the class name; acronym-aware lowerCamelCase | `SessionLogService` → `sessionLogService.ts`; `AppendLogStoreService` → `appendLogStoreService.ts` |
+| Pure-function file | the function / concern name; no `Service` suffix | `formatLogEntry.ts`, `levelEnabled.ts` |
+| Contribution file (common) | the **target** domain name | `config.ts` (registers a config section), `tool.ts`, `flag.ts` |
+| Contribution file (uncommon) | `<what>.contrib.ts` | `slackWebhook.contrib.ts` |
+| Shared-types file | `<domain>.types.ts` | `log.types.ts` |
+| Errors file | `<name>.errors.ts` | `appendLogStore.errors.ts` |
+
+Acronym-aware lowerCamelCase lowercases a leading acronym as a group: `ILLMRequester` → `llmRequester.ts`, `IWSGateway` → `wsGateway.ts`, `IOAuthToolkit` → `oauthToolkit.ts`, `IAgentRPCService` → `agentRpcService.ts`.
+
+Because the impl class always ends in `Service` and the interface file never does, the two files of one service never collide — even for `Store` / `Registry` / `Resolver` interfaces (`IAppendLogStore` → `appendLogStore.ts` + `appendLogStoreService.ts`).
 
 ## The contract file (`<domain>.ts`)
 
@@ -111,7 +135,7 @@ Holds the concrete class(es) and the top-level registration. A typical impl:
 /**
  * `greet` domain (Ln) — `IGreeter` implementation.
  *
- * … collaborators as roles ("logs through `log`") … Bound at Core scope.
+ * … collaborators as roles ("logs through `log`") … Bound at App scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -131,7 +155,7 @@ export class Greeter implements IGreeter {
   }
 }
 
-registerScopedService(LifecycleScope.Core, IGreeter, Greeter, InstantiationType.Eager, 'greet');
+registerScopedService(LifecycleScope.App, IGreeter, Greeter, InstantiationType.Eager, 'greet');
 ```
 
 What belongs here:
@@ -290,7 +314,7 @@ export class Greeter implements IGreeter {
   hello(): Greeting { return { message: 'hi' }; }
 }
 
-registerScopedService(LifecycleScope.Core, IGreeter, Greeter, InstantiationType.Eager, 'greet');
+registerScopedService(LifecycleScope.App, IGreeter, Greeter, InstantiationType.Eager, 'greet');
 ```
 
 ```ts

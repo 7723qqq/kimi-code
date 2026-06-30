@@ -3,7 +3,7 @@
  *
  * Builds the `LoggingConfig` from `KIMI_LOG_*` environment variables plus
  * defaults, resolves the global and per-session log paths, and exposes the
- * `ILogOptions` seed used to inject the resolved config into a Core scope.
+ * `ILogOptions` seed used to inject the resolved config into a App scope.
  */
 
 import { join } from 'pathe';

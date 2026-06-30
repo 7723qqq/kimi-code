@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes } from '#/errors';
-import { IContextMemory } from '#/contextMemory';
-import { IEventSink } from '#/eventSink';
-import { IGoalService, type GoalService } from '#/goal';
-import { IReplayBuilderService } from '#/replayBuilder';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentEventSinkService } from '#/eventSink';
+import { IAgentGoalService, type AgentGoalService } from '#/goal';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
 import type { PersistedWireRecord, WireRecord } from '#/wireRecord';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import {
@@ -15,11 +15,11 @@ import {
   type TestAgentContext,
 } from '../harness';
 
-type GoalServiceTestManager = IGoalService & GoalService;
+type GoalServiceTestManager = IAgentGoalService & AgentGoalService;
 type GoalRecord = Extract<PersistedWireRecord, { type: `goal.${string}` }>;
-type AgentEvent = Parameters<IEventSink['emit']>[0];
+type AgentEvent = Parameters<IAgentEventSinkService['emit']>[0];
 type GoalUpdatedEvent = Extract<AgentEvent, { type: 'goal.updated' }>;
-type GoalSnapshot = NonNullable<ReturnType<IGoalService['getGoal']>['goal']>;
+type GoalSnapshot = NonNullable<ReturnType<IAgentGoalService['getGoal']>['goal']>;
 type GoalChange = GoalUpdatedEvent['change'];
 
 function goalRecords(records: readonly PersistedWireRecord[]): readonly GoalRecord[] {
@@ -28,19 +28,19 @@ function goalRecords(records: readonly PersistedWireRecord[]): readonly GoalReco
 
 async function restoreGoalRecords(
   ctx: TestAgentContext,
-  goals: IGoalService,
+  goals: IAgentGoalService,
   records: readonly WireRecord[],
 ): Promise<void> {
   goals.getGoal();
   await ctx.restore(records as readonly PersistedWireRecord[]);
 }
 
-describe('GoalService', () => {
+describe('AgentGoalService', () => {
   let ctx: TestAgentContext;
-  let context: IContextMemory;
+  let context: IAgentContextMemoryService;
   let goals: GoalServiceTestManager;
   let records: PersistedWireRecord[];
-  let replayBuilder: IReplayBuilderService;
+  let replayBuilder: IAgentReplayBuilderService;
   let events: Array<{ readonly type: string; readonly snapshot?: GoalSnapshot | null; readonly change?: GoalChange }>;
   let telemetry: TelemetryRecord[];
 
@@ -52,11 +52,11 @@ describe('GoalService', () => {
       wireRecordPersistenceServices(persistence),
       telemetryServices(recordingTelemetry(telemetry)),
     );
-    context = ctx.get(IContextMemory);
-    goals = ctx.get(IGoalService) as GoalServiceTestManager;
+    context = ctx.get(IAgentContextMemoryService);
+    goals = ctx.get(IAgentGoalService) as GoalServiceTestManager;
     records = persistence.records;
-    replayBuilder = ctx.get(IReplayBuilderService);
-    const eventSink = ctx.get(IEventSink);
+    replayBuilder = ctx.get(IAgentReplayBuilderService);
+    const eventSink = ctx.get(IAgentEventSinkService);
     eventSink.on((event) => {
       if (event.type === 'goal.updated') events.push(event);
     });
@@ -70,7 +70,7 @@ describe('GoalService', () => {
     }
   });
 
-describe('GoalService creation', () => {
+describe('AgentGoalService creation', () => {
   it('creates a goal and exposes it through getGoal', async () => {
     const snapshot = await goals.createGoal({ objective: 'Ship feature X' });
 
@@ -137,7 +137,7 @@ describe('GoalService creation', () => {
   });
 });
 
-describe('GoalService lifecycle', () => {
+describe('AgentGoalService lifecycle', () => {
   it('emits typed lifecycle and completion changes', async () => {
     await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
     expect(events.at(-1)?.change).toBeUndefined();
@@ -188,7 +188,7 @@ describe('GoalService lifecycle', () => {
   });
 });
 
-describe('GoalService accounting and budgets', () => {
+describe('AgentGoalService accounting and budgets', () => {
   it('counts tokens and turns only while active', async () => {
     await goals.createGoal({ objective: 'work' });
     await goals.recordTokenUsage(30);
@@ -238,7 +238,7 @@ describe('GoalService accounting and budgets', () => {
   });
 });
 
-describe('GoalService records', () => {
+describe('AgentGoalService records', () => {
   it('records only replay-relevant create/update/clear fields', async () => {
     await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
     await goals.recordTokenUsage(5);

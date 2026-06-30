@@ -5,12 +5,12 @@ export interface ContextSizeStatus {
   readonly contextTokensWithPending: number;
 }
 
-export interface IContextSizeService {
+export interface IAgentContextSizeService {
   readonly _serviceBrand: undefined;
 
   getStatus(): ContextSizeStatus;
   measured(length: number, tokens: number): void;
 }
 
-export const IContextSizeService =
-  createDecorator<IContextSizeService>('agentContextSizeService');
+export const IAgentContextSizeService =
+  createDecorator<IAgentContextSizeService>('agentContextSizeService');

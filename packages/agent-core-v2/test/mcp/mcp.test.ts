@@ -5,17 +5,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IEventSink } from '#/eventSink';
+import { IAgentEventSinkService } from '#/eventSink';
 import type { McpConnectionManager, McpServerEntry } from '#/mcp/connection-manager';
-import { IMcpService, McpService } from '#/mcp';
+import { IAgentMcpService, AgentMcpService } from '#/mcp';
 import type { McpOAuthService } from '#/mcp/oauth';
 import type { MCPClient } from '#/mcp/types';
-import { ToolExecutorService } from '#/toolExecutor/toolExecutorService';
-import { IToolExecutor } from '#/toolExecutor';
-import { IToolRegistry } from '#/toolRegistry';
-import { ToolRegistryService } from '#/toolRegistry/toolRegistryService';
-import { ITurnService } from '#/turn';
-import { IProfileService } from '#/profile';
+import { AgentToolExecutorService } from '#/toolExecutor/toolExecutorService';
+import { IAgentToolExecutorService } from '#/toolExecutor';
+import { IAgentToolRegistryService } from '#/toolRegistry';
+import { AgentToolRegistryService } from '#/toolRegistry/toolRegistryService';
+import { IAgentTurnService } from '#/turn';
+import { IAgentProfileService } from '#/profile';
 
 import { createTestAgent, mcpServices, type TestAgentContext } from '../harness';
 import { stubTurnWithHooks } from '../turn/stubs';
@@ -123,7 +123,7 @@ class FakeMcpManager {
   }
 }
 
-describe('McpService', () => {
+describe('AgentMcpService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let events: AgentEvent[];
@@ -132,23 +132,23 @@ describe('McpService', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     events = [];
-    ix.stub(IEventSink, {
+    ix.stub(IAgentEventSinkService, {
       emit: (event) => {
         events.push(event);
       },
       on: () => toDisposable(() => {}),
     });
-    ix.set(IToolRegistry, new SyncDescriptor(ToolRegistryService));
-    ix.set(IToolExecutor, new SyncDescriptor(ToolExecutorService));
-    ix.stub(ITurnService, stubTurnWithHooks());
+    ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
+    ix.set(IAgentToolExecutorService, new SyncDescriptor(AgentToolExecutorService));
+    ix.stub(IAgentTurnService, stubTurnWithHooks());
   });
   afterEach(() => {
     disposables.dispose();
   });
 
-  function createService(manager: FakeMcpManager): McpService {
+  function createService(manager: FakeMcpManager): AgentMcpService {
     const svc = ix.createInstance(
-      McpService,
+      AgentMcpService,
       { manager: manager as unknown as McpConnectionManager },
     );
     disposables.add(svc);
@@ -173,9 +173,9 @@ describe('McpService', () => {
     expect(statuses).toEqual(['s1:connected', 's2:connected', 's1:disabled']);
   });
 
-  it('resolves through the IMcpService binding with no manager', () => {
-    ix.set(IMcpService, new SyncDescriptor(McpService, [{}]));
-    const svc = ix.get(IMcpService);
+  it('resolves through the IAgentMcpService binding with no manager', () => {
+    ix.set(IAgentMcpService, new SyncDescriptor(AgentMcpService, [{}]));
+    const svc = ix.get(IAgentMcpService);
     expect(svc.list()).toEqual([]);
   });
 
@@ -187,7 +187,7 @@ describe('McpService', () => {
 
     manager.connect('local server');
 
-    const infos = ix.get(IToolRegistry).list().filter((tool) => tool.source === 'mcp');
+    const infos = ix.get(IAgentToolRegistryService).list().filter((tool) => tool.source === 'mcp');
     expect(infos.map((info) => info.name).toSorted()).toEqual([
       'mcp__local_server__echo',
       'mcp__local_server__noop',
@@ -209,7 +209,7 @@ describe('McpService', () => {
 
     manager.connect('s');
 
-    const names = ix.get(IToolRegistry).list().filter((tool) => tool.source === 'mcp').map((tool) => tool.name);
+    const names = ix.get(IAgentToolRegistryService).list().filter((tool) => tool.source === 'mcp').map((tool) => tool.name);
     expect(names).toEqual(['mcp__s__echo']);
   });
 
@@ -220,11 +220,11 @@ describe('McpService', () => {
     createService(manager);
 
     manager.connect('s');
-    expect(ix.get(IToolRegistry).list().filter((tool) => tool.source === 'mcp')).toHaveLength(2);
+    expect(ix.get(IAgentToolRegistryService).list().filter((tool) => tool.source === 'mcp')).toHaveLength(2);
 
     manager.disconnect('s');
 
-    expect(ix.get(IToolRegistry).list().filter((tool) => tool.source === 'mcp')).toEqual([]);
+    expect(ix.get(IAgentToolRegistryService).list().filter((tool) => tool.source === 'mcp')).toEqual([]);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'tool.list.updated',
@@ -249,7 +249,7 @@ describe('McpService', () => {
 
     manager.connect('srv');
 
-    const names = ix.get(IToolRegistry).list().filter((tool) => tool.source === 'mcp').map((tool) => tool.name);
+    const names = ix.get(IAgentToolRegistryService).list().filter((tool) => tool.source === 'mcp').map((tool) => tool.name);
     expect(names).toEqual(['mcp__srv__a_b']);
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -274,7 +274,7 @@ describe('McpService', () => {
     manager.connect('srv a');
     manager.connect('srv__a');
 
-    expect(ix.get(IToolRegistry).list().filter((tool) => tool.source === 'mcp').map((tool) => tool.name)).toEqual([
+    expect(ix.get(IAgentToolRegistryService).list().filter((tool) => tool.source === 'mcp').map((tool) => tool.name)).toEqual([
       'mcp__srv_a__shared',
     ]);
     expect(events.filter((event) => event.type === 'error')).toHaveLength(1);
@@ -293,7 +293,7 @@ describe('McpService', () => {
     manager.setResolved('s', secondClient, await discoverTools(secondClient));
     manager.connect('s');
 
-    const names = ix.get(IToolRegistry).list().filter((tool) => tool.source === 'mcp').map((tool) => tool.name);
+    const names = ix.get(IAgentToolRegistryService).list().filter((tool) => tool.source === 'mcp').map((tool) => tool.name);
     expect(names).toEqual(['mcp__s__only']);
   });
 
@@ -304,7 +304,7 @@ describe('McpService', () => {
     createService(manager);
     manager.connect('s');
 
-    const echo = ix.get(IToolRegistry).resolve('mcp__s__echo');
+    const echo = ix.get(IAgentToolRegistryService).resolve('mcp__s__echo');
     expect(echo).toBeDefined();
     const result = await executeTool(echo!, {
       turnId: '1',
@@ -339,7 +339,7 @@ describe('McpService', () => {
     createService(manager);
     manager.connect('s');
 
-    const big = ix.get(IToolRegistry).resolve('mcp__s__big');
+    const big = ix.get(IAgentToolRegistryService).resolve('mcp__s__big');
     const result = await executeTool(big!, {
       turnId: '1',
       toolCallId: 'tc-big-text',
@@ -374,7 +374,7 @@ describe('McpService', () => {
     createService(manager);
     manager.connect('s');
 
-    const snap = ix.get(IToolRegistry).resolve('mcp__s__snap');
+    const snap = ix.get(IAgentToolRegistryService).resolve('mcp__s__snap');
     const result = await executeTool(snap!, {
       turnId: '1',
       toolCallId: 'tc-small-image',
@@ -417,7 +417,7 @@ describe('McpService', () => {
     manager.connect('s');
 
     const controller = new AbortController();
-    const echo = ix.get(IToolRegistry).resolve('mcp__s__echo');
+    const echo = ix.get(IAgentToolRegistryService).resolve('mcp__s__echo');
     await executeTool(echo!, {
       turnId: '1',
       toolCallId: 'tc-signal',
@@ -441,7 +441,7 @@ describe('McpService', () => {
 
     manager.needsAuth();
 
-    const tools = ix.get(IToolRegistry).list();
+    const tools = ix.get(IAgentToolRegistryService).list();
     expect(tools).toEqual([
       expect.objectContaining({
         name: 'mcp__needs-auth__authenticate',
@@ -459,7 +459,7 @@ describe('McpService', () => {
     manager.connect('s');
     manager.fail('s');
 
-    expect(ix.get(IToolRegistry).list().filter((tool) => tool.source === 'mcp')).toEqual([]);
+    expect(ix.get(IAgentToolRegistryService).list().filter((tool) => tool.source === 'mcp')).toEqual([]);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'tool.list.updated',
@@ -470,17 +470,17 @@ describe('McpService', () => {
   });
 });
 
-describe('McpService + ProfileService', () => {
+describe('AgentMcpService + AgentProfileService', () => {
   let ctx: TestAgentContext;
   let manager: FakeMcpManager;
-  let profile: IProfileService;
+  let profile: IAgentProfileService;
 
   beforeEach(() => {
     manager = new FakeMcpManager();
     ctx = createTestAgent(mcpServices({ manager: manager as unknown as McpConnectionManager }));
-    const mcp = ctx.get(IMcpService);
+    const mcp = ctx.get(IAgentMcpService);
     mcp.list();
-    profile = ctx.get(IProfileService);
+    profile = ctx.get(IAgentProfileService);
   });
 
   afterEach(async () => {

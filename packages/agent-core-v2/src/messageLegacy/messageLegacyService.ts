@@ -1,12 +1,12 @@
 /**
  * `messageLegacy` domain — `IMessageLegacyService` implementation.
  *
- * Stateless Core-scope dispatcher: each call resolves the target session (and
+ * Stateless App-scope dispatcher: each call resolves the target session (and
  * its main agent), sources the transcript, and projects it into the v1 wire
- * shape. Live sessions are read from the main agent's `IContextMemory` (the
+ * shape. Live sessions are read from the main agent's `IAgentContextMemoryService` (the
  * folded history already in memory); cold sessions are loaded, their main agent
  * is restored from the persisted wire log, and the FULL transcript is read from
- * `IReplayBuilderService` — v2's own replay reducer, so no reduction logic is
+ * `IAgentReplayBuilderService` — v2's own replay reducer, so no reduction logic is
  * duplicated here. Pagination, id derivation, and the role filter mirror v1's
  * `MessageService` (`packages/agent-core/src/services/message/messageService.ts`).
  */
@@ -17,15 +17,15 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { type IScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/agent-lifecycle';
 import {
-  IContextMemory,
+  IAgentContextMemoryService,
   toProtocolMessage,
   type ContextMessage,
 } from '#/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IReplayBuilderService } from '#/replayBuilder';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
 import { ISessionIndex, type SessionSummary } from '#/session-index';
 import { ISessionLifecycleService } from '#/session-lifecycle';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import { IWorkspaceRegistry } from '#/workspaceRegistry';
 
 import { IMessageLegacyService, type MessageListQuery } from './messageLegacy';
@@ -112,12 +112,12 @@ export class MessageLegacyService implements IMessageLegacyService {
     // agent was restored and the replay holds the full pre-compaction history.
     // Otherwise the agent is fresh (never restored) and the folded context
     // memory IS the transcript.
-    const replay = agent.accessor.get(IReplayBuilderService).buildResult();
+    const replay = agent.accessor.get(IAgentReplayBuilderService).buildResult();
     const restored: ContextMessage[] = [];
     for (const record of replay) {
       if (record.type === 'message') restored.push(record.message);
     }
-    const source = restored.length > 0 ? restored : agent.accessor.get(IContextMemory).get();
+    const source = restored.length > 0 ? restored : agent.accessor.get(IAgentContextMemoryService).get();
 
     return source.map((msg, index) => toProtocolMessage(sessionId, index, msg, summary.createdAt));
   }
@@ -148,11 +148,11 @@ export class MessageLegacyService implements IMessageLegacyService {
       // Restore only the agent we just materialized from a cold session; an
       // already-live agent must not be re-restored (it would re-apply splices).
       if (loaded) {
-        // `IContextMemory` registers the `context.splice` resumer and pulls in
-        // `IReplayBuilderService`; both are Delayed, so resolve them before
+        // `IAgentContextMemoryService` registers the `context.splice` resumer and pulls in
+        // `IAgentReplayBuilderService`; both are Delayed, so resolve them before
         // replaying the wire or the restore would replay into a void.
-        agent.accessor.get(IContextMemory);
-        await agent.accessor.get(IWireRecord).restore();
+        agent.accessor.get(IAgentContextMemoryService);
+        await agent.accessor.get(IAgentWireRecordService).restore();
       }
     }
     return agent;
@@ -160,7 +160,7 @@ export class MessageLegacyService implements IMessageLegacyService {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IMessageLegacyService,
   MessageLegacyService,
   InstantiationType.Delayed,

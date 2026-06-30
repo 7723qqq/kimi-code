@@ -20,7 +20,7 @@ v1 is a **VSCode-style singleton container**: services self-register with `regis
 | Resolve SUT in tests | `ix.createInstance(Impl)` (common) | `ix.get(IX)` by interface — see test.md |
 | Scope tests | none | `createScopedTestHost` — see test.md |
 | Errors | `from '../../errors'` (central `KimiError`, `ErrorCodes`) | `from '#/_base/errors'` + domain co-located `XxxError` — see errors.md |
-| Flags | `flags/` (process-global `FlagResolver`) | `flag/` (Core-scope `IFlagService`) — see flags.md |
+| Flags | `flags/` (process-global `FlagResolver`) | `flag/` (App-scope `IFlagService`) — see flags.md |
 | Permission | `agent/permission/` (hardcoded chain) | `permission*` (registry + composer) — see permission.md |
 
 ## The align workflow

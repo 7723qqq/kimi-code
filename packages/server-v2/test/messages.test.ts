@@ -47,7 +47,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-messages-'));
-    // Seed a stub IModelResolver so the agent scope can instantiate if a
+    // Seed a stub ISessionModelResolver so the agent scope can instantiate if a
     // transitive service needs it; IContextMemory itself does not.
     const modelResolver = new SingleModelResolver({
       type: 'openai',

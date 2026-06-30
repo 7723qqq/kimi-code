@@ -2,7 +2,7 @@
  * `terminal` domain barrel — re-exports the terminal contract (`terminal`),
  * its scoped service (`terminalService`), the default backend stub
  * (`terminalBackend`), and the domain error codes (`errors`). Importing this
- * barrel registers the `ITerminalService` and default `ITerminalBackend`
+ * barrel registers the `ISessionTerminalService` and default `ISessionTerminalBackend`
  * bindings into the scope registry.
  */
 

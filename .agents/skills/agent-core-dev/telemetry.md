@@ -7,7 +7,7 @@ Telemetry is a **layer-1 root** domain (alongside `log`): pure `Core` scope, sta
 ## Where things live
 
 - `src/telemetry/telemetry.ts`: contract — `ITelemetryService` (facade), `ITelemetryAppender` (destination), `TelemetryProperties`, `nullTelemetryAppender`, and `TelemetryServiceOptions`.
-- `src/telemetry/telemetryService.ts`: `TelemetryService` impl + `registerScopedService(LifecycleScope.Core, …)`.
+- `src/telemetry/telemetryService.ts`: `TelemetryService` impl + `registerScopedService(LifecycleScope.App, …)`.
 - `src/telemetry/consoleAppender.ts`: `ConsoleAppender` — echoes events to a log function (dev / debug).
 - `src/telemetry/cloudAppender.ts`: `CloudAppender` — batches + enriches + posts to the telemetry endpoint.
 - `src/telemetry/cloudTransport.ts`: `CloudTransport` — HTTP transport behind `CloudAppender`.
@@ -59,7 +59,7 @@ Built-in appenders:
 
 ### Registering appenders (bootstrap)
 
-Appenders are added after the Core scope exists, by resolving the service and calling `addAppender`:
+Appenders are added after the App scope exists, by resolving the service and calling `addAppender`:
 
 ```ts
 const core = createCoreScope();

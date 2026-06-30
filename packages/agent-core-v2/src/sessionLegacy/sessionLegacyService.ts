@@ -1,7 +1,7 @@
 /**
  * `sessionLegacy` domain — `ISessionLegacyService` implementation.
  *
- * Stateless Core-scope dispatcher: each method resolves the target session (and
+ * Stateless App-scope dispatcher: each method resolves the target session (and
  * its main agent) per call, delegates to the native v2 services, and projects
  * the result into the v1 wire shape. Child sessions are implemented as forks
  * tagged in `custom` (`parent_session_id` + `child_session_kind`); listing reads
@@ -13,21 +13,21 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { type IScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/agent-lifecycle';
 import { IAuthSummaryService } from '#/auth';
-import { IContextMemory, toProtocolMessage, type ContextMessage } from '#/contextMemory';
-import { IContextSizeService } from '#/contextSize';
+import { IAgentContextMemoryService, toProtocolMessage, type ContextMessage } from '#/contextMemory';
+import { IAgentContextSizeService } from '#/contextSize';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
-import { IFullCompaction } from '#/fullCompaction';
-import { IPermissionModeService } from '#/permissionMode';
-import { IPlanService } from '#/plan';
-import { IProfileService } from '#/profile';
-import { IPromptService } from '#/prompt';
+import { IAgentFullCompactionService } from '#/fullCompaction';
+import { IAgentPermissionModeService } from '#/permissionMode';
+import { IAgentPlanService } from '#/plan';
+import { IAgentProfileService } from '#/profile';
+import { IAgentPromptService } from '#/prompt';
 import { IAgentRPCService } from '#/rpc';
 import { ISessionActivity } from '#/session-activity';
 import { ISessionContext } from '#/session-context';
 import { ISessionIndex, type SessionSummary } from '#/session-index';
 import { ISessionLifecycleService } from '#/session-lifecycle';
 import { ISessionMetadata } from '#/session-metadata';
-import { ISwarmService } from '#/swarm';
+import { IAgentSwarmService } from '#/swarm';
 import { IWorkspaceRegistry } from '#/workspaceRegistry';
 import type {
   ArchiveSessionResponse,
@@ -177,13 +177,13 @@ export class SessionLegacyService implements ISessionLegacyService {
     // `begin` returns false when busy / over the per-turn limit — v1 treats
     // that as a silent success. It throws `compaction.unable` when there is no
     // compactable prefix, which we let propagate.
-    agent.accessor.get(IFullCompaction).begin({ source: 'manual', instruction });
+    agent.accessor.get(IAgentFullCompactionService).begin({ source: 'manual', instruction });
     return {};
   }
 
   async undo(sessionId: string, body: UndoSessionRequest): Promise<UndoSessionResponse> {
     const agent = await this.resolveMainAgent(sessionId);
-    const context = agent.accessor.get(IContextMemory);
+    const context = agent.accessor.get(IAgentContextMemoryService);
     const before = context.get();
     const { count } = body;
     if (!canUndoHistory(before, count)) {
@@ -193,7 +193,7 @@ export class SessionLegacyService implements ISessionLegacyService {
       );
     }
     try {
-      agent.accessor.get(IPromptService).undo(count);
+      agent.accessor.get(IAgentPromptService).undo(count);
     } catch (error) {
       if (isKimiError(error) && error.code === ErrorCodes.REQUEST_INVALID) {
         throw new KimiError(ErrorCodes.SESSION_UNDO_UNAVAILABLE, error.message);
@@ -291,11 +291,11 @@ export class SessionLegacyService implements ISessionLegacyService {
 
   private async assembleStatus(sessionId: string, agent: IScopeHandle): Promise<SessionStatusResponse> {
     const session = this.lifecycle.get(sessionId);
-    const profile = agent.accessor.get(IProfileService);
-    const contextSize = agent.accessor.get(IContextSizeService);
-    const permission = agent.accessor.get(IPermissionModeService);
-    const plan = agent.accessor.get(IPlanService);
-    const swarm = agent.accessor.get(ISwarmService);
+    const profile = agent.accessor.get(IAgentProfileService);
+    const contextSize = agent.accessor.get(IAgentContextSizeService);
+    const permission = agent.accessor.get(IAgentPermissionModeService);
+    const plan = agent.accessor.get(IAgentPlanService);
+    const swarm = agent.accessor.get(IAgentSwarmService);
 
     const profileData = profile.data();
     const model = profile.getModel();
@@ -381,7 +381,7 @@ function isRealUserPrompt(message: ContextMessage): boolean {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   ISessionLegacyService,
   SessionLegacyService,
   InstantiationType.Delayed,

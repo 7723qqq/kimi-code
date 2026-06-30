@@ -7,7 +7,7 @@
  * layout (`homeDir`, `configPath`, …). `resolveBootstrapOptions` is the single
  * place that reads `process.env` / `os.homedir()` / invocation input to resolve
  * the snapshot; everything downstream reads from `IBootstrapService` instead of
- * touching `process` directly. Bound at Core scope. Also seeds the Core storage
+ * touching `process` directly. Bound at App scope. Also seeds the App storage
  * roles (`IStorageService`, `IAppendLogStorage`, `IAtomicDocumentStorage`,
  * `IBlobStorage`) each with its own `FileStorageService` rooted at `homeDir`
  * (via per-token `SyncDescriptor`s), so the byte layer (and every Store above
@@ -23,7 +23,7 @@ import type { Environment } from '#/kaos';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { createCoreScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
+import { createAppScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
 import {
   FileStorageService,
   IAppendLogStorage,
@@ -101,15 +101,15 @@ export function bootstrapSeed(input: BootstrapInput = {}): ScopeSeed {
 }
 
 export interface BootstrapResult {
-  readonly core: Scope;
+  readonly app: Scope;
 }
 
 export function bootstrap(input: BootstrapInput = {}, extraSeeds: ScopeSeed = []): BootstrapResult {
   const options = resolveBootstrapOptions(input);
-  const core = createCoreScope({
+  const app = createAppScope({
     extra: [...bootstrapSeed(input), ...storageSeed(options), ...skillSeed(), ...extraSeeds],
   });
-  return { core };
+  return { app };
 }
 
 function storageSeed(options: IBootstrapOptions): ScopeSeed {

@@ -3,7 +3,7 @@ import type { ContextMessage } from "#/contextMemory";
 import type { Turn } from "#/turn";
 
 
-export interface IPromptService {
+export interface IAgentPromptService {
   readonly _serviceBrand: undefined;
   prompt(message: ContextMessage): Turn | undefined;
   steer(message: ContextMessage): Turn | undefined;
@@ -12,4 +12,4 @@ export interface IPromptService {
   clear(): void;
 }
 
-export const IPromptService = createDecorator<IPromptService>('promptService.agent');
+export const IAgentPromptService = createDecorator<IAgentPromptService>('agentPromptService');

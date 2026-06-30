@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { IApprovalService, ISessionLifecycleService } from '@moonshot-ai/agent-core-v2';
+import { ISessionApprovalService, ISessionLifecycleService } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -93,7 +93,7 @@ describe('server-v2 /api/v1/sessions/{sid}/approvals', () => {
   function enqueueApproval(sessionId: string, toolCallId: string): string {
     const handle = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     expect(handle).toBeDefined();
-    const parked = handle!.accessor.get(IApprovalService).enqueue({
+    const parked = handle!.accessor.get(ISessionApprovalService).enqueue({
       toolCallId,
       toolName: 'Bash',
       action: 'run',

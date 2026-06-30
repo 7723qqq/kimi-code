@@ -2,7 +2,7 @@
  * `event` domain (L0) — `IEventService` implementation.
  *
  * Delivers published events to subscribers through the `_base/event` `Emitter`
- * primitive. Bound at Core scope.
+ * primitive. Bound at App scope.
  */
 
 import { Disposable, type IDisposable } from '#/_base/di';
@@ -27,7 +27,7 @@ export class EventService extends Disposable implements IEventService {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IEventService,
   EventService,
   InstantiationType.Delayed,

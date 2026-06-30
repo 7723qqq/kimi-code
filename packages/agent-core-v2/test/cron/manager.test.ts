@@ -12,11 +12,11 @@ import {
   CRON_MISSED,
 } from '#/cron/tools/telemetry-events';
 import type { CronTask } from '#/cron/tools/types';
-import { ICronService } from '#/cron';
-import { IPromptService } from '#/prompt';
+import { IAgentCronService } from '#/cron';
+import { IAgentPromptService } from '#/prompt';
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
 import { ITelemetryService } from '#/telemetry';
-import { ITurnService, type Turn } from '#/turn';
+import { IAgentTurnService, type Turn } from '#/turn';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 import type { TelemetryRecord } from '../telemetry/stubs';
 
@@ -47,7 +47,7 @@ function createClocks(initial = WALL_ANCHOR) {
 }
 
 function createSteerSpy(
-  prompt: IPromptService,
+  prompt: IAgentPromptService,
   ...args: [
     returnValue?: Turn | undefined,
   ]
@@ -77,11 +77,11 @@ function captureTelemetry(telemetry: ITelemetryService): TelemetryRecord[] {
 }
 
 describe('CronManager', () => {
-  let cron: ICronService;
+  let cron: IAgentCronService;
   let ctx: TestAgentContext;
-  let prompt: IPromptService;
+  let prompt: IAgentPromptService;
   let telemetry: ITelemetryService;
-  let turn: ITurnService;
+  let turn: IAgentTurnService;
 
   beforeEach(() => {
     // Pin jitter off so fire-count assertions are deterministic. Each
@@ -108,7 +108,7 @@ describe('CronManager', () => {
   describe('construction', () => {
     beforeEach(() => {
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
+      cron = ctx.get(IAgentCronService);
     });
 
     it('does not throw with default clocks and supports start/stop', async () => {
@@ -141,8 +141,8 @@ describe('CronManager', () => {
     beforeEach(() => {
       harness = createClocks();
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
-      prompt = ctx.get(IPromptService);
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       telemetryRecords = captureTelemetry(telemetry);
       steerCalls = createSteerSpy(prompt, {
@@ -213,8 +213,8 @@ describe('CronManager', () => {
     beforeEach(() => {
       harness = createClocks();
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
-      prompt = ctx.get(IPromptService);
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       telemetryRecords = captureTelemetry(telemetry);
       steerCalls = createSteerSpy(prompt);
@@ -258,7 +258,7 @@ describe('CronManager', () => {
     beforeEach(() => {
       harness = createClocks();
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
+      cron = ctx.get(IAgentCronService);
     });
 
     it('flags recurring tasks older than 7 days as stale', () => {
@@ -313,7 +313,7 @@ describe('CronManager', () => {
       vi.stubEnv('KIMI_CRON_NO_STALE', '1');
       harness = createClocks();
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
+      cron = ctx.get(IAgentCronService);
     });
 
     it('KIMI_CRON_NO_STALE=1 disables stale judgment for recurring', () => {
@@ -334,7 +334,7 @@ describe('CronManager', () => {
       ctx = createTestAgent(
         cronServices({}),
       );
-      cron = ctx.get(ICronService);
+      cron = ctx.get(IAgentCronService);
     });
 
     it('non-finite age is treated as not stale', () => {
@@ -357,8 +357,8 @@ describe('CronManager', () => {
     beforeEach(() => {
       harness = createClocks();
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
-      prompt = ctx.get(IPromptService);
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       telemetryRecords = captureTelemetry(telemetry);
       steerCalls = createSteerSpy(prompt);
@@ -425,8 +425,8 @@ describe('CronManager', () => {
     beforeEach(() => {
       harness = createClocks();
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
-      prompt = ctx.get(IPromptService);
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       telemetryRecords = captureTelemetry(telemetry);
       createSteerSpy(prompt, undefined);
@@ -452,10 +452,10 @@ describe('CronManager', () => {
     beforeEach(() => {
       harness = createClocks();
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
-      prompt = ctx.get(IPromptService);
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
-      turn = ctx.get(ITurnService);
+      turn = ctx.get(IAgentTurnService);
       telemetryRecords = captureTelemetry(telemetry);
       steerCalls = createSteerSpy(prompt);
       hasActiveTurn = true;
@@ -495,8 +495,8 @@ describe('CronManager', () => {
     beforeEach(() => {
       harness = createClocks();
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
-      prompt = ctx.get(IPromptService);
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
       steerCalls = createSteerSpy(prompt);
     });
 
@@ -519,8 +519,8 @@ describe('CronManager', () => {
 
     beforeEach(() => {
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
-      prompt = ctx.get(IPromptService);
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       telemetryRecords = captureTelemetry(telemetry);
       steerCalls = createSteerSpy(prompt);

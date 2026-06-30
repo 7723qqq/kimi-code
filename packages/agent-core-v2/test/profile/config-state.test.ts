@@ -1,8 +1,8 @@
 import { emptyUsage } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ILLMRequester } from '#/llmRequester';
-import { IProfileService } from '#/profile';
+import { IAgentLLMRequesterService } from '#/llmRequester';
+import { IAgentProfileService } from '#/profile';
 import {
   configServices,
   createTestAgent,
@@ -20,8 +20,8 @@ function defaultGenerate(): ReturnType<GenerateFn> {
 
 describe('ConfigState model capabilities', () => {
   let ctx: TestAgentContext;
-  let profile: IProfileService;
-  let requester: ILLMRequester;
+  let profile: IAgentProfileService;
+  let requester: IAgentLLMRequesterService;
   let kimiConfig: TestKimiConfig;
   let generate: GenerateFn;
 
@@ -34,8 +34,8 @@ describe('ConfigState model capabilities', () => {
       configServices(() => kimiConfig),
       llmGenerateServices((...args) => generate(...args)),
     );
-    profile = ctx.get(IProfileService);
-    requester = ctx.get(ILLMRequester);
+    profile = ctx.get(IAgentProfileService);
+    requester = ctx.get(IAgentLLMRequesterService);
   });
 
   afterEach(async () => {
@@ -152,7 +152,7 @@ describe('ConfigState model capabilities', () => {
 
 describe('ConfigState prompt cache hint', () => {
   let ctx: TestAgentContext;
-  let profile: IProfileService;
+  let profile: IAgentProfileService;
   let kimiConfig: TestKimiConfig;
 
   beforeEach(() => {
@@ -175,7 +175,7 @@ describe('ConfigState prompt cache hint', () => {
       configServices(() => kimiConfig),
       modelProviderOptionServices({ promptCacheKey: 'session-test' }),
     );
-    profile = ctx.get(IProfileService);
+    profile = ctx.get(IAgentProfileService);
   });
 
   afterEach(async () => {
@@ -201,7 +201,7 @@ describe('ConfigState prompt cache hint', () => {
 
 describe('ConfigState thinking clamp for always-thinking models', () => {
   let ctx: TestAgentContext;
-  let profile: IProfileService;
+  let profile: IAgentProfileService;
   let kimiConfig: TestKimiConfig;
 
   beforeEach(() => {
@@ -223,7 +223,7 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
       },
     };
     ctx = createTestAgent(configServices(() => kimiConfig));
-    profile = ctx.get(IProfileService);
+    profile = ctx.get(IAgentProfileService);
   });
 
   afterEach(async () => {
@@ -267,7 +267,7 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
 
 describe('ConfigState.provider applies global KIMI_MODEL_* request config', () => {
   let ctx: TestAgentContext;
-  let profile: IProfileService;
+  let profile: IAgentProfileService;
   let kimiConfig: TestKimiConfig;
 
   beforeEach(() => {
@@ -278,7 +278,7 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
       },
     };
     ctx = createTestAgent(configServices(() => kimiConfig));
-    profile = ctx.get(IProfileService);
+    profile = ctx.get(IAgentProfileService);
   });
 
   afterEach(async () => {

@@ -2,8 +2,8 @@
  * `skill` domain (L5) — concrete in-memory skill catalog.
  *
  * Owns registered skill lookup, plugin-scoped skill lookup, prompt rendering,
- * and model-facing skill listings for `skill`. Held internally by the Core
- * `IGlobalSkillCatalog` and Session `ISkillCatalog`; it is not a scoped service.
+ * and model-facing skill listings for `skill`. Held internally by the App
+ * `IGlobalSkillCatalog` and Session `ISessionSkillCatalog`; it is not a scoped service.
  */
 
 import { escapeXmlAttr, escapeXmlTags } from '#/_base/utils/xml-escape';

@@ -4,7 +4,7 @@
  *
  * Projects the `provider` / `model` configuration registries into the
  * protocol `ProviderCatalogItem` / `ModelCatalogItem` wire shapes that the
- * edge (`server-v2` `/api/v1` routes) serves. Core-scoped — provider and
+ * edge (`server-v2` `/api/v1` routes) serves. App-scoped — provider and
  * model configuration is global and shared across sessions. This domain is a
  * thin facade over `provider`, `model`, `config`, and `auth`; it owns no
  * persistence of its own. The OAuth-provider model refresh lives in

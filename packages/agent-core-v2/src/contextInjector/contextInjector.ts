@@ -13,7 +13,7 @@ export type ContextInjectionProvider = (
   context: ContextInjectionContext,
 ) => string | undefined | Promise<string | undefined>;
 
-export interface IContextInjector {
+export interface IAgentContextInjectorService {
   readonly _serviceBrand: undefined;
   register(
     variant: string,
@@ -22,6 +22,6 @@ export interface IContextInjector {
   ): IDisposable;
 }
 
-export const IContextInjector = createDecorator<IContextInjector>(
-  'contextInjectorService',
+export const IAgentContextInjectorService = createDecorator<IAgentContextInjectorService>(
+  'agentContextInjectorService',
 );

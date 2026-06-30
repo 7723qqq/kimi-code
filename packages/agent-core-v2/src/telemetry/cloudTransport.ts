@@ -3,7 +3,7 @@
  * `CloudAppender`. Posts enriched events to the telemetry endpoint with Bearer
  * auth, retry, and a byte-store fallback for failed events, persisted through
  * the `storage` byte layer (`IStorageService`) under the `telemetry` scope.
- * Core-scoped; independent of `@moonshot-ai/kimi-telemetry`.
+ * App-scoped; independent of `@moonshot-ai/kimi-telemetry`.
  */
 
 import { randomBytes } from 'node:crypto';

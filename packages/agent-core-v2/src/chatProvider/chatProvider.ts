@@ -4,7 +4,7 @@
  * Builds the protocol adapter (`ChatProvider`) that speaks a given provider
  * `type`. A provider is a configured endpoint (baseUrl / apiKey / model); the
  * factory is the adapter that speaks its wire protocol — different providers
- * may share one adapter. Bound at Core scope.
+ * may share one adapter. Bound at App scope.
  */
 
 import type { ChatProvider, ProviderConfig, ProviderType } from '@moonshot-ai/kosong';

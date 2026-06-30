@@ -1,10 +1,10 @@
 /**
  * `agentFs` domain (L2) — wire-shaped filesystem operations.
  *
- * Defines the `IFsService` that backs the fs REST surface: content search,
+ * Defines the `ISessionFsService` that backs the fs REST surface: content search,
  * content grep, and git status/diff. It is the higher-level counterpart to
- * `IAgentFileSystem` (the thin IO primitive): it orchestrates the IO primitive
- * plus `IProcessRunner` (for `rg` / `git` / `gh`) and returns protocol-shaped
+ * `ISessionAgentFileSystem` (the thin IO primitive): it orchestrates the IO primitive
+ * plus `ISessionProcessRunner` (for `rg` / `git` / `gh`) and returns protocol-shaped
  * responses. Session-scoped — the scope itself is the session, so no
  * `sessionId` is threaded through.
  */
@@ -50,7 +50,7 @@ export interface FsDownloadResolved {
   readonly modifiedAt: Date;
 }
 
-export interface IFsService {
+export interface ISessionFsService {
   readonly _serviceBrand: undefined;
 
   list(req: FsListRequest): Promise<FsListResponse>;
@@ -67,5 +67,5 @@ export interface IFsService {
   resolveDownload(relPath: string): Promise<FsDownloadResolved>;
 }
 
-export const IFsService: ServiceIdentifier<IFsService> =
-  createDecorator<IFsService>('fsService');
+export const ISessionFsService: ServiceIdentifier<ISessionFsService> =
+  createDecorator<ISessionFsService>('sessionFsService');

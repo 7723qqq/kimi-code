@@ -7,103 +7,103 @@ import {
   LifecycleScope,
   Scope,
   _clearScopedRegistryForTests,
-  createCoreScope,
+  createAppScope,
   registerScopedService,
 } from '#/_base/di/scope';
 
-interface ICoreSvc {
-  tag: 'core';
+interface IAppSvc {
+  tag: 'app';
 }
 interface ISessionSvc {
-  core: ICoreSvc;
+  app: IAppSvc;
   tag: 'session';
 }
 interface IAgentSvc {
   session: ISessionSvc;
-  core: ICoreSvc;
+  app: IAppSvc;
   tag: 'agent';
 }
 
-const ICoreSvc = createDecorator<ICoreSvc>('tree-core');
+const IAppSvc = createDecorator<IAppSvc>('tree-app');
 const ISessionSvc = createDecorator<ISessionSvc>('tree-session');
 const IAgentSvc = createDecorator<IAgentSvc>('tree-agent');
 
-class CoreSvc implements ICoreSvc {
-  tag = 'core' as const;
+class AppSvc implements IAppSvc {
+  tag = 'app' as const;
 }
 class SessionSvc implements ISessionSvc {
   tag = 'session' as const;
-  constructor(@ICoreSvc public readonly core: ICoreSvc) {}
+  constructor(@IAppSvc public readonly app: IAppSvc) {}
 }
 class AgentSvc implements IAgentSvc {
   tag = 'agent' as const;
   constructor(
     @ISessionSvc public readonly session: ISessionSvc,
-    @ICoreSvc public readonly core: ICoreSvc,
+    @IAppSvc public readonly app: IAppSvc,
   ) {}
 }
 
 describe('Scope tree', () => {
   beforeEach(() => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.Core, ICoreSvc, CoreSvc);
+    registerScopedService(LifecycleScope.App, IAppSvc, AppSvc);
     registerScopedService(LifecycleScope.Session, ISessionSvc, SessionSvc);
     registerScopedService(LifecycleScope.Agent, IAgentSvc, AgentSvc);
   });
 
-  function buildTree(): { core: Scope; session: Scope; agent: Scope } {
-    const core = createCoreScope();
-    const session = core.createChild(LifecycleScope.Session, 's1');
+  function buildTree(): { app: Scope; session: Scope; agent: Scope } {
+    const app = createAppScope();
+    const session = app.createChild(LifecycleScope.Session, 's1');
     const agent = session.createChild(LifecycleScope.Agent, 'main');
-    return { core, session, agent };
+    return { app, session, agent };
   }
 
   it('each scope resolves its own layer service', () => {
-    const { core, session, agent } = buildTree();
-    expect(core.accessor.get(ICoreSvc).tag).toBe('core');
+    const { app, session, agent } = buildTree();
+    expect(app.accessor.get(IAppSvc).tag).toBe('app');
     expect(session.accessor.get(ISessionSvc).tag).toBe('session');
     expect(agent.accessor.get(IAgentSvc).tag).toBe('agent');
-    core.dispose();
+    app.dispose();
   });
 
   it('child resolves ancestor services via createChild fallback', () => {
-    const { core, session, agent } = buildTree();
+    const { app, session, agent } = buildTree();
     const sessionSvc = session.accessor.get(ISessionSvc);
     const agentSvc = agent.accessor.get(IAgentSvc);
-    expect(sessionSvc.core.tag).toBe('core');
+    expect(sessionSvc.app.tag).toBe('app');
     expect(agentSvc.session.tag).toBe('session');
-    expect(agentSvc.core.tag).toBe('core');
-    expect(agentSvc.core).toBe(core.accessor.get(ICoreSvc));
-    core.dispose();
+    expect(agentSvc.app.tag).toBe('app');
+    expect(agentSvc.app).toBe(app.accessor.get(IAppSvc));
+    app.dispose();
   });
 
   it('parent cannot resolve a child-layer service', () => {
-    const { core, session } = buildTree();
-    expect(() => core.accessor.get(ISessionSvc)).toThrow();
+    const { app, session } = buildTree();
+    expect(() => app.accessor.get(ISessionSvc)).toThrow();
     expect(() => session.accessor.get(IAgentSvc)).toThrow();
-    core.dispose();
+    app.dispose();
   });
 
   it('children map tracks created child scopes', () => {
-    const { core, session, agent } = buildTree();
-    expect(core.children.get('s1')).toBe(session);
+    const { app, session, agent } = buildTree();
+    expect(app.children.get('s1')).toBe(session);
     expect(session.children.get('main')).toBe(agent);
-    core.dispose();
+    app.dispose();
   });
 
   it('rejects a child whose kind is not strictly greater', () => {
-    const core = createCoreScope();
-    const session = core.createChild(LifecycleScope.Session, 's1');
+    const app = createAppScope();
+    const session = app.createChild(LifecycleScope.Session, 's1');
     expect(() => session.createChild(LifecycleScope.Session, 's2')).toThrow(/greater/);
-    expect(() => session.createChild(LifecycleScope.Core, 'c2')).toThrow(/greater/);
-    core.dispose();
+    expect(() => session.createChild(LifecycleScope.App, 'c2')).toThrow(/greater/);
+    app.dispose();
   });
 
   it('rejects duplicate child ids within a parent', () => {
-    const core = createCoreScope();
-    core.createChild(LifecycleScope.Session, 's1');
-    expect(() => core.createChild(LifecycleScope.Session, 's1')).toThrow(/already has a child/);
-    core.dispose();
+    const app = createAppScope();
+    app.createChild(LifecycleScope.Session, 's1');
+    expect(() => app.createChild(LifecycleScope.Session, 's1')).toThrow(/already has a child/);
+    app.dispose();
   });
 
   it('dispose tears down children before the parent (C→B→A)', () => {
@@ -127,36 +127,36 @@ describe('Scope tree', () => {
       tag = 'C';
       dispose(): void { events.push('C'); }
     }
-    registerScopedService(LifecycleScope.Core, IA, A, InstantiationType.Eager);
+    registerScopedService(LifecycleScope.App, IA, A, InstantiationType.Eager);
     registerScopedService(LifecycleScope.Session, IB, B, InstantiationType.Eager);
     registerScopedService(LifecycleScope.Agent, IC, C, InstantiationType.Eager);
 
-    const core = createCoreScope();
-    const session = core.createChild(LifecycleScope.Session, 's1');
+    const app = createAppScope();
+    const session = app.createChild(LifecycleScope.Session, 's1');
     const agent = session.createChild(LifecycleScope.Agent, 'main');
-    core.accessor.get(IA);
+    app.accessor.get(IA);
     session.accessor.get(IB);
     agent.accessor.get(IC);
-    core.dispose();
+    app.dispose();
     expect(events).toEqual(['C', 'B', 'A']);
   });
 
   it('disposing a child removes it from the parent children map', () => {
-    const { core, session, agent } = buildTree();
+    const { app, session, agent } = buildTree();
     agent.dispose();
     expect(session.children.has('main')).toBe(false);
     session.dispose();
-    expect(core.children.has('s1')).toBe(false);
-    core.dispose();
+    expect(app.children.has('s1')).toBe(false);
+    app.dispose();
   });
 
   it('toHandle exposes id/kind/accessor for parent-domain reach-in', () => {
-    const { core, session } = buildTree();
+    const { app, session } = buildTree();
     const handle = session.toHandle();
     expect(handle.id).toBe('s1');
     expect(handle.kind).toBe(LifecycleScope.Session);
     expect(handle.accessor.get(ISessionSvc).tag).toBe('session');
-    core.dispose();
+    app.dispose();
   });
 
   it('extra seed injects a context token resolvable from that scope', () => {
@@ -166,20 +166,20 @@ describe('Scope tree', () => {
     const ISessionContext = createDecorator<ISessionContext>('tree-session-ctx');
     _clearScopedRegistryForTests();
 
-    const core = createCoreScope();
-    const session = core.createChild(LifecycleScope.Session, 's1', {
+    const app = createAppScope();
+    const session = app.createChild(LifecycleScope.Session, 's1', {
       extra: [[ISessionContext as ServiceIdentifier<unknown>, { sessionId: 's1' }]],
     });
     expect(session.accessor.get(ISessionContext).sessionId).toBe('s1');
-    expect(() => core.accessor.get(ISessionContext)).toThrow();
-    core.dispose();
+    expect(() => app.accessor.get(ISessionContext)).toThrow();
+    app.dispose();
   });
 
   it('use-after-dispose throws on createChild', () => {
-    const core = createCoreScope();
-    const session = core.createChild(LifecycleScope.Session, 's1');
+    const app = createAppScope();
+    const session = app.createChild(LifecycleScope.Session, 's1');
     session.dispose();
     expect(() => session.createChild(LifecycleScope.Agent, 'a1')).toThrow(/disposed/);
-    core.dispose();
+    app.dispose();
   });
 });

@@ -12,7 +12,7 @@ export interface PermissionGateOptions {
   readonly agentType?: 'main' | 'sub';
 }
 
-export interface IPermissionGate {
+export interface IAgentPermissionGate {
   readonly _serviceBrand: undefined;
   data(): PermissionData;
   authorize(
@@ -20,5 +20,5 @@ export interface IPermissionGate {
   ): Promise<AuthorizeToolExecutionResult | undefined>;
 }
 
-export const IPermissionGate =
-  createDecorator<IPermissionGate>('agentPermissionGate');
+export const IAgentPermissionGate =
+  createDecorator<IAgentPermissionGate>('agentPermissionGate');

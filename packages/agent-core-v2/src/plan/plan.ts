@@ -8,7 +8,7 @@ export type PlanData = null | {
 
 export type PlanFilePath = string | null;
 
-export interface IPlanService {
+export interface IAgentPlanService {
   readonly _serviceBrand: undefined;
   enter(id?: string, createFile?: boolean): Promise<void>;
   cancel(id?: string): void;
@@ -17,5 +17,5 @@ export interface IPlanService {
   status(): Promise<PlanData>;
 }
 
-export const IPlanService =
-  createDecorator<IPlanService>('agentPlanService');
+export const IAgentPlanService =
+  createDecorator<IAgentPlanService>('agentPlanService');

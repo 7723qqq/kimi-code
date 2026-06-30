@@ -45,7 +45,7 @@ export interface RegisterBackgroundTaskOptions {
 
 export type ForegroundTaskReleaseReason = 'detached' | 'terminal';
 
-export interface IBackgroundService {
+export interface IAgentBackgroundService {
   readonly _serviceBrand: undefined;
   registerTask(task: BackgroundTask, options?: RegisterBackgroundTaskOptions): string;
   getTask(taskId: string): BackgroundTaskInfo | undefined;
@@ -66,5 +66,5 @@ export interface IBackgroundService {
   ): Promise<ForegroundTaskReleaseReason | undefined>;
 }
 
-export const IBackgroundService =
-  createDecorator<IBackgroundService>('agentBackgroundService');
+export const IAgentBackgroundService =
+  createDecorator<IAgentBackgroundService>('agentBackgroundService');

@@ -18,12 +18,12 @@
  *
  * Ported from v1 (`packages/agent-core/src/tools/builtin/file/read.ts`). The
  * optional `scanTextFile` / `readLineRange` / `readTailLines` fast-paths are
- * intentionally dropped: `IAgentFileSystem` streams through `readLines` only.
+ * intentionally dropped: `ISessionAgentFileSystem` streams through `readLines` only.
  */
 
 import { z } from 'zod';
 
-import { IAgentFileSystem } from '#/agentFs';
+import { ISessionAgentFileSystem } from '#/agentFs';
 import { IKaos } from '#/kaos';
 import { ToolAccesses } from '#/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool';
@@ -223,7 +223,7 @@ export class ReadTool implements BuiltinTool<ReadInput> {
   readonly description = READ_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ReadInputSchema);
   constructor(
-    private readonly fs: IAgentFileSystem,
+    private readonly fs: ISessionAgentFileSystem,
     private readonly kaos: IKaos,
     private readonly workspace: WorkspaceConfig,
   ) {}
@@ -251,7 +251,7 @@ export class ReadTool implements BuiltinTool<ReadInput> {
 
   private async execution(args: ReadInput, safePath: string): Promise<ExecutableToolResult> {
     try {
-      let stat: Awaited<ReturnType<IAgentFileSystem['stat']>>;
+      let stat: Awaited<ReturnType<ISessionAgentFileSystem['stat']>>;
       try {
         stat = await this.fs.stat(safePath);
       } catch (error) {

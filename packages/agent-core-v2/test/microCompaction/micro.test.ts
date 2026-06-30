@@ -13,7 +13,7 @@ import {
 } from '../harness';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
-  IMicroCompactionService,
+  IAgentMicroCompactionService,
   type PersistedWireRecord,
 } from '#/index';
 
@@ -73,7 +73,7 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * 60 * 1000);
 
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     const messages = ctx.project();
     expect(messages[2]).toMatchObject({
       role: 'tool',
@@ -133,7 +133,7 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * 60 * 1000);
 
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     const first = ctx.project();
     expect(first[2]).toMatchObject({
       role: 'tool',
@@ -142,7 +142,7 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(62 * 60 * 1000);
 
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     const second = ctx.project();
     expect(second[2]).toMatchObject({
       role: 'tool',
@@ -169,7 +169,7 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * 60 * 1000);
 
-    (ctx.get(IMicroCompactionService) as any).reset();
+    (ctx.get(IAgentMicroCompactionService) as any).reset();
 
     const messages = ctx.project();
     expect(hasMarker(messages)).toBe(false);
@@ -245,7 +245,7 @@ describe('MicroCompaction', () => {
     ctx.clearContext();
 
     expect(ctx.project()).toHaveLength(0);
-    expect((ctx.get(IMicroCompactionService) as any).lastAssistantAt).toBeNull();
+    expect((ctx.get(IAgentMicroCompactionService) as any).lastAssistantAt).toBeNull();
   });
 
   it('sends truncated old tool results to the next model request without mutating history', async () => {
@@ -309,13 +309,13 @@ describe('MicroCompaction', () => {
     vi.setSystemTime(999_999);
     await ctx.restorePersisted();
 
-    expect((ctx.get(IMicroCompactionService) as any).lastAssistantAt).toBe(assistantRecordTime);
+    expect((ctx.get(IAgentMicroCompactionService) as any).lastAssistantAt).toBe(assistantRecordTime);
 
     vi.setSystemTime(assistantRecordTime + 30 * MINUTE);
     expect(hasMarker(ctx.project())).toBe(false);
 
     vi.setSystemTime(assistantRecordTime + 61 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER]);
   });
 
@@ -338,7 +338,7 @@ describe('MicroCompaction', () => {
     appendMicroToolExchange(ctx, 2, { output: 'result two' });
 
     vi.setSystemTime(61 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, 'result two']);
     await ctx.wireRecord.flush();
     expect(lastMicroCompactionCutoff(persistence.records)).toBe(4);
@@ -355,7 +355,7 @@ describe('MicroCompaction', () => {
     vi.setSystemTime(63 * MINUTE);
     await resumed.restorePersisted();
 
-    expect((resumed.get(IMicroCompactionService) as any).lastAssistantAt).toBe(62 * MINUTE);
+    expect((resumed.get(IAgentMicroCompactionService) as any).lastAssistantAt).toBe(62 * MINUTE);
     expect(toolTexts(resumed.project())).toEqual([
       DEFAULT_MARKER,
       'result two',
@@ -382,7 +382,7 @@ describe('MicroCompaction', () => {
     appendMicroToolExchange(ctx, 2, { output: 'result two' });
 
     vi.setSystemTime(61 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, 'result two']);
     await ctx.wireRecord.flush();
     expect(lastMicroCompactionCutoff(persistence.records)).toBe(4);
@@ -402,8 +402,8 @@ describe('MicroCompaction', () => {
     vi.setSystemTime(123 * MINUTE);
     await resumed.restorePersisted();
 
-    expect((resumed.get(IMicroCompactionService) as any).lastAssistantAt).toBe(62 * MINUTE);
-    (resumed.get(IMicroCompactionService) as any).detect();
+    expect((resumed.get(IAgentMicroCompactionService) as any).lastAssistantAt).toBe(62 * MINUTE);
+    (resumed.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(resumed.project())).toEqual([
       DEFAULT_MARKER,
       DEFAULT_MARKER,
@@ -432,14 +432,14 @@ describe('MicroCompaction', () => {
     appendMicroToolExchange(ctx, 2, { output: 'result two' });
 
     vi.setSystemTime(61 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, 'result two']);
 
     vi.setSystemTime(62 * MINUTE);
     appendMicroToolExchange(ctx, 3, { output: 'result three' });
 
     vi.setSystemTime(63 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([
       DEFAULT_MARKER,
       'result two',
@@ -447,7 +447,7 @@ describe('MicroCompaction', () => {
     ]);
 
     vi.setSystemTime(123 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([
       DEFAULT_MARKER,
       DEFAULT_MARKER,
@@ -475,7 +475,7 @@ describe('MicroCompaction', () => {
     appendMicroToolExchange(ctx, 3, { output: 'result three' });
 
     vi.setSystemTime(61 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([
       DEFAULT_MARKER,
       DEFAULT_MARKER,
@@ -511,7 +511,7 @@ describe('MicroCompaction', () => {
     appendMicroToolExchange(ctx, 3, { output: 'result three' });
 
     vi.setSystemTime(61 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([
       DEFAULT_MARKER,
       DEFAULT_MARKER,
@@ -563,7 +563,7 @@ describe('MicroCompaction', () => {
     appendMicroToolExchange(ctx, 2, { output: 'result two '.repeat(20) });
 
     vi.setSystemTime(61 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([
       DEFAULT_MARKER,
       'result two '.repeat(20),
@@ -574,7 +574,7 @@ describe('MicroCompaction', () => {
     const expectedContextTokensBefore = estimateTokensForMessages(ctx.project());
 
     vi.setSystemTime(123 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
 
     const events = records.filter((record) => record.event === 'micro_compaction_finished');
     expect(events).toHaveLength(2);
@@ -609,7 +609,7 @@ describe('MicroCompaction', () => {
     appendMicroToolExchange(ctx, 1, { output: 'result one' });
 
     vi.setSystemTime(61 * MINUTE);
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
 
     expect(toolTexts(ctx.project())).toEqual(['result one']);
     expect(lastMicroCompactionCutoff(persistence.records)).toBeUndefined();
@@ -636,7 +636,7 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * MINUTE);
 
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     expect(toolTexts(ctx.project())).toEqual([marker]);
     expect(textOf(ctx.context.get()[2])).toBe('abcd');
   });
@@ -664,9 +664,9 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * MINUTE);
 
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     const rawPending = ctx.context.get().slice(-1);
-    const projectedPending = (ctx.get(IMicroCompactionService) as any).compact(rawPending);
+    const projectedPending = (ctx.get(IAgentMicroCompactionService) as any).compact(rawPending);
     expect(textOf(projectedPending[0])).toBe(DEFAULT_MARKER);
     expect(ctx.contextSize.getStatus().contextTokensWithPending).toBe(
       ctx.contextSize.getStatus().contextTokens + estimateTokensForMessages(rawPending),
@@ -701,8 +701,8 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * MINUTE);
 
-    (ctx.get(IMicroCompactionService) as any).detect();
-    const compacted = (ctx.get(IMicroCompactionService) as any).compact(ctx.context.get());
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
+    const compacted = (ctx.get(IAgentMicroCompactionService) as any).compact(ctx.context.get());
     const tool = compacted.find((message: any) => message.role === 'tool');
     expect(tool).toMatchObject({
       role: 'tool',
@@ -744,8 +744,8 @@ describe('MicroCompaction', () => {
       },
     ]);
 
-    (ctx.get(IMicroCompactionService) as any).detect();
-    const compacted = (ctx.get(IMicroCompactionService) as any).compact(ctx.context.get());
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
+    const compacted = (ctx.get(IAgentMicroCompactionService) as any).compact(ctx.context.get());
     expect(toolTexts(compacted)).toEqual(['orphan tool-like output']);
   });
 
@@ -841,7 +841,7 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * MINUTE);
 
-    (ctx.get(IMicroCompactionService) as any).detect();
+    (ctx.get(IAgentMicroCompactionService) as any).detect();
     const messages = ctx.project();
     expect(hasMarker(messages)).toBe(true);
   });

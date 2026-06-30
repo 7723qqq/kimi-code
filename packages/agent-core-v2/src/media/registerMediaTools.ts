@@ -17,13 +17,13 @@ import type { ChatProvider, ModelCapability } from '@moonshot-ai/kosong';
 
 import { toDisposable, type IDisposable } from '#/_base/di';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
-import type { IAgentFileSystem } from '#/agentFs';
+import type { ISessionAgentFileSystem } from '#/agentFs';
 import type { IKaos } from '#/kaos';
-import type { IToolRegistry } from '#/toolRegistry';
+import type { IAgentToolRegistryService } from '#/toolRegistry';
 import { ReadMediaFileTool, type VideoUploader } from './tools/read-media';
 
 export interface RegisterMediaToolsDeps {
-  readonly fs: IAgentFileSystem;
+  readonly fs: ISessionAgentFileSystem;
   readonly kaos: IKaos;
   readonly workspace: WorkspaceConfig;
   readonly capabilities: ModelCapability;
@@ -39,7 +39,7 @@ export interface RegisterMediaToolsDeps {
  * lifecycle and re-run registration cleanly on capability changes.
  */
 export function registerMediaTools(
-  toolRegistry: IToolRegistry,
+  toolRegistry: IAgentToolRegistryService,
   deps: RegisterMediaToolsDeps,
 ): IDisposable {
   if (!deps.capabilities.image_in && !deps.capabilities.video_in) {

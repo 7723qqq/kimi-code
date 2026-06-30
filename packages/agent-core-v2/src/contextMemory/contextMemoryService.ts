@@ -2,9 +2,9 @@ import {
   Disposable,
 } from "#/_base/di";
 import { OrderedHookSlot } from '#/hooks';
-import { IReplayBuilderService } from '#/replayBuilder';
-import { IWireRecord, type WireRecord } from '#/wireRecord';
-import { IContextMemory } from './contextMemory';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
+import { IAgentWireRecordService, type WireRecord } from '#/wireRecord';
+import { IAgentContextMemoryService } from './contextMemory';
 import { ensureMessageId } from './messageId';
 import type { ContextMessage } from './types';
 import { InstantiationType } from '#/_base/di/extensions';
@@ -21,7 +21,7 @@ declare module '#/wireRecord' {
   }
 }
 
-export class ContextMemoryService extends Disposable implements IContextMemory {
+export class AgentContextMemoryService extends Disposable implements IAgentContextMemoryService {
   declare readonly _serviceBrand: undefined;
   private readonly history: ContextMessage[] = [];
 
@@ -35,8 +35,8 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
   };
 
   constructor(
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
   ) {
     super();
     this._register(
@@ -104,8 +104,8 @@ export class ContextMemoryService extends Disposable implements IContextMemory {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IContextMemory,
-  ContextMemoryService,
+  IAgentContextMemoryService,
+  AgentContextMemoryService,
   InstantiationType.Delayed,
   'contextMemory',
 );

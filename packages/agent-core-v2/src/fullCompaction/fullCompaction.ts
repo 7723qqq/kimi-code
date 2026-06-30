@@ -13,7 +13,7 @@ export interface CompactInput {
   readonly signal?: AbortSignal;
 }
 
-export interface IFullCompaction {
+export interface IAgentFullCompactionService {
   readonly _serviceBrand: undefined;
   readonly isCompacting: boolean;
 
@@ -21,4 +21,4 @@ export interface IFullCompaction {
   cancel(): void;
 }
 
-export const IFullCompaction = createDecorator<IFullCompaction>('agentFullCompactionService');
+export const IAgentFullCompactionService = createDecorator<IAgentFullCompactionService>('agentFullCompactionService');

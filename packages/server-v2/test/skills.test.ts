@@ -9,7 +9,7 @@
  *   - POST :activate an unknown skill                      → 40415
  *   - POST bare `{name}` / bogus action                    → 40001
  *
- * Skills are resolved from the per-session `ISkillCatalog` (list) and the main
+ * Skills are resolved from the per-session `ISessionSkillCatalog` (list) and the main
  * agent's `IAgentSkillService` (activate). A session created through
  * `POST /sessions` is already activated (live), so listing/activation work
  * immediately; the "not activated" branch is exercised by archiving the session

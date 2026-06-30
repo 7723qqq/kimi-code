@@ -2,7 +2,7 @@
  * `telemetry` domain (L1) — `CloudAppender`, an `ITelemetryAppender` that
  * batches events, enriches them with common context, and posts them to the
  * telemetry endpoint through `CloudTransport`, which persists failed events
- * through the `storage` byte layer. Core-scoped; independent of
+ * through the `storage` byte layer. App-scoped; independent of
  * `@moonshot-ai/kimi-telemetry`.
  */
 

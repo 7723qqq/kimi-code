@@ -31,8 +31,8 @@ function stubProvider(): ChatProvider {
 describe('ChatProviderFactory', () => {
   it('creates a built-in adapter by type', () => {
     const host = createScopedTestHost();
-    afterEach(() => host.core.dispose());
-    const factory = host.core.accessor.get(IChatProviderFactory);
+    afterEach(() => host.app.dispose());
+    const factory = host.app.accessor.get(IChatProviderFactory);
     const provider = factory.create({ type: 'kimi', model: 'kimi-model', apiKey: 'sk-test' });
     expect(provider.name).toBe('kimi');
     expect(provider.modelName).toBe('kimi-model');
@@ -40,8 +40,8 @@ describe('ChatProviderFactory', () => {
 
   it('lets a registered factory override a built-in type', () => {
     const host = createScopedTestHost();
-    afterEach(() => host.core.dispose());
-    const factory = host.core.accessor.get(IChatProviderFactory);
+    afterEach(() => host.app.dispose());
+    const factory = host.app.accessor.get(IChatProviderFactory);
     const stub = stubProvider();
     factory.register('kimi', () => stub);
     expect(factory.create({ type: 'kimi', model: 'x' })).toBe(stub);

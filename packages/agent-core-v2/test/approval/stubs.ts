@@ -1,14 +1,14 @@
 /**
- * `approval` test stubs — shared doubles for `IApprovalService`.
+ * `approval` test stubs — shared doubles for `ISessionApprovalService`.
  *
  * Lives under `test/` (not `src/`) so test-support code stays out of the
  * production tree. Import from a relative path (`./stubs` or
  * `../approval/stubs`).
  */
 
-import type { ApprovalResponse, IApprovalService } from '#/approval/approval';
+import type { ApprovalResponse, ISessionApprovalService } from '#/approval/approval';
 
-export function stubApprovalService(respond: () => ApprovalResponse): IApprovalService {
+export function stubApprovalService(respond: () => ApprovalResponse): ISessionApprovalService {
   return {
     _serviceBrand: undefined,
     request: async () => respond(),

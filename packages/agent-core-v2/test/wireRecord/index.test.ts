@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
-  IContextMemory,
-  IContextSizeService,
-  IFullCompaction,
-  IReplayBuilderService,
-  IWireRecord,
+  IAgentContextMemoryService,
+  IAgentContextSizeService,
+  IAgentFullCompactionService,
+  IAgentReplayBuilderService,
+  IAgentWireRecordService,
   type ContextMessage,
   type PersistedWireRecord,
 } from '#/index';
@@ -19,22 +19,22 @@ import {
 } from '../harness';
 
 describe('AgentRecords persistence metadata', () => {
-  let context: IContextMemory;
-  let contextSize: IContextSizeService;
+  let context: IAgentContextMemoryService;
+  let contextSize: IAgentContextSizeService;
   let ctx: TestAgentContext;
   let expectResumeMatches: boolean;
   let persistence: RecordingInMemoryWireRecordPersistence;
-  let records: IWireRecord;
-  let replay: IReplayBuilderService;
+  let records: IAgentWireRecordService;
+  let replay: IAgentReplayBuilderService;
 
   beforeEach(() => {
     expectResumeMatches = true;
     persistence = new RecordingInMemoryWireRecordPersistence();
     ctx = createTestAgent({ persistence, autoConfigure: false });
-    context = ctx.get(IContextMemory);
-    contextSize = ctx.get(IContextSizeService);
-    records = ctx.get(IWireRecord);
-    replay = ctx.get(IReplayBuilderService);
+    context = ctx.get(IAgentContextMemoryService);
+    contextSize = ctx.get(IAgentContextSizeService);
+    records = ctx.get(IAgentWireRecordService);
+    replay = ctx.get(IAgentReplayBuilderService);
   });
 
   afterEach(async () => {
@@ -355,7 +355,7 @@ describe('AgentRecords persistence metadata', () => {
   });
 });
 
-describe('IWireRecord.records()', () => {
+describe('IAgentWireRecordService.records()', () => {
   it('returns restored and appended records in order, excluding metadata', async () => {
     const persistence = new InMemoryWireRecordPersistence([
       { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
@@ -646,8 +646,8 @@ async function buildReplayFromPersistence(
     { persistence, autoConfigure: false },
     replayServices(range === undefined ? {} : { range }),
   );
-  const fullCompaction = ctx.get(IFullCompaction);
-  const replay = ctx.get(IReplayBuilderService);
+  const fullCompaction = ctx.get(IAgentFullCompactionService);
+  const replay = ctx.get(IAgentReplayBuilderService);
   try {
     const isCompacting = fullCompaction.isCompacting;
     if (isCompacting) throw new Error('Unexpected active compaction before restore');

@@ -3,7 +3,7 @@
  *
  * In-memory catalog of flag definitions. Seeds itself from the import-time
  * contributions (`getContributedFlags`) on construction, and also accepts
- * runtime `register` calls (used by tests). Bound at Core scope.
+ * runtime `register` calls (used by tests). Bound at App scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -54,7 +54,7 @@ export class FlagRegistryService extends Disposable implements IFlagRegistry {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IFlagRegistry,
   FlagRegistryService,
   InstantiationType.Delayed,

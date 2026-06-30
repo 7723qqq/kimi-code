@@ -5,7 +5,7 @@
  * definitions from. Definitions are contributed **decentrally**: each domain
  * calls `registerFlagDefinition` from its own `<domain>Flag.ts` top level, and
  * `FlagRegistryService` drains those contributions when it is instantiated.
- * There is no central catalog to edit by hand. Core-scoped.
+ * There is no central catalog to edit by hand. App-scoped.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';

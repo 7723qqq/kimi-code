@@ -4,25 +4,25 @@ import { ErrorCodes, KimiError, makeErrorPayload } from "#/errors";
 
 import {
   ensureMessageId,
-  IContextMemory,
+  IAgentContextMemoryService,
   USER_PROMPT_ORIGIN,
   type ContextMessage,
 } from '#/contextMemory';
-import { IEventSink } from '../eventSink';
-import { ITurnService, type Turn } from '#/turn';
-import { IWireRecord } from '#/wireRecord';
-import { IPromptService } from './prompt';
+import { IAgentEventSinkService } from '../eventSink';
+import { IAgentTurnService, type Turn } from '#/turn';
+import { IAgentWireRecordService } from '#/wireRecord';
+import { IAgentPromptService } from './prompt';
 
-export class PromptService implements IPromptService {
+export class AgentPromptService implements IAgentPromptService {
   declare readonly _serviceBrand: undefined;
   private readonly steerQueue: ContextMessage[] = [];
   private observedTurn: Turn | undefined;
 
   constructor(
-    @IContextMemory private readonly context: IContextMemory,
-    @ITurnService private readonly turnService: ITurnService,
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventSink private readonly events: IEventSink,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
   ) {
     turnService.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
       this.flushSteerQueue();
@@ -179,8 +179,8 @@ function formatPromptCount(count: number): string {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IPromptService,
-  PromptService,
+  IAgentPromptService,
+  AgentPromptService,
   InstantiationType.Delayed,
   'prompt',
 );

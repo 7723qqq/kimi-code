@@ -18,7 +18,7 @@ export interface ToolExecutorExecuteOptions {
   readonly onProgress?: ((toolCallId: string, update: ToolUpdate) => void) | undefined;
 }
 
-export interface IToolExecutor {
+export interface IAgentToolExecutorService {
   readonly _serviceBrand: undefined;
 
   execute(calls: ToolCall[], options?: ToolExecutorExecuteOptions): Promise<ToolResult[]>;
@@ -29,4 +29,4 @@ export interface IToolExecutor {
   };
 }
 
-export const IToolExecutor = createDecorator<IToolExecutor>('toolExecutorService');
+export const IAgentToolExecutorService = createDecorator<IAgentToolExecutorService>('agentToolExecutorService');

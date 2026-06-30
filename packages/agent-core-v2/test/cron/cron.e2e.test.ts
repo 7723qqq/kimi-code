@@ -13,8 +13,8 @@ import { CronDeleteTool } from '#/cron/tools/cron-delete';
 import { CronListTool } from '#/cron/tools/cron-list';
 import type { ExecutableToolOutput } from '#/tool';
 import type { ContextMessage } from '#/contextMemory';
-import { ICronService } from '#/cron';
-import { IPromptService } from '#/prompt';
+import { IAgentCronService } from '#/cron';
+import { IAgentPromptService } from '#/prompt';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 
 // Local-time anchor (cron-expr matches on local fields, so a UTC anchor
@@ -44,8 +44,8 @@ function outputText(out: ExecutableToolOutput): string {
 
 describe('Cron — session E2E (P1.9)', () => {
   let ctx: TestAgentContext;
-  let cron: ICronService;
-  let prompt: IPromptService;
+  let cron: IAgentCronService;
+  let prompt: IAgentPromptService;
   let harness: ReturnType<typeof createClocks>;
 
   beforeEach(() => {
@@ -59,8 +59,8 @@ describe('Cron — session E2E (P1.9)', () => {
     vi.stubEnv('KIMI_CRON_POLL_INTERVAL_MS', '0');
     harness = createClocks();
     ctx = createTestAgent(cronServices({}));
-    cron = ctx.get(ICronService);
-    prompt = ctx.get(IPromptService);
+    cron = ctx.get(IAgentCronService);
+    prompt = ctx.get(IAgentPromptService);
     cron.start();
   });
 

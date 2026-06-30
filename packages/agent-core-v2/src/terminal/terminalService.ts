@@ -1,8 +1,8 @@
 /**
- * `terminal` domain (L6) — `ITerminalService` implementation.
+ * `terminal` domain (L6) — `ISessionTerminalService` implementation.
  *
  * Owns this session's terminal set and its per-terminal output buffers and
- * attached sinks; spawns PTYs through the injected `ITerminalBackend`,
+ * attached sinks; spawns PTYs through the injected `ISessionTerminalBackend`,
  * resolves the working directory through `workspaceContext`, and reads the
  * session id through `session-context` to tag frames. Bound at Session scope.
  */
@@ -14,7 +14,7 @@ import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
 import { ISessionContext } from '#/session-context';
-import { IWorkspaceContext } from '#/workspaceContext';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
 
 import {
   type CreateTerminalRequest,
@@ -25,8 +25,8 @@ import {
   type TerminalFrame,
   type TerminalOutputMessage,
   type TerminalProcess,
-  ITerminalBackend,
-  ITerminalService,
+  ISessionTerminalBackend,
+  ISessionTerminalService,
 } from './terminal';
 
 const DEFAULT_COLS = 80;
@@ -43,14 +43,14 @@ interface TerminalRecord {
   closed: boolean;
 }
 
-export class TerminalService extends Disposable implements ITerminalService {
+export class SessionTerminalService extends Disposable implements ISessionTerminalService {
   declare readonly _serviceBrand: undefined;
 
   private readonly records = new Map<string, TerminalRecord>();
 
   constructor(
-    @ITerminalBackend private readonly backend: ITerminalBackend,
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
+    @ISessionTerminalBackend private readonly backend: ISessionTerminalBackend,
+    @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
     @ISessionContext private readonly sessionContext: ISessionContext,
   ) {
     super();
@@ -239,8 +239,8 @@ function defaultShell(): string {
 
 registerScopedService(
   LifecycleScope.Session,
-  ITerminalService,
-  TerminalService,
+  ISessionTerminalService,
+  SessionTerminalService,
   InstantiationType.Delayed,
   'terminal',
 );

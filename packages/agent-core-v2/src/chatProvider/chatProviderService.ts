@@ -4,7 +4,7 @@
  * Dispatches to the adapter registered for a provider `type`, falling back to
  * the built-in adapters from the `@moonshot-ai/kosong` package's
  * `createProvider`. Owns no configuration and no business dependencies. Bound
- * at Core scope.
+ * at App scope.
  */
 
 import type { ChatProvider, ProviderConfig, ProviderType } from '@moonshot-ai/kosong';
@@ -30,7 +30,7 @@ export class ChatProviderFactory implements IChatProviderFactory {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IChatProviderFactory,
   ChatProviderFactory,
   InstantiationType.Delayed,

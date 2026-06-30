@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
-import { IPermissionModeService } from '#/permissionMode';
+import { IAgentPermissionModeService } from '#/permissionMode';
 import type { PermissionMode } from '#/permissionPolicy';
 import { ExitPlanModeReviewAskPermissionPolicyService } from '#/permissionPolicy/policies/exit-plan-mode-review-ask';
-import { IPlanService, type IPlanService as PlanService } from '#/plan';
+import { IAgentPlanService, type IAgentPlanService as AgentPlanService } from '#/plan';
 import { ITelemetryService } from '#/telemetry';
 import { ToolAccesses } from '#/tool';
 
@@ -20,7 +20,7 @@ const options = [
   { label: 'Approach B', description: 'Larger change.' },
 ] as const;
 
-type ExitPlanModeFn = PlanService['exit'];
+type ExitPlanModeFn = AgentPlanService['exit'];
 
 interface RuntimeApprovalResponse {
   readonly decision: ApprovalResponse['decision'];
@@ -71,7 +71,7 @@ function policyContext(display: ToolInputDisplay): ResolvedToolExecutionHookCont
   };
 }
 
-function planService(exitPlanMode: ExitPlanModeFn = vi.fn()): PlanService {
+function planService(exitPlanMode: ExitPlanModeFn = vi.fn()): AgentPlanService {
   return {
     _serviceBrand: undefined,
     enter: async () => {},
@@ -98,7 +98,7 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     mode = 'manual';
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(IPermissionModeService, stubPermissionModeService(() => mode));
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
         reg.defineInstance(ITelemetryService, recordingTelemetry(records));
       },
     });
@@ -111,7 +111,7 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
   function makePolicy(
     exitPlanMode?: ExitPlanModeFn,
   ): ExitPlanModeReviewAskPermissionPolicyService {
-    ix.set(IPlanService, planService(exitPlanMode));
+    ix.set(IAgentPlanService, planService(exitPlanMode));
     return ix.createInstance(ExitPlanModeReviewAskPermissionPolicyService);
   }
 

@@ -10,12 +10,12 @@ export interface PermissionPolicyEvaluation {
   readonly result: PermissionPolicyResult;
 }
 
-export interface IPermissionPolicyService {
+export interface IAgentPermissionPolicyService {
   readonly _serviceBrand: undefined;
   evaluate(
     context: ResolvedToolExecutionHookContext,
   ): Promise<PermissionPolicyEvaluation | undefined>;
 }
 
-export const IPermissionPolicyService =
-  createDecorator<IPermissionPolicyService>('agentPermissionPolicyService');
+export const IAgentPermissionPolicyService =
+  createDecorator<IAgentPermissionPolicyService>('agentPermissionPolicyService');

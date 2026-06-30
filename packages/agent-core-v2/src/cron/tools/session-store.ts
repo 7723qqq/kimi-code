@@ -2,7 +2,7 @@
  * SessionCronStore — in-memory cron task store for a single CLI session.
  *
  * The store itself is purely in-memory; cross-restart persistence is
- * layered on top by `CronService.addTask` / `removeTasks`, which
+ * layered on top by `AgentCronService.addTask` / `removeTasks`, which
  * mirror every mutation to `<sessionDir>/cron/<id>.json`. On resume
  * the service calls {@link adopt} to put each persisted task back into
  * the store with its original id and `createdAt` preserved.
@@ -68,7 +68,7 @@ export class SessionCronStore {
 
   /**
    * Insert a previously-persisted task verbatim — id and createdAt
-   * stay as they are on disk. Used by `CronService.loadFromDisk()` to
+   * stay as they are on disk. Used by `AgentCronService.loadFromDisk()` to
    * rehydrate the store on resume. Unlike {@link add}, this does NOT
    * generate a new id; the caller is responsible for ensuring the id
    * matches the expected shape (the persistence layer's regex /

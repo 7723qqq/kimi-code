@@ -6,7 +6,7 @@ import { IBlobStorage, type IStorageService } from '#/storage';
 
 import {
   BLOBREF_PROTOCOL,
-  IBlobStoreService,
+  IAgentBlobStoreService,
   MISSING_MEDIA_PLACEHOLDER,
 } from './blobStore';
 
@@ -15,7 +15,7 @@ const DEFAULT_MAX_CACHE_SIZE = 50 * 1024 * 1024;
 const DEFAULT_STORAGE_SCOPE = 'blobs';
 const DATA_URI_HEADER_RE = /^data:([^;]+);base64,/;
 
-export class BlobStoreService implements IBlobStoreService {
+export class AgentBlobStoreService implements IAgentBlobStoreService {
   declare readonly _serviceBrand: undefined;
 
   private readonly storageScope = DEFAULT_STORAGE_SCOPE;
@@ -184,8 +184,8 @@ function asMediaContainer(value: unknown): { url: unknown } | undefined {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IBlobStoreService,
-  BlobStoreService,
+  IAgentBlobStoreService,
+  AgentBlobStoreService,
   InstantiationType.Delayed,
   'blobStore',
 );

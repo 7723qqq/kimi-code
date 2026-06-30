@@ -3,7 +3,7 @@
  *
  * Defines the public contract of asking the user: the rich in-process
  * `QuestionRequest` model (mirrors the `agent-core` SDK shape — a batch of
- * `QuestionItem`s, each with its own options) and the `IQuestionService` used
+ * `QuestionItem`s, each with its own options) and the `ISessionQuestionService` used
  * to post a request, supply its answer, dismiss it, and list pending requests.
  *
  * The model is the **in-process** representation (camelCase, options carry no
@@ -51,7 +51,7 @@ export interface QuestionRequest {
   readonly questions: readonly QuestionItem[];
 }
 
-export interface IQuestionService {
+export interface ISessionQuestionService {
   readonly _serviceBrand: undefined;
   request(req: QuestionRequest): Promise<QuestionResult>;
   /**
@@ -67,5 +67,5 @@ export interface IQuestionService {
   listPending(): readonly QuestionRequest[];
 }
 
-export const IQuestionService: ServiceIdentifier<IQuestionService> =
-  createDecorator<IQuestionService>('questionService');
+export const ISessionQuestionService: ServiceIdentifier<ISessionQuestionService> =
+  createDecorator<ISessionQuestionService>('sessionQuestionService');

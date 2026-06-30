@@ -2,7 +2,7 @@
  * AgentTool — collaboration tool for spawning task subagents.
  *
  * Unlike the built-in tools (Read/Write/Edit/Bash/Grep/Glob), this is a
- * "collaboration tool". It uses `ISubagentHost` (injected via the constructor
+ * "collaboration tool". It uses `ISessionSubagentHost` (injected via the constructor
  * rather than through the runtime) to create in-process subagent loop instances.
  *
  * Foreground and background subagents both run through the background service.
@@ -29,10 +29,10 @@ import {
   DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION,
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   type SubagentHandle,
-  type ISubagentHost,
+  type ISessionSubagentHost,
 } from './subagentHost';
 import { isUserCancellation } from '#/_base/utils/abort';
-import { AgentBackgroundTask, type IBackgroundService, type RegisterBackgroundTaskOptions } from '#/background';
+import { AgentBackgroundTask, type IAgentBackgroundService, type RegisterBackgroundTaskOptions } from '#/background';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
@@ -119,8 +119,8 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentToolInputSchema);
 
   constructor(
-    private readonly subagentHost: ISubagentHost,
-    private readonly background: IBackgroundService,
+    private readonly subagentHost: ISessionSubagentHost,
+    private readonly background: IAgentBackgroundService,
     subagents?: AgentToolSubagentMap | undefined,
     options?: {
       log?: ILogger;

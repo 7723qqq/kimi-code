@@ -8,9 +8,9 @@ export interface LoopRunHooks {
   readonly onContextOverflow: HookSlot<TurnContextOverflowContext>;
 }
 
-export interface ILoopService {
+export interface IAgentLoopService {
   readonly _serviceBrand: undefined;
   runTurn(turn: Turn, hooks?: LoopRunHooks): Promise<TurnResult>;
 }
 
-export const ILoopService = createDecorator<ILoopService>('agentLoopService');
+export const IAgentLoopService = createDecorator<IAgentLoopService>('agentLoopService');

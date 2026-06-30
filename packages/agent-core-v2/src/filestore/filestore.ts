@@ -5,7 +5,7 @@
  * uploaded bytes in the `IBlobStorage` backend and their `FileMeta` index in the
  * same byte store, then hands callers a stream back on download. The v1
  * `IFileStore` returned a filesystem `blobPath`; here the byte-store substrate
- * is stream-oriented, so `get` yields a `Readable` instead. Bound at Core scope.
+ * is stream-oriented, so `get` yields a `Readable` instead. Bound at App scope.
  */
 
 import type { Readable } from 'node:stream';

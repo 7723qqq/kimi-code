@@ -23,7 +23,7 @@
  *     *triggers* the refresh explicitly (it is not auto-chained inside login),
  *     then observes the new aliases arrive through config.
  *
- * Everything runs against the real Core-scope Services **and** the real OAuth
+ * Everything runs against the real App-scope Services **and** the real OAuth
  * clients — `KimiOAuthToolkit` (device-code protocol + token persistence) and
  * `fetchManagedKimiCodeModels` (the `/models` request) are not stubbed. The
  * only thing faked is the wire itself: `globalThis.fetch` is replaced with a
@@ -138,7 +138,7 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<vo
 describe('oauth → modelCatalog slice (request-layer fetch mock, real clients)', () => {
   let homeDir: string;
   let caseDir: string;
-  let core: Scope | undefined;
+  let app: Scope | undefined;
 
   beforeEach(() => {
     const resolved = process.env['KIMI_CODE_HOME'];
@@ -155,23 +155,23 @@ describe('oauth → modelCatalog slice (request-layer fetch mock, real clients)'
   });
 
   afterEach(() => {
-    core?.dispose();
-    core = undefined;
+    app?.dispose();
+    app = undefined;
     vi.unstubAllGlobals();
   });
 
-  function buildCore(): Scope {
+  function buildApp(): Scope {
     return bootstrap(
       { homeDir: caseDir },
       logSeed(resolveLoggingConfig({ homeDir: caseDir, env: process.env })),
-    ).core;
+    ).app;
   }
 
   test('device-code login provisions the provider credential through config.onDidChange', async () => {
-    core = buildCore();
-    const config = core.accessor.get(IConfigService);
-    const oauth = core.accessor.get(IOAuthService);
-    const providers = core.accessor.get(IProviderService);
+    app = buildApp();
+    const config = app.accessor.get(IConfigService);
+    const oauth = app.accessor.get(IOAuthService);
+    const providers = app.accessor.get(IProviderService);
     await config.ready;
     providers.list();
 
@@ -199,11 +199,11 @@ describe('oauth → modelCatalog slice (request-layer fetch mock, real clients)'
   });
 
   test('refreshOAuthProviderModels fetches /models internally and lands aliases through config.onDidChange', async () => {
-    core = buildCore();
-    const config = core.accessor.get(IConfigService);
-    const oauth = core.accessor.get(IOAuthService);
-    const providers = core.accessor.get(IProviderService);
-    const models = core.accessor.get(IModelService);
+    app = buildApp();
+    const config = app.accessor.get(IConfigService);
+    const oauth = app.accessor.get(IOAuthService);
+    const providers = app.accessor.get(IProviderService);
+    const models = app.accessor.get(IModelService);
     await config.ready;
     providers.list();
 

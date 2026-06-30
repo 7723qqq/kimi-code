@@ -8,31 +8,31 @@ import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';
 import type { ApprovalResponse } from '#/approval/approval';
 import type { ApprovalRequest } from '#/approval/approval';
-import { IApprovalService } from '#/approval/approval';
-import { IExternalHooksService } from '#/externalHooks';
+import { ISessionApprovalService } from '#/approval/approval';
+import { IAgentExternalHooksService } from '#/externalHooks';
 import { IKaos } from '#/kaos';
 import type { LLM } from '#/loop/llm';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
-import { IPermissionGate, PermissionGate } from '#/permissionGate';
+import { IAgentPermissionGate, AgentPermissionGate } from '#/permissionGate';
 import type { PermissionGateOptions } from '#/permissionGate';
-import { IPermissionModeService } from '#/permissionMode';
+import { IAgentPermissionModeService } from '#/permissionMode';
 import type { PermissionMode, PermissionPolicyEvaluation } from '#/permissionPolicy';
-import { IPermissionPolicyService } from '#/permissionPolicy';
-import { PermissionPolicyService } from '#/permissionPolicy/permissionPolicyService';
+import { IAgentPermissionPolicyService } from '#/permissionPolicy';
+import { AgentPermissionPolicyService } from '#/permissionPolicy/permissionPolicyService';
 import type {
-  IPermissionRulesService as PermissionRulesServiceContract,
+  IAgentPermissionRulesService as PermissionRulesServiceContract,
   PermissionApprovalResultRecord,
 } from '#/permissionRules';
 import type { PermissionRule } from '#/permissionRules';
-import { IPermissionRulesService } from '#/permissionRules';
-import { IPlanService } from '#/plan';
-import { IProfileService, type ProfileData } from '#/profile';
+import { IAgentPermissionRulesService } from '#/permissionRules';
+import { IAgentPlanService } from '#/plan';
+import { IAgentProfileService, type ProfileData } from '#/profile';
 import { ISessionContext } from '#/session-context';
-import { ISwarmService } from '#/swarm';
+import { IAgentSwarmService } from '#/swarm';
 import { ITelemetryService } from '#/telemetry/telemetry';
-import { IToolExecutor } from '#/toolExecutor';
-import { ITurnService } from '#/turn';
-import { IWorkspaceContext } from '#/workspaceContext';
+import { IAgentToolExecutorService } from '#/toolExecutor';
+import { IAgentTurnService } from '#/turn';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
 import type { ToolCall } from '@moonshot-ai/kosong';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
@@ -77,7 +77,7 @@ function planReviewDisplay(): ToolInputDisplay {
   };
 }
 
-describe('PermissionGate', () => {
+describe('AgentPermissionGate', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let mode: PermissionMode;
@@ -93,18 +93,18 @@ describe('PermissionGate', () => {
     approvalResponse = { decision: 'approved' };
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(IPermissionModeService, stubPermissionModeService(() => mode));
-        reg.defineInstance(IPermissionRulesService, stubPermissionRulesService(() => rules));
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
+        reg.defineInstance(IAgentPermissionRulesService, stubPermissionRulesService(() => rules));
         reg.defineInstance(
-          IPermissionPolicyService,
+          IAgentPermissionPolicyService,
           stubPermissionPolicyService(() => policyResult),
         );
-        reg.definePartialInstance(IExternalHooksService, {
+        reg.definePartialInstance(IAgentExternalHooksService, {
           triggerPermissionRequest: () => {},
           triggerPermissionResult: () => {},
         });
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
-        reg.defineInstance(IApprovalService, stubApprovalService(() => approvalResponse));
+        reg.defineInstance(ISessionApprovalService, stubApprovalService(() => approvalResponse));
         reg.defineInstance(ISessionContext, {
           _serviceBrand: undefined,
           sessionId: 'test-session',
@@ -112,23 +112,23 @@ describe('PermissionGate', () => {
           sessionDir: '/tmp/test-session',
           metaScope: 'sessions/test-workspace/test-session/session-meta',
         });
-        reg.definePartialInstance(IPlanService, {
+        reg.definePartialInstance(IAgentPlanService, {
           status: async () => null,
           exit: () => {},
         });
-        reg.definePartialInstance(ISwarmService, {
+        reg.definePartialInstance(IAgentSwarmService, {
           isActive: false,
         });
         reg.definePartialInstance(IKaos, {
           pathClass: () => 'posix',
         });
-        reg.definePartialInstance(IWorkspaceContext, {
+        reg.definePartialInstance(ISessionWorkspaceContext, {
           workDir: '/workspace',
           additionalDirs: [],
         });
-        reg.defineInstance(ITurnService, stubTurnWithHooks());
-        reg.defineInstance(IToolExecutor, stubToolExecutor());
-        reg.definePartialInstance(IProfileService, {
+        reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
+        reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
+        reg.definePartialInstance(IAgentProfileService, {
           data: () => ({ cwd: '/workspace' }) as ProfileData,
         });
       },
@@ -138,20 +138,20 @@ describe('PermissionGate', () => {
     disposables.dispose();
   });
 
-  function make(options: PermissionGateOptions = {}): IPermissionGate {
-    ix.set(IPermissionGate, new SyncDescriptor(PermissionGate, [options]));
-    return ix.get(IPermissionGate);
+  function make(options: PermissionGateOptions = {}): IAgentPermissionGate {
+    ix.set(IAgentPermissionGate, new SyncDescriptor(AgentPermissionGate, [options]));
+    return ix.get(IAgentPermissionGate);
   }
 
   function useRealPolicyService(): void {
-    ix.set(IPermissionPolicyService, new SyncDescriptor(PermissionPolicyService));
+    ix.set(IAgentPermissionPolicyService, new SyncDescriptor(AgentPermissionPolicyService));
   }
 
   function setApprovalRequest(
     request: (approval: ApprovalRequest) => Promise<ApprovalResponse>,
   ): ReturnType<typeof vi.fn<(approval: ApprovalRequest) => Promise<ApprovalResponse>>> {
     const requestSpy = vi.fn(request);
-    ix.set(IApprovalService, {
+    ix.set(ISessionApprovalService, {
       _serviceBrand: undefined,
       request: requestSpy,
       enqueue: (approval) => ({ ...approval, id: approval.id ?? 'approval-1' }),
@@ -319,7 +319,7 @@ describe('PermissionGate', () => {
     mode = 'manual';
     const sessionApprovalRulePatterns: string[] = [];
     const recorded: PermissionApprovalResultRecord[] = [];
-    ix.set(IPermissionRulesService, mutablePermissionRulesService({
+    ix.set(IAgentPermissionRulesService, mutablePermissionRulesService({
       rules: () => [],
       sessionApprovalRulePatterns: () => sessionApprovalRulePatterns,
       record: (record) => {
@@ -363,7 +363,7 @@ describe('PermissionGate', () => {
   it('keeps approved-once responses one-shot', async () => {
     mode = 'manual';
     const recorded: PermissionApprovalResultRecord[] = [];
-    ix.set(IPermissionRulesService, mutablePermissionRulesService({
+    ix.set(IAgentPermissionRulesService, mutablePermissionRulesService({
       rules: () => [],
       sessionApprovalRulePatterns: () => [],
       record: (record) => recorded.push(record),
@@ -385,10 +385,10 @@ describe('PermissionGate', () => {
   it('fires observer hooks while waiting for user approval', async () => {
     const permissionRequest = vi.fn();
     const permissionResult = vi.fn();
-    ix.set(IExternalHooksService, {
+    ix.set(IAgentExternalHooksService, {
       triggerPermissionRequest: permissionRequest,
       triggerPermissionResult: permissionResult,
-    } as Partial<IExternalHooksService> as IExternalHooksService);
+    } as Partial<IAgentExternalHooksService> as IAgentExternalHooksService);
     policyResult = { policyName: 'p', result: { kind: 'ask' } };
     approvalResponse = { decision: 'approved', selectedLabel: 'Approve once' };
     const request = setApprovalRequest(async () => approvalResponse);
@@ -493,7 +493,7 @@ describe('PermissionGate', () => {
   it('tracks approval transport errors before rethrowing', async () => {
     policyResult = { policyName: 'exit-plan-mode-review-ask', result: { kind: 'ask' } };
     const error = new Error('approval transport closed');
-    ix.set(IApprovalService, {
+    ix.set(ISessionApprovalService, {
       _serviceBrand: undefined,
       request: vi.fn(async () => {
         throw error;

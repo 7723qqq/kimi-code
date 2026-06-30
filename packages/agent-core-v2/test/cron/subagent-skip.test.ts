@@ -16,8 +16,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ICronService } from '#/cron';
-import { IProfileService } from '#/profile';
+import { IAgentCronService } from '#/cron';
+import { IAgentProfileService } from '#/profile';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 
 const CRON_TOOL_NAMES = ['CronCreate', 'CronList', 'CronDelete'] as const;
@@ -37,15 +37,15 @@ describe('Agent + Cron — subagent suppression', () => {
 
   describe("type='sub'", () => {
     let ctx: TestAgentContext;
-    let cron: ICronService;
-    let profile: IProfileService;
+    let cron: IAgentCronService;
+    let profile: IAgentProfileService;
     let listenerCountBeforeCreate: number;
 
     beforeEach(() => {
       listenerCountBeforeCreate = process.listenerCount('SIGUSR1');
       ctx = createTestAgent(cronServices({ isSubagent: true }));
-      cron = ctx.get(ICronService);
-      profile = ctx.get(IProfileService);
+      cron = ctx.get(IAgentCronService);
+      profile = ctx.get(IAgentProfileService);
     });
 
     afterEach(async () => {
@@ -59,7 +59,7 @@ describe('Agent + Cron — subagent suppression', () => {
     it('cron exists, start() is skipped, tools not registered', () => {
       if (process.platform === 'win32') return;
 
-      // Subagents get a disabled CronService: no scheduler, no timers,
+      // Subagents get a disabled AgentCronService: no scheduler, no timers,
       // no SIGUSR1 listener and no tools — the service-DI equivalent of
       // the old `agent.cron === null`.
       expect(cron.isEnabled).toBe(false);
@@ -80,13 +80,13 @@ describe('Agent + Cron — subagent suppression', () => {
 
   describe("type='main'", () => {
     let ctx: TestAgentContext;
-    let profile: IProfileService;
+    let profile: IAgentProfileService;
     let listenerCountBeforeCreate: number;
 
     beforeEach(() => {
       listenerCountBeforeCreate = process.listenerCount('SIGUSR1');
       ctx = createTestAgent();
-      profile = ctx.get(IProfileService);
+      profile = ctx.get(IAgentProfileService);
     });
 
     afterEach(async () => {
@@ -112,13 +112,13 @@ describe('Agent + Cron — subagent suppression', () => {
 
   describe("type='independent'", () => {
     let ctx: TestAgentContext;
-    let profile: IProfileService;
+    let profile: IAgentProfileService;
     let listenerCountBeforeCreate: number;
 
     beforeEach(() => {
       listenerCountBeforeCreate = process.listenerCount('SIGUSR1');
       ctx = createTestAgent();
-      profile = ctx.get(IProfileService);
+      profile = ctx.get(IAgentProfileService);
     });
 
     afterEach(async () => {

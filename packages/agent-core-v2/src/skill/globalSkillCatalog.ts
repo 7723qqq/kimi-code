@@ -3,7 +3,7 @@
  *
  * `IGlobalSkillCatalog` holds the process-wide skill set: code-defined builtin
  * skills plus user / brand skills discovered from the user's home directories.
- * It is loaded once and shared by every Session catalog. Core-scoped.
+ * It is loaded once and shared by every Session catalog. App-scoped.
  */
 
 import { createDecorator } from '#/_base/di/instantiation';

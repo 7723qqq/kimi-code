@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IContextMemory, type ContextMessage } from '#/contextMemory';
-import { ContextMemoryService } from '#/contextMemory/contextMemoryService';
-import { IReplayBuilderService } from '#/replayBuilder';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
+import { AgentContextMemoryService } from '#/contextMemory/contextMemoryService';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
+import { IAgentWireRecordService } from '#/wireRecord';
 import { stubReplayBuilder, stubWireRecord } from '../contextMemory/stubs';
 
 function textMessage(role: ContextMessage['role'], text: string): ContextMessage {
@@ -26,24 +26,24 @@ function textOf(message: ContextMessage): string {
 // NOTE: the legacy `IMessageService` (which projected context history into
 // `ProtocolMessage`s with derived `msg-N` ids) was removed
 // (see commit `chore: remove IMessageService`). Message history now lives on
-// `IContextMemory`, so these cases exercise that history directly instead of
+// `IAgentContextMemoryService`, so these cases exercise that history directly instead of
 // the deleted derived-id projection.
 
-describe('message history (IContextMemory)', () => {
+describe('message history (IAgentContextMemoryService)', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    ix.stub(IWireRecord, stubWireRecord());
-    ix.stub(IReplayBuilderService, stubReplayBuilder());
-    ix.set(IContextMemory, new SyncDescriptor(ContextMemoryService));
+    ix.stub(IAgentWireRecordService, stubWireRecord());
+    ix.stub(IAgentReplayBuilderService, stubReplayBuilder());
+    ix.set(IAgentContextMemoryService, new SyncDescriptor(AgentContextMemoryService));
   });
   afterEach(() => disposables.dispose());
 
   it('round-trips user/assistant messages with their text content', () => {
-    const ctx = ix.get(IContextMemory);
+    const ctx = ix.get(IAgentContextMemoryService);
     ctx.splice(0, 0, [textMessage('user', 'a')]);
     ctx.splice(1, 0, [textMessage('assistant', 'b')]);
 
@@ -53,7 +53,7 @@ describe('message history (IContextMemory)', () => {
   });
 
   it('returns a defensive copy from getHistory', () => {
-    const ctx = ix.get(IContextMemory);
+    const ctx = ix.get(IAgentContextMemoryService);
     ctx.splice(0, 0, [textMessage('user', 'keep')]);
 
     const view = ctx.get();
@@ -63,7 +63,7 @@ describe('message history (IContextMemory)', () => {
   });
 
   it('stamps a msg_<ulid> id on messages that lack one', () => {
-    const ctx = ix.get(IContextMemory);
+    const ctx = ix.get(IAgentContextMemoryService);
     ctx.splice(0, 0, [textMessage('user', 'hello')]);
 
     const [message] = ctx.get();
@@ -71,7 +71,7 @@ describe('message history (IContextMemory)', () => {
   });
 
   it('preserves an existing message id (idempotent)', () => {
-    const ctx = ix.get(IContextMemory);
+    const ctx = ix.get(IAgentContextMemoryService);
     const existing: ContextMessage = {
       ...textMessage('user', 'keep'),
       id: 'msg_01HXQM8K7Z3V9N2P5R6T8W0Y1B',

@@ -2,7 +2,7 @@
  * `telemetry` domain (L1) — `ITelemetryService` contract and appender types.
  *
  * Layer-1 root service: merges bound context into tracked events and fans
- * them out to one or more `ITelemetryAppender` destinations. Core-scoped —
+ * them out to one or more `ITelemetryAppender` destinations. App-scoped —
  * stateless beyond its appender set and bound context; enrichment, batching,
  * and transport are owned by the appenders, not by this layer. Defines the
  * `ITelemetryAppender` contract, the `ITelemetryService` facade, the service

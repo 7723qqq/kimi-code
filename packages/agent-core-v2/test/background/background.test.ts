@@ -3,18 +3,18 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IBackgroundService, type BackgroundTask } from '#/background';
-import { BackgroundService } from '#/background/backgroundService';
+import { IAgentBackgroundService, type BackgroundTask } from '#/background';
+import { AgentBackgroundService } from '#/background/backgroundService';
 import { IConfigRegistry, IConfigService } from '#/config';
-import { IContextMemory } from '#/contextMemory';
-import { IEventSink } from '#/eventSink';
-import { IExternalHooksService } from '#/externalHooks';
-import { IPromptService } from '#/prompt';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentEventSinkService } from '#/eventSink';
+import { IAgentExternalHooksService } from '#/externalHooks';
+import { IAgentPromptService } from '#/prompt';
 import { ISessionContext } from '#/session-context';
 import { IAtomicDocumentStore, IStorageService } from '#/storage';
 import { ITelemetryService } from '#/telemetry';
-import { IToolRegistry } from '#/toolRegistry';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentToolRegistryService } from '#/toolRegistry';
+import { IAgentWireRecordService } from '#/wireRecord';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
 
@@ -28,22 +28,22 @@ function fakeProcessTask(): BackgroundTask {
   };
 }
 
-describe('BackgroundService', () => {
+describe('AgentBackgroundService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    ix.stub(IWireRecord, stubWireRecord());
-    ix.stub(IContextMemory, stubContextMemory());
-    ix.stub(IEventSink, { emit: () => {}, on: () => toDisposable(() => {}) });
+    ix.stub(IAgentWireRecordService, stubWireRecord());
+    ix.stub(IAgentContextMemoryService, stubContextMemory());
+    ix.stub(IAgentEventSinkService, { emit: () => {}, on: () => toDisposable(() => {}) });
     ix.stub(ITelemetryService, { track: () => {} });
-    ix.stub(IToolRegistry, {
+    ix.stub(IAgentToolRegistryService, {
       register: () => toDisposable(() => {}),
     });
-    ix.stub(IPromptService, { steer: () => undefined });
-    ix.stub(IExternalHooksService, { triggerNotification: () => {} });
+    ix.stub(IAgentPromptService, { steer: () => undefined });
+    ix.stub(IAgentExternalHooksService, { triggerNotification: () => {} });
     ix.stub(IConfigRegistry, { registerSection: () => {} });
     ix.stub(IConfigService, {
       get: (() => undefined) as IConfigService['get'],
@@ -70,12 +70,12 @@ describe('BackgroundService', () => {
       flush: async () => {},
       close: async () => {},
     });
-    ix.set(IBackgroundService, new SyncDescriptor(BackgroundService));
+    ix.set(IAgentBackgroundService, new SyncDescriptor(AgentBackgroundService));
   });
   afterEach(() => disposables.dispose());
 
   it('registerTask / list / readOutput / stop', async () => {
-    const svc = ix.get(IBackgroundService);
+    const svc = ix.get(IAgentBackgroundService);
     const id = svc.registerTask(fakeProcessTask());
     const listed = svc.list();
     expect(listed).toHaveLength(1);

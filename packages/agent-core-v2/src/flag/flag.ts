@@ -6,7 +6,7 @@
  * flag-resolution types (`ExperimentalFeatureState`, `ExperimentalFlagConfig`,
  * `ExperimentalFlagSource`). Owns the `[experimental]` config section, whose
  * keys are flag ids and are preserved verbatim (no snake ↔ camel conversion) by
- * its TOML read/write transforms. Core-scoped — one instance shared across the
+ * its TOML read/write transforms. App-scoped — one instance shared across the
  * process.
  */
 

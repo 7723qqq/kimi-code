@@ -1,7 +1,7 @@
 import type { GoalSnapshot } from '#/goal';
 import { Disposable } from "#/_base/di";
 import { renderPrompt } from "#/_base/utils/render-prompt";
-import { IContextInjector } from '../../contextInjector/contextInjector';
+import { IAgentContextInjectorService } from '../../contextInjector/contextInjector';
 import GOAL_ACTIVE_REMINDER from './goal-active-reminder.md?raw';
 import GOAL_BLOCKED_REMINDER from './goal-blocked-reminder.md?raw';
 import GOAL_PAUSED_REMINDER from './goal-paused-reminder.md?raw';
@@ -14,7 +14,7 @@ export interface GoalInjectionOptions {
 export class GoalInjection extends Disposable {
   constructor(
     private readonly options: GoalInjectionOptions,
-    @IContextInjector dynamicInjector: IContextInjector,
+    @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
   ) {
     super();
     this._register(dynamicInjector.register('goal', () => this.reminder(), { cadence: 'turn' }));

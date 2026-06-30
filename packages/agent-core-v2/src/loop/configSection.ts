@@ -2,10 +2,10 @@
  * `loop` domain (L4) — `loopControl` config-section schema and TOML transforms.
  *
  * Owns the `[loop_control]` configuration section (step / retry / context-size
- * limits) consumed by `LoopService` (step + retry budgets) and `ProfileService`
+ * limits) consumed by `AgentLoopService` (step + retry budgets) and `AgentProfileService`
  * (context sizing), plus the snake_case ↔ camelCase TOML transforms (including
  * the legacy `max_steps_per_run` → `maxStepsPerTurn` rename). Registered into
- * `IConfigRegistry` by `LoopService` on construction.
+ * `IConfigRegistry` by `AgentLoopService` on construction.
  */
 
 import { z } from 'zod';

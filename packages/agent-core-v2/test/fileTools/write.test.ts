@@ -3,11 +3,11 @@
  *
  * Ported from v1 (`packages/agent-core/test/tools/write.test.ts`) and adapted
  * to the v2 constructor `(fs, kaos, workspace)`. Self-contained: builds minimal
- * fake `IAgentFileSystem` and `IKaos` inline so the tool can be exercised
+ * fake `ISessionAgentFileSystem` and `IKaos` inline so the tool can be exercised
  * without the composition root.
  *
  * The v1 append path used `kaos.writeText(path, data, { mode: 'a' })`. v2's
- * `IAgentFileSystem.writeText` has no mode flag, so append is implemented as
+ * `ISessionAgentFileSystem.writeText` has no mode flag, so append is implemented as
  * `readText` (treating a missing file as empty) followed by `writeText` of the
  * concatenation. The append-call assertions below reflect that mechanic.
  */
@@ -15,7 +15,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
-import type { AgentFileStat, IAgentFileSystem } from '../../src/agentFs';
+import type { AgentFileStat, ISessionAgentFileSystem } from '../../src/agentFs';
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
 import { type WriteInput, WriteInputSchema, WriteTool } from '../../src/fileTools/tools/write';
 import type { IKaos } from '../../src/kaos';
@@ -69,7 +69,7 @@ function createWriteFs(options: WriteFsOptions = {}) {
     options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })),
   );
   const mkdir = vi.fn(options.mkdir ?? (async () => {}));
-  const fs = { cwd: '/', readText, writeText, stat, mkdir } as unknown as IAgentFileSystem;
+  const fs = { cwd: '/', readText, writeText, stat, mkdir } as unknown as ISessionAgentFileSystem;
   return { fs, readText, writeText, stat, mkdir };
 }
 

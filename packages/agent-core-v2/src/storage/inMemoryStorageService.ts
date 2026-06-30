@@ -1,10 +1,10 @@
 /**
  * `InMemoryStorageService` — `IStorageService` backed by in-memory maps.
  *
- * Registered as the default `IStorageService` at Core scope so scopes and
+ * Registered as the default `IStorageService` at App scope so scopes and
  * tests work out of the box. For durable production storage, the composition
  * root seeds a per-token `FileStorageService` descriptor (rooted at
- * `bootstrap.homeDir`) into the Core scope via `ScopeOptions.extra`,
+ * `bootstrap.homeDir`) into the App scope via `ScopeOptions.extra`,
  * overriding this default — the same pattern `blobStoreService` uses.
  *
  * `append` concatenates into the same key slot `write` replaces, mirroring the
@@ -146,7 +146,7 @@ export class InMemoryStorageService implements IStorageService {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IStorageService,
   InMemoryStorageService,
   InstantiationType.Delayed,
@@ -154,7 +154,7 @@ registerScopedService(
 );
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IAppendLogStorage,
   InMemoryStorageService,
   InstantiationType.Delayed,
@@ -162,7 +162,7 @@ registerScopedService(
 );
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IAtomicDocumentStorage,
   InMemoryStorageService,
   InstantiationType.Delayed,
@@ -170,7 +170,7 @@ registerScopedService(
 );
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IBlobStorage,
   InMemoryStorageService,
   InstantiationType.Delayed,

@@ -3,7 +3,7 @@
  *
  * Defines `IEventService`, a minimal type-tagged event bus used by business
  * domains to broadcast facts (for example session lifecycle changes) to an
- * unknown set of consumers. Bound at Core scope; a single global instance.
+ * unknown set of consumers. Bound at App scope; a single global instance.
  */
 
 import { createDecorator, type IDisposable, type ServiceIdentifier } from '#/_base/di';

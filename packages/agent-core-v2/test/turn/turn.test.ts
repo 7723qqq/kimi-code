@@ -17,21 +17,21 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 
 import { abortError, abortable } from '#/_base/utils/abort';
-import { IAgentFileSystem } from '#/agentFs';
+import { ISessionAgentFileSystem } from '#/agentFs';
 import type { ContextMessage } from '#/contextMemory';
 import { IOAuthService } from '#/auth';
 import { ErrorCodes, KimiError } from '#/errors';
 import { HookEngine } from '#/externalHooks/engine';
 import { IKaos } from '#/kaos';
 import type { ILogger as Logger, LogPayload } from '#/log';
-import { IMcpService } from '#/mcp';
+import { IAgentMcpService } from '#/mcp';
 import { McpConnectionManager } from '#/mcp/connection-manager';
 import { registerMediaTools, type VideoUploader } from '#/media';
-import { IPermissionGate } from '#/permissionGate';
-import { IProfileService } from '#/profile';
-import { ISwarmService } from '#/swarm';
-import { ITurnService } from '#/turn';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentPermissionGate } from '#/permissionGate';
+import { IAgentProfileService } from '#/profile';
+import { IAgentSwarmService } from '#/swarm';
+import { IAgentTurnService } from '#/turn';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import type {
   QueuedSubagentRunResult,
   QueuedSubagentTask,
@@ -41,7 +41,7 @@ import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import {
   configServices,
-  coreServices,
+  appServices,
   createCommandKaos,
   kaosServices,
   logServices,
@@ -91,7 +91,7 @@ describe('Agent turn flow', () => {
     );
     const { kaos, execWithEnv } = createExecKaos('mcp-ready');
     const ctx = testAgent(mcpServices({ manager: mcp }), kaosServices(kaos));
-    ctx.get(IMcpService);
+    ctx.get(IAgentMcpService);
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
     ctx.mockNextResponse(
@@ -123,7 +123,7 @@ describe('Agent turn flow', () => {
     );
     const { kaos, execWithEnv } = createExecKaos('should-not-run');
     const ctx = testAgent(mcpServices({ manager: mcp }), kaosServices(kaos));
-    ctx.get(IMcpService);
+    ctx.get(IAgentMcpService);
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
     ctx.mockNextResponse(
@@ -365,7 +365,7 @@ describe('Agent turn flow', () => {
       { type: 'swarm_mode.exit' },
     ]);
 
-    expect(ctx.get(ISwarmService).isActive).toBe(false);
+    expect(ctx.get(IAgentSwarmService).isActive).toBe(false);
     expect(ctx.contextData().history).toEqual([]);
     expect(ctx.newEvents()).toMatchInlineSnapshot(`[wire] context.splice   { "start": 0, "deleteCount": 1, "messages": [], "time": "<time>" }`);
   });
@@ -379,7 +379,7 @@ describe('Agent turn flow', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run a swarm task' }] });
     await ctx.untilTurnEnd();
 
-    expect(ctx.get(ISwarmService).isActive).toBe(true);
+    expect(ctx.get(IAgentSwarmService).isActive).toBe(true);
     expect(eventIndex(ctx, '[wire]', 'swarm_mode.exit')).toBe(-1);
     await ctx.expectResumeMatches();
   });
@@ -404,7 +404,7 @@ describe('Agent turn flow', () => {
       );
     });
 
-    expect(ctx.get(ISwarmService).isActive).toBe(false);
+    expect(ctx.get(IAgentSwarmService).isActive).toBe(false);
     expect(swarmExitIndex).toBeGreaterThan(turnEndedIndex);
     expect(inactiveStatusIndex).toBeGreaterThan(turnEndedIndex);
     expect(ctx.contextData().history.at(-1)?.origin).toEqual({
@@ -422,7 +422,7 @@ describe('Agent turn flow', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Fail a swarm task' }] });
     await ctx.untilTurnEnd();
 
-    expect(ctx.get(ISwarmService).isActive).toBe(false);
+    expect(ctx.get(IAgentSwarmService).isActive).toBe(false);
     expect(eventIndex(ctx, '[wire]', 'swarm_mode.exit')).toBeGreaterThan(-1);
   });
 
@@ -437,7 +437,7 @@ describe('Agent turn flow', () => {
     await ctx.rpc.cancel({ turnId: 0 });
     await ctx.untilTurnEnd();
 
-    expect(ctx.get(ISwarmService).isActive).toBe(false);
+    expect(ctx.get(IAgentSwarmService).isActive).toBe(false);
     expect(eventIndex(ctx, '[wire]', 'swarm_mode.exit')).toBeGreaterThan(-1);
   });
 
@@ -477,7 +477,7 @@ describe('Agent turn flow', () => {
 
     expect(runQueued).toHaveBeenCalledTimes(1);
     expect(enterEvent?.args).toMatchObject({ trigger: 'tool' });
-    expect(ctx.get(ISwarmService).isActive).toBe(false);
+    expect(ctx.get(IAgentSwarmService).isActive).toBe(false);
     expect(eventIndex(ctx, '[wire]', 'swarm_mode.exit')).toBeGreaterThan(
       eventIndex(ctx, '[rpc]', 'turn.ended'),
     );
@@ -950,7 +950,7 @@ describe('Agent turn flow', () => {
     const ctx = testAgent(kaosServices(createFakeKaos({ execWithEnv })), {
       hookEngine,
     });
-    const authorize = vi.spyOn(ctx.get(IPermissionGate), 'authorize');
+    const authorize = vi.spyOn(ctx.get(IAgentPermissionGate), 'authorize');
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'auto' });
     ctx.newEvents();
@@ -1053,7 +1053,7 @@ describe('Agent turn flow', () => {
     // A programmatic abort (e.g. a subagent deadline timeout) carries a plain
     // AbortError as its reason, not a UserCancellationError, so it must not be
     // reported as a user interrupt.
-    ctx.get(ITurnService).getActiveTurn()?.abortController.abort(abortError());
+    ctx.get(IAgentTurnService).getActiveTurn()?.abortController.abort(abortError());
     await ctx.untilTurnEnd();
 
     expect(triggered).toEqual([]);
@@ -1213,12 +1213,12 @@ describe('Agent turn flow', () => {
     const ctx = testAgent(logServices(logger));
     ctx.configure();
 
-    ctx.get(IProfileService).update({ systemPrompt: 'alpha' });
+    ctx.get(IAgentProfileService).update({ systemPrompt: 'alpha' });
     ctx.mockNextResponse({ type: 'text', text: 'first' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'first prompt' }] });
     await ctx.untilTurnEnd();
 
-    ctx.get(IProfileService).update({ systemPrompt: 'bravo' });
+    ctx.get(IAgentProfileService).update({ systemPrompt: 'bravo' });
     ctx.mockNextResponse({ type: 'text', text: 'second' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'second prompt' }] });
     await ctx.untilTurnEnd();
@@ -1672,7 +1672,7 @@ describe('Agent turn flow', () => {
       initialConfig: oauthOptions.initialConfig,
       autoConfigure: false,
     });
-    const profile = ctx.get(IProfileService);
+    const profile = ctx.get(IAgentProfileService);
     profile.update({
       cwd: '/workspace',
       modelAlias: 'kimi-code',
@@ -1687,8 +1687,8 @@ describe('Agent turn flow', () => {
         if (uploadVideo === undefined) throw new Error('Provider did not expose uploadVideo');
         return uploadVideo.call(provider, input, { auth });
       });
-    const registration = registerMediaTools(ctx.get(IToolRegistry), {
-      fs: ctx.get(IAgentFileSystem),
+    const registration = registerMediaTools(ctx.get(IAgentToolRegistryService), {
+      fs: ctx.get(ISessionAgentFileSystem),
       kaos: ctx.get(IKaos),
       workspace: { workspaceDir: '/workspace', additionalDirs: [] },
       capabilities: mediaCapabilities(),
@@ -1697,7 +1697,7 @@ describe('Agent turn flow', () => {
     profile.update({ activeToolNames: ['ReadMediaFile'] });
 
     try {
-      const tool = ctx.get(IToolRegistry).resolve('ReadMediaFile');
+      const tool = ctx.get(IAgentToolRegistryService).resolve('ReadMediaFile');
       if (tool === undefined) throw new Error('ReadMediaFile tool was not initialized');
       const result = await executeTool(tool, {
         turnId: 't1',
@@ -2062,7 +2062,7 @@ function oauthAgentOptions(
         },
       },
     },
-    services: coreServices((reg) => {
+    services: appServices((reg) => {
       reg.definePartialInstance(IOAuthService, {
         resolveTokenProvider: () => ({ getAccessToken }),
       });

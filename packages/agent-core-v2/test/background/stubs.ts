@@ -3,11 +3,11 @@ import { join } from 'pathe';
 import {
   BackgroundTaskPersistence,
   type BackgroundTaskInfo,
-  type IBackgroundService,
+  type IAgentBackgroundService,
 } from '#/background';
 import { AtomicDocumentStore, FileStorageService } from '#/storage';
 
-export type BackgroundServiceTestManager = IBackgroundService & {
+export type BackgroundServiceTestManager = IAgentBackgroundService & {
   loadFromDisk(): Promise<void>;
   reconcile(): Promise<readonly BackgroundTaskInfo[]>;
 };

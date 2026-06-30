@@ -3,22 +3,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IInteractionService } from '#/interaction/interaction';
-import { InteractionService } from '#/interaction/interactionService';
+import { ISessionInteractionService } from '#/interaction/interaction';
+import { SessionInteractionService } from '#/interaction/interactionService';
 
-describe('InteractionService', () => {
+describe('SessionInteractionService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    ix.set(IInteractionService, new SyncDescriptor(InteractionService));
+    ix.set(ISessionInteractionService, new SyncDescriptor(SessionInteractionService));
   });
   afterEach(() => disposables.dispose());
 
   it('request blocks until respond resolves it', async () => {
-    const svc = ix.get(IInteractionService);
+    const svc = ix.get(ISessionInteractionService);
     const pending = svc.request<{ n: number }, string>({
       kind: 'question',
       payload: { n: 1 },
@@ -31,7 +31,7 @@ describe('InteractionService', () => {
   });
 
   it('uses the caller-provided id for correlation', async () => {
-    const svc = ix.get(IInteractionService);
+    const svc = ix.get(ISessionInteractionService);
     const pending = svc.request({ id: 'tool-1', kind: 'approval', payload: {} });
     expect(svc.listPending()[0]!.id).toBe('tool-1');
     svc.respond('tool-1', { decision: 'approved' });
@@ -39,7 +39,7 @@ describe('InteractionService', () => {
   });
 
   it('listPending filters by kind', () => {
-    const svc = ix.get(IInteractionService);
+    const svc = ix.get(ISessionInteractionService);
     void svc.request({ kind: 'approval', payload: {} });
     void svc.request({ kind: 'question', payload: {} });
     expect(svc.listPending('approval')).toHaveLength(1);
@@ -48,7 +48,7 @@ describe('InteractionService', () => {
   });
 
   it('onDidChange fires on request and on respond', async () => {
-    const svc = ix.get(IInteractionService);
+    const svc = ix.get(ISessionInteractionService);
     let count = 0;
     disposables.add(svc.onDidChange(() => count++));
     const pending = svc.request({ kind: 'question', payload: {} });
@@ -59,12 +59,12 @@ describe('InteractionService', () => {
   });
 
   it('respond to an unknown id is a no-op', () => {
-    const svc = ix.get(IInteractionService);
+    const svc = ix.get(ISessionInteractionService);
     expect(() => svc.respond('nope', 'x')).not.toThrow();
   });
 
   it('enqueue parks a request and returns it without blocking', () => {
-    const svc = ix.get(IInteractionService);
+    const svc = ix.get(ISessionInteractionService);
     const interaction = svc.enqueue({ id: 'e1', kind: 'approval', payload: { tool: 'bash' } });
     expect(interaction).toMatchObject({
       id: 'e1',
@@ -75,14 +75,14 @@ describe('InteractionService', () => {
   });
 
   it('enqueue generates an id when none is provided', () => {
-    const svc = ix.get(IInteractionService);
+    const svc = ix.get(ISessionInteractionService);
     const interaction = svc.enqueue({ kind: 'question', payload: {} });
     expect(interaction.id).toMatch(/^interaction-/);
     expect(svc.listPending()[0]!.id).toBe(interaction.id);
   });
 
   it('onDidResolve fires with the id and response when responded to', () => {
-    const svc = ix.get(IInteractionService);
+    const svc = ix.get(ISessionInteractionService);
     const seen: { id: string; response: unknown }[] = [];
     disposables.add(svc.onDidResolve((r) => seen.push(r)));
 
@@ -94,7 +94,7 @@ describe('InteractionService', () => {
   });
 
   it('onDidResolve does not fire for an unknown id', () => {
-    const svc = ix.get(IInteractionService);
+    const svc = ix.get(ISessionInteractionService);
     let count = 0;
     disposables.add(svc.onDidResolve(() => count++));
     svc.respond('nope', 'x');

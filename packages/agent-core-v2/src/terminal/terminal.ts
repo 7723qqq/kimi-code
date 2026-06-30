@@ -1,12 +1,12 @@
 /**
  * `terminal` domain (L6) — interactive terminal (PTY) contract.
  *
- * Defines the `ITerminalService` that business code (and the edge, via an
+ * Defines the `ISessionTerminalService` that business code (and the edge, via an
  * accessor borrow) uses to manage a session's interactive terminals, the
- * `ITerminalBackend` provider that hides the local/ssh/container split, and
+ * `ISessionTerminalBackend` provider that hides the local/ssh/container split, and
  * the attach/stream types (`TerminalProcess`, `TerminalAttachSink`,
  * `TerminalFrame`) used to wire terminal I/O to a transport. Session-scoped:
- * one `ITerminalService` owns only its own session's terminals. Wire types
+ * one `ISessionTerminalService` owns only its own session's terminals. Wire types
  * (`Terminal`, `CreateTerminalRequest`, frame messages) are sourced from
  * `@moonshot-ai/protocol`.
  */
@@ -49,7 +49,7 @@ export interface TerminalProcess {
   kill(): void;
 }
 
-export interface ITerminalService {
+export interface ISessionTerminalService {
   readonly _serviceBrand: undefined;
 
   create(input: CreateTerminalRequest): Promise<Terminal>;
@@ -75,14 +75,14 @@ export interface ITerminalService {
   close(terminalId: string): Promise<{ closed: true }>;
 }
 
-export const ITerminalService: ServiceIdentifier<ITerminalService> =
-  createDecorator<ITerminalService>('terminalService');
+export const ISessionTerminalService: ServiceIdentifier<ISessionTerminalService> =
+  createDecorator<ISessionTerminalService>('sessionTerminalService');
 
-export interface ITerminalBackend {
+export interface ISessionTerminalBackend {
   readonly _serviceBrand: undefined;
 
   spawn(options: TerminalSpawnOptions): Promise<TerminalProcess>;
 }
 
-export const ITerminalBackend: ServiceIdentifier<ITerminalBackend> =
-  createDecorator<ITerminalBackend>('terminalBackend');
+export const ISessionTerminalBackend: ServiceIdentifier<ISessionTerminalBackend> =
+  createDecorator<ISessionTerminalBackend>('sessionTerminalBackend');

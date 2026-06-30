@@ -2,8 +2,8 @@
  * `/sessions/{sid}/approvals*` route handlers — server-v2 port.
  *
  * Implements the v1 `/api/v1/sessions/{sid}/approvals` wire contract on top of
- * `agent-core-v2` services. Backed by the Session-scoped `IApprovalService`
- * (for `decide`) and `IInteractionService` (for the pending list, including the
+ * `agent-core-v2` services. Backed by the Session-scoped `ISessionApprovalService`
+ * (for `decide`) and `ISessionInteractionService` (for the pending list, including the
  * `createdAt` metadata the facade does not surface).
  *
  *   GET  /sessions/{sid}/approvals?status=pending   data: { items: ApprovalRequest[] }
@@ -29,8 +29,8 @@
  */
 
 import {
-  IApprovalService,
-  IInteractionService,
+  ISessionApprovalService,
+  ISessionInteractionService,
   ISessionLifecycleService,
   type ApprovalRequest,
   type ApprovalResponse,
@@ -107,7 +107,7 @@ export function registerApprovalsRoutes(app: ApprovalRouteHost, core: Scope): vo
         );
         return;
       }
-      const pending = handle.accessor.get(IInteractionService).listPending('approval');
+      const pending = handle.accessor.get(ISessionInteractionService).listPending('approval');
       const items = pending.map((i) => toWireApproval(i, session_id));
       reply.send(okEnvelope({ items }, req.id));
     },
@@ -141,7 +141,7 @@ export function registerApprovalsRoutes(app: ApprovalRouteHost, core: Scope): vo
         );
         return;
       }
-      const interaction = handle.accessor.get(IInteractionService);
+      const interaction = handle.accessor.get(ISessionInteractionService);
       const isPending = interaction
         .listPending('approval')
         .some((i) => i.id === approval_id);
@@ -169,7 +169,7 @@ export function registerApprovalsRoutes(app: ApprovalRouteHost, core: Scope): vo
         feedback: body.feedback,
         selectedLabel: body.selected_label,
       };
-      handle.accessor.get(IApprovalService).decide(approval_id, response);
+      handle.accessor.get(ISessionApprovalService).decide(approval_id, response);
       reply.send(
         okEnvelope({ resolved: true as const, resolved_at: new Date().toISOString() }, req.id),
       );

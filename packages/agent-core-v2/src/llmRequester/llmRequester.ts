@@ -27,9 +27,9 @@ export type LLMEvent =
       readonly streamDurationMs: number;
     };
 
-export interface ILLMRequester {
+export interface IAgentLLMRequesterService {
   readonly _serviceBrand: undefined;
   request(overrides?: LLMRequestOverrides, signal?: AbortSignal): AsyncIterable<LLMEvent>;
 }
 
-export const ILLMRequester = createDecorator<ILLMRequester>('agentLLMRequesterService');
+export const IAgentLLMRequesterService = createDecorator<IAgentLLMRequesterService>('agentLLMRequesterService');

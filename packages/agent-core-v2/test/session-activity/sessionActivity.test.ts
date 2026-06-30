@@ -6,10 +6,10 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { IInteractionService, type Interaction, type InteractionKind } from '#/interaction';
+import { ISessionInteractionService, type Interaction, type InteractionKind } from '#/interaction';
 import { ISessionActivity } from '#/session-activity/sessionActivity';
 import { SessionActivity } from '#/session-activity/sessionActivityService';
-import { ITurnService, type Turn } from '#/turn';
+import { IAgentTurnService, type Turn } from '#/turn';
 import { stubTurn } from '../turn/stubs';
 
 function makeTurn(id: number): Turn {
@@ -21,7 +21,7 @@ function makeTurn(id: number): Turn {
   };
 }
 
-function makeTurnService(active: boolean): ITurnService {
+function makeTurnService(active: boolean): IAgentTurnService {
   const base = stubTurn();
   const activeTurn = active ? makeTurn(1) : undefined;
   return {
@@ -30,10 +30,10 @@ function makeTurnService(active: boolean): ITurnService {
   };
 }
 
-function makeAccessor(turn: ITurnService): ServicesAccessor {
+function makeAccessor(turn: IAgentTurnService): ServicesAccessor {
   return {
     get<T>(id: ServiceIdentifier<T>): T {
-      if (id === (ITurnService as unknown as ServiceIdentifier<T>)) {
+      if (id === (IAgentTurnService as unknown as ServiceIdentifier<T>)) {
         return turn as unknown as T;
       }
       throw new Error(`unexpected service request: ${String(id)}`);
@@ -66,7 +66,7 @@ function lifecycle(handles: readonly IScopeHandle[]): IAgentLifecycleService {
 
 function interactions(
   pending: { approval?: number; question?: number },
-): Partial<IInteractionService> {
+): Partial<ISessionInteractionService> {
   const items: Interaction[] = [];
   for (let i = 0; i < (pending.approval ?? 0); i++) {
     items.push({ id: `a${i}`, kind: 'approval', payload: {}, origin: {}, createdAt: 0 });
@@ -88,7 +88,7 @@ describe('SessionActivity', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     ix.set(ISessionActivity, new SyncDescriptor(SessionActivity));
-    ix.stub(IInteractionService, interactions({}));
+    ix.stub(ISessionInteractionService, interactions({}));
   });
   afterEach(() => disposables.dispose());
 
@@ -123,25 +123,25 @@ describe('SessionActivity', () => {
 
     it('awaiting_approval when an approval interaction is pending', () => {
       ix.stub(IAgentLifecycleService, lifecycle([handle('a', false)]));
-      ix.stub(IInteractionService, interactions({ approval: 1 }));
+      ix.stub(ISessionInteractionService, interactions({ approval: 1 }));
       expect(ix.get(ISessionActivity).status()).toBe('awaiting_approval');
     });
 
     it('awaiting_question when a question interaction is pending', () => {
       ix.stub(IAgentLifecycleService, lifecycle([handle('a', false)]));
-      ix.stub(IInteractionService, interactions({ question: 1 }));
+      ix.stub(ISessionInteractionService, interactions({ question: 1 }));
       expect(ix.get(ISessionActivity).status()).toBe('awaiting_question');
     });
 
     it('approval takes priority over question', () => {
       ix.stub(IAgentLifecycleService, lifecycle([handle('a', false)]));
-      ix.stub(IInteractionService, interactions({ approval: 1, question: 1 }));
+      ix.stub(ISessionInteractionService, interactions({ approval: 1, question: 1 }));
       expect(ix.get(ISessionActivity).status()).toBe('awaiting_approval');
     });
 
     it('question takes priority over running', () => {
       ix.stub(IAgentLifecycleService, lifecycle([handle('a', true)]));
-      ix.stub(IInteractionService, interactions({ question: 1 }));
+      ix.stub(ISessionInteractionService, interactions({ question: 1 }));
       expect(ix.get(ISessionActivity).status()).toBe('awaiting_question');
     });
   });

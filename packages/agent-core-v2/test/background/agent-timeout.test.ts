@@ -1,5 +1,5 @@
 /**
- * BackgroundService task timeout for AgentBackgroundTask registrations.
+ * AgentBackgroundService task timeout for AgentBackgroundTask registrations.
  *
  * Semantics:
  *   - manager-owned deadline fires → status=`timed_out`
@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AgentBackgroundTask, IBackgroundService } from '#/background';
+import { AgentBackgroundTask, IAgentBackgroundService } from '#/background';
 import { createTestAgent, type TestAgentContext } from '../harness';
 
 function agentTask(
@@ -28,11 +28,11 @@ function agentTask(
 
 describe('AgentBackgroundTask — timeoutMs', () => {
   let ctx: TestAgentContext;
-  let background: IBackgroundService;
+  let background: IAgentBackgroundService;
 
   beforeEach(() => {
     ctx = createTestAgent();
-    background = ctx.get(IBackgroundService);
+    background = ctx.get(IAgentBackgroundService);
   });
 
   afterEach(async () => {

@@ -12,7 +12,7 @@ export interface ReplayBuilderServiceOptions {
   readonly range?: ReplayRangeOptions;
 }
 
-export interface IReplayBuilderService {
+export interface IAgentReplayBuilderService {
   readonly _serviceBrand: undefined;
 
   postRestoring: boolean;
@@ -28,6 +28,6 @@ export interface IReplayBuilderService {
   buildResult(): readonly AgentReplayRecord[];
 }
 
-export const IReplayBuilderService = createDecorator<IReplayBuilderService>(
+export const IAgentReplayBuilderService = createDecorator<IAgentReplayBuilderService>(
   'agentReplayBuilderService',
 );

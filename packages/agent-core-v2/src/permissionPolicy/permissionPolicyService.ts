@@ -22,16 +22,16 @@ import { UserConfiguredAskPermissionPolicyService } from './policies/user-config
 import { UserConfiguredDenyPermissionPolicyService } from './policies/user-configured-deny';
 import { YoloModeApprovePermissionPolicyService } from './policies/yolo-mode-approve';
 import {
-  IPermissionPolicyService,
+  IAgentPermissionPolicyService,
   type PermissionPolicyEvaluation,
 } from './permissionPolicy';
 import type { PermissionPolicy } from "./types";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-export class PermissionPolicyService
+export class AgentPermissionPolicyService
   extends Disposable
-  implements IPermissionPolicyService
+  implements IAgentPermissionPolicyService
 {
   declare readonly _serviceBrand: undefined;
 
@@ -76,8 +76,8 @@ export class PermissionPolicyService
 
 registerScopedService(
   LifecycleScope.Agent,
-  IPermissionPolicyService,
-  PermissionPolicyService,
+  IAgentPermissionPolicyService,
+  AgentPermissionPolicyService,
   InstantiationType.Delayed,
   'permissionPolicy',
 );

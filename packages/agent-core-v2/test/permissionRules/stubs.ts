@@ -1,6 +1,6 @@
 /**
  * `permissionRules` test stubs — shared doubles for
- * `IPermissionRulesService`.
+ * `IAgentPermissionRulesService`.
  *
  * Lives under `test/` (not `src/`) so test-support code stays out of the
  * production tree. Import from a relative path (`./stubs` or
@@ -10,13 +10,13 @@
 import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';
 import type {
-  IPermissionRulesService,
+  IAgentPermissionRulesService,
   PermissionRule,
 } from '#/permissionRules';
 
 export function stubPermissionRulesService(
   rules: () => readonly PermissionRule[],
-): IPermissionRulesService {
+): IAgentPermissionRulesService {
   return {
     _serviceBrand: undefined,
     get rules() {

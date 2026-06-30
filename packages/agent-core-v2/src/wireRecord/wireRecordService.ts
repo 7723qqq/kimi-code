@@ -6,7 +6,7 @@ import {
   Disposable,
   toDisposable,
 } from "#/_base/di";
-import { IBlobStoreService } from '#/blobStore';
+import { IAgentBlobStoreService } from '#/blobStore';
 import { IBootstrapService } from '#/bootstrap';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IAppendLogStore } from '#/storage';
@@ -21,7 +21,7 @@ import {
   type WireMigrationRecord,
 } from './migration';
 import {
-  IWireRecord,
+  IAgentWireRecordService,
   type PersistedWireRecord,
   type WireRecordBlobSelector,
   type WireRecordMetadata,
@@ -34,7 +34,7 @@ import {
 type Resumer<T extends keyof WireRecordMap> = (data: WireRecord<T>) => void | Promise<void>;
 type BlobSelector<T extends keyof WireRecordMap> = WireRecordBlobSelector<WireRecord<T>>;
 
-export class WireRecordService extends Disposable implements IWireRecord {
+export class AgentWireRecordService extends Disposable implements IAgentWireRecordService {
   declare readonly _serviceBrand: undefined;
   private readonly records: WireRecord[] = [];
   private readonly resumers = new Map<keyof WireRecordMap, Set<Resumer<keyof WireRecordMap>>>();
@@ -54,7 +54,7 @@ export class WireRecordService extends Disposable implements IWireRecord {
 
   constructor(
     @IBootstrapService bootstrap: IBootstrapService,
-    @IBlobStoreService private readonly blobStore?: IBlobStoreService,
+    @IAgentBlobStoreService private readonly blobStore?: IAgentBlobStoreService,
     @IAppendLogStore private readonly log?: IAppendLogStore,
   ) {
     super();
@@ -341,8 +341,8 @@ async function* toAsyncIterable<T>(
 
 registerScopedService(
   LifecycleScope.Agent,
-  IWireRecord,
-  WireRecordService,
+  IAgentWireRecordService,
+  AgentWireRecordService,
   InstantiationType.Delayed,
   'wireRecord',
 );

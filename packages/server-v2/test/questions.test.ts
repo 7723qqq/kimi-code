@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  IQuestionService,
+  ISessionQuestionService,
   ISessionLifecycleService,
   type QuestionRequest,
   type QuestionResult,
@@ -115,10 +115,10 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
     return body.data.id;
   }
 
-  function questionService(sessionId: string): IQuestionService {
+  function questionService(sessionId: string): ISessionQuestionService {
     const handle = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     expect(handle).toBeDefined();
-    return handle!.accessor.get(IQuestionService);
+    return handle!.accessor.get(ISessionQuestionService);
   }
 
   function makeRequest(id: string): QuestionRequest {

@@ -6,8 +6,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContextMessage } from '#/contextMemory';
-import { ICronService } from '#/cron';
-import { IPromptService } from '#/prompt';
+import { IAgentCronService } from '#/cron';
+import { IAgentPromptService } from '#/prompt';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 
 const WALL_ANCHOR = 1_700_000_000_000;
@@ -30,7 +30,7 @@ function createClocks(initial: number = WALL_ANCHOR): ClockHarness {
   };
 }
 
-function spySteer(prompt: IPromptService) {
+function spySteer(prompt: IAgentPromptService) {
   return vi.spyOn(prompt, 'steer').mockImplementation((_message: ContextMessage) => ({
     id: 1,
     abortController: new AbortController(),
@@ -39,7 +39,7 @@ function spySteer(prompt: IPromptService) {
   }));
 }
 
-describe('CronService — P1.8 manual tick + SIGUSR1', () => {
+describe('AgentCronService — P1.8 manual tick + SIGUSR1', () => {
   beforeEach(() => {
     // Disable jitter so fire-count assertions are deterministic.
     vi.stubEnv('KIMI_CRON_NO_JITTER', '1');
@@ -53,16 +53,16 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
 
   describe('KIMI_CRON_MANUAL_TICK=1', () => {
     let ctx: TestAgentContext;
-    let cron: ICronService;
-    let prompt: IPromptService;
+    let cron: IAgentCronService;
+    let prompt: IAgentPromptService;
     let harness: ClockHarness;
 
     beforeEach(() => {
       vi.stubEnv('KIMI_CRON_MANUAL_TICK', '1');
       harness = createClocks();
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
-      prompt = ctx.get(IPromptService);
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
     });
 
     afterEach(async () => {
@@ -90,8 +90,8 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
 
   describe('without KIMI_CRON_MANUAL_TICK', () => {
     let ctx: TestAgentContext;
-    let cron: ICronService;
-    let prompt: IPromptService;
+    let cron: IAgentCronService;
+    let prompt: IAgentPromptService;
     let harness: ClockHarness;
 
     beforeEach(() => {
@@ -101,8 +101,8 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
       vi.stubEnv('KIMI_CRON_POLL_INTERVAL_MS', '50');
       harness = createClocks();
       ctx = createTestAgent(cronServices({}));
-      cron = ctx.get(ICronService);
-      prompt = ctx.get(IPromptService);
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
     });
 
     afterEach(async () => {
@@ -129,14 +129,14 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
     // and trip Node's MaxListenersExceededWarning cap.
     describe('manual tick enabled', () => {
       let ctx: TestAgentContext;
-      let cron: ICronService;
+      let cron: IAgentCronService;
       let listenerCountBeforeCreate: number;
 
       beforeEach(() => {
         vi.stubEnv('KIMI_CRON_MANUAL_TICK', '1');
         listenerCountBeforeCreate = process.listenerCount('SIGUSR1');
         ctx = createTestAgent(cronServices({}));
-        cron = ctx.get(ICronService);
+        cron = ctx.get(IAgentCronService);
       });
 
       afterEach(async () => {
@@ -203,13 +203,13 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
 
     describe('manual tick debug logging', () => {
       let ctx: TestAgentContext;
-      let cron: ICronService;
+      let cron: IAgentCronService;
 
       beforeEach(() => {
         vi.stubEnv('KIMI_CRON_MANUAL_TICK', '1');
         vi.stubEnv('KIMI_CRON_DEBUG', '1');
         ctx = createTestAgent(cronServices({}));
-        cron = ctx.get(ICronService);
+        cron = ctx.get(IAgentCronService);
       });
 
       afterEach(async () => {
@@ -241,11 +241,11 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
 
     describe('manual tick disabled', () => {
       let ctx: TestAgentContext;
-      let cron: ICronService;
+      let cron: IAgentCronService;
 
       beforeEach(() => {
         ctx = createTestAgent(cronServices({}));
-        cron = ctx.get(ICronService);
+        cron = ctx.get(IAgentCronService);
       });
 
       afterEach(async () => {

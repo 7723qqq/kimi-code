@@ -1,10 +1,10 @@
 /**
  * `process` domain (L1) — the Agent's process runner.
  *
- * Defines the `IProcessRunner` that business code injects to spawn processes
+ * Defines the `ISessionProcessRunner` that business code injects to spawn processes
  * inside the Agent's execution environment, plus the `IProcess` handle it
  * returns. Session-scoped and backed by the session `IKaos`; business code
- * depends on `IProcessRunner` only.
+ * depends on `ISessionProcessRunner` only.
  */
 
 import type { Readable, Writable } from 'node:stream';
@@ -27,11 +27,11 @@ export interface ProcessExecOptions {
   readonly env?: Record<string, string>;
 }
 
-export interface IProcessRunner {
+export interface ISessionProcessRunner {
   readonly _serviceBrand: undefined;
 
   exec(args: readonly string[], options?: ProcessExecOptions): Promise<IProcess>;
 }
 
-export const IProcessRunner: ServiceIdentifier<IProcessRunner> =
-  createDecorator<IProcessRunner>('processRunner');
+export const ISessionProcessRunner: ServiceIdentifier<ISessionProcessRunner> =
+  createDecorator<ISessionProcessRunner>('sessionProcessRunner');

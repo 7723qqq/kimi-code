@@ -12,10 +12,10 @@
 import { z } from 'zod';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import type { ISystemReminderService } from '#/systemReminder';
+import type { IAgentSystemReminderService } from '#/systemReminder';
 import type { BuiltinTool, ToolExecution } from '#/tool';
 
-import type { IGoalService } from '../goal';
+import type { IAgentGoalService } from '../goal';
 import {
   buildGoalBlockedReasonPrompt,
   buildGoalCompletionSummaryPrompt,
@@ -41,8 +41,8 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(UpdateGoalToolInputSchema);
 
   constructor(
-    private readonly goal: IGoalService,
-    private readonly reminders: ISystemReminderService,
+    private readonly goal: IAgentGoalService,
+    private readonly reminders: IAgentSystemReminderService,
   ) {}
 
   resolveExecution(args: UpdateGoalToolInput): ToolExecution {

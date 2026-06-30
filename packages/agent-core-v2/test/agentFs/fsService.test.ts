@@ -10,15 +10,15 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IAgentFileSystem } from '#/agentFs';
-import { IFsService } from '#/agentFs/fs';
-import { FsService } from '#/agentFs/fsService';
-import { IProcessRunner, type IProcess } from '#/process';
-import { IWorkspaceContext } from '#/workspaceContext';
+import { ISessionAgentFileSystem } from '#/agentFs';
+import { ISessionFsService } from '#/agentFs/fs';
+import { SessionFsService } from '#/agentFs/fsService';
+import { ISessionProcessRunner, type IProcess } from '#/process';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
 
 const WORK_DIR = '/repo';
 
-function stubWorkspace(): IWorkspaceContext {
+function stubWorkspace(): ISessionWorkspaceContext {
   return {
     _serviceBrand: undefined,
     workDir: WORK_DIR,
@@ -35,7 +35,7 @@ function stubWorkspace(): IWorkspaceContext {
   };
 }
 
-function fakeFs(files: Record<string, string>): IAgentFileSystem {
+function fakeFs(files: Record<string, string>): ISessionAgentFileSystem {
   const fileMap = new Map(Object.entries(files));
   const dirSet = new Set<string>(['']);
   for (const p of fileMap.keys()) {
@@ -142,7 +142,7 @@ type RunHandler = (args: readonly string[]) => {
   exitCode: number;
 };
 
-function fakeRunner(handler: RunHandler): IProcessRunner {
+function fakeRunner(handler: RunHandler): ISessionProcessRunner {
   return {
     _serviceBrand: undefined,
     exec: async (args) => {
@@ -156,8 +156,8 @@ beforeEach(() => {
   _clearScopedRegistryForTests();
   registerScopedService(
     LifecycleScope.Session,
-    IFsService,
-    FsService,
+    ISessionFsService,
+    SessionFsService,
     InstantiationType.Delayed,
     'agentFs',
   );
@@ -170,19 +170,19 @@ afterEach(() => {
   host = undefined;
 });
 
-function makeSession(files: Record<string, string>, handler: RunHandler): IFsService {
+function makeSession(files: Record<string, string>, handler: RunHandler): ISessionFsService {
   host = createScopedTestHost();
   const session = host.child(LifecycleScope.Session, 's1', [
-    stubPair(IWorkspaceContext, stubWorkspace()),
-    stubPair(IAgentFileSystem, fakeFs(files)),
-    stubPair(IProcessRunner, fakeRunner(handler)),
+    stubPair(ISessionWorkspaceContext, stubWorkspace()),
+    stubPair(ISessionAgentFileSystem, fakeFs(files)),
+    stubPair(ISessionProcessRunner, fakeRunner(handler)),
   ]);
-  return session.accessor.get(IFsService);
+  return session.accessor.get(ISessionFsService);
 }
 
 const emptyHandler: RunHandler = () => ({ stdout: '', exitCode: 0 });
 
-describe('FsService.gitStatus', () => {
+describe('SessionFsService.gitStatus', () => {
   it('returns branch, entries, numstat, and null pull request', async () => {
     const fs = makeSession({}, (args) => {
       const cmd = args.join(' ');
@@ -213,7 +213,7 @@ describe('FsService.gitStatus', () => {
   });
 });
 
-describe('FsService.diff', () => {
+describe('SessionFsService.diff', () => {
   it('returns the unified diff for a tracked file', async () => {
     const fs = makeSession({ 'src/a.ts': 'content' }, (args) => {
       const cmd = args.join(' ');
@@ -239,7 +239,7 @@ describe('FsService.diff', () => {
   });
 });
 
-describe('FsService.search', () => {
+describe('SessionFsService.search', () => {
   it('finds files by fuzzy query and respects the result cap', async () => {
     const fs = makeSession(
       { 'src/foo.ts': '', 'src/bar.ts': '', 'README.md': '' },
@@ -252,7 +252,7 @@ describe('FsService.search', () => {
   });
 });
 
-describe('FsService.grep', () => {
+describe('SessionFsService.grep', () => {
   it('falls back to the node implementation when rg is unavailable', async () => {
     const fs = makeSession(
       { 'src/a.ts': 'hello world\nfoo bar\nhello again\n' },
@@ -312,7 +312,7 @@ describe('FsService.grep', () => {
   });
 });
 
-describe('FsService.list', () => {
+describe('SessionFsService.list', () => {
   it('lists files and directories with kinds', async () => {
     const fs = makeSession(
       { 'src/a.ts': '', 'src/sub/b.ts': '', 'README.md': '' },
@@ -365,7 +365,7 @@ describe('FsService.list', () => {
   });
 });
 
-describe('FsService.read', () => {
+describe('SessionFsService.read', () => {
   it('reads utf-8 content with metadata', async () => {
     const fs = makeSession({ 'src/a.ts': 'hello\nworld\n' }, emptyHandler);
     const result = await fs.read({
@@ -413,7 +413,7 @@ describe('FsService.read', () => {
   });
 });
 
-describe('FsService.stat', () => {
+describe('SessionFsService.stat', () => {
   it('returns a file entry with mime', async () => {
     const fs = makeSession({ 'src/a.ts': 'content' }, emptyHandler);
     const entry = await fs.stat({ path: 'src/a.ts' });
@@ -429,7 +429,7 @@ describe('FsService.stat', () => {
   });
 });
 
-describe('FsService.statMany', () => {
+describe('SessionFsService.statMany', () => {
   it('returns null per missing path and entries for present ones', async () => {
     const fs = makeSession({ 'a.txt': 'hi' }, emptyHandler);
     const result = await fs.statMany({ paths: ['a.txt', 'missing.txt'] });
@@ -438,7 +438,7 @@ describe('FsService.statMany', () => {
   });
 });
 
-describe('FsService.listMany', () => {
+describe('SessionFsService.listMany', () => {
   it('returns results per path and partial_errors for failures', async () => {
     const fs = makeSession({ 'a.txt': '' }, emptyHandler);
     const result = await fs.listMany({
@@ -455,7 +455,7 @@ describe('FsService.listMany', () => {
   });
 });
 
-describe('FsService.mkdir', () => {
+describe('SessionFsService.mkdir', () => {
   it('creates a directory and returns its entry', async () => {
     const fs = makeSession({}, emptyHandler);
     const entry = await fs.mkdir({ path: 'newdir', recursive: false });
@@ -471,7 +471,7 @@ describe('FsService.mkdir', () => {
   });
 });
 
-describe('FsService.resolvePath', () => {
+describe('SessionFsService.resolvePath', () => {
   it('returns absolute, relative, and isDirectory', async () => {
     const fs = makeSession({ 'src/a.ts': '' }, emptyHandler);
     const res = await fs.resolvePath('src/a.ts');
@@ -481,7 +481,7 @@ describe('FsService.resolvePath', () => {
   });
 });
 
-describe('FsService.resolveDownload', () => {
+describe('SessionFsService.resolveDownload', () => {
   it('returns size, etag, mime, modifiedAt', async () => {
     const fs = makeSession({ 'a.txt': 'hello' }, emptyHandler);
     const res = await fs.resolveDownload('a.txt');

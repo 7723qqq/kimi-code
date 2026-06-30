@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { BuiltinTool, ToolExecution } from '#/tool';
 
-import type { IGoalService } from '../goal';
+import type { IAgentGoalService } from '../goal';
 import DESCRIPTION from './get-goal.md?raw';
 import { goalResultForModel } from './serialize';
 
@@ -21,7 +21,7 @@ export class GetGoalTool implements BuiltinTool<GetGoalToolInput> {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GetGoalToolInputSchema);
 
-  constructor(private readonly goal: IGoalService) {}
+  constructor(private readonly goal: IAgentGoalService) {}
 
   resolveExecution(_args: GetGoalToolInput): ToolExecution {
     return {

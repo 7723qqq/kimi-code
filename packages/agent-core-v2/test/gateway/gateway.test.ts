@@ -10,9 +10,9 @@ import type { ContextMessage } from '#/contextMemory';
 import { IRestGateway } from '#/gateway';
 import { RestGateway } from '#/gateway/gatewayService';
 import { ILogService } from '#/log';
-import { IPromptService } from '#/prompt';
+import { IAgentPromptService } from '#/prompt';
 import { ISessionLifecycleService } from '#/session-lifecycle';
-import { ITurnService } from '#/turn';
+import { IAgentTurnService } from '#/turn';
 import { stubLog } from '../log/stubs';
 import { stubTurn } from '../turn/stubs';
 
@@ -39,7 +39,7 @@ describe('RestGateway', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let promptCalls: ContextMessage[];
-  let turnService: ITurnService;
+  let turnService: IAgentTurnService;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -47,7 +47,7 @@ describe('RestGateway', () => {
     promptCalls = [];
     turnService = stubTurn({ hasActiveTurn: true });
 
-    const promptService: IPromptService = {
+    const promptService: IAgentPromptService = {
       _serviceBrand: undefined,
       prompt: (message) => {
         promptCalls.push(message);
@@ -63,8 +63,8 @@ describe('RestGateway', () => {
       id: 'main',
       kind: LifecycleScope.Agent,
       accessor: makeAccessor([
-        [IPromptService, promptService],
-        [ITurnService, turnService],
+        [IAgentPromptService, promptService],
+        [IAgentTurnService, turnService],
       ]),
       dispose: () => {},
     };

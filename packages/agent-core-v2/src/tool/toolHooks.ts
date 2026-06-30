@@ -1,7 +1,7 @@
 /**
  * `tool` domain (L3) — tool-execution hook contexts.
  *
- * Defines the context objects passed through `IToolExecutor`'s
+ * Defines the context objects passed through `IAgentToolExecutorService`'s
  * `onWillExecuteTool` / `onDidExecuteTool` hooks and the decision results
  * handlers may return. Owned by `tool` because they describe tool execution,
  * not the turn lifecycle or the loop: participants such as `permission`,

@@ -6,7 +6,7 @@
  * and parses it into `SkillDefinition`s. The skill domain depends on this
  * interface only and never touches `node:fs` / `hostFs`; the backend is chosen
  * at the composition root (file locally, in-memory for tests, object storage or
- * a DB on a server). Core-scoped.
+ * a DB on a server). App-scoped.
  */
 
 import { createDecorator } from '#/_base/di/instantiation';

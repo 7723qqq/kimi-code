@@ -1,7 +1,7 @@
-import { IPlanService } from '#/plan';
-import type { IPlanService as PlanService } from '#/plan';
+import { IAgentPlanService } from '#/plan';
+import type { IAgentPlanService as AgentPlanService } from '#/plan';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
-import { IPermissionModeService } from '../../permissionMode/permissionMode';
+import { IAgentPermissionModeService } from '../../permissionMode/permissionMode';
 import { ITelemetryService } from '../../telemetry/telemetry';
 import type {
   PermissionPolicy,
@@ -25,8 +25,8 @@ export class ExitPlanModeReviewAskPermissionPolicyService implements PermissionP
   readonly name = 'exit-plan-mode-review-ask';
 
   constructor(
-    @IPlanService private readonly plan: PlanService,
-    @IPermissionModeService private readonly modeService: IPermissionModeService,
+    @IAgentPlanService private readonly plan: AgentPlanService,
+    @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 

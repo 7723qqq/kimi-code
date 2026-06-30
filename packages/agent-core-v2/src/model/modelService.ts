@@ -4,7 +4,7 @@
  * Owns the in-memory view of the `models` config section, persists changes
  * through `config`, registers the section schema plus the `KIMI_MODEL_*`
  * effective overlay on construction, and forwards section changes as
- * `onDidChange`. Bound at Core scope, eager — registering the `models` section
+ * `onDidChange`. Bound at App scope, eager — registering the `models` section
  * is an early side effect that config reads depend on.
  */
 
@@ -69,4 +69,4 @@ export class ModelService extends Disposable implements IModelService {
   }
 }
 
-registerScopedService(LifecycleScope.Core, IModelService, ModelService, InstantiationType.Eager, 'model');
+registerScopedService(LifecycleScope.App, IModelService, ModelService, InstantiationType.Eager, 'model');

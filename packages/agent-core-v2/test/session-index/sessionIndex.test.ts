@@ -28,7 +28,7 @@ describe('FileSessionIndex', () => {
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.Core, ISessionIndex, FileSessionIndex, InstantiationType.Delayed, 'session-index');
+    registerScopedService(LifecycleScope.App, ISessionIndex, FileSessionIndex, InstantiationType.Delayed, 'session-index');
     homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-sessions-'));
     sessionsDir = join(homeDir, 'sessions');
     workspaceId = encodeWorkDirKey(WORK_DIR);
@@ -48,7 +48,7 @@ describe('FileSessionIndex', () => {
       stubPair(IBootstrapService, { homeDir, sessionsDir } as IBootstrapService),
     ]);
     disposeHost = () => host.dispose();
-    return host.core.accessor.get(ISessionIndex);
+    return host.app.accessor.get(ISessionIndex);
   }
 
   async function seedSession(

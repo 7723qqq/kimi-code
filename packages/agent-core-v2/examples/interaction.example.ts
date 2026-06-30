@@ -8,9 +8,9 @@
  * scoped registry is cleared and re-populated explicitly in `beforeEach` rather
  * than relying on import-order side effects.
  *
- * `IInteractionService` is the only Service that owns state — a pending set
+ * `ISessionInteractionService` is the only Service that owns state — a pending set
  * plus a recently-resolved ledger — and it is domain-agnostic.
- * `IApprovalService` and `IQuestionService` are zero-state typed facades over
+ * `ISessionApprovalService` and `ISessionQuestionService` are zero-state typed facades over
  * it: they tag each request with `kind: 'approval'` / `kind: 'question'`,
  * rename the resolve verb (`decide` / `answer` → `respond`), and cast the
  * stored payload back to the typed request on `listPending`.
@@ -41,9 +41,9 @@ import {
   type Scope,
 } from '#/_base/di/scope';
 import { createScopedTestHost, type ScopedTestHost } from '#/_base/di/test';
-import { type ApprovalRequest, ApprovalService, IApprovalService } from '#/approval';
-import { IInteractionService, InteractionService } from '#/interaction';
-import { type QuestionRequest, IQuestionService, QuestionService } from '#/question';
+import { type ApprovalRequest, SessionApprovalService, ISessionApprovalService } from '#/approval';
+import { ISessionInteractionService, SessionInteractionService } from '#/interaction';
+import { type QuestionRequest, ISessionQuestionService, SessionQuestionService } from '#/question';
 
 const display: ToolInputDisplay = { kind: 'command', command: 'rm -rf /tmp/demo' };
 
@@ -70,9 +70,9 @@ describe('interaction kernel + approval/question facades (Session scope)', () =>
 
   beforeEach(() => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.Session, IInteractionService, InteractionService, InstantiationType.Delayed, 'interaction');
-    registerScopedService(LifecycleScope.Session, IApprovalService, ApprovalService, InstantiationType.Delayed, 'approval');
-    registerScopedService(LifecycleScope.Session, IQuestionService, QuestionService, InstantiationType.Delayed, 'question');
+    registerScopedService(LifecycleScope.Session, ISessionInteractionService, SessionInteractionService, InstantiationType.Delayed, 'interaction');
+    registerScopedService(LifecycleScope.Session, ISessionApprovalService, SessionApprovalService, InstantiationType.Delayed, 'approval');
+    registerScopedService(LifecycleScope.Session, ISessionQuestionService, SessionQuestionService, InstantiationType.Delayed, 'question');
 
     disposables = new DisposableStore();
     host = createScopedTestHost();
@@ -84,7 +84,7 @@ describe('interaction kernel + approval/question facades (Session scope)', () =>
   });
 
   test('blocking: approval.request parks until decide resolves the Promise', async () => {
-    const approvals = session.accessor.get(IApprovalService);
+    const approvals = session.accessor.get(ISessionApprovalService);
 
     // The caller (e.g. a tool) awaits the decision. Nothing resolves yet.
     const decision = approvals.request(approval('bash-1'));
@@ -97,8 +97,8 @@ describe('interaction kernel + approval/question facades (Session scope)', () =>
   });
 
   test('non-blocking: question.enqueue returns immediately; the answer streams over onDidResolve', () => {
-    const interaction = session.accessor.get(IInteractionService);
-    const questions = session.accessor.get(IQuestionService);
+    const interaction = session.accessor.get(ISessionInteractionService);
+    const questions = session.accessor.get(ISessionQuestionService);
 
     // Edge callers observe outcomes through the stream instead of awaiting.
     const resolved: { id: string; response: unknown }[] = [];
@@ -116,9 +116,9 @@ describe('interaction kernel + approval/question facades (Session scope)', () =>
   });
 
   test('one kernel backs both facades; onDidChange announces every mutation', () => {
-    const interaction = session.accessor.get(IInteractionService);
-    const approvals = session.accessor.get(IApprovalService);
-    const questions = session.accessor.get(IQuestionService);
+    const interaction = session.accessor.get(ISessionInteractionService);
+    const approvals = session.accessor.get(ISessionApprovalService);
+    const questions = session.accessor.get(ISessionQuestionService);
 
     let changes = 0;
     disposables.add(interaction.onDidChange(() => changes++));
@@ -139,8 +139,8 @@ describe('interaction kernel + approval/question facades (Session scope)', () =>
   test('Session scope isolates brokers: a request parked in A is invisible to B', async () => {
     const sessionB = host.child(LifecycleScope.Session, 'session-b');
 
-    const approvalsA = session.accessor.get(IApprovalService);
-    const approvalsB = sessionB.accessor.get(IApprovalService);
+    const approvalsA = session.accessor.get(ISessionApprovalService);
+    const approvalsB = sessionB.accessor.get(ISessionApprovalService);
     console.log('1) distinct broker instances per session:', approvalsA !== approvalsB);
 
     const decisionA = approvalsA.request(approval('bash-1'));

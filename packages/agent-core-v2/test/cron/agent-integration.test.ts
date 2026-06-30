@@ -9,21 +9,21 @@ import {
   CronCreateTool,
   type CronCreateInput,
 } from '#/cron/tools/cron-create';
-import { ICronService } from '#/cron';
-import { IProfileService } from '#/profile';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentCronService } from '#/cron';
+import { IAgentProfileService } from '#/profile';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import { createTestAgent, type TestAgentContext } from '../harness';
 
 describe('Agent + Cron integration (P1.7)', () => {
   describe('default cron wiring', () => {
     let ctx: TestAgentContext;
-    let cron: ICronService;
-    let profile: IProfileService;
+    let cron: IAgentCronService;
+    let profile: IAgentProfileService;
 
     beforeEach(() => {
       ctx = createTestAgent();
-      cron = ctx.get(ICronService);
-      profile = ctx.get(IProfileService);
+      cron = ctx.get(IAgentCronService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['CronCreate', 'CronList', 'CronDelete'] });
     });
 
@@ -59,16 +59,16 @@ describe('Agent + Cron integration (P1.7)', () => {
 
   describe('disabled cron config', () => {
     let ctx: TestAgentContext;
-    let cron: ICronService;
-    let profile: IProfileService;
-    let tools: IToolRegistry;
+    let cron: IAgentCronService;
+    let profile: IAgentProfileService;
+    let tools: IAgentToolRegistryService;
 
     beforeEach(() => {
       vi.stubEnv('KIMI_DISABLE_CRON', '1');
       ctx = createTestAgent();
-      cron = ctx.get(ICronService);
-      profile = ctx.get(IProfileService);
-      tools = ctx.get(IToolRegistry);
+      cron = ctx.get(IAgentCronService);
+      profile = ctx.get(IAgentProfileService);
+      tools = ctx.get(IAgentToolRegistryService);
       profile.update({ activeToolNames: ['CronCreate'] });
     });
 

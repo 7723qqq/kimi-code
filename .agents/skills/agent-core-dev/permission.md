@@ -74,7 +74,7 @@ interface PermissionPolicyEntry {
   factory: (accessor: ServicesAccessor) => PermissionPolicy;
 }
 
-// Core scope — collects every domain's registration
+// App scope — collects every domain's registration
 interface IPermissionPolicyRegistry {
   register(entry: PermissionPolicyEntry): IDisposable;
   list(): readonly PermissionPolicyEntry[];

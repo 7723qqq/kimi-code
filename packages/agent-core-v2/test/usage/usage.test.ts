@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { toDisposable } from '#/_base/di';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IEventSink } from '#/eventSink';
-import { IUsageService, type UsageStatus } from '#/usage';
-import { UsageService } from '#/usage/usageService';
-import { IWireRecord, type WireRecord } from '#/wireRecord';
+import { IAgentEventSinkService } from '#/eventSink';
+import { IAgentUsageService, type UsageStatus } from '#/usage';
+import { AgentUsageService } from '#/usage/usageService';
+import { IAgentWireRecordService, type WireRecord } from '#/wireRecord';
 
 let disposables: DisposableStore;
 
@@ -18,7 +18,7 @@ afterEach(() => {
   disposables.dispose();
 });
 
-describe('UsageService', () => {
+describe('AgentUsageService', () => {
   it('resolves by interface and accumulates usage by model', () => {
     const { usage, records } = createUsageHarness();
 
@@ -209,7 +209,7 @@ describe('UsageService', () => {
 
 function createUsageHarness(): {
   readonly ix: TestInstantiationService;
-  readonly usage: IUsageService;
+  readonly usage: IAgentUsageService;
   readonly records: WireRecord[];
   readonly events: unknown[];
 } {
@@ -218,7 +218,7 @@ function createUsageHarness(): {
   const ix = createServices(disposables, {
     strict: true,
     additionalServices: (reg) => {
-      reg.definePartialInstance(IWireRecord, {
+      reg.definePartialInstance(IAgentWireRecordService, {
         restoring: null,
         postRestoring: false,
         append: (record) => {
@@ -229,19 +229,19 @@ function createUsageHarness(): {
         flush: async () => {},
         close: async () => {},
       });
-      reg.definePartialInstance(IEventSink, {
+      reg.definePartialInstance(IAgentEventSinkService, {
         emit: (event) => {
           events.push(event);
         },
         on: () => toDisposable(() => {}),
       });
-      reg.define(IUsageService, UsageService);
+      reg.define(IAgentUsageService, AgentUsageService);
     },
   });
 
   return {
     ix,
-    usage: ix.get(IUsageService),
+    usage: ix.get(IAgentUsageService),
     records,
     events,
   };

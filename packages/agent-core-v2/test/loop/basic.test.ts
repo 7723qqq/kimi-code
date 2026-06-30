@@ -1,22 +1,22 @@
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IProfileService } from '#/index';
-import { ILoopService } from '#/loop';
+import { IAgentProfileService } from '#/index';
+import { IAgentLoopService } from '#/loop';
 import type { ExecutableTool } from '#/tool';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 
 import { createTestAgent, type TestAgentContext } from '../harness';
 
 describe('Agent loop', () => {
   let ctx: TestAgentContext;
-  let loop: ILoopService;
-  let profile: IProfileService;
+  let loop: IAgentLoopService;
+  let profile: IAgentProfileService;
 
   beforeEach(() => {
     ctx = createTestAgent();
-    loop = ctx.get(ILoopService);
-    profile = ctx.get(IProfileService);
+    loop = ctx.get(IAgentLoopService);
+    profile = ctx.get(IAgentProfileService);
   });
 
   afterEach(async () => {
@@ -121,7 +121,7 @@ describe('Agent loop', () => {
     };
 
     profile.update({ activeToolNames: ['Lookup'] });
-    ctx.get(IToolRegistry).register(lookupTool);
+    ctx.get(IAgentToolRegistryService).register(lookupTool);
 
     ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall);
     await ctx.rpc.prompt({

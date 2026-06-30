@@ -1,5 +1,5 @@
 /**
- * `modelRuntime` domain (L3) — `IModelResolver` runtime implementation.
+ * `modelRuntime` domain (L3) — `ISessionModelResolver` runtime implementation.
  *
  * Resolves a model alias into a runtime provider configuration plus optional
  * OAuth request authorization, reading provider / model configuration through
@@ -29,16 +29,16 @@ import type { ProviderConfig } from '#/provider';
 
 import {
   type AuthorizedRequest,
-  IModelResolver,
+  ISessionModelResolver,
   type RequestLogger,
   type ResolvedModel,
 } from './modelRuntime';
 
-export function modelResolverSeed(modelResolver: IModelResolver): ScopeSeed {
-  return [[IModelResolver as ServiceIdentifier<unknown>, modelResolver]];
+export function modelResolverSeed(modelResolver: ISessionModelResolver): ScopeSeed {
+  return [[ISessionModelResolver as ServiceIdentifier<unknown>, modelResolver]];
 }
 
-export class SingleModelResolver implements IModelResolver {
+export class SingleModelResolver implements ISessionModelResolver {
   declare readonly _serviceBrand: undefined;
   constructor(
     private readonly providerConfig: RuntimeProviderConfig,
@@ -64,7 +64,7 @@ export class SingleModelResolver implements IModelResolver {
   }
 }
 
-export class ModelResolver implements IModelResolver {
+export class SessionModelResolver implements ISessionModelResolver {
   declare readonly _serviceBrand: undefined;
   constructor(
     @IConfigService private readonly config: IConfigService,
@@ -376,8 +376,8 @@ function locationFromVertexAIBaseUrl(baseUrl: string | undefined): string | unde
 
 registerScopedService(
   LifecycleScope.Session,
-  IModelResolver,
-  ModelResolver,
+  ISessionModelResolver,
+  SessionModelResolver,
   InstantiationType.Delayed,
   'modelRuntime',
 );

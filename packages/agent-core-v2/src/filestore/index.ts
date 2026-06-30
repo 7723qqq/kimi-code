@@ -1,6 +1,6 @@
 /**
  * `filestore` domain barrel — re-exports the file-store contract, its errors,
- * and the Core-scoped implementation. Importing this barrel registers the
+ * and the App-scoped implementation. Importing this barrel registers the
  * `IFileStore` binding and the file error codes into the scope/error registries.
  */
 

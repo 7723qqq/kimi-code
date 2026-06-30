@@ -7,10 +7,10 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import { OrderedHookSlot } from '../hooks';
 import { IConfigRegistry } from '#/config';
-import { IReplayBuilderService } from '#/replayBuilder';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
+import { IAgentWireRecordService } from '#/wireRecord';
 import {
-  IPermissionRulesService,
+  IAgentPermissionRulesService,
   type PermissionApprovalResultRecord,
   type PermissionRule,
 } from './permissionRules';
@@ -31,7 +31,7 @@ declare module '#/wireRecord' {
 
 }
 
-export class PermissionRulesService extends Disposable implements IPermissionRulesService {
+export class AgentPermissionRulesService extends Disposable implements IAgentPermissionRulesService {
   declare readonly _serviceBrand: undefined;
 
   private readonly localRules: PermissionRule[] = [];
@@ -43,8 +43,8 @@ export class PermissionRulesService extends Disposable implements IPermissionRul
   };
 
   constructor(
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
     @IConfigRegistry configRegistry: IConfigRegistry,
   ) {
     super();
@@ -109,8 +109,8 @@ export class PermissionRulesService extends Disposable implements IPermissionRul
 
 registerScopedService(
   LifecycleScope.Agent,
-  IPermissionRulesService,
-  PermissionRulesService,
+  IAgentPermissionRulesService,
+  AgentPermissionRulesService,
   InstantiationType.Delayed,
   'permissionRules',
 );

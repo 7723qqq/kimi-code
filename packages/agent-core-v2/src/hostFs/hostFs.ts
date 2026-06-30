@@ -3,7 +3,7 @@
  *
  * Defines the `IHostFileSystem` used by the program side (persistence, skill
  * loading, workspace registry) to read and write the app's own files on the
- * real local disk, plus the stat/entry models. Core-scoped — one shared
+ * real local disk, plus the stat/entry models. App-scoped — one shared
  * instance. The Agent side never injects this directly; its local backend
  * reuses it internally.
  */

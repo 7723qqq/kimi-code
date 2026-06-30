@@ -7,9 +7,9 @@ import type { AgentReplayRecord, AgentReplayRecordPayload } from './types';
 
 import type { ContextMessage } from "#/contextMemory";
 import type { WireRecord } from "#/wireRecord";
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import {
-  IReplayBuilderService,
+  IAgentReplayBuilderService,
   type ReplayBuilderServiceOptions,
 } from './replayBuilder';
 
@@ -24,7 +24,7 @@ function isUndoBoundaryRecord(record: WireRecord): boolean {
   return record.type === 'context.splice' && record.start === 0 && record.deleteCount > 0;
 }
 
-export class ReplayBuilderService extends Disposable implements IReplayBuilderService {
+export class AgentReplayBuilderService extends Disposable implements IAgentReplayBuilderService {
   declare readonly _serviceBrand: undefined;
 
   captureLiveRecords = false;
@@ -36,7 +36,7 @@ export class ReplayBuilderService extends Disposable implements IReplayBuilderSe
 
   constructor(
     private readonly options: ReplayBuilderServiceOptions = {},
-    @IWireRecord private readonly wireRecord: IWireRecord,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
   ) {
     super();
     this._register(
@@ -142,8 +142,8 @@ export class ReplayBuilderService extends Disposable implements IReplayBuilderSe
 
 registerScopedService(
   LifecycleScope.Agent,
-  IReplayBuilderService,
-  ReplayBuilderService,
+  IAgentReplayBuilderService,
+  AgentReplayBuilderService,
   InstantiationType.Delayed,
   'replayBuilder',
 );

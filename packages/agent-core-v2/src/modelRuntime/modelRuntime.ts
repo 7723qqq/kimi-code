@@ -1,10 +1,10 @@
 /**
- * `modelRuntime` domain (L3) — `IModelResolver` contract.
+ * `modelRuntime` domain (L3) — `ISessionModelResolver` contract.
  *
  * Resolves a model alias into a runnable runtime provider configuration plus
  * optional OAuth request authorization, reading provider / model configuration
  * through `IConfigService` and OAuth tokens through `IOAuthService`. Registered
- * as a Session-scoped service; `IProfileService` / `ILLMRequester` consume it
+ * as a Session-scoped service; `IAgentProfileService` / `IAgentLLMRequesterService` consume it
  * through DI. Bound at Session scope.
  */
 
@@ -50,7 +50,7 @@ export type AuthorizedRequest = <T>(
   request: (auth: ProviderRequestAuth) => Promise<T>,
 ) => Promise<T>;
 
-export interface IModelResolver {
+export interface ISessionModelResolver {
   readonly _serviceBrand: undefined;
   readonly defaultModel?: string;
   resolve(model: string): ResolvedModel;
@@ -60,5 +60,5 @@ export interface IModelResolver {
   ): AuthorizedRequest | undefined;
 }
 
-export const IModelResolver: ServiceIdentifier<IModelResolver> =
-  createDecorator<IModelResolver>('modelResolver');
+export const ISessionModelResolver: ServiceIdentifier<ISessionModelResolver> =
+  createDecorator<ISessionModelResolver>('sessionModelResolver');

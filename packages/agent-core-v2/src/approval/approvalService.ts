@@ -1,5 +1,5 @@
 /**
- * `approval` domain (L7) — `IApprovalService` implementation.
+ * `approval` domain (L7) — `ISessionApprovalService` implementation.
  *
  * Typed facade over the `interaction` kernel for approval requests; owns no
  * pending state of its own (the kernel holds it). Bound at Session scope.
@@ -7,18 +7,18 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IInteractionService } from '#/interaction';
+import { ISessionInteractionService } from '#/interaction';
 
 import {
   type ApprovalRequest,
   type ApprovalResponse,
-  IApprovalService,
+  ISessionApprovalService,
 } from './approval';
 
-export class ApprovalService implements IApprovalService {
+export class SessionApprovalService implements ISessionApprovalService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IInteractionService private readonly interaction: IInteractionService) {}
+  constructor(@ISessionInteractionService private readonly interaction: ISessionInteractionService) {}
 
   request(req: ApprovalRequest): Promise<ApprovalResponse> {
     return this.interaction.request<ApprovalRequest, ApprovalResponse>({
@@ -55,4 +55,4 @@ function requestId(req: ApprovalRequest): string {
   return req.id ?? req.toolCallId ?? `${req.toolName}:${String(Date.now())}`;
 }
 
-registerScopedService(LifecycleScope.Session, IApprovalService, ApprovalService, InstantiationType.Delayed, 'approval');
+registerScopedService(LifecycleScope.Session, ISessionApprovalService, SessionApprovalService, InstantiationType.Delayed, 'approval');

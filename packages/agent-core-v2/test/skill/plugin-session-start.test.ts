@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { IContextInjector } from '#/contextInjector';
+import { IAgentContextInjectorService } from '#/contextInjector';
 import type { ContextMessage } from '#/contextMemory';
 import type { LogContext, LogPayload } from '#/log';
 import type { EnabledPluginSessionStart } from '#/plugin/types';
@@ -80,7 +80,7 @@ function sessionStartRuntime(input: {
 }
 
 async function injectDynamic(ctx: ReturnType<typeof testAgent>): Promise<void> {
-  await (ctx.get(IContextInjector) as unknown as InjectableDynamicInjector).inject();
+  await (ctx.get(IAgentContextInjectorService) as unknown as InjectableDynamicInjector).inject();
 }
 
 function lastReminder(ctx: ReturnType<typeof testAgent>): string {

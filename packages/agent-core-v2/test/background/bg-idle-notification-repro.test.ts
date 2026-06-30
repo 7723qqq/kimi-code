@@ -24,11 +24,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AgentBackgroundTask,
-  IBackgroundService,
+  IAgentBackgroundService,
 } from '#/background';
-import { IPromptService } from '#/prompt';
-import { IProfileService } from '#/profile';
-import { ITurnService } from '#/turn';
+import { IAgentPromptService } from '#/prompt';
+import { IAgentProfileService } from '#/profile';
+import { IAgentTurnService } from '#/turn';
 import {
   backgroundServices,
   createTestAgent,
@@ -55,17 +55,17 @@ function agentTask(
 describe('background notification → main agent (real Agent instance)', () => {
   describe('live notification delivery', () => {
     let ctx: TestAgentContext;
-    let background: IBackgroundService;
-    let prompt: IPromptService;
-    let turn: ITurnService;
-    let profile: IProfileService;
+    let background: IAgentBackgroundService;
+    let prompt: IAgentPromptService;
+    let turn: IAgentTurnService;
+    let profile: IAgentProfileService;
 
     beforeEach(() => {
       ctx = createTestAgent();
-      background = ctx.get(IBackgroundService);
-      prompt = ctx.get(IPromptService);
-      turn = ctx.get(ITurnService);
-      profile = ctx.get(IProfileService);
+      background = ctx.get(IAgentBackgroundService);
+      prompt = ctx.get(IAgentPromptService);
+      turn = ctx.get(IAgentTurnService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: [] });
     });
 
@@ -275,8 +275,8 @@ describe('background notification → main agent (real Agent instance)', () => {
     let sessionDir: string;
     let ctx: TestAgentContext;
     let background: BackgroundServiceTestManager;
-    let prompt: IPromptService;
-    let turn: ITurnService;
+    let prompt: IAgentPromptService;
+    let turn: IAgentTurnService;
 
     beforeEach(async () => {
       sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-repro-'));
@@ -306,10 +306,10 @@ describe('background notification → main agent (real Agent instance)', () => {
       });
 
       ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
-      background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
-      prompt = ctx.get(IPromptService);
-      turn = ctx.get(ITurnService);
-      const profile = ctx.get(IProfileService);
+      background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
+      prompt = ctx.get(IAgentPromptService);
+      turn = ctx.get(IAgentTurnService);
+      const profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: [] });
     });
 

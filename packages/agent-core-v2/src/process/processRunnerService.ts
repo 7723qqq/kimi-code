@@ -1,5 +1,5 @@
 /**
- * `process` domain (L1) — `IProcessRunner` implementation.
+ * `process` domain (L1) — `ISessionProcessRunner` implementation.
  *
  * Spawns processes through the session execution environment (`IKaos.backend`),
  * defaulting cwd/env to the execution environment and honoring per-call
@@ -10,9 +10,9 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IKaos } from '#/kaos';
 
-import { type IProcess, IProcessRunner, type ProcessExecOptions } from './process';
+import { type IProcess, ISessionProcessRunner, type ProcessExecOptions } from './process';
 
-export class ProcessRunner implements IProcessRunner {
+export class SessionProcessRunner implements ISessionProcessRunner {
   declare readonly _serviceBrand: undefined;
 
   constructor(@IKaos private readonly kaos: IKaos) {}
@@ -29,8 +29,8 @@ export class ProcessRunner implements IProcessRunner {
 
 registerScopedService(
   LifecycleScope.Session,
-  IProcessRunner,
-  ProcessRunner,
+  ISessionProcessRunner,
+  SessionProcessRunner,
   InstantiationType.Delayed,
   'process',
 );

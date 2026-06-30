@@ -17,7 +17,7 @@ import {
   isMaxStepsExceededError,
 } from './errors';
 import type { LoopInterruptReason, LoopEventDispatcher, LoopTurnInterruptedEvent } from './events';
-import type { IToolExecutor } from '#/toolExecutor';
+import type { IAgentToolExecutorService } from '#/toolExecutor';
 import type { LLM } from './llm';
 import { executeLoopStep } from './turn-step';
 import type { ExecutableTool } from '#/tool';
@@ -42,7 +42,7 @@ export interface RunTurnInput {
   readonly log?: Logger | undefined;
   readonly maxSteps?: number | undefined;
   readonly maxRetryAttempts?: number;
-  readonly toolExecutor: IToolExecutor;
+  readonly toolExecutor: IAgentToolExecutorService;
   readonly recordStepUsage?:
     | ((
         usage: TokenUsage,

@@ -5,11 +5,11 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContextMessage } from '#/contextMemory/types';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IMicroCompactionService } from '#/microCompaction';
+import { IAgentMicroCompactionService } from '#/microCompaction';
 import type { ContentPart, Message, TextPart } from '@moonshot-ai/kosong';
-import { IContextProjector } from './contextProjector';
+import { IAgentContextProjectorService } from './contextProjector';
 
-export class ContextProjectorService implements IContextProjector {
+export class AgentContextProjectorService implements IAgentContextProjectorService {
   declare readonly _serviceBrand: undefined;
   constructor(
     @IInstantiationService private readonly instantiation: IInstantiationService,
@@ -19,9 +19,9 @@ export class ContextProjectorService implements IContextProjector {
     return project(this.microCompaction().compact(messages));
   }
 
-  private microCompaction(): IMicroCompactionService {
+  private microCompaction(): IAgentMicroCompactionService {
     return this.instantiation.invokeFunction((accessor) =>
-      accessor.get(IMicroCompactionService),
+      accessor.get(IAgentMicroCompactionService),
     );
   }
 }
@@ -226,8 +226,8 @@ function isInterruptedToolResult(message: Message): boolean {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IContextProjector,
-  ContextProjectorService,
+  IAgentContextProjectorService,
+  AgentContextProjectorService,
   InstantiationType.Delayed,
   'contextProjector',
 );

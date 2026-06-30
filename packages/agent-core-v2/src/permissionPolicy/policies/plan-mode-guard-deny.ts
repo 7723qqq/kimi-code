@@ -1,5 +1,5 @@
-import { IPlanService } from '#/plan';
-import type { IPlanService as PlanService } from '#/plan';
+import { IAgentPlanService } from '#/plan';
+import type { IAgentPlanService as AgentPlanService } from '#/plan';
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import type {
   PermissionPolicy,
@@ -12,7 +12,7 @@ import {
 export class PlanModeGuardDenyPermissionPolicyService implements PermissionPolicy {
   readonly name = 'plan-mode-guard-deny';
 
-  constructor(@IPlanService private readonly plan: PlanService) {}
+  constructor(@IAgentPlanService private readonly plan: AgentPlanService) {}
 
   async evaluate(
     context: ResolvedToolExecutionHookContext,

@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { LifecycleScope } from '#/_base/di/scope';
 import { IBootstrapService } from '#/bootstrap';
-import { IWorkspaceContext } from '#/workspaceContext';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
 import '#/skill';
 import { InMemorySkillCatalogStore } from '#/skill/inMemorySkillCatalogStore';
-import { ISkillCatalog } from '#/skill/skillCatalog';
+import { ISessionSkillCatalog } from '#/skill/skillCatalog';
 import { ISkillCatalogStore } from '#/skill/skillCatalogStore';
 
 import { stubSkill } from './stubs';
@@ -18,7 +18,7 @@ const bootstrapStub = {
 } as unknown as IBootstrapService;
 
 function workspaceStub(workDir: string): {
-  readonly stub: IWorkspaceContext;
+  readonly stub: ISessionWorkspaceContext;
   setWorkDir(dir: string): void;
 } {
   let current = workDir;
@@ -36,20 +36,20 @@ function workspaceStub(workDir: string): {
     assertAllowed: (p: string) => p,
     addAdditionalDir: () => {},
     removeAdditionalDir: () => {},
-  } satisfies IWorkspaceContext;
+  } satisfies ISessionWorkspaceContext;
   return { stub, setWorkDir: (dir) => { current = dir; } };
 }
 
-function makeHost(store: InMemorySkillCatalogStore, ws: IWorkspaceContext) {
+function makeHost(store: InMemorySkillCatalogStore, ws: ISessionWorkspaceContext) {
   const host = createScopedTestHost([
     stubPair(ISkillCatalogStore, store),
     stubPair(IBootstrapService, bootstrapStub),
   ]);
-  const session = host.child(LifecycleScope.Session, 's1', [stubPair(IWorkspaceContext, ws)]);
+  const session = host.child(LifecycleScope.Session, 's1', [stubPair(ISessionWorkspaceContext, ws)]);
   return { host, session };
 }
 
-describe('SkillCatalogService', () => {
+describe('SessionSkillCatalogService', () => {
   it('merges global and project skills; project wins on name collision', async () => {
     const store = new InMemorySkillCatalogStore();
     store.setUserSkills([
@@ -63,7 +63,7 @@ describe('SkillCatalogService', () => {
     const { stub: ws } = workspaceStub('/work');
     const { host, session } = makeHost(store, ws);
 
-    const catalog = session.accessor.get(ISkillCatalog);
+    const catalog = session.accessor.get(ISessionSkillCatalog);
     await catalog.load();
 
     const names = catalog.catalog.listSkills().map((s) => s.name);
@@ -81,7 +81,7 @@ describe('SkillCatalogService', () => {
     const { stub: ws, setWorkDir } = workspaceStub('/work1');
     const { host, session } = makeHost(store, ws);
 
-    const catalog = session.accessor.get(ISkillCatalog);
+    const catalog = session.accessor.get(ISessionSkillCatalog);
     await catalog.load();
     expect(catalog.catalog.getSkill('first')).toBeDefined();
 
@@ -101,7 +101,7 @@ describe('SkillCatalogService', () => {
     const { stub: ws } = workspaceStub('/work');
     const { host, session } = makeHost(store, ws);
 
-    const catalog = session.accessor.get(ISkillCatalog);
+    const catalog = session.accessor.get(ISessionSkillCatalog);
     await catalog.load();
 
     store.setProjectSkills([stubSkill('second')]);

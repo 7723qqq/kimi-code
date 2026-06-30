@@ -12,7 +12,7 @@
  * `bootstrap`, persists the TOML document through the `storage` TOML
  * atomic-document store (reloading when the document changes on disk), and logs
  * through `log`. Late section / overlay registration re-validates the
- * already-loaded raw value and re-runs overlays. Bound at Core scope.
+ * already-loaded raw value and re-runs overlays. Bound at App scope.
  */
 
 import { basename } from 'pathe';
@@ -480,14 +480,14 @@ export class ConfigService extends Disposable implements IConfigService {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IConfigRegistry,
   ConfigRegistry,
   InstantiationType.Delayed,
   'config',
 );
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IConfigService,
   ConfigService,
   InstantiationType.Delayed,

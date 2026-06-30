@@ -1,7 +1,7 @@
 /**
  * `interaction` domain barrel — re-exports the interaction contract
  * (`interaction`) and its scoped service (`interactionService`). Importing this
- * barrel registers the `IInteractionService` binding into the scope registry.
+ * barrel registers the `ISessionInteractionService` binding into the scope registry.
  */
 
 export * from './interaction';

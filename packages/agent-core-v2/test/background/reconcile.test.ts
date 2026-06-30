@@ -9,10 +9,10 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  IBackgroundService,
+  IAgentBackgroundService,
   type BackgroundTaskInfo,
 } from '#/background';
-import { IEventSink } from '#/eventSink';
+import { IAgentEventSinkService } from '#/eventSink';
 import {
   backgroundServices,
   createTestAgent,
@@ -64,7 +64,7 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
 
     beforeEach(() => {
       ctx = createTestAgent(backgroundServices());
-      background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
+      background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
     });
 
     afterEach(async () => {
@@ -89,9 +89,9 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
 
     beforeEach(() => {
       ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
-      background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
+      background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
       emittedEvents = [];
-      const events = ctx.get(IEventSink);
+      const events = ctx.get(IAgentEventSinkService);
       events.on((event) => {
         emittedEvents.push(event);
       });

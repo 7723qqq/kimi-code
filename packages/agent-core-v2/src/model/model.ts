@@ -3,7 +3,7 @@
  *
  * Owns the `ModelAlias` model and the `models` config section (alias → provider
  * + model + context/capabilities); exposes CRUD over model aliases and persists
- * them through `config`. Core-scoped — model aliases are global and shared
+ * them through `config`. App-scoped — model aliases are global and shared
  * across sessions.
  */
 

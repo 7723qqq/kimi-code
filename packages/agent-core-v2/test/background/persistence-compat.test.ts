@@ -4,7 +4,7 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IBackgroundService } from '#/background';
+import { IAgentBackgroundService } from '#/background';
 import {
   backgroundServices,
   createTestAgent,
@@ -102,7 +102,7 @@ describe('BackgroundTaskPersistence legacy compatibility', () => {
 
   it('migrates legacy records through load/reconcile writeback', async () => {
     const ctx: TestAgentContext = createTestAgent(homeDirServices(sessionDir), backgroundServices());
-    const background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
+    const background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
     await writeLegacyTask('bash-orphan01', {
       task_id: 'bash-orphan01',
       command: 'sleep 60',

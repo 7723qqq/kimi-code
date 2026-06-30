@@ -1,5 +1,5 @@
 /**
- * `cron` domain (L5) — `CronService` implementation.
+ * `cron` domain (L5) — `AgentCronService` implementation.
  *
  * Owns the agent's cron task set: schedules and fires due tasks (steering
  * the agent through `prompt`), persists task records through the `cron`
@@ -17,17 +17,17 @@ import {
   toDisposable,
 } from "#/_base/di";
 import type { ContextMessage } from '#/contextMemory';
-import { IEventSink } from '../eventSink';
+import { IAgentEventSinkService } from '../eventSink';
 import { IConfigRegistry, IConfigService } from '#/config';
-import { IPromptService } from '#/prompt';
+import { IAgentPromptService } from '#/prompt';
 import { IAtomicDocumentStore } from '#/storage';
 import { ITelemetryService } from '#/telemetry';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import type { Turn } from '#/turn';
-import { ITurnService } from '#/turn';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentTurnService } from '#/turn';
+import { IAgentWireRecordService } from '#/wireRecord';
 import {
-  ICronService,
+  IAgentCronService,
   type CronFireOptions,
   type CronLoadOptions,
   type CronOptions,
@@ -82,9 +82,9 @@ declare module '#/wireRecord' {
 
 const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
-export class CronService
+export class AgentCronService
   extends Disposable
-  implements ICronService, CronToolManager {
+  implements IAgentCronService, CronToolManager {
   declare readonly _serviceBrand: undefined;
 
   readonly store = new SessionCronStore();
@@ -100,12 +100,12 @@ export class CronService
 
   constructor(
     options: CronOptions = {},
-    @IPromptService private readonly prompt: IPromptService,
-    @IEventSink private readonly events: IEventSink,
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @ITurnService private readonly turnService: ITurnService,
+    @IAgentPromptService private readonly prompt: IAgentPromptService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentTurnService private readonly turnService: IAgentTurnService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IToolRegistry private readonly toolRegistry: IToolRegistry,
+    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
@@ -442,8 +442,8 @@ export class CronService
 
 registerScopedService(
   LifecycleScope.Agent,
-  ICronService,
-  CronService,
+  IAgentCronService,
+  AgentCronService,
   InstantiationType.Delayed,
   'cron',
 );

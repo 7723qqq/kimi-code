@@ -1,36 +1,36 @@
 /**
- * `fileTools` domain (L4) — `IFileToolsService` implementation.
+ * `fileTools` domain (L4) — `IAgentFileToolsService` implementation.
  *
  * Registers the built-in file tools (Read / Write / Edit / Grep / Glob) into
- * the agent `IToolRegistry` on construction, wiring each to the session
- * `IAgentFileSystem` (file IO), `IFsService` (workspace search/grep), `IKaos`
+ * the agent `IAgentToolRegistryService` on construction, wiring each to the session
+ * `ISessionAgentFileSystem` (file IO), `ISessionFsService` (workspace search/grep), `IKaos`
  * (path semantics) and the session workspace. Bound at Agent scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
-import { IAgentFileSystem, IFsService } from '#/agentFs';
+import { ISessionAgentFileSystem, ISessionFsService } from '#/agentFs';
 import { IKaos } from '#/kaos';
-import { IToolRegistry } from '#/toolRegistry';
-import { IWorkspaceContext } from '#/workspaceContext';
+import { IAgentToolRegistryService } from '#/toolRegistry';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
 
-import { IFileToolsService } from './fileTools';
+import { IAgentFileToolsService } from './fileTools';
 import { EditTool } from './tools/edit';
 import { GlobTool } from './tools/glob';
 import { GrepTool } from './tools/grep';
 import { ReadTool } from './tools/read';
 import { WriteTool } from './tools/write';
 
-export class FileToolsService implements IFileToolsService {
+export class AgentFileToolsService implements IAgentFileToolsService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IToolRegistry toolRegistry: IToolRegistry,
-    @IAgentFileSystem fs: IAgentFileSystem,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
+    @ISessionAgentFileSystem fs: ISessionAgentFileSystem,
     @IKaos kaos: IKaos,
-    @IWorkspaceContext workspace: IWorkspaceContext,
-    @IFsService fsService: IFsService,
+    @ISessionWorkspaceContext workspace: ISessionWorkspaceContext,
+    @ISessionFsService fsService: ISessionFsService,
   ) {
     const workspaceConfig: WorkspaceConfig = {
       workspaceDir: workspace.workDir,
@@ -46,8 +46,8 @@ export class FileToolsService implements IFileToolsService {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IFileToolsService,
-  FileToolsService,
+  IAgentFileToolsService,
+  AgentFileToolsService,
   InstantiationType.Delayed,
   'fileTools',
 );

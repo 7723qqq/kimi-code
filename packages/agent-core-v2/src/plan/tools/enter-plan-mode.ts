@@ -11,7 +11,7 @@ import type { BuiltinTool } from '#/tool';
 import type { ToolExecution } from '#/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { ITelemetryService } from '#/telemetry';
-import type { IPlanService } from '../plan';
+import type { IAgentPlanService } from '../plan';
 import DESCRIPTION from './enter-plan-mode.md?raw';
 
 // ── Input schema ─────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ export class EnterPlanModeTool implements BuiltinTool<EnterPlanModeInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EnterPlanModeInputSchema);
 
   constructor(
-    private readonly planMode: IPlanService,
+    private readonly planMode: IAgentPlanService,
     private readonly telemetry: ITelemetryService,
   ) {}
 

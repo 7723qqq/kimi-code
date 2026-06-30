@@ -3,7 +3,7 @@
  *
  * Resolves experimental flags from the environment (read through `bootstrap`),
  * the `[experimental]` config section, and defaults; reads flag definitions
- * from `flagRegistry`, and reads/watches config through `config`. Bound at Core
+ * from `flagRegistry`, and reads/watches config through `config`. Bound at App
  * scope.
  */
 
@@ -122,7 +122,7 @@ export class FlagService extends Disposable implements IFlagService {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IFlagService,
   FlagService,
   InstantiationType.Delayed,

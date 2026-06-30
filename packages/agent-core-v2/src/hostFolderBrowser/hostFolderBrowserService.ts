@@ -2,7 +2,7 @@
  * `hostFolderBrowser` domain (L2) — `IHostFolderBrowser` implementation.
  *
  * Browses the real local filesystem through `node:fs/promises` and derives
- * `recent_roots` from the process-wide `IWorkspaceRegistry`. Bound at Core
+ * `recent_roots` from the process-wide `IWorkspaceRegistry`. Bound at App
  * scope. Mirrors the v1 `WorkspaceFsService` behaviour so the `/api/v1`
  * transport stays wire-compatible: realpath resolution, directory-only
  * entries, git metadata, dot-last sorting, and `parent` resolution.
@@ -148,7 +148,7 @@ async function detectGit(root: string): Promise<GitInfo> {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IHostFolderBrowser,
   HostFolderBrowser,
   InstantiationType.Delayed,

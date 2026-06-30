@@ -1,5 +1,5 @@
 /**
- * `turn` test stubs — shared `ITurnService` stubs for unit tests.
+ * `turn` test stubs — shared `IAgentTurnService` stubs for unit tests.
  *
  * Lives under `test/` (not `src/`) so test-support code stays out of the
  * production tree. Import from a relative path (`./stubs` or `../turn/stubs`).
@@ -7,8 +7,8 @@
 
 import { createHooks } from '#/hooks';
 import type { PromptOrigin } from '#/contextMemory';
-import type { ITurnService, Turn } from '#/turn';
-import type { IToolExecutor } from '#/toolExecutor';
+import type { IAgentTurnService, Turn } from '#/turn';
+import type { IAgentToolExecutorService } from '#/toolExecutor';
 
 export interface StubTurnOptions {
   /** When set, `getActiveTurn()` returns a synthetic active turn. */
@@ -19,12 +19,12 @@ export interface StubTurnOptions {
 }
 
 /**
- * An `ITurnService` stub that also records `launch` origins and exposes the
+ * An `IAgentTurnService` stub that also records `launch` origins and exposes the
  * active turn. `prompts` / `steered` are retained as empty arrays for legacy
- * assertions — the HEAD `ITurnService` has no `prompt` / `steer` methods, so
+ * assertions — the HEAD `IAgentTurnService` has no `prompt` / `steer` methods, so
  * tests that used to drive them should be rewritten against `launch` + hooks.
  */
-export type StubTurn = ITurnService & {
+export type StubTurn = IAgentTurnService & {
   readonly prompts: readonly string[];
   readonly steered: readonly string[];
   readonly launches: readonly PromptOrigin[];
@@ -39,17 +39,17 @@ function makeTurn(id: number): Turn {
   };
 }
 
-function makeHooks(): ITurnService['hooks'] {
+function makeHooks(): IAgentTurnService['hooks'] {
   return createHooks([
     'onLaunched',
     'onEnded',
     'beforeStep',
     'afterStep',
     'onContextOverflow',
-  ]) as ITurnService['hooks'];
+  ]) as IAgentTurnService['hooks'];
 }
 
-/** A configurable `ITurnService` stub backed by real `OrderedHookSlot`s. */
+/** A configurable `IAgentTurnService` stub backed by real `OrderedHookSlot`s. */
 export function stubTurn(options: StubTurnOptions = {}): StubTurn {
   const launches: PromptOrigin[] = [];
   let activeTurn: Turn | undefined;
@@ -72,12 +72,12 @@ export function stubTurn(options: StubTurnOptions = {}): StubTurn {
 }
 
 /**
- * An `ITurnService` stub backed by real `OrderedHookSlot`s. Use when the system
+ * An `IAgentTurnService` stub backed by real `OrderedHookSlot`s. Use when the system
  * under test registers turn-lifecycle hooks (`onLaunched` / `beforeStep` /
  * `afterStep`) in its constructor, or when a test needs to drive those hooks
  * directly. `launch` returns a minimal {@link Turn}; `getActiveTurn` is a no-op.
  */
-export function stubTurnWithHooks(): ITurnService {
+export function stubTurnWithHooks(): IAgentTurnService {
   const turn = makeTurn(0);
   return {
     _serviceBrand: undefined,
@@ -88,18 +88,18 @@ export function stubTurnWithHooks(): ITurnService {
 }
 
 /**
- * An `IToolExecutor` stub whose tool-execution hooks (`onWillExecuteTool` /
+ * An `IAgentToolExecutorService` stub whose tool-execution hooks (`onWillExecuteTool` /
  * `onDidExecuteTool`) are real `OrderedHookSlot`s, so services that register
- * gate hooks in their constructor (PermissionGate, McpService, …) can be built
+ * gate hooks in their constructor (AgentPermissionGate, AgentMcpService, …) can be built
  * in tests. `execute` resolves to an empty batch by default.
  */
-export function stubToolExecutor(): IToolExecutor {
+export function stubToolExecutor(): IAgentToolExecutorService {
   return {
     _serviceBrand: undefined,
     execute: async () => [],
     hooks: createHooks([
       'onWillExecuteTool',
       'onDidExecuteTool',
-    ]) as IToolExecutor['hooks'],
+    ]) as IAgentToolExecutorService['hooks'],
   };
 }

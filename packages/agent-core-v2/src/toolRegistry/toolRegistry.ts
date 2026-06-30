@@ -1,5 +1,5 @@
 /**
- * `toolRegistry` domain (L3) — `IToolRegistry` contract.
+ * `toolRegistry` domain (L3) — `IAgentToolRegistryService` contract.
  *
  * Per-agent registry of the tools an agent can resolve and run: `register` /
  * `unregister` / `list` / `resolve`, plus `onRegistered` / `onUnregistered`
@@ -16,7 +16,7 @@ export interface ToolRegistrationOptions {
   readonly source?: ToolSource;
 }
 
-export interface IToolRegistry {
+export interface IAgentToolRegistryService {
   readonly _serviceBrand: undefined;
   register(tool: ExecutableTool, options?: ToolRegistrationOptions): IDisposable;
   list(): readonly ToolInfo[];
@@ -28,4 +28,4 @@ export interface IToolRegistry {
   }>;
 }
 
-export const IToolRegistry = createDecorator<IToolRegistry>('agentToolRegistryService');
+export const IAgentToolRegistryService = createDecorator<IAgentToolRegistryService>('agentToolRegistryService');

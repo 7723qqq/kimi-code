@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 
 import {
   InstantiationType,
-  ITerminalBackend,
+  ISessionTerminalBackend,
   LifecycleScope,
   modelResolverSeed,
   registerScopedService,
@@ -62,7 +62,7 @@ class FakeTerminalProcess implements TerminalProcess {
   }
 }
 
-class FakeTerminalBackend implements ITerminalBackend {
+class FakeTerminalBackend implements ISessionTerminalBackend {
   declare readonly _serviceBrand: undefined;
 
   spawn(options: TerminalSpawnOptions): Promise<TerminalProcess> {
@@ -78,7 +78,7 @@ const processes: FakeTerminalProcess[] = [];
 
 registerScopedService(
   LifecycleScope.Session,
-  ITerminalBackend,
+  ISessionTerminalBackend,
   FakeTerminalBackend,
   InstantiationType.Delayed,
   'terminal-test',

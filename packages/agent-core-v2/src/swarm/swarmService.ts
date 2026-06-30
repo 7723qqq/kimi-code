@@ -3,17 +3,17 @@ import {
 } from "#/_base/di";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IEventSink } from '../eventSink';
-import { ISubagentHost } from '#/subagentHost';
-import { ISystemReminderService } from '#/systemReminder';
-import { IToolRegistry } from '#/toolRegistry';
-import { ITurnService } from '#/turn';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentEventSinkService } from '../eventSink';
+import { ISessionSubagentHost } from '#/subagentHost';
+import { IAgentSystemReminderService } from '#/systemReminder';
+import { IAgentToolRegistryService } from '#/toolRegistry';
+import { IAgentTurnService } from '#/turn';
+import { IAgentWireRecordService } from '#/wireRecord';
 import SWARM_MODE_ENTER_REMINDER from './enter-reminder.md?raw';
 import SWARM_MODE_EXIT_REMINDER from './exit-reminder.md?raw';
 import { AgentSwarmTool } from './tools/agent-swarm';
 import {
-  ISwarmService,
+  IAgentSwarmService,
   type SwarmModeTrigger,
 } from './swarm';
 
@@ -26,18 +26,18 @@ declare module '#/wireRecord' {
   }
 }
 
-export class SwarmService extends Disposable implements ISwarmService {
+export class AgentSwarmService extends Disposable implements IAgentSwarmService {
   declare readonly _serviceBrand: undefined;
 
   private _active: SwarmModeTrigger | null = null;
 
   constructor(
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventSink private readonly events: IEventSink,
-    @ISystemReminderService private readonly reminders: ISystemReminderService,
-    @ITurnService turnService: ITurnService,
-    @IToolRegistry toolRegistry: IToolRegistry,
-    @ISubagentHost subagentHost: ISubagentHost,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
+    @IAgentTurnService turnService: IAgentTurnService,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
+    @ISessionSubagentHost subagentHost: ISessionSubagentHost,
   ) {
     super();
     this._register(
@@ -115,8 +115,8 @@ export class SwarmService extends Disposable implements ISwarmService {
 
 registerScopedService(
   LifecycleScope.Agent,
-  ISwarmService,
-  SwarmService,
+  IAgentSwarmService,
+  AgentSwarmService,
   InstantiationType.Delayed,
   'swarm',
 );

@@ -1,5 +1,5 @@
 /**
- * `question` domain (L7) — `IQuestionService` implementation.
+ * `question` domain (L7) — `ISessionQuestionService` implementation.
  *
  * Typed facade over the `interaction` kernel for ask-user requests; owns no
  * pending state of its own (the kernel holds it). Bound at Session scope.
@@ -7,18 +7,18 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IInteractionService } from '#/interaction';
+import { ISessionInteractionService } from '#/interaction';
 
 import {
   type QuestionRequest,
   type QuestionResult,
-  IQuestionService,
+  ISessionQuestionService,
 } from './question';
 
-export class QuestionService implements IQuestionService {
+export class SessionQuestionService implements ISessionQuestionService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IInteractionService private readonly interaction: IInteractionService) {}
+  constructor(@ISessionInteractionService private readonly interaction: ISessionInteractionService) {}
 
   request(req: QuestionRequest): Promise<QuestionResult> {
     return this.interaction.request<QuestionRequest, QuestionResult>({
@@ -59,4 +59,4 @@ function requestId(req: QuestionRequest): string {
   return req.id ?? req.toolCallId ?? `question:${String(Date.now())}`;
 }
 
-registerScopedService(LifecycleScope.Session, IQuestionService, QuestionService, InstantiationType.Delayed, 'question');
+registerScopedService(LifecycleScope.Session, ISessionQuestionService, SessionQuestionService, InstantiationType.Delayed, 'question');

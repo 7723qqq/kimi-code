@@ -26,7 +26,7 @@ export interface CronFireOptions {
   readonly firedAt?: number;
 }
 
-export interface ICronService extends CronToolManager {
+export interface IAgentCronService extends CronToolManager {
   readonly _serviceBrand: undefined;
   readonly isEnabled: boolean;
   getTask(id: string): CronTask | undefined;
@@ -46,4 +46,4 @@ export interface ICronService extends CronToolManager {
   flushPersist(): Promise<void>;
 }
 
-export const ICronService = createDecorator<ICronService>('agentCronService');
+export const IAgentCronService = createDecorator<IAgentCronService>('agentCronService');

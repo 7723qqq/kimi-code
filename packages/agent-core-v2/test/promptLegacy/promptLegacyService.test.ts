@@ -2,13 +2,13 @@ import { describe, expect, it, onTestFinished } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import { IPermissionModeService } from '#/permissionMode/permissionMode';
-import { IProfileService } from '#/profile/profile';
-import { IPromptService } from '#/prompt/prompt';
-import { ITurnService, type Turn, type TurnResult } from '#/turn/turn';
+import { IAgentPermissionModeService } from '#/permissionMode/permissionMode';
+import { IAgentProfileService } from '#/profile/profile';
+import { IAgentPromptService } from '#/prompt/prompt';
+import { IAgentTurnService, type Turn, type TurnResult } from '#/turn/turn';
 import type { PromptSubmission } from '@moonshot-ai/protocol';
 
-import { IPromptLegacyService, PromptLegacyService } from '#/promptLegacy';
+import { IAgentPromptLegacyService, AgentPromptLegacyService } from '#/promptLegacy';
 
 interface ControlledTurn {
   readonly turn: Turn;
@@ -34,7 +34,7 @@ function textBody(text: string): PromptSubmission {
 }
 
 interface Harness {
-  readonly service: IPromptLegacyService;
+  readonly service: IAgentPromptLegacyService;
   readonly turns: Turn[];
   readonly settleActive: (result: TurnResult) => void;
   readonly steered: string[];
@@ -50,7 +50,7 @@ function createHarness(): Harness {
   const turns: Turn[] = [];
   const steered: string[] = [];
 
-  const prompt: IPromptService = {
+  const prompt: IAgentPromptService = {
     _serviceBrand: undefined,
     prompt: () => {
       if (activeTurn !== undefined) return undefined;
@@ -77,7 +77,7 @@ function createHarness(): Harness {
     clear: () => {},
   };
 
-  const turnService: ITurnService = {
+  const turnService: IAgentTurnService = {
     launch: () => {
       throw new Error('not used');
     },
@@ -88,27 +88,27 @@ function createHarness(): Harness {
       beforeStep: { run: async () => {} },
       afterStep: { run: async () => {} },
     },
-  } as unknown as ITurnService;
+  } as unknown as IAgentTurnService;
 
   const profile = {
     setModel: () => Promise.resolve({ model: '' }),
     setThinking: () => {},
-  } as unknown as IProfileService;
+  } as unknown as IAgentProfileService;
 
   const permissionMode = {
     setMode: () => {},
-  } as unknown as IPermissionModeService;
+  } as unknown as IAgentPermissionModeService;
 
   const ix = createServices(disposables, {
     additionalServices: (reg) => {
-      reg.defineInstance(IPromptService, prompt);
-      reg.defineInstance(ITurnService, turnService);
-      reg.defineInstance(IProfileService, profile);
-      reg.defineInstance(IPermissionModeService, permissionMode);
-      reg.define(IPromptLegacyService, PromptLegacyService);
+      reg.defineInstance(IAgentPromptService, prompt);
+      reg.defineInstance(IAgentTurnService, turnService);
+      reg.defineInstance(IAgentProfileService, profile);
+      reg.defineInstance(IAgentPermissionModeService, permissionMode);
+      reg.define(IAgentPromptLegacyService, AgentPromptLegacyService);
     },
   });
-  const service = ix.get(IPromptLegacyService);
+  const service = ix.get(IAgentPromptLegacyService);
   return {
     service,
     turns,
@@ -117,7 +117,7 @@ function createHarness(): Harness {
   };
 }
 
-describe('PromptLegacyService', () => {
+describe('AgentPromptLegacyService', () => {
   it('launches a turn on submit and reports running', async () => {
     const { service, turns } = createHarness();
     const result = await service.submit(textBody('hi'));

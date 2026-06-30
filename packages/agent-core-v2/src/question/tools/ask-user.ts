@@ -11,7 +11,7 @@
 import { z } from 'zod';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { QuestionBackgroundTask, type IBackgroundService } from '#/background';
+import { QuestionBackgroundTask, type IAgentBackgroundService } from '#/background';
 import type { ITelemetryService, TelemetryProperties } from '#/telemetry';
 import type {
   BuiltinTool,
@@ -21,7 +21,7 @@ import type {
 } from '#/tool';
 
 import type {
-  IQuestionService,
+  ISessionQuestionService,
   QuestionAnswers,
   QuestionAnswerMethod,
   QuestionResponse,
@@ -99,8 +99,8 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
   );
 
   constructor(
-    private readonly question: IQuestionService,
-    private readonly background: IBackgroundService,
+    private readonly question: ISessionQuestionService,
+    private readonly background: IAgentBackgroundService,
     private readonly telemetry: ITelemetryService,
   ) {}
 

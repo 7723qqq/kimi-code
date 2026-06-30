@@ -7,24 +7,24 @@
  * resolves **every** current section owner so its `registerSection` runs, then
  * reads the single `IConfigRegistry` / `IConfigService` they all populated:
  *
- *  Core-scope owners (resolved from the production `bootstrap` Core scope):
+ *  App-scope owners (resolved from the production `bootstrap` App scope):
  *   - `IModelService`          → `models`          (+ the `KIMI_MODEL_*` overlay)
  *   - `IProviderService`       → `providers`
  *   - `IFlagService`           → `experimental`
  *
  *  Agent-scope owners (constructed here against the same registry):
- *   - `IBackgroundService`     → `background`
- *   - `ICronService`           → `cron`
- *   - `IPermissionRulesService`→ `permission`
- *   - `IProfileService`        → `thinking`, `defaultThinking`
- *   - `ILoopService`           → `loopControl`
- *   - `IExternalHooksService`  → `hooks`
+ *   - `IAgentBackgroundService`     → `background`
+ *   - `IAgentCronService`           → `cron`
+ *   - `IAgentPermissionRulesService`→ `permission`
+ *   - `IAgentProfileService`        → `thinking`, `defaultThinking`
+ *   - `IAgentLoopService`           → `loopControl`
+ *   - `IAgentExternalHooksService`  → `hooks`
  *
  * The Agent owners are constructed through `createServices` with their
  * non-config collaborators stubbed, mirroring how the slice tests isolate a
  * domain (see `feature-flags.example.ts`). Only the `registerSection` call and
  * the config reads are real — which is exactly what this example is about. The
- * Core owners are *not* re-constructed: they are resolved from the real Core
+ * App owners are *not* re-constructed: they are resolved from the real App
  * scope, so no section is registered twice.
  *
  * Two scenarios are shown:
@@ -48,39 +48,39 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import type { Scope } from '#/_base/di/scope';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { BackgroundService, IBackgroundService } from '#/background';
+import { AgentBackgroundService, IAgentBackgroundService } from '#/background';
 import { bootstrap } from '#/bootstrap/bootstrap';
 import { type ConfigInspectValue, IConfigRegistry, IConfigService } from '#/config/config';
 import '#/config/index';
-import { IContextMemory } from '#/contextMemory';
-import { IContextProjector } from '#/contextProjector';
-import { IContextSizeService } from '#/contextSize';
-import { CronService } from '#/cron';
-import { IEventSink } from '#/eventSink';
-import { ExternalHooksService, IExternalHooksService } from '#/externalHooks';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentContextProjectorService } from '#/contextProjector';
+import { IAgentContextSizeService } from '#/contextSize';
+import { AgentCronService } from '#/cron';
+import { IAgentEventSinkService } from '#/eventSink';
+import { AgentExternalHooksService, IAgentExternalHooksService } from '#/externalHooks';
 import { IFlagService } from '#/flag';
-import { ILLMRequester } from '#/llmRequester';
+import { IAgentLLMRequesterService } from '#/llmRequester';
 import { logSeed, resolveLoggingConfig } from '#/log/logConfig';
-import { LoopService, ILoopService } from '#/loop';
+import { AgentLoopService, IAgentLoopService } from '#/loop';
 import { IChatProviderFactory } from '#/chatProvider';
 import { IModelService } from '#/model';
 import '#/model/index';
-import { IModelResolver } from '#/modelRuntime';
-import { IPermissionRulesService, PermissionRulesService } from '#/permissionRules';
-import { IProfileService, ProfileService } from '#/profile';
-import { IPromptService } from '#/prompt';
+import { ISessionModelResolver } from '#/modelRuntime';
+import { IAgentPermissionRulesService, AgentPermissionRulesService } from '#/permissionRules';
+import { IAgentProfileService, AgentProfileService } from '#/profile';
+import { IAgentPromptService } from '#/prompt';
 import { IProviderService } from '#/provider';
 import '#/provider/index';
 import '#/flag/index';
-import { IReplayBuilderService } from '#/replayBuilder';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
 import { ISessionContext } from '#/session-context';
 import { IAtomicDocumentStore, IStorageService } from '#/storage';
 import '#/storage/index';
 import { ITelemetryService } from '#/telemetry';
-import { IToolExecutor } from '#/toolExecutor';
-import { IToolRegistry } from '#/toolRegistry';
-import { ITurnService } from '#/turn';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentToolExecutorService } from '#/toolExecutor';
+import { IAgentToolRegistryService } from '#/toolRegistry';
+import { IAgentTurnService } from '#/turn';
+import { IAgentWireRecordService } from '#/wireRecord';
 
 /**
  * One schema-valid sample value per **persistable** section, written through
@@ -131,7 +131,7 @@ function hookSlot() {
 
 describe('config slice (every section owner against one shared registry)', () => {
   let homeDir: string;
-  let core: Scope;
+  let app: Scope;
   let configPath: string;
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
@@ -145,12 +145,12 @@ describe('config slice (every section owner against one shared registry)', () =>
     mkdirSync(homeDir, { recursive: true });
     configPath = join(homeDir, 'config.toml');
 
-    // Real, file-backed config. Constructing the Core scope eager-loads
+    // Real, file-backed config. Constructing the App scope eager-loads
     // `IModelService`, which registers the `models` section + overlay.
-    core = bootstrap({ homeDir }, logSeed(resolveLoggingConfig({ homeDir, env: process.env }))).core;
+    app = bootstrap({ homeDir }, logSeed(resolveLoggingConfig({ homeDir, env: process.env }))).app;
 
-    const registry = core.accessor.get(IConfigRegistry);
-    const config = core.accessor.get(IConfigService);
+    const registry = app.accessor.get(IConfigRegistry);
+    const config = app.accessor.get(IConfigService);
 
     // Construct the Agent-scope owners against the SAME registry/service. Their
     // non-config collaborators are stubbed: this example isolates the config
@@ -163,79 +163,79 @@ describe('config slice (every section owner against one shared registry)', () =>
         reg.defineInstance(IConfigService, config);
 
         // Collaborators touched during owner construction, with real shape.
-        reg.definePartialInstance(IWireRecord, {
+        reg.definePartialInstance(IAgentWireRecordService, {
           register: () => toDisposable(() => {}),
           append: () => {},
           hooks: { onRestoredRecord: hookSlot(), onResumeEnded: hookSlot() },
         });
-        reg.definePartialInstance(IContextMemory, { hooks: { onSpliced: hookSlot() } });
-        reg.definePartialInstance(IToolExecutor, {
+        reg.definePartialInstance(IAgentContextMemoryService, { hooks: { onSpliced: hookSlot() } });
+        reg.definePartialInstance(IAgentToolExecutorService, {
           // `OrderedHookSlot` is a class with private members, so the stub is
           // shaped as a `HookSlot` and cast to the declared slot type.
           hooks: {
             onWillExecuteTool: hookSlot(),
             onDidExecuteTool: hookSlot(),
-          } as unknown as IToolExecutor['hooks'],
+          } as unknown as IAgentToolExecutorService['hooks'],
         });
-        reg.definePartialInstance(IModelResolver, { defaultModel: 'mock-model' });
+        reg.definePartialInstance(ISessionModelResolver, { defaultModel: 'mock-model' });
         reg.definePartialInstance(ISessionContext, {
           metaScope: 'sessions/demo/demo/session-meta',
           sessionDir: homeDir,
         });
-        reg.definePartialInstance(ITurnService, { getActiveTurn: () => undefined });
+        reg.definePartialInstance(IAgentTurnService, { getActiveTurn: () => undefined });
 
         // Collaborators declared but not touched during construction — empty
         // stubs keep the container strict-clean (no "unknown service" warnings).
-        reg.definePartialInstance(IEventSink, {});
+        reg.definePartialInstance(IAgentEventSinkService, {});
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
-        reg.definePartialInstance(IPromptService, {});
+        reg.definePartialInstance(IAgentPromptService, {});
         reg.definePartialInstance(IAtomicDocumentStore, {});
         reg.definePartialInstance(IStorageService, {});
-        reg.definePartialInstance(IToolRegistry, {});
-        reg.definePartialInstance(IReplayBuilderService, {});
+        reg.definePartialInstance(IAgentToolRegistryService, {});
+        reg.definePartialInstance(IAgentReplayBuilderService, {});
         reg.definePartialInstance(IChatProviderFactory, {});
-        reg.definePartialInstance(IContextProjector, {});
-        reg.definePartialInstance(IContextSizeService, {});
-        reg.definePartialInstance(ILLMRequester, {});
+        reg.definePartialInstance(IAgentContextProjectorService, {});
+        reg.definePartialInstance(IAgentContextSizeService, {});
+        reg.definePartialInstance(IAgentLLMRequesterService, {});
 
-        // Real Agent-scope section owners. `ICronService` is constructed via
+        // Real Agent-scope section owners. `IAgentCronService` is constructed via
         // `createInstance` below (not here) so we can pass `{ isSubagent: true }`
         // and keep its runtime scheduler/tool registration from starting.
-        reg.define(IExternalHooksService, ExternalHooksService);
-        reg.define(IPermissionRulesService, PermissionRulesService);
-        reg.define(IProfileService, ProfileService);
-        reg.define(IBackgroundService, BackgroundService);
-        reg.define(ILoopService, LoopService);
+        reg.define(IAgentExternalHooksService, AgentExternalHooksService);
+        reg.define(IAgentPermissionRulesService, AgentPermissionRulesService);
+        reg.define(IAgentProfileService, AgentProfileService);
+        reg.define(IAgentBackgroundService, AgentBackgroundService);
+        reg.define(IAgentLoopService, AgentLoopService);
       },
     });
   });
 
   afterEach(() => {
     disposables.dispose();
-    core.dispose();
+    app.dispose();
   });
 
   test('every section owner registers its section into the shared registry', async () => {
-    const registry = core.accessor.get(IConfigRegistry);
-    const config = core.accessor.get(IConfigService);
+    const registry = app.accessor.get(IConfigRegistry);
+    const config = app.accessor.get(IConfigService);
     await config.ready;
 
-    // Resolve the Core owners and touch each one: delayed Core services return
+    // Resolve the App owners and touch each one: delayed App services return
     // a lazy proxy, so reading a method forces construction (and thus the
     // `registerSection` call). `IModelService` is eager but still needs a `get`.
-    core.accessor.get(IModelService).list();
-    core.accessor.get(IProviderService).list();
-    core.accessor.get(IFlagService).snapshot();
+    app.accessor.get(IModelService).list();
+    app.accessor.get(IProviderService).list();
+    app.accessor.get(IFlagService).snapshot();
 
     // Construct the Agent owners — each registers its section(s).
-    ix.get(IBackgroundService);
-    ix.get(IPermissionRulesService);
-    ix.get(IProfileService);
-    ix.get(IExternalHooksService);
-    ix.get(ILoopService);
+    ix.get(IAgentBackgroundService);
+    ix.get(IAgentPermissionRulesService);
+    ix.get(IAgentProfileService);
+    ix.get(IAgentExternalHooksService);
+    ix.get(IAgentLoopService);
     // `isSubagent: true` keeps the cron scheduler/tool registration from
     // starting — only the `cron` config-section registration is relevant here.
-    ix.createInstance(CronService, { isSubagent: true });
+    ix.createInstance(AgentCronService, { isSubagent: true });
 
     const registered = registry
       .listSections()
@@ -253,19 +253,19 @@ describe('config slice (every section owner against one shared registry)', () =>
   });
 
   test('writes every persistable section through config and round-trips the file', async () => {
-    const config = core.accessor.get(IConfigService);
+    const config = app.accessor.get(IConfigService);
     await config.ready;
 
     // Resolve every owner so its section is registered before writing.
-    core.accessor.get(IModelService).list();
-    core.accessor.get(IProviderService).list();
-    core.accessor.get(IFlagService).snapshot();
-    ix.get(IBackgroundService);
-    ix.get(IPermissionRulesService);
-    ix.get(IProfileService);
-    ix.get(IExternalHooksService);
-    ix.get(ILoopService);
-    ix.createInstance(CronService, { isSubagent: true });
+    app.accessor.get(IModelService).list();
+    app.accessor.get(IProviderService).list();
+    app.accessor.get(IFlagService).snapshot();
+    ix.get(IAgentBackgroundService);
+    ix.get(IAgentPermissionRulesService);
+    ix.get(IAgentProfileService);
+    ix.get(IAgentExternalHooksService);
+    ix.get(IAgentLoopService);
+    ix.createInstance(AgentCronService, { isSubagent: true });
 
     // Write each persistable section through IConfigService — every owner's
     // value is validated, env-stripped, and persisted to config.toml.

@@ -1,8 +1,8 @@
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { IKaos } from '#/kaos';
 import type { IKaos as KaosService } from '#/kaos';
-import { IWorkspaceContext } from '#/workspaceContext';
-import type { IWorkspaceContext as WorkspaceContext } from '#/workspaceContext';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
+import type { ISessionWorkspaceContext as WorkspaceContext } from '#/workspaceContext';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
@@ -19,7 +19,7 @@ export class GitControlPathAccessAskPermissionPolicyService implements Permissio
 
   constructor(
     @IKaos private readonly kaos: KaosService,
-    @IWorkspaceContext private readonly workspace: WorkspaceContext,
+    @ISessionWorkspaceContext private readonly workspace: WorkspaceContext,
   ) {}
 
   async evaluate(

@@ -4,7 +4,7 @@
  * File backend of `IWorkspaceStore`. Persists the catalog as a single
  * v1-compatible `workspaces.json` document at the storage root
  * (`<homeDir>/workspaces.json`, via `scope = ''`) through the
- * `IAtomicDocumentStore` access-pattern Store. Bound at Core scope.
+ * `IAtomicDocumentStore` access-pattern Store. Bound at App scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -104,7 +104,7 @@ function parseTime(value: string, fallback: number): number {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IWorkspaceStore,
   FileWorkspaceStore,
   InstantiationType.Delayed,

@@ -7,13 +7,13 @@ import {
   type IDisposable,
 } from "#/_base/di";
 import { ErrorCodes, makeErrorPayload } from "#/errors";
-import { IEventSink } from '../eventSink';
-import { IToolExecutor } from '#/toolExecutor';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentEventSinkService } from '../eventSink';
+import { IAgentToolExecutorService } from '#/toolExecutor';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import { createMcpAuthTool } from './tools/auth';
 import { createMcpTool } from './tools/mcp';
 import type { McpServerEntry } from './connection-manager';
-import { IMcpService, type McpServiceOptions } from './mcp';
+import { IAgentMcpService, type McpServiceOptions } from './mcp';
 import { qualifyMcpToolName } from './tool-naming';
 import type { MCPClient } from './types';
 
@@ -30,16 +30,16 @@ interface McpToolCollision {
     | { readonly kind: 'other_server'; readonly serverName: string };
 }
 
-export class McpService extends Disposable implements IMcpService {
+export class AgentMcpService extends Disposable implements IAgentMcpService {
   declare readonly _serviceBrand: undefined;
   private readonly mcpTools = new Map<string, McpToolRegistration>();
   private readonly mcpToolsByServer = new Map<string, string[]>();
 
   constructor(
     private readonly options: McpServiceOptions = {},
-    @IToolRegistry private readonly registry: IToolRegistry,
-    @IEventSink private readonly events: IEventSink,
-    @IToolExecutor toolExecutor: IToolExecutor,
+    @IAgentToolRegistryService private readonly registry: IAgentToolRegistryService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
     super();
     this.attachMcpTools();
@@ -84,7 +84,7 @@ export class McpService extends Disposable implements IMcpService {
     signal?.throwIfAborted();
   }
 
-  onStatusChange(listener: Parameters<IMcpService['onStatusChange']>[0]) {
+  onStatusChange(listener: Parameters<IAgentMcpService['onStatusChange']>[0]) {
     const unsubscribe = this.options.manager?.onStatusChange(listener);
     return {
       dispose: unsubscribe ?? (() => undefined),
@@ -266,8 +266,8 @@ export class McpService extends Disposable implements IMcpService {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IMcpService,
-  McpService,
+  IAgentMcpService,
+  AgentMcpService,
   InstantiationType.Delayed,
   'mcp',
 );

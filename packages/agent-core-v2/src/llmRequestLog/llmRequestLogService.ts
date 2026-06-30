@@ -7,11 +7,11 @@ import type { Tool } from '@moonshot-ai/kosong';
 
 import { ILogService } from "#/log/log";
 import {
-  ILLMRequestLogService,
+  IAgentLLMRequestLogService,
   type LLMRequestLogInput,
 } from './llmRequestLog';
 
-export class LLMRequestLogService implements ILLMRequestLogService {
+export class AgentLLMRequestLogService implements IAgentLLMRequestLogService {
   readonly _serviceBrand: undefined;
 
   private lastConfigLogSignature: string | undefined;
@@ -61,8 +61,8 @@ function fingerprint(content: string): string {
 
 registerScopedService(
   LifecycleScope.Agent,
-  ILLMRequestLogService,
-  LLMRequestLogService,
+  IAgentLLMRequestLogService,
+  AgentLLMRequestLogService,
   InstantiationType.Delayed,
   'llmRequestLog',
 );

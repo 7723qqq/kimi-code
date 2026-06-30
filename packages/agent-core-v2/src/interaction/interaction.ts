@@ -1,7 +1,7 @@
 /**
  * `interaction` domain (L6) — blocking human-in-the-loop request kernel.
  *
- * Defines the `Interaction` model and the `IInteractionService` kernel that
+ * Defines the `Interaction` model and the `ISessionInteractionService` kernel that
  * owns the session's pending interaction set: a unified, blocking request /
  * response primitive (`request` → `respond`) with change notification
  * (`onDidChange`), a non-blocking enqueue (`enqueue`) for callers that observe
@@ -37,13 +37,13 @@ export interface Interaction<TPayload = unknown> {
   readonly createdAt: number;
 }
 
-/** Emitted by {@link IInteractionService.onDidResolve} when a request is responded to. */
+/** Emitted by {@link ISessionInteractionService.onDidResolve} when a request is responded to. */
 export interface InteractionResolution {
   readonly id: string;
   readonly response: unknown;
 }
 
-export interface IInteractionService {
+export interface ISessionInteractionService {
   readonly _serviceBrand: undefined;
   request<TPayload, TResponse>(req: InteractionRequest<TPayload>): Promise<TResponse>;
   /**
@@ -58,7 +58,7 @@ export interface IInteractionService {
   /**
    * Whether `id` was responded to within the recent-resolution window. Lets
    * edge callers distinguish a duplicate resolve (idempotent conflict) from an
-   * unknown id. The window is bounded (see {@link InteractionService}) and
+   * unknown id. The window is bounded (see {@link SessionInteractionService}) and
    * exists purely for idempotency signaling.
    */
   isRecentlyResolved(id: string): boolean;
@@ -67,5 +67,5 @@ export interface IInteractionService {
   readonly onDidResolve: Event<InteractionResolution>;
 }
 
-export const IInteractionService: ServiceIdentifier<IInteractionService> =
-  createDecorator<IInteractionService>('interactionService');
+export const ISessionInteractionService: ServiceIdentifier<ISessionInteractionService> =
+  createDecorator<ISessionInteractionService>('sessionInteractionService');

@@ -8,7 +8,7 @@
  * through `telemetry`, logs through `log`, and delegates the device-code
  * protocol, token storage, and token refresh to `IOAuthToolkit` (provided by
  * `OAuthToolkitService` over `@moonshot-ai/kimi-code-oauth`, which locates
- * token storage through `bootstrap`). Bound at Core scope.
+ * token storage through `bootstrap`). Bound at App scope.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -616,6 +616,6 @@ class OAuthToolkitService extends KimiOAuthToolkit implements IOAuthToolkit {
   }
 }
 
-registerScopedService(LifecycleScope.Core, IOAuthService, OAuthService, InstantiationType.Delayed, 'auth');
-registerScopedService(LifecycleScope.Core, IOAuthToolkit, OAuthToolkitService, InstantiationType.Delayed, 'auth');
-registerScopedService(LifecycleScope.Core, IAuthSummaryService, AuthSummaryService, InstantiationType.Delayed, 'auth');
+registerScopedService(LifecycleScope.App, IOAuthService, OAuthService, InstantiationType.Delayed, 'auth');
+registerScopedService(LifecycleScope.App, IOAuthToolkit, OAuthToolkitService, InstantiationType.Delayed, 'auth');
+registerScopedService(LifecycleScope.App, IAuthSummaryService, AuthSummaryService, InstantiationType.Delayed, 'auth');

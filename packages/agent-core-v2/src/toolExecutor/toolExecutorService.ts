@@ -22,11 +22,11 @@ import type {
 } from '#/tool';
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { isAbortError } from '#/loop/errors';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import { ToolAccesses } from '#/tool';
 import { OrderedHookSlot } from '#/hooks';
 import {
-  IToolExecutor,
+  IAgentToolExecutorService,
   type ToolExecutorExecuteOptions,
 } from './toolExecutor';
 import { ToolScheduler } from './toolScheduler';
@@ -43,14 +43,14 @@ export interface ToolExecutionTask {
   readonly execute: (signal: AbortSignal) => Promise<ToolResult>;
 }
 
-export class ToolExecutorService implements IToolExecutor {
+export class AgentToolExecutorService implements IAgentToolExecutorService {
   declare readonly _serviceBrand: undefined;
   readonly hooks = {
     onWillExecuteTool: new OrderedHookSlot<ToolWillExecuteContext>(),
     onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),
   };
 
-  constructor(@IToolRegistry private readonly toolRegistry: IToolRegistry) {}
+  constructor(@IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService) {}
 
   async execute(
     calls: ToolCall[],
@@ -384,7 +384,7 @@ function buildWillExecuteContext(
 }
 
 function preflightToolCall(
-  toolRegistry: IToolRegistry,
+  toolRegistry: IAgentToolRegistryService,
   toolCall: ToolCall,
 ): PreflightedToolCall {
   const toolName = toolCall.name;
@@ -625,8 +625,8 @@ function errorMessage(error: unknown): string {
 
 registerScopedService(
   LifecycleScope.Agent,
-  IToolExecutor,
-  ToolExecutorService,
+  IAgentToolExecutorService,
+  AgentToolExecutorService,
   InstantiationType.Delayed,
   'toolExecutor',
 );

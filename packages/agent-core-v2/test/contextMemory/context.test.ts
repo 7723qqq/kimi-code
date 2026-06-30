@@ -1,7 +1,7 @@
 import type { Message } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
-import { IContextMemory, IContextSizeService, IProfileService } from '#/index';
+import { IAgentContextMemoryService, IAgentContextSizeService, IAgentProfileService } from '#/index';
 import { project } from '#/contextProjector';
 import type { ContextMessage } from '#/contextMemory';
 import { renderNotificationXml } from '#/contextMemory/notification-xml';
@@ -9,15 +9,15 @@ import { createTestAgent, type TestAgentContext } from '../harness';
 
 describe('Agent context', () => {
   let ctx: TestAgentContext;
-  let context: IContextMemory;
-  let contextSize: IContextSizeService;
-  let profile: IProfileService;
+  let context: IAgentContextMemoryService;
+  let contextSize: IAgentContextSizeService;
+  let profile: IAgentProfileService;
 
   beforeEach(() => {
     ctx = createTestAgent();
-    context = ctx.get(IContextMemory);
-    contextSize = ctx.get(IContextSizeService);
-    profile = ctx.get(IProfileService);
+    context = ctx.get(IAgentContextMemoryService);
+    contextSize = ctx.get(IAgentContextSizeService);
+    profile = ctx.get(IAgentProfileService);
   });
 
   afterEach(async () => {

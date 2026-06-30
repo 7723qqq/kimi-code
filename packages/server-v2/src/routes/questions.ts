@@ -2,8 +2,8 @@
  * `/sessions/{sid}/questions*` route handlers — server-v2 port.
  *
  * Implements the v1 `/api/v1/sessions/{sid}/questions` wire contract on top of
- * `agent-core-v2` services. Backed by the Session-scoped `IInteractionService`
- * (for the pending list + recently-resolved ledger) and `IQuestionService`
+ * `agent-core-v2` services. Backed by the Session-scoped `ISessionInteractionService`
+ * (for the pending list + recently-resolved ledger) and `ISessionQuestionService`
  * (for `answer` / `dismiss`).
  *
  *   GET    /sessions/{sid}/questions?status=pending   data: { items: QuestionRequest[] }
@@ -41,8 +41,8 @@
 
 import {
   type Interaction,
-  IInteractionService,
-  IQuestionService,
+  ISessionInteractionService,
+  ISessionQuestionService,
   ISessionLifecycleService,
   type QuestionAnswers,
   type QuestionItem,
@@ -131,7 +131,7 @@ export function registerQuestionsRoutes(app: QuestionRouteHost, core: Scope): vo
         );
         return;
       }
-      const pending = handle.accessor.get(IInteractionService).listPending('question');
+      const pending = handle.accessor.get(ISessionInteractionService).listPending('question');
       const items = pending.map((i) => toWireQuestion(i, session_id));
       reply.send(okEnvelope({ items }, req.id));
     },
@@ -181,7 +181,7 @@ export function registerQuestionsRoutes(app: QuestionRouteHost, core: Scope): vo
         return;
       }
 
-      const interaction = handle.accessor.get(IInteractionService);
+      const interaction = handle.accessor.get(ISessionInteractionService);
       const isPending = interaction.listPending('question').some((i) => i.id === questionId);
 
       if (!isPending) {
@@ -200,7 +200,7 @@ export function registerQuestionsRoutes(app: QuestionRouteHost, core: Scope): vo
         return;
       }
 
-      const questions = handle.accessor.get(IQuestionService);
+      const questions = handle.accessor.get(ISessionQuestionService);
 
       if (action === 'dismiss') {
         questions.dismiss(questionId);

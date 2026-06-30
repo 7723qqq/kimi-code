@@ -1,7 +1,7 @@
 /**
  * `authLegacy` domain — `IAuthLegacyService` implementation.
  *
- * Stateless Core-scope projector: reads the configured providers through
+ * Stateless App-scope projector: reads the configured providers through
  * `provider`, the global default-model selection through `config`, and the
  * managed OAuth provider's cached-token state through `auth`, then assembles
  * the v1 `AuthSummary`. The computation mirrors v1's `AuthSummaryService.get()`
@@ -77,7 +77,7 @@ function nonEmpty(value: string | undefined): string | null {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   IAuthLegacyService,
   AuthLegacyService,
   InstantiationType.Delayed,

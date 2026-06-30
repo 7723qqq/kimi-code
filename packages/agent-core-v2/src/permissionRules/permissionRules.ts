@@ -41,7 +41,7 @@ export interface PermissionRule {
   readonly reason?: string;
 }
 
-export interface IPermissionRulesService {
+export interface IAgentPermissionRulesService {
   readonly _serviceBrand: undefined;
   readonly rules: readonly PermissionRule[];
   readonly sessionApprovalRulePatterns: readonly string[];
@@ -55,5 +55,5 @@ export interface IPermissionRulesService {
   }>;
 }
 
-export const IPermissionRulesService =
-  createDecorator<IPermissionRulesService>('agentPermissionRulesService');
+export const IAgentPermissionRulesService =
+  createDecorator<IAgentPermissionRulesService>('agentPermissionRulesService');

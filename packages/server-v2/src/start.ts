@@ -22,8 +22,8 @@ import { installErrorHandler } from './error-handler';
 import { transformOpenApiDocument } from './openapi/transforms';
 import { resolveRequestId } from './request-id';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
-// Registers the real `node-pty` `ITerminalBackend`, overriding the
-// `NotImplementedTerminalBackend` stub from `agent-core-v2`. Side-effect import.
+// Registers the real `node-pty` `ISessionTerminalBackend`, overriding the
+// `SessionNotImplementedTerminalBackend` stub from `agent-core-v2`. Side-effect import.
 import './terminal/nodePtyTerminalBackend';
 import {
   createServerLogger,
@@ -52,7 +52,7 @@ export interface ServerStartOptions {
   readonly debugEndpoints?: boolean;
   /** When set, require `Authorization: Bearer <rpcToken>` on `/api/v2`. */
   readonly rpcToken?: string;
-  /** Extra scope seeds applied at bootstrap (e.g. a host-provided `IModelResolver`). */
+  /** Extra scope seeds applied at bootstrap (e.g. a host-provided `ISessionModelResolver`). */
   readonly seeds?: ScopeSeed;
 }
 

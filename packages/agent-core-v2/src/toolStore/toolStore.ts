@@ -15,7 +15,7 @@ export interface ToolStoreUpdate<K extends ToolStoreKey = ToolStoreKey> {
   readonly value: ToolStoreData[K];
 }
 
-export interface IToolStoreService extends ToolStore {
+export interface IAgentToolStoreService extends ToolStore {
   readonly _serviceBrand: undefined;
   data(): Readonly<Partial<ToolStoreData>>;
 
@@ -24,4 +24,4 @@ export interface IToolStoreService extends ToolStore {
   }>;
 }
 
-export const IToolStoreService = createDecorator<IToolStoreService>('agentToolStoreService');
+export const IAgentToolStoreService = createDecorator<IAgentToolStoreService>('agentToolStoreService');

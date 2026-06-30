@@ -17,7 +17,7 @@
  *
  * **Scope split**: v1 resolves a single `ISkillService` for both verbs. v2
  * splits the domain, so the route borrows two scoped services:
- *   - list     → `ISkillCatalog` (Session scope) — `catalog.listSkills()`.
+ *   - list     → `ISessionSkillCatalog` (Session scope) — `catalog.listSkills()`.
  *   - activate → `IAgentSkillService` (Agent scope, on the `main` agent) —
  *                renders the skill prompt and starts a turn with a
  *                `skill_activation` origin. The returned `Turn` handle is
@@ -41,7 +41,7 @@
  * **Action suffix**: the `:activate` POST endpoint uses the shared
  * `parseActionSuffix` helper (no bare form — `:activate` is the only action).
  *
- * **Anti-corruption**: route resolves `ISkillCatalog` / `IAgentSkillService`
+ * **Anti-corruption**: route resolves `ISessionSkillCatalog` / `IAgentSkillService`
  * via the accessor; no SDK imports.
  */
 
@@ -50,7 +50,7 @@ import {
   IAgentSkillService,
   ISessionIndex,
   ISessionLifecycleService,
-  ISkillCatalog,
+  ISessionSkillCatalog,
   isKimiError,
   type IScopeHandle,
   type Scope,
@@ -144,7 +144,7 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
         reply.send(resolved.envelope);
         return;
       }
-      const catalog = resolved.handle.accessor.get(ISkillCatalog);
+      const catalog = resolved.handle.accessor.get(ISessionSkillCatalog);
       await catalog.ready;
       const skills = catalog.catalog.listSkills().map(toProtocolSkill);
       reply.send(okEnvelope({ skills }, req.id));
@@ -221,7 +221,7 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
 // Projection — v2 `SkillDefinition` → protocol `SkillDescriptor` (see header).
 // ---------------------------------------------------------------------------
 
-type SkillElement = ReturnType<ISkillCatalog['catalog']['listSkills']>[number];
+type SkillElement = ReturnType<ISessionSkillCatalog['catalog']['listSkills']>[number];
 
 function toProtocolSkill(skill: SkillElement): SkillDescriptor {
   const base: SkillDescriptor = {

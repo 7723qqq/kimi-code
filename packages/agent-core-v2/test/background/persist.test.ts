@@ -53,7 +53,7 @@ beforeEach(async () => {
   await mkdir(sessionDir, { recursive: true });
 
   // `BackgroundTaskPersistence` is a plain (non-DI) helper constructed by
-  // `BackgroundService`, so the test builds it directly. Its `docs`
+  // `AgentBackgroundService`, so the test builds it directly. Its `docs`
   // collaborator (`IAtomicDocumentStore`) carries an `@IService` dependency, so
   // it is resolved by interface through the container rather than `new`ed.
   disposables = new DisposableStore();

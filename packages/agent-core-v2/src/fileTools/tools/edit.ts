@@ -16,7 +16,7 @@
  *
  * Ported from v1 (`packages/agent-core/src/tools/builtin/file/edit.ts`): the
  * `kaos.readText` / `kaos.writeText` calls become `fs.readText` /
- * `fs.writeText` against `IAgentFileSystem`, and `kaos.pathClass()` /
+ * `fs.writeText` against `ISessionAgentFileSystem`, and `kaos.pathClass()` /
  * `kaos.gethome()` come from `IKaos`.
  */
 
@@ -27,7 +27,7 @@ import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/_base/tools/support/rule-match';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 import { renderPrompt } from '#/_base/utils/render-prompt';
-import { IAgentFileSystem } from '#/agentFs';
+import { ISessionAgentFileSystem } from '#/agentFs';
 import { IKaos } from '#/kaos';
 import { ToolAccesses } from '#/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool';
@@ -77,7 +77,7 @@ export class EditTool implements BuiltinTool<EditInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EditInputSchema);
 
   constructor(
-    private readonly fs: IAgentFileSystem,
+    private readonly fs: ISessionAgentFileSystem,
     private readonly kaos: IKaos,
     private readonly workspace: WorkspaceConfig,
   ) {}

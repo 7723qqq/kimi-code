@@ -10,7 +10,7 @@ import { DisposableStore, type IDisposable } from './lifecycle';
 import { ServiceCollection } from './serviceCollection';
 
 export enum LifecycleScope {
-  Core = 0,
+  App = 0,
   Session = 1,
   Agent = 2,
 }
@@ -119,11 +119,11 @@ export class Scope implements IDisposable {
     };
   }
 
-  static createCore(options: ScopeOptions = {}): Scope {
-    const kind = LifecycleScope.Core;
+  static createApp(options: ScopeOptions = {}): Scope {
+    const kind = LifecycleScope.App;
     const collection = buildCollection(kind, options.extra);
     const instantiation = new InstantiationService(collection, true);
-    return new Scope(options.id ?? 'core', kind, instantiation);
+    return new Scope(options.id ?? 'app', kind, instantiation);
   }
 
   private _assertNotDisposed(): void {
@@ -174,6 +174,6 @@ export class Scope implements IDisposable {
   }
 }
 
-export function createCoreScope(options: ScopeOptions = {}): Scope {
-  return Scope.createCore(options);
+export function createAppScope(options: ScopeOptions = {}): Scope {
+  return Scope.createApp(options);
 }

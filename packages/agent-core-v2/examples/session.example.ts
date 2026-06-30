@@ -2,10 +2,10 @@
  * Scenario: the **session** slice — `session-lifecycle` + `session-metadata`.
  *
  * Shows the session as a durable, tracked entity and how the slice's domains
- * compose: `ISessionLifecycleService` (Core) creates Session child scopes —
+ * compose: `ISessionLifecycleService` (App) creates Session child scopes —
  * seeding each with its identity and storage and materializing its metadata —
  * and tracks the live set, while each session's `ISessionMetadata` (Session)
- * reads and updates the persisted document through the Core `storage` service.
+ * reads and updates the persisted document through the App `storage` service.
  * The host is the production `bootstrap` composition root (real file-backed
  * storage rooted under `.vitest-results/kimi-code-{timestamp}/`); only the
  * slice's barrels are imported, so nothing outside it is loaded.
@@ -33,7 +33,7 @@ function diskStorageSeed(homeDir: string): ScopeSeed {
 
 describe('session slice (session-lifecycle + session-metadata)', () => {
   let homeDir: string;
-  let core: Scope;
+  let app: Scope;
 
   beforeEach(() => {
     const resolved = process.env['KIMI_CODE_HOME'];
@@ -42,18 +42,18 @@ describe('session slice (session-lifecycle + session-metadata)', () => {
     }
     homeDir = resolved;
     mkdirSync(homeDir, { recursive: true });
-    core = bootstrap({}, [
+    app = bootstrap({}, [
       ...logSeed(resolveLoggingConfig({ homeDir, env: process.env })),
       ...diskStorageSeed(homeDir),
-    ]).core;
+    ]).app;
   });
   afterEach(() => {
-    core.dispose();
+    app.dispose();
   });
 
   test('creates, tracks, persists, and closes sessions', async () => {
     console.log('KIMI_CODE_HOME =', homeDir);
-    const lifecycle = core.accessor.get(ISessionLifecycleService);
+    const lifecycle = app.accessor.get(ISessionLifecycleService);
 
     const first = await lifecycle.create({ sessionId: 's1', workDir: homeDir });
     await lifecycle.create({ sessionId: 's2', workDir: homeDir });

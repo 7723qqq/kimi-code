@@ -15,7 +15,7 @@ import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  IBackgroundService,
+  IAgentBackgroundService,
   ProcessBackgroundTask,
 } from '#/background';
 import {
@@ -79,7 +79,7 @@ function controllableProcess(): {
 }
 
 function registerForeground(
-  background: IBackgroundService,
+  background: IAgentBackgroundService,
   proc: KaosProcess,
   command: string,
   description: string,
@@ -93,13 +93,13 @@ describe('BackgroundManager — foreground persistence', () => {
   let sessionDir: string;
   let persistence: ReturnType<typeof createBackgroundTaskPersistence>;
   let ctx: TestAgentContext;
-  let background: IBackgroundService;
+  let background: IAgentBackgroundService;
 
   beforeEach(() => {
     sessionDir = mkdtempSync(join(tmpdir(), 'bpm-fg-'));
     persistence = createBackgroundTaskPersistence(sessionDir);
     ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
-    background = ctx.get(IBackgroundService);
+    background = ctx.get(IAgentBackgroundService);
   });
 
   afterEach(async () => {

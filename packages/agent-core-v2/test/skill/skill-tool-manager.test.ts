@@ -5,12 +5,12 @@ import { join } from 'pathe';
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IContextMemory } from '#/contextMemory';
-import { IEventSink } from '#/eventSink';
-import { IProfileService } from '#/profile';
-import { IReplayBuilderService } from '#/replayBuilder';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentEventSinkService } from '#/eventSink';
+import { IAgentProfileService } from '#/profile';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
 import { InMemorySkillCatalog, type SkillCatalog, type SkillDefinition } from '#/skill';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,
@@ -56,13 +56,13 @@ function isRecordWithMessages(
 
 describe('ToolManager SkillTool registration', () => {
   let ctx: TestAgentContext;
-  let profile: IProfileService;
-  let tools: IToolRegistry;
+  let profile: IAgentProfileService;
+  let tools: IAgentToolRegistryService;
 
   beforeEach(() => {
     ctx = createTestAgent();
-    profile = ctx.get(IProfileService);
-    tools = ctx.get(IToolRegistry);
+    profile = ctx.get(IAgentProfileService);
+    tools = ctx.get(IAgentToolRegistryService);
   });
 
   afterEach(async () => {
@@ -83,16 +83,16 @@ describe('ToolManager SkillTool registration', () => {
 
 describe('ToolManager SkillTool registration with an empty model skill catalog', () => {
   let ctx: TestAgentContext;
-  let profile: IProfileService;
-  let tools: IToolRegistry;
+  let profile: IAgentProfileService;
+  let tools: IAgentToolRegistryService;
   let skills: InMemorySkillCatalog;
 
   beforeEach(() => {
     skills = new InMemorySkillCatalog();
     skills.register(makeSkill('private', { disableModelInvocation: true }));
     ctx = createTestAgent(skillServices(skills));
-    profile = ctx.get(IProfileService);
-    tools = ctx.get(IToolRegistry);
+    profile = ctx.get(IAgentProfileService);
+    tools = ctx.get(IAgentToolRegistryService);
   });
 
   afterEach(async () => {
@@ -113,8 +113,8 @@ describe('ToolManager SkillTool registration with an empty model skill catalog',
 
 describe('ToolManager SkillTool registration with inline skills', () => {
   let ctx: TestAgentContext;
-  let profile: IProfileService;
-  let tools: IToolRegistry;
+  let profile: IAgentProfileService;
+  let tools: IAgentToolRegistryService;
   let skills: InMemorySkillCatalog;
 
   beforeEach(() => {
@@ -122,8 +122,8 @@ describe('ToolManager SkillTool registration with inline skills', () => {
     skills.register(makeSkill('review'));
     skills.register(makeSkill('flow-only', { type: 'flow' }));
     ctx = createTestAgent(skillServices(skills));
-    profile = ctx.get(IProfileService);
-    tools = ctx.get(IToolRegistry);
+    profile = ctx.get(IAgentProfileService);
+    tools = ctx.get(IAgentToolRegistryService);
   });
 
   afterEach(async () => {
@@ -150,8 +150,8 @@ describe('ToolManager SkillTool registration with inline skills', () => {
 
 describe('ToolManager SkillTool registration with a structural catalog', () => {
   let ctx: TestAgentContext;
-  let profile: IProfileService;
-  let tools: IToolRegistry;
+  let profile: IAgentProfileService;
+  let tools: IAgentToolRegistryService;
   let skills: SkillCatalog;
 
   beforeEach(() => {
@@ -166,8 +166,8 @@ describe('ToolManager SkillTool registration with a structural catalog', () => {
       getModelSkillListing: () => '- review: desc for review',
     };
     ctx = createTestAgent(skillServices(skills));
-    profile = ctx.get(IProfileService);
-    tools = ctx.get(IToolRegistry);
+    profile = ctx.get(IAgentProfileService);
+    tools = ctx.get(IAgentToolRegistryService);
   });
 
   afterEach(async () => {
@@ -188,8 +188,8 @@ describe('ToolManager SkillTool registration with a structural catalog', () => {
 
 describe('ToolManager SkillTool wire behavior', () => {
   let ctx: TestAgentContext;
-  let context: IContextMemory;
-  let profile: IProfileService;
+  let context: IAgentContextMemoryService;
+  let profile: IAgentProfileService;
   let persistence: InMemoryWireRecordPersistence;
   let skills: InMemorySkillCatalog;
 
@@ -201,8 +201,8 @@ describe('ToolManager SkillTool wire behavior', () => {
       skillServices(skills),
       wireRecordPersistenceServices(persistence),
     );
-    context = ctx.get(IContextMemory);
-    profile = ctx.get(IProfileService);
+    context = ctx.get(IAgentContextMemoryService);
+    profile = ctx.get(IAgentProfileService);
     profile.update({ activeToolNames: ['Skill'] });
   });
 
@@ -278,8 +278,8 @@ describe('ToolManager SkillTool wire behavior', () => {
 
 describe('ToolManager SkillTool restore behavior', () => {
   let ctx: TestAgentContext;
-  let context: IContextMemory;
-  let replay: IReplayBuilderService;
+  let context: IAgentContextMemoryService;
+  let replay: IAgentReplayBuilderService;
   let skills: InMemorySkillCatalog;
   let emit: ReturnType<typeof vi.spyOn>;
   let track: ReturnType<typeof vi.spyOn>;
@@ -293,9 +293,9 @@ describe('ToolManager SkillTool restore behavior', () => {
       skillServices(skills),
       telemetryServices(telemetry),
     );
-    context = ctx.get(IContextMemory);
-    const events = ctx.get(IEventSink);
-    replay = ctx.get(IReplayBuilderService);
+    context = ctx.get(IAgentContextMemoryService);
+    const events = ctx.get(IAgentEventSinkService);
+    replay = ctx.get(IAgentReplayBuilderService);
     emit = vi.spyOn(events, 'emit');
   });
 
@@ -366,9 +366,9 @@ describe('ToolManager SkillTool restore behavior', () => {
 
 describe('ToolManager SkillTool workspace refresh', () => {
   let ctx: TestAgentContext;
-  let profile: IProfileService;
+  let profile: IAgentProfileService;
   let tmp: string;
-  let tools: IToolRegistry;
+  let tools: IAgentToolRegistryService;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), 'kimi-core-skill-tool-refresh-'));
@@ -394,8 +394,8 @@ describe('ToolManager SkillTool workspace refresh', () => {
       kaosServices(createFakeKaos().withCwd(workDir)),
       skillServices(skills),
     );
-    profile = ctx.get(IProfileService);
-    tools = ctx.get(IToolRegistry);
+    profile = ctx.get(IAgentProfileService);
+    tools = ctx.get(IAgentToolRegistryService);
     profile.update({ activeToolNames: ['Skill'] });
   });
 

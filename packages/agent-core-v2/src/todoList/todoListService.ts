@@ -12,24 +12,24 @@ import {
   TODO_LIST_REMINDER_VARIANT,
   todoListStaleReminder,
 } from './todoListReminder';
-import { IContextMemory } from '#/contextMemory';
-import { IContextInjector } from '../contextInjector';
-import { IProfileService } from '#/profile';
-import { IToolRegistry } from '#/toolRegistry';
-import { IToolStoreService } from '#/toolStore';
-import { ITodoListService } from './todoList';
+import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentContextInjectorService } from '../contextInjector';
+import { IAgentProfileService } from '#/profile';
+import { IAgentToolRegistryService } from '#/toolRegistry';
+import { IAgentToolStoreService } from '#/toolStore';
+import { IAgentTodoListService } from './todoList';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-export class TodoListService extends Disposable implements ITodoListService {
+export class AgentTodoListService extends Disposable implements IAgentTodoListService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IContextMemory private readonly context: IContextMemory,
-    @IProfileService private readonly profile: IProfileService,
-    @IToolStoreService private readonly toolStore: IToolStoreService,
-    @IToolRegistry toolRegistry: IToolRegistry,
-    @IContextInjector dynamicInjector: IContextInjector,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentToolStoreService private readonly toolStore: IAgentToolStoreService,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
+    @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
   ) {
     super();
     this._register(toolRegistry.register(new TodoListTool(toolStore)));
@@ -53,8 +53,8 @@ export class TodoListService extends Disposable implements ITodoListService {
 
 registerScopedService(
   LifecycleScope.Agent,
-  ITodoListService,
-  TodoListService,
+  IAgentTodoListService,
+  AgentTodoListService,
   InstantiationType.Eager,
   'todoList',
 );

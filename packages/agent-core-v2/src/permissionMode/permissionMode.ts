@@ -8,7 +8,7 @@ export interface PermissionModeChangedContext {
   readonly previousMode: PermissionMode;
 }
 
-export interface IPermissionModeService {
+export interface IAgentPermissionModeService {
   readonly _serviceBrand: undefined;
   readonly mode: PermissionMode;
   setMode(mode: PermissionMode): void;
@@ -18,5 +18,5 @@ export interface IPermissionModeService {
   }>;
 }
 
-export const IPermissionModeService =
-  createDecorator<IPermissionModeService>('agentPermissionModeService');
+export const IAgentPermissionModeService =
+  createDecorator<IAgentPermissionModeService>('agentPermissionModeService');

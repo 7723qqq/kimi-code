@@ -15,7 +15,7 @@
  * representations are normalized to epoch ms.
  *
  * This is the local-deployment backend of `ISessionIndex`; a server deployment
- * would substitute a database-backed `DbSessionIndex`. Bound at Core scope.
+ * would substitute a database-backed `DbSessionIndex`. Bound at App scope.
  */
 
 import { relative } from 'pathe';
@@ -147,7 +147,7 @@ export class FileSessionIndex implements ISessionIndex {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   ISessionIndex,
   FileSessionIndex,
   InstantiationType.Delayed,

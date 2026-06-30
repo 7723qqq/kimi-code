@@ -7,18 +7,18 @@ import {
   Disposable,
 } from "#/_base/di";
 import { ErrorCodes, KimiError } from "#/errors";
-import { IContextInjector } from '../contextInjector';
-import { IEventSink } from '../eventSink';
-import { IPermissionModeService } from '#/permissionMode';
-import { IReplayBuilderService } from '#/replayBuilder';
-import { ISystemReminderService } from '#/systemReminder';
+import { IAgentContextInjectorService } from '../contextInjector';
+import { IAgentEventSinkService } from '../eventSink';
+import { IAgentPermissionModeService } from '#/permissionMode';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
+import { IAgentSystemReminderService } from '#/systemReminder';
 import type { TelemetryProperties } from '#/telemetry';
 import { ITelemetryService } from '#/telemetry';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import type { WireRecord } from '#/wireRecord';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentWireRecordService } from '#/wireRecord';
 import {
-  IGoalService,
+  IAgentGoalService,
   type GoalReasonInput,
 } from './goal';
 import {
@@ -94,21 +94,21 @@ interface GoalState {
   terminalReason?: string;
 }
 
-export class GoalService extends Disposable implements IGoalService {
+export class AgentGoalService extends Disposable implements IAgentGoalService {
   declare readonly _serviceBrand: undefined;
 
   private state: GoalState | undefined;
 
   constructor(
     private readonly options: GoalServiceOptions = {},
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventSink private readonly events: IEventSink,
-    @ISystemReminderService private readonly reminders: ISystemReminderService,
-    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
+    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IContextInjector private readonly dynamicInjector: IContextInjector,
-    @IToolRegistry toolRegistry: IToolRegistry,
-    @IPermissionModeService private readonly permissionMode: IPermissionModeService,
+    @IAgentContextInjectorService private readonly dynamicInjector: IAgentContextInjectorService,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
+    @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
   ) {
     super();
     this._register(
@@ -595,8 +595,8 @@ function normalizeCompletionCriterion(value: string | undefined): string | undef
 
 registerScopedService(
   LifecycleScope.Agent,
-  IGoalService,
-  GoalService,
+  IAgentGoalService,
+  AgentGoalService,
   InstantiationType.Delayed,
   'goal',
 );

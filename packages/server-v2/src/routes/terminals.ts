@@ -3,9 +3,9 @@
  *
  * Mirrors `packages/server/src/routes/terminals.ts` path-for-path and
  * schema-for-schema so existing v1 clients keep working against server-v2.
- * Backed by the v2 Session-scoped `ITerminalService`
+ * Backed by the v2 Session-scoped `ISessionTerminalService`
  * (`agent-core-v2/src/terminal`): the route resolves the session from the URL,
- * then dispatches to the matching `ITerminalService` method. The wire schema is
+ * then dispatches to the matching `ISessionTerminalService` method. The wire schema is
  * reused from `@moonshot-ai/protocol`.
  *
  * The v2 service is Session-scoped (one instance owns only its own session's
@@ -22,7 +22,7 @@
 import {
   ErrorCodes,
   ISessionLifecycleService,
-  ITerminalService,
+  ISessionTerminalService,
   isKimiError,
   KimiError,
   type Scope,
@@ -76,16 +76,16 @@ const sessionAndTailParamSchema = z.object({
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 /**
- * Resolve the session's `ITerminalService` from the URL session id. Throws a
+ * Resolve the session's `ISessionTerminalService` from the URL session id. Throws a
  * coded `session.not_found` when the session is not live — terminals are
  * inherently live PTY state, so a persisted-but-not-live session is `40401`.
  */
-function resolveTerminal(core: Scope, sessionId: string): ITerminalService {
+function resolveTerminal(core: Scope, sessionId: string): ISessionTerminalService {
   const session = core.accessor.get(ISessionLifecycleService).get(sessionId);
   if (session === undefined) {
     throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
   }
-  return session.accessor.get(ITerminalService);
+  return session.accessor.get(ISessionTerminalService);
 }
 
 export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): void {
@@ -237,7 +237,7 @@ function sendMappedError(
         return;
     }
   }
-  // `IWorkspaceContext.assertAllowed` throws a plain (uncoded) Error when a cwd
+  // `ISessionWorkspaceContext.assertAllowed` throws a plain (uncoded) Error when a cwd
   // escapes the workspace — map it to the same wire code v1 uses for path
   // escapes. TODO: push a coded error into `assertAllowed` so this branch can
   // be folded into the `isKimiError` switch above.

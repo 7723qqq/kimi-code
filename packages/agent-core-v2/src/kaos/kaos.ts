@@ -3,13 +3,13 @@
  *
  * Defines `IKaos`, the Agent's execution environment (cwd, env layers, the
  * OS/shell probe, and the backend handle the fs/process domains delegate to),
- * plus `IKaosFactory`, the Core factory that builds an `IKaos` for a session
+ * plus `IKaosFactory`, the App factory that builds an `IKaos` for a session
  * (local today; ssh/container behind the same factory later).
  *
  * Temporary: this domain wraps the `@moonshot-ai/kaos` package and re-exports
  * a few of its data types so business code imports them from `#/kaos` instead
  * of the package. `IKaos` is seeded into each Session scope by the composition
- * root; `IKaosFactory` is bound at Core scope.
+ * root; `IKaosFactory` is bound at App scope.
  */
 
 import type { Environment, Kaos } from '@moonshot-ai/kaos';
@@ -32,8 +32,8 @@ export interface IKaos {
   readonly osEnv: Environment;
   /**
    * The backend fs/process domains delegate to. Temporary — owned by this
-   * environment; business code should reach for `IAgentFileSystem` /
-   * `IProcessRunner` instead of touching this directly.
+   * environment; business code should reach for `ISessionAgentFileSystem` /
+   * `ISessionProcessRunner` instead of touching this directly.
    */
   readonly backend: Kaos;
 

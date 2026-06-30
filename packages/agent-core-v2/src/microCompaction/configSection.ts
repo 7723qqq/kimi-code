@@ -2,7 +2,7 @@
  * `microCompaction` domain (L4) - micro-compaction config-section schema.
  *
  * Owns the `[micro_compaction]` tuning section consumed by
- * `MicroCompactionService`. Registered into `IConfigRegistry` by the
+ * `AgentMicroCompactionService`. Registered into `IConfigRegistry` by the
  * micro-compaction service on construction.
  */
 

@@ -2,7 +2,7 @@ import { createDecorator } from "#/_base/di";
 
 import type { ContextMessage, PromptOrigin } from '#/contextMemory';
 
-export interface ISystemReminderService {
+export interface IAgentSystemReminderService {
   readonly _serviceBrand: undefined;
 
   /**
@@ -18,4 +18,4 @@ export interface ISystemReminderService {
   removeLastReminder(filter: (message: ContextMessage) => boolean): boolean;
 }
 
-export const ISystemReminderService = createDecorator<ISystemReminderService>('agentSystemReminderService');
+export const IAgentSystemReminderService = createDecorator<IAgentSystemReminderService>('agentSystemReminderService');

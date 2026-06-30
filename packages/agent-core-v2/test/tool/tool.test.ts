@@ -4,11 +4,11 @@ import type { Kaos, KaosProcess } from '@moonshot-ai/kaos';
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IContextMemory } from '#/contextMemory';
+import { IAgentContextMemoryService } from '#/contextMemory';
 import { HookEngine } from '#/externalHooks/engine';
-import { IProfileService } from '#/profile';
+import { IAgentProfileService } from '#/profile';
 import type { SessionSubagentHost } from '#/subagentHost';
-import { IToolRegistry } from '#/toolRegistry';
+import { IAgentToolRegistryService } from '#/toolRegistry';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import {
   createCommandKaos,
@@ -23,10 +23,10 @@ import { executeTool } from '../tools/fixtures/execute-tool';
 const signal = new AbortController().signal;
 
 describe('Agent tools', () => {
-  let context: IContextMemory;
+  let context: IAgentContextMemoryService;
   let ctx: TestAgentContext;
-  let profile: IProfileService;
-  let tools: IToolRegistry;
+  let profile: IAgentProfileService;
+  let tools: IAgentToolRegistryService;
 
   afterEach(async () => {
     try {
@@ -68,8 +68,8 @@ describe('Agent tools', () => {
         kaosServices(createFakeKaos({ execWithEnv })),
         externalHookServices(hookEngine),
       );
-      context = ctx.get(IContextMemory);
-      profile = ctx.get(IProfileService);
+      context = ctx.get(IAgentContextMemoryService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Bash'] });
     });
 
@@ -128,7 +128,7 @@ describe('Agent tools', () => {
         kaosServices(createCommandKaos('hook-output')),
         externalHookServices(hookEngine),
       );
-      profile = ctx.get(IProfileService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Bash'] });
       await ctx.rpc.setPermission({ mode: 'auto' });
     });
@@ -178,7 +178,7 @@ describe('Agent tools', () => {
         kaosServices(createFailingCommandKaos('hook-output')),
         externalHookServices(hookEngine),
       );
-      profile = ctx.get(IProfileService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Bash'] });
       await ctx.rpc.setPermission({ mode: 'auto' });
     });
@@ -199,7 +199,7 @@ describe('Agent tools', () => {
   describe('Bash tool call start event', () => {
     beforeEach(async () => {
       ctx = createTestAgent(kaosServices(createCommandKaos('ok')));
-      profile = ctx.get(IProfileService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Bash'] });
       await ctx.rpc.setPermission({ mode: 'yolo' });
     });
@@ -237,7 +237,7 @@ describe('Agent tools', () => {
         resume: vi.fn(),
       } as unknown as SessionSubagentHost;
       ctx = createTestAgent(subagentHostServices(subagentHost));
-      profile = ctx.get(IProfileService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Agent'] });
     });
 
@@ -336,7 +336,7 @@ describe('Agent tools', () => {
   describe('active builtin tool set', () => {
     beforeEach(() => {
       ctx = createTestAgent();
-      profile = ctx.get(IProfileService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Write', 'Bash'] });
     });
 
@@ -357,8 +357,8 @@ describe('Agent tools', () => {
   describe('Bash background mode', () => {
     beforeEach(() => {
       ctx = createTestAgent();
-      profile = ctx.get(IProfileService);
-      tools = ctx.get(IToolRegistry);
+      profile = ctx.get(IAgentProfileService);
+      tools = ctx.get(IAgentToolRegistryService);
       profile.update({ activeToolNames: ['Bash'] });
     });
 
@@ -393,7 +393,7 @@ describe('Agent tools', () => {
   describe('AgentSwarm visibility', () => {
     beforeEach(() => {
       ctx = createTestAgent();
-      profile = ctx.get(IProfileService);
+      profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['AgentSwarm'] });
     });
 

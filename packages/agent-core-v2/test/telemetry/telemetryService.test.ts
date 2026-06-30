@@ -209,7 +209,7 @@ describe('ITelemetryService (scoped)', () => {
   beforeEach(() => {
     _clearScopedRegistryForTests();
     registerScopedService(
-      LifecycleScope.Core,
+      LifecycleScope.App,
       ITelemetryService,
       TelemetryService,
       InstantiationType.Eager,
@@ -217,9 +217,9 @@ describe('ITelemetryService (scoped)', () => {
     );
   });
 
-  it('resolves from the Core scope', () => {
+  it('resolves from the App scope', () => {
     const host = createScopedTestHost();
-    const svc = host.core.accessor.get(ITelemetryService);
+    const svc = host.app.accessor.get(ITelemetryService);
     expect(() => svc.track('scoped')).not.toThrow();
     host.dispose();
   });

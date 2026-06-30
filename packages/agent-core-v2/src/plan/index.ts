@@ -1,6 +1,6 @@
 /**
  * `plan` domain barrel — re-exports the plan contract (`plan`) and its scoped
- * service (`planService`). Importing this barrel registers the `IPlanService`
+ * service (`planService`). Importing this barrel registers the `IAgentPlanService`
  * binding into the scope registry.
  */
 

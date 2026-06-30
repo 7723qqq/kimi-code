@@ -3,7 +3,7 @@ import { createDecorator } from "#/_base/di";
 import type { Hooks } from '#/hooks';
 import type { ContextMessage } from './types';
 
-export interface IContextMemory {
+export interface IAgentContextMemoryService {
   readonly _serviceBrand: undefined;
   get(): readonly ContextMessage[];
   splice(
@@ -23,4 +23,4 @@ export interface IContextMemory {
   }>;
 }
 
-export const IContextMemory = createDecorator<IContextMemory>('agentContextMemoryService');
+export const IAgentContextMemoryService = createDecorator<IAgentContextMemoryService>('agentContextMemoryService');

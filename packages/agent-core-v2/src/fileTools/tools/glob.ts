@@ -10,7 +10,7 @@
  * Ported from v1 (`packages/agent-core/src/tools/builtin/file/glob.ts`) onto
  * the v2 domains:
  *   - Search root: v1 `kaos.glob(root, pattern)` (async generator) maps to
- *     `fs.withCwd(root).glob(pattern)`, since v2 `IAgentFileSystem.glob`
+ *     `fs.withCwd(root).glob(pattern)`, since v2 `ISessionAgentFileSystem.glob`
  *     searches from `fs.cwd` and returns a collected `Promise<readonly
  *     string[]>`. kaos yields absolute paths, so no further joining is needed.
  *   - Path safety / home expansion / path class: `resolvePathAccessPath` over
@@ -21,7 +21,7 @@
  *     instead of a misleading "No matches found".
  *
  * Documented deviation from v1: results are no longer sorted by modification
- * time. v2 `IAgentFileSystem.stat` exposes `{ isFile, isDirectory, size }`
+ * time. v2 `ISessionAgentFileSystem.stat` exposes `{ isFile, isDirectory, size }`
  * only — it carries no mtime — so matches are returned in walk order (the
  * order `fs.glob` yields them, grouped by expanded sub-pattern). The cap,
  * dedup, truncation markers, and `include_dirs` filtering are unchanged.
@@ -34,7 +34,7 @@
 import { normalize } from 'pathe';
 import { z } from 'zod';
 
-import { IAgentFileSystem } from '#/agentFs';
+import { ISessionAgentFileSystem } from '#/agentFs';
 import { IKaos } from '#/kaos';
 import { ToolAccesses } from '#/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool';
@@ -107,7 +107,7 @@ export class GlobTool implements BuiltinTool<GlobInput> {
   readonly description: string;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GlobInputSchema);
   constructor(
-    private readonly fs: IAgentFileSystem,
+    private readonly fs: ISessionAgentFileSystem,
     private readonly kaos: IKaos,
     private readonly workspace: WorkspaceConfig,
   ) {

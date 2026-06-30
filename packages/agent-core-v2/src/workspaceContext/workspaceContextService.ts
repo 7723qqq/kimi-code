@@ -1,5 +1,5 @@
 /**
- * `workspaceContext` domain (L1) — `IWorkspaceContext` implementation.
+ * `workspaceContext` domain (L1) — `ISessionWorkspaceContext` implementation.
  *
  * Holds the session work directory and additional dirs, resolves relative
  * paths, and checks whether a path falls within the workspace. Bound at
@@ -12,9 +12,9 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IKaos } from '#/kaos';
 
-import { IWorkspaceContext, type PathAccessOperation } from './workspaceContext';
+import { ISessionWorkspaceContext, type PathAccessOperation } from './workspaceContext';
 
-export class WorkspaceContextService implements IWorkspaceContext {
+export class SessionWorkspaceContextService implements ISessionWorkspaceContext {
   declare readonly _serviceBrand: undefined;
   private _workDir: string;
   private _additionalDirs: string[] = [];
@@ -71,8 +71,8 @@ export class WorkspaceContextService implements IWorkspaceContext {
 
 registerScopedService(
   LifecycleScope.Session,
-  IWorkspaceContext,
-  WorkspaceContextService,
+  ISessionWorkspaceContext,
+  SessionWorkspaceContextService,
   InstantiationType.Delayed,
   'workspaceContext',
 );

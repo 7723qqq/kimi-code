@@ -1,6 +1,6 @@
 /**
- * `contextMemory` test stubs — shared doubles for `IContextMemory` and its
- * collaborators (`IWireRecord`, `IReplayBuilderService`).
+ * `contextMemory` test stubs — shared doubles for `IAgentContextMemoryService` and its
+ * collaborators (`IAgentWireRecordService`, `IAgentReplayBuilderService`).
  *
  * Lives under `test/` (not `src/`) so test-support code stays out of the
  * production tree. Import from a relative path (`./stubs` or
@@ -11,17 +11,17 @@ import { toDisposable } from '#/_base/di';
 import type { ServiceRegistration } from '#/_base/di/test';
 import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';
-import { ensureMessageId, IContextMemory, type ContextMessage } from '#/contextMemory';
-import { IReplayBuilderService } from '#/replayBuilder';
-import { IWireRecord } from '#/wireRecord';
+import { ensureMessageId, IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
+import { IAgentWireRecordService } from '#/wireRecord';
 
 /**
- * A no-op `IWireRecord`. `register` returns a disposable so services that
+ * A no-op `IAgentWireRecordService`. `register` returns a disposable so services that
  * `_register(wireRecord.register(...))` in their constructor can be disposed
  * cleanly; `append` is a no-op (in-memory history is driven by `applySplice`).
  */
-export function stubWireRecord(): IWireRecord {
-  const hooks = createHooks(['onRestoredRecord', 'onResumeEnded']) as IWireRecord['hooks'];
+export function stubWireRecord(): IAgentWireRecordService {
+  const hooks = createHooks(['onRestoredRecord', 'onResumeEnded']) as IAgentWireRecordService['hooks'];
   return {
     _serviceBrand: undefined,
     restoring: null,
@@ -35,8 +35,8 @@ export function stubWireRecord(): IWireRecord {
   };
 }
 
-/** A no-op `IReplayBuilderService` — every mutator is a no-op. */
-export function stubReplayBuilder(): IReplayBuilderService {
+/** A no-op `IAgentReplayBuilderService` — every mutator is a no-op. */
+export function stubReplayBuilder(): IAgentReplayBuilderService {
   return {
     _serviceBrand: undefined,
     postRestoring: false,
@@ -49,14 +49,14 @@ export function stubReplayBuilder(): IReplayBuilderService {
   };
 }
 
-export interface StubContextMemory extends IContextMemory {
+export interface StubContextMemory extends IAgentContextMemoryService {
   /** The live backing history, exposed so tests can inspect splices. */
   readonly messages: readonly ContextMessage[];
 }
 
 /**
- * An in-memory `IContextMemory`. `spliceHistory` mutates the backing history
- * and fires `onSpliced`, mirroring `ContextMemoryService.applySplice` enough
+ * An in-memory `IAgentContextMemoryService`. `spliceHistory` mutates the backing history
+ * and fires `onSpliced`, mirroring `AgentContextMemoryService.applySplice` enough
  * for collaborators (e.g. `DynamicInjectorService`) to react to splices.
  */
 export function stubContextMemory(): StubContextMemory {
@@ -92,13 +92,13 @@ export function stubContextMemory(): StubContextMemory {
 }
 
 /**
- * Register the default collaborators consumed by `ContextMemoryService`
- * (`IWireRecord`, `IReplayBuilderService`) and an in-memory `IContextMemory`.
- * Tests that exercise the real `ContextMemoryService` should override
- * `IContextMemory` via `additionalServices`.
+ * Register the default collaborators consumed by `AgentContextMemoryService`
+ * (`IAgentWireRecordService`, `IAgentReplayBuilderService`) and an in-memory `IAgentContextMemoryService`.
+ * Tests that exercise the real `AgentContextMemoryService` should override
+ * `IAgentContextMemoryService` via `additionalServices`.
  */
 export function registerContextMemoryServices(reg: ServiceRegistration): void {
-  reg.defineInstance(IWireRecord, stubWireRecord());
-  reg.defineInstance(IReplayBuilderService, stubReplayBuilder());
-  reg.defineInstance(IContextMemory, stubContextMemory());
+  reg.defineInstance(IAgentWireRecordService, stubWireRecord());
+  reg.defineInstance(IAgentReplayBuilderService, stubReplayBuilder());
+  reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
 }

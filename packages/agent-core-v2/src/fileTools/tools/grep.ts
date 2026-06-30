@@ -2,7 +2,7 @@
  * `fileTools` domain — GrepTool, the model's content search tool.
  *
  * Searches file contents with ripgrep-style regular expressions, delegating
- * the actual scan to the `agentFs` domain's `IFsService.grep` (which is
+ * the actual scan to the `agentFs` domain's `ISessionFsService.grep` (which is
  * workspace-confined, `rg`-backed when available, and falls back to a Node
  * walker otherwise, honoring gitignore and glob filters). The tool maps the
  * model-facing input args onto an `FsGrepRequest`, then renders the
@@ -14,12 +14,12 @@
  * Read/Write/Edit/Grep: an explicit absolute path outside the workspace is
  * allowed for the access declaration, while a relative path that escapes the
  * workspace is rejected. The search itself is confined to the workspace by
- * `IFsService`.
+ * `ISessionFsService`.
  *
  * Ported from v1 (`packages/agent-core/src/tools/builtin/file/grep.ts`). The
  * v1 tool shelled out to `rg` directly through Kaos and parsed its output;
- * that work now lives in `IFsService.grep`, so this tool only maps arguments
- * and renders results. A few v1 behaviors that `IFsService.grep` does not
+ * that work now lives in `ISessionFsService.grep`, so this tool only maps arguments
+ * and renders results. A few v1 behaviors that `ISessionFsService.grep` does not
  * expose (mtime ordering of `files_with_matches`, multiline matching, and
  * searching a path outside the workspace) are intentionally not replicated.
  */
@@ -27,7 +27,7 @@
 import type { FsGrepMatch, FsGrepRequest, FsGrepResponse } from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
-import { IFsService } from '#/agentFs';
+import { ISessionFsService } from '#/agentFs';
 import { ErrorCodes, isKimiError } from '#/errors';
 import { IKaos } from '#/kaos';
 import { ToolAccesses } from '#/tool';
@@ -147,7 +147,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
   readonly description = GREP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GrepInputSchema);
   constructor(
-    private readonly fs: IFsService,
+    private readonly fs: ISessionFsService,
     private readonly kaos: IKaos,
     private readonly workspace: WorkspaceConfig,
   ) {}
@@ -265,7 +265,7 @@ function renderGrepResponse(args: GrepInput, response: FsGrepResponse): Executab
   const mode: GrepMode = args.output_mode ?? 'files_with_matches';
 
   // Post-filter sensitive files, mirroring v1's post-rg sensitive filter.
-  // `IFsService.grep` searches the whole workspace and does not exclude
+  // `ISessionFsService.grep` searches the whole workspace and does not exclude
   // sensitive paths, so the tool drops them before rendering.
   const filteredSensitive: string[] = [];
   const keptFiles = response.files.filter((file) => {

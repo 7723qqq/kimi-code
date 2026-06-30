@@ -46,7 +46,7 @@ export interface SessionSubagentHost {
 export type QueuedSubagentRunResult<T = unknown> = SubagentResult<T>;
 export type { QueuedSubagentTask };
 
-export interface ISubagentHost {
+export interface ISessionSubagentHost {
   readonly _serviceBrand: undefined;
   getSwarmItem(agentId: string): string | undefined;
   startBtw(): Promise<string>;
@@ -59,4 +59,4 @@ export interface ISubagentHost {
 }
 
 
-export const ISubagentHost = createDecorator<ISubagentHost>('agentSubagentHostService');
+export const ISessionSubagentHost = createDecorator<ISessionSubagentHost>('sessionSubagentHost');

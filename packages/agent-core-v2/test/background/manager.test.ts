@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AgentBackgroundTask,
-  IBackgroundService,
+  IAgentBackgroundService,
   ProcessBackgroundTask,
   type BackgroundTaskInfo,
 } from '#/background';
@@ -59,13 +59,13 @@ function createBackgroundManager(options: {
   const ctx = createTestAgent(...overrides);
   return {
     ctx,
-    manager: ctx.get(IBackgroundService) as BackgroundServiceTestManager,
+    manager: ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager,
     persistence,
   };
 }
 
 function registerProcess(
-  manager: IBackgroundService,
+  manager: IAgentBackgroundService,
   proc: KaosProcess,
   command: string,
   description: string,
@@ -106,7 +106,7 @@ function agentTask(
 }
 
 async function waitForTerminal(
-  manager: IBackgroundService,
+  manager: IAgentBackgroundService,
   taskId: string,
   timeoutMs = 30_000,
 ): Promise<BackgroundTaskInfo | undefined> {
@@ -128,7 +128,7 @@ async function waitForTerminal(
 }
 
 async function waitForOutput(
-  manager: IBackgroundService,
+  manager: IAgentBackgroundService,
   taskId: string,
   expected: string,
 ): Promise<void> {

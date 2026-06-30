@@ -3,7 +3,7 @@
  *
  * Filters entries by the configured `LogLevel` and writes them to the bound
  * `ILogWriterService`; provides the console and in-memory `ILogWriterService` implementations.
- * Bound at Core scope.
+ * Bound at App scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -178,14 +178,14 @@ export class LogService extends BoundLogger implements ILogService {
 }
 
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   ILogWriterService,
   ConsoleLogWriterService,
   InstantiationType.Eager,
   'log',
 );
 registerScopedService(
-  LifecycleScope.Core,
+  LifecycleScope.App,
   ILogService,
   LogService,
   InstantiationType.Eager,

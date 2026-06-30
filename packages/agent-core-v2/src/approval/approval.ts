@@ -2,7 +2,7 @@
  * `approval` domain (L7) — session-scope approval broker.
  *
  * Defines the public contract of approval brokering: the `ApprovalRequest` /
- * `ApprovalDecision` models and the `IApprovalService` used to request a
+ * `ApprovalDecision` models and the `ISessionApprovalService` used to request a
  * decision, resolve it, and list pending approvals. Session-scoped — one
  * broker per session.
  */
@@ -30,7 +30,7 @@ export interface ApprovalResponse {
   readonly selectedLabel?: string;
 }
 
-export interface IApprovalService {
+export interface ISessionApprovalService {
   readonly _serviceBrand: undefined;
   request(req: ApprovalRequest): Promise<ApprovalResponse>;
   /**
@@ -43,5 +43,5 @@ export interface IApprovalService {
   listPending(): readonly ApprovalRequest[];
 }
 
-export const IApprovalService: ServiceIdentifier<IApprovalService> =
-  createDecorator<IApprovalService>('approvalService');
+export const ISessionApprovalService: ServiceIdentifier<ISessionApprovalService> =
+  createDecorator<ISessionApprovalService>('sessionApprovalService');

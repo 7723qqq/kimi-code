@@ -4,7 +4,7 @@
  *
  * Owns the `[[hooks]]` configuration section (external hook definitions),
  * including the snake_case ↔ camelCase TOML transforms for each hook entry.
- * Registered into `IConfigRegistry` by `ExternalHooksService` on construction,
+ * Registered into `IConfigRegistry` by `AgentExternalHooksService` on construction,
  * so the `config` domain never imports this domain's types.
  */
 

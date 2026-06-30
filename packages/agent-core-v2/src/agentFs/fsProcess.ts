@@ -1,8 +1,8 @@
 /**
- * `agentFs` domain (L2) — `runCommand` helper over `IProcessRunner`.
+ * `agentFs` domain (L2) — `runCommand` helper over `ISessionProcessRunner`.
  *
  * Collects a child process's full stdout/stderr and exit code through the
- * Agent's backend-pluggable `IProcessRunner`, with optional `AbortSignal`
+ * Agent's backend-pluggable `ISessionProcessRunner`, with optional `AbortSignal`
  * support (the caller decides timeout semantics — git has none, `gh pr view`
  * uses 5s, `rg` grep uses 30s). Kept separate from `fsService` so it can be
  * unit-tested with a fake runner.
@@ -10,7 +10,7 @@
 
 import { type Readable } from 'node:stream';
 
-import { type IProcess, type IProcessRunner } from '#/process';
+import { type IProcess, type ISessionProcessRunner } from '#/process';
 
 export interface RunResult {
   readonly exitCode: number;
@@ -26,7 +26,7 @@ export interface RunCommandOptions {
 }
 
 export async function runCommand(
-  runner: IProcessRunner,
+  runner: ISessionProcessRunner,
   args: readonly string[],
   options: RunCommandOptions = {},
 ): Promise<RunResult> {

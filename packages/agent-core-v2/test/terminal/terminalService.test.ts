@@ -12,11 +12,11 @@ import {
   type TerminalFrame,
   type TerminalProcess,
   type TerminalSpawnOptions,
-  ITerminalBackend,
-  ITerminalService,
+  ISessionTerminalBackend,
+  ISessionTerminalService,
 } from '#/terminal';
-import { TerminalService } from '#/terminal/terminalService';
-import { IWorkspaceContext } from '#/workspaceContext';
+import { SessionTerminalService } from '#/terminal/terminalService';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
 
 class FakeTerminalProcess implements TerminalProcess {
   private readonly dataEmitter = new Emitter<string>();
@@ -48,7 +48,7 @@ class FakeTerminalProcess implements TerminalProcess {
   }
 }
 
-class FakeTerminalBackend implements ITerminalBackend {
+class FakeTerminalBackend implements ISessionTerminalBackend {
   declare readonly _serviceBrand: undefined;
   readonly processes: FakeTerminalProcess[] = [];
   readonly lastOptions: TerminalSpawnOptions[] = [];
@@ -61,7 +61,7 @@ class FakeTerminalBackend implements ITerminalBackend {
   }
 }
 
-function stubWorkspace(workDir = '/ws'): IWorkspaceContext {
+function stubWorkspace(workDir = '/ws'): ISessionWorkspaceContext {
   return {
     _serviceBrand: undefined,
     workDir,
@@ -90,7 +90,7 @@ function collectSink(id = 'sink-1'): { sink: TerminalAttachSink; frames: Termina
   return { sink: { id, send: (frame) => frames.push(frame) }, frames };
 }
 
-describe('TerminalService', () => {
+describe('SessionTerminalService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let backend: FakeTerminalBackend;
@@ -100,9 +100,9 @@ describe('TerminalService', () => {
     backend = new FakeTerminalBackend();
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.define(ITerminalService, TerminalService);
-        reg.defineInstance(ITerminalBackend, backend);
-        reg.defineInstance(IWorkspaceContext, stubWorkspace());
+        reg.define(ISessionTerminalService, SessionTerminalService);
+        reg.defineInstance(ISessionTerminalBackend, backend);
+        reg.defineInstance(ISessionWorkspaceContext, stubWorkspace());
         reg.defineInstance(ISessionContext, stubSessionContext());
       },
     });
@@ -110,7 +110,7 @@ describe('TerminalService', () => {
   afterEach(() => disposables.dispose());
 
   it('creates a terminal and resolves cwd through the workspace', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({ cwd: 'sub', cols: 100, rows: 40 });
 
     expect(terminal.status).toBe('running');
@@ -123,7 +123,7 @@ describe('TerminalService', () => {
   });
 
   it('uses the workspace workDir when cwd is omitted', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
     expect(terminal.cwd).toBe('/ws');
     expect(terminal.cols).toBe(80);
@@ -131,7 +131,7 @@ describe('TerminalService', () => {
   });
 
   it('lists and gets terminals', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     const created = await svc.create({});
     const listed = await svc.list();
     expect(listed).toHaveLength(1);
@@ -142,14 +142,14 @@ describe('TerminalService', () => {
   });
 
   it('throws TERMINAL_NOT_FOUND for an unknown terminal', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     await expect(svc.get('nope')).rejects.toMatchObject({
       code: ErrorCodes.TERMINAL_NOT_FOUND,
     });
   });
 
   it('attaches a sink, replays buffered frames, then streams live output', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
     const proc = backend.processes[0]!;
 
@@ -172,7 +172,7 @@ describe('TerminalService', () => {
   });
 
   it('replays only frames after sinceSeq', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
     const proc = backend.processes[0]!;
     proc.emitData('a');
@@ -186,7 +186,7 @@ describe('TerminalService', () => {
   });
 
   it('emits an exit frame and marks the terminal exited on process exit', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
     const proc = backend.processes[0]!;
     const { sink, frames } = collectSink();
@@ -206,7 +206,7 @@ describe('TerminalService', () => {
   });
 
   it('delegates write and resize to the process', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
     const proc = backend.processes[0]!;
 
@@ -219,7 +219,7 @@ describe('TerminalService', () => {
   });
 
   it('closes a terminal by killing the process and marking it exited', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
     const proc = backend.processes[0]!;
 
@@ -230,7 +230,7 @@ describe('TerminalService', () => {
   });
 
   it('detaches a sink so it stops receiving frames', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
     const proc = backend.processes[0]!;
     const { sink, frames } = collectSink();
@@ -242,7 +242,7 @@ describe('TerminalService', () => {
   });
 
   it('kills every live process when the service is disposed', async () => {
-    const svc = ix.get(ITerminalService);
+    const svc = ix.get(ISessionTerminalService);
     await svc.create({});
     const proc = backend.processes[0]!;
 

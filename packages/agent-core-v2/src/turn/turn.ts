@@ -39,7 +39,7 @@ export interface TurnEndedContext {
   readonly result: TurnResult;
 }
 
-export interface ITurnService {
+export interface IAgentTurnService {
   readonly _serviceBrand: undefined;
   launch(origin: PromptOrigin, promptMessageId?: string): Turn;
   getActiveTurn(): Turn | undefined;
@@ -59,4 +59,4 @@ export interface ITurnService {
   }>;
 }
 
-export const ITurnService = createDecorator<ITurnService>('turnService');
+export const IAgentTurnService = createDecorator<IAgentTurnService>('agentTurnService');

@@ -19,7 +19,7 @@ A Service = a bundle of **state** + a set of **behaviors**, bound to a **lifetim
 
 | Scope | State identity (keyed by) | Lifetime |
 |---|---|---|
-| `Core` | none (single global instance) | the process |
+| `App` | none (single global instance) | the process |
 | `Session` | `sessionId` | one session |
 | `Agent` | `agentId` | one agent |
 | `Turn` | `turnId` | one turn |
@@ -33,7 +33,7 @@ A Service = a bundle of **state** + a set of **behaviors**, bound to a **lifetim
 
 **Q2. What is the identity of that state?**
 
-- one global instance → **`Core`**
+- one global instance → **`App`**
 - one per session → **`Session`**
 - one per agent → **`Agent`**
 - one per turn → **`Turn`**
@@ -41,13 +41,13 @@ A Service = a bundle of **state** + a set of **behaviors**, bound to a **lifetim
 
 **Q3 (stateless). What is the shortest-lived dependency it must inject?**
 
-A stateless Service is pulled *down* by its shortest-lived dependency: if it injects an `Agent`-scoped Service, it cannot be `Core`. Among the scopes that still satisfy every dependency, **default to the longest-lived one** (usually `Core`) to maximize reuse. Push it down only when it must inject a shorter-lived Service, or when you want to limit its visibility.
+A stateless Service is pulled *down* by its shortest-lived dependency: if it injects an `Agent`-scoped Service, it cannot be `App`. Among the scopes that still satisfy every dependency, **default to the longest-lived one** (usually `App`) to maximize reuse. Push it down only when it must inject a shorter-lived Service, or when you want to limit its visibility.
 
 ### The core anti-pattern (a litmus test)
 
-> **Do not store per-session state in a `Map<sessionId, …>` inside a `Core` Service.**
+> **Do not store per-session state in a `Map<sessionId, …>` inside a `App` Service.**
 
-This is the tell-tale sign of "should have been `Session`-scoped but was parked at `Core`". Consequences: nobody cleans the entry up when the session ends (leak); every consumer threads `sessionId` around (loss of type safety); it cannot inject `Session`/`Agent`-scoped collaborators.
+This is the tell-tale sign of "should have been `Session`-scoped but was parked at `App`". Consequences: nobody cleans the entry up when the session ends (leak); every consumer threads `sessionId` around (loss of type safety); it cannot inject `Session`/`Agent`-scoped collaborators.
 
 ### One-sentence self-check
 
@@ -71,19 +71,19 @@ The standard split is "global registry / factory" + "per-instance":
 
 | Tier | Role | Naming tends to |
 |---|---|---|
-| `Core` | global registry / catalog / factory — knows "all of them" and how to create one | `XxxStore` / `XxxRegistry` / `XxxCatalog` |
+| `App` | global registry / catalog / factory — knows "all of them" and how to create one | `XxxStore` / `XxxRegistry` / `XxxCatalog` |
 | `Session` / `Agent` | one instance — only the state of "this one" | `XxxService` / `ISessionXxx` / `IAgentXxx` |
 
 Canonical splits in the codebase:
 
-- **`records`** — `ISessionStore` (`Core`) + `ISessionMetaStore` (`Session`) + `IAgentRecords` (`Agent`).
-- **`config`** — `IConfigRegistry` / `IConfigService` (`Core`).
-- **`kosong`** — `IProtocolHandlerRegistry` (`Core`) + `IProviderManager` (`Session`). Generation is driven by `ILLMRequester` (`Agent`) in the `llmRequester` domain.
-- **`tool`** — `IToolDefinitionRegistry` (`Core`) + `IToolService` (`Agent`).
+- **`records`** — `ISessionStore` (`App`) + `ISessionMetaStore` (`Session`) + `IAgentRecords` (`Agent`).
+- **`config`** — `IConfigRegistry` / `IConfigService` (`App`).
+- **`kosong`** — `IProtocolHandlerRegistry` (`App`) + `IProviderManager` (`Session`). Generation is driven by `ILLMRequester` (`Agent`) in the `llmRequester` domain.
+- **`tool`** — `IToolDefinitionRegistry` (`App`) + `IToolService` (`Agent`).
 
-Split when the domain genuinely has both a global view and per-instance state. Do **not** split when state lives at only one lifetime (e.g. purely `Core` like `log`; purely `Agent` like `prompt`). Do not pre-split for symmetry.
+Split when the domain genuinely has both a global view and per-instance state. Do **not** split when state lives at only one lifetime (e.g. purely `App` like `log`; purely `Agent` like `prompt`). Do not pre-split for symmetry.
 
-After the split, the `Core` Service usually plays the **factory**; most consumers inject the **per-instance** Service. Inject the `Core` factory only when you genuinely need cross-instance management.
+After the split, the `App` Service usually plays the **factory**; most consumers inject the **per-instance** Service. Inject the `App` factory only when you genuinely need cross-instance management.
 
 ## 4. Choosing a calling style
 
@@ -125,10 +125,10 @@ The three mechanisms above are also where a domain accepts new behavior without 
 
 | Need | Extension point | Typical scope |
 |---|---|---|
-| Register a new implementation / definition | a **registry / catalog** the domain queries | `Core` |
+| Register a new implementation / definition | a **registry / catalog** the domain queries | `App` |
 | React to a fact the domain announces | an **event** on the bus | the announcing scope |
 | Step into an operation in order / veto | a **hook** (`onWill`/`onDid`, `OrderedHookSlot`) | the owning scope |
-| Swap a backend (File ↔ DB ↔ S3) | a **Store / Storage token** at the byte layer (see persistence.md) | `Core` (composition root) |
+| Swap a backend (File ↔ DB ↔ S3) | a **Store / Storage token** at the byte layer (see persistence.md) | `App` (composition root) |
 
 Closed-for-modification means: the domain's own file is not where new scenarios branch. If a new scenario forces an edit here, an extension point is missing or misplaced.
 
@@ -185,7 +185,7 @@ domain: `<name>`   (owning scope: <Scope>)
 │   ├─ (inject)   <ConsumerDomain>   @<Scope>   — <what they use me for>
 │   └─ (accessor) <ConsumerDomain>   @<Scope>   — <what they use me for>
 ├─ exposes (interfaces I provide, by scope)
-│   ├─ Core     : <IXxxRegistry>   — <role>
+│   ├─ App       : <IXxxRegistry>   — <role>
 │   ├─ Session  : <ISessionXxx>    — <role>
 │   ├─ Agent    : <IAgentXxx>      — <role>
 │   └─ Turn     : —                — (none)
@@ -208,7 +208,7 @@ Conventions:
 When a domain has `accessor` consumers, draw the reverse-direction borrow next to the tree so it is never mistaken for injection:
 
 ```text
-Core scope
+App scope
   <AncestorService> ──holds──► IScopeHandle(<id>)
                                       │
                                       │  accessor.get(<IMyService>)
@@ -230,10 +230,10 @@ domain: `session`   (owning scope: Session)
 ├─ serves (who uses me)
 │   ├─ (inject)   — (none yet)
 │   └─ (accessor)
-│       ├─ session-lifecycle  @Core        — archive() before disposing the child scope
-│       └─ gateway / rpc      @Core(edge)  — session-level commands (archive, rename…)
+│       ├─ session-lifecycle  @App        — archive() before disposing the child scope
+│       └─ gateway / rpc      @App(edge)  — session-level commands (archive, rename…)
 ├─ exposes (interfaces I provide, by scope)
-│   ├─ Core     : —                    — (no global session state here)
+│   ├─ App       : —                    — (no global session state here)
 │   ├─ Session  : ISessionService      — this session's operations + child-agent set
 │   ├─ Agent    : —                    — (per-agent state lives in agent-lifecycle)
 │   └─ Turn     : —                    — (no per-turn session state)
@@ -242,13 +242,13 @@ domain: `session`   (owning scope: Session)
     ├─ agent-lifecycle    @Session  direct  — drives child-agent lifecycle
     ├─ sessionMetaStore   @Session  direct  — persists session metadata
     ├─ session-activity   @Session  direct  — records activity
-    └─ event              @Core     direct  — broadcasts session-level facts
+    └─ event              @App     direct  — broadcasts session-level facts
 ```
 
 Cross-scope borrow for `session`:
 
 ```text
-Core scope
+App scope
   SessionLifecycleService ──holds──┐
   GatewayService ───────────holds──┼──► IScopeHandle(sessionId)
                                         │
@@ -271,8 +271,8 @@ For a multi-scope split, the `exposes` block fills more than one scope — see t
 
 - Scope is not a domain; ownership follows write authority and invariants, not read consumption.
 - Do not create `I{Scope}EntityService` bundles (`IAgentEntityService`, `ISessionEntityService`, `ITurnEntityService`) that re-merge multiple domains.
-- No `Map<sessionId, …>` at `Core` to fake per-session state.
-- Scope follows state identity; stateless Services are pulled down by their shortest-lived dependency, otherwise default to `Core`.
+- No `Map<sessionId, …>` at `App` to fake per-session state.
+- Scope follows state identity; stateless Services are pulled down by their shortest-lived dependency, otherwise default to `App`.
 - Do not pre-split a domain that has state at only one lifetime.
 - Need a result / I orchestrate → direct call; stating a fact → event; ordered participation / may veto → hook.
 - Foundational layers never know upstream ones; business code never depends on the edge layer.

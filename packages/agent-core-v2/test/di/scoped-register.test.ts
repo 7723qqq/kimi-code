@@ -9,8 +9,8 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 
-interface ICore {
-  tag: 'core';
+interface IApp {
+  tag: 'app';
 }
 interface ISession {
   tag: 'session';
@@ -19,12 +19,12 @@ interface IAgent {
   tag: 'agent';
 }
 
-const ICore = createDecorator<ICore>('scoped-core');
+const IApp = createDecorator<IApp>('scoped-app');
 const ISession = createDecorator<ISession>('scoped-session');
 const IAgent = createDecorator<IAgent>('scoped-agent');
 
-class CoreSvc implements ICore {
-  tag = 'core' as const;
+class AppSvc implements IApp {
+  tag = 'app' as const;
 }
 class SessionSvc implements ISession {
   tag = 'session' as const;
@@ -39,11 +39,11 @@ describe('registerScopedService / getScopedServiceDescriptors', () => {
   });
 
   it('filters registrations by scope layer', () => {
-    registerScopedService(LifecycleScope.Core, ICore, CoreSvc, InstantiationType.Delayed, 'core-domain');
+    registerScopedService(LifecycleScope.App, IApp, AppSvc, InstantiationType.Delayed, 'app-domain');
     registerScopedService(LifecycleScope.Session, ISession, SessionSvc, InstantiationType.Delayed, 'session-domain');
     registerScopedService(LifecycleScope.Agent, IAgent, AgentSvc, InstantiationType.Eager, 'agent-domain');
 
-    expect(getScopedServiceDescriptors(LifecycleScope.Core).map((e) => e.id)).toEqual([ICore]);
+    expect(getScopedServiceDescriptors(LifecycleScope.App).map((e) => e.id)).toEqual([IApp]);
     expect(getScopedServiceDescriptors(LifecycleScope.Session).map((e) => e.id)).toEqual([ISession]);
     expect(getScopedServiceDescriptors(LifecycleScope.Agent).map((e) => e.id)).toEqual([IAgent]);
   });
@@ -66,18 +66,18 @@ describe('registerScopedService / getScopedServiceDescriptors', () => {
       tag: string;
     }
     const IDual = createDecorator<IDual>('scoped-dual');
-    class CoreDual implements IDual {
-      tag = 'core';
+    class AppDual implements IDual {
+      tag = 'app';
     }
     class SessionDual implements IDual {
       tag = 'session';
     }
-    registerScopedService(LifecycleScope.Core, IDual, CoreDual);
+    registerScopedService(LifecycleScope.App, IDual, AppDual);
     registerScopedService(LifecycleScope.Session, IDual, SessionDual);
 
-    expect(getScopedServiceDescriptors(LifecycleScope.Core)).toHaveLength(1);
+    expect(getScopedServiceDescriptors(LifecycleScope.App)).toHaveLength(1);
     expect(getScopedServiceDescriptors(LifecycleScope.Session)).toHaveLength(1);
-    expect(getScopedServiceDescriptors(LifecycleScope.Core)[0]?.id).toBe(IDual);
+    expect(getScopedServiceDescriptors(LifecycleScope.App)[0]?.id).toBe(IDual);
     expect(getScopedServiceDescriptors(LifecycleScope.Session)[0]?.id).toBe(IDual);
   });
 });

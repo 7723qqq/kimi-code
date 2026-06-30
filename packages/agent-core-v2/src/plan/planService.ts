@@ -13,15 +13,15 @@ import {
 } from "#/_base/di";
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { generateHeroSlug } from "#/_base/utils/hero-slug";
-import { IContextMemory, type ContextMessage } from '#/contextMemory';
-import { IContextInjector } from '../contextInjector';
-import { IEventSink } from '../eventSink';
-import { IAgentFileSystem } from '#/agentFs';
-import { IProfileService } from '#/profile';
-import { IReplayBuilderService } from '#/replayBuilder';
+import { IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
+import { IAgentContextInjectorService } from '../contextInjector';
+import { IAgentEventSinkService } from '../eventSink';
+import { ISessionAgentFileSystem } from '#/agentFs';
+import { IAgentProfileService } from '#/profile';
+import { IAgentReplayBuilderService } from '#/replayBuilder';
 import { ITelemetryService } from '#/telemetry';
-import { IToolRegistry } from '#/toolRegistry';
-import { IWireRecord } from '#/wireRecord';
+import { IAgentToolRegistryService } from '#/toolRegistry';
+import { IAgentWireRecordService } from '#/wireRecord';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import type { ExecutableToolResult } from '#/tool';
 import { EnterPlanModeInputSchema } from './tools/enter-plan-mode';
@@ -32,7 +32,7 @@ import {
 } from './tools/exit-plan-mode';
 import EXIT_PLAN_MODE_DESCRIPTION from './tools/exit-plan-mode.md?raw';
 import {
-  IPlanService,
+  IAgentPlanService,
   type PlanData,
   type PlanFilePath,
 } from './plan';
@@ -56,7 +56,7 @@ const PLAN_MODE_DEDUP_MIN_TURNS = 2;
 const PLAN_MODE_FULL_REFRESH_TURNS = 5;
 const PLAN_MODE_INJECTION_VARIANT = 'plan_mode';
 
-export class PlanService extends Disposable implements IPlanService {
+export class AgentPlanService extends Disposable implements IAgentPlanService {
   declare readonly _serviceBrand: undefined;
 
   private _active = false;
@@ -64,14 +64,14 @@ export class PlanService extends Disposable implements IPlanService {
   private _planFilePath: PlanFilePath = null;
 
   constructor(
-    @IContextMemory private readonly context: IContextMemory,
-    @IWireRecord private readonly wireRecord: IWireRecord,
-    @IEventSink private readonly events: IEventSink,
-    @IAgentFileSystem private readonly agentFs: IAgentFileSystem,
-    @IProfileService private readonly profile: IProfileService,
-    @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
-    @IToolRegistry toolRegistry: IToolRegistry,
-    @IContextInjector dynamicInjector: IContextInjector,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @ISessionAgentFileSystem private readonly agentFs: ISessionAgentFileSystem,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
+    @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
@@ -555,12 +555,12 @@ function isMissingFileError(error: unknown): boolean {
   return code === 'ENOENT';
 }
 
-export { PlanService as Plan };
+export { AgentPlanService as Plan };
 
 registerScopedService(
   LifecycleScope.Agent,
-  IPlanService,
-  PlanService,
+  IAgentPlanService,
+  AgentPlanService,
   InstantiationType.Delayed,
   'plan',
 );

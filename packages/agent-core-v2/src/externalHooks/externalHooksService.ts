@@ -1,7 +1,7 @@
 import { toKimiErrorPayload } from "#/errors";
 import { IConfigRegistry } from '#/config';
 import {
-  IExternalHooksService,
+  IAgentExternalHooksService,
   type ExternalHooksServiceOptions,
   type NotificationHookPayload,
   type PermissionRequestHookPayload,
@@ -16,7 +16,7 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
-import { IToolExecutor } from '#/toolExecutor';
+import { IAgentToolExecutorService } from '#/toolExecutor';
 
 function fireAndForget(
   engine: ExternalHooksServiceOptions['hookEngine'],
@@ -32,12 +32,12 @@ function fireAndForget(
   void engine?.fireAndForgetTrigger(event, { matcherValue, signal, inputData });
 }
 
-export class ExternalHooksService implements IExternalHooksService {
+export class AgentExternalHooksService implements IAgentExternalHooksService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
     private readonly options: ExternalHooksServiceOptions = {},
-    @IToolExecutor toolExecutor: IToolExecutor,
+    @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IConfigRegistry configRegistry: IConfigRegistry,
   ) {
     configRegistry.registerSection(HOOKS_SECTION, HooksConfigSchema, {
@@ -74,7 +74,7 @@ export class ExternalHooksService implements IExternalHooksService {
   }
 
   async triggerPreToolUse(
-    payload: Parameters<IExternalHooksService['triggerPreToolUse']>[0],
+    payload: Parameters<IAgentExternalHooksService['triggerPreToolUse']>[0],
     signal: AbortSignal,
   ): Promise<string | undefined> {
     signal.throwIfAborted();
@@ -92,7 +92,7 @@ export class ExternalHooksService implements IExternalHooksService {
   }
 
   async triggerUserPromptSubmit(
-    input: Parameters<IExternalHooksService['triggerUserPromptSubmit']>[0],
+    input: Parameters<IAgentExternalHooksService['triggerUserPromptSubmit']>[0],
     signal: AbortSignal,
   ): Promise<UserPromptHookDecision | undefined> {
     signal.throwIfAborted();
@@ -121,7 +121,7 @@ export class ExternalHooksService implements IExternalHooksService {
   }
 
   async triggerPostToolUse(
-    payload: Parameters<IExternalHooksService['triggerPostToolUse']>[0],
+    payload: Parameters<IAgentExternalHooksService['triggerPostToolUse']>[0],
     signal: AbortSignal,
   ): Promise<void> {
     const output = toolOutputText(payload.result.output);
@@ -176,14 +176,14 @@ export class ExternalHooksService implements IExternalHooksService {
     );
   }
 
-  triggerInterrupt(payload: Parameters<IExternalHooksService['triggerInterrupt']>[0]): void {
+  triggerInterrupt(payload: Parameters<IAgentExternalHooksService['triggerInterrupt']>[0]): void {
     void this.options.hookEngine?.fireAndForgetTrigger('Interrupt', {
       inputData: payload,
     });
   }
 
   async triggerPreCompact(
-    payload: Parameters<IExternalHooksService['triggerPreCompact']>[0],
+    payload: Parameters<IAgentExternalHooksService['triggerPreCompact']>[0],
     signal: AbortSignal,
   ): Promise<void> {
     signal.throwIfAborted();
@@ -198,7 +198,7 @@ export class ExternalHooksService implements IExternalHooksService {
     signal.throwIfAborted();
   }
 
-  triggerPostCompact(payload: Parameters<IExternalHooksService['triggerPostCompact']>[0]): void {
+  triggerPostCompact(payload: Parameters<IAgentExternalHooksService['triggerPostCompact']>[0]): void {
     void this.options.hookEngine?.fireAndForgetTrigger('PostCompact', {
       matcherValue: payload.trigger,
       inputData: {
@@ -221,7 +221,7 @@ export class ExternalHooksService implements IExternalHooksService {
 }
 
 function toolOutputText(
-  output: Parameters<IExternalHooksService['triggerPostToolUse']>[0]['result']['output'],
+  output: Parameters<IAgentExternalHooksService['triggerPostToolUse']>[0]['result']['output'],
 ): string {
   if (typeof output === 'string') return output;
   return output
@@ -257,8 +257,8 @@ function permissionResultInputData(payload: PermissionResultHookPayload): Record
 
 registerScopedService(
   LifecycleScope.Agent,
-  IExternalHooksService,
-  ExternalHooksService,
+  IAgentExternalHooksService,
+  AgentExternalHooksService,
   InstantiationType.Delayed,
   'externalHooks',
 );
