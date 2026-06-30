@@ -7,6 +7,10 @@ name: desktop-build
 # macOS is signed with a Developer ID certificate + notarized (so it opens on
 # any Mac without the "app is damaged" Gatekeeper block) when `sign-macos` is
 # true and the Apple secrets are configured. Windows/Linux ship unsigned in v1.
+#
+# Triggered two ways:
+#   - workflow_dispatch: manual ad-hoc builds from the Actions tab.
+#   - workflow_call:     called by release.yml to attach installers to a release.
 on:
   workflow_dispatch:
     inputs:
@@ -20,6 +24,39 @@ on:
         required: false
         type: number
         default: 5
+      upload-artifact-prefix:
+        description: 'Prefix for uploaded artifact name'
+        required: false
+        type: string
+        default: 'kimi-desktop'
+  workflow_call:
+    inputs:
+      sign-macos:
+        description: 'Sign + notarize macOS (needs Apple secrets)'
+        required: false
+        type: boolean
+        default: false
+      retention-days:
+        description: 'Artifact retention in days'
+        required: false
+        type: number
+        default: 7
+      upload-artifact-prefix:
+        description: 'Prefix for uploaded artifact name'
+        required: false
+        type: string
+        default: 'kimi-desktop'
+    secrets:
+      APPLE_CERTIFICATE_P12:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_NOTARIZATION_KEY_P8:
+        required: false
+      APPLE_NOTARIZATION_KEY_ID:
+        required: false
+      APPLE_NOTARIZATION_ISSUER_ID:
+        required: false
 
 permissions:
   contents: read
@@ -60,6 +97,11 @@ jobs:
       - name: Build Kimi web assets
         # The SEA blob embeds apps/kimi-code/dist-web; build the web app and
         # stage its assets before producing the native executable.
+        # KIMI_WEB_DESKTOP=1 bakes the internal-build banner into the web bundle
+        # (see apps/kimi-web/src/components/InternalBuildBanner.vue); only the
+        # desktop sets this flag, so the CLI `kimi web` stays banner-free.
+        env:
+          KIMI_WEB_DESKTOP: '1'
         run: |
           pnpm --filter @moonshot-ai/kimi-web run build
           node apps/kimi-code/scripts/copy-web-assets.mjs
@@ -108,7 +150,7 @@ jobs:
       - name: Upload installers
         uses: actions/upload-artifact@v7
         with:
-          name: kimi-desktop-${{ matrix.target }}
+          name: ${{ inputs.upload-artifact-prefix }}-${{ matrix.target }}
           retention-days: ${{ inputs.retention-days }}
           path: |
             apps/kimi-desktop/dist-app/*.dmg
