@@ -21,6 +21,7 @@ import {
   ISessionLifecycleService,
   ISessionMetadata,
   IWorkspaceRegistry,
+  toProtocolMessage,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import { ErrorCode, sessionSnapshotResponseSchema, type Message } from '@moonshot-ai/protocol';
@@ -29,7 +30,6 @@ import { z } from 'zod';
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
 import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBroadcaster';
-import { toProtocolMessage } from './_messageProjection';
 import { toWireApproval } from './approvals';
 import { toWireQuestion } from './questions';
 import { toWireSession } from './sessions';

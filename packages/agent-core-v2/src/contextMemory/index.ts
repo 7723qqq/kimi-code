@@ -4,5 +4,6 @@
 
 export * from './contextMemory';
 export * from './contextMemoryService';
+export * from './messageProjection';
 export * from './types';
 

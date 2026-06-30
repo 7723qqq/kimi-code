@@ -15,11 +15,12 @@
  *   GET    /sessions/{session_id}/status       best-effort
  *   GET    /sessions/{session_id}/warnings     empty (no warning sources ported)
  *
- * The `POST /sessions/{tail}` actions and the `/sessions/{id}/children`
- * endpoints are dispatched to `ISessionLegacyService` (a v1 edge adapter over
- * the native v2 services); `archive` stays on the native
- * `ISessionLifecycleService`. `create`, `fork`, and child creation publish
- * `event.session.created` on the core event bus, matching v1.
+ * The `POST /sessions/{tail}` actions (`fork` / `compact` / `undo` / `abort` /
+ * `btw` / `archive`) and the `/sessions/{id}/children` endpoints are dispatched
+ * to `ISessionLegacyService` (a v1 edge adapter over the native v2 services);
+ * the route forwards each adapter result verbatim, mirroring v1's thin handler.
+ * `create`, `fork`, and child creation publish `event.session.created` on the
+ * core event bus, matching v1.
  *
  * `GET /sessions/{id}/warnings` returns `{ warnings: [] }`: the only v1 warning
  * (`agents-md-oversized`) is computed by `prepareSystemPromptContext`, which is
@@ -81,7 +82,6 @@ import { z } from 'zod';
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
 import { parseActionSuffix } from './action-suffix';
-import { toProtocolMessage } from './_messageProjection';
 
 interface SessionRouteHost {
   post(
@@ -470,7 +470,6 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         [ErrorCode.SESSION_BUSY]: {},
         [ErrorCode.COMPACTION_UNABLE]: {},
         [ErrorCode.SESSION_UNDO_UNAVAILABLE]: {},
-        [ErrorCode.AUTH_TOKEN_MISSING]: {},
       },
       description: 'Run a session action',
       tags: ['sessions'],
@@ -513,21 +512,8 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
 
         if (parsed.action === 'undo') {
           const body = undoSessionRequestSchema.parse(req.body);
-          const { history, status } = await legacy.undo(parsed.id, body);
-          const pageSize = Math.min(Math.max(body.page_size ?? 50, 1), 100);
-          const summary = await core.accessor.get(ISessionIndex).get(parsed.id);
-          const createdAt = summary?.createdAt ?? 0;
-          const all = history.map((msg, index) => toProtocolMessage(parsed.id, index, msg, createdAt));
-          const desc = [...all].reverse();
-          reply.send(
-            okEnvelope(
-              {
-                messages: { items: desc.slice(0, pageSize), has_more: desc.length > pageSize },
-                status,
-              },
-              req.id,
-            ),
-          );
+          const result = await legacy.undo(parsed.id, body);
+          reply.send(okEnvelope(result, req.id));
           return;
         }
 
@@ -544,15 +530,8 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         }
 
         // archive
-        const handle = core.accessor.get(ISessionLifecycleService).get(parsed.id);
-        if (handle === undefined) {
-          reply.send(
-            errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${parsed.id} does not exist`, req.id),
-          );
-          return;
-        }
-        await core.accessor.get(ISessionLifecycleService).archive(parsed.id);
-        reply.send(okEnvelope({ archived: true as const }, req.id));
+        const result = await legacy.archive(parsed.id);
+        reply.send(okEnvelope(result, req.id));
       } catch (error) {
         sendMappedError(reply, req.id, error);
       }
@@ -820,9 +799,6 @@ function sendMappedError(
         return;
       case 'session.undo_unavailable':
         reply.send(errEnvelope(ErrorCode.SESSION_UNDO_UNAVAILABLE, err.message, requestId));
-        return;
-      case 'auth.login_required':
-        reply.send(errEnvelope(ErrorCode.AUTH_TOKEN_MISSING, err.message, requestId));
         return;
       case 'request.invalid':
       case 'validation.failed':

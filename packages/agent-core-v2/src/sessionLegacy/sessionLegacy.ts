@@ -12,6 +12,7 @@
  */
 
 import type {
+  ArchiveSessionResponse,
   CompactSessionRequest,
   CompactSessionResponse,
   CreateSessionChildRequest,
@@ -20,9 +21,9 @@ import type {
   SessionStatus,
   StartBtwSessionResponse,
   UndoSessionRequest,
+  UndoSessionResponse,
 } from '@moonshot-ai/protocol';
 
-import type { ContextMessage } from '#/contextMemory';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 /**
@@ -40,25 +41,6 @@ export interface SessionWireFields {
   readonly updatedAt: number;
   readonly archived: boolean;
   readonly custom?: Record<string, unknown>;
-}
-
-/** Plain-data mirror of the protocol `SessionStatusResponse`. */
-export interface SessionStatusData {
-  readonly status: SessionStatus;
-  readonly model?: string;
-  readonly thinking_level: string;
-  readonly permission: string;
-  readonly plan_mode: boolean;
-  readonly swarm_mode: boolean;
-  readonly context_tokens: number;
-  readonly max_context_tokens: number;
-  readonly context_usage: number;
-}
-
-export interface UndoResult {
-  /** Post-undo context history; the route projects it into the message page. */
-  readonly history: readonly ContextMessage[];
-  readonly status: SessionStatusData;
 }
 
 /** Query mirror of the v1 `GET /sessions/{id}/children` cursor + status filter. */
@@ -81,9 +63,10 @@ export interface ISessionLegacyService {
   createChild(sessionId: string, body: CreateSessionChildRequest): Promise<SessionWireFields>;
   listChildren(sessionId: string, query: SessionChildrenQuery): Promise<SessionChildrenPage>;
   compact(sessionId: string, body: CompactSessionRequest): Promise<CompactSessionResponse>;
-  undo(sessionId: string, body: UndoSessionRequest): Promise<UndoResult>;
+  undo(sessionId: string, body: UndoSessionRequest): Promise<UndoSessionResponse>;
   abort(sessionId: string): Promise<SessionAbortResponse>;
   startBtw(sessionId: string): Promise<StartBtwSessionResponse>;
+  archive(sessionId: string): Promise<ArchiveSessionResponse>;
 }
 
 export const ISessionLegacyService: ServiceIdentifier<ISessionLegacyService> =

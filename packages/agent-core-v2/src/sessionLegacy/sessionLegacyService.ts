@@ -13,7 +13,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { type IScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/agent-lifecycle';
 import { IAuthSummaryService } from '#/auth';
-import { IContextMemory, type ContextMessage } from '#/contextMemory';
+import { IContextMemory, toProtocolMessage, type ContextMessage } from '#/contextMemory';
 import { IContextSizeService } from '#/contextSize';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
 import { IFullCompaction } from '#/fullCompaction';
@@ -30,22 +30,23 @@ import { ISessionMetadata } from '#/session-metadata';
 import { ISwarmService } from '#/swarm';
 import { IWorkspaceRegistry } from '#/workspaceRegistry';
 import type {
+  ArchiveSessionResponse,
   CompactSessionRequest,
   CompactSessionResponse,
   CreateSessionChildRequest,
   ForkSessionRequest,
   SessionAbortResponse,
+  SessionStatusResponse,
   StartBtwSessionResponse,
   UndoSessionRequest,
+  UndoSessionResponse,
 } from '@moonshot-ai/protocol';
 
 import {
   ISessionLegacyService,
   type SessionChildrenPage,
   type SessionChildrenQuery,
-  type SessionStatusData,
   type SessionWireFields,
-  type UndoResult,
 } from './sessionLegacy';
 
 const MAIN_AGENT_ID = 'main';
@@ -60,6 +61,10 @@ const CHILD_SESSION_KIND = 'child';
 
 const CHILDREN_DEFAULT_PAGE_SIZE = 100;
 const CHILDREN_MAX_PAGE_SIZE = 100;
+
+/** v1 `:undo` page-size clamp (`packages/agent-core/.../sessionService.ts`). */
+const DEFAULT_UNDO_MESSAGE_PAGE_SIZE = 50;
+const MAX_UNDO_MESSAGE_PAGE_SIZE = 100;
 
 export class SessionLegacyService implements ISessionLegacyService {
   declare readonly _serviceBrand: undefined;
@@ -176,7 +181,7 @@ export class SessionLegacyService implements ISessionLegacyService {
     return {};
   }
 
-  async undo(sessionId: string, body: UndoSessionRequest): Promise<UndoResult> {
+  async undo(sessionId: string, body: UndoSessionRequest): Promise<UndoSessionResponse> {
     const agent = await this.resolveMainAgent(sessionId);
     const context = agent.accessor.get(IContextMemory);
     const before = context.get();
@@ -196,8 +201,17 @@ export class SessionLegacyService implements ISessionLegacyService {
       throw error;
     }
     const history = context.get();
-    const status = await this.assembleStatus(sessionId, agent);
-    return { history, status };
+    // Mirrors v1 `SessionService.undo`: project the post-undo history into a
+    // wire `Page<Message>` (newest-first, page-size clamped) and pair it with
+    // the live status. The route forwards this shape verbatim.
+    const [summary, status] = await Promise.all([
+      this.index.get(sessionId),
+      this.assembleStatus(sessionId, agent),
+    ]);
+    return {
+      messages: pageContextMessages(sessionId, summary?.createdAt ?? 0, history, body.page_size),
+      status,
+    };
   }
 
   async abort(sessionId: string): Promise<SessionAbortResponse> {
@@ -216,6 +230,17 @@ export class SessionLegacyService implements ISessionLegacyService {
     const agent = await this.resolveMainAgent(sessionId);
     const agentId = await agent.accessor.get(IAgentRPCService).startBtw({});
     return { agent_id: agentId };
+  }
+
+  async archive(sessionId: string): Promise<ArchiveSessionResponse> {
+    // Native `ISessionLifecycleService.archive` is a no-op for sessions that
+    // are not live, so gate on the live handle (matches the previous route
+    // behaviour): a missing live session is reported as `session.not_found`.
+    if (this.lifecycle.get(sessionId) === undefined) {
+      throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
+    }
+    await this.lifecycle.archive(sessionId);
+    return { archived: true };
   }
 
   // --- internals -------------------------------------------------------------
@@ -264,7 +289,7 @@ export class SessionLegacyService implements ISessionLegacyService {
     return agents.createMain();
   }
 
-  private async assembleStatus(sessionId: string, agent: IScopeHandle): Promise<SessionStatusData> {
+  private async assembleStatus(sessionId: string, agent: IScopeHandle): Promise<SessionStatusResponse> {
     const session = this.lifecycle.get(sessionId);
     const profile = agent.accessor.get(IProfileService);
     const contextSize = agent.accessor.get(IContextSizeService);
@@ -297,6 +322,30 @@ function normalizeOptional(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
+}
+
+/**
+ * Mirror of v1 `pageContextMessages`: project the post-undo history into a
+ * newest-first wire page, clamping `page_size` to `[1, 100]` (default 50).
+ */
+function pageContextMessages(
+  sessionId: string,
+  sessionCreatedAtMs: number,
+  history: readonly ContextMessage[],
+  requestedPageSize: number | undefined,
+): { items: ReturnType<typeof toProtocolMessage>[]; has_more: boolean } {
+  const pageSize = Math.min(
+    Math.max(requestedPageSize ?? DEFAULT_UNDO_MESSAGE_PAGE_SIZE, 1),
+    MAX_UNDO_MESSAGE_PAGE_SIZE,
+  );
+  const all = history.map((message, index) =>
+    toProtocolMessage(sessionId, index, message, sessionCreatedAtMs),
+  );
+  const desc = all.toReversed();
+  return {
+    items: desc.slice(0, pageSize),
+    has_more: desc.length > pageSize,
+  };
 }
 
 /**

@@ -1,16 +1,17 @@
 /**
- * Shared projection from a v2 `ContextMessage` history entry to the wire
- * `Message` shape. Mirrors v1's `toProtocolMessage`
- * (`packages/agent-core/src/services/message/message.ts`) so both the
- * `/messages` routes and the `undo` session action produce byte-compatible
- * message objects.
+ * `contextMemory` protocol projection — `ContextMessage` → wire `Message`.
+ *
+ * Mirrors v1's `toProtocolMessage`
+ * (`packages/agent-core/src/services/message/message.ts`) so the `messages`,
+ * `snapshot`, and `sessions` (`:undo`) edge surfaces produce byte-compatible
+ * message objects. Lives in agent-core-v2 (next to the `ContextMessage` data it
+ * projects) so the `sessionLegacy` edge adapter can own the v1 `:undo` response
+ * shape without duplicating the projection in the server layer.
  */
 
-import type { IContextMemory } from '@moonshot-ai/agent-core-v2';
 import type { Message, MessageContent, MessageRole, ToolUseContent } from '@moonshot-ai/protocol';
 
-/** One entry from the main agent's live history. */
-type MemoryMessage = ReturnType<IContextMemory['get']>[number];
+import type { ContextMessage } from './types';
 
 /** Derive a stable opaque message id from (sessionId, index). */
 function deriveMessageId(sessionId: string, index: number): string {
@@ -40,12 +41,12 @@ export function parseMessageId(
 }
 
 /** kosong's `Role` already matches the wire `MessageRole` — pass through. */
-function toProtocolRole(role: MemoryMessage['role']): MessageRole {
+function toProtocolRole(role: ContextMessage['role']): MessageRole {
   return role as MessageRole;
 }
 
 /** Translate one kosong content part to a wire content part. */
-function mapContentPart(part: MemoryMessage['content'][number]): MessageContent {
+function mapContentPart(part: ContextMessage['content'][number]): MessageContent {
   switch (part.type) {
     case 'text':
       return { type: 'text', text: part.text };
@@ -73,7 +74,7 @@ function mapContentPart(part: MemoryMessage['content'][number]): MessageContent 
  *   2. other roles → each mapped content part, then one `tool_use` part per
  *      `ToolCall` (assistant only).
  */
-function buildProtocolContent(msg: MemoryMessage): MessageContent[] {
+function buildProtocolContent(msg: ContextMessage): MessageContent[] {
   if (msg.role === 'tool') {
     if (msg.toolCallId === undefined) {
       return msg.content.map((p) => mapContentPart(p));
@@ -130,7 +131,7 @@ function buildProtocolContent(msg: MemoryMessage): MessageContent[] {
 export function toProtocolMessage(
   sessionId: string,
   index: number,
-  msg: MemoryMessage,
+  msg: ContextMessage,
   sessionCreatedAtMs: number,
 ): Message {
   const id = deriveMessageId(sessionId, index);
