@@ -22,6 +22,10 @@ export interface IAgentFileSystem {
   readText(path: string): Promise<string>;
   writeText(path: string, data: string): Promise<void>;
   readBytes(path: string, n?: number): Promise<Uint8Array>;
+  readLines(
+    path: string,
+    options?: { encoding?: BufferEncoding; errors?: 'strict' | 'replace' | 'ignore' },
+  ): AsyncGenerator<string>;
   writeBytes(path: string, data: Uint8Array): Promise<void>;
   stat(path: string): Promise<AgentFileStat>;
   readdir(path: string): Promise<readonly string[]>;

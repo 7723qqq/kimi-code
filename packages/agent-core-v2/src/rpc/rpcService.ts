@@ -3,6 +3,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IBackgroundService } from '#/background';
 import { IContextMemory } from '#/contextMemory';
 import { IContextSizeService } from '#/contextSize';
+import { IFileToolsService } from '#/fileTools';
 import { IFullCompaction } from '#/fullCompaction';
 import { IGoalService } from '#/goal';
 import { IPermissionGate } from '#/permission/permission';
@@ -10,6 +11,7 @@ import { IPermissionModeService } from '#/permissionMode/permissionMode';
 import { IPlanService } from '../plan';
 import { IProfileService } from '#/profile';
 import { IPromptService } from '#/prompt';
+import { IShellToolsService } from '#/shellTools';
 import { IAgentSkillService } from '#/skill';
 import { ISubagentHost } from '#/subagentHost';
 import { ISwarmService } from '../swarm';
@@ -56,6 +58,8 @@ export class AgentRPCService implements IAgentRPCService {
     @IFullCompaction private readonly fullCompaction: IFullCompaction,
     @IUserToolService private readonly userTools: IUserToolService,
     @IToolRegistry private readonly toolRegistry: IToolRegistry,
+    @IFileToolsService private readonly fileTools: IFileToolsService,
+    @IShellToolsService private readonly shellTools: IShellToolsService,
     @IBackgroundService private readonly background: IBackgroundService,
     @IContextMemory private readonly context: IContextMemory,
     @IContextSizeService private readonly contextSize: IContextSizeService,

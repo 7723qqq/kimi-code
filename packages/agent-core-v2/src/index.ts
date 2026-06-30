@@ -92,3 +92,5 @@ export { IToolRegistry } from './toolRegistry/index';
 export * from './toolStore/index';
 export * from './userTool/index';
 export * from './wireRecord/index';
+export * from './fileTools/index';
+export * from './shellTools/index';

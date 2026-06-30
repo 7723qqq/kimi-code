@@ -49,6 +49,13 @@ export class AgentFileSystem implements IAgentFileSystem {
     return this.kaos.backend.readBytes(path, n);
   }
 
+  readLines(
+    path: string,
+    options?: { encoding?: BufferEncoding; errors?: 'strict' | 'replace' | 'ignore' },
+  ): AsyncGenerator<string> {
+    return this.kaos.backend.readLines(path, options);
+  }
+
   writeBytes(path: string, data: Uint8Array): Promise<void> {
     return this.kaos.backend.writeBytes(path, Buffer.from(data)).then(() => undefined);
   }
