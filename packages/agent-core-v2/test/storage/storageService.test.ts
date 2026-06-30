@@ -33,6 +33,11 @@ function storageServiceSuite(
       await cleanup?.();
     });
 
+    // chokidar-backed storage attaches the OS watcher asynchronously; give it a
+    // moment to register before mutating. Harmless for the in-memory backend.
+    const settle = (): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, 100));
+
     it('read returns undefined for a missing key', async () => {
       expect(await service.read('s', 'missing')).toBeUndefined();
     });
@@ -94,6 +99,7 @@ function storageServiceSuite(
           resolve();
         });
       });
+      await settle();
       await service.write('s', 'k', enc.encode('v'));
       await fired;
     });
@@ -119,6 +125,7 @@ function storageServiceSuite(
           resolve();
         });
       });
+      await settle();
       await service.delete('s', 'k');
       await fired;
     });

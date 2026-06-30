@@ -10,9 +10,9 @@
  *                fsync, so the replacement is both atomic and durable.
  *   - `append` → `open('a')` + write + `fh.sync()` (when `durable`), plus a
  *                one-time directory fsync per scope.
- *   - `watch`  → `fs.watch` the parent directory (filtered by filename and
- *                debounced), so it survives atomic-replace renames and observes
- *                a file that does not exist yet.
+ *   - `watch`  → chokidar on the parent directory, filtered to the exact key and
+ *                debounced, so it survives atomic-replace renames and observes a
+ *                file that does not exist yet at subscription time.
  *
  * It uses raw `node:fs` rather than `kaos`: the storage kernel needs direct
  * control over append offsets, fsync, atomic rename and streaming, which the
@@ -21,9 +21,10 @@
  * this backend, never `node:fs` directly.
  */
 
-import { createReadStream, mkdirSync, watch as fsWatch, type FSWatcher } from 'node:fs';
+import { createReadStream, mkdirSync } from 'node:fs';
 import { mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
-import { basename, dirname, join } from 'pathe';
+import { FSWatcher } from 'chokidar';
+import { dirname, join, normalize } from 'pathe';
 
 import {
   DisposableStore,
@@ -137,7 +138,7 @@ export class FileStorageService implements IStorageService {
   watch(scope: string, key: string): Event<void> {
     const target = this.path(scope, key);
     const dir = dirname(target);
-    const name = basename(target);
+    const normalizedTarget = normalize(target);
     const emitter = new Emitter<void>();
 
     let watcher: FSWatcher | undefined;
@@ -149,16 +150,24 @@ export class FileStorageService implements IStorageService {
       timer = setTimeout(() => emitter.fire(), WATCH_DEBOUNCE_MS);
     };
 
-    // Watch the parent directory and filter by filename: the directory survives
-    // atomic-replace renames (which would detach an inode watcher), and it lets
-    // us observe a file that does not exist yet at subscription time.
+    // Watch the parent directory and filter by exact path: the directory survives
+    // atomic-replace renames (which would detach a single-file watcher) and it
+    // lets us observe a file that does not exist yet at subscription time. Events
+    // are debounced to collapse the burst a single save (plus its atomic-replace
+    // temp file) emits.
     const arm = (): void => {
       try {
         mkdirSync(dir, { recursive: true, mode: this.dirMode });
-        watcher = fsWatch(dir, (_event, filename) => {
-          if (filename === null || filename === name) schedule();
+        watcher = new FSWatcher({
+          ignoreInitial: true,
+          awaitWriteFinish: false,
+          depth: 0,
+        });
+        watcher.on('all', (_event, changedPath) => {
+          if (normalize(changedPath) === normalizedTarget) schedule();
         });
         watcher.on('error', () => undefined);
+        watcher.add(dir);
       } catch {
         // Best effort: callers can still reload explicitly when watching fails.
       }
@@ -169,7 +178,8 @@ export class FileStorageService implements IStorageService {
         clearTimeout(timer);
         timer = undefined;
       }
-      watcher?.close();
+      const closeResult = watcher?.close();
+      if (closeResult !== undefined) void closeResult.catch(() => undefined);
       watcher = undefined;
     };
 
