@@ -21,6 +21,9 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { installErrorHandler } from './error-handler';
 import { resolveRequestId } from './request-id';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
+// Registers the real `node-pty` `ITerminalBackend`, overriding the
+// `NotImplementedTerminalBackend` stub from `agent-core-v2`. Side-effect import.
+import './terminal/nodePtyTerminalBackend';
 import {
   createServerLogger,
   type ServerLogger,
