@@ -77,6 +77,7 @@ describe('Event public types', () => {
         case 'event.model_catalog.changed':
         case 'goal.updated':
         case 'skill.activated':
+        case 'plugin_command.activated':
         case 'error':
         case 'warning':
         case 'turn.started':
