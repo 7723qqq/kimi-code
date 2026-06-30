@@ -1,11 +1,10 @@
 import type { Component } from "../tui.ts";
 import type { Terminal } from "../terminal.ts";
-import { isImageLine } from "../terminal-image.ts";
+import { type TerminalCapabilities, isMultiplexerSession, resizeRepaintsInPlace } from "../terminal-capabilities.ts";
 import { sliceByColumn, truncateToWidth, visibleWidth } from "../utils.ts";
 import { findCommittedPrefixResync } from "./audit.ts";
 import { getNativeScrollbackCommitSafeEnd, getNativeScrollbackLiveRegionStart, getNativeScrollbackSnapshotSafeEnd, getRenderStablePrefixRows, setNativeScrollbackCommittedRows } from "./seam.ts";
 import { coalesceAdjacentSgr } from "./sgr-coalesce.ts";
-import { isMultiplexerSession, resizeRepaintsInPlace, shouldEnableSyncOutput, TERMINAL_STUB } from "./terminal-caps-stub.ts";
 import {
 	type CursorControlResult,
 	DISABLE_AUTOWRAP,
@@ -69,11 +68,13 @@ export class LedgerTuiEngine {
 	// children injected by the host TUI (it owns the Container children list)
 	private readonly terminal: Terminal;
 	private readonly getChildren: () => Component[];
+	readonly #caps: TerminalCapabilities;
 
-	constructor(terminal: Terminal, getChildren: () => Component[]) {
+	constructor(terminal: Terminal, getChildren: () => Component[], caps: TerminalCapabilities) {
 		this.terminal = terminal;
 		this.getChildren = getChildren;
-		this.#syncEnabled = shouldEnableSyncOutput();
+		this.#caps = caps;
+		this.#syncEnabled = caps.syncEnabled;
 		this.#paintBeginSequence = this.#syncEnabled
 			? `${HIDE_CURSOR}${SYNC_OUTPUT_BEGIN}${DISABLE_AUTOWRAP}`
 			: `${HIDE_CURSOR}${DISABLE_AUTOWRAP}`;
@@ -250,7 +251,7 @@ export class LedgerTuiEngine {
 	}
 
 	#prepareLine(raw: string, width: number): PreparedLine {
-		if (isImageLine(raw)) return { raw, width, line: raw };
+		if (this.#caps.isImageLine(raw)) return { raw, width, line: raw };
 		const normalized = raw; // Phase A: 假定组件已规范化；如需 normalizeTerminalOutput 在此补
 		if (visibleWidth(normalized) <= width) return { raw, width, line: normalized };
 		// Hard-clamp to width without an ellipsis (matches OMP Ellipsis.Omit):
@@ -259,13 +260,13 @@ export class LedgerTuiEngine {
 	}
 
 	#terminalLine(line: string): string {
-		if (isImageLine(line)) return line;
+		if (this.#caps.isImageLine(line)) return line;
 		const coalesced = coalesceAdjacentSgr(line);
 		return coalesced + (line.includes("\x1b]8;") ? LINE_TERMINATOR : SEGMENT_RESET);
 	}
 
 	#lineRewriteSequence(line: string, width: number): string {
-		if (isImageLine(line)) return ERASE_LINE + line;
+		if (this.#caps.isImageLine(line)) return ERASE_LINE + line;
 		const terminalLine = this.#terminalLine(line);
 		const w = visibleWidth(line);
 		if (w >= width) return terminalLine;
@@ -347,8 +348,9 @@ export class LedgerTuiEngine {
 		let buffer = this.#paintBeginSequence;
 		if (options.clearScrollback) {
 			buffer += "\x1b[2J\x1b[H\x1b[3J";
+		} else if (this.#caps.supportsScreenToScrollback) {
+			buffer += "\x1b[2J\x1b[H\x1b[22J"; // kitty ED22: keep pre-existing shell screen
 		} else {
-			// Phase A: TERMINAL.supportsScreenToScrollback = false，不发 kitty ED22
 			buffer += "\x1b[2J\x1b[H";
 		}
 		let wroteLine = false;
