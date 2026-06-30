@@ -1,0 +1,172 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { promises as fsp } from 'node:fs';
+import os from 'node:os';
+import { join } from 'node:path';
+
+import { InstantiationType } from '#/_base/di/extensions';
+import {
+  LifecycleScope,
+  _clearScopedRegistryForTests,
+  registerScopedService,
+} from '#/_base/di/scope';
+import { createScopedTestHost, stubPair } from '#/_base/di/test';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import {
+  AtomicDocumentStore,
+  FileStorageService,
+  IAtomicDocumentStore,
+  IStorageService,
+} from '#/storage';
+import { IWorkspaceRegistry } from '#/workspaceRegistry/workspaceRegistry';
+import { WorkspaceRegistryService } from '#/workspaceRegistry/workspaceRegistryService';
+import { FileWorkspaceStore } from '#/workspaceRegistry/fileWorkspaceStore';
+import { IWorkspaceStore, type PersistedWorkspaceEntry } from '#/workspaceRegistry/workspaceStore';
+
+interface SessionIndexLine {
+  readonly sessionId: string;
+  readonly sessionDir: string;
+  readonly workDir: string;
+}
+
+describe('WorkspaceRegistryService (file-backed)', () => {
+  let homeDir: string;
+  let currentHost: ReturnType<typeof createScopedTestHost> | undefined;
+
+  beforeEach(async () => {
+    _clearScopedRegistryForTests();
+    registerScopedService(
+      LifecycleScope.Core,
+      IWorkspaceStore,
+      FileWorkspaceStore,
+      InstantiationType.Delayed,
+      'workspaceRegistry',
+    );
+    registerScopedService(
+      LifecycleScope.Core,
+      IWorkspaceRegistry,
+      WorkspaceRegistryService,
+      InstantiationType.Delayed,
+      'workspaceRegistry',
+    );
+    homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-registry-'));
+  });
+
+  afterEach(async () => {
+    currentHost?.dispose();
+    currentHost = undefined;
+    await fsp.rm(homeDir, { recursive: true, force: true });
+  });
+
+  function build(): IWorkspaceRegistry {
+    const fileStorage = new FileStorageService(homeDir);
+    const host = createScopedTestHost([
+      stubPair(IStorageService, fileStorage),
+      stubPair(IAtomicDocumentStore, new AtomicDocumentStore(fileStorage)),
+    ]);
+    currentHost = host;
+    return host.core.accessor.get(IWorkspaceRegistry);
+  }
+
+  function restart(): IWorkspaceRegistry {
+    currentHost?.dispose();
+    currentHost = undefined;
+    return build();
+  }
+
+  async function seedSessionIndex(entries: SessionIndexLine[]): Promise<void> {
+    const text = `${entries.map((e) => JSON.stringify(e)).join('\n')}\n`;
+    await fsp.writeFile(join(homeDir, 'session_index.jsonl'), text, 'utf8');
+  }
+
+  async function writeWorkspacesJson(
+    workspaces: Record<string, PersistedWorkspaceEntry>,
+  ): Promise<void> {
+    await fsp.writeFile(
+      join(homeDir, 'workspaces.json'),
+      JSON.stringify({ version: 1, workspaces }),
+      'utf8',
+    );
+  }
+
+  it('persists the catalog across registry instances', async () => {
+    const created = await build().createOrTouch(homeDir, 'proj');
+
+    const list = await restart().list();
+    expect(list.map((w) => w.id)).toContain(created.id);
+    expect(list.find((w) => w.id === created.id)?.name).toBe('proj');
+  });
+
+  it('rebuilds from session_index.jsonl when workspaces.json is absent', async () => {
+    const workA = join(homeDir, 'proj-a');
+    const workB = join(homeDir, 'proj-b');
+    await seedSessionIndex([
+      {
+        sessionId: 's1',
+        sessionDir: join(homeDir, 'sessions', encodeWorkDirKey(workA), 's1'),
+        workDir: workA,
+      },
+      {
+        sessionId: 's2',
+        sessionDir: join(homeDir, 'sessions', encodeWorkDirKey(workB), 's2'),
+        workDir: workB,
+      },
+      // Duplicate workDir → still one workspace.
+      {
+        sessionId: 's3',
+        sessionDir: join(homeDir, 'sessions', encodeWorkDirKey(workA), 's3'),
+        workDir: workA,
+      },
+    ]);
+
+    const list = await build().list();
+    expect(list.map((w) => w.id).toSorted()).toEqual(
+      [encodeWorkDirKey(workA), encodeWorkDirKey(workB)].toSorted(),
+    );
+    const a = list.find((w) => w.id === encodeWorkDirKey(workA));
+    expect(a?.root).toBe(workA);
+    expect(a?.name).toBe('proj-a');
+
+    // The rebuild is persisted, so a fresh instance reads workspaces.json.
+    expect((await restart().list()).map((w) => w.id).toSorted()).toEqual(
+      list.map((w) => w.id).toSorted(),
+    );
+  });
+
+  it('rebuilds empty when neither file exists', async () => {
+    expect(await build().list()).toEqual([]);
+  });
+
+  it('prefers an existing workspaces.json over the session index', async () => {
+    const work = join(homeDir, 'existing');
+    await writeWorkspacesJson({
+      [encodeWorkDirKey(work)]: {
+        root: work,
+        name: 'existing',
+        created_at: '2024-01-01T00:00:00.000Z',
+        last_opened_at: '2024-01-02T00:00:00.000Z',
+      },
+    });
+    await seedSessionIndex([
+      {
+        sessionId: 's9',
+        sessionDir: join(homeDir, 'sessions', encodeWorkDirKey(join(homeDir, 'from-index')), 's9'),
+        workDir: join(homeDir, 'from-index'),
+      },
+    ]);
+
+    const list = await build().list();
+    expect(list.map((w) => w.id)).toEqual([encodeWorkDirKey(work)]);
+    expect(list[0]?.name).toBe('existing');
+  });
+
+  it('writes through on update and delete', async () => {
+    const created = await build().createOrTouch(homeDir, 'proj');
+    await build().update(created.id, { name: 'renamed' });
+
+    expect((await restart().get(created.id))?.name).toBe('renamed');
+
+    await build().delete(created.id);
+    expect(await restart().get(created.id)).toBeUndefined();
+  });
+});
