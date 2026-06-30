@@ -7,6 +7,8 @@ import { getNativeScrollbackCommitSafeEnd, getNativeScrollbackLiveRegionStart, g
 import { coalesceAdjacentSgr } from "./sgr-coalesce.ts";
 import {
 	type CursorControlResult,
+	ALT_SCREEN_ENTER,
+	ALT_SCREEN_EXIT,
 	DISABLE_AUTOWRAP,
 	ENABLE_AUTOWRAP,
 	ERASE_LINE,
@@ -53,7 +55,6 @@ export class LedgerTuiEngine {
 	// ---- resize viewport defer (Phase B Task 4) ----
 	#resizeViewportActive = false;
 	#resizeViewportSettleTimer: ReturnType<typeof setTimeout> | undefined;
-	#resizeAltActive = false;
 	#resizeViewportPaintCount = 0;
 	static readonly #RESIZE_SETTLE_MS = 120;
 
@@ -700,9 +701,8 @@ export class LedgerTuiEngine {
 	public beginResizeViewport(): void {
 		if (isMultiplexerSession()) return; // mux: no alt-screen
 		if (!this.#resizeViewportActive) {
-			this.terminal.write("\x1b[?1049h");
+			this.terminal.write(ALT_SCREEN_ENTER);
 			this.#resizeViewportActive = true;
-			this.#resizeAltActive = true;
 		}
 		this.#armResizeSettle();
 	}
@@ -717,8 +717,7 @@ export class LedgerTuiEngine {
 		this.#resizeViewportSettleTimer = undefined;
 		if (this.#resizeViewportActive) {
 			this.#resizeViewportActive = false;
-			this.#resizeAltActive = false;
-			this.terminal.write("\x1b[?1049l");
+			this.terminal.write(ALT_SCREEN_EXIT);
 		}
 		// authoritative full repaint after settle (clear scrollback, rewrap)
 		this.requestFullPaint(true);
@@ -746,15 +745,23 @@ export class LedgerTuiEngine {
 			clearTimeout(this.#resizeViewportSettleTimer);
 			this.#resizeViewportSettleTimer = undefined;
 		}
-		if (this.#resizeAltActive) {
+		if (this.#resizeViewportActive) {
 			this.#resizeViewportActive = false;
-			this.#resizeAltActive = false;
-			this.terminal.write("\x1b[?1049l");
+			this.terminal.write(ALT_SCREEN_EXIT);
 		}
 	}
 
 	public reset(): void {
 		this.#stopped = false;
+		if (this.#resizeViewportSettleTimer) {
+			clearTimeout(this.#resizeViewportSettleTimer);
+			this.#resizeViewportSettleTimer = undefined;
+		}
+		if (this.#resizeViewportActive) {
+			this.#resizeViewportActive = false;
+			this.terminal.write(ALT_SCREEN_EXIT);
+		}
+		this.#resizeViewportPaintCount = 0;
 		this.#committedRows = 0;
 		this.#committedPrefix = [];
 		this.#committedPrefixAuditRows = 0;

@@ -16,8 +16,9 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 // Env vars that make isMultiplexerSession() return true. The non-mux fast path is
 // gated on `!isMultiplexerSession()`, so a non-mux test must clear these — the
 // developer/CI shell often runs inside tmux/cmux, which would otherwise force the
-// mux path and make the assertions vacuous.
-const MUX_ENV_KEYS = ["TMUX", "STY", "ZELLIJ", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID"] as const;
+// mux path and make the assertions vacuous. TERM is included because tmux/screen
+// set it to `tmux-256color`/`screen-256color`, which alone flips isMultiplexerSession().
+const MUX_ENV_KEYS = ["TMUX", "STY", "ZELLIJ", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "TERM"] as const;
 
 function snapshotMuxEnv(): Record<string, string | undefined> {
 	const snap: Record<string, string | undefined> = {};
@@ -67,6 +68,9 @@ async function withLedgerMux<T>(run: () => Promise<T>): Promise<T> {
 const ALT_ENTER = "\x1b[?1049h";
 const ALT_EXIT = "\x1b[?1049l";
 const ED3 = "\x1b[3J";
+// Per-row erase emitted only by the resize viewport fast path (#renderResizeViewport);
+// the full/update paint paths use ED2/ED3 or ERASE_TO_END_OF_LINE (\x1b[K), never \x1b[2K.
+const ERASE_LINE = "\x1b[2K";
 
 describe("ledger resize viewport defer", () => {
 	it("uses the alt-screen fast path during a resize drag (no ED3)", async () => {
@@ -89,6 +93,10 @@ describe("ledger resize viewport defer", () => {
 
 			const writes = terminal.getWrites();
 			assert.ok(writes.includes(ALT_ENTER), `drag should enter the alt-screen; got: ${JSON.stringify(writes)}`);
+			assert.ok(
+				writes.includes(ERASE_LINE),
+				`drag should paint via the viewport fast path (per-row \\x1b[2K); got: ${JSON.stringify(writes)}`,
+			);
 			assert.ok(!writes.includes(ED3), `drag must not clear scrollback (ED3); got: ${JSON.stringify(writes)}`);
 			tui.stop();
 		});
