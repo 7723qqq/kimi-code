@@ -44,13 +44,13 @@ module.exports = {
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.plist',
     target: ['dmg', 'zip'],
-    artifactName: '${productName}-${version}-${arch}.${ext}',
+    artifactName: 'KCD-Internal-${version}-${arch}.${ext}',
     notarize,
   },
 
   win: {
     target: ['nsis'],
-    artifactName: '${productName}-${version}-${arch}.${ext}',
+    artifactName: 'KCD-Internal-${version}-${arch}.${ext}',
   },
 
   nsis: {
@@ -62,6 +62,6 @@ module.exports = {
   linux: {
     category: 'Development',
     target: ['AppImage', 'deb'],
-    artifactName: '${productName}-${version}-${arch}.${ext}',
+    artifactName: 'KCD-Internal-${version}-${arch}.${ext}',
   },
 };
