@@ -688,4 +688,29 @@ export class LedgerTuiEngine {
 		this.#preparedMeta = [];
 		this.#preparedValidRows = 0;
 	}
+
+	// Park the hardware cursor just past the last content row so the host's shell
+	// prompt does not overwrite painted rows on exit. Mirrors TUI.stop()'s legacy
+	// cursor-parking, but sourced from the ledger's own window/cursor state.
+	public parkCursorForExit(): void {
+		const window = this.#previousWindow;
+		if (window.length === 0) return;
+		let lastContentRow = -1;
+		for (let i = window.length - 1; i >= 0; i--) {
+			if ((window[i] ?? "").length > 0) {
+				lastContentRow = i;
+				break;
+			}
+		}
+		const targetRow = lastContentRow + 1;
+		const height = this.terminal.rows;
+		const rawCursorRow = this.#hardwareCursorRow - this.#windowTopRow;
+		const cursorScreenRow = Math.max(0, Math.min(height - 1, rawCursorRow));
+		let seq = "";
+		const lineDiff = targetRow - cursorScreenRow;
+		if (lineDiff > 0) seq += `\x1b[${lineDiff}B`;
+		else if (lineDiff < 0) seq += `\x1b[${-lineDiff}A`;
+		seq += "\r\n";
+		this.terminal.write(seq);
+	}
 }

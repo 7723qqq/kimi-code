@@ -96,4 +96,26 @@ describe("ledger engine golden", () => {
 			tui.stop();
 		});
 	});
+
+	it("parks cursor past content on stop()", async () => {
+		await withLedger(async () => {
+			const terminal = new LoggingVirtualTerminal(40, 10);
+			const tui = new TUI(terminal);
+			const c = new TestComponent();
+			tui.addChild(c);
+			c.lines = ["Hello", "World"];
+			tui.start();
+			await terminal.waitForRender();
+			terminal.clearWrites();
+			tui.stop();
+			const writes = terminal.getWrites();
+			// stop() must emit a cursor-parking sequence ending with CRLF so the host
+			// shell prompt lands on a fresh line below the painted content (not
+			// overwriting it). This regresses the ledger-path exit artifact.
+			assert.ok(
+				writes.includes("\r\n"),
+				`stop() should park cursor with a trailing CRLF; got: ${JSON.stringify(writes)}`,
+			);
+		});
+	});
 });

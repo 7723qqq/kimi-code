@@ -706,7 +706,9 @@ export class TUI extends Container {
 			this.terminal.write("\x1b[?2031l");
 		}
 		// Move cursor to the end of the content to prevent overwriting/artifacts on exit
-		if (this.previousLines.length > 0) {
+		if (TUI.LEDGER_ENABLED && this.ledgerEngine) {
+			this.ledgerEngine.parkCursorForExit();
+		} else if (this.previousLines.length > 0) {
 			const targetRow = this.previousLines.length; // Line after the last content
 			const lineDiff = targetRow - this.hardwareCursorRow;
 			if (lineDiff > 0) {
