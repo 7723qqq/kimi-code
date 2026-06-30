@@ -12,9 +12,17 @@ import { join } from 'node:path';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { ISessionService, FsSearchService, ILogService } from '@moonshot-ai/agent-core';
+import {
+  ISessionService,
+  FsSearchService,
+  ILogService,
+  noopTelemetryClient,
+  type TelemetryClient,
+  type TelemetryProperties,
+} from '@moonshot-ai/agent-core';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';
+import { fixedTokenAuth } from './helpers/serverHarness';
 
 let tmpDir: string;
 let lockPath: string;
@@ -43,6 +51,7 @@ afterEach(async () => {
 
 async function bootDaemon(): Promise<RunningServer> {
   server = await startServer({
+    serviceOverrides: [fixedTokenAuth()],
     host: '127.0.0.1',
     port: 0,
     lockPath,
@@ -58,15 +67,27 @@ function appOf(r: RunningServer): {
     json: () => unknown;
   }>;
 } {
-  return r.services.invokeFunction((a) => {
+  const app = r.services.invokeFunction((a) => {
     const gw = a.get(IRestGateway);
     return gw.app as unknown as {
-      inject: (req: unknown) => Promise<{
-        statusCode: number;
-        json: () => unknown;
-      }>;
-    };
+  inject: (req: unknown) => Promise<{
+    statusCode: number;
+    json: () => unknown;
+  }>;
+};
   });
+  // Auto-attach the fixed bearer token so the M5.1 auth hook passes. A
+  // caller-supplied `authorization` header wins, so explicit token tests keep
+  // working; every other header (Range, content-type, …) is preserved.
+  return {
+    inject(req: unknown) {
+      const q = req as { headers?: Record<string, string | string[] | undefined> };
+      return app.inject({
+        ...q,
+        headers: { authorization: 'Bearer test-token', ...q.headers },
+      });
+    },
+  };
 }
 
 function envelopeOf<T>(body: unknown): {
@@ -384,6 +405,14 @@ describe('FsSearchService direct: rg fallback + grep timeout (W11.1)', () => {
   }
 
   class StubMissingRg extends FsSearchService {
+    constructor(
+      sessions: ISessionService,
+      logger: ILogService,
+      telemetry: TelemetryClient = noopTelemetryClient,
+    ) {
+      super(telemetry, sessions, logger);
+    }
+
     public override probeRg(): Promise<string | null> {
       if (this.rgPath !== undefined) return Promise.resolve(this.rgPath);
       this.rgPath = null;
@@ -431,6 +460,32 @@ describe('FsSearchService direct: rg fallback + grep timeout (W11.1)', () => {
     svc.dispose();
   });
 
+  it('tracks fs grep node fallback when rg is missing', async () => {
+    const sessions = makeStubSession(workspace);
+    const logger = makeStubLogger();
+    const events: Array<{ event: string; properties?: TelemetryProperties }> = [];
+    const svc = new StubMissingRg(sessions, logger, {
+      track: (event, properties) => events.push({ event, properties }),
+    });
+    writeFileSync(join(workspace, 'a.txt'), 'needle\n');
+
+    await svc.grep('sess_stub', {
+      pattern: 'needle',
+      regex: false,
+      case_sensitive: true,
+      follow_gitignore: true,
+      max_files: 200,
+      max_matches_per_file: 50,
+      max_total_matches: 5000,
+      context_lines: 0,
+    });
+
+    expect(events).toEqual([
+      { event: 'fs_grep_node_fallback', properties: { reason: 'rg_missing' } },
+    ]);
+    svc.dispose();
+  });
+
   it('grep timeout fires FsGrepTimeoutError → 41305', async () => {
     const sessions = makeStubSession(workspace);
     const logger = makeStubLogger();
@@ -453,7 +508,7 @@ describe('FsSearchService direct: rg fallback + grep timeout (W11.1)', () => {
         return Promise.resolve(null);
       }
     }
-    const svc = new StubTimeout(sessions, logger);
+    const svc = new StubTimeout(noopTelemetryClient, sessions, logger);
     writeFileSync(join(workspace, 'a.txt'), 'needle\n');
     await expect(
       svc.grep('sess_stub', {

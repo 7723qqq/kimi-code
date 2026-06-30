@@ -8,12 +8,15 @@ import {
   matchesKey,
   Key,
   SelectList,
+  visibleWidth,
   type SelectItem,
   type TUI,
 } from '@earendil-works/pi-tui';
 
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
+
+import { printableChar } from '#/tui/utils/printable-key';
 
 import { extractAtPrefix } from './file-mention-provider';
 import { WrappingSelectList } from './wrapping-select-list';
@@ -44,6 +47,11 @@ interface AutocompleteInternals {
 
 interface AutocompleteListFactoryInternals {
   createAutocompleteList?: (prefix: string, items: SelectItem[]) => SelectList;
+}
+
+interface AutocompleteTriggerInternals {
+  tryTriggerAutocomplete: (explicitTab?: boolean) => void;
+  requestAutocomplete: (options: { force: boolean; explicitTab: boolean }) => void;
 }
 
 // Mirror pi-tui's private SLASH_COMMAND_SELECT_LIST_LAYOUT
@@ -114,6 +122,11 @@ function getNewlineInput(data: string): string | undefined {
 
 export class CustomEditor extends Editor {
   public onEscape?: () => void;
+  /**
+   * Fired for every input that is not a lone Escape. Used to disarm a pending
+   * double-Esc so only two consecutive Escape presses trigger the shortcut.
+   */
+  public onNonEscapeInput?: () => void;
   public onCtrlD?: () => void;
   public onCtrlC?: () => void;
   public onToggleToolExpand?: () => void;
@@ -134,6 +147,10 @@ export class CustomEditor extends Editor {
   public onUpArrowEmpty?: () => boolean;
   public onDownArrowEmpty?: () => boolean;
   public onShiftTab?: () => void;
+  /** 'bash' when entering a `!` shell command. The `!` is never part of the
+   *  text buffer — it is a separate mode + prompt symbol (see handleInput). */
+  public inputMode: 'prompt' | 'bash' = 'prompt';
+  public onInputModeChange?: (mode: 'prompt' | 'bash') => void;
   public connectedAbove = false;
   public borderHighlighted = false;
   /**
@@ -181,6 +198,17 @@ export class CustomEditor extends Editor {
       }
       return new SelectList(items, this.getAutocompleteMaxVisible(), theme.selectList);
     };
+
+    // pi-tui auto-triggers autocomplete for `/` (and letters in a slash
+    // context) with force:false, which routes through the slash-command
+    // branch. In bash mode `/` is a path separator, not a command prefix, so
+    // shadow the trigger to request file path completion (force:true) instead.
+    // Prompt mode keeps the original force:false behaviour. `tryTriggerAutocomplete`
+    // is private in pi-tui's typings but a plain prototype method at runtime.
+    const triggerInternals = this as unknown as AutocompleteTriggerInternals;
+    triggerInternals.tryTriggerAutocomplete = (explicitTab = false) => {
+      triggerInternals.requestAutocomplete({ force: this.inputMode === 'bash', explicitTab });
+    };
   }
 
   private expandPasteMarkerAtCursor(): boolean {
@@ -226,8 +254,9 @@ export class CustomEditor extends Editor {
     const lines = super.render(width);
     if (lines.length < 3) return lines;
     const firstContentIdx = 1;
+    const isBash = this.inputMode === 'bash';
     const text = this.getText().trimStart();
-    if (text.startsWith('/')) {
+    if (text.startsWith('/') && !isBash) {
       // Paint only the FIRST editor content line; multi-line slash commands
       // are not a thing in practice.
       const original = lines[firstContentIdx];
@@ -247,7 +276,11 @@ export class CustomEditor extends Editor {
     }
     const firstContent = lines[firstContentIdx];
     if (firstContent !== undefined) {
-      const withPrompt = injectPromptSymbol(firstContent);
+      const withPrompt = injectPromptSymbol(
+        firstContent,
+        isBash ? '!' : '>',
+        isBash ? (s) => this.borderColor(s) : undefined,
+      );
       if (withPrompt !== undefined) {
         lines[firstContentIdx] = withPrompt;
       }
@@ -258,10 +291,13 @@ export class CustomEditor extends Editor {
     // side bars through the same hook to stay in sync.
     return wrapWithSideBorders(lines, (s) => this.borderColor(s), {
       connectedAbove: this.connectedAbove && !this.borderHighlighted,
+      label: isBash ? ` ${currentTheme.boldFg('shellMode', '! shell mode')} ` : undefined,
     });
   }
 
   private computeArgumentHint(): string | undefined {
+    // Argument hints describe slash commands, which do not exist in bash mode.
+    if (this.inputMode === 'bash') return undefined;
     const text = this.getText();
     const match = /^\/(\S+)( ?)$/.exec(text);
     if (match === null) return undefined;
@@ -281,6 +317,12 @@ export class CustomEditor extends Editor {
     const normalized = normalizeCapsLockedCtrl(data);
     if (isKeyRelease(normalized)) {
       return;
+    }
+
+    // Any input other than a lone Escape breaks a pending double-Esc sequence,
+    // so the shortcut only fires for two consecutive Escape presses.
+    if (!matchesKey(normalized, Key.escape)) {
+      this.onNonEscapeInput?.();
     }
 
     // When a paste marker was just expanded, discard the trailing bracketed
@@ -375,6 +417,19 @@ export class CustomEditor extends Editor {
       this.onUndo?.();
     }
 
+    // Exit bash mode: Backspace/Escape on an empty `!` prompt returns to prompt
+    // mode. Because the `!` is not in the buffer, "deleting" it is really
+    // "delete on empty bash input".
+    if (
+      this.inputMode === 'bash' &&
+      this.getText().length === 0 &&
+      (matchesKey(normalized, Key.escape) || matchesKey(normalized, Key.backspace))
+    ) {
+      this.inputMode = 'prompt';
+      this.onInputModeChange?.('prompt');
+      return;
+    }
+
     const newlineInput = getNewlineInput(normalized);
     if (newlineInput !== undefined) {
       this.onInsertNewline?.();
@@ -411,7 +466,32 @@ export class CustomEditor extends Editor {
       return;
     }
 
+    // Enter bash mode: typing `!` at the start of an empty prompt. The `!` is
+    // not inserted into the buffer — it becomes the mode + prompt symbol, so the
+    // cursor never has to skip over it and submit never has to strip it.
+    if (
+      this.inputMode === 'prompt' &&
+      printableChar(normalized) === '!' &&
+      this.getText().length === 0
+    ) {
+      this.inputMode = 'bash';
+      this.onInputModeChange?.('bash');
+      return;
+    }
+
+    const emptyPromptBeforeInput = this.inputMode === 'prompt' && this.getText().length === 0;
     super.handleInput(normalized);
+
+    // Enter bash mode when `!...` is pasted into an empty prompt. The typed path
+    // above handles the single `!` keystroke; this catches bracketed / Ctrl-V
+    // pastes whose content starts with `!`. Strip the leading `!` so the buffer
+    // holds only the command, exactly like the typed path.
+    if (emptyPromptBeforeInput && this.inputMode === 'prompt' && this.getText().startsWith('!')) {
+      this.inputMode = 'bash';
+      this.onInputModeChange?.('bash');
+      this.setText(this.getText().slice(1));
+    }
+
     this.reopenAutocompleteAfterInput();
   }
 
@@ -434,10 +514,24 @@ export class CustomEditor extends Editor {
     // Reopen path / argument completion right after a `/` is typed
     // (e.g. `/add-dir /` or an `@dir/` mention).
     if (textBeforeCursor.endsWith('/')) {
-      const isSlashArgument = textBeforeCursor.startsWith('/') && textBeforeCursor.includes(' ');
       const isAtMention = extractAtPrefix(textBeforeCursor) !== null;
-      if (isSlashArgument || isAtMention) {
+      if (isAtMention) {
         trigger();
+      } else if (this.inputMode === 'bash') {
+        // In bash mode `/` is a path separator, not a slash command. A bare
+        // leading `/` is already handled by the tryTriggerAutocomplete shadow
+        // in the constructor; this branch covers the inline case (e.g. `ls /`,
+        // `cat /etc/`, `/add-dir/`) that pi-tui never auto-triggers. force:true
+        // is required so pi-tui's own slash-command handling is bypassed —
+        // force:false would let it pop up subcommand completions.
+        if (textBeforeCursor.trimStart() !== '/') {
+          editor.requestAutocomplete?.({ force: true, explicitTab: false });
+        }
+      } else {
+        const isSlashArgument = textBeforeCursor.startsWith('/') && textBeforeCursor.includes(' ');
+        if (isSlashArgument) {
+          trigger();
+        }
       }
       return;
     }
@@ -445,7 +539,10 @@ export class CustomEditor extends Editor {
     // After accepting a slash command name via Tab, pi-tui inserts a trailing
     // space and closes the menu without triggering argument completion. Reopen
     // it so subcommands (e.g. `/goal ` → status/pause/…) show immediately.
+    // Skipped in bash mode: `/` is a path there, and force:false would let
+    // pi-tui's own slash-command handling pop up subcommand completions.
     if (
+      this.inputMode !== 'bash' &&
       textBeforeCursor.endsWith(' ') &&
       textBeforeCursor.startsWith('/') &&
       textBeforeCursor.includes(' ')
@@ -593,12 +690,17 @@ function truncateHint(hint: string, maxLen: number): string {
  * default foreground colour renders the symbol. Returns `undefined` if the
  * line is too short or doesn't begin with the expected padding.
  */
-export function injectPromptSymbol(line: string): string | undefined {
+export function injectPromptSymbol(
+  line: string,
+  symbol = '>',
+  paint?: (s: string) => string,
+): string | undefined {
   if (line.length < 4) return undefined;
   for (let i = 0; i < 4; i++) {
     if (line[i] !== ' ') return undefined;
   }
-  return '  > ' + line.slice(4);
+  const rendered = paint ? paint(symbol) : symbol;
+  return '  ' + rendered + ' ' + line.slice(4);
 }
 
 /**
@@ -612,21 +714,37 @@ export function injectPromptSymbol(line: string): string | undefined {
  * inner SGR intact; only column 0 and the last column are overlaid, and
  * only if they're literal spaces — that protects the cursor-overflow
  * case where the rightmost column is an SGR-tagged inverse cursor.
+ *
+ * When `options.label` is set, it is overlaid on the left of the top border
+ * (e.g. the `! shell mode` badge), replacing the leading dashes. It is only
+ * applied to a plain dash run, never to a `↑/↓ N more` scroll indicator.
  */
 export function wrapWithSideBorders(
   lines: string[],
   paint: (s: string) => string,
-  options: { readonly connectedAbove?: boolean } = {},
+  options: { readonly connectedAbove?: boolean; readonly label?: string } = {},
 ): string[] {
   let seenTop = false;
   return lines.map((line) => {
     const plain = stripSgr(line);
     if (plain.length > 0 && plain[0] === '─') {
+      const isTop = !seenTop;
       const leftCorner = seenTop ? '╰' : options.connectedAbove === true ? '├' : '╭';
       const rightCorner = seenTop ? '╯' : options.connectedAbove === true ? '┤' : '╮';
       seenTop = true;
       if (plain.length === 1) return paint(leftCorner);
       const middle = plain.slice(1, -1);
+      if (isTop && options.label !== undefined && /^─+$/.test(middle)) {
+        const labelWidth = visibleWidth(options.label);
+        if (labelWidth <= middle.length) {
+          return (
+            paint(leftCorner) +
+            options.label +
+            paint('─'.repeat(middle.length - labelWidth)) +
+            paint(rightCorner)
+          );
+        }
+      }
       return paint(leftCorner + middle + rightCorner);
     }
     if (line.length === 0) return line;

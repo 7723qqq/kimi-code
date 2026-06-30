@@ -52,6 +52,7 @@ import type {
   ResumedSessionSummary,
   SessionSummary,
   SkillSummary,
+  PluginCommandDef,
   Unsubscribe,
 } from '#/types';
 
@@ -64,6 +65,10 @@ export interface SessionPromptRpcInput {
 
 export interface SessionIdRpcInput {
   readonly sessionId: string;
+}
+
+export interface ReloadSessionRpcInput extends SessionIdRpcInput {
+  readonly forcePluginSessionStartReminder?: boolean;
 }
 
 export interface SetSessionModelRpcInput extends SessionIdRpcInput {
@@ -93,6 +98,12 @@ export type SetSessionSwarmModeRpcInput =
 
 export interface ActivateSkillRpcInput extends SessionIdRpcInput {
   readonly name: string;
+  readonly args?: string | undefined;
+}
+
+export interface ActivatePluginCommandRpcInput extends SessionIdRpcInput {
+  readonly pluginId: string;
+  readonly commandName: string;
   readonly args?: string | undefined;
 }
 
@@ -150,9 +161,12 @@ export abstract class SDKRpcClientBase {
     return this.resumeSession(input);
   }
 
-  async reloadSession(input: SessionIdRpcInput): Promise<ResumedSessionSummary> {
+  async reloadSession(input: ReloadSessionRpcInput): Promise<ResumedSessionSummary> {
     const rpc = await this.getRpc();
-    return rpc.reloadSession({ sessionId: input.sessionId });
+    return rpc.reloadSession({
+      sessionId: input.sessionId,
+      forcePluginSessionStartReminder: input.forcePluginSessionStartReminder,
+    });
   }
 
   async forkSession(input: ForkSessionInput): Promise<SessionSummary> {
@@ -227,6 +241,31 @@ export abstract class SDKRpcClientBase {
       sessionId: input.sessionId,
       agentId,
       input: input.input,
+    });
+  }
+
+  async runShellCommand(input: {
+    sessionId: string;
+    command: string;
+    commandId?: string;
+  }): Promise<{ stdout: string; stderr: string; isError?: boolean; backgrounded?: boolean }> {
+    const agentId = this.interactiveAgentId;
+    const rpc = await this.getRpc();
+    return rpc.runShellCommand({
+      sessionId: input.sessionId,
+      agentId,
+      command: input.command,
+      commandId: input.commandId,
+    });
+  }
+
+  async cancelShellCommand(input: { sessionId: string; commandId: string }): Promise<void> {
+    const agentId = this.interactiveAgentId;
+    const rpc = await this.getRpc();
+    return rpc.cancelShellCommand({
+      sessionId: input.sessionId,
+      agentId,
+      commandId: input.commandId,
     });
   }
 
@@ -451,6 +490,11 @@ export abstract class SDKRpcClientBase {
     return rpc.listSkills({ sessionId: input.sessionId });
   }
 
+  async listPluginCommands(input: SessionIdRpcInput): Promise<readonly PluginCommandDef[]> {
+    const rpc = await this.getRpc();
+    return rpc.listPluginCommands({ sessionId: input.sessionId });
+  }
+
   async listBackgroundTasks(
     input: SessionIdRpcInput & { activeOnly?: boolean; limit?: number },
   ): Promise<readonly BackgroundTaskInfo[]> {
@@ -597,6 +641,17 @@ export abstract class SDKRpcClientBase {
       sessionId: input.sessionId,
       agentId: this.interactiveAgentId,
       name: input.name,
+      args: input.args,
+    });
+  }
+
+  async activatePluginCommand(input: ActivatePluginCommandRpcInput): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.activatePluginCommand({
+      sessionId: input.sessionId,
+      agentId: this.interactiveAgentId,
+      pluginId: input.pluginId,
+      commandName: input.commandName,
       args: input.args,
     });
   }

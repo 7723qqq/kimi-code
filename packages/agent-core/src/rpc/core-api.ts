@@ -21,9 +21,11 @@ import type { SessionMeta } from '#/session';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import type { SessionWarning } from '@moonshot-ai/protocol';
 
-import type { PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
+import type { PluginCommandDef, PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
 import type { UsageStatus } from './events';
 import type { WithAgentId, WithSessionId } from './types';
+
+export type { PluginCommandDef } from '#/plugin';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -76,6 +78,13 @@ export interface ResumeSessionPayload {
 
 export interface ReloadSessionPayload {
   readonly sessionId: string;
+  /**
+   * When true, append a fresh `<plugin_session_start>` system reminder to the
+   * main agent after the session is reloaded, reflecting the currently enabled
+   * plugins. Used by the explicit `/reload` command so the model sees plugin
+   * changes without starting a new session. Defaults to false.
+   */
+  readonly forcePluginSessionStartReminder?: boolean;
 }
 
 export interface ForkSessionPayload {
@@ -162,6 +171,29 @@ export interface SessionSummary {
 export interface PromptPayload {
   readonly input: readonly ContentPart[];
 }
+export interface RunShellCommandPayload {
+  readonly command: string;
+  /**
+   * TUI-generated correlation id echoed back on every `shell.output` live event
+   * so the client can route chunks to the matching entry and drop stale events
+   * from a prior run. Optional for callers that don't stream.
+   */
+  readonly commandId?: string;
+}
+export interface ShellCommandResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  /** True when the command failed (non-zero exit / timeout / killed) — used by
+   *  the TUI to render stderr in red only for actual failures, not warnings. */
+  readonly isError?: boolean;
+  /** True when the command was detached to the background (ctrl+b) instead of
+   *  completing in the foreground. The TUI uses this to skip the normal final
+   *  render (the backgrounding path owns the UI + model notification). */
+  readonly backgrounded?: boolean;
+}
+export interface CancelShellCommandPayload {
+  readonly commandId: string;
+}
 export interface SteerPayload {
   readonly input: readonly ContentPart[];
 }
@@ -238,6 +270,12 @@ export interface SkillSummary {
 
 export interface ActivateSkillPayload {
   readonly name: string;
+  readonly args?: string | undefined;
+}
+
+export interface ActivatePluginCommandPayload {
+  readonly pluginId: string;
+  readonly commandName: string;
   readonly args?: string | undefined;
 }
 
@@ -339,6 +377,8 @@ export interface RemoveKimiProviderPayload {
 
 export interface AgentAPI {
   prompt: (payload: PromptPayload) => void;
+  runShellCommand: (payload: RunShellCommandPayload) => Promise<ShellCommandResult>;
+  cancelShellCommand: (payload: CancelShellCommandPayload) => void;
   steer: (payload: SteerPayload) => void;
   cancel: (payload: CancelPayload) => void;
   undoHistory: (payload: UndoHistoryPayload) => void;
@@ -361,6 +401,7 @@ export interface AgentAPI {
   detachBackground: (payload: DetachBackgroundPayload) => BackgroundTaskInfo | undefined;
   clearContext: (payload: EmptyPayload) => void;
   activateSkill: (payload: ActivateSkillPayload) => void;
+  activatePluginCommand: (payload: ActivatePluginCommandPayload) => void;
   startBtw: (payload: EmptyPayload) => string;
   createGoal: (payload: CreateGoalPayload) => GoalSnapshot;
   getGoal: (payload: EmptyPayload) => GoalToolResult;
@@ -384,6 +425,7 @@ export interface SessionAPI extends AgentAPIWithId {
   updateSessionMetadata: (payload: UpdateSessionMetadataPayload) => void;
   getSessionMetadata: (payload: EmptyPayload) => SessionMeta;
   listSkills: (payload: EmptyPayload) => readonly SkillSummary[];
+  listPluginCommands: (payload: EmptyPayload) => readonly PluginCommandDef[];
   listMcpServers: (payload: EmptyPayload) => readonly McpServerInfo[];
   getMcpStartupMetrics: (payload: EmptyPayload) => McpStartupMetrics;
   reconnectMcpServer: (payload: ReconnectMcpServerPayload) => void;

@@ -20,9 +20,26 @@ export interface SkillActivationOrigin {
   readonly skillSource?: SkillSource | undefined;
 }
 
+export interface PluginCommandOrigin {
+  readonly kind: 'plugin_command';
+  readonly activationId: string;
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly commandArgs?: string | undefined;
+  readonly trigger: 'user-slash';
+}
+
 export interface InjectionOrigin {
   readonly kind: 'injection';
   readonly variant: string;
+}
+
+export interface ShellCommandOrigin {
+  readonly kind: 'shell_command';
+  readonly phase: 'input' | 'output';
+  /** Only present on `phase: 'output'` — whether the command failed, so replay
+   *  can colour stderr red only for actual failures (not warnings). */
+  readonly isError?: boolean;
 }
 
 export interface CompactionSummaryOrigin {
@@ -72,7 +89,9 @@ export interface RetryOrigin {
 export type PromptOrigin =
   | UserPromptOrigin
   | SkillActivationOrigin
+  | PluginCommandOrigin
   | InjectionOrigin
+  | ShellCommandOrigin
   | CompactionSummaryOrigin
   | SystemTriggerOrigin
   | BackgroundTaskOrigin

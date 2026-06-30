@@ -322,6 +322,22 @@ function buildApprovalBlock(a: AppApprovalRequest): ApprovalBlock {
     return { kind: 'todo', items };
   }
 
+  if (kind === 'plan_review') {
+    const plan = typeof d['plan'] === 'string' ? d['plan'] : '';
+    const path = typeof d['path'] === 'string' ? d['path'] : undefined;
+    const rawOptions = Array.isArray(d['options']) ? d['options'] : [];
+    const options = rawOptions
+      .map((item: unknown): { label: string; description?: string } | null => {
+        const it = (item ?? {}) as Record<string, unknown>;
+        const label = typeof it['label'] === 'string' ? it['label'] : '';
+        if (!label) return null;
+        const description = typeof it['description'] === 'string' ? it['description'] : undefined;
+        return { label, description };
+      })
+      .filter((o): o is { label: string; description?: string } => o !== null);
+    return { kind: 'plan_review', plan, path, options: options.length > 0 ? options : undefined };
+  }
+
   return { kind: 'generic', summary: a.action };
 }
 
@@ -370,6 +386,7 @@ function isDisplayableUserMessage(msg: AppMessage): boolean {
   const kind = origin?.kind;
   if (kind === undefined || kind === 'user') return true;
   if (kind === 'skill_activation') return origin?.trigger === 'user-slash';
+  if (kind === 'plugin_command') return origin?.trigger === 'user-slash';
   return false;
 }
 
@@ -393,6 +410,19 @@ function continuesAssistantGroup(group: Group | null, promptId: string | undefin
   );
 }
 
+/** Extract the plan file path from an ExitPlanMode tool result. The approved
+ *  output contains `Plan saved to: <path>`; this survives a page reload (unlike
+ *  the ephemeral plan_review approval display), so the tool card can still link
+ *  to the plan file. */
+function parsePlanSavedPath(output: string[] | undefined): string | undefined {
+  if (!output || output.length === 0) return undefined;
+  const marker = 'Plan saved to: ';
+  for (const line of output) {
+    if (line.startsWith(marker)) return line.slice(marker.length).trim();
+  }
+  return undefined;
+}
+
 export function messagesToTurns(
   messages: AppMessage[],
   approvals: AppApprovalRequest[],
@@ -406,6 +436,9 @@ export function messagesToTurns(
    */
   sessionActive = true,
   subagentTasks: AppTask[] = [],
+  /** Preserved `plan_review` displays keyed by toolCallId — used to link the
+   *  ExitPlanMode tool card back to the plan file after the approval resolves. */
+  planReviewByToolCallId: Record<string, { plan: string; path?: string }> = {},
 ): ChatTurn[] {
   const turns: ChatTurn[] = [];
   let no = 1;
@@ -541,6 +574,7 @@ export function messagesToTurns(
           // flushGroup settles dangling tools of finished turns back to 'ok'.
           status: 'running',
           output: c.outputLines,
+          planPath: c.toolName === 'ExitPlanMode' ? planReviewByToolCallId[c.toolCallId]?.path : undefined,
         };
         g.tools.push(toolCall);
         g.blocks.push({ kind: 'tool', tool: toolCall });
@@ -560,6 +594,12 @@ export function messagesToTurns(
             output: normalizeToolOutput(c.output),
             media: c.isError ? undefined : normalizeToolMedia(tool.name, c.output),
           };
+          // ExitPlanMode: if the plan path wasn't captured from the (ephemeral)
+          // approval display, recover it from the result output so the file link
+          // survives a reload for approved plans.
+          if (updated.name === 'ExitPlanMode' && !updated.planPath) {
+            updated.planPath = parsePlanSavedPath(updated.output);
+          }
           g.tools[idx] = updated;
           const blk = g.blocks.find((b) => b.kind === 'tool' && b.tool.id === c.toolCallId);
           if (blk && blk.kind === 'tool') blk.tool = updated;
@@ -620,10 +660,20 @@ export function messagesToTurns(
       if (!isDisplayableUserMessage(msg)) continue;
 
       const origin = msg.metadata?.['origin'] as
-        | { kind?: string; skillName?: string; skillArgs?: string; trigger?: string }
+        | {
+            kind?: string;
+            skillName?: string;
+            skillArgs?: string;
+            pluginId?: string;
+            commandName?: string;
+            commandArgs?: string;
+            trigger?: string;
+          }
         | undefined;
       const isSkillActivation =
         origin?.kind === 'skill_activation' && origin?.trigger === 'user-slash';
+      const isPluginCommand =
+        origin?.kind === 'plugin_command' && origin?.trigger === 'user-slash';
 
       const textParts: string[] = [];
       const images: { url: string; alt?: string; kind: 'image' | 'video' }[] = [];
@@ -633,6 +683,10 @@ export function messagesToTurns(
             // Skill activation messages carry the raw XML block; we strip it and
             // surface only the user-provided args as the "user input" text.
             textParts.push(origin.skillArgs ?? '');
+          } else if (isPluginCommand) {
+            // Plugin command turns carry the expanded body; surface only the
+            // user-provided args, mirroring skill activations.
+            textParts.push(origin.commandArgs ?? '');
           } else {
             textParts.push(c.text);
           }
@@ -648,6 +702,9 @@ export function messagesToTurns(
         images: images.length > 0 ? images : undefined,
         skillActivation: isSkillActivation
           ? { name: origin.skillName!, args: origin.skillArgs }
+          : undefined,
+        pluginCommand: isPluginCommand
+          ? { pluginId: origin.pluginId!, commandName: origin.commandName!, args: origin.commandArgs }
           : undefined,
         createdAt: msg.createdAt,
       });

@@ -22,6 +22,7 @@ import type {
   ListSessionsOptions,
   RenameSessionInput,
   ResumeSessionInput,
+  ReloadSessionInput,
   SessionSummary,
   TelemetryClient,
   TelemetryContextPatch,
@@ -142,16 +143,21 @@ export class KimiHarness {
     return session;
   }
 
-  async reloadSession(input: ResumeSessionInput): Promise<Session> {
+  async reloadSession(input: ReloadSessionInput): Promise<Session> {
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
     if (active !== undefined) {
-      await active.reloadSession();
+      await active.reloadSession({
+        forcePluginSessionStartReminder: input.forcePluginSessionStartReminder,
+      });
       this.trackSessionEvent(active.id, 'session_reload');
       return active;
     }
 
-    const summary = await this.rpc.reloadSession({ sessionId: id });
+    const summary = await this.rpc.reloadSession({
+      sessionId: id,
+      forcePluginSessionStartReminder: input.forcePluginSessionStartReminder,
+    });
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -259,6 +265,11 @@ export class KimiHarness {
       ...sessionScoped,
       // Canonical fields are owned by the harness and must win over any
       // caller-supplied sessionStartedProperties that happen to share a key.
+      // `client_id` is always null here: a single-process host has no
+      // per-connection client id (that concept only exists for daemon clients,
+      // see core-impl.ts). Kept as an explicit key so both producers share the
+      // same session_started schema.
+      client_id: null,
       client_name: this.identity?.userAgentProduct ?? null,
       client_version: this.identity?.version ?? null,
       ui_mode: this.uiMode,

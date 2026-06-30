@@ -43,6 +43,7 @@ export type {
   ModelAlias,
   MoonshotServiceConfig,
   OAuthRef,
+  PluginCommandDef,
   PluginGithubMetadata,
   PluginGithubRef,
   PluginInfo,
@@ -118,6 +119,10 @@ export interface ResumeSessionInput {
   readonly sessionStartedProperties?: TelemetryProperties;
 }
 
+export interface ReloadSessionInput extends ResumeSessionInput {
+  readonly forcePluginSessionStartReminder?: boolean;
+}
+
 export interface AddAdditionalDirInput {
   readonly id: string;
   readonly path: string;
@@ -164,6 +169,10 @@ export interface GetConfigOptions {
 
 export interface CompactOptions {
   readonly instruction?: string | undefined;
+}
+
+export interface ReloadSessionOptions {
+  readonly forcePluginSessionStartReminder?: boolean;
 }
 
 export interface PlanInfo {

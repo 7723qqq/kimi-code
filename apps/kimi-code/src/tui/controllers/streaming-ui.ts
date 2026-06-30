@@ -35,6 +35,7 @@ export interface StreamingUIHost {
   deferUserMessages: boolean;
   shiftQueuedMessage(): QueuedMessage | undefined;
   pushTranscriptEntry(entry: TranscriptEntry): void;
+  mergeCurrentTurnSteps(): void;
 }
 
 export class StreamingUIController {
@@ -600,12 +601,16 @@ export class StreamingUIController {
     const block = this._streamingBlock;
     if (block !== null) {
       block.entry.content = fullText;
-      block.component.updateContent(fullText);
+      block.component.updateContent(fullText, { transient: true });
       this.host.state.ui.requestRender();
     }
   }
 
   onStreamingTextEnd(): void {
+    const block = this._streamingBlock;
+    if (block !== null) {
+      block.component.updateContent(block.entry.content, { transient: false });
+    }
     this._streamingBlock = null;
   }
 
@@ -634,6 +639,7 @@ export class StreamingUIController {
     this._activeThinkingComponent.finalize();
     this._activeThinkingComponent = undefined;
     this.host.state.ui.requestRender();
+    this.host.mergeCurrentTurnSteps();
   }
 
   onToolCallStart(toolCall: ToolCallBlockData): void {
@@ -680,6 +686,7 @@ export class StreamingUIController {
       tc.setResult(result);
       this._pendingToolComponents.delete(toolCallId);
       state.ui.requestRender();
+      this.host.mergeCurrentTurnSteps();
       return;
     }
 
@@ -694,6 +701,7 @@ export class StreamingUIController {
       state.transcriptContainer.addChild(completed);
       state.ui.requestRender();
     }
+    this.host.mergeCurrentTurnSteps();
   }
 
   setTodoList(todos: readonly TodoItem[]): void {

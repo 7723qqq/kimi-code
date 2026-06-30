@@ -10,6 +10,7 @@ import type { KimiConfig, SDKSessionRPC } from '#/rpc';
 import { proxyWithExtraPayload } from '#/rpc/types';
 
 import { Agent, type AgentOptions, type AgentType } from '../agent';
+import { renderPluginSessionStartReminder } from '../agent/injection/plugin-session-start';
 import { HookEngine, type HookDef } from './hooks';
 import type { PermissionManagerOptions, PermissionRule } from '../agent/permission';
 import {
@@ -29,7 +30,7 @@ import {
   type McpServerEntry,
   type SessionMcpConfig,
 } from '../mcp';
-import type { EnabledPluginSessionStart } from '../plugin';
+import type { EnabledPluginSessionStart, PluginCommandDef } from '../plugin';
 import {
   DEFAULT_AGENT_PROFILES,
   DEFAULT_INIT_PROMPT,
@@ -70,6 +71,7 @@ export interface SessionOptions {
   readonly mcpConfig?: SessionMcpConfig;
   readonly telemetry?: TelemetryClient | undefined;
   readonly pluginSessionStarts?: readonly EnabledPluginSessionStart[];
+  readonly pluginCommands?: readonly PluginCommandDef[];
   readonly appVersion?: string;
   readonly experimentalFlags?: ExperimentalFlagResolver;
   readonly additionalDirs?: readonly string[];
@@ -159,6 +161,7 @@ export class Session {
   private toolKaos: Kaos;
   private persistenceKaos: Kaos;
   private additionalDirs: readonly string[];
+  private readonly pluginCommands: readonly PluginCommandDef[];
   private agentIdCounter = 0;
   private readonly skillsReady: Promise<void>;
   metadata: SessionMeta = {
@@ -196,6 +199,7 @@ export class Session {
     this.toolKaos = options.kaos;
     this.persistenceKaos = options.persistenceKaos ?? options.kaos;
     this.additionalDirs = normalizeAdditionalDirs(options.additionalDirs ?? []);
+    this.pluginCommands = options.pluginCommands ?? [];
     this.skills = new SessionSkillRegistry({
       sessionId: options.id,
     });
@@ -545,6 +549,56 @@ export class Session {
     }
   }
 
+  /**
+   * Appends a fresh `<plugin_session_start>` system reminder to the main agent
+   * using the currently enabled plugins, then flushes records so the reminder is
+   * persisted and visible on the wire. Used by the explicit `/reload` flow after
+   * the session has been re-resumed with reloaded plugin state.
+   *
+   * When no plugin session start is currently resolvable but an earlier
+   * When no plugin session start is currently resolvable but the context may still
+   * carry stale plugin guidance — either an earlier `<plugin_session_start>`
+   * reminder, or a compaction summary that may have folded one in — appends a
+   * neutralizing reminder instead, so the model does not keep following stale
+   * plugin instructions and the turn-loop injector does not dedup against them.
+   */
+  async appendPluginSessionStartReminder(): Promise<void> {
+    await this.skillsReady;
+    const mainAgent = this.requireMainAgent();
+    const reminder = renderPluginSessionStartReminder({
+      sessionStarts: mainAgent.pluginSessionStarts,
+      registry: mainAgent.skills?.registry,
+      log: mainAgent.log,
+    });
+    if (reminder !== undefined) {
+      mainAgent.context.appendSystemReminder(
+        `${reminder}\n\nThis supersedes any earlier plugin_session_start reminder in this session.`,
+        { kind: 'injection', variant: 'plugin_session_start' },
+      );
+    } else if (this.shouldNeutralizePluginSessionStart(mainAgent)) {
+      mainAgent.context.appendSystemReminder(
+        'There are currently no active plugin session starts. This supersedes any earlier plugin_session_start reminder in this session.',
+        { kind: 'injection', variant: 'plugin_session_start' },
+      );
+    } else {
+      return;
+    }
+    await mainAgent.records.flush();
+  }
+
+  private shouldNeutralizePluginSessionStart(mainAgent: Agent): boolean {
+    return mainAgent.context.history.some((message) => {
+      const kind = message.origin?.kind;
+      if (kind === 'injection') {
+        return message.origin?.variant === 'plugin_session_start';
+      }
+      // A compaction summary replaces earlier messages (including any plugin
+      // session-start reminder) with a single summary that may still carry stale
+      // plugin guidance, so the origin-only check above is not sufficient.
+      return kind === 'compaction_summary';
+    });
+  }
+
   get hasActiveTurn(): boolean {
     for (const agent of this.readyAgents()) {
       if (agent.turn.hasActiveTurn) return true;
@@ -581,6 +635,10 @@ export class Session {
   async listSkills(): Promise<readonly SkillSummary[]> {
     await this.skillsReady;
     return this.skills.listSkills().map(summarizeSkill);
+  }
+
+  listPluginCommands(): readonly PluginCommandDef[] {
+    return this.pluginCommands;
   }
 
   private async loadSkills(): Promise<void> {
@@ -684,6 +742,7 @@ export class Session {
       telemetry: this.telemetry,
       log: this.log.createChild({ agentId: id }),
       pluginSessionStarts: type === 'main' ? this.options.pluginSessionStarts : undefined,
+      pluginCommands: type === 'main' ? this.options.pluginCommands : undefined,
       experimentalFlags: this.experimentalFlags,
       additionalDirs: parentAgent?.getAdditionalDirs() ?? this.additionalDirs,
     });

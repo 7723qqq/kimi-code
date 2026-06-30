@@ -22,6 +22,7 @@ import type {
   PluginInfo,
   PluginSummary,
   PromptInput,
+  ReloadSessionOptions,
   ReloadSummary,
   ResumedSessionState,
   ResumedSessionSummary,
@@ -30,6 +31,7 @@ import type {
   SessionSummary,
   SessionUsage,
   SkillSummary,
+  PluginCommandDef,
   Unsubscribe,
 } from '#/types';
 
@@ -68,9 +70,12 @@ export class Session {
     return this.resumeState;
   }
 
-  async reloadSession(): Promise<ResumedSessionSummary> {
+  async reloadSession(options?: ReloadSessionOptions): Promise<ResumedSessionSummary> {
     this.ensureOpen();
-    const summary = await this.rpc.reloadSession({ sessionId: this.id });
+    const summary = await this.rpc.reloadSession({
+      sessionId: this.id,
+      forcePluginSessionStartReminder: options?.forcePluginSessionStartReminder,
+    });
     this.summary = summary;
     this.resumeState = resumeStateFromSummary(summary);
     return summary;
@@ -101,6 +106,27 @@ export class Session {
       sessionId: this.id,
       input: normalizePromptInput(input),
     });
+  }
+
+  /** Execute a user-initiated `!` shell command (silent — does not prompt the
+   *  model). Resolves with the command's stdout/stderr for immediate display.
+   *  Pass `commandId` to receive live `shell.output` events for this command. */
+  async runShellCommand(
+    command: string,
+    options?: { commandId?: string },
+  ): Promise<{ stdout: string; stderr: string; isError?: boolean; backgrounded?: boolean }> {
+    this.ensureOpen();
+    return this.rpc.runShellCommand({
+      sessionId: this.id,
+      command,
+      commandId: options?.commandId,
+    });
+  }
+
+  /** Cancel a running `!` shell command by its commandId (e.g. on Esc / Ctrl+C). */
+  async cancelShellCommand(commandId: string): Promise<void> {
+    this.ensureOpen();
+    return this.rpc.cancelShellCommand({ sessionId: this.id, commandId });
   }
 
   async steer(input: string | PromptInput): Promise<void> {
@@ -262,6 +288,11 @@ export class Session {
   async listSkills(): Promise<readonly SkillSummary[]> {
     this.ensureOpen();
     return this.rpc.listSkills({ sessionId: this.id });
+  }
+
+  async listPluginCommands(): Promise<readonly PluginCommandDef[]> {
+    this.ensureOpen();
+    return this.rpc.listPluginCommands({ sessionId: this.id });
   }
 
   /**
@@ -442,6 +473,29 @@ export class Session {
       sessionId: this.id,
       name: skillName,
       ...(skillArgs !== undefined ? { args: skillArgs } : {}),
+    });
+  }
+
+  async activatePluginCommand(
+    pluginId: string,
+    commandName: string,
+    args?: string | undefined,
+  ): Promise<void> {
+    this.ensureOpen();
+    const normalizedPluginId = pluginId.trim();
+    const normalizedCommandName = commandName.trim();
+    if (normalizedPluginId.length === 0 || normalizedCommandName.length === 0) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'Plugin id and command name cannot be empty',
+      );
+    }
+    const commandArgs = normalizeOptionalString(args);
+    await this.rpc.activatePluginCommand({
+      sessionId: this.id,
+      pluginId: normalizedPluginId,
+      commandName: normalizedCommandName,
+      ...(commandArgs !== undefined ? { args: commandArgs } : {}),
     });
   }
 
