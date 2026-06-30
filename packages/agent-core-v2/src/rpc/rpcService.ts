@@ -6,7 +6,7 @@ import { IContextSizeService } from '#/contextSize';
 import { IFileToolsService } from '#/fileTools';
 import { IFullCompaction } from '#/fullCompaction';
 import { IGoalService } from '#/goal';
-import { IPermissionGate } from '#/permission/permission';
+import { IPermissionGate } from '#/permissionGate';
 import { IPermissionModeService } from '#/permissionMode/permissionMode';
 import { IPlanService } from '../plan';
 import { IProfileService } from '#/profile';

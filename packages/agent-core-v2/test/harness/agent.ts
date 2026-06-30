@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
@@ -9,7 +10,6 @@ import { expect, vi } from 'vitest';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   BackgroundService,
-  CronService,
   ExternalHooksService,
   FileStorageService,
   FullCompactionService,
@@ -26,22 +26,17 @@ import {
   IContextMemory,
   IContextProjector,
   IContextSizeService,
-  ICronService,
   IEventSink,
   IExternalHooksService,
-  IFileSystemBackend,
   IFullCompaction,
+  IKaos,
   ILLMRequester,
   ILogService,
   IMcpService,
   IMicroCompactionService,
-  IModelProvider,
   IPermissionGate,
   IPermissionModeService,
   IPermissionRulesService,
-  IProcessBackend,
-  IProfileService,
-  IQuestionService,
   ISessionContext,
   IStorageService,
   ISubagentHost,
@@ -56,7 +51,6 @@ import {
   LifecycleScope,
   McpService,
   MicroCompactionService,
-  ModelProvider,
   PermissionGate,
   PermissionRulesService,
   ProfileService,
@@ -76,33 +70,39 @@ import { toDisposable } from '#/_base/di';
 import type { PromisifyMethods } from '#/_base/utils/types';
 import type { ApprovalResponse } from '#/approval';
 import { IBlobStoreService, type IBlobStoreService as BlobStoreService } from '#/blobStore';
+import { IOAuthService } from '#/auth/auth';
 import type { ContextMessage } from '#/contextMemory';
+import { ICronService } from '#/cron/cron';
+import { CronService } from '#/cron/cronService';
 import type { HookEngine } from '#/externalHooks/engine';
 import type { FullCompactionServiceOptions } from '#/fullCompaction';
 import type { ILogger, LogContext, LogLevel } from '#/log';
 import type { McpServiceOptions } from '#/mcp';
 import type { MicroCompactionServiceOptions } from '#/microCompaction';
-import type { ModelProviderOptions } from '#/modelProvider';
-import type { PermissionGateOptions } from '#/permission';
+import { IModelResolver, ModelResolver, type ResolvedModel } from '#/modelRuntime';
+import type { PermissionGateOptions } from '#/permissionGate';
 import type { PermissionMode } from '#/permissionPolicy';
-import type { PermissionRule, PermissionRulesServiceOptions } from '#/permissionRules';
+import type { PermissionRule } from '#/permissionRules';
+import { IProfileService } from '#/profile/profile';
+import { IPromptService } from '#/prompt/prompt';
 import { GoalService, IGoalService, type GoalServiceOptions } from '#/goal';
 import { IPlanService } from '#/plan';
+import { IQuestionService, type QuestionResult } from '#/question/question';
 import {
   IReplayBuilderService,
   ReplayBuilderService,
   type ReplayBuilderServiceOptions,
 } from '#/replayBuilder';
 import type { AgentAPI } from '#/rpc/core-api';
-import {
-  AgentSkillService,
-  IAgentSkillService,
-  type AgentSkillServiceOptions,
-  type SkillCatalog,
-} from '#/skill';
+import { IAgentSkillService } from '#/skill/skill';
+import { ISkillCatalog } from '#/skill/skillCatalog';
+import { AgentSkillService } from '#/skill/skillService';
+import { ModelSkillTool } from '#/skill/tools/modelSkill';
+import type { SkillCatalog } from '#/skill/types';
 import { SubagentHostService, type SessionSubagentHost } from '#/subagentHost';
-import type { ToolOutput, ToolResult } from '#/toolRegistry';
-import type { PersistedWireRecord, WireRecord, WireRecordServiceOptions } from '#/wireRecord';
+import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/tool';
+import type { PersistedWireRecord, WireRecord } from '#/wireRecord';
+import type { PathAccessOperation } from '#/workspaceContext';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 
 import { createScriptedGenerate } from './scripted-generate';
@@ -128,7 +128,10 @@ const MOCK_PROVIDER = {
   model: 'mock-model',
 } as const;
 
-type QuestionResult = string;
+interface TestModelProviderOptions {
+  readonly promptCacheKey?: string;
+  readonly kimiRequestHeaders?: Record<string, string>;
+}
 
 interface KimiConfig {
   readonly providers: Record<string, ProviderConfigForConfig>;
@@ -163,6 +166,22 @@ interface Logger {
   debug(message: string, payload?: unknown): void;
   createChild?(bindings: LogContext): Logger;
   child?(bindings: LogContext): Logger;
+}
+
+class TestAgentSkillService extends AgentSkillService {
+  constructor(
+    @ISkillCatalog skillCatalog: ISkillCatalog,
+    @IPromptService prompt: IPromptService,
+    @IEventSink events: IEventSink,
+    @IWireRecord wireRecord: IWireRecord,
+    @ITelemetryService telemetry: ITelemetryService,
+    @IToolRegistry toolRegistry: IToolRegistry,
+  ) {
+    super(skillCatalog, prompt, events, wireRecord, telemetry);
+    if (skillCatalog.catalog.listInvocableSkills().length > 0) {
+      this._register(toolRegistry.register(new ModelSkillTool(this)));
+    }
+  }
 }
 
 export interface WireRecordPersistence {
@@ -321,9 +340,8 @@ function defineServiceValue<T>(
 
 export function kaosServices(kaos: Kaos): TestAgentServiceOverride {
   return sessionServices((reg) => {
-    reg.defineInstance(IFileSystemBackend, createFileSystemBackend(kaos));
-    reg.defineInstance(IProcessBackend, createProcessBackend(kaos));
-    reg.defineInstance(IWorkspaceContext, new WorkspaceContextService(kaos.getcwd()));
+    reg.defineInstance(IKaos, createIKaos(kaos));
+    reg.defineDescriptor(IWorkspaceContext, new SyncDescriptor(WorkspaceContextService));
   });
 }
 
@@ -346,35 +364,18 @@ export function homeDirServices(homeDir: string | undefined): TestAgentServiceOv
 
 export function additionalDirServices(additionalDirs: readonly string[]): TestAgentServiceOverride {
   return sessionServices((reg) => {
-    const workspace = new WorkspaceContextService(process.cwd());
-    for (const dir of additionalDirs) {
-      workspace.addAdditionalDir(dir);
-    }
-    reg.defineInstance(IWorkspaceContext, workspace);
+    reg.defineInstance(IWorkspaceContext, createWorkspaceContextStub(process.cwd(), additionalDirs));
   });
 }
 
-export function initializeToolServices(initializeTools: () => void): TestAgentServiceOverride {
-  return agentServices((reg) => {
-    reg.defineDescriptor(
-      IProfileService,
-      new SyncDescriptor(ProfileService, [{
-        cwd: () => process.cwd(),
-        chdir: async () => {},
-        initializeBuiltinTools: initializeTools,
-      }]),
-    );
-  });
-}
-
-export function modelProviderServices(modelProvider: IModelProvider): TestAgentServiceOverride {
-  return sessionService(IModelProvider, modelProvider);
+export function modelProviderServices(modelResolver: IModelResolver): TestAgentServiceOverride {
+  return sessionService(IModelResolver, modelResolver);
 }
 
 export function modelProviderOptionServices(
-  options: Omit<ModelProviderOptions, 'config'>,
+  options: TestModelProviderOptions,
 ): TestAgentServiceOverride {
-  return sessionService(IModelProvider, new SyncDescriptor(ConfigBackedModelProvider, [options]));
+  return sessionService(IModelResolver, new SyncDescriptor(ConfigBackedModelResolver, [options]));
 }
 
 export function configServices(readConfig: () => KimiConfig): TestAgentServiceOverride {
@@ -433,18 +434,13 @@ export function fullCompactionServices(
 
 export function permissionModeServices(mode: PermissionMode): TestAgentServiceOverride {
   return agentService(
-    IPermissionGate,
-    new SyncDescriptor(PermissionGate, [{ initialMode: mode } satisfies PermissionGateOptions]),
+    IPermissionModeService,
+    createPermissionModeService(mode),
   );
 }
 
 export function permissionRulesServices(rules: readonly PermissionRule[]): TestAgentServiceOverride {
-  return agentService(
-    IPermissionRulesService,
-    new SyncDescriptor(PermissionRulesService, [
-      { initialRules: rules } satisfies PermissionRulesServiceOptions,
-    ]),
-  );
+  return agentService(IPermissionRulesService, createPermissionRulesStub(rules));
 }
 
 export function backgroundServices(): TestAgentServiceOverride {
@@ -461,14 +457,28 @@ export function mcpServices(options: McpServiceOptions): TestAgentServiceOverrid
   return agentService(IMcpService, new SyncDescriptor(McpService, [options]));
 }
 
-export function skillServices(input: AgentSkillServiceOptions | SkillCatalog): TestAgentServiceOverride {
-  const options: AgentSkillServiceOptions =
-    isSkillCatalog(input) ? { catalog: input } : input;
-  return agentService(IAgentSkillService, new SyncDescriptor(AgentSkillService, [options]));
+export function skillServices(input: ISkillCatalog | SkillCatalog): TestAgentServiceOverride {
+  const catalogService = isSessionSkillCatalog(input)
+    ? input
+    : createSessionSkillCatalog(input);
+  return [
+    sessionService(ISkillCatalog, catalogService),
+    agentService(IAgentSkillService, new SyncDescriptor(TestAgentSkillService)),
+  ];
 }
 
-function isSkillCatalog(input: AgentSkillServiceOptions | SkillCatalog): input is SkillCatalog {
-  return 'getSkill' in input;
+function isSessionSkillCatalog(input: ISkillCatalog | SkillCatalog): input is ISkillCatalog {
+  return 'catalog' in input;
+}
+
+function createSessionSkillCatalog(catalog: SkillCatalog): ISkillCatalog {
+  return {
+    _serviceBrand: undefined,
+    catalog,
+    ready: Promise.resolve(),
+    load: async () => {},
+    reload: async () => {},
+  };
 }
 
 export function subagentHostServices(host: SessionSubagentHost): TestAgentServiceOverride {
@@ -622,10 +632,13 @@ class AgentRuntime {
     private readonly core: Scope,
     readonly session: Scope,
     readonly agent: Scope,
-    readonly modelProvider: IModelProvider,
+    readonly modelResolver: IModelResolver,
   ) {}
 
   get<T>(id: ServiceIdentifier<T>): T {
+    if (id === undefined) {
+      throw new Error('AgentRuntime.get called with undefined service id');
+    }
     return this.agent.accessor.get(id);
   }
 
@@ -642,23 +655,43 @@ class AgentRuntime {
   }
 }
 
-class ConfigBackedModelProvider extends ModelProvider {
+class ConfigBackedModelResolver extends ModelResolver {
   constructor(
-    options: Omit<ModelProviderOptions, 'config'> = {},
+    private readonly options: TestModelProviderOptions = {},
     @IConfigService config: IConfigService,
+    @IOAuthService oauth: IOAuthService,
   ) {
-    super({ config, ...options });
+    super(config, oauth);
+  }
+
+  override resolve(model: string): ResolvedModel {
+    const resolved = super.resolve(model);
+    if (resolved.provider.type !== 'kimi') return resolved;
+    return {
+      ...resolved,
+      provider: {
+        ...resolved.provider,
+        generationKwargs: {
+          ...resolved.provider.generationKwargs,
+          prompt_cache_key: this.options.promptCacheKey,
+        },
+        defaultHeaders: {
+          ...this.options.kimiRequestHeaders,
+          ...resolved.provider.defaultHeaders,
+        },
+      },
+    };
   }
 }
 
 class RecordingWireRecordService extends WireRecordService {
   constructor(
-    options: WireRecordServiceOptions,
     private readonly onAppend: (record: PersistedWireRecord) => void,
+    @IBootstrapService bootstrap: IBootstrapService,
     @IBlobStoreService blobStore?: BlobStoreService,
     @IAppendLogStore log?: IAppendLogStore,
   ) {
-    super(options, blobStore, log);
+    super(bootstrap, blobStore, log);
   }
 
   override append(record: WireRecord): void {
@@ -740,11 +773,10 @@ export class AgentTestContext {
           });
           reg.defineInstance(IApprovalService, this.createApprovalService());
           reg.defineInstance(IQuestionService, this.createQuestionService());
-          reg.defineInstance(IFileSystemBackend, createFileSystemBackend(kaos));
-          reg.defineInstance(IProcessBackend, createProcessBackend(kaos));
+          reg.defineInstance(IKaos, createIKaos(kaos));
           reg.defineInstance(ITerminalBackend, createTerminalBackend());
-          reg.defineDescriptor(IWorkspaceContext, new SyncDescriptor(WorkspaceContextService, [this.cwd]));
-          reg.defineDescriptor(IModelProvider, new SyncDescriptor(ConfigBackedModelProvider, [{}]));
+          reg.defineDescriptor(IWorkspaceContext, new SyncDescriptor(WorkspaceContextService));
+          reg.defineDescriptor(IModelResolver, new SyncDescriptor(ConfigBackedModelResolver, [{}]));
         },
       ], this.serviceOverrides, 'session'),
     });
@@ -754,16 +786,9 @@ export class AgentTestContext {
       extra: collectScopeSeed([
         (reg) => {
           reg.defineDescriptor(IWireRecord, new SyncDescriptor(RecordingWireRecordService, [
-            { homedir: bootstrap.homeDir },
             (event: PersistedWireRecord) => this.captureRecord(event),
           ]));
-          reg.defineDescriptor(IProfileService, new SyncDescriptor(ProfileService, [{
-            cwd: () => this.cwd,
-            chdir: async (nextCwd: string) => {
-              this.cwd = nextCwd;
-              workspace.setWorkDir(nextCwd);
-            },
-          }]));
+          reg.defineDescriptor(IProfileService, new SyncDescriptor(ProfileService));
           reg.defineDescriptor(
             ILLMRequester,
             new SyncDescriptor(LLMRequesterService, [{ generate: this.scriptedGenerate.generate }]),
@@ -773,24 +798,21 @@ export class AgentTestContext {
           reg.defineDescriptor(IFullCompaction, new SyncDescriptor(FullCompactionService, [{}]));
           reg.defineDescriptor(
             IPermissionRulesService,
-            new SyncDescriptor(PermissionRulesService, [{} satisfies PermissionRulesServiceOptions]),
+            new SyncDescriptor(PermissionRulesService),
           );
           reg.defineDescriptor(
             IPermissionGate,
             new SyncDescriptor(PermissionGate, [{
-              sessionId,
               agentId,
               agentType: 'main',
-              cwd: this.cwd,
-              additionalDirs: [],
             } satisfies PermissionGateOptions]),
           );
-          reg.defineDescriptor(ICronService, new SyncDescriptor(CronService, [{ autoStart: true }]));
+          reg.defineDescriptor(ICronService, new SyncDescriptor(CronService, [{}]));
           reg.defineDescriptor(IBackgroundService, new SyncDescriptor(BackgroundService));
           reg.defineDescriptor(IMcpService, new SyncDescriptor(McpService, [{}]));
           reg.defineDescriptor(IReplayBuilderService, new SyncDescriptor(ReplayBuilderService, [{}]));
           reg.defineDescriptor(IGoalService, new SyncDescriptor(GoalService, [{}]));
-          reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService, [{}]));
+          reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
           reg.defineDescriptor(
             ISubagentHost,
             new SyncDescriptor(SubagentHostService, [unavailableSubagentHost()]),
@@ -799,7 +821,14 @@ export class AgentTestContext {
       ], this.serviceOverrides, 'agent'),
     });
 
-    this.runtime = new AgentRuntime(this.root, session, agent, session.accessor.get(IModelProvider));
+    this.runtime = new AgentRuntime(this.root, session, agent, session.accessor.get(IModelResolver));
+    this.get(IProfileService).configure({
+      cwd: () => this.cwd,
+      chdir: async (nextCwd: string) => {
+        this.cwd = nextCwd;
+        workspace.setWorkDir(nextCwd);
+      },
+    });
 
     this.initializeRestorableServices();
 
@@ -1268,11 +1297,16 @@ export class AgentTestContext {
         return promise;
       },
       enqueue: (request) => {
-        this.recordRpc('requestQuestion', request);
-        return request;
+        const id = request.id ?? request.toolCallId ?? 'question:test';
+        const payload = { ...request, id };
+        this.recordRpc('requestQuestion', payload);
+        return payload;
       },
       answer: (id, response) => {
         this.resolvePendingRpc('requestQuestion', id, response);
+      },
+      dismiss: (id) => {
+        this.resolvePendingRpc('requestQuestion', id, null);
       },
       listPending: () => [],
     };
@@ -1353,39 +1387,119 @@ export class AgentTestContext {
   }
 }
 
-function createFileSystemBackend(kaos: Kaos): IFileSystemBackend {
+function createIKaos(kaos: Kaos): IKaos {
   return {
     _serviceBrand: undefined,
-    readText: (absPath) => kaos.readText(absPath),
-    writeText: (absPath, data) => kaos.writeText(absPath, data).then(() => undefined),
-    readBytes: (absPath) => kaos.readBytes(absPath),
-    writeBytes: (absPath, data) => kaos.writeBytes(absPath, Buffer.from(data)).then(() => undefined),
-    stat: async (absPath) => {
-      const stat = await kaos.stat(absPath);
-      const value = stat as unknown as {
-        isFile?: boolean | (() => boolean);
-        isDirectory?: boolean | (() => boolean);
-        size?: number;
-      };
-      return {
-        isFile: typeof value.isFile === 'function' ? value.isFile() : value.isFile === true,
-        isDirectory:
-          typeof value.isDirectory === 'function'
-            ? value.isDirectory()
-            : value.isDirectory === true,
-        size: value.size ?? 0,
-      };
+    get name() {
+      return kaos.name;
     },
-    readdir: (absPath) => collectAsync(kaos.iterdir(absPath)),
-    glob: (absDir, pattern) => collectAsync(kaos.glob(absDir, pattern)),
-    mkdir: (absPath) => kaos.mkdir(absPath).then(() => undefined),
+    get cwd() {
+      return kaos.getcwd();
+    },
+    get osEnv() {
+      return kaos.osEnv;
+    },
+    backend: kaos,
+    pathClass: () => kaos.pathClass(),
+    normpath: (path) => kaos.normpath(path),
+    gethome: () => kaos.gethome(),
+    getcwd: () => kaos.getcwd(),
+    withCwd: (cwd) => createIKaos(kaos.withCwd(cwd)),
+    withEnv: (env) => createIKaos(kaos.withEnv(env)),
   };
 }
 
-function createProcessBackend(kaos: Kaos): IProcessBackend {
+function createWorkspaceContextStub(
+  initialWorkDir: string,
+  initialAdditionalDirs: readonly string[],
+): IWorkspaceContext {
+  let workDir = resolve(initialWorkDir);
+  let additionalDirs = initialAdditionalDirs.map((dir) => resolve(dir));
+  const isWithin = (absPath: string): boolean => {
+    const target = resolve(absPath);
+    if (target === workDir) return true;
+    const rel = relative(workDir, target);
+    if (rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)) return true;
+    return additionalDirs.some((dir) => {
+      const r = relative(dir, target);
+      return r === '' || (!r.startsWith('..') && !isAbsolute(r));
+    });
+  };
   return {
     _serviceBrand: undefined,
-    spawn: (args, options) => kaos.withCwd(options.cwd).execWithEnv([...args], options.env),
+    get workDir() {
+      return workDir;
+    },
+    get additionalDirs() {
+      return additionalDirs;
+    },
+    setWorkDir: (next) => {
+      workDir = resolve(next);
+    },
+    resolve: (path) => isAbsolute(path) ? resolve(path) : resolve(workDir, path),
+    isWithin,
+    assertAllowed: (absPath: string, op: PathAccessOperation) => {
+      const target = isAbsolute(absPath) ? resolve(absPath) : resolve(workDir, absPath);
+      if (!isWithin(target)) {
+        throw new Error(`Path outside workspace (${op}): ${target}`);
+      }
+      return target;
+    },
+    addAdditionalDir: (dir) => {
+      const resolved = resolve(dir);
+      if (!additionalDirs.includes(resolved)) additionalDirs = [...additionalDirs, resolved];
+    },
+    removeAdditionalDir: (dir) => {
+      const resolved = resolve(dir);
+      additionalDirs = additionalDirs.filter((candidate) => candidate !== resolved);
+    },
+  };
+}
+
+function createPermissionModeService(initialMode: PermissionMode): IPermissionModeService {
+  let mode = initialMode;
+  const emptyHook = {
+    register: () => toDisposable(() => {}),
+    run: () => Promise.resolve(),
+  };
+  return {
+    _serviceBrand: undefined,
+    get mode() {
+      return mode;
+    },
+    setMode: (nextMode) => {
+      mode = nextMode;
+    },
+    hooks: {
+      onChanged: emptyHook,
+    } as unknown as IPermissionModeService['hooks'],
+  };
+}
+
+function createPermissionRulesStub(
+  initialRules: readonly PermissionRule[],
+): IPermissionRulesService {
+  let rules = [...initialRules];
+  const emptyHook = {
+    register: () => ({ dispose: () => {} }),
+    run: () => Promise.resolve(),
+  };
+  return {
+    _serviceBrand: undefined,
+    get rules() {
+      return rules;
+    },
+    get sessionApprovalRulePatterns() {
+      return [];
+    },
+    addRules: (nextRules) => {
+      rules = [...rules, ...nextRules];
+    },
+    recordApprovalResult: () => {},
+    hooks: {
+      onChanged: emptyHook,
+      onApprovalRecorded: emptyHook,
+    } as unknown as IPermissionRulesService['hooks'],
   };
 }
 
@@ -1468,14 +1582,6 @@ function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
     toolStore: toolStore.data(),
     usage: usage.status(),
   };
-}
-
-async function collectAsync<T>(items: AsyncIterable<T>): Promise<readonly T[]> {
-  const result: T[] = [];
-  for await (const item of items) {
-    result.push(item);
-  }
-  return result;
 }
 
 function resumeContextSnapshot(ctx: AgentTestContext) {

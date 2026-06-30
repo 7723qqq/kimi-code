@@ -80,7 +80,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>toolExecutor</b>\n<size:9><i>Agent</i></size>\n  IToolExecutor" as toolExecutor #FDEBD0
   rectangle "<b>toolStore</b>\n<size:9><i>Agent</i></size>\n  IToolStoreService" as toolStore #FDEBD0
   rectangle "<b>toolDedup</b>\n<size:9><i>Agent</i></size>\n  IToolDedupe" as toolDedup #FDEBD0
-  rectangle "<b>permission</b>\n<size:9><i>Agent</i></size>\n  IPermissionGate" as permission #FDEBD0
+  rectangle "<b>permissionGate</b>\n<size:9><i>Agent</i></size>\n  IPermissionGate" as permissionGate #FDEBD0
   rectangle "<b>permissionMode</b>\n<size:9><i>Agent</i></size>\n  IPermissionModeService" as permissionMode #FDEBD0
   rectangle "<b>permissionPolicy</b>\n<size:9><i>Agent</i></size>\n  IPermissionPolicyService" as permissionPolicy #FDEBD0
   rectangle "<b>permissionRules</b>\n<size:9><i>Agent</i></size>\n  IPermissionRulesService" as permissionRules #FDEBD0
@@ -209,12 +209,12 @@ toolStore --> wireRecord #34495E
 toolDedup --> telemetry #34495E
 toolDedup --> turn #34495E
 toolDedup --> toolExecutor #34495E
-permission --> permissionMode #34495E
-permission --> permissionRules #34495E
-permission --> permissionPolicy #34495E
-permission --> externalHooks #34495E
-permission --> telemetry #34495E
-permission --> toolExecutor #34495E
+permissionGate --> permissionMode #34495E
+permissionGate --> permissionRules #34495E
+permissionGate --> permissionPolicy #34495E
+permissionGate --> externalHooks #34495E
+permissionGate --> telemetry #34495E
+permissionGate --> toolExecutor #34495E
 permissionMode --> wireRecord #34495E
 permissionMode --> eventSink #34495E
 permissionMode --> replayBuilder #34495E
@@ -299,7 +299,7 @@ rpc --> prompt #34495E
 rpc --> turn #34495E
 rpc --> profile #34495E
 rpc --> permissionMode #34495E
-rpc --> permission #34495E
+rpc --> permissionGate #34495E
 rpc --> plan #34495E
 rpc --> swarm #34495E
 rpc --> fullCompaction #34495E

@@ -70,7 +70,7 @@ const DOMAIN_LAYER = new Map([
   // L3 — registries & capabilities
   ['tool', 3],
   ['skill', 3],
-  ['permission', 3],
+  ['permissionGate', 3],
   ['flag', 3],
   ['toolExecutor', 3],
   ['toolRegistry', 3],
@@ -150,7 +150,7 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  *                              to its filesystem backend (same role as the
  *                              storage backend bindings).
  *
- *  - `permission>approval`  : permission(Agent) requests approval(Session broker).
+ *  - `permissionGate>approval`  : permissionGate(Agent) requests approval(Session broker).
  *  - `skill>turn`           : skill activate starts a turn (same Agent scope intent).
  *  - `turn>agent-lifecycle` : turn cancels sub-agents via lifecycle handle.
  *  - `swarm>agent-lifecycle`: swarm spawns/manages sub-agents.
@@ -172,7 +172,7 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  */
 const ALLOWED_EXCEPTIONS = new Set([
   'bootstrap>skill',
-  'permission>approval',
+  'permissionGate>approval',
   'skill>turn',
   'turn>agent-lifecycle',
   'swarm>agent-lifecycle',
@@ -188,7 +188,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'contextMemory>background',
   'llmRequester>session',
   'loop>mcp',
-  'permission>externalHooks',
+  'permissionGate>externalHooks',
   'permissionMode>contextInjector',
   'permissionMode>replayBuilder',
   'permissionPolicy>externalHooks',

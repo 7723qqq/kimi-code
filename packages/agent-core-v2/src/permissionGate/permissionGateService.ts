@@ -26,7 +26,7 @@ import { IToolExecutor } from '#/toolExecutor';
 import {
   IPermissionGate,
   type PermissionGateOptions,
-} from './permission';
+} from './permissionGate';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 

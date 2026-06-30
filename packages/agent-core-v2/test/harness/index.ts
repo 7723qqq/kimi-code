@@ -14,7 +14,6 @@ export {
   goalServices,
   homeDirServices,
   InMemoryWireRecordPersistence,
-  initializeToolServices,
   kaosServices,
   llmGenerateServices,
   logServices,
