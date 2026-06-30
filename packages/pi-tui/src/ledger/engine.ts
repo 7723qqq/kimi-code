@@ -327,4 +327,189 @@ export class LedgerTuiEngine {
 		this.#previousHeight = height;
 		this.#recordHardwareCursorUpdate(hardwareCursor);
 	}
+
+	// OMP: 3182-3240 — 唯一 ED3 call site
+	#emitFullPaint(
+		frame: readonly string[],
+		window: string[],
+		width: number,
+		height: number,
+		cursorPos: { row: number; col: number } | null,
+		options: { clearScrollback: boolean; chunkTo: number; windowTop: number },
+	): void {
+		this.#fullRedrawCount += 1;
+		const { chunkTo, windowTop } = options;
+		let buffer = this.#paintBeginSequence;
+		if (options.clearScrollback) {
+			buffer += "\x1b[2J\x1b[H\x1b[3J";
+		} else {
+			// Phase A: TERMINAL.supportsScreenToScrollback = false，不发 kitty ED22
+			buffer += "\x1b[2J\x1b[H";
+		}
+		let wroteLine = false;
+		for (let i = 0; i < chunkTo; i++) {
+			if (wroteLine) buffer += "\r\n";
+			buffer += this.#terminalLine(frame[i] ?? "");
+			wroteLine = true;
+		}
+		for (let screenRow = 0; screenRow < height; screenRow++) {
+			if (wroteLine) buffer += "\r\n";
+			buffer += this.#terminalLine(window[screenRow] ?? "");
+			wroteLine = true;
+		}
+		const contentRows = Math.max(1, Math.min(height, frame.length - windowTop));
+		const parkUp = height - contentRows;
+		if (parkUp > 0) buffer += `\x1b[${parkUp}A`;
+		const contentBottomRow = windowTop + contentRows - 1;
+		const cursorControl = this.#cursorControlSequence(cursorPos, frame.length, contentBottomRow);
+		buffer += cursorControl.seq;
+		buffer += this.#paintEndSequence;
+		this.terminal.write(buffer);
+
+		this.#committedRows = chunkTo;
+		this.#windowTopRow = windowTop;
+		this.#commit(frame, window, width, height, cursorControl);
+	}
+
+	// OMP: 3462-3624
+	#emitUpdate(
+		frame: readonly string[],
+		window: string[],
+		width: number,
+		height: number,
+		cursorPos: { row: number; col: number } | null,
+		options: {
+			chunkTo: number;
+			windowTop: number;
+			prevWindowTop: number;
+			prevHardwareCursorRow: number;
+			forceWindowRewrite: boolean;
+		},
+	): void {
+		const { chunkTo, windowTop, prevWindowTop, prevHardwareCursorRow, forceWindowRewrite } = options;
+		const chunkFrom = this.#committedRows;
+		const chunkLength = chunkTo - chunkFrom;
+		const scroll = windowTop - prevWindowTop;
+		const previousWindow = this.#previousWindow;
+		const contentRows = Math.max(1, Math.min(height, frame.length - windowTop));
+		const contentBottomRow = windowTop + contentRows - 1;
+		const clampedCursor = Math.min(prevHardwareCursorRow, prevWindowTop + height - 1);
+		const currentScreenRow = Math.max(0, Math.min(height - 1, clampedCursor - prevWindowTop));
+
+		// ---- shape 1: scroll-append ----
+		if (!forceWindowRewrite && chunkLength > 0 && chunkLength === scroll && scroll < height && chunkFrom === prevWindowTop) {
+			let prefixIntact = previousWindow.length === height;
+			for (let i = 0; prefixIntact && i < chunkLength; i++) {
+				if (previousWindow[i] !== frame[chunkFrom + i]) prefixIntact = false;
+			}
+			if (prefixIntact) {
+				let buffer = this.#paintBeginSequence;
+				const moveToBottom = height - 1 - currentScreenRow;
+				if (moveToBottom > 0) buffer += `\x1b[${moveToBottom}B`;
+				for (let r = height - scroll; r < height; r++) {
+					buffer += `\r\n${this.#lineRewriteSequence(window[r] ?? "", width)}`;
+				}
+				let firstChanged = -1;
+				let lastChanged = -1;
+				for (let r = 0; r < height - scroll; r++) {
+					if ((window[r] ?? "") === (previousWindow[r + scroll] ?? "")) continue;
+					if (firstChanged === -1) firstChanged = r;
+					lastChanged = r;
+				}
+				let cursorFromRow = windowTop + height - 1;
+				if (firstChanged !== -1) {
+					const up = height - 1 - firstChanged;
+					if (up > 0) buffer += `\x1b[${up}A`;
+					buffer += "\r";
+					for (let r = firstChanged; r <= lastChanged; r++) {
+						if (r > firstChanged) buffer += "\r\n";
+						buffer += this.#lineRewriteSequence(window[r] ?? "", width);
+					}
+					cursorFromRow = windowTop + lastChanged;
+				}
+				const cursorControl = this.#cursorControlSequence(cursorPos, frame.length, cursorFromRow);
+				buffer += cursorControl.seq;
+				buffer += this.#paintEndSequence;
+				this.terminal.write(buffer);
+				this.#committedRows = chunkTo;
+				this.#windowTopRow = windowTop;
+				this.#commit(frame, window, width, height, cursorControl);
+				return;
+			}
+		}
+
+		// ---- shape 2: in-window diff ----
+		if (chunkLength === 0 && scroll === 0) {
+			if (forceWindowRewrite) this.#fullRedrawCount += 1;
+			let firstChanged = forceWindowRewrite ? 0 : -1;
+			let lastChanged = forceWindowRewrite ? height - 1 : -1;
+			if (!forceWindowRewrite) {
+				const comparable = previousWindow.length === height;
+				for (let r = 0; r < height; r++) {
+					if (comparable && (window[r] ?? "") === (previousWindow[r] ?? "")) continue;
+					if (firstChanged === -1) firstChanged = r;
+					lastChanged = r;
+				}
+			}
+			if (firstChanged === -1) {
+				this.#writeCursorPosition(cursorPos, frame.length);
+				this.#previousWidth = width;
+				this.#previousHeight = height;
+				return;
+			}
+			let buffer = this.#paintBeginSequence;
+			const rowDelta = firstChanged - currentScreenRow;
+			if (rowDelta > 0) buffer += `\x1b[${rowDelta}B`;
+			else if (rowDelta < 0) buffer += `\x1b[${-rowDelta}A`;
+			buffer += "\r";
+			for (let r = firstChanged; r <= lastChanged; r++) {
+				if (r > firstChanged) buffer += "\r\n";
+				buffer += this.#lineRewriteSequence(window[r] ?? "", width);
+			}
+			let cursorFromRow = windowTop + lastChanged;
+			const contentBottomScreenRow = contentBottomRow - windowTop;
+			if (lastChanged > contentBottomScreenRow) {
+				buffer += `\x1b[${lastChanged - contentBottomScreenRow}A`;
+				cursorFromRow = contentBottomRow;
+			}
+			const cursorControl = this.#cursorControlSequence(cursorPos, frame.length, cursorFromRow);
+			buffer += cursorControl.seq;
+			buffer += this.#paintEndSequence;
+			this.terminal.write(buffer);
+			this.#commit(frame, window, width, height, cursorControl);
+			return;
+		}
+
+		// ---- shape 3: seam rewrite ----
+		this.#fullRedrawCount += 1;
+		let buffer = this.#paintBeginSequence;
+		if (currentScreenRow > 0) buffer += `\x1b[${currentScreenRow}A`;
+		buffer += "\r";
+		let wroteLine = false;
+		for (let i = chunkFrom; i < chunkTo; i++) {
+			if (wroteLine) buffer += "\r\n";
+			buffer += this.#lineRewriteSequence(frame[i] ?? "", width);
+			wroteLine = true;
+		}
+		for (let screenRow = 0; screenRow < height; screenRow++) {
+			if (wroteLine) buffer += "\r\n";
+			buffer += this.#lineRewriteSequence(window[screenRow] ?? "", width);
+			wroteLine = true;
+		}
+		const parkUp = height - 1 - (contentBottomRow - windowTop);
+		if (parkUp > 0) buffer += `\x1b[${parkUp}A`;
+		const cursorControl = this.#cursorControlSequence(cursorPos, frame.length, contentBottomRow);
+		buffer += cursorControl.seq;
+		buffer += this.#paintEndSequence;
+		this.terminal.write(buffer);
+		this.#committedRows = chunkTo;
+		this.#windowTopRow = windowTop;
+		this.#commit(frame, window, width, height, cursorControl);
+	}
+
+	#writeCursorPosition(cursorPos: { row: number; col: number } | null, totalLines: number): void {
+		const cursorControl = this.#cursorControlSequence(cursorPos, totalLines, this.#hardwareCursorRow);
+		if (cursorControl.seq.length > 0) this.terminal.write(cursorControl.seq);
+		this.#recordHardwareCursorUpdate(cursorControl);
+	}
 }
