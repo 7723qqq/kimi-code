@@ -22,6 +22,7 @@ export * from './modelCatalog/index';
 export * from './modelRuntime/index';
 
 import './skill/index';
+export { IAgentSkillService, ISkillCatalog } from './skill/index';
 export * from './permission/index';
 import './flag/index';
 export * from './flag/index';
