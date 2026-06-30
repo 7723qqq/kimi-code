@@ -1770,7 +1770,7 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    const modelResolver = (ctx.runtime as any).modelResolver;
+    const modelResolver = ctx.modelResolver;
     if (modelResolver === undefined) throw new Error('Expected model provider');
     const resolve = modelResolver.resolve.bind(modelResolver);
     modelResolver.resolve = (model: string) => ({

@@ -195,7 +195,7 @@ describe('ConfigState prompt cache hint', () => {
         prompt_cache_key: 'session-test',
       },
     });
-    expect('sessionId' in ctx.runtime).toBe(false);
+    expect('sessionId' in ctx).toBe(false);
   });
 });
 

@@ -285,6 +285,11 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     const tasks = await persistence.listTasks();
     for (const task of tasks) {
       if (this.tasks.has(task.taskId)) continue;
+      const existing = this.ghosts.get(task.taskId);
+      if (existing !== undefined) {
+        this.ghosts.set(task.taskId, newerRestoredTask(existing, task));
+        continue;
+      }
       this.ghosts.set(task.taskId, task);
     }
   }
@@ -857,6 +862,22 @@ function shouldListTask(info: BackgroundTaskInfo, activeOnly: boolean): boolean 
   if (!TERMINAL_STATUSES.has(info.status)) return true;
   if (activeOnly) return false;
   return info.detached !== false;
+}
+
+function newerRestoredTask(
+  existing: BackgroundTaskInfo,
+  loaded: BackgroundTaskInfo,
+): BackgroundTaskInfo {
+  const existingTerminal = isBackgroundTaskTerminal(existing.status);
+  const loadedTerminal = isBackgroundTaskTerminal(loaded.status);
+  if (existingTerminal && !loadedTerminal) return existing;
+  if (!existingTerminal && loadedTerminal) return loaded;
+  if (existing.endedAt !== null && loaded.endedAt !== null) {
+    return loaded.endedAt >= existing.endedAt ? loaded : existing;
+  }
+  if (existing.endedAt !== null) return existing;
+  if (loaded.endedAt !== null) return loaded;
+  return loaded;
 }
 
 function notificationKey(origin: BackgroundTaskOrigin): string {

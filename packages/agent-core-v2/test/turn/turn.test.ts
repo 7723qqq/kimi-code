@@ -1,9 +1,10 @@
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { Readable } from 'node:stream';
 import { join } from 'pathe';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import type { Kaos } from '@moonshot-ai/kaos';
+import type { Kaos, KaosProcess } from '@moonshot-ai/kaos';
 import {
   APIConnectionError,
   APIEmptyResponseError,
@@ -15,25 +16,42 @@ import {
 } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
-import { HookEngine } from '../../../src/session/hooks';
-import { McpConnectionManager } from '../../../src/mcp';
-import { abortError, abortable } from '../../../src/utils/abort';
-import {
-  ISwarmMode,
-  ITurnRunner,
-  type ContextMessage,
-} from '../../../src/services/agent';
-import { ErrorCodes, KimiError } from '../../../src/errors';
-import type { Logger, LogPayload } from '../../../src/logging';
+import { abortError, abortable } from '#/_base/utils/abort';
+import { IAgentFileSystem } from '#/agentFs';
+import type { ContextMessage } from '#/contextMemory';
+import { IOAuthService } from '#/auth';
+import { ErrorCodes, KimiError } from '#/errors';
+import { HookEngine } from '#/externalHooks/engine';
+import { IKaos } from '#/kaos';
+import type { ILogger as Logger, LogPayload } from '#/log';
+import { IMcpService } from '#/mcp';
+import { McpConnectionManager } from '#/mcp/connection-manager';
+import { registerMediaTools, type VideoUploader } from '#/media';
+import { IPermissionGate } from '#/permissionGate';
+import { IProfileService } from '#/profile';
+import { ISwarmService } from '#/swarm';
+import { ITurnService } from '#/turn';
+import { IToolRegistry } from '#/toolRegistry';
 import type {
   QueuedSubagentRunResult,
   QueuedSubagentTask,
   SessionSubagentHost,
-} from '../../../src/session/subagent-host';
-import { recordingTelemetry, type TelemetryRecord } from '../../fixtures/telemetry';
-import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
-import { createCommandKaos, testAgent, type TestAgentOptions } from './harness';
-import { executeTool } from '../../tools/fixtures/execute-tool';
+} from '#/subagentHost';
+import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
+import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import {
+  configServices,
+  coreServices,
+  createCommandKaos,
+  kaosServices,
+  logServices,
+  mcpServices,
+  subagentHostServices,
+  testAgent,
+  type TestAgentOptions,
+  type TestAgentServiceOverride,
+} from '../harness';
+import { executeTool } from '../tools/fixtures/execute-tool';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 
@@ -54,13 +72,13 @@ function captureLogs(): { logger: Logger; entries: CapturedLogEntry[] } {
     warn: capture('warn'),
     info: capture('info'),
     debug: capture('debug'),
-    createChild: () => logger,
+    child: () => logger,
   };
   return { logger, entries };
 }
 
 describe('Agent turn flow', () => {
-  it('waits for MCP initial load before starting the first model step', async () => {
+  it('waits for MCP initial load before executing tools', async () => {
     const mcp = new McpConnectionManager();
     let resolveInitialLoad: () => void = () => {};
     const initialLoad = new Promise<void>((resolve) => {
@@ -70,36 +88,48 @@ describe('Agent turn flow', () => {
       .spyOn(mcp, 'waitForInitialLoad')
       .mockImplementation((signal?: AbortSignal) =>
         signal === undefined ? initialLoad : abortable(initialLoad, signal),
-      );
-    const ctx = testAgent({ mcp });
-    ctx.configure();
-    ctx.mockNextResponse({ type: 'text', text: 'MCP is ready.' });
+    );
+    const { kaos, execWithEnv } = createExecKaos('mcp-ready');
+    const ctx = testAgent(mcpServices({ manager: mcp }), kaosServices(kaos));
+    ctx.get(IMcpService);
+    ctx.configure({ tools: ['Bash'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    ctx.mockNextResponse(
+      { type: 'text', text: 'I will run Bash after MCP is ready.' },
+      bashCallWithId('call_mcp_wait', 'printf mcp-ready'),
+    );
+    ctx.mockNextResponse({ type: 'text', text: 'done' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Wait for MCP' }] });
     await vi.waitFor(() => {
       expect(waitForInitialLoad).toHaveBeenCalledTimes(1);
     });
 
-    expect(ctx.llmCalls).toHaveLength(0);
-    expect(eventIndex(ctx, '[rpc]', 'turn.step.started')).toBe(-1);
+    expect(execWithEnv).not.toHaveBeenCalled();
 
     resolveInitialLoad();
     await ctx.untilTurnEnd();
 
-    expect(ctx.llmCalls).toHaveLength(1);
+    expect(execWithEnv).toHaveBeenCalledTimes(1);
   });
 
-  it('cancels the turn while waiting for MCP initial load', async () => {
+  it('cancels the turn while waiting for MCP initial load before tool execution', async () => {
     const mcp = new McpConnectionManager();
     const initialLoad = new Promise<void>(() => undefined);
     const waitForInitialLoad = vi
       .spyOn(mcp, 'waitForInitialLoad')
       .mockImplementation((signal?: AbortSignal) =>
         signal === undefined ? initialLoad : abortable(initialLoad, signal),
-      );
-    const ctx = testAgent({ mcp });
-    ctx.configure();
-    ctx.mockNextResponse({ type: 'text', text: 'Should not run.' });
+    );
+    const { kaos, execWithEnv } = createExecKaos('should-not-run');
+    const ctx = testAgent(mcpServices({ manager: mcp }), kaosServices(kaos));
+    ctx.get(IMcpService);
+    ctx.configure({ tools: ['Bash'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    ctx.mockNextResponse(
+      { type: 'text', text: 'I will run Bash after MCP is ready.' },
+      bashCallWithId('call_mcp_cancel', 'printf should-not-run'),
+    );
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Cancel before MCP ready' }] });
     await vi.waitFor(() => {
@@ -108,7 +138,7 @@ describe('Agent turn flow', () => {
     await ctx.rpc.cancel({ turnId: 0 });
     const events = await ctx.untilTurnEnd();
 
-    expect(ctx.llmCalls).toHaveLength(0);
+    expect(ctx.llmCalls).toHaveLength(1);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: '[rpc]',
@@ -116,6 +146,7 @@ describe('Agent turn flow', () => {
         args: expect.objectContaining({ reason: 'cancelled' }),
       }),
     );
+    expect(execWithEnv).not.toHaveBeenCalled();
   });
 
   it('tracks turn_started and turn_interrupted telemetry', async () => {
@@ -131,14 +162,13 @@ describe('Agent turn flow', () => {
     });
     expect(records).toContainEqual({
       event: 'turn_interrupted',
-      properties: { mode: 'agent', at_step: 0 },
+      properties: { mode: 'agent', at_step: 1 },
     });
   });
 
   it('tracks duplicate tool-call detection telemetry', async () => {
     const records: TelemetryRecord[] = [];
-    const ctx = testAgent({
-      kaos: createCommandKaos('dup'),
+    const ctx = testAgent(kaosServices(createCommandKaos('dup')), {
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -177,8 +207,7 @@ describe('Agent turn flow', () => {
 
   it('tracks cross-step duplicate tool-call detection telemetry', async () => {
     const records: TelemetryRecord[] = [];
-    const ctx = testAgent({
-      kaos: createCommandKaos('dup'),
+    const ctx = testAgent(kaosServices(createCommandKaos('dup')), {
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -241,7 +270,7 @@ describe('Agent turn flow', () => {
         },
       },
     );
-    const ctx = testAgent({ kaos: createCommandKaos('dup'), hookEngine });
+    const ctx = testAgent(kaosServices(createCommandKaos('dup')), { hookEngine });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
 
@@ -303,10 +332,10 @@ describe('Agent turn flow', () => {
       [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
       [emit] turn.step.started       { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] turn.step.interrupted   { "turnId": 0, "step": 1, "reason": "error", "message": "Unexpected generate call #1" }
-      [emit] turn.ended              { "turnId": 0, "reason": "failed", "error": { "code": "internal", "message": "Unexpected generate call #1", "name": "Error", "retryable": false, "details": { "turnId": 0 } } }
+      [emit] turn.ended              { "turnId": 0, "reason": "failed", "error": { "code": "internal", "message": "Unexpected generate call #1", "name": "Error", "details": { "turnId": 0 }, "retryable": false } }
     `);
     expect(ctx.newEvents()).toMatchInlineSnapshot(
-      `[emit] error   { "code": "internal", "message": "Unexpected generate call #1", "name": "Error", "retryable": false, "details": { "turnId": 0 } }`,
+      `[emit] error   { "code": "internal", "message": "Unexpected generate call #1", "name": "Error", "details": { "turnId": 0 }, "retryable": false }`,
     );
     await ctx.expectResumeMatches();
   });
@@ -325,7 +354,7 @@ describe('Agent turn flow', () => {
       origin: { kind: 'injection', variant: 'swarm_mode' },
     };
 
-    await ctx.runtime.restore([
+    await ctx.restore([
       { type: 'swarm_mode.enter', trigger: 'manual' },
       {
         type: 'context.splice',
@@ -336,9 +365,9 @@ describe('Agent turn flow', () => {
       { type: 'swarm_mode.exit' },
     ]);
 
-    expect(ctx.get(ISwarmMode).isActive).toBe(false);
-    expect(ctx.context.getHistory()).toEqual([]);
-    expect(ctx.newEvents()).toMatchInlineSnapshot(`[]`);
+    expect(ctx.get(ISwarmService).isActive).toBe(false);
+    expect(ctx.contextData().history).toEqual([]);
+    expect(ctx.newEvents()).toMatchInlineSnapshot(`[wire] context.splice   { "start": 0, "deleteCount": 1, "messages": [], "time": "<time>" }`);
   });
 
   it('keeps manual swarm mode active after a turn completes normally', async () => {
@@ -350,7 +379,7 @@ describe('Agent turn flow', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run a swarm task' }] });
     await ctx.untilTurnEnd();
 
-    expect(ctx.get(ISwarmMode).isActive).toBe(true);
+    expect(ctx.get(ISwarmService).isActive).toBe(true);
     expect(eventIndex(ctx, '[wire]', 'swarm_mode.exit')).toBe(-1);
     await ctx.expectResumeMatches();
   });
@@ -375,10 +404,10 @@ describe('Agent turn flow', () => {
       );
     });
 
-    expect(ctx.get(ISwarmMode).isActive).toBe(false);
+    expect(ctx.get(ISwarmService).isActive).toBe(false);
     expect(swarmExitIndex).toBeGreaterThan(turnEndedIndex);
     expect(inactiveStatusIndex).toBeGreaterThan(turnEndedIndex);
-    expect(ctx.context.getHistory().at(-1)?.origin).toEqual({
+    expect(ctx.contextData().history.at(-1)?.origin).toEqual({
       kind: 'injection',
       variant: 'swarm_mode_exit',
     });
@@ -393,7 +422,7 @@ describe('Agent turn flow', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Fail a swarm task' }] });
     await ctx.untilTurnEnd();
 
-    expect(ctx.get(ISwarmMode).isActive).toBe(false);
+    expect(ctx.get(ISwarmService).isActive).toBe(false);
     expect(eventIndex(ctx, '[wire]', 'swarm_mode.exit')).toBeGreaterThan(-1);
   });
 
@@ -408,7 +437,7 @@ describe('Agent turn flow', () => {
     await ctx.rpc.cancel({ turnId: 0 });
     await ctx.untilTurnEnd();
 
-    expect(ctx.get(ISwarmMode).isActive).toBe(false);
+    expect(ctx.get(ISwarmService).isActive).toBe(false);
     expect(eventIndex(ctx, '[wire]', 'swarm_mode.exit')).toBeGreaterThan(-1);
   });
 
@@ -426,9 +455,7 @@ describe('Agent turn flow', () => {
     const subagentHost = mockSubagentHost({
       runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
     });
-    const ctx = testAgent({
-      subagentHost,
-    });
+    const ctx = testAgent(subagentHostServices(subagentHost));
     ctx.configure({ tools: ['AgentSwarm'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
 
@@ -444,13 +471,13 @@ describe('Agent turn flow', () => {
     const enterEvent = ctx.allEvents.find(
       (entry) => entry.type === '[wire]' && entry.event === 'swarm_mode.enter',
     );
-    const reminderOrigins = ctx.context.getHistory()
+    const reminderOrigins = ctx.contextData().history
       .map((message) => message.origin)
       .filter((origin) => origin?.kind === 'injection');
 
     expect(runQueued).toHaveBeenCalledTimes(1);
     expect(enterEvent?.args).toMatchObject({ trigger: 'tool' });
-    expect(ctx.get(ISwarmMode).isActive).toBe(false);
+    expect(ctx.get(ISwarmService).isActive).toBe(false);
     expect(eventIndex(ctx, '[wire]', 'swarm_mode.exit')).toBeGreaterThan(
       eventIndex(ctx, '[rpc]', 'turn.ended'),
     );
@@ -562,12 +589,11 @@ describe('Agent turn flow', () => {
   });
 
   it('emits a friendly model.not_configured error when no model is configured', async () => {
-    const ctx = testAgent();
+    const ctx = testAgent(configServices(() => ({ providers: {} })), { autoConfigure: false });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello without login' }] });
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] metadata         { "protocol_version": "<protocol-version>", "created_at": "<time>" }
       [wire] context.splice   { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello without login" } ], "toolCalls": [] } ], "time": "<time>" }
       [wire] turn.launch      { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
       [emit] turn.started     { "turnId": 0, "origin": { "kind": "user" } }
@@ -604,7 +630,7 @@ describe('Agent turn flow', () => {
     expect(ctx.llmCalls).toHaveLength(1);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
+      tools: Agent, AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, Write
       messages:
         user: text "hooked input"
         user: text "<hook_result hook_event=\\"UserPromptSubmit\\">\\nhook response 1\\n</hook_result>\\n<hook_result hook_event=\\"UserPromptSubmit\\">\\nhook response 2\\n</hook_result>"
@@ -667,7 +693,7 @@ describe('Agent turn flow', () => {
     expect(ctx.llmCalls).toHaveLength(1);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
+      tools: Agent, AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, Write
       messages:
         user: text "hooked input"
         user: text "<hook_result hook_event=\\"UserPromptSubmit\\">\\n{}\\n</hook_result>\\n<hook_result hook_event=\\"UserPromptSubmit\\">\\n{\\"hookSpecificOutput\\":{}}\\n</hook_result>"
@@ -753,7 +779,7 @@ describe('Agent turn flow', () => {
     expect(ctx.llmCalls).toHaveLength(1);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, TaskList, TaskOutput, TaskStop, TodoList, Write
+      tools: Agent, AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, Write
       messages:
         user: text "bad words here"
         assistant: text "<hook_result hook_event=\\"UserPromptSubmit\\">\\nno profanity\\n</hook_result>"
@@ -904,7 +930,7 @@ describe('Agent turn flow', () => {
     expect(JSON.stringify(ctx.contextData().history)).not.toContain('late stop hook');
   });
 
-  it('cancels while waiting for a PreToolUse hook inside permission evaluation', async () => {
+  it('cancels while waiting for a PreToolUse hook before permission evaluation', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'kimi-pre-tool-hook-'));
     const marker = join(dir, 'started');
     const script = [
@@ -921,11 +947,10 @@ describe('Agent turn flow', () => {
         timeout: 5,
       },
     ]);
-    const ctx = testAgent({
-      kaos: createFakeKaos({ execWithEnv }),
+    const ctx = testAgent(kaosServices(createFakeKaos({ execWithEnv })), {
       hookEngine,
     });
-    const authorize = vi.spyOn(ctx.permission, 'authorize');
+    const authorize = vi.spyOn(ctx.get(IPermissionGate), 'authorize');
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'auto' });
     ctx.newEvents();
@@ -936,7 +961,7 @@ describe('Agent turn flow', () => {
     await ctx.rpc.cancel({ turnId: 0 });
     const events = await ctx.untilTurnEnd();
 
-    expect(authorize).toHaveBeenCalledTimes(1);
+    expect(authorize).not.toHaveBeenCalled();
     expect(execWithEnv).not.toHaveBeenCalled();
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -1028,7 +1053,7 @@ describe('Agent turn flow', () => {
     // A programmatic abort (e.g. a subagent deadline timeout) carries a plain
     // AbortError as its reason, not a UserCancellationError, so it must not be
     // reported as a user interrupt.
-    ctx.get(ITurnRunner).cancel(0, abortError());
+    ctx.get(ITurnService).getActiveTurn()?.abortController.abort(abortError());
     await ctx.untilTurnEnd();
 
     expect(triggered).toEqual([]);
@@ -1058,7 +1083,10 @@ describe('Agent turn flow', () => {
       await callbacks?.onMessagePart?.({ type: 'text', text });
       return textResult(text);
     };
-    const ctx = testAgent({ ...oauthOptions, generate });
+    const ctx = testAgent(oauthOptions.services, {
+      initialConfig: oauthOptions.initialConfig,
+      generate,
+    });
     ctx.configure();
     await ctx.rpc.setModel({ model: 'kimi-code' });
     ctx.newEvents();
@@ -1111,7 +1139,7 @@ describe('Agent turn flow', () => {
 
   it('logs LLM request metadata without message bodies', async () => {
     const { logger, entries } = captureLogs();
-    const ctx = testAgent({ log: logger });
+    const ctx = testAgent(logServices(logger));
     ctx.configure();
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
@@ -1128,7 +1156,7 @@ describe('Agent turn flow', () => {
       provider: 'kimi',
       model: 'mock-model',
       modelAlias: 'mock-model',
-      toolCount: 16,
+      toolCount: 13,
     });
     expect(configPayload['systemPromptChars']).toEqual(expect.any(Number));
 
@@ -1165,7 +1193,7 @@ describe('Agent turn flow', () => {
 
   it('does not repeat unchanged LLM config metadata', async () => {
     const { logger, entries } = captureLogs();
-    const ctx = testAgent({ log: logger });
+    const ctx = testAgent(logServices(logger));
     ctx.configure();
 
     ctx.mockNextResponse({ type: 'text', text: 'first' });
@@ -1182,15 +1210,15 @@ describe('Agent turn flow', () => {
 
   it('logs changed LLM config when same-size system prompt content changes', async () => {
     const { logger, entries } = captureLogs();
-    const ctx = testAgent({ log: logger });
+    const ctx = testAgent(logServices(logger));
     ctx.configure();
 
-    ctx.profile.update({ systemPrompt: 'alpha' });
+    ctx.get(IProfileService).update({ systemPrompt: 'alpha' });
     ctx.mockNextResponse({ type: 'text', text: 'first' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'first prompt' }] });
     await ctx.untilTurnEnd();
 
-    ctx.profile.update({ systemPrompt: 'bravo' });
+    ctx.get(IProfileService).update({ systemPrompt: 'bravo' });
     ctx.mockNextResponse({ type: 'text', text: 'second' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'second prompt' }] });
     await ctx.untilTurnEnd();
@@ -1208,7 +1236,7 @@ describe('Agent turn flow', () => {
 
   it('does not log estimated LLM request tokens when tools are present', async () => {
     const { logger, entries } = captureLogs();
-    const ctx = testAgent({ log: logger });
+    const ctx = testAgent(logServices(logger));
     ctx.configure();
     await ctx.rpc.setActiveTools({ names: ['Bash'] });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
@@ -1234,7 +1262,10 @@ describe('Agent turn flow', () => {
       );
     });
     const generate = vi.fn<GenerateFn>();
-    const ctx = testAgent({ ...oauthOptions, generate });
+    const ctx = testAgent(oauthOptions.services, {
+      initialConfig: oauthOptions.initialConfig,
+      generate,
+    });
     ctx.configure();
     await ctx.rpc.setModel({ model: 'kimi-code' });
     ctx.newEvents();
@@ -1267,7 +1298,10 @@ describe('Agent turn flow', () => {
       throw new KimiError(ErrorCodes.AUTH_LOGIN_REQUIRED, 'not logged in');
     });
     const generate = vi.fn<GenerateFn>();
-    const ctx = testAgent({ ...oauthOptions, generate });
+    const ctx = testAgent(oauthOptions.services, {
+      initialConfig: oauthOptions.initialConfig,
+      generate,
+    });
     ctx.configure();
     await ctx.rpc.setModel({ model: 'kimi-code' });
     ctx.newEvents();
@@ -1293,12 +1327,11 @@ describe('Agent turn flow', () => {
   });
 
   it('honors configured maxStepsPerTurn in agent turns', async () => {
-    const ctx = testAgent({
+    const ctx = testAgent(kaosServices(createCommandKaos('loop-output')), {
       initialConfig: {
         providers: {},
         loopControl: { maxStepsPerTurn: 1 },
       },
-      kaos: createCommandKaos('loop-output'),
     });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -1354,7 +1387,10 @@ describe('Agent turn flow', () => {
       await callbacks?.onMessagePart?.({ type: 'text', text });
       return textResult(text);
     };
-    const ctx = testAgent({ ...oauthOptions, generate });
+    const ctx = testAgent(oauthOptions.services, {
+      initialConfig: oauthOptions.initialConfig,
+      generate,
+    });
     ctx.configure();
     await ctx.rpc.setModel({ model: 'kimi-code' });
     ctx.newEvents();
@@ -1399,7 +1435,10 @@ describe('Agent turn flow', () => {
       authKeys.push(options?.auth?.apiKey ?? '<missing>');
       throw new APIStatusError(401, 'Unauthorized', 'req-401');
     };
-    const ctx = testAgent({ ...oauthOptions, generate });
+    const ctx = testAgent(oauthOptions.services, {
+      initialConfig: oauthOptions.initialConfig,
+      generate,
+    });
     ctx.configure();
     await ctx.rpc.setModel({ model: 'kimi-code' });
     ctx.newEvents();
@@ -1578,7 +1617,10 @@ describe('Agent turn flow', () => {
       options?.onStreamEnd?.();
       return textResult('Recovered after retry');
     };
-    const ctx = testAgent({ ...oauthOptions, generate, log: logger });
+    const ctx = testAgent(oauthOptions.services, logServices(logger), {
+      initialConfig: oauthOptions.initialConfig,
+      generate,
+    });
     ctx.configure();
     await ctx.rpc.setModel({ model: 'kimi-code' });
     ctx.newEvents();
@@ -1626,45 +1668,57 @@ describe('Agent turn flow', () => {
         throw new APIStatusError(401, 'Unauthorized', 'req-upload-401');
       }),
     } as unknown as ChatProvider;
-    const ctx = testAgent({
-      ...oauthOptions,
-      kaos: createVideoKaos(),
+    const ctx = testAgent(oauthOptions.services, kaosServices(createVideoKaos()), {
+      initialConfig: oauthOptions.initialConfig,
+      autoConfigure: false,
     });
-    ctx.profile.update({
-      cwd: process.cwd(),
+    const profile = ctx.get(IProfileService);
+    profile.update({
+      cwd: '/workspace',
       modelAlias: 'kimi-code',
       systemPrompt: 'test system prompt',
       thinkingLevel: 'off',
     });
-    Object.defineProperty(ctx.profile, 'provider', {
-      configurable: true,
-      get: () => provider,
+    const withAuth = ctx.modelResolver.resolveAuth?.('kimi-code');
+    if (withAuth === undefined) throw new Error('OAuth model did not resolve auth wrapper');
+    const videoUploader: VideoUploader = (input) =>
+      withAuth((auth) => {
+        const uploadVideo = provider.uploadVideo;
+        if (uploadVideo === undefined) throw new Error('Provider did not expose uploadVideo');
+        return uploadVideo.call(provider, input, { auth });
+      });
+    const registration = registerMediaTools(ctx.get(IToolRegistry), {
+      fs: ctx.get(IAgentFileSystem),
+      kaos: ctx.get(IKaos),
+      workspace: { workspaceDir: '/workspace', additionalDirs: [] },
+      capabilities: mediaCapabilities(),
+      videoUploader,
     });
-    // Activate the tool without `ctx.configure`, which would switch the active
-    // model to the non-OAuth mock provider. ReadMediaFile was already
-    // registered when the OAuth model was set above.
-    ctx.profile.update({ activeToolNames: ['ReadMediaFile'] });
+    profile.update({ activeToolNames: ['ReadMediaFile'] });
 
-    const tool = ctx.tools.resolve('ReadMediaFile');
-    if (tool === undefined) throw new Error('ReadMediaFile tool was not initialized');
-    const result = await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'call_media',
-      args: { path: '/workspace/sample.mp4' },
-      signal: new AbortController().signal,
-    });
+    try {
+      const tool = ctx.get(IToolRegistry).resolve('ReadMediaFile');
+      if (tool === undefined) throw new Error('ReadMediaFile tool was not initialized');
+      const result = await executeTool(tool, {
+        turnId: 't1',
+        toolCallId: 'call_media',
+        args: { path: '/workspace/sample.mp4' },
+        signal: new AbortController().signal,
+      });
 
-    expect(result.isError).toBe(true);
-    expect(authKeys).toEqual(['fresh-token', 'forced-refresh-token']);
-    expect(tokenCalls).toEqual([undefined, true]);
-    expect(result.output).toContain('OAuth provider credentials were rejected');
-    expect(result.output).toContain('Send /login to login');
+      expect(result.isError).toBe(true);
+      expect(authKeys).toEqual(['fresh-token', 'forced-refresh-token']);
+      expect(tokenCalls).toEqual([undefined, true]);
+      expect(result.output).toContain('OAuth provider credentials were rejected');
+      expect(result.output).toContain('Send /login to login');
+    } finally {
+      registration.dispose();
+    }
   });
 
   it('cancels an active turn', async () => {
     const records: TelemetryRecord[] = [];
-    const ctx = testAgent({
-      kaos: createCommandKaos('should-not-run'),
+    const ctx = testAgent(kaosServices(createCommandKaos('should-not-run')), {
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -1679,9 +1733,9 @@ describe('Agent turn flow', () => {
       [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta        { "turnId": 0, "delta": "I will run Bash." }
       [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" }
-      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will run Bash." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will run Bash." } ], "toolCalls": [] } ], "time": "<time>" }
       [emit] requestApproval        { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf should-not-run", "display": { "kind": "command", "command": "printf should-not-run", "cwd": "<cwd>", "language": "bash" } }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
@@ -1698,24 +1752,10 @@ describe('Agent turn flow', () => {
     });
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] context.splice          { "start": 1, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will run Bash." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
-      [wire] context_size.measured   { "length": 2, "tokens": 27, "time": "<time>" }
-      [emit] agent.status.updated    { "contextTokens": 27, "maxContextTokens": 1000000, "contextUsage": 0.000027 }
-      [emit] tool.call.started       { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf should-not-run", "timeout": 60 }, "description": "Running: printf should-not-run", "display": { "kind": "command", "command": "printf should-not-run", "cwd": "<cwd>", "language": "bash" } }
-      [wire] context.splice          { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "<system>ERROR: Tool execution failed.</system>\\nThe user manually interrupted \\"Bash\\" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction." } ], "toolCalls": [], "toolCallId": "call_bash", "isError": true } ], "time": "<time>" }
-      [emit] tool.result             { "turnId": 0, "toolCallId": "call_bash", "output": "The user manually interrupted \\"Bash\\" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction.", "isError": true }
       [emit] turn.step.interrupted   { "turnId": 0, "step": 1, "reason": "aborted" }
       [emit] turn.ended              { "turnId": 0, "reason": "cancelled" }
     `);
-    expect(records).toContainEqual({
-      event: 'tool_call',
-      properties: expect.objectContaining({
-        tool_name: 'Bash',
-        outcome: 'cancelled',
-        dup_type: 'normal',
-        duration_ms: expect.any(Number),
-      }),
-    });
+    expect(records.some((record) => record.event === 'tool_call')).toBe(false);
     await ctx.expectResumeMatches();
   });
 
@@ -1726,9 +1766,7 @@ describe('Agent turn flow', () => {
       name: 'Bash',
       arguments: '{"command":"printf approved","timeout":60}',
     };
-    const ctx = testAgent({
-      kaos: createCommandKaos('approved'),
-    });
+    const ctx = testAgent(kaosServices(createCommandKaos('approved')));
     ctx.configure({ tools: ['Bash'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will ask first.' }, bashCall);
@@ -1742,9 +1780,9 @@ describe('Agent turn flow', () => {
       [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta        { "turnId": 0, "delta": "I will ask first." }
       [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf approved\\",\\"timeout\\":60}" }
-      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will ask first." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will ask first." } ], "toolCalls": [] } ], "time": "<time>" }
       [emit] requestApproval        { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf approved", "display": { "kind": "command", "command": "printf approved", "cwd": "<cwd>", "language": "bash" } }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
@@ -1769,7 +1807,7 @@ describe('Agent turn flow', () => {
       [wire] permission.record_approval_result   { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf approved", "result": { "decision": "approved", "selectedLabel": "approve" }, "time": "<time>" }
       [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will ask first." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf approved\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
       [wire] context_size.measured               { "length": 2, "tokens": 29, "time": "<time>" }
-      [emit] agent.status.updated                { "contextTokens": 29, "maxContextTokens": 1000000, "contextUsage": 0.000029 }
+      [emit] agent.status.updated                { "contextTokens": 29 }
       [emit] tool.call.started                   { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf approved", "timeout": 60 }, "description": "Running: printf approved", "display": { "kind": "command", "command": "printf approved", "cwd": "<cwd>", "language": "bash" } }
       [emit] tool.progress                       { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "approved" } }
       [wire] context.splice                      { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "approved" } ], "toolCalls": [], "toolCallId": "call_bash" } ], "time": "<time>" }
@@ -1778,11 +1816,11 @@ describe('Agent turn flow', () => {
       [wire] context.splice                      { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Also mention the steer." } ], "toolCalls": [] } ], "time": "<time>" }
       [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
       [emit] assistant.delta                     { "turnId": 0, "delta": "Approved, and I saw the steer." }
-      [wire] context.splice                      { "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Approved, and I saw the steer." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 39, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 39, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated                { "usage": { "byModel": { "mock-model": { "inputOther": 46, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 46, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 46, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.splice                      { "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Approved, and I saw the steer." } ], "toolCalls": [] } ], "time": "<time>" }
       [wire] context_size.measured               { "length": 5, "tokens": 50, "time": "<time>" }
-      [emit] agent.status.updated                { "contextTokens": 50, "maxContextTokens": 1000000, "contextUsage": 0.00005 }
+      [emit] agent.status.updated                { "contextTokens": 50 }
       [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 39, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
       [emit] turn.ended                          { "turnId": 0, "reason": "completed" }
     `);
@@ -1798,7 +1836,7 @@ describe('Agent turn flow', () => {
   });
 
   it('rejects a non-steer prompt while a turn is active', async () => {
-    const ctx = testAgent({ kaos: createCommandKaos('should-not-run') });
+    const ctx = testAgent(kaosServices(createCommandKaos('should-not-run')));
     ctx.configure({ tools: ['Bash'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will wait for approval.' }, bashCall());
@@ -1812,9 +1850,9 @@ describe('Agent turn flow', () => {
       [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta        { "turnId": 0, "delta": "I will wait for approval." }
       [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" }
-      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will wait for approval." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will wait for approval." } ], "toolCalls": [] } ], "time": "<time>" }
       [emit] requestApproval        { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf should-not-run", "display": { "kind": "command", "command": "printf should-not-run", "cwd": "<cwd>", "language": "bash" } }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
@@ -1835,18 +1873,18 @@ describe('Agent turn flow', () => {
       [wire] permission.record_approval_result   { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf should-not-run", "result": { "decision": "rejected", "selectedLabel": "reject" }, "time": "<time>" }
       [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will wait for approval." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
       [wire] context_size.measured               { "length": 2, "tokens": 32, "time": "<time>" }
-      [emit] agent.status.updated                { "contextTokens": 32, "maxContextTokens": 1000000, "contextUsage": 0.000032 }
+      [emit] agent.status.updated                { "contextTokens": 32 }
       [emit] tool.call.started                   { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf should-not-run", "timeout": 60 }, "description": "Running: printf should-not-run", "display": { "kind": "command", "command": "printf should-not-run", "cwd": "<cwd>", "language": "bash" } }
       [wire] context.splice                      { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "<system>ERROR: Tool execution failed.</system>\\nTool \\"Bash\\" was not run because the user rejected the approval request." } ], "toolCalls": [], "toolCallId": "call_bash", "isError": true } ], "time": "<time>" }
       [emit] tool.result                         { "turnId": 0, "toolCallId": "call_bash", "output": "Tool \\"Bash\\" was not run because the user rejected the approval request.", "isError": true }
       [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
       [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
       [emit] assistant.delta                     { "turnId": 0, "delta": "I will not run it." }
-      [wire] context.splice                      { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will not run it." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 63, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 63, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated                { "usage": { "byModel": { "mock-model": { "inputOther": 70, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 70, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 70, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.splice                      { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will not run it." } ], "toolCalls": [] } ], "time": "<time>" }
       [wire] context_size.measured               { "length": 4, "tokens": 71, "time": "<time>" }
-      [emit] agent.status.updated                { "contextTokens": 71, "maxContextTokens": 1000000, "contextUsage": 0.000071 }
+      [emit] agent.status.updated                { "contextTokens": 71 }
       [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 63, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
       [emit] turn.ended                          { "turnId": 0, "reason": "completed" }
     `);
@@ -1955,6 +1993,23 @@ const DEFAULT_MEDIA_STAT = {
   stCtime: 0,
 };
 
+function createExecKaos(output: string): {
+  readonly kaos: Kaos;
+  readonly execWithEnv: NonNullable<Kaos['execWithEnv']>;
+} {
+  const execWithEnv = vi.fn<NonNullable<Kaos['execWithEnv']>>(async () => ({
+    stdin: { write: vi.fn(), end: vi.fn() } as unknown as KaosProcess['stdin'],
+    stdout: Readable.from([output]),
+    stderr: Readable.from(['']),
+    pid: 42,
+    exitCode: 0,
+    wait: vi.fn().mockResolvedValue(0),
+    kill: vi.fn().mockResolvedValue(undefined),
+    dispose: vi.fn().mockResolvedValue(undefined),
+  }));
+  return { kaos: createFakeKaos({ execWithEnv }), execWithEnv };
+}
+
 function createVideoKaos(): Kaos {
   return createFakeKaos({
     stat: vi.fn<Kaos['stat']>().mockResolvedValue(DEFAULT_MEDIA_STAT),
@@ -1984,7 +2039,10 @@ function mediaCapabilities(): ModelCapability {
 function oauthAgentOptions(
   getAccessToken: (options?: { readonly force?: boolean }) => Promise<string>,
   capabilities?: readonly string[] | undefined,
-): Pick<TestAgentOptions, 'initialConfig' | 'modelProviderOverrides'> {
+): {
+  readonly initialConfig: TestAgentOptions['initialConfig'];
+  readonly services: TestAgentServiceOverride;
+} {
   return {
     initialConfig: {
       defaultModel: 'kimi-code',
@@ -2004,9 +2062,11 @@ function oauthAgentOptions(
         },
       },
     },
-    modelProviderOverrides: {
-      resolveOAuthTokenProvider: vi.fn(() => ({ getAccessToken })),
-    },
+    services: coreServices((reg) => {
+      reg.definePartialInstance(IOAuthService, {
+        resolveTokenProvider: () => ({ getAccessToken }),
+      });
+    }),
   };
 }
 

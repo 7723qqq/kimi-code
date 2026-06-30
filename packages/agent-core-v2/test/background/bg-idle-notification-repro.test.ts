@@ -106,7 +106,9 @@ describe('background notification → main agent (real Agent instance)', () => {
       expect(flatHistoryText).toContain('<notification');
       expect(flatHistoryText).toContain('task.completed');
       expect(flatHistoryText).toContain(taskId);
-      expect(flatHistoryText).toContain('background agent finished its job');
+      expect(flatHistoryText).toContain('idle-state repro completed.');
+      expect(flatHistoryText).toContain('<output-file');
+      expect(flatHistoryText).not.toContain('background agent finished its job');
     });
 
     it('BUSY: completed bg agent during an active turn is flushed before the next LLM call', async () => {
@@ -165,7 +167,9 @@ describe('background notification → main agent (real Agent instance)', () => {
       expect(flatContext).toContain('<notification');
       expect(flatContext).toContain('task.completed');
       expect(flatContext).toContain(taskId);
-      expect(flatContext).toContain('busy-state bg result');
+      expect(flatContext).toContain('busy-state repro completed.');
+      expect(flatContext).toContain('<output-file');
+      expect(flatContext).not.toContain('busy-state bg result');
     });
 
     it('IDLE × N: a GROUP of bg agents completes — all notifications should reach the LLM', async () => {
@@ -207,9 +211,13 @@ describe('background notification → main agent (real Agent instance)', () => {
       for (const id of taskIds) {
         expect(flatHistoryText).toContain(id);
       }
-      expect(flatHistoryText).toContain('bg #1 result');
-      expect(flatHistoryText).toContain('bg #2 result');
-      expect(flatHistoryText).toContain('bg #3 result');
+      expect(flatHistoryText).toContain('group-1 completed.');
+      expect(flatHistoryText).toContain('group-2 completed.');
+      expect(flatHistoryText).toContain('group-3 completed.');
+      expect(flatHistoryText).toContain('<output-file');
+      expect(flatHistoryText).not.toContain('bg #1 result');
+      expect(flatHistoryText).not.toContain('bg #2 result');
+      expect(flatHistoryText).not.toContain('bg #3 result');
     });
 
     it('RACE: bg completion fires AFTER LLM returns but BEFORE activeTurn is cleared', async () => {
@@ -257,7 +265,9 @@ describe('background notification → main agent (real Agent instance)', () => {
       const flatHistoryText = JSON.stringify(lastCall.history);
       expect(flatHistoryText).toContain('<notification');
       expect(flatHistoryText).toContain(taskId);
-      expect(flatHistoryText).toContain('post-turn bg result');
+      expect(flatHistoryText).toContain('race-after-turn completed.');
+      expect(flatHistoryText).toContain('<output-file');
+      expect(flatHistoryText).not.toContain('post-turn bg result');
     });
   });
 

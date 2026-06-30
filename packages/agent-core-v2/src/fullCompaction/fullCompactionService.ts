@@ -151,8 +151,10 @@ export class FullCompactionService extends Disposable implements IFullCompaction
     );
     this._register(
       wireRecord.register('full_compaction.complete', (record) => {
-        const summary = compactionSummaryText(this.context.get());
-        if (summary === undefined) return;
+        const message = compactionSummaryMessage(this.context.get());
+        if (message === undefined) return;
+        const summary = contextMessageText(message);
+        this.replayBuilder.removeLastMessages(new Set([message]));
         this.replayBuilder.patchLast('compaction', {
           result: {
             summary,
@@ -530,8 +532,17 @@ function completeData(result: CompactionResult): FullCompactionCompleteData {
 }
 
 function compactionSummaryText(history: readonly ContextMessage[]): string | undefined {
+  const message = compactionSummaryMessage(history);
+  return message === undefined ? undefined : contextMessageText(message);
+}
+
+function compactionSummaryMessage(history: readonly ContextMessage[]): ContextMessage | undefined {
   const message = history[0];
   if (message?.origin?.kind !== 'compaction_summary') return undefined;
+  return message;
+}
+
+function contextMessageText(message: ContextMessage): string {
   return message.content
     .map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
     .join('');

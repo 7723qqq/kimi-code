@@ -423,7 +423,9 @@ describe('BackgroundManager — notification delivery', () => {
     const content = (message as { content: Array<{ text: string }> }).content;
     const text = content[0]!.text;
     expect(text).toContain('Background agent completed');
-    expect(text).toContain('final subagent summary');
+    expect(text).toContain('agent task completed.');
+    expect(text).toContain('<output-file');
+    expect(text).not.toContain('final subagent summary');
   });
 
   it('steers completed process task notifications into the turn flow', async () => {

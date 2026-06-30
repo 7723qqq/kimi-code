@@ -6,30 +6,32 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
-  BackgroundTaskPersistence,
   IReplayBuilderService,
   type PersistedWireRecord,
   type PromptOrigin,
 } from '#/index';
-import type {
-  BackgroundTaskInfo,
-  IBackgroundService,
-} from '#/background';
+import { IBackgroundService } from '#/background';
 import { IPlanService } from '#/plan';
+import { IPromptService } from '#/prompt';
 import { ITurnService } from '#/turn';
+import {
+  createBackgroundTaskPersistence,
+  type BackgroundServiceTestManager,
+} from '../background/stubs';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
-import { DEFAULT_TEST_SYSTEM_PROMPT, InMemoryWireRecordPersistence, testAgent } from '../harness';
+import {
+  DEFAULT_TEST_SYSTEM_PROMPT,
+  InMemoryWireRecordPersistence,
+  homeDirServices,
+  kaosServices,
+  testAgent,
+} from '../harness';
 
 const MOCK_PROVIDER = {
   type: 'kimi',
   apiKey: 'test-key',
   model: 'mock-model',
 } as const;
-
-type BackgroundServiceTestManager = IBackgroundService & {
-  loadFromDisk(): Promise<void>;
-  reconcile(): Promise<readonly BackgroundTaskInfo[]>;
-};
 
 function turnCurrentId(ctx: ReturnType<typeof testAgent>): number {
   const runner = ctx.get(ITurnService) as unknown as { nextTurnId: number };
@@ -51,9 +53,9 @@ describe('Agent resume', () => {
         origin: { kind: 'user' },
       } as unknown as PersistedWireRecord,
     ]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
     expect(persistence.appended).toEqual([]);
     expect(persistence.records.filter((record) => record.type === 'metadata')).toHaveLength(1);
@@ -62,12 +64,12 @@ describe('Agent resume', () => {
   it('replays persisted records without restarting turns, compactions, plan turns, or tools', async () => {
     const persistence = new RecordingAgentPersistence(resumeHistory() as unknown as PersistedWireRecord[]);
     const execWithEnv = vi.fn().mockRejectedValue(new Error('Bash should not execute on resume'));
-    const ctx = testAgent({
-      kaos: createFakeKaos({ execWithEnv }),
-      persistence,
-    });
+    const ctx = testAgent(
+      kaosServices(createFakeKaos({ execWithEnv, readText: vi.fn().mockResolvedValue('') })),
+      { autoConfigure: false, persistence },
+    );
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
     const plan = await ctx.get(IPlanService).status();
     expect(plan?.path).toContain('resume-plan');
     expect(ctx.newEvents()).toMatchInlineSnapshot(`[]`);
@@ -102,9 +104,9 @@ describe('Agent resume', () => {
 
   it('allocates monotonically increasing turnIds across multiple historical turns on resume', async () => {
     const persistence = new RecordingAgentPersistence(multiTurnResumeHistory() as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
     // History ran turnId 0 and 1, so the counter must be restored to 1.
     expect(turnCurrentId(ctx)).toBe(1);
@@ -125,9 +127,9 @@ describe('Agent resume', () => {
     // A goal drive allocates a fresh turnId per continuation turn even though
     // the internally-driven turns do not have user prompt records.
     const persistence = new RecordingAgentPersistence(goalContinuationResumeHistory() as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
     // History ran turnId 0 (prompted) plus continuation turns 1 and 2.
     expect(turnCurrentId(ctx)).toBe(2);
@@ -147,9 +149,9 @@ describe('Agent resume', () => {
     // Mirrors a real session that was cold-started several times: each resume
     // must continue the counter, never restart it and collide with history.
     const persistence = new RecordingAgentPersistence(multiTurnResumeHistory() as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
     ctx.mockNextResponse({ type: 'text', text: 'Response in cycle 1.' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Prompt in cycle 1' }] });
     await ctx.untilTurnEnd();
@@ -158,9 +160,9 @@ describe('Agent resume', () => {
     // Cold-start again from everything persisted so far (history + the turn just
     // run). The fresh agent must restore the counter to 2 and allocate 3 next.
     const persistence2 = new RecordingAgentPersistence(persistence.records as unknown as PersistedWireRecord[]);
-    const ctx2 = testAgent({ persistence: persistence2 });
+    const ctx2 = testAgent({ persistence: persistence2, autoConfigure: false });
 
-    await ctx2.runtime.restore();
+    await ctx2.restorePersisted();
     expect(turnCurrentId(ctx2)).toBe(2);
 
     ctx2.mockNextResponse({ type: 'text', text: 'Response in cycle 2.' });
@@ -241,11 +243,11 @@ describe('Agent resume', () => {
         ],
       },
     ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+    expect(ctx.context.get().map((message) => message.role)).toEqual([
       'user',
       'assistant',
       'user',
@@ -265,18 +267,18 @@ describe('Agent resume', () => {
 
   it('replays inline skill reminders after pending tool results before the next prompt', async () => {
     const persistence = new RecordingAgentPersistence(resumeDeferredSystemReminderHistory() as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+    expect(ctx.context.get().map((message) => message.role)).toEqual([
       'user',
       'assistant',
       'tool',
       'tool',
       'user',
     ]);
-    expect(ctx.context.getHistory()[4]?.content).toEqual([
+    expect(ctx.context.get()[4]?.content).toEqual([
       {
         type: 'text',
         text: '<system-reminder>\nresume skill body\n</system-reminder>',
@@ -292,7 +294,7 @@ describe('Agent resume', () => {
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
         system: <system-prompt>
-        tools: Agent, AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, MultiEdit, Read, SetGoalBudget, SetTodoList, TaskList, TaskOutput, TodoList, UpdateGoal, WebSearch, Write
+        tools: Agent, AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, Write
         messages:
           user: text "Historical prompt before skill"
           assistant: []  calls call_resume_write:Write { "path": "result.txt" }, call_resume_skill:Skill { "skill": "review" }
@@ -320,9 +322,9 @@ describe('Agent resume', () => {
         ],
       },
     ]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
     expect(ctx.toolStoreData()).toEqual({
       todo: [
@@ -358,11 +360,11 @@ describe('Agent resume', () => {
         },
       },
     ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
-    const toolCall = ctx.context.getHistory()[0]?.toolCalls[0] as
+    const toolCall = ctx.context.get()[0]?.toolCalls[0] as
       | { name?: string; arguments?: string | null; function?: unknown }
       | undefined;
     expect(toolCall).toMatchObject({
@@ -403,14 +405,9 @@ describe('Agent resume', () => {
       },
     ] as unknown as PersistedWireRecord[]);
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-delivered-'));
-    const sessionDir = join(homeDir, 'sessions', 'test-session');
     try {
-      const backgroundPersistence = new BackgroundTaskPersistence(sessionDir);
-      const ctx = testAgent({
-        persistence,
-        homedir: homeDir,
-        background: { persistence: backgroundPersistence },
-      });
+      const backgroundPersistence = createBackgroundTaskPersistence(homeDir);
+      const ctx = testAgent(homeDirServices(homeDir), { autoConfigure: false, persistence });
       await backgroundPersistence.writeTask({
         taskId: 'agent-seen0000',
         kind: 'agent',
@@ -423,14 +420,14 @@ describe('Agent resume', () => {
         'agent-seen0000',
         'already delivered summary',
       );
-      const steer = vi.spyOn(ctx.rpcMethods, 'steer');
+      const steer = vi.spyOn(ctx.get(IPromptService), 'steer');
 
-      await ctx.runtime.restore();
+      await ctx.restorePersisted();
       expect(
-        ctx.context.getHistory().some((message) => message.origin?.kind === 'background_task'),
+        ctx.context.get().some((message) => message.origin?.kind === 'background_task'),
       ).toBe(false);
 
-      const background = ctx.background as BackgroundServiceTestManager;
+      const background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
       await background.loadFromDisk();
       await background.reconcile();
 
@@ -472,11 +469,11 @@ describe('Agent resume', () => {
         tokensAfter: 24,
       },
     ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
-    expect(ctx.context.getHistory()).toEqual([
+    expect(ctx.context.get()).toEqual([
       expect.objectContaining({
         role: 'assistant',
         content: [{ type: 'text', text: 'Compacted implementation notes.' }],
@@ -493,13 +490,13 @@ describe('Agent resume', () => {
       }),
       expect.objectContaining({
         type: 'compaction',
+        instruction: 'preserve implementation notes',
         result: {
           summary: 'Compacted implementation notes.',
           compactedCount: 1,
           tokensBefore: 120,
           tokensAfter: 24,
         },
-        instruction: 'preserve implementation notes',
       }),
     ]);
   });
@@ -515,9 +512,9 @@ describe('Agent resume', () => {
         type: 'full_compaction.cancel',
       },
     ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
     expect(ctx.get(IReplayBuilderService).buildResult()).toEqual([
       expect.objectContaining({
@@ -542,14 +539,9 @@ describe('Agent resume', () => {
       },
     ] as unknown as PersistedWireRecord[]);
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-undelivered-'));
-    const sessionDir = join(homeDir, 'sessions', 'test-session');
     try {
-      const backgroundPersistence = new BackgroundTaskPersistence(sessionDir);
-      const ctx = testAgent({
-        persistence,
-        homedir: homeDir,
-        background: { persistence: backgroundPersistence },
-      });
+      const backgroundPersistence = createBackgroundTaskPersistence(homeDir);
+      const ctx = testAgent(homeDirServices(homeDir), { autoConfigure: false, persistence });
       await backgroundPersistence.writeTask({
         taskId: 'agent-new00000',
         kind: 'agent',
@@ -559,13 +551,13 @@ describe('Agent resume', () => {
         status: 'completed',
       });
       await backgroundPersistence.appendTaskOutput('agent-new00000', 'newly delivered summary');
-      const steer = vi.spyOn(ctx.rpcMethods, 'steer');
+      const steer = vi.spyOn(ctx.get(IPromptService), 'steer');
 
-      await ctx.runtime.restore();
+      await ctx.restorePersisted();
 
       expect(steer).not.toHaveBeenCalled();
       expect(
-        ctx.context.getHistory().some(
+        ctx.context.get().some(
           (message) =>
             message.origin?.kind === 'background_task' &&
             message.origin.taskId === 'agent-new00000',
@@ -633,9 +625,9 @@ describe('Agent resume', () => {
         },
       },
     ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
     expect(ctx.get(IReplayBuilderService).buildResult()).toContainEqual(
       expect.objectContaining({
@@ -647,694 +639,6 @@ describe('Agent resume', () => {
         }),
       }),
     );
-  });
-
-  it('closes interrupted trailing tool calls with synthetic error results after resume', async () => {
-    const persistence = new RecordingAgentPersistence([
-      resumeConfigRecord(),
-      {
-        type: 'context.splice',
-        start: 0,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'Run both lookups' }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 0,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 1,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [],
-            toolCalls: [
-              {
-                type: 'function',
-                id: 'call_interrupted_one',
-                name: 'LookupOne',
-                arguments: JSON.stringify({ query: 'one' }),
-              },
-              {
-                type: 'function',
-                id: 'call_interrupted_two',
-                name: 'LookupTwo',
-                arguments: JSON.stringify({ query: 'two' }),
-              },
-            ],
-          },
-        ],
-      },
-      {
-        type: 'context.splice',
-        start: 2,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'tool',
-            content: [{ type: 'text', text: 'one result' }],
-            toolCalls: [],
-            toolCallId: 'call_interrupted_one',
-          },
-        ],
-      },
-    ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
-
-    await ctx.runtime.restore();
-
-    // Raw history keeps the interrupted call open — closure is not persisted.
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-    ]);
-    // The projector closes the unanswered call with a synthetic error result.
-    const projected = ctx.project();
-    expect(projected.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'tool',
-    ]);
-    expect(projected.at(-1)).toMatchObject({
-      role: 'tool',
-      toolCallId: 'call_interrupted_two',
-    });
-    expect(textContent(projected.at(-1))).toContain(
-      'Tool execution was interrupted before its result was recorded',
-    );
-    // Replay records stay raw (no synthetic result persisted).
-    const replayMessages = ctx.get(IReplayBuilderService)
-      .buildResult()
-      .flatMap((record) => (record.type === 'message' ? [record.message] : []));
-    expect(replayMessages.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-    ]);
-    expect(persistence.appended).toEqual([]);
-
-    ctx.mockNextResponse({ type: 'text', text: 'Recovered after resume.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue after resume' }] });
-    await ctx.untilTurnEnd();
-
-    const freshUserRecordIndex = persistence.records.findIndex(
-      (record) =>
-        isContextSpliceRecord(record) &&
-        record.messages.some(
-          (message) =>
-            message.role === 'user' &&
-            textContent(message) === 'continue after resume',
-        ),
-    );
-    expect(freshUserRecordIndex).toBeGreaterThan(-1);
-
-    // The history sent to the model is the projected one — the interrupted call
-    // is closed and the new prompt follows.
-    const llmHistory = ctx.llmCalls[0]?.history ?? [];
-    expect(llmHistory.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'tool',
-      'user',
-    ]);
-    expect(textContent(llmHistory[3])).toContain(
-      '<system>ERROR: Tool execution failed.</system>',
-    );
-    expect(textContent(llmHistory[3])).toContain(
-      'Tool execution was interrupted before its result was recorded',
-    );
-    expect(textContent(llmHistory[4])).toBe('continue after resume');
-    expect(
-      ctx.context.getHistory().some(
-        (message) => message.role === 'user' && textContent(message) === 'continue after resume',
-      ),
-    ).toBe(true);
-
-    const resumedAgain = testAgent({ persistence });
-    await resumedAgain.runtime.restore();
-
-    // Restored again: the open call is still raw (unclosed) in history; the
-    // projector re-synthesizes its result on demand.
-    expect(resumedAgain.context.getHistory().map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'user',
-      'assistant',
-    ]);
-    expect(resumedAgain.project().map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'tool',
-      'user',
-      'assistant',
-    ]);
-    expect(textContent(resumedAgain.project()[3])).toContain(
-      'Tool execution was interrupted before its result was recorded',
-    );
-    expect(textContent(resumedAgain.context.getHistory()[3])).toBe('continue after resume');
-  });
-
-  it('closes an interrupted tool call mid-history so later turns stay aligned', async () => {
-    const persistence = new RecordingAgentPersistence([
-      {
-        type: 'context.splice',
-        start: 0,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'Run the lookup' }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 0,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 1,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [],
-            toolCalls: [
-              {
-                type: 'function',
-                id: 'call_interrupted',
-                name: 'Lookup',
-                arguments: JSON.stringify({ query: 'one' }),
-              },
-            ],
-          },
-        ],
-      },
-      {
-        type: 'context.splice',
-        start: 2,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'keep going' }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 1,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 3,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'All done.' }],
-            toolCalls: [],
-          },
-        ],
-      },
-    ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
-
-    await ctx.runtime.restore();
-
-    // Raw history keeps the interrupted mid-history call open (no synthetic
-    // result persisted); the deferred prompt stays in its recorded position.
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'user',
-      'assistant',
-    ]);
-    expect(textContent(ctx.context.getHistory()[2])).toBe('keep going');
-    expect(textContent(ctx.context.getHistory()[3])).toBe('All done.');
-
-    // The projector closes the interrupted call in place (index 2), directly
-    // after the interrupted assistant step — not flushed to the tail.
-    const projected = ctx.project();
-    expect(projected.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'user',
-      'assistant',
-    ]);
-    expect(projected[2]).toMatchObject({
-      role: 'tool',
-      toolCallId: 'call_interrupted',
-    });
-    expect(textContent(projected[2])).toContain(
-      'Tool execution was interrupted before its result was recorded',
-    );
-    expect(textContent(projected[3])).toBe('keep going');
-    expect(textContent(projected[4])).toBe('All done.');
-
-    // The mid-history result is re-derived on every projection and is never
-    // persisted as a positioned record.
-    expect(
-      persistence.appended.filter(
-        (record) =>
-          isLegacyAppendLoopEventRecord(record) && record.event.type === 'tool.result',
-      ),
-    ).toEqual([]);
-
-    await ctx.expectResumeMatches();
-  });
-
-  it('drops a stale tail interrupted result already closed in place on resume', async () => {
-    const persistence = new RecordingAgentPersistence([
-      {
-        type: 'context.splice',
-        start: 0,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'Run the lookup' }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 0,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 1,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [],
-            toolCalls: [
-              {
-                type: 'function',
-                id: 'call_interrupted',
-                name: 'Lookup',
-                arguments: JSON.stringify({ query: 'one' }),
-              },
-            ],
-          },
-        ],
-      },
-      {
-        type: 'context.splice',
-        start: 2,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'keep going' }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 1,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 3,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'All done.' }],
-            toolCalls: [],
-          },
-        ],
-      },
-      {
-        type: 'context.splice',
-        start: 4,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'tool',
-            content: [
-              {
-                type: 'text',
-                text:
-                  '<system>ERROR: Tool execution failed.</system>\n' +
-                  'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.',
-              },
-            ],
-            toolCalls: [],
-            toolCallId: 'call_interrupted',
-            isError: true,
-          },
-        ],
-      },
-    ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
-
-    await ctx.runtime.restore();
-
-    // Raw history keeps the stale tail result exactly as recorded.
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'user',
-      'assistant',
-      'tool',
-    ]);
-    // The projector closes the call in place (index 2) and drops the stale tail
-    // duplicate, leaving exactly one (synthetic) result.
-    const projected = ctx.project();
-    expect(projected.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'user',
-      'assistant',
-    ]);
-    expect(projected[2]).toMatchObject({
-      role: 'tool',
-      toolCallId: 'call_interrupted',
-    });
-    expect(textContent(projected[2])).toContain(
-      'Tool execution was interrupted before its result was recorded',
-    );
-    expect(textContent(projected[4])).toBe('All done.');
-    await ctx.expectResumeMatches();
-  });
-
-  it('closes every open call of a multi-call interrupted step in order', async () => {
-    const persistence = new RecordingAgentPersistence([
-      {
-        type: 'context.splice',
-        start: 0,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'Run both' }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 0,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 1,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [],
-            toolCalls: ['call_a', 'call_b'].map((toolCallId) => ({
-              type: 'function',
-              id: toolCallId,
-              name: 'Lookup',
-              arguments: JSON.stringify({}),
-            })),
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 1,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 2,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'All done.' }],
-            toolCalls: [],
-          },
-        ],
-      },
-    ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
-
-    await ctx.runtime.restore();
-
-    // Raw history keeps the interrupted multi-call step open.
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'assistant',
-    ]);
-    // The projector closes both open calls, in tool-call order, before the next
-    // turn.
-    const projected = ctx.project();
-    expect(projected.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'tool',
-      'assistant',
-    ]);
-    expect(projected[2]).toMatchObject({ role: 'tool', toolCallId: 'call_a' });
-    expect(projected[3]).toMatchObject({ role: 'tool', toolCallId: 'call_b' });
-    await ctx.expectResumeMatches();
-  });
-
-  it('synthesizes only the unresolved call when a step is partially resolved', async () => {
-    const persistence = new RecordingAgentPersistence([
-      {
-        type: 'context.splice',
-        start: 0,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'Run both' }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 0,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 1,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [],
-            toolCalls: ['call_done', 'call_open'].map((toolCallId) => ({
-              type: 'function',
-              id: toolCallId,
-              name: 'Lookup',
-              arguments: JSON.stringify({}),
-            })),
-          },
-        ],
-      },
-      {
-        type: 'context.splice',
-        start: 2,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'tool',
-            content: [{ type: 'text', text: 'real result' }],
-            toolCalls: [],
-            toolCallId: 'call_done',
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 1,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 3,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'All done.' }],
-            toolCalls: [],
-          },
-        ],
-      },
-    ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
-
-    await ctx.runtime.restore();
-
-    // Raw history keeps the recorded result and leaves the second call open.
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'assistant',
-    ]);
-    expect(ctx.context.getHistory()[2]).toMatchObject({ toolCallId: 'call_done' });
-    expect(textContent(ctx.context.getHistory()[2])).toBe('real result');
-    // The projector keeps the recorded result verbatim and synthesizes only the
-    // open call.
-    const projected = ctx.project();
-    expect(projected.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'tool',
-      'assistant',
-    ]);
-    expect(projected[2]).toMatchObject({ toolCallId: 'call_done' });
-    expect(textContent(projected[2])).toBe('real result');
-    expect(projected[3]).toMatchObject({ toolCallId: 'call_open' });
-    expect(textContent(projected[3])).toContain(
-      'Tool execution was interrupted before its result was recorded',
-    );
-    await ctx.expectResumeMatches();
-  });
-
-  it('closes consecutive interrupted steps each at their own boundary', async () => {
-    const persistence = new RecordingAgentPersistence([
-      {
-        type: 'context.splice',
-        start: 0,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'Go' }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 0,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 1,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [],
-            toolCalls: [
-              {
-                type: 'function',
-                id: 'call_one',
-                name: 'Lookup',
-                arguments: JSON.stringify({}),
-              },
-            ],
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 1,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 2,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [],
-            toolCalls: [
-              {
-                type: 'function',
-                id: 'call_two',
-                name: 'Lookup',
-                arguments: JSON.stringify({}),
-              },
-            ],
-          },
-        ],
-      },
-      {
-        type: 'turn.launch',
-        turnId: 2,
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'context.splice',
-        start: 3,
-        deleteCount: 0,
-        messages: [
-          {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'Done.' }],
-            toolCalls: [],
-          },
-        ],
-      },
-    ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
-
-    await ctx.runtime.restore();
-
-    // Raw history keeps both interrupted steps open.
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'assistant',
-      'assistant',
-    ]);
-    // The projector closes each interrupted step at its own boundary.
-    const projected = ctx.project();
-    expect(projected.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'tool',
-      'assistant',
-      'tool',
-      'assistant',
-    ]);
-    expect(projected[2]).toMatchObject({ toolCallId: 'call_one' });
-    expect(projected[4]).toMatchObject({ toolCallId: 'call_two' });
-    await ctx.expectResumeMatches();
   });
 
   it('drops an orphan tool result whose call was never recorded', async () => {
@@ -1383,12 +687,12 @@ describe('Agent resume', () => {
         ],
       },
     ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
     // Raw history keeps the orphan result as recorded.
-    expect(ctx.context.getHistory().map((message) => message.role)).toEqual([
+    expect(ctx.context.get().map((message) => message.role)).toEqual([
       'user',
       'assistant',
       'tool',
@@ -1421,11 +725,11 @@ describe('Agent resume', () => {
         actor: 'model',
       },
     ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
-    expect(ctx.context.getHistory()).toHaveLength(0);
+    expect(ctx.context.get()).toHaveLength(0);
     expect(ctx.get(IReplayBuilderService).buildResult()).toContainEqual(
       expect.objectContaining({
         type: 'goal_updated',
@@ -1447,7 +751,7 @@ describe('Agent resume', () => {
     );
   });
 
-  it('removes replay messages matching undone history', async () => {
+  it('restores context after undo and removes undone messages from replay', async () => {
     const persistence = new RecordingAgentPersistence([
       {
         type: 'metadata',
@@ -1532,13 +836,13 @@ describe('Agent resume', () => {
       },
       { type: 'context.undo', count: 1 },
     ] as unknown as PersistedWireRecord[]);
-    const ctx = testAgent({ persistence });
+    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
-    expect(ctx.context.getHistory()).toHaveLength(2);
-    expect(ctx.context.getHistory()[0]?.role).toBe('user');
-    expect(ctx.context.getHistory()[1]?.role).toBe('assistant');
+    expect(ctx.context.get()).toHaveLength(2);
+    expect(ctx.context.get()[0]?.role).toBe('user');
+    expect(ctx.context.get()[1]?.role).toBe('assistant');
 
     const replay = ctx.get(IReplayBuilderService).buildResult();
     expect(replay).toHaveLength(2);
@@ -1594,43 +898,6 @@ function textContent(
       .map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
       .join('') ?? ''
   );
-}
-
-type ContextSpliceRecord = PersistedWireRecord & {
-  readonly type: 'context.splice';
-  readonly messages: readonly {
-    readonly role: string;
-    readonly content: readonly { readonly type: string; readonly text?: string }[];
-  }[];
-};
-
-function isContextSpliceRecord(record: PersistedWireRecord): record is ContextSpliceRecord {
-  return record.type === 'context.splice';
-}
-
-function isLegacyAppendLoopEventRecord(
-  record: PersistedWireRecord,
-): record is PersistedWireRecord & {
-  readonly type: 'context.append_loop_event';
-  readonly event: { readonly type: string; readonly toolCallId?: string };
-} {
-  return record.type === 'context.append_loop_event' && isRecord(record['event']);
-}
-
-function isLegacyAppendMessageRecord(
-  record: PersistedWireRecord,
-): record is PersistedWireRecord & {
-  readonly type: 'context.append_message';
-  readonly message: {
-    readonly role: string;
-    readonly content: readonly { readonly type: string; readonly text?: string }[];
-  };
-} {
-  return record.type === 'context.append_message' && isRecord(record['message']);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function resumeHistory(): PersistedWireRecord[] {

@@ -43,16 +43,27 @@ function agentTask(
   );
 }
 
-function pendingProcess(): KaosProcess {
+function pendingProcess(): KaosProcess & { resolve(code: number): void } {
+  let resolveWait: (code: number) => void = () => {};
+  const waitPromise = new Promise<number>((resolve) => {
+    resolveWait = resolve;
+  });
+  let currentExitCode: number | null = null;
   return {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
     pid: 54321,
-    exitCode: null,
-    wait: () => new Promise<number>(() => {}),
+    get exitCode(): number | null {
+      return currentExitCode;
+    },
+    wait: () => waitPromise,
     kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
     dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    resolve(code: number): void {
+      currentExitCode = code;
+      resolveWait(code);
+    },
   };
 }
 
@@ -73,20 +84,29 @@ describe('background task id format', () => {
     }
   });
 
-  it('assigns bash-prefixed ids to process tasks', () => {
-    const id = registerProcess(background, pendingProcess(), 'sleep 60', 'process task');
+  it('assigns bash-prefixed ids to process tasks', async () => {
+    const proc = pendingProcess();
+    const id = registerProcess(background, proc, 'sleep 60', 'process task');
 
     expect(id).toMatch(/^bash-[0-9a-z]{8}$/);
     expect(background.getTask(id)).toMatchObject({ taskId: id, kind: 'process' });
+    proc.resolve(0);
+    await background.wait(id);
   });
 
-  it('assigns agent-prefixed ids to agent tasks', () => {
+  it('assigns agent-prefixed ids to agent tasks', async () => {
+    let resolveCompletion!: (value: { result: string }) => void;
+    const completion = new Promise<{ result: string }>((resolve) => {
+      resolveCompletion = resolve;
+    });
     const id = background.registerTask(
-      agentTask(new Promise(() => {}), 'agent task'),
+      agentTask(completion, 'agent task'),
     );
 
     expect(id).toMatch(/^agent-[0-9a-z]{8}$/);
     expect(background.getTask(id)).toMatchObject({ taskId: id, kind: 'agent' });
+    resolveCompletion({ result: 'done' });
+    await background.wait(id);
   });
 
   it('rejects malformed ids at the persistence path boundary', () => {

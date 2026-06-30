@@ -40,22 +40,6 @@ async function writeLegacyTask(taskId: string, task: Record<string, unknown>): P
 }
 
 describe('BackgroundTaskPersistence legacy compatibility', () => {
-  let ctx: TestAgentContext;
-  let background: BackgroundServiceTestManager;
-
-  beforeEach(() => {
-    ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
-    background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
-  });
-
-  afterEach(async () => {
-    try {
-      await ctx.expectResumeMatches();
-    } finally {
-      await ctx.dispose();
-    }
-  });
-
   it('normalizes legacy snake_case process task records', async () => {
     await writeLegacyTask('bash-legacy01', {
       task_id: 'bash-legacy01',
@@ -117,6 +101,8 @@ describe('BackgroundTaskPersistence legacy compatibility', () => {
   });
 
   it('migrates legacy records through load/reconcile writeback', async () => {
+    const ctx: TestAgentContext = createTestAgent(homeDirServices(sessionDir), backgroundServices());
+    const background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
     await writeLegacyTask('bash-orphan01', {
       task_id: 'bash-orphan01',
       command: 'sleep 60',
@@ -128,23 +114,28 @@ describe('BackgroundTaskPersistence legacy compatibility', () => {
       status: 'running',
     });
 
-    await background.loadFromDisk();
-    await background.reconcile();
+    try {
+      await background.loadFromDisk();
+      await background.reconcile();
 
-    expect(background.getTask('bash-orphan01')).toMatchObject({
-      taskId: 'bash-orphan01',
-      kind: 'process',
-      status: 'lost',
-    });
-    const raw = JSON.parse(
-      await readFile(
-        join(sessionDir, BACKGROUND_TEST_SESSION_SCOPE, 'tasks', 'bash-orphan01.json'),
-        'utf-8',
-      ),
-    ) as Record<string, unknown>;
-    expect(raw['taskId']).toBe('bash-orphan01');
-    expect(raw['task_id']).toBeUndefined();
-    expect(raw['kind']).toBe('process');
-    expect(raw['status']).toBe('lost');
+      expect(background.getTask('bash-orphan01')).toMatchObject({
+        taskId: 'bash-orphan01',
+        kind: 'process',
+        status: 'lost',
+      });
+      const raw = JSON.parse(
+        await readFile(
+          join(sessionDir, BACKGROUND_TEST_SESSION_SCOPE, 'tasks', 'bash-orphan01.json'),
+          'utf-8',
+        ),
+      ) as Record<string, unknown>;
+      expect(raw['taskId']).toBe('bash-orphan01');
+      expect(raw['task_id']).toBeUndefined();
+      expect(raw['kind']).toBe('process');
+      expect(raw['status']).toBe('lost');
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
   });
 });

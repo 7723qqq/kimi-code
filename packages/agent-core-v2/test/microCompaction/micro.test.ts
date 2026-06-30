@@ -307,7 +307,7 @@ describe('MicroCompaction', () => {
     });
 
     vi.setSystemTime(999_999);
-    await ctx.runtime.restore();
+    await ctx.restorePersisted();
 
     expect((ctx.get(IMicroCompactionService) as any).lastAssistantAt).toBe(assistantRecordTime);
 
@@ -353,7 +353,7 @@ describe('MicroCompaction', () => {
     });
 
     vi.setSystemTime(63 * MINUTE);
-    await resumed.runtime.restore();
+    await resumed.restorePersisted();
 
     expect((resumed.get(IMicroCompactionService) as any).lastAssistantAt).toBe(62 * MINUTE);
     expect(toolTexts(resumed.project())).toEqual([
@@ -400,7 +400,7 @@ describe('MicroCompaction', () => {
     });
 
     vi.setSystemTime(123 * MINUTE);
-    await resumed.runtime.restore();
+    await resumed.restorePersisted();
 
     expect((resumed.get(IMicroCompactionService) as any).lastAssistantAt).toBe(62 * MINUTE);
     (resumed.get(IMicroCompactionService) as any).detect();

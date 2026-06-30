@@ -101,7 +101,7 @@ export class BackgroundTaskPersistence {
   }
 
   async listTasks(): Promise<readonly PersistedTask[]> {
-    const keys = await this.docs.list(this.tasksScope());
+    const keys = (await this.docs.list(this.tasksScope())).toSorted();
     const tasks: PersistedTask[] = [];
     for (const key of keys) {
       if (!key.endsWith(JSON_SUFFIX)) continue;

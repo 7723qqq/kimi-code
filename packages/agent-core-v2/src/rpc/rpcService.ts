@@ -6,6 +6,7 @@ import { IContextSizeService } from '#/contextSize';
 import { IFileToolsService } from '#/fileTools';
 import { IFullCompaction } from '#/fullCompaction';
 import { IGoalService } from '#/goal';
+import { userCancellationReason } from '#/_base/utils/abort';
 import { IPermissionGate } from '#/permissionGate';
 import { IPermissionModeService } from '#/permissionMode/permissionMode';
 import { IPlanService } from '../plan';
@@ -97,7 +98,7 @@ export class AgentRPCService implements IAgentRPCService {
     const turn = this.turnService.getActiveTurn();
     if (turn === undefined) return;
     if (turnId !== undefined && turn.id !== turnId) return;
-    turn.abortController.abort();
+    turn.abortController.abort(userCancellationReason());
   }
 
   undoHistory(payload: UndoHistoryPayload): number {

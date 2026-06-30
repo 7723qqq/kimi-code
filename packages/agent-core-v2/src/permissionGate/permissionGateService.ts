@@ -6,6 +6,7 @@ import {
   Disposable,
   IInstantiationService,
 } from "#/_base/di";
+import { abortable, isUserCancellation } from '#/_base/utils/abort';
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,
@@ -138,17 +139,21 @@ export class PermissionGate extends Disposable implements IPermissionGate {
         display,
       });
       try {
-        response = await approvalService.request({
-          sessionId: this.session.sessionId,
-          agentId: this.options.agentId ?? 'main',
-          turnId: numericTurnId(context.turnId),
-          toolCallId: context.toolCall.id,
-          toolName: name,
-          action,
-          display,
-        });
+        response = await abortable(
+          approvalService.request({
+            sessionId: this.session.sessionId,
+            agentId: this.options.agentId ?? 'main',
+            turnId: numericTurnId(context.turnId),
+            toolCallId: context.toolCall.id,
+            toolName: name,
+            action,
+            display,
+          }),
+          context.signal,
+        );
         context.signal.throwIfAborted();
       } catch (error) {
+        if (isUserCancellation(error)) throw error;
         this.telemetry.track('permission_approval_result', {
           policy_name: policyName ?? null,
           tool_name: name,

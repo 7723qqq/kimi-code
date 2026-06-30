@@ -138,7 +138,7 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
         }),
       );
 
-      await ctx.runtime.restore([]);
+      await ctx.restore([]);
 
       expect(background.getTask('bash-restore0')).toMatchObject({
         taskId: 'bash-restore0',

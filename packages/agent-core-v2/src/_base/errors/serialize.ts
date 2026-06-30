@@ -3,6 +3,14 @@
  * portable `ErrorPayload` that crosses process / language boundaries.
  */
 
+import {
+  APIConnectionError,
+  APIEmptyResponseError,
+  APIStatusError,
+  APITimeoutError,
+  ChatProviderError,
+} from '@moonshot-ai/kosong';
+
 import { CoreErrors, errorInfo, isErrorCode } from './codes';
 import type { ErrorCode } from './codes';
 import { KimiError, isCancellationError } from './errors';
@@ -23,6 +31,11 @@ export interface CodedErrorShape {
   readonly name?: string;
   readonly details?: Readonly<Record<string, unknown>>;
 }
+
+const PROVIDER_API_ERROR: ErrorCode = 'provider.api_error';
+const PROVIDER_RATE_LIMIT: ErrorCode = 'provider.rate_limit';
+const PROVIDER_AUTH_ERROR: ErrorCode = 'provider.auth_error';
+const PROVIDER_CONNECTION_ERROR: ErrorCode = 'provider.connection_error';
 
 export function isCodedError(error: unknown): error is CodedErrorShape {
   if (error === null || typeof error !== 'object') {
@@ -61,6 +74,36 @@ export function toErrorPayload(error: unknown): ErrorPayload {
       details: error.details,
       retryable: errorInfo(error.code).retryable,
     };
+  }
+  if (error instanceof APIStatusError) {
+    const code =
+      error.statusCode === 429
+        ? PROVIDER_RATE_LIMIT
+        : error.statusCode === 401 || error.statusCode === 403
+          ? PROVIDER_AUTH_ERROR
+          : PROVIDER_API_ERROR;
+    return makeErrorPayload(code, error.message, {
+      name: error.name,
+      details: {
+        statusCode: error.statusCode,
+        requestId: error.requestId,
+      },
+    });
+  }
+  if (error instanceof APIConnectionError || error instanceof APITimeoutError) {
+    return makeErrorPayload(PROVIDER_CONNECTION_ERROR, error.message, { name: error.name });
+  }
+  if (error instanceof APIEmptyResponseError) {
+    return makeErrorPayload(PROVIDER_API_ERROR, error.message, {
+      name: error.name,
+      details: {
+        finishReason: error.finishReason,
+        rawFinishReason: error.rawFinishReason,
+      },
+    });
+  }
+  if (error instanceof ChatProviderError) {
+    return makeErrorPayload(PROVIDER_API_ERROR, error.message, { name: error.name });
   }
   if (error instanceof Error) {
     return makeErrorPayload(CoreErrors.codes.INTERNAL, error.message, { name: error.name });

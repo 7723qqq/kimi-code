@@ -89,6 +89,7 @@ describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
 
     await waitForOutput(manager, taskId, 'hello');
     const snapshot = await manager.getOutputSnapshot(taskId, 1_000);
+    await manager.wait(taskId);
 
     expect(snapshot.outputPath).toBeDefined();
     expect(snapshot.outputPath).toContain(sessionDir);
@@ -146,6 +147,7 @@ describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
     await waitForOutput(manager, taskId, 'live content');
 
     expect(await manager.readOutput(taskId)).toContain('live content');
+    await manager.wait(taskId);
   });
 
   it('readOutput prefers disk over the live ring buffer when persisted output exists', async () => {
@@ -155,6 +157,7 @@ describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
     await persistence.appendTaskOutput(taskId, 'disk-only\n');
 
     expect(await manager.readOutput(taskId)).toContain('disk-only');
+    await manager.wait(taskId);
   });
 
   it('readOutput falls back to disk for ghost tasks', async () => {
@@ -191,5 +194,6 @@ describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
     await waitForOutput(manager, taskId, 'ddddd');
 
     expect(await manager.readOutput(taskId, 5)).toBe('ddddd');
+    await manager.wait(taskId);
   });
 });

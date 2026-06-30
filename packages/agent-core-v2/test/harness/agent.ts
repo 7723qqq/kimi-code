@@ -61,6 +61,7 @@ import {
   ITerminalBackend,
   IToolRegistry,
   IToolStoreService,
+  IUserToolService,
   IUsageService,
   IWireRecord,
   IWorkspaceContext,
@@ -72,6 +73,7 @@ import {
   PermissionRulesService,
   ProfileService,
   SyncDescriptor,
+  UserToolService,
   WireRecordService,
   WorkspaceContextService,
   bootstrapSeed,
@@ -86,6 +88,7 @@ import { Event } from '#/_base/event';
 import { toDisposable } from '#/_base/di';
 import type { PromisifyMethods } from '#/_base/utils/types';
 import type { ApprovalResponse } from '#/approval';
+import type { BackgroundTaskInfo } from '#/background';
 import { IBlobStoreService, type IBlobStoreService as BlobStoreService } from '#/blobStore';
 import { IOAuthService } from '#/auth/auth';
 import { IChatProviderFactory } from '#/chatProvider';
@@ -119,7 +122,13 @@ import { ModelSkillTool } from '#/skill/tools/modelSkill';
 import type { SkillCatalog } from '#/skill/types';
 import { SubagentHostService, type SessionSubagentHost } from '#/subagentHost';
 import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/tool';
-import type { PersistedWireRecord, WireRecord } from '#/wireRecord';
+import type { UserToolExecutionHandler } from '#/userTool';
+import type {
+  PersistedWireRecord,
+  WireRecord,
+  WireRecordRestoreOptions,
+  WireRecordRestoreResult,
+} from '#/wireRecord';
 import type { PathAccessOperation } from '#/workspaceContext';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 
@@ -707,34 +716,6 @@ class PersistenceAppendLogStore implements IAppendLogStore {
   }
 }
 
-class AgentRuntime {
-  constructor(
-    private readonly core: Scope,
-    readonly session: Scope,
-    readonly agent: Scope,
-    readonly modelResolver: IModelResolver,
-  ) {}
-
-  get<T>(id: ServiceIdentifier<T>): T {
-    if (id === undefined) {
-      throw new Error('AgentRuntime.get called with undefined service id');
-    }
-    return this.agent.accessor.get(id);
-  }
-
-  async restore(records?: readonly PersistedWireRecord[]): Promise<void> {
-    const wireRecord = this.get(IWireRecord);
-    await wireRecord.restore(records);
-  }
-
-  async close(_reason?: string): Promise<void> {
-    const wireRecord = this.get(IWireRecord);
-    await wireRecord.flush();
-    await wireRecord.close();
-    this.core.dispose();
-  }
-}
-
 class ConfigBackedModelResolver extends ModelResolver {
   constructor(
     private readonly options: TestModelProviderOptions = {},
@@ -788,6 +769,8 @@ export class AgentTestContext {
   private readonly scriptedGenerate = createScriptedGenerate();
   readonly recordHistory: PersistedWireRecord[] = [];
   private readonly root: Scope;
+  private readonly session: Scope;
+  private readonly agent: Scope;
   private readonly disposables: IDisposable[] = [];
   private suppressWireSnapshot = false;
   kimiConfig: KimiConfig;
@@ -797,7 +780,6 @@ export class AgentTestContext {
   readonly snapshots = recordAgentEvents();
   readonly emitter = new EventEmitter();
   readonly allEvents: EventSnapshotEntry[] = this.snapshots.entries;
-  readonly runtime: AgentRuntime;
   readonly rpc: PromiseAgentAPI;
   readonly llmCalls = this.scriptedGenerate.calls;
   readonly lastLlmInput = this.scriptedGenerate.lastInput;
@@ -855,7 +837,7 @@ export class AgentTestContext {
     this.root = createCoreScope({ extra: coreSeeds });
 
     const bootstrap = this.root.accessor.get(IBootstrapService);
-    const session = this.root.createChild(LifecycleScope.Session, sessionId, {
+    this.session = this.root.createChild(LifecycleScope.Session, sessionId, {
       extra: collectScopeSeed([
         (reg) => {
           reg.defineInstance(ISessionContext, {
@@ -874,9 +856,9 @@ export class AgentTestContext {
         },
       ], this.serviceOverrides, 'session'),
     });
-    const workspace = session.accessor.get(IWorkspaceContext);
+    const workspace = this.session.accessor.get(IWorkspaceContext);
 
-    const agent = session.createChild(LifecycleScope.Agent, agentId, {
+    this.agent = this.session.createChild(LifecycleScope.Agent, agentId, {
       extra: collectScopeSeed([
         (reg) => {
           reg.defineDescriptor(IWireRecord, new SyncDescriptor(RecordingWireRecordService, [
@@ -913,6 +895,13 @@ export class AgentTestContext {
           reg.defineDescriptor(IGoalService, new SyncDescriptor(GoalService, [{}]));
           reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
           reg.defineDescriptor(
+            IUserToolService,
+            new SyncDescriptor(UserToolService, [{
+              execute: (request: Parameters<UserToolExecutionHandler>[0]) =>
+                this.executeUserTool(request),
+            }]),
+          );
+          reg.defineDescriptor(
             ISubagentHost,
             new SyncDescriptor(SubagentHostService, [unavailableSubagentHost()]),
           );
@@ -920,7 +909,6 @@ export class AgentTestContext {
       ], this.serviceOverrides, 'agent'),
     });
 
-    this.runtime = new AgentRuntime(this.root, session, agent, session.accessor.get(IModelResolver));
     this.get(IProfileService).configure({
       cwd: () => this.cwd,
       chdir: async (nextCwd: string) => {
@@ -948,7 +936,14 @@ export class AgentTestContext {
   }
 
   get<T>(id: ServiceIdentifier<T>): T {
-    return this.runtime.get(id);
+    if (id === undefined) {
+      throw new Error('AgentTestContext.get called with undefined service id');
+    }
+    return this.agent.accessor.get(id);
+  }
+
+  get modelResolver(): IModelResolver {
+    return this.session.accessor.get(IModelResolver);
   }
 
   get context(): IContextMemory {
@@ -961,6 +956,21 @@ export class AgentTestContext {
 
   get wireRecord(): IWireRecord {
     return this.get(IWireRecord);
+  }
+
+  async restorePersisted(
+    options?: WireRecordRestoreOptions,
+  ): Promise<WireRecordRestoreResult> {
+    return this.wireRecord.restore(undefined, options);
+  }
+
+  private async restoreRecordsOnly(records: readonly PersistedWireRecord[]): Promise<void> {
+    await this.wireRecord.restore(records);
+  }
+
+  private async closeWireRecord(): Promise<void> {
+    await this.wireRecord.flush();
+    await this.wireRecord.close();
   }
 
   private initializeRestorableServices(): void {
@@ -980,7 +990,7 @@ export class AgentTestContext {
 
     context.get();
     const microCompaction = this.get(IMicroCompactionService);
-    microCompaction;
+    void microCompaction;
     void fileTools._serviceBrand;
     void shellTools._serviceBrand;
     void swarm.isActive;
@@ -1145,7 +1155,7 @@ export class AgentTestContext {
   async dispatch(event: PersistedWireRecord): Promise<void> {
     this.suppressWireSnapshot = true;
     try {
-      await this.runtime.restore([event]);
+      await this.restoreRecordsOnly([event]);
       this.captureRecord(event);
     } finally {
       this.suppressWireSnapshot = false;
@@ -1155,7 +1165,7 @@ export class AgentTestContext {
   async restore(records: readonly PersistedWireRecord[]): Promise<void> {
     this.suppressWireSnapshot = true;
     try {
-      await this.runtime.restore(records);
+      await this.restoreRecordsOnly(records);
     } finally {
       this.suppressWireSnapshot = false;
     }
@@ -1296,11 +1306,12 @@ export class AgentTestContext {
   async expectResumeMatches(): Promise<void> {
     await this.drainWirePersistence();
     const profile = this.get(IProfileService);
+    const configSnapshot = structuredClone(this.get(IConfigService).getAll() as KimiConfig);
     const resumed = createTestAgent(
       { autoConfigure: false },
       ...this.serviceOverrides,
       kaosServices(createResumeNoSideEffectKaos(profile.data().cwd)),
-      configServices(() => this.kimiConfig),
+      configServices(() => configSnapshot),
       llmGenerateServices(failOnResumeGenerate),
       wireRecordPersistenceServices(new InMemoryWireRecordPersistence(
         withMetadata(this.recordHistory.map(cloneRecord)),
@@ -1308,7 +1319,7 @@ export class AgentTestContext {
     );
 
     try {
-      await resumed.runtime.restore();
+      await resumed.restorePersisted();
 
       // oxlint-disable-next-line jest/no-standalone-expect
       expect(resumeStateSnapshot(resumed)).toEqual(resumeStateSnapshot(this));
@@ -1325,13 +1336,14 @@ export class AgentTestContext {
     await wireRecord.flush();
   }
 
-  async close(reason = 'Agent runtime test closed'): Promise<void> {
+  async close(_reason = 'Agent runtime test closed'): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     for (const disposable of this.disposables.splice(0)) {
       disposable.dispose();
     }
-    await this.runtime.close(reason);
+    await this.closeWireRecord();
+    this.root.dispose();
   }
 
   async dispose(): Promise<void> {
@@ -1431,6 +1443,21 @@ export class AgentTestContext {
       listPending: () => [],
     };
   }
+
+  private executeUserTool: UserToolExecutionHandler = (request) => {
+    const turnId = Number(request.turnId);
+    const promise = this.createRpcPromise<ToolResult>(request.signal);
+    this.recordRpc(
+      'toolCall',
+      {
+        turnId: Number.isFinite(turnId) ? turnId : undefined,
+        toolCallId: request.toolCallId,
+        args: request.args,
+      },
+      promise,
+    );
+    return promise;
+  };
 
   private captureRecord(event: PersistedWireRecord): void {
     const cloned = cloneRecord(event);
@@ -1694,13 +1721,21 @@ function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
   const toolStore = ctx.get(IToolStoreService);
   const permission = ctx.get(IPermissionGate);
   return {
-    background: background.list(false),
+    background: normalizeBackgroundSnapshot(background.list(false)),
     config: configStateSnapshot(ctx),
     context: resumeContextSnapshot(ctx),
     permission: permission.data(),
     toolStore: toolStore.data(),
     usage: usage.status(),
   };
+}
+
+function normalizeBackgroundSnapshot(
+  background: readonly BackgroundTaskInfo[],
+): readonly BackgroundTaskInfo[] {
+  return background.toSorted(
+    (left, right) => left.startedAt - right.startedAt || left.taskId.localeCompare(right.taskId),
+  );
 }
 
 function resumeContextSnapshot(ctx: AgentTestContext) {

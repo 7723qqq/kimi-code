@@ -15,7 +15,6 @@ import {
   InMemoryWireRecordPersistence,
   createTestAgent,
   replayServices,
-  wireRecordPersistenceServices,
   type TestAgentContext,
 } from '../harness';
 
@@ -23,13 +22,15 @@ describe('AgentRecords persistence metadata', () => {
   let context: IContextMemory;
   let contextSize: IContextSizeService;
   let ctx: TestAgentContext;
+  let expectResumeMatches: boolean;
   let persistence: RecordingInMemoryWireRecordPersistence;
   let records: IWireRecord;
   let replay: IReplayBuilderService;
 
   beforeEach(() => {
+    expectResumeMatches = true;
     persistence = new RecordingInMemoryWireRecordPersistence();
-    ctx = createTestAgent(wireRecordPersistenceServices(persistence));
+    ctx = createTestAgent({ persistence, autoConfigure: false });
     context = ctx.get(IContextMemory);
     contextSize = ctx.get(IContextSizeService);
     records = ctx.get(IWireRecord);
@@ -38,7 +39,9 @@ describe('AgentRecords persistence metadata', () => {
 
   afterEach(async () => {
     try {
-      await ctx.expectResumeMatches();
+      if (expectResumeMatches) {
+        await ctx.expectResumeMatches();
+      }
     } finally {
       await ctx.dispose();
     }
@@ -63,7 +66,7 @@ describe('AgentRecords persistence metadata', () => {
   });
 
   it('does not write metadata when replaying an empty stream', async () => {
-    await records.restore();
+    await ctx.restorePersisted();
     records.append({
       type: 'turn.launch',
       turnId: 0,
@@ -86,7 +89,8 @@ describe('AgentRecords persistence metadata', () => {
       },
     );
 
-    await expect(records.restore()).rejects.toThrow(
+    expectResumeMatches = false;
+    await expect(ctx.restorePersisted()).rejects.toThrow(
       'WireRecord restore expected metadata as the first record',
     );
   });
@@ -105,7 +109,7 @@ describe('AgentRecords persistence metadata', () => {
       },
     );
 
-    await records.restore();
+    await ctx.restorePersisted();
     records.append({
       type: 'turn.launch',
       turnId: 1,
@@ -135,7 +139,7 @@ describe('AgentRecords persistence metadata', () => {
       },
     );
 
-    await records.restore();
+    await ctx.restorePersisted();
 
     expect(persistence.rewrites).toEqual([]);
   });
@@ -166,7 +170,7 @@ describe('AgentRecords persistence metadata', () => {
       } as unknown as PersistedWireRecord,
     );
 
-    await records.restore();
+    await ctx.restorePersisted();
 
     expect(persistence.rewrites).toHaveLength(1);
     expect(persistence.records[0]).toMatchObject({
@@ -197,7 +201,7 @@ describe('AgentRecords persistence metadata', () => {
       },
     );
 
-    const result = await records.restore();
+    const result = await ctx.restorePersisted();
     expect(result.warning).toContain('9.9');
     expect(result.warning).toContain(AGENT_WIRE_PROTOCOL_VERSION);
   });
@@ -211,7 +215,8 @@ describe('AgentRecords persistence metadata', () => {
       },
     );
 
-    await expect(records.restore()).rejects.toThrow('Missing wire migration for version 0.9');
+    expectResumeMatches = false;
+    await expect(ctx.restorePersisted()).rejects.toThrow('Missing wire migration for version 0.9');
   });
 
   it('restores goal.* records during replay', async () => {
@@ -229,7 +234,7 @@ describe('AgentRecords persistence metadata', () => {
       { type: 'goal.update', status: 'blocked', reason: 'needs credentials', actor: 'model' },
     );
 
-    await expect(ctx.runtime.restore()).resolves.toEqual({});
+    await expect(ctx.restorePersisted()).resolves.toEqual({});
     expect(context.get()).toHaveLength(0);
     expect(replay.buildResult()).toEqual([
       expect.objectContaining({
@@ -265,7 +270,7 @@ describe('AgentRecords persistence metadata', () => {
       { type: 'forked', time: 2 },
     );
 
-    await expect(ctx.runtime.restore()).resolves.toEqual({});
+    await expect(ctx.restorePersisted()).resolves.toEqual({});
     expect(persistence.records.map((record) => record.type)).toEqual([
       'metadata',
       'goal.create',
@@ -292,7 +297,7 @@ describe('AgentRecords persistence metadata', () => {
       },
     );
 
-    await expect(ctx.runtime.restore()).resolves.toEqual({});
+    await expect(ctx.restorePersisted()).resolves.toEqual({});
     expect(context.get().at(-1)?.origin).toEqual({
       kind: 'system_trigger',
       name: 'goal_fork_cleared',
@@ -305,12 +310,12 @@ describe('AgentRecords persistence metadata', () => {
       { type: 'forked', time: 2 },
     );
 
-    await expect(ctx.runtime.restore()).resolves.toEqual({});
+    await expect(ctx.restorePersisted()).resolves.toEqual({});
     expect(context.get()).toHaveLength(0);
   });
 
   it('preconstructs context size restore handlers during runtime activation', async () => {
-    await records.restore([
+    await ctx.restore([
       { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
       {
         type: 'context.splice',
@@ -467,6 +472,12 @@ describe('agent replay range build', () => {
         deleteCount: 0,
         messages: [compactionSummaryMessage('Compacted summary.')],
       },
+      {
+        type: 'full_compaction.complete',
+        compactedCount: 0,
+        tokensBefore: 10,
+        tokensAfter: 3,
+      },
       { type: 'permission.set_mode', mode: 'auto' },
     ];
 
@@ -495,6 +506,12 @@ describe('agent replay range build', () => {
         start: 0,
         deleteCount: 1,
         messages: [compactionSummaryMessage('Compacted summary.')],
+      },
+      {
+        type: 'full_compaction.complete',
+        compactedCount: 1,
+        tokensBefore: 20,
+        tokensAfter: 4,
       },
     ]);
 
@@ -608,7 +625,7 @@ async function buildReplayFromPersistence(
   range?: ReplayRangeOptions,
 ) {
   const ctx = createTestAgent(
-    wireRecordPersistenceServices(persistence),
+    { persistence, autoConfigure: false },
     replayServices(range === undefined ? {} : { range }),
   );
   const fullCompaction = ctx.get(IFullCompaction);
@@ -616,7 +633,7 @@ async function buildReplayFromPersistence(
   try {
     const isCompacting = fullCompaction.isCompacting;
     if (isCompacting) throw new Error('Unexpected active compaction before restore');
-    await ctx.runtime.restore(undefined, { rewriteMigratedRecords: false });
+    await ctx.restorePersisted({ rewriteMigratedRecords: false });
     return replay.buildResult();
   } finally {
     try {
