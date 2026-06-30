@@ -62,7 +62,12 @@ export class AgentFileSystem implements IAgentFileSystem {
 
   async stat(path: string): Promise<AgentFileStat> {
     const s = await this.kaos.backend.stat(path);
-    return { ...statKind(s), size: s.stSize };
+    return {
+      ...statKind(s),
+      size: s.stSize,
+      mtimeMs: Math.floor(s.stMtime * 1000),
+      ino: s.stIno,
+    };
   }
 
   async readdir(path: string): Promise<readonly string[]> {
@@ -81,8 +86,14 @@ export class AgentFileSystem implements IAgentFileSystem {
     return out;
   }
 
-  mkdir(path: string): Promise<void> {
-    return this.kaos.backend.mkdir(path, { parents: true, existOk: true });
+  mkdir(
+    path: string,
+    options?: { readonly parents?: boolean; readonly existOk?: boolean },
+  ): Promise<void> {
+    return this.kaos.backend.mkdir(path, {
+      parents: options?.parents ?? true,
+      existOk: options?.existOk ?? true,
+    });
   }
 
   withCwd(cwd: string): IAgentFileSystem {

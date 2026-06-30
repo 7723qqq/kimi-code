@@ -17,17 +17,54 @@ import type {
   FsGitStatusResponse,
   FsGrepRequest,
   FsGrepResponse,
+  FsListManyRequest,
+  FsListManyResponse,
+  FsListRequest,
+  FsListResponse,
+  FsMkdirRequest,
+  FsMkdirResponse,
+  FsReadRequest,
+  FsReadResponse,
   FsSearchRequest,
   FsSearchResponse,
+  FsStatManyRequest,
+  FsStatManyResponse,
+  FsStatRequest,
+  FsStatResponse,
 } from '@moonshot-ai/protocol';
+
+/** Absolute + workspace-relative path resolution for a session file. */
+export interface FsPathResolved {
+  readonly absolute: string;
+  readonly relative: string;
+  readonly isDirectory: boolean;
+}
+
+/** Metadata needed by the download route to stream a session file. */
+export interface FsDownloadResolved {
+  readonly absolute: string;
+  readonly relative: string;
+  readonly size: number;
+  readonly etag: string;
+  readonly mime: string;
+  readonly modifiedAt: Date;
+}
 
 export interface IFsService {
   readonly _serviceBrand: undefined;
 
+  list(req: FsListRequest): Promise<FsListResponse>;
+  read(req: FsReadRequest): Promise<FsReadResponse>;
+  listMany(req: FsListManyRequest): Promise<FsListManyResponse>;
+  stat(req: FsStatRequest): Promise<FsStatResponse>;
+  statMany(req: FsStatManyRequest): Promise<FsStatManyResponse>;
+  mkdir(req: FsMkdirRequest): Promise<FsMkdirResponse>;
   search(req: FsSearchRequest): Promise<FsSearchResponse>;
   grep(req: FsGrepRequest): Promise<FsGrepResponse>;
   gitStatus(req: FsGitStatusRequest): Promise<FsGitStatusResponse>;
   diff(req: FsDiffRequest): Promise<FsDiffResponse>;
+  resolvePath(relPath: string): Promise<FsPathResolved>;
+  resolveDownload(relPath: string): Promise<FsDownloadResolved>;
 }
 
 export const IFsService: ServiceIdentifier<IFsService> =

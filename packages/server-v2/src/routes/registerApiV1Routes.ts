@@ -6,7 +6,7 @@
  * `IInstantiationService`. v0.1 mounts the subset of routes that v2 can serve
  * end-to-end today (health, meta, auth readiness, OAuth device flow, config,
  * model/provider catalog, sessions, messages, approvals, workspaces, the fs
- * folder picker, shutdown).
+ * folder picker, the session filesystem, shutdown).
  */
 
 import type { Scope } from '@moonshot-ai/agent-core-v2';
@@ -17,6 +17,7 @@ import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerConfigRoutes } from './config';
 import { registerFilesRoutes } from './files';
+import { registerFsRoutes } from './fs';
 import { registerMessagesRoutes } from './messages';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
@@ -103,6 +104,7 @@ export async function registerApiV1Routes(
         core,
       );
       registerFilesRoutes(apiV1 as unknown as Parameters<typeof registerFilesRoutes>[0], core);
+      registerFsRoutes(apiV1 as unknown as Parameters<typeof registerFsRoutes>[0], core);
       registerToolsRoutes(apiV1 as unknown as Parameters<typeof registerToolsRoutes>[0], core);
       registerShutdownRoutes(apiV1 as unknown as Parameters<typeof registerShutdownRoutes>[0], {
         onShutdown: opts.onShutdown,

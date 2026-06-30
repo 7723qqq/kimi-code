@@ -10,21 +10,35 @@
  * follow symlinks, matching the rest of v2 (`_base/tools/policies/path-access.ts`).
  */
 
-import { isAbsolute, relative, sep } from 'node:path';
+import { basename, extname, isAbsolute, relative, sep } from 'node:path';
 
-import type {
-  FsDiffRequest,
-  FsDiffResponse,
-  FsGitStatusRequest,
-  FsGitStatusResponse,
-  FsGrepFileHit,
-  FsGrepMatch,
-  FsGrepRequest,
-  FsGrepResponse,
-  FsPullRequest,
-  FsSearchHit,
-  FsSearchRequest,
-  FsSearchResponse,
+import {
+  ErrorCode,
+  type FsDiffRequest,
+  type FsDiffResponse,
+  type FsEntry,
+  type FsGitStatusRequest,
+  type FsGitStatusResponse,
+  type FsGrepFileHit,
+  type FsGrepMatch,
+  type FsGrepRequest,
+  type FsGrepResponse,
+  type FsListManyRequest,
+  type FsListManyResponse,
+  type FsListRequest,
+  type FsListResponse,
+  type FsMkdirRequest,
+  type FsMkdirResponse,
+  type FsPullRequest,
+  type FsReadRequest,
+  type FsReadResponse,
+  type FsSearchHit,
+  type FsSearchRequest,
+  type FsSearchResponse,
+  type FsStatManyRequest,
+  type FsStatManyResponse,
+  type FsStatRequest,
+  type FsStatResponse,
 } from '@moonshot-ai/protocol';
 import ignore, { type Ignore } from 'ignore';
 
@@ -34,8 +48,8 @@ import { ErrorCodes, KimiError } from '#/errors';
 import { IProcessRunner } from '#/process';
 import { IWorkspaceContext } from '#/workspaceContext';
 
-import { IAgentFileSystem } from './agentFs';
-import { IFsService } from './fs';
+import { type AgentFileStat, IAgentFileSystem } from './agentFs';
+import { type FsDownloadResolved, type FsPathResolved, IFsService } from './fs';
 import { parseNumstat, parsePorcelain, parsePullRequest } from './fsGit';
 import { runCommand } from './fsProcess';
 import {
@@ -56,6 +70,16 @@ const DIFF_MAX_BYTES = 1_048_576;
 const PR_SPAWN_TIMEOUT_MS = 5_000;
 const PULL_REQUEST_TTL_MS = 60_000;
 
+/** Hard cap for `fs:read` payloads (10 MiB). */
+const FS_READ_MAX_BYTES = 10 * 1024 * 1024;
+/** Sample size used to sniff binary content. */
+const FS_BINARY_SAMPLE_BYTES = 4096;
+/** Fraction of non-printable bytes above which a sample is treated as binary. */
+const FS_BINARY_NONPRINTABLE_FRACTION = 0.3;
+
+const HIDDEN_NAME_RE = /^\./;
+const MACOS_NOISE = new Set(['.DS_Store', '.AppleDouble', '.LSOverride']);
+
 export class FsService implements IFsService {
   declare readonly _serviceBrand: undefined;
 
@@ -71,6 +95,295 @@ export class FsService implements IFsService {
     @IAgentFileSystem private readonly fs: IAgentFileSystem,
     @IProcessRunner private readonly runner: IProcessRunner,
   ) {}
+
+  async list(req: FsListRequest): Promise<FsListResponse> {
+    const abs = this.resolveWithin(req.path);
+    const rel = this.toRel(abs);
+
+    let topStat: AgentFileStat;
+    try {
+      topStat = await this.fs.stat(rel);
+    } catch (err) {
+      throw mapFsError(err, req.path);
+    }
+    if (!topStat.isDirectory) {
+      throw new KimiError(ErrorCodes.FS_PATH_NOT_FOUND, `path not found: ${req.path}`, {
+        details: { path: req.path },
+      });
+    }
+
+    const gitignore = req.follow_gitignore ? await this.matcher() : undefined;
+
+    const items: FsEntry[] = [];
+    const childrenByPath: Record<string, FsEntry[]> = {};
+    let truncated = false;
+
+    interface QueueEntry {
+      readonly relPath: string;
+      readonly depthRemaining: number;
+    }
+    const queue: QueueEntry[] = [
+      { relPath: rel === '.' ? '' : rel, depthRemaining: req.depth },
+    ];
+
+    interface Child {
+      readonly name: string;
+      readonly relPath: string;
+      readonly stat: AgentFileStat;
+    }
+
+    while (queue.length > 0) {
+      const entry = queue.shift()!;
+      let names: readonly string[];
+      try {
+        names = await this.fs.readdir(entry.relPath === '' ? '.' : entry.relPath);
+      } catch (err) {
+        if (entry.relPath === (rel === '.' ? '' : rel)) {
+          throw mapFsError(err, req.path);
+        }
+        continue;
+      }
+
+      const visible: Child[] = [];
+      for (const name of names) {
+        if (!req.show_hidden && isHidden(name)) continue;
+        const childRel = entry.relPath === '' ? name : `${entry.relPath}/${name}`;
+        if (gitignore && (gitignore.ignores(childRel) || gitignore.ignores(`${childRel}/`))) {
+          continue;
+        }
+        if (req.exclude_globs && matchesAnyGlob(childRel, req.exclude_globs)) continue;
+        const st = await this.fs.stat(childRel).catch(() => undefined);
+        if (st === undefined) continue;
+        visible.push({ name, relPath: childRel, stat: st });
+      }
+
+      sortChildren(visible, req.sort);
+
+      const parentKey = entry.relPath === '' ? '.' : entry.relPath;
+      const bucket: FsEntry[] = [];
+      for (const child of visible) {
+        if (items.length >= req.limit && entry.depthRemaining === req.depth) {
+          truncated = true;
+          break;
+        }
+        const fsEntry = buildFsEntry(child.relPath, child.name, child.stat, false);
+        if (entry.depthRemaining === req.depth) {
+          items.push(fsEntry);
+        }
+        bucket.push(fsEntry);
+        if (child.stat.isDirectory && entry.depthRemaining > 1) {
+          queue.push({ relPath: child.relPath, depthRemaining: entry.depthRemaining - 1 });
+        }
+      }
+
+      if (entry.depthRemaining < req.depth) {
+        childrenByPath[parentKey] = bucket;
+      }
+    }
+
+    const response: FsListResponse = { items, truncated };
+    if (Object.keys(childrenByPath).length > 0) {
+      response.children_by_path = childrenByPath;
+    }
+    return response;
+  }
+
+  async read(req: FsReadRequest): Promise<FsReadResponse> {
+    const abs = this.resolveWithin(req.path);
+    const rel = this.toRel(abs);
+
+    let st: AgentFileStat;
+    try {
+      st = await this.fs.stat(rel);
+    } catch (err) {
+      throw mapFsError(err, req.path);
+    }
+    if (st.isDirectory) {
+      throw new KimiError(ErrorCodes.FS_IS_DIRECTORY, `path is a directory: ${req.path}`, {
+        details: { path: req.path },
+      });
+    }
+    if (st.size > FS_READ_MAX_BYTES) {
+      throw new KimiError(
+        ErrorCodes.FS_TOO_LARGE,
+        `file too large: ${req.path} (${st.size} bytes > ${FS_READ_MAX_BYTES})`,
+        { details: { path: req.path, size: st.size } },
+      );
+    }
+
+    const sampleSize = Math.min(FS_BINARY_SAMPLE_BYTES, st.size);
+    const sample =
+      sampleSize === 0 ? new Uint8Array() : await this.fs.readBytes(rel, sampleSize);
+    const isBinary = detectBinary(sample);
+
+    if (isBinary && req.encoding === 'utf-8') {
+      throw new KimiError(ErrorCodes.FS_IS_BINARY, `file is binary: ${req.path}`, {
+        details: { path: req.path },
+      });
+    }
+
+    const effectiveLength = Math.min(req.length, st.size - req.offset);
+    let bytes: Uint8Array;
+    if (effectiveLength <= 0) {
+      bytes = new Uint8Array();
+    } else {
+      const window = await this.fs.readBytes(rel, req.offset + effectiveLength);
+      bytes = window.subarray(req.offset, req.offset + effectiveLength);
+    }
+
+    const encoding: 'utf-8' | 'base64' =
+      req.encoding === 'base64' || (req.encoding === 'auto' && isBinary) ? 'base64' : 'utf-8';
+    const content =
+      encoding === 'utf-8'
+        ? Buffer.from(bytes).toString('utf-8')
+        : Buffer.from(bytes).toString('base64');
+    const truncated = req.offset + effectiveLength < st.size;
+
+    const out: FsReadResponse = {
+      path: rel,
+      content,
+      encoding,
+      size: st.size,
+      truncated,
+      etag: buildEtag(st),
+      mime: guessMime(rel, isBinary),
+      is_binary: isBinary,
+    };
+    const languageId = encoding === 'utf-8' ? guessLanguageId(rel) : undefined;
+    if (languageId !== undefined) out.language_id = languageId;
+    if (encoding === 'utf-8') out.line_count = countLines(content);
+    return out;
+  }
+
+  async listMany(req: FsListManyRequest): Promise<FsListManyResponse> {
+    const results: Record<string, FsEntry[]> = {};
+    const partialErrors: Record<string, { code: number; msg: string }> = {};
+    const truncatedPaths: string[] = [];
+
+    await Promise.all(
+      req.paths.map(async (p) => {
+        try {
+          const sub = await this.list({
+            path: p,
+            depth: req.depth,
+            limit: req.limit,
+            show_hidden: req.show_hidden,
+            follow_gitignore: req.follow_gitignore,
+            exclude_globs: req.exclude_globs,
+            sort: req.sort,
+            include_git_status: req.include_git_status,
+          });
+          results[p] = sub.items;
+          if (sub.truncated) truncatedPaths.push(p);
+        } catch (err) {
+          if (err instanceof KimiError && err.code === ErrorCodes.FS_PATH_ESCAPES) throw err;
+          partialErrors[p] = toWireError(err);
+        }
+      }),
+    );
+
+    const out: FsListManyResponse = { results };
+    if (truncatedPaths.length > 0) out.truncated_paths = truncatedPaths;
+    if (Object.keys(partialErrors).length > 0) out.partial_errors = partialErrors;
+    return out;
+  }
+
+  async stat(req: FsStatRequest): Promise<FsStatResponse> {
+    const abs = this.resolveWithin(req.path);
+    const rel = this.toRel(abs);
+    let st: AgentFileStat;
+    try {
+      st = await this.fs.stat(rel);
+    } catch (err) {
+      throw mapFsError(err, req.path);
+    }
+    const name = rel === '.' ? basename(this.workspace.workDir) : basename(abs);
+    return buildFsEntry(rel, name, st, true);
+  }
+
+  async statMany(req: FsStatManyRequest): Promise<FsStatManyResponse> {
+    const resolved = req.paths.map((p) => {
+      const abs = this.resolveWithin(p);
+      return { raw: p, rel: this.toRel(abs), abs };
+    });
+
+    const entries: Record<string, FsEntry | null> = {};
+    await Promise.all(
+      resolved.map(async ({ raw, rel, abs }) => {
+        try {
+          const st = await this.fs.stat(rel);
+          const name = rel === '.' ? basename(this.workspace.workDir) : basename(abs);
+          entries[raw] = buildFsEntry(rel, name, st, false);
+        } catch {
+          entries[raw] = null;
+        }
+      }),
+    );
+    return { entries };
+  }
+
+  async mkdir(req: FsMkdirRequest): Promise<FsMkdirResponse> {
+    const abs = this.resolveWithin(req.path);
+    const rel = this.toRel(abs);
+    try {
+      await this.fs.mkdir(rel, { parents: req.recursive, existOk: req.recursive });
+    } catch (err) {
+      const code = errnoCode(err);
+      if (code === 'EEXIST') {
+        throw new KimiError(ErrorCodes.FS_ALREADY_EXISTS, `path already exists: ${req.path}`, {
+          details: { path: req.path },
+        });
+      }
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        throw new KimiError(ErrorCodes.FS_PATH_NOT_FOUND, `parent not found: ${req.path}`, {
+          details: { path: req.path },
+        });
+      }
+      throw err;
+    }
+    const st = await this.fs.stat(rel);
+    return buildFsEntry(rel, basename(abs), st, false);
+  }
+
+  async resolvePath(relPath: string): Promise<FsPathResolved> {
+    const abs = this.resolveWithin(relPath);
+    const rel = this.toRel(abs);
+    let st: AgentFileStat;
+    try {
+      st = await this.fs.stat(rel);
+    } catch (err) {
+      throw mapFsError(err, relPath);
+    }
+    return { absolute: abs, relative: rel, isDirectory: st.isDirectory };
+  }
+
+  async resolveDownload(relPath: string): Promise<FsDownloadResolved> {
+    const abs = this.resolveWithin(relPath);
+    const rel = this.toRel(abs);
+    let st: AgentFileStat;
+    try {
+      st = await this.fs.stat(rel);
+    } catch (err) {
+      throw mapFsError(err, relPath);
+    }
+    if (st.isDirectory) {
+      throw new KimiError(ErrorCodes.FS_IS_DIRECTORY, `path is a directory: ${relPath}`, {
+        details: { path: relPath },
+      });
+    }
+    const sampleSize = Math.min(FS_BINARY_SAMPLE_BYTES, st.size);
+    const sample =
+      sampleSize === 0 ? new Uint8Array() : await this.fs.readBytes(rel, sampleSize);
+    const isBinary = detectBinary(sample);
+    return {
+      absolute: abs,
+      relative: rel,
+      size: st.size,
+      etag: buildEtag(st),
+      mime: guessMime(rel, isBinary),
+      modifiedAt: new Date(st.mtimeMs ?? 0),
+    };
+  }
 
   async search(req: FsSearchRequest): Promise<FsSearchResponse> {
     const matcher = req.follow_gitignore ? await this.matcher() : undefined;
@@ -578,6 +891,185 @@ function parseRgJsonOutput(
   }
 
   return { files, files_scanned: filesScanned, truncated, elapsed_ms: elapsedMs };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers shared by the list/read/stat/mkdir methods. Ported from the v1
+// `FsService` so the `/api/v1` mirror stays byte-compatible.
+// ---------------------------------------------------------------------------
+
+function isHidden(name: string): boolean {
+  return HIDDEN_NAME_RE.test(name) || MACOS_NOISE.has(name);
+}
+
+function sortChildren(
+  children: { name: string; stat: AgentFileStat }[],
+  sort: FsListRequest['sort'],
+): void {
+  const cmp = {
+    type_first: (a: { name: string; stat: AgentFileStat }, b: { name: string; stat: AgentFileStat }) => {
+      const ad = a.stat.isDirectory ? 0 : 1;
+      const bd = b.stat.isDirectory ? 0 : 1;
+      if (ad !== bd) return ad - bd;
+      return a.name.localeCompare(b.name);
+    },
+    name_asc: (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name),
+    name_desc: (a: { name: string }, b: { name: string }) => b.name.localeCompare(a.name),
+    // v1 does not implement mtime/size ordering; keep the same name fallback.
+    mtime_desc: (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name),
+    size_desc: (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name),
+  }[sort];
+  children.sort(cmp);
+}
+
+function buildEtag(st: AgentFileStat): string {
+  const mtime = Math.floor(st.mtimeMs ?? 0);
+  const ino = st.ino ?? 0;
+  return [mtime.toString(36), st.size.toString(36), ino.toString(36)].join('-');
+}
+
+function buildFsEntry(
+  relPath: string,
+  name: string,
+  st: AgentFileStat,
+  withMime: boolean,
+): FsEntry {
+  const kind: FsEntry['kind'] = st.isDirectory ? 'directory' : 'file';
+  const entry: FsEntry = {
+    path: relPath,
+    name,
+    kind,
+    modified_at: new Date(st.mtimeMs ?? 0).toISOString(),
+    etag: buildEtag(st),
+  };
+  if (kind === 'file') {
+    entry.size = st.size;
+  }
+  if (withMime && kind === 'file') {
+    entry.mime = guessMime(relPath, false);
+    const lang = guessLanguageId(relPath);
+    if (lang !== undefined) entry.language_id = lang;
+  }
+  return entry;
+}
+
+function detectBinary(buf: Uint8Array): boolean {
+  if (buf.length === 0) return false;
+  let nonPrintable = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const b = buf[i]!;
+    if (b === 0) return true;
+    if (b === 9 || b === 10 || b === 13) continue;
+    if (b >= 32 && b <= 126) continue;
+    nonPrintable++;
+  }
+  return nonPrintable / buf.length > FS_BINARY_NONPRINTABLE_FRACTION;
+}
+
+function countLines(text: string): number {
+  if (text.length === 0) return 0;
+  let n = 1;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) n++;
+  }
+  if (text.charCodeAt(text.length - 1) === 10) n--;
+  return Math.max(0, n);
+}
+
+function errnoCode(err: unknown): string | undefined {
+  if (typeof err === 'object' && err !== null && 'code' in err) {
+    const c = (err as { code: unknown }).code;
+    return typeof c === 'string' ? c : undefined;
+  }
+  return undefined;
+}
+
+function mapFsError(err: unknown, inputPath: string): Error {
+  const code = errnoCode(err);
+  if (code === 'ENOENT' || code === 'ENOTDIR') {
+    return new KimiError(ErrorCodes.FS_PATH_NOT_FOUND, `path not found: ${inputPath}`, {
+      details: { path: inputPath },
+    });
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+function toWireError(err: unknown): { code: number; msg: string } {
+  if (err instanceof KimiError) {
+    switch (err.code) {
+      case ErrorCodes.FS_PATH_NOT_FOUND:
+        return { code: ErrorCode.FS_PATH_NOT_FOUND, msg: err.message };
+      case ErrorCodes.FS_IS_DIRECTORY:
+        return { code: ErrorCode.FS_IS_DIRECTORY, msg: err.message };
+      case ErrorCodes.FS_IS_BINARY:
+        return { code: ErrorCode.FS_IS_BINARY, msg: err.message };
+      case ErrorCodes.FS_TOO_LARGE:
+        return { code: ErrorCode.FS_TOO_LARGE, msg: err.message };
+      case ErrorCodes.FS_TOO_MANY_RESULTS:
+        return { code: ErrorCode.FS_TOO_MANY_RESULTS, msg: err.message };
+    }
+  }
+  return {
+    code: ErrorCode.INTERNAL_ERROR,
+    msg: err instanceof Error ? err.message : 'internal error',
+  };
+}
+
+const EXT_TO_MIME: Readonly<Record<string, string>> = {
+  '.ts': 'text/typescript',
+  '.tsx': 'text/typescript',
+  '.js': 'text/javascript',
+  '.jsx': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.cjs': 'text/javascript',
+  '.json': 'application/json',
+  '.md': 'text/markdown',
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.pdf': 'application/pdf',
+  '.yaml': 'text/yaml',
+  '.yml': 'text/yaml',
+  '.toml': 'application/toml',
+  '.sh': 'text/x-shellscript',
+  '.py': 'text/x-python',
+  '.rs': 'text/rust',
+  '.go': 'text/x-go',
+};
+
+function guessMime(relPath: string, isBinary: boolean): string {
+  const ext = extname(relPath).toLowerCase();
+  const mapped = EXT_TO_MIME[ext];
+  if (mapped !== undefined) return mapped;
+  return isBinary ? 'application/octet-stream' : 'text/plain';
+}
+
+const EXT_TO_LANGUAGE: Readonly<Record<string, string>> = {
+  '.ts': 'typescript',
+  '.tsx': 'typescriptreact',
+  '.js': 'javascript',
+  '.jsx': 'javascriptreact',
+  '.mjs': 'javascript',
+  '.cjs': 'javascript',
+  '.json': 'json',
+  '.md': 'markdown',
+  '.html': 'html',
+  '.css': 'css',
+  '.yaml': 'yaml',
+  '.yml': 'yaml',
+  '.toml': 'toml',
+  '.sh': 'shellscript',
+  '.py': 'python',
+  '.rs': 'rust',
+  '.go': 'go',
+};
+
+function guessLanguageId(relPath: string): string | undefined {
+  return EXT_TO_LANGUAGE[extname(relPath).toLowerCase()];
 }
 
 registerScopedService(

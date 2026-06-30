@@ -44,37 +44,79 @@ function fakeFs(files: Record<string, string>): IAgentFileSystem {
       dirSet.add(parts.slice(0, i).join('/'));
     }
   }
+  const isDir = (p: string): boolean => p === '' || p === '.' || dirSet.has(p);
+  const enoent = (p: string): NodeJS.ErrnoException => {
+    const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
+    err.code = 'ENOENT';
+    return err;
+  };
   return {
     _serviceBrand: undefined,
     cwd: WORK_DIR,
     readText: async (p) => {
       const c = fileMap.get(p);
-      if (c === undefined) throw new Error(`ENOENT: ${p}`);
+      if (c === undefined) throw enoent(p);
       return c;
     },
     writeText: async () => {},
-    readBytes: async () => new Uint8Array(),
+    readBytes: async (p, n) => {
+      const c = fileMap.get(p);
+      if (c === undefined) throw enoent(p);
+      const buf = Buffer.from(c);
+      return buf.subarray(0, n ?? buf.length);
+    },
+    readLines: async function* (): AsyncGenerator<string> {
+      // not needed by the fs surface under test
+    },
     writeBytes: async () => {},
     stat: async (p) => {
       if (fileMap.has(p)) {
-        return { isFile: true, isDirectory: false, size: fileMap.get(p)!.length };
+        return {
+          isFile: true,
+          isDirectory: false,
+          size: fileMap.get(p)!.length,
+          mtimeMs: 1000,
+          ino: 1,
+        };
       }
-      if (dirSet.has(p)) return { isFile: false, isDirectory: true, size: 0 };
-      throw new Error(`ENOENT: ${p}`);
+      if (isDir(p)) {
+        return { isFile: false, isDirectory: true, size: 0, mtimeMs: 1000, ino: 1 };
+      }
+      throw enoent(p);
     },
     readdir: async (p) => {
       const prefix = p === '.' || p === '' ? '' : `${p}/`;
       const children = new Set<string>();
-      for (const f of fileMap.keys()) {
-        if (!f.startsWith(prefix)) continue;
-        const rest = f.slice(prefix.length);
+      const addChild = (key: string): void => {
+        if (key === '' || key === p) return;
+        if (!key.startsWith(prefix)) return;
+        const rest = key.slice(prefix.length);
         const first = rest.split('/')[0];
         if (first !== undefined && first.length > 0) children.add(first);
-      }
+      };
+      for (const f of fileMap.keys()) addChild(f);
+      for (const d of dirSet) addChild(d);
       return [...children];
     },
     glob: async () => [],
-    mkdir: async () => {},
+    mkdir: async (p, options) => {
+      const existOk = options?.existOk ?? true;
+      if ((dirSet.has(p) || fileMap.has(p)) && !existOk) {
+        const err = new Error(`EEXIST: ${p}`) as NodeJS.ErrnoException;
+        err.code = 'EEXIST';
+        throw err;
+      }
+      const parents = options?.parents ?? true;
+      if (!parents) {
+        const parent = p.split('/').slice(0, -1).join('/');
+        if (parent !== '' && !isDir(parent)) {
+          const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
+      }
+      dirSet.add(p);
+    },
     withCwd: () => {
       throw new Error('not implemented');
     },
@@ -267,5 +309,190 @@ describe('FsService.grep', () => {
     });
     expect(result.files).toHaveLength(1);
     expect(result.files[0]?.matches[0]?.text).toBe('hello world');
+  });
+});
+
+describe('FsService.list', () => {
+  it('lists files and directories with kinds', async () => {
+    const fs = makeSession(
+      { 'src/a.ts': '', 'src/sub/b.ts': '', 'README.md': '' },
+      emptyHandler,
+    );
+    const result = await fs.list({
+      path: '.',
+      depth: 1,
+      limit: 200,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'name_asc',
+      include_git_status: false,
+    });
+    const names = result.items.map((i) => i.name).sort();
+    expect(names).toEqual(['README.md', 'src']);
+    expect(result.items.find((i) => i.name === 'src')?.kind).toBe('directory');
+  });
+
+  it('returns children_by_path for depth > 1', async () => {
+    const fs = makeSession({ 'src/a.ts': '', 'src/sub/b.ts': '' }, emptyHandler);
+    const result = await fs.list({
+      path: '.',
+      depth: 2,
+      limit: 200,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'name_asc',
+      include_git_status: false,
+    });
+    expect(result.children_by_path?.['src']?.map((i) => i.name).sort()).toEqual([
+      'a.ts',
+      'sub',
+    ]);
+  });
+
+  it('rejects paths that escape the workspace', async () => {
+    const fs = makeSession({}, emptyHandler);
+    await expect(
+      fs.list({
+        path: '../etc',
+        depth: 1,
+        limit: 200,
+        show_hidden: false,
+        follow_gitignore: false,
+        sort: 'name_asc',
+        include_git_status: false,
+      }),
+    ).rejects.toMatchObject({ code: 'fs.path_escapes' });
+  });
+});
+
+describe('FsService.read', () => {
+  it('reads utf-8 content with metadata', async () => {
+    const fs = makeSession({ 'src/a.ts': 'hello\nworld\n' }, emptyHandler);
+    const result = await fs.read({
+      path: 'src/a.ts',
+      offset: 0,
+      length: 1024,
+      encoding: 'utf-8',
+    });
+    expect(result.content).toBe('hello\nworld\n');
+    expect(result.encoding).toBe('utf-8');
+    expect(result.size).toBe('hello\nworld\n'.length);
+    expect(result.line_count).toBe(2);
+    expect(result.mime).toBe('text/typescript');
+    expect(result.is_binary).toBe(false);
+    expect(result.truncated).toBe(false);
+  });
+
+  it('honors offset and length and sets truncated', async () => {
+    const fs = makeSession({ 'a.txt': 'hello world' }, emptyHandler);
+    const result = await fs.read({ path: 'a.txt', offset: 0, length: 5, encoding: 'utf-8' });
+    expect(result.content).toBe('hello');
+    expect(result.truncated).toBe(true);
+  });
+
+  it('returns base64 for binary content in auto mode', async () => {
+    const fs = makeSession({ 'bin.dat': 'abc\x00def' }, emptyHandler);
+    const result = await fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'auto' });
+    expect(result.encoding).toBe('base64');
+    expect(result.is_binary).toBe(true);
+    expect(result.content).toBe(Buffer.from('abc\x00def').toString('base64'));
+  });
+
+  it('throws fs.is_binary for binary content in utf-8 mode', async () => {
+    const fs = makeSession({ 'bin.dat': 'abc\x00def' }, emptyHandler);
+    await expect(
+      fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'utf-8' }),
+    ).rejects.toMatchObject({ code: 'fs.is_binary' });
+  });
+
+  it('throws fs.is_directory for a directory', async () => {
+    const fs = makeSession({ 'src/a.ts': '' }, emptyHandler);
+    await expect(
+      fs.read({ path: 'src', offset: 0, length: 1024, encoding: 'auto' }),
+    ).rejects.toMatchObject({ code: 'fs.is_directory' });
+  });
+});
+
+describe('FsService.stat', () => {
+  it('returns a file entry with mime', async () => {
+    const fs = makeSession({ 'src/a.ts': 'content' }, emptyHandler);
+    const entry = await fs.stat({ path: 'src/a.ts' });
+    expect(entry.kind).toBe('file');
+    expect(entry.size).toBe('content'.length);
+    expect(entry.mime).toBe('text/typescript');
+    expect(entry.name).toBe('a.ts');
+  });
+
+  it('throws fs.path_not_found for a missing path', async () => {
+    const fs = makeSession({}, emptyHandler);
+    await expect(fs.stat({ path: 'nope' })).rejects.toMatchObject({ code: 'fs.path_not_found' });
+  });
+});
+
+describe('FsService.statMany', () => {
+  it('returns null per missing path and entries for present ones', async () => {
+    const fs = makeSession({ 'a.txt': 'hi' }, emptyHandler);
+    const result = await fs.statMany({ paths: ['a.txt', 'missing.txt'] });
+    expect(result.entries['a.txt']?.kind).toBe('file');
+    expect(result.entries['missing.txt']).toBeNull();
+  });
+});
+
+describe('FsService.listMany', () => {
+  it('returns results per path and partial_errors for failures', async () => {
+    const fs = makeSession({ 'a.txt': '' }, emptyHandler);
+    const result = await fs.listMany({
+      paths: ['.', 'missing'],
+      depth: 1,
+      limit: 200,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'name_asc',
+      include_git_status: false,
+    });
+    expect(result.results['.']?.map((i) => i.name)).toContain('a.txt');
+    expect(result.partial_errors?.['missing']).toMatchObject({ code: 40409 });
+  });
+});
+
+describe('FsService.mkdir', () => {
+  it('creates a directory and returns its entry', async () => {
+    const fs = makeSession({}, emptyHandler);
+    const entry = await fs.mkdir({ path: 'newdir', recursive: false });
+    expect(entry.kind).toBe('directory');
+    expect(entry.name).toBe('newdir');
+  });
+
+  it('throws fs.already_exists when the directory exists (non-recursive)', async () => {
+    const fs = makeSession({ 'src/a.ts': '' }, emptyHandler);
+    await expect(fs.mkdir({ path: 'src', recursive: false })).rejects.toMatchObject({
+      code: 'fs.already_exists',
+    });
+  });
+});
+
+describe('FsService.resolvePath', () => {
+  it('returns absolute, relative, and isDirectory', async () => {
+    const fs = makeSession({ 'src/a.ts': '' }, emptyHandler);
+    const res = await fs.resolvePath('src/a.ts');
+    expect(res.relative).toBe('src/a.ts');
+    expect(res.isDirectory).toBe(false);
+    expect(res.absolute).toContain('src/a.ts');
+  });
+});
+
+describe('FsService.resolveDownload', () => {
+  it('returns size, etag, mime, modifiedAt', async () => {
+    const fs = makeSession({ 'a.txt': 'hello' }, emptyHandler);
+    const res = await fs.resolveDownload('a.txt');
+    expect(res.size).toBe('hello'.length);
+    expect(res.mime).toBe('text/plain');
+    expect(res.etag).toBeTypeOf('string');
+    expect(res.modifiedAt).toBeInstanceOf(Date);
+  });
+
+  it('throws fs.is_directory for a directory', async () => {
+    const fs = makeSession({ 'src/a.ts': '' }, emptyHandler);
+    await expect(fs.resolveDownload('src')).rejects.toMatchObject({ code: 'fs.is_directory' });
   });
 });
