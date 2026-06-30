@@ -253,7 +253,9 @@ export class LedgerTuiEngine {
 		if (isImageLine(raw)) return { raw, width, line: raw };
 		const normalized = raw; // Phase A: 假定组件已规范化；如需 normalizeTerminalOutput 在此补
 		if (visibleWidth(normalized) <= width) return { raw, width, line: normalized };
-		return { raw, width, line: truncateToWidth(normalized, width) };
+		// Hard-clamp to width without an ellipsis (matches OMP Ellipsis.Omit):
+		// the first `width` columns of the original content must remain visible.
+		return { raw, width, line: truncateToWidth(normalized, width, "") };
 	}
 
 	#terminalLine(line: string): string {

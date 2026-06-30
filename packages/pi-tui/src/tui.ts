@@ -316,7 +316,13 @@ export class TUI extends Container {
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
 	private fullRedrawCount = 0;
 	private ledgerEngine: LedgerTuiEngine | undefined;
-	private static readonly LEDGER_ENABLED = process.env["PI_TUI_ENGINE"] === "ledger";
+	// Read at access time (not module load) so tests can toggle the engine at
+	// runtime via PI_TUI_ENGINE. The legacy-vs-ledger decision must follow the
+	// env var live, otherwise a helper that sets the env inside the test body
+	// would never actually activate the ledger engine.
+	private static get LEDGER_ENABLED(): boolean {
+		return process.env["PI_TUI_ENGINE"] === "ledger";
+	}
 	private stopped = false;
 	private pendingOsc11BackgroundReplies = 0;
 	private pendingOsc11BackgroundQueries: PendingOsc11BackgroundQuery[] = [];
