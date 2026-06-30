@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { setKittyProtocolActive } from "./keys.ts";
 import { isNativeModifierPressed } from "./native-modifiers.ts";
 import { StdinBuffer } from "./stdin-buffer.ts";
+import { ProcessTerminalCapabilities } from "./terminal-capabilities.ts";
+import { type ProbeIO, type ProbeResult, probeCapabilities } from "./terminal-probe.ts";
 
 const cjsRequire = createRequire(import.meta.url);
 
@@ -15,6 +17,12 @@ const APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE = "\x1b[13;2u";
 const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7;
 const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS = 150;
 const KITTY_KEYBOARD_PROTOCOL_QUERY = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\x1b[?u\x1b[c`;
+// Push-only form of the kitty query: arms the desired flag level so a following
+// `CSI ? u` (emitted by the capability probe) reports non-zero flags and the
+// negotiation handler enables kitty. Split out so the probe can own the single
+// `CSI ? u` + DA1 sentinel on the wire (a duplicate kitty query would desync the
+// probe's DA1 FIFO).
+const KITTY_KEYBOARD_PROTOCOL_PUSH = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u`;
 
 export type KeyboardProtocolNegotiationSequence =
 	| { type: "kitty-flags"; flags: number }
@@ -123,6 +131,15 @@ export class ProcessTerminal implements Terminal {
 		return env;
 	})();
 
+	readonly #capabilities = new ProcessTerminalCapabilities();
+	/** Resolves with the startup probe result; undefined when probing is skipped (non-TTY). */
+	probeReady: Promise<ProbeResult> | undefined;
+
+	/** Mutable, probe-backed terminal capabilities shared with the ledger engine. */
+	get terminalCapabilities(): ProcessTerminalCapabilities {
+		return this.#capabilities;
+	}
+
 	get kittyProtocolActive(): boolean {
 		return this._kittyProtocolActive;
 	}
@@ -161,9 +178,19 @@ export class ProcessTerminal implements Terminal {
 		// since that resets console mode flags.
 		this.enableWindowsVTInput();
 
-		// Query Kitty keyboard protocol and fall back to modifyOtherKeys when DA confirms no Kitty response.
-		// See: https://sw.kovidgoyal.net/kitty/keyboard-protocol/
-		this.queryAndEnableKittyProtocol();
+		// Bring the stdin pipeline (StdinBuffer) live first, then arm kitty flags and
+		// run the capability probe. The probe taps stdin observe-only and emits the
+		// single kitty `CSI ? u` + DA1 sentinel; arming the flag level beforehand makes
+		// that probe report non-zero flags so the negotiation handler enables kitty.
+		// In non-TTY (headless) mode there is no terminal to probe, so fall back to the
+		// legacy full kitty query. See: https://sw.kovidgoyal.net/kitty/keyboard-protocol/
+		this.setupKeyboardProtocolPipeline();
+		if (process.stdout.isTTY) {
+			process.stdout.write(KITTY_KEYBOARD_PROTOCOL_PUSH);
+			this.runCapabilityProbe();
+		} else {
+			process.stdout.write(KITTY_KEYBOARD_PROTOCOL_QUERY);
+		}
 	}
 
 	/**
@@ -205,6 +232,21 @@ export class ProcessTerminal implements Terminal {
 	}
 
 	/**
+	 * Bring the stdin pipeline (StdinBuffer + data handler) live and arm the
+	 * keyboard-protocol negotiation buffer, without writing the kitty query. In
+	 * TTY mode the kitty query is emitted by the capability probe (its first probe
+	 * is `CSI ? u` + DA1), so this must not write a second one — a duplicate would
+	 * desync the probe's DA1 FIFO. Split out from {@link queryAndEnableKittyProtocol}
+	 * so start() can order the flag push, the probe, and the headless fallback.
+	 */
+	private setupKeyboardProtocolPipeline(): void {
+		this.setupStdinBuffer();
+		process.stdin.on("data", this.stdinDataHandler!);
+		this.keyboardProtocolPushed = true;
+		this.clearKeyboardProtocolNegotiationBuffer();
+	}
+
+	/**
 	 * Query terminal for Kitty keyboard protocol support and enable it if available.
 	 *
 	 * Kitty's progressive enhancement detection requires requesting the desired
@@ -218,11 +260,42 @@ export class ProcessTerminal implements Terminal {
 	 * - 4 = report alternate keys (shifted key, base layout key)
 	 */
 	private queryAndEnableKittyProtocol(): void {
-		this.setupStdinBuffer();
-		process.stdin.on("data", this.stdinDataHandler!);
-		this.keyboardProtocolPushed = true;
-		this.clearKeyboardProtocolNegotiationBuffer();
+		this.setupKeyboardProtocolPipeline();
 		process.stdout.write(KITTY_KEYBOARD_PROTOCOL_QUERY);
+	}
+
+	/**
+	 * Run the startup capability probe (kitty / OSC 11 / DECRQM ?2026 ?2048 ?2031).
+	 *
+	 * The probe's first write (`CSI ? u` + DA1) doubles as the kitty keyboard query;
+	 * the caller arms the desired flag level first so the reply reports non-zero
+	 * flags and the negotiation handler enables kitty. Skipped when stdout is not a
+	 * TTY — headless environments leave {@link probeReady} undefined and keep the
+	 * static capability defaults. When it runs, the probe taps the stdin `data`
+	 * stream observe-only (Node delivers each chunk to every `data` listener, so the
+	 * StdinBuffer is undisturbed) and writes to stdout. On resolution the probed
+	 * values are applied to the shared {@link ProcessTerminalCapabilities} in place.
+	 */
+	private runCapabilityProbe(): void {
+		if (!process.stdout.isTTY) return;
+		const io: ProbeIO = {
+			write: (data: string) => {
+				process.stdout.write(data);
+			},
+			onReply: (cb: (data: string) => void) => {
+				const handler = (data: string) => {
+					cb(data);
+				};
+				process.stdin.on("data", handler);
+				return () => {
+					process.stdin.removeListener("data", handler);
+				};
+			},
+		};
+		this.probeReady = probeCapabilities(io).then((result) => {
+			this.#capabilities.applyProbe(result);
+			return result;
+		});
 	}
 
 	private handleKeyboardProtocolNegotiationSequence(

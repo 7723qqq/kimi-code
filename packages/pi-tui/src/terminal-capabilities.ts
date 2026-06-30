@@ -1,4 +1,5 @@
 import { isImageLine as detectImageLine } from "./terminal-image.ts";
+import type { ProbeResult } from "./terminal-probe.ts";
 
 export type ImageProtocol = "kitty" | "sixel" | "iterm2" | "none";
 
@@ -62,4 +63,67 @@ export function createStaticCapabilities(env: NodeJS.ProcessEnv = process.env): 
 		imageProtocol: "none",
 		isImageLine: detectImageLine,
 	};
+}
+
+/**
+ * Assemble an immutable {@link TerminalCapabilities} snapshot from a completed
+ * probe. The only probed field consumed today is `syncOutput` (DECRQM ?2026);
+ * the remaining fields are conservative defaults until later tasks wire them in.
+ */
+export function createProbedCapabilities(
+	result: ProbeResult,
+	env: NodeJS.ProcessEnv = process.env,
+): TerminalCapabilities {
+	return {
+		syncEnabled: shouldEnableSyncOutput(env, result.syncOutput),
+		supportsScreenToScrollback: false,
+		deccara: false,
+		hyperlinks: shouldEnableHyperlinks(env),
+		imageProtocol: "none",
+		isImageLine: detectImageLine,
+	};
+}
+
+/**
+ * Mutable, terminal-owned capabilities. Starts with the static env-derived
+ * defaults and is updated in place when the startup probe resolves, so an
+ * engine holding a reference to this instance observes the probed values
+ * without being recreated.
+ */
+export class ProcessTerminalCapabilities implements TerminalCapabilities {
+	readonly #env: NodeJS.ProcessEnv;
+
+	syncEnabled: boolean;
+	readonly supportsScreenToScrollback = false;
+	readonly deccara = false;
+	hyperlinks: boolean;
+	readonly imageProtocol: ImageProtocol = "none";
+
+	/** Probed kitty keyboard protocol support (stored for later tasks). */
+	kittyKeyboard = false;
+	/** Probed DECRQM ?2048 in-band resize support (stored for later tasks). */
+	inBandResize: boolean | undefined;
+	/** Probed DECRQM ?2031 appearance-push support (stored for later tasks). */
+	appearancePush: boolean | undefined;
+	/** Probed OSC 11 background color (stored for later tasks). */
+	background: { r: number; g: number; b: number } | undefined;
+
+	constructor(env: NodeJS.ProcessEnv = process.env) {
+		this.#env = env;
+		this.syncEnabled = shouldEnableSyncOutput(env);
+		this.hyperlinks = shouldEnableHyperlinks(env);
+	}
+
+	isImageLine(line: string): boolean {
+		return detectImageLine(line);
+	}
+
+	/** Apply a completed probe result, mutating the capability snapshot in place. */
+	applyProbe(result: ProbeResult): void {
+		this.syncEnabled = shouldEnableSyncOutput(this.#env, result.syncOutput);
+		this.kittyKeyboard = result.kittyKeyboard;
+		this.inBandResize = result.inBandResize;
+		this.appearancePush = result.appearancePush;
+		this.background = result.background;
+	}
 }
