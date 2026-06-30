@@ -21,6 +21,10 @@ export interface CreateSessionOptions {
 export interface ForkSessionOptions {
   readonly sourceSessionId: string;
   readonly newSessionId?: string;
+  /** Title for the forked session. Defaults to `Fork: <source title or id>`. */
+  readonly title?: string;
+  /** Custom metadata merged (minus reserved `goal`) into the forked session. */
+  readonly metadata?: Record<string, unknown>;
 }
 
 export interface ISessionLifecycleService {

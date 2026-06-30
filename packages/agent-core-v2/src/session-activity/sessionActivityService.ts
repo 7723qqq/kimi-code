@@ -27,6 +27,7 @@ export class SessionActivity implements ISessionActivity {
     if (this.interaction.listPending('approval').length > 0) return 'awaiting_approval';
     if (this.interaction.listPending('question').length > 0) return 'awaiting_question';
     if (this.hasActiveTurn()) return 'running';
+    if (this.hasAbortedTurn()) return 'aborted';
     return 'idle';
   }
 
@@ -38,6 +39,16 @@ export class SessionActivity implements ISessionActivity {
     for (const handle of this.agents.list()) {
       const turn = handle.accessor.get(ITurnService);
       if (turn.getActiveTurn() !== undefined) return true;
+    }
+    return false;
+  }
+
+  private hasAbortedTurn(): boolean {
+    for (const handle of this.agents.list()) {
+      const reason = handle.accessor.get(ITurnService).lastEndedReason();
+      if (reason === 'cancelled' || reason === 'failed' || reason === 'filtered') {
+        return true;
+      }
     }
     return false;
   }

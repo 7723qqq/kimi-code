@@ -178,6 +178,7 @@ export type KimiErrorCode =
   | 'session.state_not_found'
   | 'session.state_invalid'
   | 'session.fork_active_turn'
+  | 'session.undo_unavailable'
   | 'session.export_not_found'
   | 'session.export_missing_version'
   | 'session.closed'
@@ -825,6 +826,7 @@ export const kimiErrorCodeSchema = z.enum([
   'session.state_not_found',
   'session.state_invalid',
   'session.fork_active_turn',
+  'session.undo_unavailable',
   'session.export_not_found',
   'session.export_missing_version',
   'session.closed',

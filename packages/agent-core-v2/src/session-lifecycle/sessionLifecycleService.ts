@@ -9,6 +9,7 @@
  */
 
 import { join, relative } from 'pathe';
+import { randomUUID } from 'node:crypto';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { IInstantiationService } from '#/_base/di/instantiation';
@@ -19,13 +20,24 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { IAgentLifecycleService } from '#/agent-lifecycle';
 import { IBootstrapService } from '#/bootstrap';
-import { NotImplementedError } from '#/errors';
+import { ErrorCodes, KimiError } from '#/errors';
 import { IKaos, IKaosFactory } from '#/kaos';
+import { ISessionActivity } from '#/session-activity';
+import { ISessionIndex } from '#/session-index';
+import { IAtomicDocumentStore, IAppendLogStore } from '#/storage';
+import { IWorkspaceRegistry } from '#/workspaceRegistry';
 import { ISessionService } from '#/session';
-import { type ISessionContext, sessionContextSeed } from '#/session-context';
-import { ISessionMetadata } from '#/session-metadata';
+import { ISessionContext, sessionContextSeed } from '#/session-context';
+import { ISessionMetadata, type SessionMeta } from '#/session-metadata';
 import { ISkillCatalog } from '#/skill';
+import {
+  AGENT_WIRE_PROTOCOL_VERSION,
+  IWireRecord,
+  wireRecordPersistKey,
+  type PersistedWireRecord,
+} from '#/wireRecord';
 
 import {
   type CreateSessionOptions,
@@ -41,12 +53,19 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IKaosFactory private readonly kaosFactory: IKaosFactory,
+    @ISessionIndex private readonly index: ISessionIndex,
+    @IAppendLogStore private readonly appendLogStore: IAppendLogStore,
+    @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
+    @IWorkspaceRegistry private readonly workspaceRegistry: IWorkspaceRegistry,
   ) {}
 
   async create(opts: CreateSessionOptions): Promise<IScopeHandle> {
     const workspaceId = encodeWorkDirKey(opts.workDir);
     const sessionDir = join(this.bootstrap.sessionsDir, workspaceId, opts.sessionId);
-    const metaScope = join(relative(this.bootstrap.homeDir, sessionDir), 'session-meta');
+    // Metadata lives at `<sessionDir>/state.json` (shared with v1's layout; the
+    // v2 document is tagged with `version: 2`). `metaScope` is therefore the
+    // session directory itself, homeDir-relative.
+    const metaScope = relative(this.bootstrap.homeDir, sessionDir);
     const ctx: ISessionContext = {
       _serviceBrand: undefined,
       sessionId: opts.sessionId,
@@ -95,8 +114,136 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     handle.dispose();
   }
 
-  fork(_opts: ForkSessionOptions): Promise<IScopeHandle> {
-    throw new NotImplementedError('SessionLifecycleService.fork');
+  async fork(opts: ForkSessionOptions): Promise<IScopeHandle> {
+    const sourceId = opts.sourceSessionId;
+
+    // 1. Resolve the source: prefer a live handle, otherwise fall back to the
+    // persisted index (so a closed session can still be forked, like v1).
+    const sourceHandle = this.sessions.get(sourceId);
+    const indexSummary = await this.index.get(sourceId);
+    if (sourceHandle === undefined && indexSummary === undefined) {
+      throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sourceId} does not exist`);
+    }
+    const workspaceId =
+      sourceHandle !== undefined
+        ? sourceHandle.accessor.get(ISessionContext).workspaceId
+        : indexSummary!.workspaceId;
+
+    // 2. Reject forking a live session with an active turn (v1 parity). Any
+    // phase other than idle/aborted implies a turn is still in progress
+    // (including turns paused on an approval/question).
+    if (sourceHandle !== undefined) {
+      const status = sourceHandle.accessor.get(ISessionActivity).status();
+      if (status !== 'idle' && status !== 'aborted') {
+        throw new KimiError(
+          ErrorCodes.SESSION_FORK_ACTIVE_TURN,
+          `Session "${sourceId}" cannot be forked while a turn is running`,
+          { details: { sessionId: sourceId } },
+        );
+      }
+    }
+
+    // 3. Resolve the work dir the fork inherits (same workspace as the source).
+    const workspace = await this.workspaceRegistry.get(workspaceId);
+    if (workspace === undefined) {
+      throw new KimiError('workspace.not_found', `workspace ${workspaceId} does not exist`);
+    }
+
+    // 4. Read the source metadata (live handle or disk).
+    const sourceMeta =
+      sourceHandle !== undefined
+        ? await sourceHandle.accessor.get(ISessionMetadata).read()
+        : await this.readMetaFromDisk(workspaceId, sourceId);
+
+    // 5. Mint the target id and reject collisions.
+    const targetId = opts.newSessionId ?? randomUUID();
+    if (this.sessions.has(targetId) || (await this.index.get(targetId)) !== undefined) {
+      throw new KimiError(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${targetId}" already exists`);
+    }
+
+    // 6. Materialize the target session scope (fresh metadata + storage).
+    const target = await this.create({ sessionId: targetId, workDir: workspace.root });
+    const targetCtx = target.accessor.get(ISessionContext);
+    const targetMeta = target.accessor.get(ISessionMetadata);
+
+    // 7. Copy every source agent's wire log into the target's per-agent log
+    // (BEFORE the target agents are created, so the logs are in place when
+    // their WireRecordService restores them in step 9).
+    const sourceAgents = sourceMeta?.agents ?? {};
+    const agentIds = Object.keys(sourceAgents);
+    for (const agentId of agentIds) {
+      const sourceHomedir = sourceAgents[agentId]!.homedir;
+      await this.copyAgentWire({
+        sourceHandle,
+        sourceHomedir,
+        agentId,
+        targetSessionDir: targetCtx.sessionDir,
+      });
+    }
+
+    // 8. Rewrite the target metadata to reflect fork provenance.
+    const title = opts.title ?? `Fork: ${sourceMeta?.title || sourceId}`;
+    await targetMeta.update({
+      title,
+      isCustomTitle: opts.title !== undefined ? true : sourceMeta?.isCustomTitle === true,
+      forkedFrom: sourceId,
+      archived: false,
+      custom: forkCustomMetadata(sourceMeta?.custom, opts.metadata),
+    });
+
+    // 9. Create the target agents (same ids) and restore each from its copied
+    // log. Creating them registers fresh agent entries with TARGET homedirs.
+    for (const agentId of agentIds) {
+      const agentHandle = await target.accessor.get(IAgentLifecycleService).create({ agentId });
+      await agentHandle.accessor.get(IWireRecord).restore();
+    }
+
+    return target;
+  }
+
+  /**
+   * Copy one agent's wire log from the source into the target session's
+   * per-agent log, appending a `forked` boundary record. Works for both live
+   * sources (flush then read) and closed sources (read the persisted log).
+   */
+  private async copyAgentWire(args: {
+    readonly sourceHandle: IScopeHandle | undefined;
+    readonly sourceHomedir: string;
+    readonly agentId: string;
+    readonly targetSessionDir: string;
+  }): Promise<void> {
+    // Flush the live agent so its persisted log is current before reading.
+    if (args.sourceHandle !== undefined) {
+      const agentHandle = args.sourceHandle
+        .accessor.get(IAgentLifecycleService)
+        .getHandle(args.agentId);
+      if (agentHandle !== undefined) {
+        await agentHandle.accessor.get(IWireRecord).flush();
+      }
+    }
+
+    const sourceKey = wireRecordPersistKey(args.sourceHomedir);
+    const records = await collect(this.appendLogStore.read<PersistedWireRecord>('wire', sourceKey));
+    // Ensure the log starts with a metadata envelope (restore() requires it).
+    if (records.length === 0) {
+      records.push(freshMetadataRecord());
+    } else if (records[0]?.type !== 'metadata') {
+      records.unshift(freshMetadataRecord());
+    }
+    records.push(forkedRecord());
+
+    const targetHomedir = join(args.targetSessionDir, 'agents', args.agentId);
+    const targetKey = wireRecordPersistKey(targetHomedir);
+    await this.appendLogStore.rewrite('wire', targetKey, records);
+  }
+
+  private async readMetaFromDisk(
+    workspaceId: string,
+    sessionId: string,
+  ): Promise<SessionMeta | undefined> {
+    const sessionsScope = relative(this.bootstrap.homeDir, this.bootstrap.sessionsDir);
+    const scope = `${sessionsScope}/${workspaceId}/${sessionId}`;
+    return this.docs.get<SessionMeta>(scope, 'state.json');
   }
 }
 
@@ -107,3 +254,39 @@ registerScopedService(
   InstantiationType.Delayed,
   'session-lifecycle',
 );
+
+async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+  const items: T[] = [];
+  for await (const item of iterable) items.push(item);
+  return items;
+}
+
+function freshMetadataRecord(): PersistedWireRecord {
+  return {
+    type: 'metadata',
+    protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
+    created_at: Date.now(),
+  };
+}
+
+function forkedRecord(): PersistedWireRecord {
+  return { type: 'forked', time: Date.now() } as PersistedWireRecord;
+}
+
+/**
+ * Merge the source session's custom metadata with the caller-supplied metadata,
+ * dropping the reserved `goal` key from both (matches v1's `forkCustomMetadata`).
+ */
+function forkCustomMetadata(
+  source: Record<string, unknown> | undefined,
+  input: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  const merged = { ...withoutGoal(source), ...withoutGoal(input) };
+  return Object.keys(merged).length === 0 ? undefined : merged;
+}
+
+function withoutGoal(value: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (value === undefined) return {};
+  const { goal: _drop, ...rest } = value as { goal?: unknown; [key: string]: unknown };
+  return rest;
+}

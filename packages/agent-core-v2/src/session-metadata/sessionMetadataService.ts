@@ -16,7 +16,13 @@ import { ILogService } from '#/log';
 import { ISessionContext } from '#/session-context';
 import { IAtomicDocumentStore } from '#/storage';
 
-import { ISessionMetadata, type SessionMeta, type SessionMetaPatch } from './sessionMetadata';
+import {
+  ISessionMetadata,
+  SESSION_META_VERSION,
+  type AgentMeta,
+  type SessionMeta,
+  type SessionMetaPatch,
+} from './sessionMetadata';
 
 const META_KEY = 'state.json';
 
@@ -53,11 +59,17 @@ export class SessionMetadata extends Disposable implements ISessionMetadata {
   }
 
   async setTitle(title: string): Promise<void> {
-    await this.update({ title });
+    await this.update({ title, isCustomTitle: true });
   }
 
   async setArchived(archived: boolean): Promise<void> {
     await this.update({ archived });
+  }
+
+  async registerAgent(agentId: string, meta: AgentMeta): Promise<void> {
+    await this.ready;
+    const agents = { ...(this.data.agents ?? {}), [agentId]: meta };
+    await this.update({ agents });
   }
 
   private async load(): Promise<void> {
@@ -67,7 +79,13 @@ export class SessionMetadata extends Disposable implements ISessionMetadata {
       return;
     }
     const now = Date.now();
-    this.data = { id: this.ctx.sessionId, createdAt: now, updatedAt: now, archived: false };
+    this.data = {
+      id: this.ctx.sessionId,
+      version: SESSION_META_VERSION,
+      createdAt: now,
+      updatedAt: now,
+      archived: false,
+    };
     await this.store.set(this.scope, META_KEY, this.data);
     this.log.debug('session metadata created', { sessionId: this.ctx.sessionId });
   }

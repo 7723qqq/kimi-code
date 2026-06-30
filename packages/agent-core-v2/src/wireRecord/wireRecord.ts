@@ -54,6 +54,13 @@ export interface IWireRecord {
   readonly postRestoring: boolean;
 
   append(record: WireRecord): void;
+  /**
+   * Snapshot of every record currently held in memory (live-appended and
+   * restored), in order, excluding the leading `metadata` envelope record.
+   * Intended for callers that need to replay the same history into another
+   * agent via {@link restore} (e.g. session fork).
+   */
+  getRecords(): readonly PersistedWireRecord[];
   register<T extends keyof WireRecordMap>(
     type: T,
     resumer: (data: WireRecord<T>) => void | Promise<void>,

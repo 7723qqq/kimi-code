@@ -3,12 +3,19 @@
  *
  * Reads the persisted session set through the `storage` access-pattern stores,
  * rooted at the `sessionsDir` path layout fact from `bootstrap`. The directory
- * tree `<sessionsDir>/<workspaceId>/<sessionId>/session-meta/state.json` is the
- * index: workspace and session ids are enumerated via `IStorageService.list`,
- * and each session's `state.json` is read via `IAtomicDocumentStore` to build
- * its summary. This is the local-deployment backend of `ISessionIndex`; a
- * server deployment would substitute a database-backed `DbSessionIndex`. Bound
- * at Core scope.
+ * tree `<sessionsDir>/<workspaceId>/<sessionId>/` is the index: workspace and
+ * session ids are enumerated via `IStorageService.list`, and each session's
+ * metadata document is read via `IAtomicDocumentStore` to build its summary.
+ *
+ * The session metadata document lives at `<sessionDir>/state.json`, a layout
+ * shared by v1 and v2; the `version` field distinguishes them (`2` = v2,
+ * epoch-ms timestamps; absent = v1, ISO-string timestamps). The reader also
+ * falls back to the legacy `<sessionDir>/session-meta/state.json` path for v2
+ * sessions written before the layouts were unified. Both timestamp
+ * representations are normalized to epoch ms.
+ *
+ * This is the local-deployment backend of `ISessionIndex`; a server deployment
+ * would substitute a database-backed `DbSessionIndex`. Bound at Core scope.
  */
 
 import { relative } from 'pathe';
@@ -22,6 +29,16 @@ import { ISessionIndex, type SessionListQuery, type SessionSummary } from './ses
 
 const META_SCOPE = 'session-meta';
 const META_KEY = 'state.json';
+
+/** Accept both v2 (epoch ms number) and v1 (ISO string) timestamps. */
+function parseTime(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
+}
 
 export class FileSessionIndex implements ISessionIndex {
   declare readonly _serviceBrand: undefined;
@@ -95,22 +112,31 @@ export class FileSessionIndex implements ISessionIndex {
     workspaceId: string,
     sessionId: string,
   ): Promise<SessionSummary | undefined> {
-    const scope = `${this.sessionsScope}/${workspaceId}/${sessionId}/${META_SCOPE}`;
-    let meta: Record<string, unknown> | undefined;
-    try {
-      meta = await this.docs.get<Record<string, unknown>>(scope, META_KEY);
-    } catch {
-      return undefined;
-    }
+    const base = `${this.sessionsScope}/${workspaceId}/${sessionId}`;
+    // `<sessionDir>/state.json` is the unified metadata document: v2 (tagged
+    // `version: 2`) and v1 (no version) both write here. Fall back to the
+    // legacy v2 `session-meta/` subdir for sessions written before the layouts
+    // were unified.
+    const meta =
+      (await this.readMeta(base)) ?? (await this.readMeta(`${base}/${META_SCOPE}`));
     if (meta === undefined) return undefined;
     return {
       id: sessionId,
       workspaceId,
       title: typeof meta['title'] === 'string' ? meta['title'] : undefined,
-      createdAt: typeof meta['createdAt'] === 'number' ? meta['createdAt'] : 0,
-      updatedAt: typeof meta['updatedAt'] === 'number' ? meta['updatedAt'] : 0,
+      lastPrompt: typeof meta['lastPrompt'] === 'string' ? meta['lastPrompt'] : undefined,
+      createdAt: parseTime(meta['createdAt']),
+      updatedAt: parseTime(meta['updatedAt']),
       archived: meta['archived'] === true,
     };
+  }
+
+  private async readMeta(scope: string): Promise<Record<string, unknown> | undefined> {
+    try {
+      return await this.docs.get<Record<string, unknown>>(scope, META_KEY);
+    } catch {
+      return undefined;
+    }
   }
 }
 

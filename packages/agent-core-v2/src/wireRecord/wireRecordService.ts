@@ -80,6 +80,10 @@ export class WireRecordService extends Disposable implements IWireRecord {
     this.appendPersistent(stamped);
   }
 
+  getRecords(): readonly PersistedWireRecord[] {
+    return [...this.records];
+  }
+
   register<T extends keyof WireRecordMap>(
     type: T,
     resumer: (data: WireRecord<T>) => void | Promise<void>,
@@ -349,4 +353,13 @@ function isWireRecordMetadata(record: PersistedWireRecord): record is WireRecord
 
 function hashKey(homedir: string): string {
   return createHash('sha256').update(homedir).digest('hex').slice(0, 16);
+}
+
+/**
+ * Persistence key of an agent's wire log, derived from its homedir. Used by
+ * cross-session operations (e.g. fork) to read / rewrite a wire log through
+ * `IAppendLogStore` without holding a live agent handle.
+ */
+export function wireRecordPersistKey(homedir: string): string {
+  return hashKey(homedir);
 }

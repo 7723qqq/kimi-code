@@ -2,26 +2,31 @@
  * `/sessions` route handlers — server-v2 port.
  *
  * Implements the v1 `/api/v1/sessions` wire contract on top of
- * `agent-core-v2` services. Only the endpoints v2 can back today are
- * registered:
+ * `agent-core-v2` services:
  *   POST   /sessions                  create
  *   GET    /sessions                  list
  *   GET    /sessions/{session_id}     get
  *   GET    /sessions/{session_id}/profile
  *   POST   /sessions/{session_id}/profile      update title (partial)
- *   POST   /sessions/{tail}                    ::archive action
+ *   POST   /sessions/{tail}                    action: fork / compact / undo /
+ *                                              abort / btw / archive
  *   GET    /sessions/{session_id}/status       best-effort
  *
- * The remaining v1 actions (fork / compact / undo / abort / btw / children /
- * warnings) are not registered because `agent-core-v2` does not yet expose
- * the backing capabilities — see the server-v2 sessions gap list (G1–G10).
+ * The `POST /sessions/{tail}` actions are dispatched to `ISessionLegacyService`
+ * (a v1 edge adapter over the native v2 services); `archive` stays on the
+ * native `ISessionLifecycleService`. Both `create` and `fork` publish
+ * `event.session.created` on the core event bus, matching v1.
+ *
+ * Remaining v1 endpoints (children / warnings) are not yet registered — see the
+ * server-v2 sessions gap list.
  *
  * **Wire fidelity**: mirrors v1's `toProtocolSession`
  * (`packages/agent-core/src/services/session/session.ts`), which populates
  * only the index/metadata fields and returns placeholders for the heavy ones
  * (`agent_config:{model:''}`, `usage:zeros`, `permission_rules:[]`,
  * `message_count:0`, `last_seq:0`, hardcoded `status:'idle'`). v2 produces the
- * same placeholder shape from `ISessionIndex` + `IWorkspaceRegistry`.
+ * same placeholder shape from `ISessionIndex` + `IWorkspaceRegistry`, and now
+ * also surfaces `last_prompt` and the merged custom `metadata`.
  *
  * **cwd resolution (gap G3)**: v2 does not store the original work dir on the
  * session; we recover `metadata.cwd` from `IWorkspaceRegistry`
@@ -35,18 +40,29 @@ import {
   ISessionIndex,
   ISessionLifecycleService,
   ISessionMetadata,
+  ISessionLegacyService,
+  IEventService,
   IWorkspaceRegistry,
+  isKimiError,
+  KimiError,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import {
   ErrorCode,
   archiveSessionResponseSchema,
+  compactSessionRequestSchema,
+  compactSessionResponseSchema,
   createSessionRequestSchema,
   emptySessionUsage,
+  forkSessionRequestSchema,
   pageResponseSchema,
+  sessionAbortResponseSchema,
   sessionSchema,
   sessionStatusResponseSchema,
   sessionStatusSchema,
+  startBtwSessionResponseSchema,
+  undoSessionRequestSchema,
+  undoSessionResponseSchema,
   updateSessionProfileRequestSchema,
 } from '@moonshot-ai/protocol';
 import type { Session } from '@moonshot-ai/protocol';
@@ -56,6 +72,7 @@ import { z } from 'zod';
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
 import { parseActionSuffix } from './action-suffix';
+import { toProtocolMessage } from './_messageProjection';
 
 interface SessionRouteHost {
   post(
@@ -113,6 +130,22 @@ const sessionIdParamSchema = z.object({
 const sessionActionTailParamSchema = z.object({
   tail: z.string().min(1),
 });
+
+/**
+ * Combined body schema for `POST /sessions/{tail}`. Each action parses its own
+ * fields from this superset (mirrors v1's `sessionActionRequestSchema`, which is
+ * also a server-side superset — the per-action wire schemas live in protocol).
+ */
+const sessionActionRequestSchema = z.preprocess(
+  (value) => (value === undefined ? {} : value),
+  z.object({
+    title: z.string().min(1).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    instruction: z.string().optional(),
+    count: z.number().int().positive().optional(),
+    page_size: z.number().int().min(1).max(100).optional(),
+  }),
+);
 
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
@@ -189,9 +222,12 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         await handle.accessor.get(ISessionMetadata).setTitle(body.title);
       }
       const meta = await handle.accessor.get(ISessionMetadata).read();
-      reply.send(
-        okEnvelope(toWireSession({ ...meta, workspaceId: touched.id }, touched.root), req.id),
-      );
+      const session = toWireSession({ ...meta, workspaceId: touched.id }, touched.root);
+      core.accessor.get(IEventService).publish({
+        type: 'event.session.created',
+        payload: { agentId: 'main', sessionId: session.id, session },
+      });
+      reply.send(okEnvelope(session, req.id));
     },
   );
   app.post(
@@ -387,35 +423,109 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       method: 'POST',
       path: '/sessions/{tail}',
       params: sessionActionTailParamSchema,
-      success: { data: archiveSessionResponseSchema },
+      body: sessionActionRequestSchema,
+      success: {
+        data: z.union([
+          sessionSchema,
+          compactSessionResponseSchema,
+          undoSessionResponseSchema,
+          sessionAbortResponseSchema,
+          startBtwSessionResponseSchema,
+          archiveSessionResponseSchema,
+        ]),
+      },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.SESSION_BUSY]: {},
+        [ErrorCode.COMPACTION_UNABLE]: {},
+        [ErrorCode.SESSION_UNDO_UNAVAILABLE]: {},
+        [ErrorCode.AUTH_TOKEN_MISSING]: {},
       },
-      description: 'Run a session action (only ::archive is supported in this slice)',
+      description: 'Run a session action',
       tags: ['sessions'],
+      operationId: 'runSessionAction',
     },
     async (req, reply) => {
-      const { tail } = req.params;
-      const parsed = parseActionSuffix({
-        tail,
-        allowedActions: ['archive'] as const,
-        resourceLabel: 'session',
-      });
-      if (parsed.kind !== 'action') {
-        const message = parsed.kind === 'invalid' ? parsed.reason : `unsupported action: ${tail}`;
-        reply.send(buildValidationEnvelope([{ path: 'session_id', message }], req.id));
-        return;
+      try {
+        const { tail } = req.params;
+        const parsed = parseActionSuffix({
+          tail,
+          allowedActions: ['fork', 'compact', 'undo', 'abort', 'btw', 'archive'] as const,
+          resourceLabel: 'session',
+        });
+        if (parsed.kind !== 'action') {
+          const message = parsed.kind === 'invalid' ? parsed.reason : `unsupported action: ${tail}`;
+          reply.send(buildValidationEnvelope([{ path: 'session_id', message }], req.id));
+          return;
+        }
+
+        const legacy = core.accessor.get(ISessionLegacyService);
+
+        if (parsed.action === 'fork') {
+          const body = forkSessionRequestSchema.parse(req.body);
+          const fields = await legacy.fork(parsed.id, body);
+          const session = toWireSession(fields, fields.root);
+          core.accessor.get(IEventService).publish({
+            type: 'event.session.created',
+            payload: { agentId: 'main', sessionId: session.id, session },
+          });
+          reply.send(okEnvelope(session, req.id));
+          return;
+        }
+
+        if (parsed.action === 'compact') {
+          const body = compactSessionRequestSchema.parse(req.body);
+          const result = await legacy.compact(parsed.id, body);
+          reply.send(okEnvelope(result, req.id));
+          return;
+        }
+
+        if (parsed.action === 'undo') {
+          const body = undoSessionRequestSchema.parse(req.body);
+          const { history, status } = await legacy.undo(parsed.id, body);
+          const pageSize = Math.min(Math.max(body.page_size ?? 50, 1), 100);
+          const summary = await core.accessor.get(ISessionIndex).get(parsed.id);
+          const createdAt = summary?.createdAt ?? 0;
+          const all = history.map((msg, index) => toProtocolMessage(parsed.id, index, msg, createdAt));
+          const desc = [...all].reverse();
+          reply.send(
+            okEnvelope(
+              {
+                messages: { items: desc.slice(0, pageSize), has_more: desc.length > pageSize },
+                status,
+              },
+              req.id,
+            ),
+          );
+          return;
+        }
+
+        if (parsed.action === 'abort') {
+          const result = await legacy.abort(parsed.id);
+          reply.send(okEnvelope(result, req.id));
+          return;
+        }
+
+        if (parsed.action === 'btw') {
+          const result = await legacy.startBtw(parsed.id);
+          reply.send(okEnvelope(result, req.id));
+          return;
+        }
+
+        // archive
+        const handle = core.accessor.get(ISessionLifecycleService).get(parsed.id);
+        if (handle === undefined) {
+          reply.send(
+            errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${parsed.id} does not exist`, req.id),
+          );
+          return;
+        }
+        await core.accessor.get(ISessionLifecycleService).archive(parsed.id);
+        reply.send(okEnvelope({ archived: true as const }, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
-      const handle = core.accessor.get(ISessionLifecycleService).get(parsed.id);
-      if (handle === undefined) {
-        reply.send(
-          errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${parsed.id} does not exist`, req.id),
-        );
-        return;
-      }
-      await core.accessor.get(ISessionLifecycleService).archive(parsed.id);
-      reply.send(okEnvelope({ archived: true as const }, req.id));
     },
   );
   app.post(
@@ -484,9 +594,11 @@ interface SessionWireFields {
   readonly id: string;
   readonly workspaceId: string;
   readonly title?: string;
+  readonly lastPrompt?: string;
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly archived: boolean;
+  readonly custom?: Record<string, unknown>;
 }
 
 function toWireSession(fields: SessionWireFields, cwd: string): Session {
@@ -498,13 +610,28 @@ function toWireSession(fields: SessionWireFields, cwd: string): Session {
     updated_at: new Date(fields.updatedAt).toISOString(),
     status: 'idle',
     archived: fields.archived,
-    metadata: { cwd },
+    last_prompt: fields.lastPrompt,
+    metadata: buildWireMetadata(fields.custom, cwd),
     agent_config: { model: '' },
     usage: emptySessionUsage(),
     permission_rules: [],
     message_count: 0,
     last_seq: 0,
   };
+}
+
+/**
+ * Build the wire `Session.metadata`: caller-supplied custom fields (minus the
+ * reserved `goal` key, matching v1's `toProtocolSession`) overlaid with the
+ * required `cwd`. `cwd` always wins so the resolved work dir is authoritative.
+ */
+function buildWireMetadata(
+  custom: Record<string, unknown> | undefined,
+  cwd: string,
+): { cwd: string; [key: string]: unknown } {
+  if (custom === undefined) return { cwd };
+  const { goal: _drop, ...rest } = custom as { goal?: unknown; [key: string]: unknown };
+  return { ...rest, cwd };
 }
 
 function buildValidationEnvelope(
@@ -531,4 +658,42 @@ function buildValidationEnvelope(
     request_id: requestId,
     details,
   };
+}
+
+function sendMappedError(
+  reply: { send(payload: unknown): unknown },
+  requestId: string,
+  err: unknown,
+): void {
+  if (isKimiError(err)) {
+    switch (err.code) {
+      case 'session.not_found':
+      case 'agent.not_found':
+        reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId));
+        return;
+      case 'session.fork_active_turn':
+        reply.send(errEnvelope(ErrorCode.SESSION_BUSY, err.message, requestId));
+        return;
+      case 'compaction.unable':
+        reply.send(errEnvelope(ErrorCode.COMPACTION_UNABLE, err.message, requestId));
+        return;
+      case 'session.undo_unavailable':
+        reply.send(errEnvelope(ErrorCode.SESSION_UNDO_UNAVAILABLE, err.message, requestId));
+        return;
+      case 'auth.login_required':
+        reply.send(errEnvelope(ErrorCode.AUTH_TOKEN_MISSING, err.message, requestId));
+        return;
+      case 'request.invalid':
+      case 'validation.failed':
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId));
+        return;
+    }
+  }
+  reply.send(
+    errEnvelope(
+      ErrorCode.INTERNAL_ERROR,
+      err instanceof Error ? err.message : String(err),
+      requestId,
+    ),
+  );
 }

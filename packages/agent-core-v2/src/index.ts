@@ -39,6 +39,7 @@ import './cron/index';
 
 export * from './agent-lifecycle/index';
 export * from './session-lifecycle/index';
+export * from './sessionLegacy/index';
 export * from './interaction/index';
 export * from './session-context/index';
 export * from './session-activity/index';

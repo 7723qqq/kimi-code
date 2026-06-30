@@ -32,6 +32,7 @@ export class TurnService implements ITurnService {
   declare readonly _serviceBrand: undefined;
   private nextTurnId = 0;
   private activeTurn: Turn | undefined;
+  private lastEndedReasonValue: TurnResult['reason'] | undefined;
   private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
   private readonly readySettled = new WeakSet<Turn>();
   private readonly interruptedTelemetryTurnIds = new Set<number>();
@@ -79,6 +80,10 @@ export class TurnService implements ITurnService {
       throw new Error(`Cannot launch a new turn while turn ${this.activeTurn.id} is active`);
     }
 
+    // A new turn clears the previous `aborted`/`failed` memory (mirrors v1
+    // clearing `_abortedTurns` on `turn.started` / `prompt.submitted`).
+    this.lastEndedReasonValue = undefined;
+
     const turnId = this.nextTurnId;
     this.wireRecord.append({ type: 'turn.launch', turnId, origin });
     this.restoreLaunch(turnId);
@@ -100,6 +105,10 @@ export class TurnService implements ITurnService {
 
   getActiveTurn(): Turn | undefined {
     return this.activeTurn;
+  }
+
+  lastEndedReason(): TurnResult['reason'] | undefined {
+    return this.lastEndedReasonValue;
   }
 
   private async runTurn(turn: Turn, origin: PromptOrigin): Promise<TurnResult> {
@@ -139,6 +148,7 @@ export class TurnService implements ITurnService {
         this.activeTurn = undefined;
       }
       if (result !== undefined) {
+        this.lastEndedReasonValue = result.reason;
         const ended = toTurnEndedEvent(turn, result, Date.now() - startedAt);
         if (
           ended.reason === 'cancelled' &&

@@ -355,6 +355,24 @@ describe('AgentRecords persistence metadata', () => {
   });
 });
 
+describe('IWireRecord.records()', () => {
+  it('returns restored and appended records in order, excluding metadata', async () => {
+    const persistence = new InMemoryWireRecordPersistence([
+      { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'context.splice', start: 0, deleteCount: 0, messages: [userMessage('restored')] },
+    ]);
+    const records = testAgent({ persistence }).wireRecord;
+    await records.restore();
+    records.append({ type: 'turn.launch', turnId: 0, origin: { kind: 'user' } });
+
+    const snapshot = records.getRecords();
+    expect(snapshot.map((record) => record.type)).toEqual(['context.splice', 'turn.launch']);
+    // A copy is returned, so mutating it must not affect the service.
+    (snapshot as unknown as PersistedWireRecord[]).pop();
+    expect(records.getRecords()).toHaveLength(2);
+  });
+});
+
 describe('agent replay range build', () => {
   it('returns the complete replay when no range is requested', async () => {
     const firstMessage = userMessage('first');
