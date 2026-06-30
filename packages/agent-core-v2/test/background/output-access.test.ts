@@ -3,19 +3,11 @@ import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { join } from 'pathe';
-
 import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import {
-  type IBackgroundService,
-  ProcessBackgroundTask,
-} from '#/background';
-import { testAgent, type TestAgentContext } from '../harness';
-import {
-  createBackgroundTaskPersistence,
-  type BackgroundServiceTestManager,
-} from './stubs';
+import { IBackgroundService, ProcessBackgroundTask } from '#/background';
+import { createBackgroundTaskPersistence, type BackgroundServiceTestManager } from './stubs';
+import { backgroundServices, createTestAgent, homeDirServices, type TestAgentContext } from '../harness';
 
 interface BackgroundServiceFixture {
   readonly ctx: TestAgentContext;
@@ -25,10 +17,11 @@ interface BackgroundServiceFixture {
 
 function createBackgroundService(homedir: string): BackgroundServiceFixture {
   const persistence = createBackgroundTaskPersistence(homedir);
-  const ctx = testAgent({ homedir, background: { persistence } });
+  const ctx = createTestAgent(homeDirServices(homedir), backgroundServices());
+  const manager = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
   return {
     ctx,
-    manager: ctx.background as BackgroundServiceTestManager,
+    manager,
     persistence,
   };
 }
@@ -70,9 +63,9 @@ function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
 
 describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
   let sessionDir: string;
-  let manager: BackgroundServiceTestManager;
-  let persistence: BackgroundTaskPersistence;
   let ctx: TestAgentContext;
+  let manager: BackgroundServiceTestManager;
+  let persistence: ReturnType<typeof createBackgroundTaskPersistence>;
 
   beforeEach(() => {
     sessionDir = mkdtempSync(join(tmpdir(), 'bpm-output-'));
@@ -83,8 +76,12 @@ describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
   });
 
   afterEach(async () => {
-    await ctx.close();
-    rmSync(sessionDir, { recursive: true, force: true });
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+      rmSync(sessionDir, { recursive: true, force: true });
+    }
   });
 
   it('getOutputSnapshot returns output.log path when persisted output exists', async () => {
@@ -170,11 +167,17 @@ describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
     await waitForOutput(manager, taskId, 'persisted line');
     await manager.wait(taskId);
 
-    const fresh = createBackgroundService(sessionDir).manager;
-    await fresh.loadFromDisk();
-    await fresh.reconcile();
+    const freshFixture = createBackgroundService(sessionDir);
+    const fresh = freshFixture.manager;
+    try {
+      await fresh.loadFromDisk();
+      await fresh.reconcile();
 
-    expect(await fresh.readOutput(taskId)).toContain('persisted line');
+      expect(await fresh.readOutput(taskId)).toContain('persisted line');
+      await freshFixture.ctx.expectResumeMatches();
+    } finally {
+      await freshFixture.ctx.dispose();
+    }
   });
 
   it('readOutput respects tail length', async () => {

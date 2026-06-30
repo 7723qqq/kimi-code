@@ -11,19 +11,33 @@ import { join } from 'pathe';
 import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { AgentBackgroundTask, ProcessBackgroundTask } from '#/background';
-import { testAgent, type TestAgentContext, type TestAgentOptions } from '../harness';
 import {
-  BackgroundTaskPersistence,
+  AgentBackgroundTask,
   type BackgroundTaskInfo,
-  type IBackgroundService,
+  IBackgroundService,
+  ProcessBackgroundTask,
 } from '#/background';
+import { IContextMemory } from '#/contextMemory';
+import { IEventSink } from '#/eventSink';
+import type { HookEngine } from '#/externalHooks/engine';
 import { IPromptService } from '#/prompt';
 import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
+import {
+  configServices,
+  externalHookServices,
+  homeDirServices,
+  telemetryServices,
+  testAgent,
+  type TestAgentContext,
+  type TestAgentServiceOverride,
+} from '../harness';
 import { recordingTelemetry } from '../telemetry/stubs';
-import type { BackgroundServiceTestManager } from './stubs';
+import {
+  createBackgroundTaskPersistence,
+  type BackgroundServiceTestManager,
+} from './stubs';
 
-type FireAndForgetTrigger = NonNullable<TestAgentOptions['hookEngine']>['fireAndForgetTrigger'];
+type FireAndForgetTrigger = HookEngine['fireAndForgetTrigger'];
 
 function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
   return {
@@ -141,7 +155,7 @@ interface BackgroundServiceFixture {
   ctx: TestAgentContext;
   agent: FakeBackgroundAgent;
   manager: BackgroundServiceTestManager;
-  persistence?: BackgroundTaskPersistence;
+  persistence?: ReturnType<typeof createBackgroundTaskPersistence>;
 }
 
 type TestContextMessage = {
@@ -162,33 +176,39 @@ function createBackgroundManager(options: {
   const track = vi.fn();
   const telemetry = recordingTelemetry([]);
   vi.spyOn(telemetry, 'track').mockImplementation(track);
-  const hookEngine: TestAgentOptions['hookEngine'] = options.hooks === undefined
+  const hookEngine: Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined = options.hooks === undefined
     ? undefined
     : {
         trigger: vi.fn().mockResolvedValue([]),
         triggerBlock: vi.fn().mockResolvedValue(undefined),
         fireAndForgetTrigger: options.hooks.fireAndForgetTrigger,
       };
-  const ctx = testAgent({
-    telemetry,
-    background: {
-      persistence:
-        options.sessionDir === undefined
-          ? undefined
-          : new BackgroundTaskPersistence(options.sessionDir),
-      maxRunningTasks: options.maxRunningTasks,
-    },
-    hookEngine,
-  });
+  const overrides: TestAgentServiceOverride[] = [telemetryServices(telemetry)];
+  if (options.sessionDir !== undefined) {
+    overrides.push(homeDirServices(options.sessionDir));
+  }
+  const maxRunningTasks = options.maxRunningTasks;
+  if (maxRunningTasks !== undefined) {
+    overrides.push(configServices(() => ({
+      providers: {},
+      background: { maxRunningTasks },
+    })));
+  }
+  if (hookEngine !== undefined) {
+    overrides.push(externalHookServices(hookEngine));
+  }
+  const ctx = testAgent(...overrides);
   ctx.configure();
 
   const emittedEvents: Array<{ type: string; info?: unknown }> = [];
-  const disposable = ctx.events.on((event) => {
+  const events = ctx.get(IEventSink);
+  const disposable = events.on((event) => {
     emittedEvents.push(event as { type: string; info?: unknown });
   });
 
   const steerSpy = vi.spyOn(ctx.get(IPromptService), 'steer').mockReturnValue(undefined);
-  const spliceHistorySpy = vi.spyOn(ctx.context, 'splice');
+  const context = ctx.get(IContextMemory);
+  const spliceHistorySpy = vi.spyOn(context, 'splice');
 
   const agent: FakeBackgroundAgent = {
     emittedEvents,
@@ -208,12 +228,12 @@ function createBackgroundManager(options: {
   const persistence =
     options.sessionDir === undefined
       ? undefined
-      : new BackgroundTaskPersistence(options.sessionDir);
+      : createBackgroundTaskPersistence(options.sessionDir);
 
   return {
     ctx,
     agent,
-    manager: ctx.background as BackgroundServiceTestManager,
+    manager: ctx.get(IBackgroundService) as BackgroundServiceTestManager,
     persistence,
   };
 }
@@ -348,7 +368,7 @@ describe('BackgroundManager — event emission', () => {
   it('emits background.task.terminated when a restored task is marked lost', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-agent-reconcile-'));
     try {
-      const persistence = new BackgroundTaskPersistence(sessionDir);
+      const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(
         persistedProcess({
           taskId: 'bash-orphan00',
@@ -456,7 +476,7 @@ describe('BackgroundManager — notification delivery', () => {
   it('replays restored terminal agent task notifications when undelivered', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-agent-replay-'));
     try {
-      const persistence = new BackgroundTaskPersistence(sessionDir);
+      const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(persistedAgent());
       await persistence.appendTaskOutput('agent-done0000', 'restored subagent summary');
       const { agent, manager } = createBackgroundManager({ sessionDir });
@@ -488,7 +508,7 @@ describe('BackgroundManager — notification delivery', () => {
   it('replays restored terminal process task notifications when undelivered', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-bash-replay-'));
     try {
-      const persistence = new BackgroundTaskPersistence(sessionDir);
+      const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(persistedProcess());
       await persistence.appendTaskOutput('bash-done0000', 'restored shell output');
       const { agent, manager } = createBackgroundManager({ sessionDir });
@@ -522,7 +542,7 @@ describe('BackgroundManager — notification delivery', () => {
     try {
       const taskId = 'bash-large000';
       const largeOutput = `early-output-marker\n${'x'.repeat(8_000)}\nfinal output line`;
-      const persistence = new BackgroundTaskPersistence(sessionDir);
+      const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(persistedProcess({ taskId }));
       await persistence.appendTaskOutput(taskId, largeOutput);
       const { agent, manager } = createBackgroundManager({ sessionDir });
@@ -553,11 +573,12 @@ describe('BackgroundManager — notification delivery', () => {
         status: 'completed',
         notificationId: 'task:agent-seen0000:completed',
       } as const;
-      const persistence = new BackgroundTaskPersistence(sessionDir);
+      const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(persistedAgent({ taskId: 'agent-seen0000' }));
       await persistence.appendTaskOutput('agent-seen0000', 'already delivered summary');
       const { agent, ctx, manager } = createBackgroundManager({ sessionDir });
-      ctx.context.splice(ctx.context.getHistory().length, 0, [
+      const context = ctx.get(IContextMemory);
+      context.splice(context.get().length, 0, [
         {
           role: 'user',
           content: [{ type: 'text', text: 'already delivered' }],
@@ -581,7 +602,7 @@ describe('BackgroundManager — notification delivery', () => {
   it('does not double-notify newly lost restored agent tasks', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-agent-lost-'));
     try {
-      const persistence = new BackgroundTaskPersistence(sessionDir);
+      const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(
         persistedAgent({
           taskId: 'agent-run00000',

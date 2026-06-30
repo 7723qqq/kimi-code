@@ -1,26 +1,41 @@
 import type { ToolCall } from '@moonshot-ai/kosong';
-import { expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { IProfileService } from '#/index';
 import { ILoopService } from '#/loop';
 
-import { testAgent } from '../harness';
+import { createTestAgent, type TestAgentContext } from '../harness';
 
-it('resolves the loop service from the agent scope by interface', () => {
-  const ctx = testAgent();
-  const loop = ctx.get(ILoopService);
+describe('Agent loop', () => {
+  let ctx: TestAgentContext;
+  let loop: ILoopService;
+  let profile: IProfileService;
 
-  expect(loop).toBe(ctx.get(ILoopService));
-});
+  beforeEach(() => {
+    ctx = createTestAgent();
+    loop = ctx.get(ILoopService);
+    profile = ctx.get(IProfileService);
+  });
 
-it('runs a text-only agent turn from prompt to completion', async () => {
-  const ctx = testAgent();
-  ctx.configure();
-  ctx.profile.update({ activeToolNames: [] });
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
 
-  ctx.mockNextResponse({ type: 'think', think: '<think-1>' }, { type: 'text', text: '<text-1>' });
-  await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+  it('resolves the loop service from the agent scope by interface', () => {
+    expect(loop).toBeDefined();
+  });
 
-  expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
+  it('runs a text-only agent turn from prompt to completion', async () => {
+    profile.update({ activeToolNames: [] });
+
+    ctx.mockNextResponse({ type: 'think', think: '<think-1>' }, { type: 'text', text: '<text-1>' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+
+    expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
     [wire] tools.set_active_tools   { "names": [], "time": "<time>" }
     [wire] context.splice           { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [] } ], "time": "<time>" }
     [wire] turn.launch              { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
@@ -37,26 +52,23 @@ it('runs a text-only agent turn from prompt to completion', async () => {
     [emit] turn.step.completed      { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
     [emit] turn.ended               { "turnId": 0, "reason": "completed" }
   `);
-  expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
+    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
     system: <system-prompt>
     tools: []
     messages:
       user: text "Hello"
   `);
-});
-
-it('forwards provider finish diagnostics on filtered steps', async () => {
-  const ctx = testAgent();
-  ctx.configure();
-
-  ctx.mockNextProviderResponse({
-    parts: [{ type: 'text', text: 'blocked' }],
-    finishReason: 'filtered',
-    rawFinishReason: 'content_filter',
   });
-  await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
 
-  expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
+  it('forwards provider finish diagnostics on filtered steps', async () => {
+    ctx.mockNextProviderResponse({
+      parts: [{ type: 'text', text: 'blocked' }],
+      finishReason: 'filtered',
+      rawFinishReason: 'content_filter',
+    });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+
+    expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
     [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [] } ], "time": "<time>" }
     [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
     [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
@@ -71,44 +83,43 @@ it('forwards provider finish diagnostics on filtered steps', async () => {
     [emit] turn.ended              { "turnId": 0, "reason": "filtered" }
   `);
 
-  const rpcStepEnd = ctx.allEvents.find(
-    (event) => event.type === '[rpc]' && event.event === 'turn.step.completed',
-  );
+    const rpcStepEnd = ctx.allEvents.find(
+      (event) => event.type === '[rpc]' && event.event === 'turn.step.completed',
+    );
 
-  expect(rpcStepEnd?.args).toMatchObject({
-    finishReason: 'filtered',
-    providerFinishReason: 'filtered',
-    rawFinishReason: 'content_filter',
+    expect(rpcStepEnd?.args).toMatchObject({
+      finishReason: 'filtered',
+      providerFinishReason: 'filtered',
+      rawFinishReason: 'content_filter',
+    });
   });
-});
 
-it('runs an agent turn through registered tool approval and execution', async () => {
-  const lookupCall: ToolCall = {
-    type: 'function',
-    id: 'call_lookup',
-    name: 'Lookup',
-    arguments: '{"query":"moon"}',
-  };
-  const ctx = testAgent();
-  ctx.configure({ tools: ['Lookup'] });
-  await ctx.rpc.registerTool({
-    name: 'Lookup',
-    description: 'Look up a short test value.',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: { type: 'string' },
+  it('runs an agent turn through registered tool approval and execution', async () => {
+    const lookupCall: ToolCall = {
+      type: 'function',
+      id: 'call_lookup',
+      name: 'Lookup',
+      arguments: '{"query":"moon"}',
+    };
+    profile.update({ activeToolNames: ['Lookup'] });
+    await ctx.rpc.registerTool({
+      name: 'Lookup',
+      description: 'Look up a short test value.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+        },
+        required: ['query'],
+        additionalProperties: false,
       },
-      required: ['query'],
-      additionalProperties: false,
-    },
-  });
+    });
 
-  ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall);
-  await ctx.rpc.prompt({
-    input: [{ type: 'text', text: 'Look up moon' }],
-  });
-  expect(await ctx.untilApproval(true)).toMatchInlineSnapshot(`
+    ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall);
+    await ctx.rpc.prompt({
+      input: [{ type: 'text', text: 'Look up moon' }],
+    });
+    expect(await ctx.untilApproval(true)).toMatchInlineSnapshot(`
     [wire] tools.register_user_tool   { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false }, "time": "<time>" }
     [wire] context.splice             { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "toolCalls": [] } ], "time": "<time>" }
     [wire] turn.launch                { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
@@ -121,20 +132,20 @@ it('runs an agent turn through registered tool approval and execution', async ()
     [wire] context.splice             { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will look it up." } ], "toolCalls": [] } ], "time": "<time>" }
     [emit] requestApproval            { "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "moon" } } }
   `);
-  expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
+    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
     system: <system-prompt>
     tools: Lookup
     messages:
       user: text "Look up moon"
   `);
 
-  const toolCallEvents = ctx.untilToolCall({
-    content: 'lookup-result',
-    output: 'lookup-result',
-  });
-  ctx.mockNextResponse({ type: 'text', text: 'The lookup result is lookup-result.' });
-  await toolCallEvents;
-  expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
+    const toolCallEvents = ctx.untilToolCall({
+      content: 'lookup-result',
+      output: 'lookup-result',
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'The lookup result is lookup-result.' });
+    await toolCallEvents;
+    expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
     [wire] context.splice          { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "lookup-result" } ], "toolCalls": [], "toolCallId": "call_lookup" } ], "time": "<time>" }
     [emit] tool.result             { "turnId": 0, "toolCallId": "call_lookup", "output": "lookup-result" }
     [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
@@ -148,11 +159,11 @@ it('runs an agent turn through registered tool approval and execution', async ()
     [emit] turn.step.completed     { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
     [emit] turn.ended              { "turnId": 0, "reason": "completed" }
   `);
-  expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
+    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
     messages:
       <last>
       assistant: text "I will look it up."  calls call_lookup:Lookup { "query": "moon" }
       tool[call_lookup]: text "lookup-result"
   `);
-  await ctx.expectResumeMatches();
+  });
 });

@@ -1,5 +1,4 @@
 import { createDecorator } from "#/_base/di";
-import { BackgroundTaskPersistence } from './persist';
 import type {
   BackgroundTask,
   BackgroundTaskInfo,
@@ -18,13 +17,6 @@ export type {
   BackgroundTaskInfo,
   BackgroundTaskStatus,
 } from './task';
-
-export interface BackgroundServiceOptions {
-  readonly persistence?: BackgroundTaskPersistence;
-  readonly maxRunningTasks?: number;
-}
-
-export type BackgroundOptions = BackgroundServiceOptions;
 
 export interface BackgroundLoadOptions {
   readonly replace?: boolean;

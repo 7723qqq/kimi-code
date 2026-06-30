@@ -9,25 +9,23 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  BackgroundTaskPersistence,
+  IBackgroundService,
   type BackgroundTaskInfo,
 } from '#/background';
-import { testAgent, type TestAgentContext } from '../harness';
-import type { BackgroundServiceTestManager } from './stubs';
+import { IEventSink } from '#/eventSink';
+import {
+  backgroundServices,
+  createTestAgent,
+  homeDirServices,
+  type TestAgentContext,
+} from '../harness';
+import {
+  createBackgroundTaskPersistence,
+  type BackgroundServiceTestManager,
+} from './stubs';
 
 let sessionDir: string;
-let persistence: BackgroundTaskPersistence;
-
-function testAgentWithBackground(): {
-  ctx: TestAgentContext;
-  background: BackgroundServiceTestManager;
-} {
-  const ctx = testAgent({ background: { persistence: new BackgroundTaskPersistence(sessionDir) } });
-  return {
-    ctx,
-    background: ctx.background as BackgroundServiceTestManager,
-  };
-}
+let persistence: ReturnType<typeof createBackgroundTaskPersistence>;
 
 function runningGhost(taskId: string): Extract<BackgroundTaskInfo, { kind: 'process' }> {
   return {
@@ -49,7 +47,7 @@ beforeEach(async () => {
     `kimi-hb-stale-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   await mkdir(sessionDir, { recursive: true });
-  persistence = new BackgroundTaskPersistence(sessionDir);
+  persistence = createBackgroundTaskPersistence(sessionDir);
 });
 
 afterEach(async () => {
@@ -57,15 +55,30 @@ afterEach(async () => {
 });
 
 describe('Background reconcile — stale ghost detection', () => {
-  it('emits a terminated event with status=lost for a running ghost', async () => {
-    await persistence.writeTask(runningGhost('bash-stale000'));
+  let ctx: TestAgentContext;
+  let background: BackgroundServiceTestManager;
+  let emittedEvents: unknown[];
 
-    const { ctx, background } = testAgentWithBackground();
-
-    const emittedEvents: any[] = [];
-    ctx.events.on((event) => {
+  beforeEach(() => {
+    ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
+    background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
+    emittedEvents = [];
+    const events = ctx.get(IEventSink);
+    events.on((event) => {
       emittedEvents.push(event);
     });
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it('emits a terminated event with status=lost for a running ghost', async () => {
+    await persistence.writeTask(runningGhost('bash-stale000'));
 
     await background.loadFromDisk();
     await background.reconcile();
@@ -82,20 +95,13 @@ describe('Background reconcile — stale ghost detection', () => {
   it('second reconcile does not emit a duplicate termination event', async () => {
     await persistence.writeTask(runningGhost('bash-dedup000'));
 
-    const { ctx, background } = testAgentWithBackground();
-
-    const emittedEvents: any[] = [];
-    ctx.events.on((event) => {
-      emittedEvents.push(event);
-    });
-
     await background.loadFromDisk();
     await background.reconcile();
     await background.reconcile();
 
     expect(
       emittedEvents.filter(
-        (event) => event.type === 'background.task.terminated',
+        (event) => (event as { type?: string }).type === 'background.task.terminated',
       ),
     ).toHaveLength(1);
   });

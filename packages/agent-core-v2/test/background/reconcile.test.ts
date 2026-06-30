@@ -9,27 +9,23 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  BackgroundTaskPersistence,
+  IBackgroundService,
   type BackgroundTaskInfo,
 } from '#/background';
-import { testAgent, type TestAgentContext } from '../harness';
-import type { BackgroundServiceTestManager } from './stubs';
+import { IEventSink } from '#/eventSink';
+import {
+  backgroundServices,
+  createTestAgent,
+  homeDirServices,
+  type TestAgentContext,
+} from '../harness';
+import {
+  createBackgroundTaskPersistence,
+  type BackgroundServiceTestManager,
+} from './stubs';
 
 let sessionDir: string;
-let persistence: BackgroundTaskPersistence;
-
-function testAgentWithBackground(
-  backgroundPersistence?: BackgroundTaskPersistence,
-): {
-  ctx: TestAgentContext;
-  background: BackgroundServiceTestManager;
-} {
-  const ctx = testAgent({ background: { persistence: backgroundPersistence } });
-  return {
-    ctx,
-    background: ctx.background as BackgroundServiceTestManager,
-  };
-}
+let persistence: ReturnType<typeof createBackgroundTaskPersistence>;
 
 function persistedProcess(
   overrides: Partial<Extract<BackgroundTaskInfo, { kind: 'process' }>> = {},
@@ -54,7 +50,7 @@ beforeEach(async () => {
     `kimi-bg-reconcile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   await mkdir(sessionDir, { recursive: true });
-  persistence = new BackgroundTaskPersistence(sessionDir);
+  persistence = createBackgroundTaskPersistence(sessionDir);
 });
 
 afterEach(async () => {
@@ -62,233 +58,236 @@ afterEach(async () => {
 });
 
 describe('BackgroundManager — loadFromDisk + reconcile', () => {
-  it('loadFromDisk does nothing when persistence is not configured', async () => {
-    const { background } = testAgentWithBackground();
+  describe('without persisted tasks', () => {
+    let ctx: TestAgentContext;
+    let background: BackgroundServiceTestManager;
 
-    await background.loadFromDisk();
+    beforeEach(() => {
+      ctx = createTestAgent(backgroundServices());
+      background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
+    });
 
-    expect(background.list(false)).toEqual([]);
+    afterEach(async () => {
+      try {
+        await ctx.expectResumeMatches();
+      } finally {
+        await ctx.dispose();
+      }
+    });
+
+    it('loadFromDisk does nothing when no tasks are persisted', async () => {
+      await background.loadFromDisk();
+
+      expect(background.list(false)).toEqual([]);
+    });
   });
 
-  it('reconciles a previously-running task as lost', async () => {
-    await persistence.writeTask(persistedProcess());
-    const { ctx, background } = testAgentWithBackground(persistence);
+  describe('with persistence', () => {
+    let ctx: TestAgentContext;
+    let background: BackgroundServiceTestManager;
+    let emittedEvents: unknown[];
 
-    const emittedEvents: any[] = [];
-    ctx.events.on((event) => {
-      emittedEvents.push(event);
+    beforeEach(() => {
+      ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
+      background = ctx.get(IBackgroundService) as BackgroundServiceTestManager;
+      emittedEvents = [];
+      const events = ctx.get(IEventSink);
+      events.on((event) => {
+        emittedEvents.push(event);
+      });
     });
 
-    await background.loadFromDisk();
-    await background.reconcile();
+    afterEach(async () => {
+      try {
+        await ctx.expectResumeMatches();
+      } finally {
+        await ctx.dispose();
+      }
+    });
 
-    expect(background.getTask('bash-orphan00')).toMatchObject({
-      taskId: 'bash-orphan00',
-      status: 'lost',
-    });
-    expect(await persistence.readTask('bash-orphan00')).toMatchObject({
-      taskId: 'bash-orphan00',
-      status: 'lost',
-    });
-    expect(emittedEvents).toContainEqual({
-      type: 'background.task.terminated',
-      info: expect.objectContaining({
+    it('reconciles a previously-running task as lost', async () => {
+      await persistence.writeTask(persistedProcess());
+
+      await background.loadFromDisk();
+      await background.reconcile();
+
+      expect(background.getTask('bash-orphan00')).toMatchObject({
         taskId: 'bash-orphan00',
         status: 'lost',
-      }),
-    });
-  });
-
-  it('runtime restore reconciles persisted tasks through the background resume hook', async () => {
-    await persistence.writeTask(
-      persistedProcess({
-        taskId: 'bash-restore0',
-        command: 'sleep 9999',
-        description: 'restore hook check',
-        pid: 4242,
-      }),
-    );
-    const { ctx, background } = testAgentWithBackground(persistence);
-
-    const emittedEvents: any[] = [];
-    ctx.events.on((event) => {
-      emittedEvents.push(event);
+      });
+      expect(await persistence.readTask('bash-orphan00')).toMatchObject({
+        taskId: 'bash-orphan00',
+        status: 'lost',
+      });
+      expect(emittedEvents).toContainEqual({
+        type: 'background.task.terminated',
+        info: expect.objectContaining({
+          taskId: 'bash-orphan00',
+          status: 'lost',
+        }),
+      });
     });
 
-    await ctx.runtime.restore([]);
+    it('runtime restore reconciles persisted tasks through the background resume hook', async () => {
+      await persistence.writeTask(
+        persistedProcess({
+          taskId: 'bash-restore0',
+          command: 'sleep 9999',
+          description: 'restore hook check',
+          pid: 4242,
+        }),
+      );
 
-    expect(background.getTask('bash-restore0')).toMatchObject({
-      taskId: 'bash-restore0',
-      status: 'lost',
-    });
-    expect(await persistence.readTask('bash-restore0')).toMatchObject({
-      taskId: 'bash-restore0',
-      status: 'lost',
-    });
-    expect(emittedEvents).toContainEqual({
-      type: 'background.task.terminated',
-      info: expect.objectContaining({
+      await ctx.runtime.restore([]);
+
+      expect(background.getTask('bash-restore0')).toMatchObject({
         taskId: 'bash-restore0',
         status: 'lost',
-      }),
+      });
+      expect(await persistence.readTask('bash-restore0')).toMatchObject({
+        taskId: 'bash-restore0',
+        status: 'lost',
+      });
+      expect(emittedEvents).toContainEqual({
+        type: 'background.task.terminated',
+        info: expect.objectContaining({
+          taskId: 'bash-restore0',
+          status: 'lost',
+        }),
+      });
     });
-  });
 
-  it('does not reclassify already-terminal tasks', async () => {
-    await persistence.writeTask(
-      persistedProcess({
-        taskId: 'bash-done0000',
-        command: 'echo hi',
-        description: 'echo',
-        pid: 88888,
-        endedAt: 1_700_000_010,
-        exitCode: 0,
+    it('does not reclassify already-terminal tasks', async () => {
+      await persistence.writeTask(
+        persistedProcess({
+          taskId: 'bash-done0000',
+          command: 'echo hi',
+          description: 'echo',
+          pid: 88888,
+          endedAt: 1_700_000_010,
+          exitCode: 0,
+          status: 'completed',
+        }),
+      );
+      await persistence.writeTask(
+        persistedProcess({
+          taskId: 'bash-running0',
+          command: 'sleep 1000',
+          description: 'sleep',
+          pid: 77777,
+        }),
+      );
+
+      await background.loadFromDisk();
+      await background.reconcile();
+
+      expect(await persistence.readTask('bash-done0000')).toMatchObject({
         status: 'completed',
-      }),
-    );
-    await persistence.writeTask(
-      persistedProcess({
-        taskId: 'bash-running0',
-        command: 'sleep 1000',
-        description: 'sleep',
-        pid: 77777,
-      }),
-    );
-    const { ctx, background } = testAgentWithBackground(persistence);
-
-    const emittedEvents: any[] = [];
-    ctx.events.on((event) => {
-      emittedEvents.push(event);
+      });
+      expect(await persistence.readTask('bash-running0')).toMatchObject({
+        status: 'lost',
+      });
+      const terminationEvents = emittedEvents.filter(
+        (event) => (event as { type?: string }).type === 'background.task.terminated',
+      );
+      expect(terminationEvents).toHaveLength(1);
+      expect(terminationEvents[0]).toMatchObject({
+        type: 'background.task.terminated',
+        info: { taskId: 'bash-running0', status: 'lost' },
+      });
     });
 
-    await background.loadFromDisk();
-    await background.reconcile();
+    it('list(activeOnly=false) includes ghosts; list(true) excludes them', async () => {
+      await persistence.writeTask(
+        persistedProcess({
+          taskId: 'bash-lost0000',
+          command: 'x',
+          description: 'd',
+          pid: 1,
+        }),
+      );
 
-    expect(await persistence.readTask('bash-done0000')).toMatchObject({
-      status: 'completed',
+      await background.loadFromDisk();
+      await background.reconcile();
+
+      expect(background.list(true)).toEqual([]);
+      expect(background.list(false)).toEqual([
+        expect.objectContaining({ taskId: 'bash-lost0000', status: 'lost' }),
+      ]);
     });
-    expect(await persistence.readTask('bash-running0')).toMatchObject({
-      status: 'lost',
-    });
-    const terminationEvents = emittedEvents.filter(
-      (event) => event.type === 'background.task.terminated',
-    );
-    expect(terminationEvents).toHaveLength(1);
-    expect(terminationEvents[0]).toMatchObject({
-      type: 'background.task.terminated',
-      info: { taskId: 'bash-running0', status: 'lost' },
-    });
-  });
 
-  it('list(activeOnly=false) includes ghosts; list(true) excludes them', async () => {
-    await persistence.writeTask(
-      persistedProcess({
-        taskId: 'bash-lost0000',
-        command: 'x',
-        description: 'd',
-        pid: 1,
-      }),
-    );
-    const { background } = testAgentWithBackground(persistence);
+    it('getTask returns ghost when the live process map has no entry', async () => {
+      await persistence.writeTask(
+        persistedProcess({
+          taskId: 'bash-ghost000',
+          command: 'x',
+          description: 'd',
+          pid: 1,
+        }),
+      );
 
-    await background.loadFromDisk();
-    await background.reconcile();
+      await background.loadFromDisk();
+      await background.reconcile();
 
-    expect(background.list(true)).toEqual([]);
-    expect(background.list(false)).toEqual([
-      expect.objectContaining({ taskId: 'bash-lost0000', status: 'lost' }),
-    ]);
-  });
-
-  it('getTask returns ghost when the live process map has no entry', async () => {
-    await persistence.writeTask(
-      persistedProcess({
+      expect(background.getTask('bash-ghost000')).toMatchObject({
         taskId: 'bash-ghost000',
-        command: 'x',
-        description: 'd',
-        pid: 1,
-      }),
-    );
-    const { background } = testAgentWithBackground(persistence);
-
-    await background.loadFromDisk();
-    await background.reconcile();
-
-    expect(background.getTask('bash-ghost000')).toMatchObject({
-      taskId: 'bash-ghost000',
-      status: 'lost',
-    });
-  });
-
-  it('reconcile emits nothing when no ghosts were loaded', async () => {
-    const { ctx, background } = testAgentWithBackground(persistence);
-
-    const emittedEvents: any[] = [];
-    ctx.events.on((event) => {
-      emittedEvents.push(event);
+        status: 'lost',
+      });
     });
 
-    await background.loadFromDisk();
-    await background.reconcile();
+    it('reconcile emits nothing when no ghosts were loaded', async () => {
+      await background.loadFromDisk();
+      await background.reconcile();
 
-    expect(emittedEvents).toEqual([]);
-  });
-
-  it('does not emit duplicate termination events on a second reconcile pass', async () => {
-    await persistence.writeTask(
-      persistedProcess({
-        taskId: 'bash-nodup000',
-        command: 'sleep 9999',
-        description: 'dedupe check',
-        pid: 42,
-      }),
-    );
-    const { ctx, background } = testAgentWithBackground(persistence);
-
-    const emittedEvents: any[] = [];
-    ctx.events.on((event) => {
-      emittedEvents.push(event);
+      expect(emittedEvents).toEqual([]);
     });
 
-    await background.loadFromDisk();
-    await background.reconcile();
-    await background.reconcile();
+    it('does not emit duplicate termination events on a second reconcile pass', async () => {
+      await persistence.writeTask(
+        persistedProcess({
+          taskId: 'bash-nodup000',
+          command: 'sleep 9999',
+          description: 'dedupe check',
+          pid: 42,
+        }),
+      );
 
-    expect(
-      emittedEvents.filter(
-        (event) => event.type === 'background.task.terminated',
-      ),
-    ).toHaveLength(1);
-  });
+      await background.loadFromDisk();
+      await background.reconcile();
+      await background.reconcile();
 
-  it('restores terminal ghost notifications into context', async () => {
-    await persistence.writeTask(
-      persistedProcess({
+      expect(
+        emittedEvents.filter(
+          (event) => (event as { type?: string }).type === 'background.task.terminated',
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('restores terminal ghost notifications into context', async () => {
+      await persistence.writeTask(
+        persistedProcess({
+          taskId: 'bash-done0001',
+          command: 'echo done',
+          description: 'one-shot',
+          pid: 42,
+          endedAt: 1_700_000_010,
+          exitCode: 0,
+          status: 'completed',
+        }),
+      );
+
+      await background.loadFromDisk();
+      await background.reconcile();
+
+      expect(background.getTask('bash-done0001')).toMatchObject({
         taskId: 'bash-done0001',
-        command: 'echo done',
-        description: 'one-shot',
-        pid: 42,
-        endedAt: 1_700_000_010,
-        exitCode: 0,
         status: 'completed',
-      }),
-    );
-    const { ctx, background } = testAgentWithBackground(persistence);
-
-    const emittedEvents: any[] = [];
-    ctx.events.on((event) => {
-      emittedEvents.push(event);
+      });
+      expect(
+        emittedEvents.filter(
+          (event) => (event as { type?: string }).type === 'background.task.terminated',
+        ),
+      ).toEqual([]);
     });
-
-    await background.loadFromDisk();
-    await background.reconcile();
-
-    expect(background.getTask('bash-done0001')).toMatchObject({
-      taskId: 'bash-done0001',
-      status: 'completed',
-    });
-    expect(
-      emittedEvents.filter((event) => event.type === 'background.task.terminated'),
-    ).toEqual([]);
   });
 });

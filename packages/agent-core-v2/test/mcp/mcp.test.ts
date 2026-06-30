@@ -15,8 +15,9 @@ import { IToolExecutor } from '#/toolExecutor';
 import { IToolRegistry } from '#/toolRegistry';
 import { ToolRegistryService } from '#/toolRegistry/toolRegistryService';
 import { ITurnService } from '#/turn';
+import { IProfileService } from '#/profile';
 
-import { testAgent } from '../harness';
+import { createTestAgent, mcpServices, type TestAgentContext } from '../harness';
 import { stubTurnWithHooks } from '../turn/stubs';
 import { discoverTools, executeTool, fakeMcpClient } from './stubs';
 
@@ -470,15 +471,32 @@ describe('McpService', () => {
 });
 
 describe('McpService + ProfileService', () => {
+  let ctx: TestAgentContext;
+  let manager: FakeMcpManager;
+  let profile: IProfileService;
+
+  beforeEach(() => {
+    manager = new FakeMcpManager();
+    ctx = createTestAgent(mcpServices({ manager: manager as unknown as McpConnectionManager }));
+    const mcp = ctx.get(IMcpService);
+    mcp.list();
+    profile = ctx.get(IProfileService);
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
   it('gates MCP tools by the active profile', async () => {
-    const manager = new FakeMcpManager();
     const client = fakeMcpClient();
     manager.setResolved('local', client, await discoverTools(client));
-    const ctx = testAgent({ mcp: { manager: manager as unknown as McpConnectionManager } });
-    ctx.get(IMcpService);
     manager.connect('local');
 
-    ctx.configure({ tools: ['Read'] });
+    profile.update({ activeToolNames: ['Read'] });
     expect(
       ctx.toolsData()
         .filter((tool) => tool.source === 'mcp')
@@ -488,7 +506,7 @@ describe('McpService + ProfileService', () => {
       { name: 'mcp__local__noop', active: false },
     ]);
 
-    ctx.configure({ tools: ['Read', 'mcp__*'] });
+    profile.update({ activeToolNames: ['Read', 'mcp__*'] });
     expect(
       ctx.toolsData()
         .filter((tool) => tool.source === 'mcp')
@@ -500,25 +518,22 @@ describe('McpService + ProfileService', () => {
   });
 
   it('supports server-scoped and exact MCP active-tool patterns', async () => {
-    const manager = new FakeMcpManager();
     const githubClient = fakeMcpClient();
     const slackClient = fakeMcpClient();
     manager.setResolved('github', githubClient, await discoverTools(githubClient));
     manager.setResolved('slack', slackClient, await discoverTools(slackClient));
-    const ctx = testAgent({ mcp: { manager: manager as unknown as McpConnectionManager } });
-    ctx.get(IMcpService);
     manager.connect('github');
     manager.connect('slack');
 
-    ctx.configure({ tools: ['mcp__github__*'] });
+    profile.update({ activeToolNames: ['mcp__github__*'] });
     expect(
       ctx.toolsData()
         .filter((tool) => tool.source === 'mcp' && tool.active)
         .map((tool) => tool.name)
-        .toSorted(),
+      .toSorted(),
     ).toEqual(['mcp__github__echo', 'mcp__github__noop']);
 
-    ctx.configure({ tools: ['mcp__slack__echo'] });
+    profile.update({ activeToolNames: ['mcp__slack__echo'] });
     expect(
       ctx.toolsData()
         .filter((tool) => tool.source === 'mcp' && tool.active)

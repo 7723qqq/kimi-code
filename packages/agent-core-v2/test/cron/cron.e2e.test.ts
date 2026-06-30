@@ -12,11 +12,10 @@ import { CronCreateTool } from '#/cron/tools/cron-create';
 import { CronDeleteTool } from '#/cron/tools/cron-delete';
 import { CronListTool } from '#/cron/tools/cron-list';
 import type { ExecutableToolOutput } from '#/tool';
-import {
-  IPromptService,
-  type ContextMessage,
-} from '#/index';
-import { testAgent, type TestAgentContext } from '../harness';
+import type { ContextMessage } from '#/contextMemory';
+import { ICronService } from '#/cron';
+import { IPromptService } from '#/prompt';
+import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 
 // Local-time anchor (cron-expr matches on local fields, so a UTC anchor
 // would shift the result by the host's offset). At noon + 15 min the
@@ -50,6 +49,8 @@ function outputText(out: ExecutableToolOutput): string {
 
 describe('Cron — session E2E (P1.9)', () => {
   let ctx: TestAgentContext;
+  let cron: ICronService;
+  let prompt: IPromptService;
   let harness: ReturnType<typeof createClocks>;
 
   beforeEach(() => {
@@ -61,24 +62,23 @@ describe('Cron — session E2E (P1.9)', () => {
     // that widens the jitter window past 10 minutes.
     vi.stubEnv('KIMI_CRON_NO_JITTER', '1');
     harness = createClocks();
-    ctx = testAgent({
-      cron: {
-        autoStart: false,
-        clocks: harness.clocks,
-        pollIntervalMs: null,
-      },
-    });
-    ctx.configure();
-    ctx.cron.start();
+    ctx = createTestAgent(cronServices({
+      autoStart: false,
+      clocks: harness.clocks,
+      pollIntervalMs: null,
+    }));
+    cron = ctx.get(ICronService);
+    prompt = ctx.get(IPromptService);
+    cron.start();
   });
 
   afterEach(async () => {
-    // The harness's `onTestFinished` cleanup already calls
-    // `ctx.close()`, but doing it here as well keeps the test
-    // self-contained against future harness changes and ensures the
-    // SIGUSR1 handler (if any) is unbound before the next test.
-    await ctx.cron.stop();
-    vi.unstubAllEnvs();
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+      vi.unstubAllEnvs();
+    }
   });
 
   it('recurring */5 task advances 15min → exactly one steer with coalescedCount=3', async () => {
@@ -88,7 +88,7 @@ describe('Cron — session E2E (P1.9)', () => {
       readonly content: readonly unknown[];
       readonly origin: unknown;
     }> = [];
-    vi.spyOn(ctx.get(IPromptService), 'steer').mockImplementation((message: ContextMessage) => {
+    vi.spyOn(prompt, 'steer').mockImplementation((message: ContextMessage) => {
       steerCalls.push({ content: message.content, origin: message.origin });
       return {
         id: 1,
@@ -104,7 +104,7 @@ describe('Cron — session E2E (P1.9)', () => {
     // bypass `emitScheduled` telemetry and skip the byte-length /
     // expression checks; that would not be the production code path
     // this commit is meant to smoke.
-    const createTool = new CronCreateTool(ctx.cron);
+    const createTool = new CronCreateTool(cron);
     const execution = createTool.resolveExecution({
       cron: '*/5 * * * *',
       prompt: 'cron-fired prompt',
@@ -121,13 +121,13 @@ describe('Cron — session E2E (P1.9)', () => {
       signal: new AbortController().signal,
     });
     expect(createResult.isError ?? false).toBe(false);
-    expect(ctx.cron.list().length).toBe(1);
+    expect(cron.list().length).toBe(1);
 
     // Advance 15 minutes — exactly three ideal */5 fires across the gap
     // (12:05, 12:10, 12:15). See the file header for the calibration
     // derivation.
     harness.advance(15 * 60_000);
-    ctx.cron.tick();
+    cron.tick();
 
     // ── Steer was called exactly once ─────────────────────────────────
     expect(steerCalls.length).toBe(1);
@@ -157,9 +157,9 @@ describe('Cron — session E2E (P1.9)', () => {
     // Optional second case from the P1.9 plan: prove the three-tool
     // surface composes correctly end-to-end on the real manager. No
     // clock manipulation needed — list/delete are time-invariant.
-    const createTool = new CronCreateTool(ctx.cron);
-    const listTool = new CronListTool(ctx.cron);
-    const deleteTool = new CronDeleteTool(ctx.cron);
+    const createTool = new CronCreateTool(cron);
+    const listTool = new CronListTool(cron);
+    const deleteTool = new CronDeleteTool(cron);
     const ctxArgs = {
       turnId: 'p19-tools',
       toolCallId: 'p19-tools-call',

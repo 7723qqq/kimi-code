@@ -2,16 +2,16 @@ import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 
 import type { KaosProcess } from '@moonshot-ai/kaos';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AgentBackgroundTask,
-  BackgroundTaskPersistence,
-  type IBackgroundService,
+  IBackgroundService,
   ProcessBackgroundTask,
 } from '#/background';
 import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
-import { testAgent } from '../harness';
+import { createTestAgent, type TestAgentContext } from '../harness';
+import { createBackgroundTaskPersistence } from './stubs';
 
 function registerProcess(
   manager: IBackgroundService,
@@ -57,26 +57,40 @@ function pendingProcess(): KaosProcess {
 }
 
 describe('background task id format', () => {
+  let ctx: TestAgentContext;
+  let background: IBackgroundService;
+
+  beforeEach(() => {
+    ctx = createTestAgent();
+    background = ctx.get(IBackgroundService);
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
   it('assigns bash-prefixed ids to process tasks', () => {
-    const manager = testAgent().background;
-    const id = registerProcess(manager, pendingProcess(), 'sleep 60', 'process task');
+    const id = registerProcess(background, pendingProcess(), 'sleep 60', 'process task');
 
     expect(id).toMatch(/^bash-[0-9a-z]{8}$/);
-    expect(manager.getTask(id)).toMatchObject({ taskId: id, kind: 'process' });
+    expect(background.getTask(id)).toMatchObject({ taskId: id, kind: 'process' });
   });
 
   it('assigns agent-prefixed ids to agent tasks', () => {
-    const manager = testAgent().background;
-    const id = manager.registerTask(
+    const id = background.registerTask(
       agentTask(new Promise(() => {}), 'agent task'),
     );
 
     expect(id).toMatch(/^agent-[0-9a-z]{8}$/);
-    expect(manager.getTask(id)).toMatchObject({ taskId: id, kind: 'agent' });
+    expect(background.getTask(id)).toMatchObject({ taskId: id, kind: 'agent' });
   });
 
   it('rejects malformed ids at the persistence path boundary', () => {
-    const persistence = new BackgroundTaskPersistence('/tmp/kimi-bg-id-test');
+    const persistence = createBackgroundTaskPersistence('/tmp/kimi-bg-id-test');
     const rejected = [
       '',
       'x',

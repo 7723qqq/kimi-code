@@ -3,11 +3,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
 import type { ToolCall } from '@moonshot-ai/kosong';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IReplayBuilderService } from '#/index';
+import { IContextMemory } from '#/contextMemory';
+import { IEventSink } from '#/eventSink';
+import { IProfileService } from '#/profile';
+import { IReplayBuilderService } from '#/replayBuilder';
 import { SessionSkillRegistry, type SkillCatalog, type SkillDefinition } from '#/skill';
-import { InMemoryWireRecordPersistence, testAgent } from '../harness';
+import { IToolRegistry } from '#/toolRegistry';
+import {
+  InMemoryWireRecordPersistence,
+  createTestAgent,
+  kaosServices,
+  skillServices,
+  telemetryServices,
+  wireRecordPersistenceServices,
+  type TestAgentContext,
+} from '../harness';
 import { recordingTelemetry } from '../telemetry/stubs';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import { stubSkill } from './stubs';
@@ -43,35 +55,90 @@ function isRecordWithMessages(
 }
 
 describe('ToolManager SkillTool registration', () => {
+  let ctx: TestAgentContext;
+  let profile: IProfileService;
+  let tools: IToolRegistry;
+
+  beforeEach(() => {
+    ctx = createTestAgent();
+    profile = ctx.get(IProfileService);
+    tools = ctx.get(IToolRegistry);
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
   it('does not expose Skill when the agent has no skill registry', () => {
-    const ctx = testAgent();
-    ctx.configure({ tools: ['Skill'] });
+    profile.update({ activeToolNames: ['Skill'] });
 
     expect(ctx.toolsData().find((tool) => tool.name === 'Skill')).toBeUndefined();
-    expect(ctx.tools.resolve('Skill')).toBeUndefined();
+    expect(tools.resolve('Skill')).toBeUndefined();
+  });
+});
+
+describe('ToolManager SkillTool registration with an empty model skill catalog', () => {
+  let ctx: TestAgentContext;
+  let profile: IProfileService;
+  let tools: IToolRegistry;
+  let skills: SessionSkillRegistry;
+
+  beforeEach(() => {
+    skills = new SessionSkillRegistry();
+    skills.register(makeSkill('private', { disableModelInvocation: true }));
+    ctx = createTestAgent(skillServices(skills));
+    profile = ctx.get(IProfileService);
+    tools = ctx.get(IToolRegistry);
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
   });
 
   it('does not expose Skill when there are no model-invocable skills', () => {
-    const skills = new SessionSkillRegistry();
-    skills.register(makeSkill('private', { disableModelInvocation: true }));
-
-    const ctx = testAgent({ skills });
-    ctx.configure({ tools: ['Skill'] });
+    profile.update({ activeToolNames: ['Skill'] });
 
     expect(ctx.toolsData().find((tool) => tool.name === 'Skill')).toBeUndefined();
-    expect(ctx.tools.resolve('Skill')).toBeUndefined();
+    expect(tools.resolve('Skill')).toBeUndefined();
+  });
+});
+
+describe('ToolManager SkillTool registration with inline skills', () => {
+  let ctx: TestAgentContext;
+  let profile: IProfileService;
+  let tools: IToolRegistry;
+  let skills: SessionSkillRegistry;
+
+  beforeEach(() => {
+    skills = new SessionSkillRegistry();
+    skills.register(makeSkill('review'));
+    skills.register(makeSkill('flow-only', { type: 'flow' }));
+    ctx = createTestAgent(skillServices(skills));
+    profile = ctx.get(IProfileService);
+    tools = ctx.get(IToolRegistry);
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
   });
 
   it('exposes Skill when at least one inline skill is model-invocable', () => {
-    const skills = new SessionSkillRegistry();
-    skills.register(makeSkill('review'));
-    skills.register(makeSkill('flow-only', { type: 'flow' }));
-
-    const ctx = testAgent({ skills });
-    ctx.configure({ tools: ['Skill'] });
+    profile.update({ activeToolNames: ['Skill'] });
 
     const skillInfo = ctx.toolsData().find((tool) => tool.name === 'Skill');
-    const skillTool = ctx.tools.resolve('Skill');
+    const skillTool = tools.resolve('Skill');
 
     expect(skillInfo).toMatchObject({ name: 'Skill', active: true, source: 'builtin' });
     expect(skillTool).toMatchObject({
@@ -79,10 +146,17 @@ describe('ToolManager SkillTool registration', () => {
       description: expect.stringContaining('Invoke a registered skill'),
     });
   });
+});
 
-  it('accepts a structural skill registry implementation', () => {
+describe('ToolManager SkillTool registration with a structural catalog', () => {
+  let ctx: TestAgentContext;
+  let profile: IProfileService;
+  let tools: IToolRegistry;
+  let skills: SkillCatalog;
+
+  beforeEach(() => {
     const skill = makeSkill('review');
-    const skills: SkillCatalog = {
+    skills = {
       getSkill: (name) => (name === skill.name ? skill : undefined),
       getPluginSkill: () => undefined,
       renderSkillPrompt: () => skill.content,
@@ -90,21 +164,56 @@ describe('ToolManager SkillTool registration', () => {
       getSkillRoots: () => ['/skills/review'],
       getModelSkillListing: () => '- review: desc for review',
     };
+    ctx = createTestAgent(skillServices(skills));
+    profile = ctx.get(IProfileService);
+    tools = ctx.get(IToolRegistry);
+  });
 
-    const ctx = testAgent({ skills });
-    ctx.configure({ tools: ['Skill'] });
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it('accepts a structural skill registry implementation', () => {
+    profile.update({ activeToolNames: ['Skill'] });
 
     expect(skills.getSkillRoots()).toEqual(['/skills/review']);
-    expect(ctx.tools.resolve('Skill')).toMatchObject({ name: 'Skill' });
+    expect(tools.resolve('Skill')).toMatchObject({ name: 'Skill' });
+  });
+});
+
+describe('ToolManager SkillTool wire behavior', () => {
+  let ctx: TestAgentContext;
+  let context: IContextMemory;
+  let profile: IProfileService;
+  let persistence: InMemoryWireRecordPersistence;
+  let skills: SessionSkillRegistry;
+
+  beforeEach(() => {
+    skills = new SessionSkillRegistry();
+    skills.register(makeSkill('review'));
+    persistence = new InMemoryWireRecordPersistence();
+    ctx = createTestAgent(
+      skillServices(skills),
+      wireRecordPersistenceServices(persistence),
+    );
+    context = ctx.get(IContextMemory);
+    profile = ctx.get(IProfileService);
+    profile.update({ activeToolNames: ['Skill'] });
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
   });
 
   it('persists model-invoked inline skill reminders through agent wire', async () => {
-    const skills = new SessionSkillRegistry();
-    skills.register(makeSkill('review'));
-    const persistence = new InMemoryWireRecordPersistence();
-    const ctx = testAgent({ skills, persistence });
-    ctx.configure({ tools: ['Skill'] });
-
     const skillCall: ToolCall = {
       type: 'function',
       id: 'call_skill',
@@ -152,11 +261,11 @@ describe('ToolManager SkillTool registration', () => {
         trigger: 'model-tool',
       },
     });
-    expect(ctx.context.getHistory().at(-1)).toMatchObject({
+    expect(context.get().at(-1)).toMatchObject({
       role: 'assistant',
       content: [{ type: 'text', text: 'Review skill loaded.' }],
     });
-    expect(ctx.context.getHistory().at(-2)).toMatchObject({
+    expect(context.get().at(-2)).toMatchObject({
       role: 'user',
       origin: {
         kind: 'skill_activation',
@@ -164,17 +273,40 @@ describe('ToolManager SkillTool registration', () => {
       },
     });
   });
+});
 
-  it('restores skill activation records before the skill service is otherwise used', async () => {
-    const skills = new SessionSkillRegistry();
+describe('ToolManager SkillTool restore behavior', () => {
+  let ctx: TestAgentContext;
+  let context: IContextMemory;
+  let replay: IReplayBuilderService;
+  let skills: SessionSkillRegistry;
+  let emit: ReturnType<typeof vi.spyOn>;
+  let track: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    skills = new SessionSkillRegistry();
     skills.register(makeSkill('review'));
     const telemetry = recordingTelemetry([]);
-    const track = vi.spyOn(telemetry, 'track');
-    const ctx = testAgent({
-      skills,
-      telemetry,
-    });
-    const emit = vi.spyOn(ctx.events, 'emit');
+    track = vi.spyOn(telemetry, 'track');
+    ctx = createTestAgent(
+      skillServices(skills),
+      telemetryServices(telemetry),
+    );
+    context = ctx.get(IContextMemory);
+    const events = ctx.get(IEventSink);
+    replay = ctx.get(IReplayBuilderService);
+    emit = vi.spyOn(events, 'emit');
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it('restores skill activation records before the skill service is otherwise used', async () => {
     const origin = {
       kind: 'skill_activation' as const,
       activationId: 'act_restore_skill',
@@ -191,7 +323,7 @@ describe('ToolManager SkillTool registration', () => {
       origin,
     };
 
-    await ctx.runtime.restore([
+    await ctx.restore([
       { type: 'skill.activate', origin },
       {
         type: 'context.splice',
@@ -214,8 +346,8 @@ describe('ToolManager SkillTool registration', () => {
       expect.objectContaining({ type: '[rpc]', event: 'skill.activated' }),
     );
     expect(track).not.toHaveBeenCalledWith('skill_invoked', expect.anything());
-    expect(ctx.context.getHistory()).toMatchObject([message]);
-    expect(ctx.get(IReplayBuilderService).buildResult()).toContainEqual(
+    expect(context.get()).toMatchObject([message]);
+    expect(replay.buildResult()).toContainEqual(
       expect.objectContaining({
         type: 'message',
         message: expect.objectContaining({
@@ -229,38 +361,56 @@ describe('ToolManager SkillTool registration', () => {
       }),
     );
   });
+});
 
-  it('exposes session skills after the main agent is created', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'kimi-core-skill-tool-refresh-'));
+describe('ToolManager SkillTool workspace refresh', () => {
+  let ctx: TestAgentContext;
+  let profile: IProfileService;
+  let tmp: string;
+  let tools: IToolRegistry;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'kimi-core-skill-tool-refresh-'));
+    const workDir = join(tmp, 'work');
+    const skillDir = join(workDir, '.kimi-code', 'skills', 'review');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      ['---', 'name: review', 'description: Review code', '---', '', 'Review body.'].join('\n'),
+    );
+
+    const skills = new SessionSkillRegistry();
+    const skill = {
+      ...makeSkill('review'),
+      description: 'Review code',
+      path: join(skillDir, 'SKILL.md'),
+      dir: skillDir,
+      content: 'Review body.',
+    };
+    skills.register(skill);
+
+    ctx = createTestAgent(
+      kaosServices(createFakeKaos().withCwd(workDir)),
+      skillServices(skills),
+    );
+    profile = ctx.get(IProfileService);
+    tools = ctx.get(IToolRegistry);
+    profile.update({ activeToolNames: ['Skill'] });
+  });
+
+  afterEach(async () => {
     try {
-      const homeDir = join(tmp, 'home');
-      const workDir = join(tmp, 'work');
-      const skillDir = join(workDir, '.kimi-code', 'skills', 'review');
-      await mkdir(skillDir, { recursive: true });
-      await writeFile(
-        join(skillDir, 'SKILL.md'),
-        ['---', 'name: review', 'description: Review code', '---', '', 'Review body.'].join('\n'),
-      );
-
-      const skills = new SessionSkillRegistry();
-      const skill = {
-        ...makeSkill('review'),
-        description: 'Review code',
-        path: join(skillDir, 'SKILL.md'),
-        dir: skillDir,
-        content: 'Review body.',
-      };
-      skills.register(skill);
-
-      const ctx = testAgent({
-        kaos: createFakeKaos().withCwd(workDir),
-        skills,
-      });
-      ctx.configure({ tools: ['Skill'] });
-
-      expect(ctx.tools.resolve('Skill')).toMatchObject({ name: 'Skill' });
+      await ctx.expectResumeMatches();
     } finally {
-      await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
+      try {
+        await ctx.dispose();
+      } finally {
+        await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
+      }
     }
+  });
+
+  it('exposes session skills after the main agent is created', () => {
+    expect(tools.resolve('Skill')).toMatchObject({ name: 'Skill' });
   });
 });

@@ -3,24 +3,20 @@
  *
  * Owns the agent's registry of running and restored background tasks:
  * registers and drives tasks to completion, retains a bounded output ring,
- * persists task state and output through the `background` persistence helper
- * (over the `storage` stores, namespaced by the session from
- * `session-context`), records lifecycle through `wireRecord`, delivers
+ * persists task state and output through `background` persistence, reads
+ * limits through `config`, records lifecycle through `wireRecord`, delivers
  * terminal notifications through `contextMemory`, and broadcasts through
  * `eventSink`. Bound at Agent scope.
  */
 
-import {
-  randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
 
-import {
-  Disposable,
-} from "#/_base/di";
-import { escapeXml, escapeXmlAttr } from "#/_base/utils/xml-escape";
+import { Disposable } from '#/_base/di';
+import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
 import type { BackgroundTaskOrigin } from '#/contextMemory';
 import { renderNotificationXml } from '#/contextMemory/notification-xml';
 import {
@@ -30,7 +26,7 @@ import {
 } from './task';
 
 import { IContextMemory } from '#/contextMemory';
-import { IConfigRegistry } from '#/config';
+import { IConfigRegistry, IConfigService } from '#/config';
 import { IEventSink } from '../eventSink';
 import { IExternalHooksService } from '#/externalHooks';
 import { IPromptService } from '#/prompt';
@@ -41,9 +37,7 @@ import type { WireRecord } from '#/wireRecord';
 import { IWireRecord } from '#/wireRecord';
 import {
   IBackgroundService,
-  BackgroundTaskPersistence,
   type BackgroundLoadOptions,
-  type BackgroundServiceOptions,
   type BackgroundTask,
   type BackgroundTaskInfo,
   type BackgroundTaskOutputSnapshot,
@@ -51,7 +45,8 @@ import {
   type ForegroundTaskReleaseReason,
   type RegisterBackgroundTaskOptions,
 } from './background';
-import { BACKGROUND_SECTION, BackgroundConfigSchema } from './configSection';
+import { BACKGROUND_SECTION, type BackgroundConfig, BackgroundConfigSchema } from './configSection';
+import { BackgroundTaskPersistence } from './persist';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -131,11 +126,9 @@ export class BackgroundService extends Disposable implements IBackgroundService 
   private readonly ghosts = new Map<string, BackgroundTaskInfo>();
   private readonly scheduledNotificationKeys = new Set<string>();
   private readonly deliveredNotificationKeys = new Set<string>();
-  private persistence: BackgroundTaskPersistence | undefined;
-  private maxRunningTasks: number | undefined;
+  private readonly persistence: BackgroundTaskPersistence;
 
   constructor(
-    options: BackgroundServiceOptions = {},
     @IEventSink private readonly events: IEventSink,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -143,14 +136,19 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @IContextMemory private readonly context: IContextMemory,
     @IConfigRegistry configRegistry: IConfigRegistry,
-    @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
-    @IStorageService private readonly byteStore: IStorageService,
-    @ISessionContext private readonly session: ISessionContext,
+    @IConfigService private readonly config: IConfigService,
+    @IAtomicDocumentStore atomicDocs: IAtomicDocumentStore,
+    @IStorageService byteStore: IStorageService,
+    @ISessionContext session: ISessionContext,
   ) {
     super();
     configRegistry.registerSection(BACKGROUND_SECTION, BackgroundConfigSchema);
-    this.persistence = options.persistence ?? this.createDefaultPersistence();
-    this.maxRunningTasks = options.maxRunningTasks;
+    this.persistence = new BackgroundTaskPersistence(
+      session.sessionDir,
+      session.metaScope.replace(/\/session-meta$/, ''),
+      atomicDocs,
+      byteStore,
+    );
     this._register(
       wireRecord.register('background.task.started', (record) => {
         this.applyRestoredTask(record);
@@ -281,7 +279,6 @@ export class BackgroundService extends Disposable implements IBackgroundService 
 
   async loadFromDisk(options: BackgroundLoadOptions = {}): Promise<void> {
     const persistence = this.persistence;
-    if (persistence === undefined) return;
     if (options.replace !== false) {
       this.ghosts.clear();
     }
@@ -311,7 +308,7 @@ export class BackgroundService extends Disposable implements IBackgroundService 
 
     const previewLimit = Math.max(0, Math.trunc(maxPreviewBytes));
     const persistence = this.persistence;
-    if (persistence !== undefined && (await persistence.taskOutputExists(taskId))) {
+    if (await persistence.taskOutputExists(taskId)) {
       const outputSizeBytes = await persistence.taskOutputSizeBytes(taskId);
       const previewOffset = Math.max(0, outputSizeBytes - previewLimit);
       const previewBytes = outputSizeBytes - previewOffset;
@@ -507,9 +504,12 @@ export class BackgroundService extends Disposable implements IBackgroundService 
   }
 
   private assertCanRegister(startedInBackground: boolean): void {
-    if (this.maxRunningTasks === undefined) return;
+    const maxRunningTasks = this.config.get<BackgroundConfig | undefined>(
+      BACKGROUND_SECTION,
+    )?.maxRunningTasks;
+    if (maxRunningTasks === undefined) return;
     if (!startedInBackground) return;
-    if (this.activeTaskCount() < this.maxRunningTasks) return;
+    if (this.activeTaskCount() < maxRunningTasks) return;
     throw new Error('Too many background tasks are already running.');
   }
 
@@ -548,27 +548,14 @@ export class BackgroundService extends Disposable implements IBackgroundService 
         endedAt: info.endedAt ?? Date.now(),
       };
       this.ghosts.set(taskId, updated);
-      if (persistence !== undefined) {
-        await persistence.writeTask(updated);
-      }
+      await persistence.writeTask(updated);
       lostTasks.push(updated);
     }
     return lostTasks;
   }
 
-  private createDefaultPersistence(): BackgroundTaskPersistence {
-    const sessionScope = this.session.metaScope.replace(/\/session-meta$/, '');
-    return new BackgroundTaskPersistence(
-      this.session.sessionDir,
-      sessionScope,
-      this.atomicDocs,
-      this.byteStore,
-    );
-  }
-
   private persistLive(entry: ManagedTask): Promise<void> {
     const persistence = this.persistence;
-    if (persistence === undefined) return Promise.resolve();
     const info = this.toInfo(entry);
     entry.persistWriteQueue = entry.persistWriteQueue
       .then(() => persistence.writeTask(info))
@@ -581,8 +568,6 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     entry.outputSizeBytes += chunkBytes;
     this.appendRetainedOutput(entry, chunk, chunkBytes);
 
-    const persistence = this.persistence;
-    if (persistence === undefined) return;
     if (!entry.outputPersistStarted) {
       entry.pendingOutput.push(chunk);
       entry.pendingOutputBytes += chunkBytes;
@@ -596,7 +581,6 @@ export class BackgroundService extends Disposable implements IBackgroundService 
 
   private appendTaskOutput(entry: ManagedTask, chunk: string): void {
     const persistence = this.persistence;
-    if (persistence === undefined) return;
     entry.outputWriteQueue = entry.outputWriteQueue
       .then(() => persistence.appendTaskOutput(entry.taskId, chunk))
       .catch(() => { });

@@ -15,11 +15,19 @@ import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  BackgroundTaskPersistence,
-  type IBackgroundService,
+  IBackgroundService,
   ProcessBackgroundTask,
 } from '#/background';
-import { testAgent, type TestAgentContext } from '../harness';
+import {
+  backgroundServices,
+  createTestAgent,
+  homeDirServices,
+  type TestAgentContext,
+} from '../harness';
+import {
+  BACKGROUND_TEST_SESSION_SCOPE,
+  createBackgroundTaskPersistence,
+} from './stubs';
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
@@ -83,63 +91,71 @@ function registerForeground(
 
 describe('BackgroundManager — foreground persistence', () => {
   let sessionDir: string;
-  let persistence: BackgroundTaskPersistence;
+  let persistence: ReturnType<typeof createBackgroundTaskPersistence>;
   let ctx: TestAgentContext;
+  let background: IBackgroundService;
 
   beforeEach(() => {
     sessionDir = mkdtempSync(join(tmpdir(), 'bpm-fg-'));
-    persistence = new BackgroundTaskPersistence(sessionDir);
-    ctx = testAgent({ background: { persistence } });
+    persistence = createBackgroundTaskPersistence(sessionDir);
+    ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
+    background = ctx.get(IBackgroundService);
   });
 
-  afterEach(() => {
-    rmSync(sessionDir, { recursive: true, force: true });
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+      rmSync(sessionDir, { recursive: true, force: true });
+    }
   });
 
-  const taskJsonPath = (taskId: string): string => join(sessionDir, 'tasks', `${taskId}.json`);
+  const taskJsonPath = (taskId: string): string =>
+    join(sessionDir, BACKGROUND_TEST_SESSION_SCOPE, 'tasks', `${taskId}.json`);
 
   it('writes nothing to disk for a foreground task that does not spill or detach', async () => {
-    const taskId = registerForeground(ctx.background, immediateProcess(0, 'hello\n'), 'echo', 'demo');
+    const taskId = registerForeground(background, immediateProcess(0, 'hello\n'), 'echo', 'demo');
 
-    await ctx.background.wait(taskId);
+    await background.wait(taskId);
 
     expect(existsSync(taskJsonPath(taskId))).toBe(false);
     expect(existsSync(persistence.taskOutputFile(taskId))).toBe(false);
 
     // Output is still readable from the in-memory ring buffer.
-    const snapshot = await ctx.background.getOutputSnapshot(taskId, 1_000);
+    const snapshot = await background.getOutputSnapshot(taskId, 1_000);
     expect(snapshot.fullOutputAvailable).toBe(false);
     expect(snapshot.preview).toContain('hello');
   });
 
   it('flushes complete pre-detach output to disk when a foreground task detaches', async () => {
     const { proc, pushStdout, finish } = controllableProcess();
-    const taskId = registerForeground(ctx.background, proc, 'stream', 'demo');
+    const taskId = registerForeground(background, proc, 'stream', 'demo');
 
     pushStdout('before-detach\n');
     await tick(); // buffered in memory, not yet on disk
     expect(existsSync(persistence.taskOutputFile(taskId))).toBe(false);
 
-    expect(ctx.background.detach(taskId)?.detached).toBe(true);
+    expect(background.detach(taskId)?.detached).toBe(true);
 
     pushStdout('after-detach\n');
     await tick();
     finish(0);
-    await ctx.background.wait(taskId);
+    await background.wait(taskId);
 
     // output.log is the complete, in-order record across the detach boundary.
-    expect(await ctx.background.readOutput(taskId)).toBe('before-detach\nafter-detach\n');
+    expect(await background.readOutput(taskId)).toBe('before-detach\nafter-detach\n');
     expect(existsSync(taskJsonPath(taskId))).toBe(true);
   });
 
   it('spills to disk and keeps the log when foreground output exceeds the buffer', async () => {
     const big = 'a'.repeat(MAX_OUTPUT_BYTES + 1024);
-    const taskId = registerForeground(ctx.background, immediateProcess(0, big), 'flood', 'demo');
+    const taskId = registerForeground(background, immediateProcess(0, big), 'flood', 'demo');
 
-    await ctx.background.wait(taskId);
+    await background.wait(taskId);
 
     // getOutputSnapshot drains the output write queue before reporting size.
-    const snapshot = await ctx.background.getOutputSnapshot(taskId, 1_000);
+    const snapshot = await background.getOutputSnapshot(taskId, 1_000);
 
     // Spilled artifacts are persisted complete and NOT deleted on completion.
     expect(existsSync(persistence.taskOutputFile(taskId))).toBe(true);

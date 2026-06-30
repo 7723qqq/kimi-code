@@ -1,32 +1,68 @@
-import { describe, expect, it, vi } from 'vitest';
 import { emptyUsage } from '@moonshot-ai/kosong';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ModelResolver } from '#/modelRuntime';
-import { ILLMRequester } from '../../../src/services/agent';
-import { stubConfig, stubOAuth } from '../modelRuntime/stubs';
-import { testAgent } from './harness';
+import { ILLMRequester } from '#/llmRequester';
+import { IProfileService } from '#/profile';
+import {
+  configServices,
+  createTestAgent,
+  llmGenerateServices,
+  modelProviderOptionServices,
+  type TestAgentContext,
+} from '../harness';
+
+type TestKimiConfig = ReturnType<Parameters<typeof configServices>[0]>;
+type GenerateFn = Parameters<typeof llmGenerateServices>[0];
+
+function defaultGenerate(): ReturnType<GenerateFn> {
+  throw new Error('generate should not be called');
+}
 
 describe('ConfigState model capabilities', () => {
-  it('computes provider and model capabilities from ModelResolver metadata', () => {
-    const ctx = testAgent({
-      modelResolver: new ModelResolver(stubConfig({
-          providers: {
-            kimi: {
-              type: 'kimi',
-              apiKey: 'test-key',
-            },
-          },
-          models: {
-            'kimi-code/kimi-for-coding': {
-              provider: 'kimi',
-              model: 'kimi-for-coding',
-              maxContextSize: 1_000_000,
-              capabilities: ['image_in', 'video_in', 'thinking', 'tool_use'],
-            },
-          },
-        }), stubOAuth()),
-    });
-    const profile = ctx.profile;
+  let ctx: TestAgentContext;
+  let profile: IProfileService;
+  let requester: ILLMRequester;
+  let kimiConfig: TestKimiConfig;
+  let generate: GenerateFn;
+
+  beforeEach(() => {
+    kimiConfig = {
+      providers: {},
+    };
+    generate = defaultGenerate;
+    ctx = createTestAgent(
+      configServices(() => kimiConfig),
+      llmGenerateServices((...args) => generate(...args)),
+    );
+    profile = ctx.get(IProfileService);
+    requester = ctx.get(ILLMRequester);
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it('computes provider and model capabilities from config metadata', () => {
+    kimiConfig = {
+      providers: {
+        kimi: {
+          type: 'kimi',
+          apiKey: 'test-key',
+        },
+      },
+      models: {
+        'kimi-code/kimi-for-coding': {
+          provider: 'kimi',
+          model: 'kimi-for-coding',
+          maxContextSize: 1_000_000,
+          capabilities: ['image_in', 'video_in', 'thinking', 'tool_use'],
+        },
+      },
+    };
 
     profile.update({ modelAlias: 'kimi-code/kimi-for-coding' });
 
@@ -43,24 +79,21 @@ describe('ConfigState model capabilities', () => {
   });
 
   it('does not infer Kimi capabilities from the provider catalogue', () => {
-    const ctx = testAgent({
-      modelResolver: new ModelResolver(stubConfig({
-          providers: {
-            kimi: {
-              type: 'kimi',
-              apiKey: 'test-key',
-            },
-          },
-          models: {
-            'kimi-code': {
-              provider: 'kimi',
-              model: 'kimi-code',
-              maxContextSize: 128_000,
-            },
-          },
-        }), stubOAuth()),
-    });
-    const profile = ctx.profile;
+    kimiConfig = {
+      providers: {
+        kimi: {
+          type: 'kimi',
+          apiKey: 'test-key',
+        },
+      },
+      models: {
+        'kimi-code': {
+          provider: 'kimi',
+          model: 'kimi-code',
+          maxContextSize: 128_000,
+        },
+      },
+    };
 
     profile.update({ modelAlias: 'kimi-code' });
 
@@ -74,75 +107,86 @@ describe('ConfigState model capabilities', () => {
 
   it('uses model max output size as the LLM completion cap', async () => {
     let requestMaxTokens: unknown;
-    const ctx = testAgent({
-      generate: async (provider) => {
-        requestMaxTokens = (
-          provider as unknown as { readonly modelParameters: Record<string, unknown> }
-        ).modelParameters['max_tokens'];
-        return {
-          id: 'response-1',
-          message: { role: 'assistant', content: [], toolCalls: [] },
-          usage: emptyUsage(),
-          finishReason: 'completed',
-          rawFinishReason: 'stop',
-        };
+    kimiConfig = {
+      providers: {
+        deepseek: {
+          type: 'openai',
+          apiKey: 'test-key',
+          baseUrl: 'https://api.deepseek.example/v1',
+        },
       },
-      modelResolver: new ModelResolver(stubConfig({
-          providers: {
-            deepseek: {
-              type: 'openai',
-              apiKey: 'test-key',
-              baseUrl: 'https://api.deepseek.example/v1',
-            },
-          },
-          models: {
-            'deepseek/deepseek-v4-flash': {
-              provider: 'deepseek',
-              model: 'deepseek-v4-flash',
-              maxContextSize: 1_000_000,
-              maxOutputSize: 384000,
-            },
-          },
-        }), stubOAuth()),
-    });
+      models: {
+        'deepseek/deepseek-v4-flash': {
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          maxContextSize: 1_000_000,
+          maxOutputSize: 384000,
+        },
+      },
+    };
+    generate = async (provider) => {
+      requestMaxTokens = (
+        provider as unknown as { readonly modelParameters: Record<string, unknown> }
+      ).modelParameters['max_tokens'];
+      return {
+        id: 'response-1',
+        message: { role: 'assistant', content: [], toolCalls: [] },
+        usage: emptyUsage(),
+        finishReason: 'completed',
+        rawFinishReason: 'stop',
+      };
+    };
 
-    ctx.profile.update({
+    profile.update({
       modelAlias: 'deepseek/deepseek-v4-flash',
       systemPrompt: 'system',
       thinkingLevel: 'off',
     });
-    const requester = ctx.get(ILLMRequester);
     for await (const _ of requester.request({}, new AbortController().signal)) {
       // consume to trigger generate
     }
 
     expect(requestMaxTokens).toBe(384000);
   });
+});
+
+describe('ConfigState prompt cache hint', () => {
+  let ctx: TestAgentContext;
+  let profile: IProfileService;
+  let kimiConfig: TestKimiConfig;
+
+  beforeEach(() => {
+    kimiConfig = {
+      providers: {
+        kimi: {
+          type: 'kimi',
+          apiKey: 'test-key',
+        },
+      },
+      models: {
+        'kimi-code': {
+          provider: 'kimi',
+          model: 'kimi-code',
+          maxContextSize: 128_000,
+        },
+      },
+    };
+    ctx = createTestAgent(
+      configServices(() => kimiConfig),
+      modelProviderOptionServices({ promptCacheKey: 'session-test' }),
+    );
+    profile = ctx.get(IProfileService);
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
 
   it('uses session id as a provider prompt cache hint without storing it on Agent', () => {
-    const ctx = testAgent({
-      modelResolver: new ModelResolver(
-        stubConfig({
-          providers: {
-            kimi: {
-              type: 'kimi',
-              apiKey: 'test-key',
-            },
-          },
-          models: {
-            'kimi-code': {
-              provider: 'kimi',
-              model: 'kimi-code',
-              maxContextSize: 128_000,
-            },
-          },
-        }),
-        stubOAuth(),
-        { promptCacheKey: 'session-test' },
-      ),
-    });
-    const profile = ctx.profile;
-
     profile.update({ modelAlias: 'kimi-code' });
 
     expect(profile.data().provider).toMatchObject({
@@ -156,40 +200,50 @@ describe('ConfigState model capabilities', () => {
 });
 
 describe('ConfigState thinking clamp for always-thinking models', () => {
-  function alwaysThinkingAgent() {
-    return testAgent({
-      modelResolver: new ModelResolver(stubConfig({
-          providers: { kimi: { type: 'kimi', apiKey: 'test-key' } },
-          models: {
-            'kimi-code/deep': {
-              provider: 'kimi',
-              model: 'kimi-deep-coder',
-              maxContextSize: 128_000,
-              capabilities: ['thinking', 'always_thinking', 'tool_use'],
-            },
-            'kimi-code/toggle': {
-              provider: 'kimi',
-              model: 'kimi-for-coding',
-              maxContextSize: 128_000,
-              capabilities: ['thinking'],
-            },
-          },
-        }), stubOAuth()),
-    });
-  }
+  let ctx: TestAgentContext;
+  let profile: IProfileService;
+  let kimiConfig: TestKimiConfig;
+
+  beforeEach(() => {
+    kimiConfig = {
+      providers: { kimi: { type: 'kimi', apiKey: 'test-key' } },
+      models: {
+        'kimi-code/deep': {
+          provider: 'kimi',
+          model: 'kimi-deep-coder',
+          maxContextSize: 128_000,
+          capabilities: ['thinking', 'always_thinking', 'tool_use'],
+        },
+        'kimi-code/toggle': {
+          provider: 'kimi',
+          model: 'kimi-for-coding',
+          maxContextSize: 128_000,
+          capabilities: ['thinking'],
+        },
+      },
+    };
+    ctx = createTestAgent(configServices(() => kimiConfig));
+    profile = ctx.get(IProfileService);
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
 
   it('clamps thinkingLevel off to the configured effort', () => {
-    const ctx = alwaysThinkingAgent();
-    ctx.profile.update({ modelAlias: 'kimi-code/deep', thinkingLevel: 'off' });
+    profile.update({ modelAlias: 'kimi-code/deep', thinkingLevel: 'off' });
 
-    expect(ctx.profile.data().thinkingLevel).toBe('high');
+    expect(profile.data().thinkingLevel).toBe('high');
   });
 
   it('builds the provider with thinking enabled even after thinking was set off', () => {
-    const ctx = alwaysThinkingAgent();
-    ctx.profile.update({ modelAlias: 'kimi-code/deep', thinkingLevel: 'off' });
+    profile.update({ modelAlias: 'kimi-code/deep', thinkingLevel: 'off' });
 
-    const provider = ctx.profile.getProvider();
+    const provider = profile.getProvider();
     const gen = Reflect.get(provider as object, '_generationKwargs') as {
       extra_body?: { thinking?: { type?: unknown } };
     };
@@ -197,78 +251,77 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
   });
 
   it('keeps thinking off working for toggleable models', () => {
-    const ctx = alwaysThinkingAgent();
-    ctx.profile.update({ modelAlias: 'kimi-code/toggle', thinkingLevel: 'off' });
+    profile.update({ modelAlias: 'kimi-code/toggle', thinkingLevel: 'off' });
 
-    expect(ctx.profile.data().thinkingLevel).toBe('off');
+    expect(profile.data().thinkingLevel).toBe('off');
   });
 
   it('re-clamps when switching to an always-on model after thinking was off', () => {
-    const ctx = alwaysThinkingAgent();
-    ctx.profile.update({ modelAlias: 'kimi-code/toggle', thinkingLevel: 'off' });
-    expect(ctx.profile.data().thinkingLevel).toBe('off');
+    profile.update({ modelAlias: 'kimi-code/toggle', thinkingLevel: 'off' });
+    expect(profile.data().thinkingLevel).toBe('off');
 
-    ctx.profile.update({ modelAlias: 'kimi-code/deep' });
-    expect(ctx.profile.data().thinkingLevel).toBe('high');
+    profile.update({ modelAlias: 'kimi-code/deep' });
+    expect(profile.data().thinkingLevel).toBe('high');
   });
 });
 
 describe('ConfigState.provider applies global KIMI_MODEL_* request config', () => {
-  function kimiAgent() {
-    return testAgent({
-      modelResolver: new ModelResolver(stubConfig({
-          providers: { kimi: { type: 'kimi', apiKey: 'test-key' } },
-          models: {
-            'kimi-code': { provider: 'kimi', model: 'kimi-code', maxContextSize: 128_000 },
-          },
-        }), stubOAuth()),
-    });
-  }
+  let ctx: TestAgentContext;
+  let profile: IProfileService;
+  let kimiConfig: TestKimiConfig;
+
+  beforeEach(() => {
+    kimiConfig = {
+      providers: { kimi: { type: 'kimi', apiKey: 'test-key' } },
+      models: {
+        'kimi-code': { provider: 'kimi', model: 'kimi-code', maxContextSize: 128_000 },
+      },
+    };
+    ctx = createTestAgent(configServices(() => kimiConfig));
+    profile = ctx.get(IProfileService);
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+      vi.unstubAllEnvs();
+    }
+  });
 
   it('injects KIMI_MODEL_TEMPERATURE into config.provider (the provider compaction also uses)', () => {
     vi.stubEnv('KIMI_MODEL_TEMPERATURE', '0.3');
-    try {
-      const ctx = kimiAgent();
-      ctx.profile.update({ modelAlias: 'kimi-code' });
 
-      const provider = ctx.profile.getProvider();
-      expect(Reflect.get(provider as object, '_generationKwargs')).toMatchObject({
-        temperature: 0.3,
-      });
-    } finally {
-      vi.unstubAllEnvs();
-    }
+    profile.update({ modelAlias: 'kimi-code' });
+
+    const provider = profile.getProvider();
+    expect(Reflect.get(provider as object, '_generationKwargs')).toMatchObject({
+      temperature: 0.3,
+    });
   });
 
   it('injects KIMI_MODEL_THINKING_KEEP into config.provider when thinking is on (so compaction keeps it)', () => {
     vi.stubEnv('KIMI_MODEL_THINKING_KEEP', 'all');
-    try {
-      const ctx = kimiAgent();
-      ctx.profile.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
 
-      const provider = ctx.profile.getProvider();
-      const gen = Reflect.get(provider as object, '_generationKwargs') as {
-        extra_body?: { thinking?: { keep?: unknown } };
-      };
-      expect(gen.extra_body?.thinking?.keep).toBe('all');
-    } finally {
-      vi.unstubAllEnvs();
-    }
+    profile.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
+
+    const provider = profile.getProvider();
+    const gen = Reflect.get(provider as object, '_generationKwargs') as {
+      extra_body?: { thinking?: { keep?: unknown } };
+    };
+    expect(gen.extra_body?.thinking?.keep).toBe('all');
   });
 
   it('does NOT inject thinking.keep into config.provider when thinking is off', () => {
     vi.stubEnv('KIMI_MODEL_THINKING_KEEP', 'all');
-    try {
-      const ctx = kimiAgent();
-      ctx.profile.update({ modelAlias: 'kimi-code', thinkingLevel: 'off' });
 
-      const provider = ctx.profile.getProvider();
-      const gen = Reflect.get(provider as object, '_generationKwargs') as {
-        extra_body?: { thinking?: { keep?: unknown } };
-      };
-      expect(gen.extra_body?.thinking?.keep).toBeUndefined();
-    } finally {
-      vi.unstubAllEnvs();
-    }
+    profile.update({ modelAlias: 'kimi-code', thinkingLevel: 'off' });
+
+    const provider = profile.getProvider();
+    const gen = Reflect.get(provider as object, '_generationKwargs') as {
+      extra_body?: { thinking?: { keep?: unknown } };
+    };
+    expect(gen.extra_body?.thinking?.keep).toBeUndefined();
   });
 });

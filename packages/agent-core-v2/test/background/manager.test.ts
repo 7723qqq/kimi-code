@@ -13,13 +13,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AgentBackgroundTask,
-  type IBackgroundService,
+  IBackgroundService,
   ProcessBackgroundTask,
   type BackgroundTaskInfo,
 } from '#/background';
 import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
-import { testAgent, type TestAgentContext } from '../harness';
+import {
+  configServices,
+  homeDirServices,
+  testAgent,
+  type TestAgentContext,
+  type TestAgentServiceOverride,
+} from '../harness';
 import {
   createBackgroundTaskPersistence,
   type BackgroundServiceTestManager,
@@ -39,16 +45,21 @@ function createBackgroundManager(options: {
     options.sessionDir === undefined
       ? undefined
       : createBackgroundTaskPersistence(options.sessionDir);
-  const ctx = testAgent({
-    homedir: options.sessionDir,
-    background: {
-      persistence,
-      maxRunningTasks: options.maxRunningTasks,
-    },
-  });
+  const overrides: TestAgentServiceOverride[] = [];
+  if (options.sessionDir !== undefined) {
+    overrides.push(homeDirServices(options.sessionDir));
+  }
+  const maxRunningTasks = options.maxRunningTasks;
+  if (maxRunningTasks !== undefined) {
+    overrides.push(configServices(() => ({
+      providers: {},
+      background: { maxRunningTasks },
+    })));
+  }
+  const ctx = testAgent(...overrides);
   return {
     ctx,
-    manager: ctx.background as BackgroundServiceTestManager,
+    manager: ctx.get(IBackgroundService) as BackgroundServiceTestManager,
     persistence,
   };
 }

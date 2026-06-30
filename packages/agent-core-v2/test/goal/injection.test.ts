@@ -1,62 +1,33 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ToolCall } from '@moonshot-ai/kosong';
 
+import { IContextInjector } from '#/contextInjector';
+import { IContextMemory } from '#/contextMemory';
 import {
-  GoalInjection,
-  IDynamicInjector,
   IGoalService,
-  InMemoryWireRecordPersistence,
-  type DynamicInjectionProvider,
   type GoalService,
-} from '../../../../src/services/agent';
-import { testAgent } from '../harness';
+} from '#/goal';
+import { IProfileService } from '#/profile';
+import {
+  InMemoryWireRecordPersistence,
+  createTestAgent,
+  goalServices,
+  wireRecordPersistenceServices,
+  type TestAgentContext,
+} from '../harness';
 
-type GoalSnapshot = NonNullable<ReturnType<IGoalService['getGoal']>['goal']>;
 type GoalServiceTestManager = IGoalService & GoalService;
+type InjectableContextInjector = IContextInjector & { inject(): Promise<void> };
 
-function createGoalInjectionReader(
-  getGoal: () => GoalSnapshot | null,
-  enabled?: () => boolean,
-): {
-  read(): Promise<string | undefined>;
-  dispose(): void;
-} {
-  let provider: DynamicInjectionProvider | undefined;
-  const dynamicInjector: IDynamicInjector = {
-    register: (variant, next) => {
-      expect(variant).toBe('goal');
-      provider = next;
-      return { dispose: () => undefined };
-    },
-  };
-  const injection = new GoalInjection({ getGoal, enabled }, dynamicInjector);
-  return {
-    read: async () => provider?.({ injectedAt: null }),
-    dispose: () => injection.dispose(),
-  };
+async function injectDynamic(injector: InjectableContextInjector): Promise<void> {
+  await injector.inject();
 }
 
-async function readGoalReminder(
-  configure: (goals: GoalServiceTestManager) => Promise<void>,
-): Promise<string | undefined> {
-  const ctx = testAgent();
-  ctx.configure();
-  const goals = ctx.get(IGoalService) as GoalServiceTestManager;
-  await configure(goals);
-  const reader = createGoalInjectionReader(() => goals.getGoal().goal);
-  try {
-    return await reader.read();
-  } finally {
-    reader.dispose();
-  }
-}
-
-async function injectDynamic(ctx: ReturnType<typeof testAgent>): Promise<void> {
-  await (ctx.get(IDynamicInjector) as unknown as { inject(): Promise<void> }).inject();
-}
-
-async function registerLookupTool(ctx: ReturnType<typeof testAgent>): Promise<void> {
-  ctx.configure({ tools: ['Lookup'] });
+async function registerLookupTool(
+  ctx: TestAgentContext,
+  profile: IProfileService,
+): Promise<void> {
+  profile.update({ activeToolNames: ['Lookup'] });
   await ctx.rpc.registerTool({
     name: 'Lookup',
     description: 'Look up a short test value.',
@@ -81,6 +52,34 @@ function lookupCall(): ToolCall {
 }
 
 describe('GoalInjection content', () => {
+  let ctx: TestAgentContext;
+  let goals: GoalServiceTestManager;
+  let context: IContextMemory;
+  let injector: InjectableContextInjector;
+
+  beforeEach(() => {
+    ctx = createTestAgent();
+    goals = ctx.get(IGoalService) as GoalServiceTestManager;
+    context = ctx.get(IContextMemory);
+    injector = ctx.get(IContextInjector) as InjectableContextInjector;
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  async function readGoalReminder(
+    configure: (goals: GoalServiceTestManager) => Promise<void>,
+  ): Promise<string | undefined> {
+    await configure(goals);
+    await injectDynamic(injector);
+    return lastGoalReminder(context);
+  }
+
   it('produces no injection when there is no current goal', async () => {
     expect(await readGoalReminder(async () => undefined)).toBeUndefined();
   });
@@ -234,92 +233,119 @@ function goalReminderRecords(persistence: InMemoryWireRecordPersistence) {
   );
 }
 
+function lastGoalReminder(context: IContextMemory): string | undefined {
+  const message = context.get().findLast((item) => {
+    return item.origin?.kind === 'injection' && item.origin.variant === 'goal';
+  });
+  if (message === undefined) return undefined;
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+}
+
 describe('GoalInjection integration', () => {
-  it('main-agent dynamic injection writes a context.splice with origin.variant goal', async () => {
-    const persistence = new InMemoryWireRecordPersistence();
-    const ctx = testAgent({
-      type: 'main',
-      persistence,
+  describe('enabled goal injection', () => {
+    let ctx: TestAgentContext;
+    let goals: GoalServiceTestManager;
+    let profile: IProfileService;
+    let injector: InjectableContextInjector;
+    let persistence: InMemoryWireRecordPersistence;
+
+    beforeEach(() => {
+      persistence = new InMemoryWireRecordPersistence();
+      ctx = createTestAgent(wireRecordPersistenceServices(persistence));
+      goals = ctx.get(IGoalService) as GoalServiceTestManager;
+      profile = ctx.get(IProfileService);
+      injector = ctx.get(IContextInjector) as InjectableContextInjector;
     });
-    ctx.configure();
-    await ctx.get(IGoalService).createGoal({ objective: 'Ship feature X' });
 
-    await injectDynamic(ctx);
+    afterEach(async () => {
+      try {
+        await ctx.expectResumeMatches();
+      } finally {
+        await ctx.dispose();
+      }
+    });
 
-    const goalRecords = goalReminderRecords(persistence);
-    expect(goalRecords).toHaveLength(1);
-    const text = JSON.stringify(goalRecords[0]);
-    expect(text).toContain('<untrusted_objective>');
+    it('main-agent dynamic injection writes a context.splice with origin.variant goal', async () => {
+      await goals.createGoal({ objective: 'Ship feature X' });
+
+      await injectDynamic(injector);
+
+      const goalRecords = goalReminderRecords(persistence);
+      expect(goalRecords).toHaveLength(1);
+      const text = JSON.stringify(goalRecords[0]);
+      expect(text).toContain('<untrusted_objective>');
+    });
+
+    it('dynamic injection writes at most once for one turn boundary', async () => {
+      await goals.createGoal({ objective: 'Ship feature X' });
+
+      await injectDynamic(injector);
+      await injectDynamic(injector);
+
+      expect(goalReminderRecords(persistence)).toHaveLength(1);
+    });
+
+    it('injects one goal reminder per turn boundary, not per step', async () => {
+      await registerLookupTool(ctx, profile);
+      await goals.createGoal({ objective: 'Ship feature X' });
+
+      ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall());
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Look up moon' }] });
+      await ctx.untilApproval(true);
+      const toolCallEvents = ctx.untilToolCall({
+        content: 'lookup-result',
+        output: 'lookup-result',
+      });
+      ctx.mockNextResponse({ type: 'text', text: 'The lookup result is lookup-result.' });
+      await toolCallEvents;
+      await ctx.untilTurnEnd();
+
+      expect(goalReminderRecords(persistence)).toHaveLength(1);
+
+      ctx.mockNextResponse({ type: 'text', text: 'Next turn.' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue' }] });
+      await ctx.untilTurnEnd();
+
+      expect(goalReminderRecords(persistence)).toHaveLength(2);
+    });
+
+    it('writes no goal record when there is no active goal', async () => {
+      await injectDynamic(injector);
+
+      expect(goalReminderRecords(persistence)).toHaveLength(0);
+    });
   });
 
-  it('dynamic injection writes at most once for one turn boundary', async () => {
-    const persistence = new InMemoryWireRecordPersistence();
-    const ctx = testAgent({
-      type: 'main',
-      persistence,
+  describe('disabled goal injection', () => {
+    let ctx: TestAgentContext;
+    let goals: GoalServiceTestManager;
+    let injector: InjectableContextInjector;
+    let persistence: InMemoryWireRecordPersistence;
+
+    beforeEach(() => {
+      persistence = new InMemoryWireRecordPersistence();
+      ctx = createTestAgent(
+        wireRecordPersistenceServices(persistence),
+        goalServices({ enabled: false }),
+      );
+      goals = ctx.get(IGoalService) as GoalServiceTestManager;
+      injector = ctx.get(IContextInjector) as InjectableContextInjector;
     });
-    ctx.configure();
-    await ctx.get(IGoalService).createGoal({ objective: 'Ship feature X' });
 
-    await injectDynamic(ctx);
-    await injectDynamic(ctx);
-
-    expect(goalReminderRecords(persistence)).toHaveLength(1);
-  });
-
-  it('injects one goal reminder per turn boundary, not per step', async () => {
-    const persistence = new InMemoryWireRecordPersistence();
-    const ctx = testAgent({
-      type: 'main',
-      persistence,
+    afterEach(async () => {
+      try {
+        await ctx.expectResumeMatches();
+      } finally {
+        await ctx.dispose();
+      }
     });
-    await registerLookupTool(ctx);
-    await ctx.get(IGoalService).createGoal({ objective: 'Ship feature X' });
 
-    ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall());
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Look up moon' }] });
-    await ctx.untilApproval(true);
-    const toolCallEvents = ctx.untilToolCall({
-      content: 'lookup-result',
-      output: 'lookup-result',
+    it('subagent dynamic injection does not add a goal reminder', async () => {
+      await goals.createGoal({ objective: 'Ship feature X' });
+
+      await injectDynamic(injector);
+
+      expect(goalReminderRecords(persistence)).toHaveLength(0);
     });
-    ctx.mockNextResponse({ type: 'text', text: 'The lookup result is lookup-result.' });
-    await toolCallEvents;
-    await ctx.untilTurnEnd();
-
-    expect(goalReminderRecords(persistence)).toHaveLength(1);
-
-    ctx.mockNextResponse({ type: 'text', text: 'Next turn.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue' }] });
-    await ctx.untilTurnEnd();
-
-    expect(goalReminderRecords(persistence)).toHaveLength(2);
-  });
-
-  it('writes no goal record when there is no active goal', async () => {
-    const persistence = new InMemoryWireRecordPersistence();
-    const ctx = testAgent({
-      type: 'main',
-      persistence,
-    });
-    ctx.configure();
-
-    await injectDynamic(ctx);
-
-    expect(goalReminderRecords(persistence)).toHaveLength(0);
-  });
-
-  it('subagent dynamic injection does not add a goal reminder', async () => {
-    const persistence = new InMemoryWireRecordPersistence();
-    const ctx = testAgent({
-      type: 'sub',
-      persistence,
-    });
-    ctx.configure();
-    await ctx.get(IGoalService).createGoal({ objective: 'Ship feature X' });
-
-    await injectDynamic(ctx);
-
-    expect(goalReminderRecords(persistence)).toHaveLength(0);
   });
 });

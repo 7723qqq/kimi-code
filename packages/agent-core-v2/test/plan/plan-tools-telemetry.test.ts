@@ -1,5 +1,5 @@
 import type { ToolCall } from '@moonshot-ai/kosong';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { IPlanService, PlanData } from '#/plan';
 import { EnterPlanModeTool } from '#/plan/tools/enter-plan-mode';
@@ -12,7 +12,13 @@ import { IToolExecutor } from '#/toolExecutor';
 
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
-import { testAgent } from '../harness/agent';
+import {
+  createTestAgent,
+  kaosServices,
+  permissionModeServices,
+  telemetryServices,
+  type TestAgentContext,
+} from '../harness/agent';
 import {
   recordingTelemetry as captureTelemetry,
   type TelemetryRecord,
@@ -97,40 +103,57 @@ describe('EnterPlanModeTool telemetry', () => {
 });
 
 describe('PlanService EnterPlanMode telemetry', () => {
-  it.each(['manual', 'auto', 'yolo'] as const)(
-    'enters without approval and tracks auto_approved in %s mode',
-    async (mode) => {
+  for (const mode of ['manual', 'auto', 'yolo'] as const) {
+    describe(`${mode} mode`, () => {
+      let ctx: TestAgentContext;
+      let toolExecutor: IToolExecutor;
       const records: TelemetryRecord[] = [];
-      const ctx = testAgent({
-        kaos: createFakeKaos({
-          mkdir: vi.fn().mockResolvedValue(undefined),
-        }),
-        permissionMode: mode,
-        telemetry: captureTelemetry(records),
-      });
-      const call: ToolCall = {
-        type: 'function',
-        id: `call_enter_plan_${mode}`,
-        name: 'EnterPlanMode',
-        arguments: '{}',
-      };
 
-      const result = await ctx.get(IToolExecutor).execute([call], {
-        turnId: '1',
-        signal: new AbortController().signal,
+      beforeEach(() => {
+        records.splice(0);
+        ctx = createTestAgent(
+          kaosServices(createFakeKaos({
+            mkdir: vi.fn().mockResolvedValue(undefined),
+          })),
+          permissionModeServices(mode),
+          telemetryServices(captureTelemetry(records)),
+        );
+        toolExecutor = ctx.get(IToolExecutor);
       });
 
-      expect(result[0]?.isError).toBeFalsy();
-      expect(result[0]?.output).toContain('Plan mode is now active');
-      expect(
-        ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
-      ).toBe(false);
-      expect(records).toContainEqual({
-        event: 'plan_enter_resolved',
-        properties: { outcome: 'auto_approved' },
+      afterEach(async () => {
+        try {
+          await ctx.expectResumeMatches();
+        } finally {
+          await ctx.dispose();
+        }
       });
-    },
-  );
+
+      it('enters without approval and tracks auto_approved', async () => {
+        const call: ToolCall = {
+          type: 'function',
+          id: `call_enter_plan_${mode}`,
+          name: 'EnterPlanMode',
+          arguments: '{}',
+        };
+
+        const result = await toolExecutor.execute([call], {
+          turnId: '1',
+          signal: new AbortController().signal,
+        });
+
+        expect(result[0]?.isError).toBeFalsy();
+        expect(result[0]?.output).toContain('Plan mode is now active');
+        expect(
+          ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
+        ).toBe(false);
+        expect(records).toContainEqual({
+          event: 'plan_enter_resolved',
+          properties: { outcome: 'auto_approved' },
+        });
+      });
+    });
+  }
 });
 
 describe('ExitPlanModeTool telemetry', () => {

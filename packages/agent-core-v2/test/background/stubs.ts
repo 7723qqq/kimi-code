@@ -12,12 +12,13 @@ export type BackgroundServiceTestManager = IBackgroundService & {
   reconcile(): Promise<readonly BackgroundTaskInfo[]>;
 };
 
+export const BACKGROUND_TEST_SESSION_SCOPE = 'sessions/test-workspace/test-session';
+
 export function createBackgroundTaskPersistence(homedir: string): BackgroundTaskPersistence {
-  const sessionScope = 'sessions/test-workspace/test-session';
   const storage = new FileStorageService(homedir);
   return new BackgroundTaskPersistence(
-    join(homedir, sessionScope),
-    sessionScope,
+    join(homedir, BACKGROUND_TEST_SESSION_SCOPE),
+    BACKGROUND_TEST_SESSION_SCOPE,
     new AtomicDocumentStore(storage),
     storage,
   );

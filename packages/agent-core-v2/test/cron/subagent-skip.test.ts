@@ -16,7 +16,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { testAgent } from '../harness';
+import { ICronService } from '#/cron';
+import { IProfileService } from '#/profile';
+import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 
 const CRON_TOOL_NAMES = ['CronCreate', 'CronList', 'CronDelete'] as const;
 
@@ -33,57 +35,110 @@ describe('Agent + Cron — subagent suppression', () => {
     vi.unstubAllEnvs();
   });
 
-  it("type='sub': cron exists, start() is skipped, tools not registered", () => {
-    if (process.platform === 'win32') return;
+  describe("type='sub'", () => {
+    let ctx: TestAgentContext;
+    let cron: ICronService;
+    let profile: IProfileService;
+    let listenerCountBeforeCreate: number;
 
-    const before = process.listenerCount('SIGUSR1');
-    const ctx = testAgent({ type: 'sub' });
+    beforeEach(() => {
+      listenerCountBeforeCreate = process.listenerCount('SIGUSR1');
+      ctx = createTestAgent(cronServices({ isSubagent: true }));
+      cron = ctx.get(ICronService);
+      profile = ctx.get(IProfileService);
+    });
 
-    // Subagents get a disabled CronService: no scheduler, no timers,
-    // no SIGUSR1 listener and no tools — the service-DI equivalent of
-    // the old `agent.cron === null`.
-    expect(ctx.cron.isEnabled).toBe(false);
+    afterEach(async () => {
+      try {
+        await ctx.expectResumeMatches();
+      } finally {
+        await ctx.dispose();
+      }
+    });
 
-    // start() was not called — no SIGUSR1 binding accrued.
-    expect(process.listenerCount('SIGUSR1')).toBe(before);
+    it('cron exists, start() is skipped, tools not registered', () => {
+      if (process.platform === 'win32') return;
 
-    // Configure with the cron tool names in the whitelist; even with
-    // the LLM allowlist explicitly listing them, the BuiltinToolManager
-    // must not have constructed the instances for a subagent.
-    ctx.configure({ tools: [...CRON_TOOL_NAMES] });
-    const toolNames = ctx.toolsData().map((info) => info.name);
-    for (const name of CRON_TOOL_NAMES) {
-      expect(toolNames).not.toContain(name);
-    }
+      // Subagents get a disabled CronService: no scheduler, no timers,
+      // no SIGUSR1 listener and no tools — the service-DI equivalent of
+      // the old `agent.cron === null`.
+      expect(cron.isEnabled).toBe(false);
+
+      // start() was not called — no SIGUSR1 binding accrued.
+      expect(process.listenerCount('SIGUSR1')).toBe(listenerCountBeforeCreate);
+
+      // Configure with the cron tool names in the whitelist; even with
+      // the LLM allowlist explicitly listing them, the BuiltinToolManager
+      // must not have constructed the instances for a subagent.
+      profile.update({ activeToolNames: [...CRON_TOOL_NAMES] });
+      const toolNames = ctx.toolsData().map((info) => info.name);
+      for (const name of CRON_TOOL_NAMES) {
+        expect(toolNames).not.toContain(name);
+      }
+    });
   });
 
-  it("type='main': start() runs, tools registered", () => {
-    if (process.platform === 'win32') return;
+  describe("type='main'", () => {
+    let ctx: TestAgentContext;
+    let profile: IProfileService;
+    let listenerCountBeforeCreate: number;
 
-    const before = process.listenerCount('SIGUSR1');
-    const ctx = testAgent({ type: 'main' });
+    beforeEach(() => {
+      listenerCountBeforeCreate = process.listenerCount('SIGUSR1');
+      ctx = createTestAgent();
+      profile = ctx.get(IProfileService);
+    });
 
-    expect(process.listenerCount('SIGUSR1')).toBe(before + 1);
+    afterEach(async () => {
+      try {
+        await ctx.expectResumeMatches();
+      } finally {
+        await ctx.dispose();
+      }
+    });
 
-    ctx.configure({ tools: [...CRON_TOOL_NAMES] });
-    const toolNames = ctx.toolsData().map((info) => info.name);
-    for (const name of CRON_TOOL_NAMES) {
-      expect(toolNames).toContain(name);
-    }
+    it('start() runs, tools registered', () => {
+      if (process.platform === 'win32') return;
+
+      expect(process.listenerCount('SIGUSR1')).toBe(listenerCountBeforeCreate + 1);
+
+      profile.update({ activeToolNames: [...CRON_TOOL_NAMES] });
+      const toolNames = ctx.toolsData().map((info) => info.name);
+      for (const name of CRON_TOOL_NAMES) {
+        expect(toolNames).toContain(name);
+      }
+    });
   });
 
-  it("type='independent': start() runs, tools registered", () => {
-    if (process.platform === 'win32') return;
+  describe("type='independent'", () => {
+    let ctx: TestAgentContext;
+    let profile: IProfileService;
+    let listenerCountBeforeCreate: number;
 
-    const before = process.listenerCount('SIGUSR1');
-    const ctx = testAgent({ type: 'independent' });
+    beforeEach(() => {
+      listenerCountBeforeCreate = process.listenerCount('SIGUSR1');
+      ctx = createTestAgent();
+      profile = ctx.get(IProfileService);
+    });
 
-    expect(process.listenerCount('SIGUSR1')).toBe(before + 1);
+    afterEach(async () => {
+      try {
+        await ctx.expectResumeMatches();
+      } finally {
+        await ctx.dispose();
+      }
+    });
 
-    ctx.configure({ tools: [...CRON_TOOL_NAMES] });
-    const toolNames = ctx.toolsData().map((info) => info.name);
-    for (const name of CRON_TOOL_NAMES) {
-      expect(toolNames).toContain(name);
-    }
+    it('start() runs, tools registered', () => {
+      if (process.platform === 'win32') return;
+
+      expect(process.listenerCount('SIGUSR1')).toBe(listenerCountBeforeCreate + 1);
+
+      profile.update({ activeToolNames: [...CRON_TOOL_NAMES] });
+      const toolNames = ctx.toolsData().map((info) => info.name);
+      for (const name of CRON_TOOL_NAMES) {
+        expect(toolNames).toContain(name);
+      }
+    });
   });
 });
