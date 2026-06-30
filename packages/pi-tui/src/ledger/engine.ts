@@ -49,6 +49,7 @@ export class LedgerTuiEngine {
 	#forceViewportRepaintOnNextRender = false;
 	#hasEverRendered = false;
 	#resizeEventPending = false;
+	#stopped = false;
 
 	// ---- composed + prepared caches (OMP: 1087-1125) ----
 	#composedFrame: string[] = [];
@@ -511,5 +512,176 @@ export class LedgerTuiEngine {
 		const cursorControl = this.#cursorControlSequence(cursorPos, totalLines, this.#hardwareCursorRow);
 		if (cursorControl.seq.length > 0) this.terminal.write(cursorControl.seq);
 		this.#recordHardwareCursorUpdate(cursorControl);
+	}
+
+	// 公共入口（由 TUI.doRender 分发调用）
+	public doRender(): void {
+		if (this.#stopped) return;
+		const width = this.terminal.columns;
+		const height = this.terminal.rows;
+
+		// 1. compose (Phase A: no partial roots, no image budget pass)
+		const rawFrame = this.#composeFrame(width);
+		const cursorMarkers = this.#frameCursorMarkers;
+
+		const liveRegionStart = this.#nativeScrollbackLiveRegionStart;
+		const commitSafeEnd = this.#nativeScrollbackCommitSafeEnd;
+		const snapshotSafeEnd = this.#nativeScrollbackSnapshotSafeEnd;
+
+		// 2. boundaries (OMP: 2599-2604)
+		const frameLength = rawFrame.length;
+		const byteStableBoundary = Math.max(0, Math.min(frameLength, commitSafeEnd ?? liveRegionStart ?? frameLength));
+		const durableBoundary = Math.max(byteStableBoundary, Math.min(frameLength, snapshotSafeEnd ?? byteStableBoundary));
+
+		// 3. transition state (OMP: 2606-2619)
+		const prevWindowTop = this.#windowTopRow;
+		const prevHardwareCursorRow = this.#hardwareCursorRow;
+		const resizeEventOccurred = this.#resizeEventPending;
+		this.#resizeEventPending = false;
+		const widthChanged = this.#previousWidth > 0 && this.#previousWidth !== width;
+		const heightChanged =
+			(this.#previousHeight > 0 && this.#previousHeight !== height) ||
+			(resizeEventOccurred && this.#previousHeight > 0);
+		const geometryChanged = widthChanged || heightChanged;
+
+		// 4. audit (OMP: 2634-2658)
+		let committedRowsResynced = false;
+		const auditUpper =
+			this.#committedPrefixDurableRows < this.#committedRows ? this.#committedRows : this.#committedPrefixAuditRows;
+		const hardAuditEnd = Math.min(this.#committedRows, durableBoundary);
+		const needHardAudit = this.#committedPrefixDurableRows < hardAuditEnd;
+		const auditRan =
+			this.#hasEverRendered &&
+			!geometryChanged &&
+			!this.#clearScrollbackOnNextRender &&
+			(this.#renderStablePrefixRows < auditUpper || needHardAudit);
+		if (auditRan) {
+			const before = this.#committedRows;
+			this.#auditCommittedPrefix(rawFrame, durableBoundary);
+			committedRowsResynced = this.#committedRows !== before;
+		}
+		const preCommitRows = this.#committedRows;
+		const preCommitAuditRows = this.#committedPrefixAuditRows;
+		const preCommitDurableRows = this.#committedPrefixDurableRows;
+
+		// 5. classify + window math (OMP: 2680-2731)
+		const firstPaint = !this.#hasEverRendered;
+		const replaceRequested = this.#clearScrollbackOnNextRender;
+		const geometryRebuild = geometryChanged && !resizeRepaintsInPlace();
+		const fullPaint = firstPaint || replaceRequested || geometryRebuild;
+		let windowTop: number;
+		let chunkTo: number;
+		let committedPrefixResliced = false;
+		if (fullPaint) {
+			committedPrefixResliced = true;
+			windowTop = Math.max(0, frameLength - height);
+			chunkTo = windowTop;
+		} else if (
+			frameLength <= this.#committedRows ||
+			(committedRowsResynced &&
+				frameLength - this.#committedRows < height &&
+				cursorMarkers.some((m) => m.row >= this.#committedRows))
+		) {
+			windowTop = Math.max(0, frameLength - height);
+			chunkTo = windowTop;
+			committedPrefixResliced = true;
+			this.#committedRows = chunkTo;
+			this.#committedPrefix = rawFrame.slice(0, chunkTo);
+		} else {
+			windowTop = Math.max(this.#committedRows, frameLength - height, 0);
+			// hasVisibleOverlay = false (Phase A); geometryChanged freezes commits
+			chunkTo = geometryChanged ? this.#committedRows : windowTop;
+			if (geometryChanged) {
+				committedPrefixResliced = true;
+				this.#committedPrefix = rawFrame.slice(0, this.#committedRows);
+			}
+		}
+
+		// 6. cursor marker + window slice (OMP: 2736-2758)
+		let cursorPos: { row: number; col: number } | null = null;
+		for (let i = cursorMarkers.length - 1; i >= 0; i--) {
+			const marker = cursorMarkers[i]!;
+			if (marker.row >= windowTop) {
+				cursorPos = marker;
+				break;
+			}
+		}
+		const frame = this.#prepareFrame(rawFrame, width);
+		const window: string[] = new Array(height);
+		for (let r = 0; r < height; r++) window[r] = frame[windowTop + r] ?? "";
+
+		const intent: RenderIntent = fullPaint
+			? { kind: "fullPaint", clearScrollback: replaceRequested || geometryRebuild ? !isMultiplexerSession() : false }
+			: { kind: "update", chunkTo, windowTop };
+
+		// 7. emit + ledger advance (OMP: 2779-2822)
+		if (intent.kind === "fullPaint") {
+			this.#emitFullPaint(frame, window, width, height, cursorPos, {
+				clearScrollback: intent.clearScrollback,
+				chunkTo,
+				windowTop,
+			});
+			this.#committedPrefix = rawFrame.slice(0, chunkTo);
+			this.#updateCommittedAuditRows(true, preCommitRows, preCommitAuditRows, preCommitDurableRows, byteStableBoundary, durableBoundary, false);
+			this.#clearScrollbackOnNextRender = false;
+			this.#hasEverRendered = true;
+			return;
+		}
+		this.#emitUpdate(frame, window, width, height, cursorPos, {
+			chunkTo,
+			windowTop,
+			prevWindowTop,
+			prevHardwareCursorRow,
+			forceWindowRewrite: this.#forceViewportRepaintOnNextRender || (geometryChanged && resizeRepaintsInPlace()),
+		});
+		for (let i = this.#committedPrefix.length; i < chunkTo; i++) {
+			this.#committedPrefix.push(rawFrame[i] ?? "");
+		}
+		this.#updateCommittedAuditRows(
+			committedPrefixResliced,
+			preCommitRows,
+			preCommitAuditRows,
+			preCommitDurableRows,
+			byteStableBoundary,
+			durableBoundary,
+			auditRan,
+		);
+	}
+
+	public requestFullPaint(clearScrollback: boolean): void {
+		if (clearScrollback) this.#clearScrollbackOnNextRender = true;
+		else this.#forceViewportRepaintOnNextRender = true;
+	}
+
+	public notifyResize(): void {
+		this.#resizeEventPending = true;
+	}
+
+	public stop(): void {
+		this.#stopped = true;
+	}
+
+	public reset(): void {
+		this.#stopped = false;
+		this.#committedRows = 0;
+		this.#committedPrefix = [];
+		this.#committedPrefixAuditRows = 0;
+		this.#committedPrefixDurableRows = 0;
+		this.#windowTopRow = 0;
+		this.#previousWindow = [];
+		this.#previousFrameLength = 0;
+		this.#previousWidth = 0;
+		this.#previousHeight = 0;
+		this.#hasEverRendered = false;
+		this.#clearScrollbackOnNextRender = false;
+		this.#forceViewportRepaintOnNextRender = false;
+		this.#composedFrame = [];
+		this.#frameSegments = [];
+		this.#composeWidth = -1;
+		this.#frameCursorMarkers = [];
+		this.#renderStablePrefixRows = 0;
+		this.#preparedFrame = [];
+		this.#preparedMeta = [];
+		this.#preparedValidRows = 0;
 	}
 }
