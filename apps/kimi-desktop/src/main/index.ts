@@ -103,7 +103,10 @@ async function connect(win: BrowserWindow): Promise<void> {
     const { origin } = await ensureServer(resolveSeaPath());
     process.stdout.write(`[kimi-desktop] connected to ${origin}\n`);
     if (!win.isDestroyed()) {
-      await win.loadURL(origin);
+      // Append a desktop marker so the web UI shows the internal-build banner
+      // even when it is served by an already-running shared daemon (the desktop
+      // reuses the local daemon rather than starting a private one).
+      await win.loadURL(`${origin}/?kimi_desktop=1&platform=${process.platform}`);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -121,12 +124,21 @@ function createWindow(): void {
     minHeight: 480,
     backgroundColor: '#0b0b0c',
     title: 'Kimi Code Desktop',
+    // macOS: hide the native title bar and float the traffic lights over the
+    // content; the web UI reserves a draggable strip at the top to clear them.
+    // 'default' on other platforms (they keep their native title bar).
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
   mainWindow = win;
+  // Keep the window title as the product name. The web page sets document.title
+  // ("Kimi Code Web"), which would otherwise replace it.
+  win.webContents.on('page-title-updated', (event) => {
+    event.preventDefault();
+  });
   win.on('close', () => {
     saveBounds(win);
   });
