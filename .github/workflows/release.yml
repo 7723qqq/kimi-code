@@ -144,30 +144,3 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release.outputs.kimi_release_tag }}
         run: gh release upload "$RELEASE_TAG" dist-native-release/* --clobber
-
-  publish-desktop-assets:
-    name: Publish desktop release assets
-    needs:
-      - release
-      - desktop-artifacts
-    if: needs.release.outputs.kimi_native_release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Download desktop artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: kimi-desktop-*
-          path: dist-desktop-release
-          merge-multiple: true
-
-      - name: Upload assets to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.release.outputs.kimi_release_tag }}
-        run: gh release upload "$RELEASE_TAG" dist-desktop-release/* --clobber
