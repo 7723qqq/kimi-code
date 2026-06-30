@@ -101,7 +101,8 @@ on any Mac without warnings.
 - **Auto-update**: not implemented (v2).
 - **Windows / Linux signing**: unsigned in v1 (Windows shows a SmartScreen
   prompt). Only macOS is signed + notarized.
-- **Default icon**: ships the default Electron icon — no Kimi brand art ≥256px
-  exists in the repo yet (v2).
+- **App icon**: macOS and Linux builds ship the Kimi logo (sourced from the
+  docs site art). Windows still uses the default Electron icon until a `.ico`
+  is produced.
 - **First launch may need network**: the SEA resolves its native sidecars
   (clipboard / koffi) the same way the installed CLI does.
