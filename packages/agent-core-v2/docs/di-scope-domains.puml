@@ -31,6 +31,7 @@ package "Core scope (process-wide)" #EAF3FB {
   rectangle "<b>hostFs</b>\n<size:9><i>Core</i></size>\n  IHostFileSystem" as hostFs #D6EAF8
   rectangle "<b>workspaceRegistry</b>\n<size:9><i>Core</i></size>\n  IWorkspaceRegistry" as workspaceRegistry #D6EAF8
   rectangle "<b>hostFolderBrowser</b>\n<size:9><i>Core</i></size>\n  IHostFolderBrowser" as hostFolderBrowser #D6EAF8
+  rectangle "<b>kaos</b>\n<size:9><i>Core</i></size>\n  IKaosFactory" as kaos_core #D6EAF8
   rectangle "<b>auth</b>\n<size:9><i>Core</i></size>\n  IOAuthService\n  IAuthSummaryService" as auth #D6EAF8
   rectangle "<b>provider</b>\n<size:9><i>Core</i></size>\n  IProviderService" as provider #D6EAF8
   rectangle "<b>flag</b>\n<size:9><i>Core</i></size>\n  IFlagService\n  IFlagRegistry" as flag #D6EAF8
@@ -48,11 +49,12 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>agent-lifecycle</b>\n<size:9><i>Session</i></size>\n  IAgentLifecycleService" as agent_lifecycle #D5F5E3
   rectangle "<b>interaction</b>\n<size:9><i>Session</i></size>\n  IInteractionService" as interaction #D5F5E3
   rectangle "<b>workspaceContext</b>\n<size:9><i>Session</i></size>\n  IWorkspaceContext" as workspaceContext #D5F5E3
-  rectangle "<b>agentFs</b>\n<size:9><i>Session</i></size>\n  IAgentFileSystem\n  IFileSystemBackend" as agentFs #D5F5E3
+  rectangle "<b>kaos</b>\n<size:9><i>Session</i></size>\n  IKaos (seed)" as kaos #D5F5E3
+  rectangle "<b>agentFs</b>\n<size:9><i>Session</i></size>\n  IAgentFileSystem\n  IFsService" as agentFs #D5F5E3
   rectangle "<b>approval</b>\n<size:9><i>Session</i></size>\n  IApprovalService" as approval #D5F5E3
   rectangle "<b>question</b>\n<size:9><i>Session</i></size>\n  IQuestionService" as question #D5F5E3
   rectangle "<b>subagentHost</b>\n<size:9><i>Session</i></size>\n  ISubagentHost" as subagentHost #D5F5E3
-  rectangle "<b>process</b>\n<size:9><i>Session</i></size>\n  IProcessRunner\n  IProcessBackend" as process #D5F5E3
+  rectangle "<b>process</b>\n<size:9><i>Session</i></size>\n  IProcessRunner\n  IProcess" as process #D5F5E3
   rectangle "<b>terminal</b>\n<size:9><i>Session</i></size>\n  ITerminalService\n  ITerminalBackend" as terminal #D5F5E3
   rectangle "<b>modelProvider</b>\n<size:9><i>Session</i></size>\n  IModelProvider (seed)" as modelProvider #D5F5E3
 }
@@ -95,6 +97,8 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>todoList</b>\n<size:9><i>Agent</i></size>\n  ITodoListService" as todoList #FDEBD0
   rectangle "<b>usage</b>\n<size:9><i>Agent</i></size>\n  IUsageService" as usage #FDEBD0
   rectangle "<b>rpc</b>\n<size:9><i>Agent</i></size>\n  IAgentRPCService" as rpc #FDEBD0
+  rectangle "<b>fileTools</b>\n<size:9><i>Agent</i></size>\n  IFileToolsService" as fileTools #FDEBD0
+  rectangle "<b>shellTools</b>\n<size:9><i>Agent</i></size>\n  IShellToolsService" as shellTools #FDEBD0
 }
 
 ' ---- DI injection (solid) ----
@@ -104,8 +108,10 @@ gateway --> eventSink #34495E
 sessionIndex --> bootstrap #34495E
 sessionIndex --> storage #34495E
 session_lifecycle --> bootstrap #34495E
+session_lifecycle --> kaos_core #34495E
 hostFolderBrowser --> hostFs #34495E
 auth --> provider #34495E
+auth --> config #34495E
 auth --> bootstrap #34495E
 auth --> telemetry #34495E
 auth --> log #34495E
@@ -121,8 +127,9 @@ modelCatalog --> model #34495E
 modelCatalog --> config #34495E
 modelCatalog --> auth #34495E
 agentFs --> workspaceContext #34495E
-agentFs --> hostFs #34495E
-process --> workspaceContext #34495E
+agentFs --> kaos #34495E
+agentFs --> process #34495E
+process --> kaos #34495E
 terminal --> workspaceContext #34495E
 terminal --> session_context #34495E
 approval --> interaction #34495E
@@ -302,6 +309,16 @@ rpc --> subagentHost #34495E
 rpc --> usage #34495E
 rpc --> telemetry #34495E
 rpc --> goal #34495E
+rpc --> fileTools #34495E
+rpc --> shellTools #34495E
+fileTools --> toolRegistry #34495E
+fileTools --> agentFs #34495E
+fileTools --> kaos #34495E
+fileTools --> workspaceContext #34495E
+shellTools --> toolRegistry #34495E
+shellTools --> process #34495E
+shellTools --> kaos #34495E
+shellTools --> background #34495E
 
 ' ---- event-driven (dashed) ----
 gateway ..> event #16A085 : subscribe

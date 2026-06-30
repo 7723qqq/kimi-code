@@ -2,7 +2,8 @@
  * `/models` + `/providers` catalog route handlers — server-v2 port.
  *
  * Implements the v1 model/provider catalog wire contract on top of
- * `agent-core-v2`'s `IModelCatalogService`:
+ * `agent-core-v2`'s `IModelCatalogService` (and the managed-provider refresh
+ * on top of `IOAuthService`):
  *   GET  /models                       — list configured model aliases
  *   GET  /providers                    — list configured providers
  *   GET  /providers/{provider_id}      — get a configured provider by id
@@ -17,7 +18,13 @@
  * edge maps them to the numeric protocol codes by `code` (never `instanceof`).
  */
 
-import { IConfigService, IModelCatalogService, isKimiError, type Scope } from '@moonshot-ai/agent-core-v2';
+import {
+  IConfigService,
+  IModelCatalogService,
+  IOAuthService,
+  isKimiError,
+  type Scope,
+} from '@moonshot-ai/agent-core-v2';
 import {
   ErrorCode,
   getProviderResponseSchema,
@@ -68,6 +75,11 @@ const modelActionTailParamSchema = z.object({
 async function loadCatalog(core: Scope): Promise<IModelCatalogService> {
   await core.accessor.get(IConfigService).ready;
   return core.accessor.get(IModelCatalogService);
+}
+
+async function loadOAuth(core: Scope): Promise<IOAuthService> {
+  await core.accessor.get(IConfigService).ready;
+  return core.accessor.get(IOAuthService);
 }
 
 export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Scope): void {
@@ -161,7 +173,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
       operationId: 'refreshOAuthProviderModels',
     },
     async (req, reply) => {
-      const result = await (await loadCatalog(core)).refreshOAuthProviderModels();
+      const result = await (await loadOAuth(core)).refreshOAuthProviderModels();
       reply.send(okEnvelope(result, req.id));
     },
   );

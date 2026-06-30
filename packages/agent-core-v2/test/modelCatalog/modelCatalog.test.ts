@@ -1,10 +1,11 @@
 /**
  * `modelCatalog` domain tests — covers the catalog projection, default-model
- * selection, coded not-found errors, and the Kimi Code OAuth model refresh.
+ * selection, and coded not-found errors.
  *
  * Uses the flat `TestInstantiationService` harness with real `ModelService` /
  * `ProviderService` collaborators over an in-memory config stub, a stubbed
- * `IOAuthService`, and the SUT registered by interface.
+ * `IOAuthService`, and the SUT registered by interface. The managed-provider
+ * refresh is covered in `auth/auth.test.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,46 +65,38 @@ describe('ModelCatalogService', () => {
   let ix: TestInstantiationService;
   let backing: Backing;
   let configSet: ReturnType<typeof vi.fn>;
-  let configReplace: ReturnType<typeof vi.fn>;
   let getCachedAccessToken: ReturnType<typeof vi.fn>;
-  let resolveTokenProvider: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     backing = seedBacking();
     configSet = vi.fn().mockImplementation(async (domain: string, patch: unknown) => {
-      const current = (backing as Record<string, unknown>)[domain];
-      (backing as Record<string, unknown>)[domain] =
+      const current = (backing as unknown as Record<string, unknown>)[domain];
+      (backing as unknown as Record<string, unknown>)[domain] =
         current !== null && typeof current === 'object' && typeof patch === 'object' && patch !== null
           ? { ...(current as object), ...(patch as object) }
           : patch;
     });
-    configReplace = vi.fn().mockImplementation(async (domain: string, value: unknown) => {
-      (backing as Record<string, unknown>)[domain] = value;
-    });
-    getCachedAccessToken = vi.fn().mockResolvedValue(undefined);
-    resolveTokenProvider = vi.fn();
+    getCachedAccessToken = vi.fn<IOAuthService['getCachedAccessToken']>().mockResolvedValue(undefined);
 
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.defineInstance(IConfigRegistry, new ConfigRegistry());
         reg.definePartialInstance(IConfigService, {
-          get: ((domain: string) => (backing as Record<string, unknown>)[domain]) as IConfigService['get'],
+          get: ((domain: string) => (backing as unknown as Record<string, unknown>)[domain]) as IConfigService['get'],
           inspect: ((domain: string) => ({
-            value: (backing as Record<string, unknown>)[domain],
+            value: (backing as unknown as Record<string, unknown>)[domain],
             defaultValue: undefined,
-            userValue: (backing as Record<string, unknown>)[domain],
+            userValue: (backing as unknown as Record<string, unknown>)[domain],
             memoryValue: undefined,
           })) as IConfigService['inspect'],
           set: configSet as unknown as IConfigService['set'],
-          replace: configReplace as unknown as IConfigService['replace'],
           reload: vi.fn().mockResolvedValue(undefined) as unknown as IConfigService['reload'],
           onDidChange: (() => ({ dispose: () => {} })) as IConfigService['onDidChange'],
           onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
         });
         reg.definePartialInstance(IOAuthService, {
-          getCachedAccessToken,
-          resolveTokenProvider,
+          getCachedAccessToken: getCachedAccessToken as unknown as IOAuthService['getCachedAccessToken'],
         });
         reg.define(IModelService, ModelService);
         reg.define(IProviderService, ProviderService);
@@ -220,66 +213,5 @@ describe('ModelCatalogService', () => {
     getCachedAccessToken.mockResolvedValue('cached-token');
     const [provider] = await catalog().listProviders();
     expect(provider).toMatchObject({ id: 'acme', has_api_key: false, status: 'connected' });
-  });
-
-  it('returns an empty refresh result when no Kimi Code provider is configured', async () => {
-    await expect(catalog().refreshOAuthProviderModels()).resolves.toEqual({
-      changed: [],
-      unchanged: [],
-      failed: [],
-    });
-    expect(resolveTokenProvider).not.toHaveBeenCalled();
-  });
-
-  it('refreshes Kimi Code models and writes back the changed sections', async () => {
-    backing.providers = {
-      'managed:kimi-code': {
-        type: 'kimi',
-        baseUrl: 'https://api.example.test/v1',
-        apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
-      },
-    };
-    backing.models = {};
-    resolveTokenProvider.mockReturnValue({
-      getAccessToken: vi.fn().mockResolvedValue('access-token'),
-    });
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            id: 'kimi-k2',
-            context_length: 131072,
-            supports_reasoning: true,
-            display_name: 'Kimi K2',
-          },
-        ],
-      }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await catalog().refreshOAuthProviderModels();
-
-    expect(result.failed).toEqual([]);
-    expect(result.changed).toEqual([
-      {
-        provider_id: 'managed:kimi-code',
-        provider_name: 'Kimi Code',
-        added: 1,
-        removed: 0,
-      },
-    ]);
-    expect(configReplace).toHaveBeenCalledWith(
-      'providers',
-      expect.objectContaining({ 'managed:kimi-code': expect.objectContaining({ type: 'kimi' }) }),
-    );
-    expect(configReplace).toHaveBeenCalledWith(
-      'models',
-      expect.objectContaining({
-        'kimi-code/kimi-k2': expect.objectContaining({ model: 'kimi-k2' }),
-      }),
-    );
-    expect(configSet).toHaveBeenCalledWith('defaultModel', 'kimi-code/kimi-k2');
   });
 });

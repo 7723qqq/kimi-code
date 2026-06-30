@@ -1,19 +1,20 @@
 /**
- * `auth` domain tests — covers the `OAuthService` device-code orchestration
- * and its dependency on the `provider` domain, using a fake
- * `KimiOAuthToolkit` so no real network or token storage is exercised.
+ * `auth` domain tests — covers the `OAuthService` device-code orchestration,
+ * its dependency on the `provider` domain, and the managed OAuth provider
+ * model refresh, using a fake `IOAuthToolkit` so no real network or token
+ * storage is exercised.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { KimiOAuthToolkit } from '@moonshot-ai/kimi-code-oauth';
-
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IAuthSummaryService, IOAuthService } from '#/auth/auth';
+import { IAuthSummaryService, IOAuthService, IOAuthToolkit } from '#/auth/auth';
 import { AuthSummaryService, OAuthService } from '#/auth/authService';
+import { IConfigService } from '#/config/config';
 import { ILogService } from '#/log/log';
+import { type ModelAlias } from '#/model/model';
 import { IProviderService, type ProviderConfig } from '#/provider/provider';
 
 import { registerBootstrapServices } from '../bootstrap/stubs';
@@ -44,8 +45,13 @@ describe('OAuthService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let providers: Record<string, ProviderConfig>;
+  let models: Record<string, ModelAlias>;
+  let defaultModel: string | undefined;
+  let defaultThinking: boolean | undefined;
   let toolkit: FakeToolkit;
   let providerSet: ReturnType<typeof vi.fn>;
+  let configSet: ReturnType<typeof vi.fn>;
+  let configReplace: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -58,6 +64,17 @@ describe('OAuthService', () => {
       [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' },
     };
     providerSet = vi.fn().mockResolvedValue(undefined);
+    models = {};
+    defaultModel = undefined;
+    defaultThinking = undefined;
+    configSet = vi.fn().mockResolvedValue(undefined);
+    configReplace = vi.fn().mockResolvedValue(undefined);
+    toolkit = {
+      login: vi.fn(),
+      logout: vi.fn().mockResolvedValue({ providerName: OAUTH_PROVIDER, ok: true }),
+      getCachedAccessToken: vi.fn().mockResolvedValue(undefined),
+      tokenProvider: vi.fn().mockReturnValue({ getAccessToken: async () => 'access-token' }),
+    };
     ix = createServices(disposables, {
       base: [registerBootstrapServices, registerTelemetryServices],
       additionalServices: (reg) => {
@@ -67,20 +84,41 @@ describe('OAuthService', () => {
           set: providerSet as unknown as IProviderService['set'],
           onDidChange: (() => ({ dispose: () => {} })) as IProviderService['onDidChange'],
         });
-        reg.definePartialInstance(ILogService, { warn: vi.fn() });
+        reg.definePartialInstance(IConfigService, {
+          get: ((domain: string) => configBacking()[domain]) as IConfigService['get'],
+          inspect: ((domain: string) => ({
+            value: configBacking()[domain],
+            defaultValue: undefined,
+            userValue: configBacking()[domain],
+            memoryValue: undefined,
+          })) as IConfigService['inspect'],
+          set: configSet as unknown as IConfigService['set'],
+          replace: configReplace as unknown as IConfigService['replace'],
+          reload: vi.fn().mockResolvedValue(undefined) as unknown as IConfigService['reload'],
+          onDidChange: (() => ({ dispose: () => {} })) as IConfigService['onDidChange'],
+          onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
+        });
+        reg.definePartialInstance(ILogService, {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        });
+        reg.defineInstance(IOAuthToolkit, toolkit as unknown as IOAuthToolkit);
       },
     });
-    toolkit = {
-      login: vi.fn(),
-      logout: vi.fn().mockResolvedValue({ providerName: OAUTH_PROVIDER, ok: true }),
-      getCachedAccessToken: vi.fn().mockResolvedValue(undefined),
-      tokenProvider: vi.fn().mockReturnValue({ getAccessToken: async () => 'access-token' }),
-    };
   });
-  afterEach(() => disposables.dispose());
+  afterEach(() => {
+    disposables.dispose();
+    vi.unstubAllGlobals();
+  });
 
   function createService(): IOAuthService {
-    return ix.createInstance(OAuthService, toolkit as unknown as KimiOAuthToolkit);
+    return ix.createInstance(OAuthService);
+  }
+
+  function configBacking(): Record<string, unknown> {
+    return { providers, models, defaultModel, defaultThinking };
   }
 
   it('startLogin resolves a device-code flow and flips to authenticated on success', async () => {
@@ -128,13 +166,44 @@ describe('OAuthService', () => {
     );
   });
 
-  it('startLogin rejects with AUTH_LOGIN_REQUIRED when provider has no oauth config', async () => {
-    const svc = createService();
-    await expect(svc.startLogin(NON_OAUTH_PROVIDER)).rejects.toThrow(KimiError);
-    await expect(svc.startLogin(NON_OAUTH_PROVIDER)).rejects.toMatchObject({
-      code: ErrorCodes.AUTH_LOGIN_REQUIRED,
+  it('startLogin resolves a default oauth ref for the managed provider without oauth config', async () => {
+    providers[OAUTH_PROVIDER] = { type: 'kimi', baseUrl: 'https://api.example.com' };
+    toolkit.login.mockImplementation(async (_provider, options) => {
+      options.onDeviceCode(deviceAuth);
+      return { providerName: OAUTH_PROVIDER, ok: true };
     });
-    expect(toolkit.login).not.toHaveBeenCalled();
+    const svc = createService();
+    await svc.startLogin(OAUTH_PROVIDER);
+
+    expect(toolkit.login).toHaveBeenCalledWith(
+      OAUTH_PROVIDER,
+      expect.objectContaining({
+        oauthRef: expect.objectContaining({ storage: 'file', key: expect.any(String) }),
+      }),
+    );
+    await flush();
+    expect(providerSet).toHaveBeenCalledWith(
+      OAUTH_PROVIDER,
+      expect.objectContaining({
+        type: 'kimi',
+        oauth: expect.objectContaining({ storage: 'file', key: expect.any(String) }),
+      }),
+    );
+  });
+
+  it('startLogin rejects when the device authorization fails before onDeviceCode', async () => {
+    toolkit.login.mockRejectedValue(new Error('device authorization request failed'));
+    const svc = createService();
+    await expect(svc.startLogin(OAUTH_PROVIDER)).rejects.toThrow(
+      'device authorization request failed',
+    );
+  });
+
+  it('startLogin rejects when login completes without issuing a device code', async () => {
+    toolkit.login.mockResolvedValue({ providerName: OAUTH_PROVIDER, ok: true });
+    const svc = createService();
+    await expect(svc.startLogin(OAUTH_PROVIDER)).rejects.toThrow('already authenticated');
+    expect(svc.getFlow(OAUTH_PROVIDER)).toBeUndefined();
   });
 
   it('cancelLogin aborts a pending flow and marks it cancelled', async () => {
@@ -189,6 +258,59 @@ describe('OAuthService', () => {
       key: 'k',
     });
   });
+
+  it('refreshOAuthProviderModels returns an empty result when no Kimi Code provider is configured', async () => {
+    providers = { [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' } };
+    const svc = createService();
+
+    await expect(svc.refreshOAuthProviderModels()).resolves.toEqual({
+      changed: [],
+      unchanged: [],
+      failed: [],
+    });
+    expect(toolkit.tokenProvider).not.toHaveBeenCalled();
+  });
+
+  it('refreshOAuthProviderModels fetches models and writes back the changed sections', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: 'kimi-k2',
+            context_length: 131072,
+            supports_reasoning: true,
+            display_name: 'Kimi K2',
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = createService();
+
+    const result = await svc.refreshOAuthProviderModels();
+
+    expect(result.failed).toEqual([]);
+    expect(result.changed).toEqual([
+      {
+        provider_id: OAUTH_PROVIDER,
+        provider_name: 'Kimi Code',
+        added: 1,
+        removed: 0,
+      },
+    ]);
+    expect(configReplace).toHaveBeenCalledWith(
+      'providers',
+      expect.objectContaining({ [OAUTH_PROVIDER]: expect.objectContaining({ type: 'kimi' }) }),
+    );
+    expect(configReplace).toHaveBeenCalledWith(
+      'models',
+      expect.objectContaining({
+        'kimi-code/kimi-k2': expect.objectContaining({ model: 'kimi-k2' }),
+      }),
+    );
+    expect(configSet).toHaveBeenCalledWith('defaultModel', 'kimi-code/kimi-k2');
+  });
 });
 
 describe('AuthSummaryService', () => {
@@ -215,6 +337,12 @@ describe('AuthSummaryService', () => {
         reg.definePartialInstance(IOAuthService, {
           status: oauthStatus as unknown as IOAuthService['status'],
         });
+        reg.definePartialInstance(ILogService, {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        });
       },
     });
   });
@@ -230,6 +358,22 @@ describe('AuthSummaryService', () => {
     expect(result).toEqual([{ loggedIn: true, provider: OAUTH_PROVIDER }]);
     expect(oauthStatus).toHaveBeenCalledWith(OAUTH_PROVIDER);
     expect(oauthStatus).not.toHaveBeenCalledWith(NON_OAUTH_PROVIDER);
+  });
+
+  it('summarize skips providers whose status throws', async () => {
+    const OTHER_OAUTH = 'kimi-code-anthropic';
+    providers[OTHER_OAUTH] = {
+      type: 'kimi',
+      oauth: { storage: 'file', key: 'oauth/kimi-code' },
+    };
+    oauthStatus.mockImplementation(async (name: string) => {
+      if (name === OTHER_OAUTH) throw new Error('No OAuth manager configured');
+      return { loggedIn: true, provider: name };
+    });
+    const result = await createSummary().summarize();
+    expect(result).toEqual([{ loggedIn: true, provider: OAUTH_PROVIDER }]);
+    expect(oauthStatus).toHaveBeenCalledWith(OAUTH_PROVIDER);
+    expect(oauthStatus).toHaveBeenCalledWith(OTHER_OAUTH);
   });
 
   it('ensureReady rejects with AUTH_LOGIN_REQUIRED when the provider is logged out', async () => {

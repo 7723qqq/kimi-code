@@ -1,20 +1,19 @@
 /**
  * `modelCatalog` domain (L3) — read-only catalog over configured providers and
- * model aliases, plus the global default-model selection and the Kimi Code
- * OAuth model refresh.
+ * model aliases, plus the global default-model selection.
  *
  * Projects the `provider` / `model` configuration registries into the
  * protocol `ProviderCatalogItem` / `ModelCatalogItem` wire shapes that the
  * edge (`server-v2` `/api/v1` routes) serves. Core-scoped — provider and
  * model configuration is global and shared across sessions. This domain is a
  * thin facade over `provider`, `model`, `config`, and `auth`; it owns no
- * persistence of its own.
+ * persistence of its own. The OAuth-provider model refresh lives in
+ * The OAuth-provider model refresh lives in `auth` (`IOAuthService`), not here.
  */
 
 import type {
   ModelCatalogItem,
   ProviderCatalogItem,
-  RefreshOAuthProviderModelsResponse,
   SetDefaultModelResponse,
 } from '@moonshot-ai/protocol';
 
@@ -30,7 +29,6 @@ export interface IModelCatalogService {
   listProviders(): Promise<readonly ProviderCatalogItem[]>;
   getProvider(providerId: string): Promise<ProviderCatalogItem>;
   setDefaultModel(modelId: string): Promise<SetDefaultModelResponse>;
-  refreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse>;
 }
 
 export const IModelCatalogService: ServiceIdentifier<IModelCatalogService> =

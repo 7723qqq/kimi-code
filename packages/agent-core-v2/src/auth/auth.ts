@@ -2,18 +2,27 @@
  * `auth` domain (cross-cutting) — core-scope OAuth + auth summary contracts.
  *
  * Defines the public contracts of authentication: the `AuthStatus` model, the
- * `IOAuthService` used to drive device-code login / logout / flow inspection
- * and to resolve a per-provider `BearerTokenProvider`, and the
- * `IAuthSummaryService` used to summarize auth state and assert readiness.
+ * `IOAuthService` used to drive device-code login / logout / flow inspection,
+ * to resolve a per-provider `BearerTokenProvider`, and to refresh a managed
+ * OAuth provider's server-side model configuration, the `IOAuthToolkit`
+ * device-code client that `IOAuthService` delegates the OAuth protocol to, and
+ * the `IAuthSummaryService` used to summarize auth state and assert readiness.
  * Core-scoped — shared across the application.
  */
 
-import type { BearerTokenProvider } from '@moonshot-ai/kimi-code-oauth';
+import type {
+  BearerTokenProvider,
+  KimiOAuthLoginOptions,
+  KimiOAuthLoginResult,
+  KimiOAuthLogoutResult,
+  KimiOAuthTokenRef,
+} from '@moonshot-ai/kimi-code-oauth';
 import type {
   OAuthFlowSnapshot,
   OAuthFlowStart,
   OAuthLoginCancelResponse,
   OAuthLogoutResponse,
+  RefreshOAuthProviderModelsResponse,
 } from '@moonshot-ai/protocol';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -32,12 +41,27 @@ export interface IOAuthService {
   cancelLogin(provider?: string): Promise<OAuthLoginCancelResponse>;
   logout(provider?: string): Promise<OAuthLogoutResponse>;
   status(provider?: string): Promise<AuthStatus>;
+  refreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse>;
   resolveTokenProvider(provider: string, oauthRef?: OAuthRef): BearerTokenProvider | undefined;
   getCachedAccessToken(provider: string, oauthRef?: OAuthRef): Promise<string | undefined>;
 }
 
 export const IOAuthService: ServiceIdentifier<IOAuthService> =
   createDecorator<IOAuthService>('oauthService');
+
+export interface IOAuthToolkit {
+  readonly _serviceBrand: undefined;
+  login(providerName?: string, options?: KimiOAuthLoginOptions): Promise<KimiOAuthLoginResult>;
+  logout(providerName?: string, oauthRef?: KimiOAuthTokenRef): Promise<KimiOAuthLogoutResult>;
+  getCachedAccessToken(
+    providerName?: string,
+    oauthRef?: KimiOAuthTokenRef,
+  ): Promise<string | undefined>;
+  tokenProvider(providerName?: string, oauthRef?: KimiOAuthTokenRef): BearerTokenProvider;
+}
+
+export const IOAuthToolkit: ServiceIdentifier<IOAuthToolkit> =
+  createDecorator<IOAuthToolkit>('oauthToolkit');
 
 export interface IAuthSummaryService {
   readonly _serviceBrand: undefined;
