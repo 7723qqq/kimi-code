@@ -835,7 +835,17 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
 			return (
 				data === "\x1b" ||
 				matchesKittySequence(data, CODEPOINTS.escape, 0) ||
-				matchesModifyOtherKeys(data, CODEPOINTS.escape, 0)
+				matchesModifyOtherKeys(data, CODEPOINTS.escape, 0) ||
+				// Merged meta-CSI: a leading bare ESC (legacy Escape press) glued to an
+				// inner sequence (e.g. WezTerm coalescing the Escape press with a kitty
+				// release `\x1b[27;129:3u`). Treat the leading ESC as a real Escape
+				// keypress only when the inner sequence is itself an Escape event, so
+				// meta-chords like `\x1b\x1b[A` (alt+up) are not misread as Escape.
+				(data.length > 2 &&
+					data.charCodeAt(0) === 0x1b &&
+					data.charCodeAt(1) === 0x1b &&
+					(data.charCodeAt(2) === 0x5b || data.charCodeAt(2) === 0x4f) &&
+					matchesKey(data.slice(1), "escape"))
 			);
 
 		case "space":
