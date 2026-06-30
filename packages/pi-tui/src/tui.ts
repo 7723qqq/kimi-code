@@ -17,6 +17,7 @@ import {
 } from "./terminal-colors.ts";
 import { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.ts";
 import { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.ts";
+import { LedgerTuiEngine } from "./ledger/engine.ts";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
 
@@ -314,6 +315,8 @@ export class TUI extends Container {
 	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
 	private fullRedrawCount = 0;
+	private ledgerEngine: LedgerTuiEngine | undefined;
+	private static readonly LEDGER_ENABLED = process.env["PI_TUI_ENGINE"] === "ledger";
 	private stopped = false;
 	private pendingOsc11BackgroundReplies = 0;
 	private pendingOsc11BackgroundQueries: PendingOsc11BackgroundQuery[] = [];
@@ -334,7 +337,7 @@ export class TUI extends Container {
 	}
 
 	get fullRedraws(): number {
-		return this.fullRedrawCount;
+		return TUI.LEDGER_ENABLED && this.ledgerEngine ? this.ledgerEngine.fullRedraws : this.fullRedrawCount;
 	}
 
 	getShowHardwareCursor(): boolean {
@@ -636,7 +639,10 @@ export class TUI extends Container {
 		this.stopped = false;
 		this.terminal.start(
 			(data) => this.handleInput(data),
-			() => this.requestRender(),
+			() => {
+				this.ledgerEngine?.notifyResize();
+				this.requestRender();
+			},
 		);
 		this.terminal.hideCursor();
 		if (this.terminalColorSchemeNotificationsEnabled) {
@@ -706,11 +712,15 @@ export class TUI extends Container {
 		}
 
 		this.terminal.showCursor();
+		this.ledgerEngine?.stop();
 		this.terminal.stop();
 	}
 
 	requestRender(force = false): void {
 		if (force) {
+			if (TUI.LEDGER_ENABLED) {
+				this.getLedgerEngine().requestFullPaint(true);
+			}
 			this.previousLines = [];
 			this.previousWidth = -1; // -1 triggers widthChanged, forcing a full clear
 			this.previousHeight = -1; // -1 triggers heightChanged, forcing a full clear
@@ -1251,7 +1261,7 @@ export class TUI extends Container {
 		return null;
 	}
 
-	private doRender(): void {
+	private doRenderLegacy(): void {
 		if (this.stopped) return;
 		const width = this.terminal.columns;
 		const height = this.terminal.rows;
@@ -1617,6 +1627,21 @@ export class TUI extends Container {
 		this.previousKittyImageIds = this.collectKittyImageIds(newLines);
 		this.previousWidth = width;
 		this.previousHeight = height;
+	}
+
+	private getLedgerEngine(): LedgerTuiEngine {
+		if (!this.ledgerEngine) {
+			this.ledgerEngine = new LedgerTuiEngine(this.terminal, () => this.children);
+		}
+		return this.ledgerEngine;
+	}
+
+	private doRender(): void {
+		if (TUI.LEDGER_ENABLED) {
+			this.getLedgerEngine().doRender();
+		} else {
+			this.doRenderLegacy();
+		}
 	}
 
 	/**

@@ -67,10 +67,12 @@ export class LedgerTuiEngine {
 	readonly #paintEndSequence: string;
 
 	// children injected by the host TUI (it owns the Container children list)
-	constructor(
-		private readonly terminal: Terminal,
-		private readonly getChildren: () => Component[],
-	) {
+	private readonly terminal: Terminal;
+	private readonly getChildren: () => Component[];
+
+	constructor(terminal: Terminal, getChildren: () => Component[]) {
+		this.terminal = terminal;
+		this.getChildren = getChildren;
 		this.#syncEnabled = shouldEnableSyncOutput();
 		this.#paintBeginSequence = this.#syncEnabled
 			? `${HIDE_CURSOR}${SYNC_OUTPUT_BEGIN}${DISABLE_AUTOWRAP}`
