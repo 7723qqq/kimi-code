@@ -19,6 +19,7 @@ import {
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { installErrorHandler } from './error-handler';
+import { transformOpenApiDocument } from './openapi/transforms';
 import { resolveRequestId } from './request-id';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
 // Registers the real `node-pty` `ITerminalBackend`, overriding the
@@ -92,8 +93,51 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     core.dispose();
   };
 
+  const serverVersion = getServerVersion();
+
+  async function registerOpenApi(): Promise<void> {
+    const { default: swagger } = await import('@fastify/swagger');
+    await app.register(swagger, {
+      openapi: {
+        info: {
+          title: 'Kimi Code Server API',
+          description:
+            'REST API for the Kimi Code local server. All JSON responses are wrapped in a uniform envelope `{ code, msg, data, request_id }`.',
+          version: serverVersion,
+        },
+        tags: [
+          { name: 'meta', description: 'Server metadata' },
+          { name: 'auth', description: 'Auth readiness & login state' },
+          { name: 'models', description: 'Configured model aliases' },
+          { name: 'providers', description: 'Configured providers' },
+          { name: 'sessions', description: 'Session lifecycle' },
+          { name: 'workspaces', description: 'Workspace registry + folder picker' },
+          { name: 'messages', description: 'Message history' },
+          { name: 'prompts', description: 'Prompt submission & abort' },
+          { name: 'approvals', description: 'Approval resolution' },
+          { name: 'questions', description: 'Question resolution & dismiss' },
+          { name: 'tools', description: 'Tool & MCP server management' },
+          { name: 'tasks', description: 'Background tasks' },
+          { name: 'terminals', description: 'PTY terminal sessions' },
+          { name: 'fs', description: 'Filesystem operations' },
+          { name: 'files', description: 'File upload & download' },
+        ],
+      },
+      transformObject: (documentObject) => {
+        if (!('openapiObject' in documentObject)) {
+          return documentObject.swaggerObject;
+        }
+        return transformOpenApiDocument(documentObject.openapiObject as Record<string, unknown>);
+      },
+    });
+  }
+
+  // `@fastify/swagger` collects route schemas via an `onRoute` hook, so it must
+  // be registered before any routes it should document.
+  await registerOpenApi();
+
   await registerApiV1Routes(app, core, {
-    serverVersion: getServerVersion(),
+    serverVersion,
     debugEndpoints: opts.debugEndpoints,
     onShutdown: () => {
       void close();
@@ -102,6 +146,11 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
 
   registerRpcRoutes(app, core, { token: opts.rpcToken });
   registerWs(app, core, { token: opts.rpcToken });
+
+  app.get('/openapi.json', async (_req, reply) => {
+    const openApiDocument = (app as unknown as { swagger(): unknown }).swagger();
+    return reply.type('application/json').send(openApiDocument);
+  });
 
   const host = opts.host ?? DEFAULT_HOST;
   const port = opts.port ?? DEFAULT_PORT;
