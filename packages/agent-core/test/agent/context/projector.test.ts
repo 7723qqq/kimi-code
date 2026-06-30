@@ -71,6 +71,14 @@ function textPart(text: string): ContentPart {
   return { type: 'text', text };
 }
 
+function textOf(message: Message | undefined): string {
+  return (
+    message?.content
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('') ?? ''
+  );
+}
+
 function user(text: string): ContextMessage {
   return { role: 'user', content: [textPart(text)], toolCalls: [] };
 }
@@ -224,6 +232,43 @@ describe('project tool_use/tool_result adjacency', () => {
     ]);
     // No new (synthetic) tool result for b was introduced.
     expect(projected.some((m) => m.toolCallId === 'b')).toBe(false);
+  });
+
+  it('synthesizes a tool result for a missing tool call when synthesizeMissing is set', () => {
+    const history: ContextMessage[] = [user('u1'), assistant(['a', 'b']), tool('a')];
+    const projected = project(history, { synthesizeMissing: true });
+    expect(projected.map((m) => [m.role, m.toolCallId])).toEqual([
+      ['user', undefined],
+      ['assistant', undefined],
+      ['tool', 'a'],
+      ['tool', 'b'],
+    ]);
+    expect(projected.at(-1)).toMatchObject({ role: 'tool', toolCallId: 'b' });
+    expect(findMisplacedToolUses(projected)).toEqual([]);
+  });
+
+  // Regression for the full-compaction prefix gap: a delayed tool result may be
+  // sliced out of the compacted prefix (the split is computed on the raw,
+  // misordered history). With synthesizeMissing the sliced projection must still
+  // close the exchange so the summary request is not rejected.
+  it('closes a tool call whose delayed result is sliced out of a compaction prefix', () => {
+    const fullHistory: ContextMessage[] = [
+      user('u1'),
+      assistant(['a']),
+      user('middle'),
+      assistant(['b']),
+      tool('b'),
+      user('later'),
+      tool('a'),
+    ];
+    // The strategy may split after tool('b'), excluding the distant tool('a').
+    const prefix = fullHistory.slice(0, 5);
+    const projected = project(prefix, { synthesizeMissing: true });
+    expect(findMisplacedToolUses(projected)).toEqual([]);
+    const aIndex = projected.findIndex((m) => m.toolCalls.some((tc) => tc.id === 'a'));
+    expect(projected[aIndex + 1]).toMatchObject({ role: 'tool', toolCallId: 'a' });
+    // The synthesized result carries the placeholder text, not the real output.
+    expect(textOf(projected[aIndex + 1])).toContain('not available');
   });
 
   it('does not move a tool result whose toolCallId matches no assistant tool_use', () => {

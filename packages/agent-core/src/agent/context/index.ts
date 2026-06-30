@@ -6,7 +6,7 @@ import type { ExecutableToolResult, LoopRecordedEvent } from '../../loop';
 import { estimateTokensForMessages } from '../../utils/tokens';
 import { escapeXml } from '../../utils/xml-escape';
 import type { CompactionResult } from '../compaction';
-import { project, trimTrailingOpenToolExchange } from './projector';
+import { project, type ProjectOptions, trimTrailingOpenToolExchange } from './projector';
 import {
   USER_PROMPT_ORIGIN,
   type AgentContextData,
@@ -256,8 +256,8 @@ export class ContextMemory {
     return this._history;
   }
 
-  project(messages: readonly ContextMessage[]): Message[] {
-    return project(this.agent.microCompaction.compact(messages));
+  project(messages: readonly ContextMessage[], options?: ProjectOptions): Message[] {
+    return project(this.agent.microCompaction.compact(messages), options);
   }
 
   get messages(): Message[] {

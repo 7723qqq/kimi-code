@@ -288,6 +288,94 @@ describe('FullCompaction', () => {
     ).toBe(false);
   });
 
+  // Regression: a delayed tool result can fall outside the compacted prefix
+  // (the split is computed on the raw, misordered history). The compaction
+  // request must still close the exchange so the summary request is not
+  // rejected by strict providers.
+  it('closes a tool call whose delayed result falls outside the compacted prefix', async () => {
+    const compactFirstTwo: CompactionStrategy = {
+      ...alwaysCompactOnce,
+      computeCompactCount: () => 2,
+    };
+    const ctx = testAgent({ compactionStrategy: compactFirstTwo });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+
+    const stepUuid = 'delayed-result-step';
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'first prompt' }]);
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: { type: 'step.begin', uuid: stepUuid, turnId: '0', step: 1 },
+    });
+    // Notification flushed before the tool call lands it between the tool_use
+    // and its (later) tool result.
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: '<notification>bg</notification>' }], {
+      kind: 'background_task',
+      taskId: 'task-1',
+      status: 'completed',
+      notificationId: 'task:task-1:completed',
+    });
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.call',
+        uuid: 'call_delayed',
+        turnId: '0',
+        step: 1,
+        stepUuid,
+        toolCallId: 'call_delayed',
+        name: 'Run',
+        args: {},
+      },
+    });
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: { type: 'step.end', uuid: stepUuid, turnId: '0', step: 1, finishReason: 'tool_use' },
+    });
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.result',
+        parentUuid: 'call_delayed',
+        toolCallId: 'call_delayed',
+        result: { output: 'real result' },
+      },
+    });
+
+    // Sanity: history is [user, assistant(call_delayed), user, tool(call_delayed)];
+    // the split at 2 excludes the tool result.
+    expect(ctx.agent.context.history.map((m) => m.role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'tool',
+    ]);
+
+    const compacted = new Promise<void>((resolve) => {
+      ctx.emitter.once('context.apply_compaction', () => resolve());
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
+    await ctx.rpc.beginCompaction({});
+    await compacted;
+
+    const [compactionCall] = ctx.llmCalls;
+    expect(compactionCall?.history.map((m) => m.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'user',
+    ]);
+    // The tool result answering call_delayed is a synthetic placeholder (the real
+    // result lives in the retained tail, outside the compacted prefix).
+    expect(compactionCall?.history[2]).toMatchObject({
+      role: 'tool',
+      toolCallId: 'call_delayed',
+    });
+    expect(textOf(compactionCall?.history[2])).toContain('not available');
+  });
+
   it('micro-compacts old tool results before sending the summary request', async () => {
     vi.useFakeTimers();
     enableMicroCompactionFlag();
@@ -2332,4 +2420,10 @@ function inputHistorySnapshot(history: readonly Message[]): string[] {
 
 function normalizeInputText(text: string): string {
   return text.includes('compact this conversation context') ? '<compaction-instruction>' : text;
+}
+
+function textOf(message: Message | undefined): string {
+  return (
+    message?.content.map((part) => (part.type === 'text' ? part.text : '')).join('') ?? ''
+  );
 }

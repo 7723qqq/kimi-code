@@ -344,7 +344,7 @@ export class FullCompaction {
       while (true) {
         const messagesToCompact = originalHistory.slice(0, compactedCount);
         const messages = [
-          ...this.agent.context.project(messagesToCompact),
+          ...this.agent.context.project(messagesToCompact, { synthesizeMissing: true }),
           createUserMessage(renderPrompt(compactionInstructionTemplate, { customInstruction: data.instruction ?? '' })),
         ];
         const estimatedCompactionRequestTokens = this.estimateRequestTokens(messages);
