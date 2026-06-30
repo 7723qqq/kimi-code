@@ -25,6 +25,7 @@ import { registerPromptsRoutes } from './prompts';
 import { registerQuestionsRoutes } from './questions';
 import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
+import { registerTasksRoutes } from './tasks';
 import { registerToolsRoutes } from './tools';
 import { registerWorkspaceFsRoutes } from './workspaceFs';
 import { registerWorkspacesRoutes } from './workspaces';
@@ -80,6 +81,7 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerMessagesRoutes>[0],
         core,
       );
+      registerTasksRoutes(apiV1 as unknown as Parameters<typeof registerTasksRoutes>[0], core);
       registerApprovalsRoutes(
         apiV1 as unknown as Parameters<typeof registerApprovalsRoutes>[0],
         core,
