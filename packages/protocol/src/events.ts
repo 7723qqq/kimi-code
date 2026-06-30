@@ -220,6 +220,7 @@ export type KimiErrorCode =
   | 'mcp.server_disabled'
   | 'mcp.startup_failed'
   | 'mcp.tool_name_collision'
+  | 'message.not_found'
   | 'plugin.not_found'
   | 'plugin.load_failed'
   | 'request.invalid'
@@ -868,6 +869,7 @@ export const kimiErrorCodeSchema = z.enum([
   'mcp.server_disabled',
   'mcp.startup_failed',
   'mcp.tool_name_collision',
+  'message.not_found',
   'plugin.not_found',
   'plugin.load_failed',
   'request.invalid',

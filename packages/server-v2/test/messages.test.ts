@@ -6,8 +6,10 @@ import {
   IAgentLifecycleService,
   IContextMemory,
   ISessionLifecycleService,
+  IWireRecord,
   modelResolverSeed,
   SingleModelResolver,
+  type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -39,6 +41,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
   let server: RunningServer | undefined;
   let home: string | undefined;
   let base: string;
+  let seeds: ScopeSeed | undefined;
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-messages-'));
@@ -49,15 +52,20 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
       model: 'stub',
       apiKey: 'stub',
     });
+    seeds = modelResolverSeed(modelResolver);
+    await boot();
+  });
+
+  async function boot(): Promise<void> {
     server = await startServer({
       host: '127.0.0.1',
       port: 0,
-      homeDir: home,
+      homeDir: home as string,
       logLevel: 'silent',
-      seeds: modelResolverSeed(modelResolver),
+      seeds,
     });
     base = `http://127.0.0.1:${server.port}`;
-  });
+  }
 
   afterEach(async () => {
     if (server !== undefined) {
@@ -101,6 +109,9 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     }
     if (messages.length > 0) {
       agent.accessor.get(IContextMemory).splice(0, 0, messages);
+      // Flush the wire log so the temp home is quiescent before afterEach rm's
+      // it (macOS can ENOTEMPTY an rmdir while an append is still in flight).
+      await agent.accessor.get(IWireRecord).flush();
     }
   }
 
@@ -256,5 +267,67 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     expect(body.code).toBe(0);
     expect(body.data.items.every((m) => m.role === 'user')).toBe(true);
     expect(body.data.items.map((m) => m.id)).toEqual([messageId(id, 2), messageId(id, 0)]);
+  });
+
+  // Regression for the cold-session gap: a persisted (non-live) session must
+  // return its full wire transcript — including the pre-compaction prefix —
+  // instead of an empty page / 40403. We seed the wire log through the live
+  // agent (splice + a compaction fold + flush), then restart the whole server
+  // on the same home so the session is genuinely cold on the read path.
+  it('reads the persisted full transcript for a cold session', async () => {
+    const id = await createSession();
+    const session = server!.core.accessor.get(ISessionLifecycleService).get(id);
+    if (session === undefined) throw new Error(`session ${id} not found`);
+    const agent = await session.accessor.get(IAgentLifecycleService).createMain();
+    const ctx = agent.accessor.get(IContextMemory);
+    // Three messages, then a compaction that folds the prefix into a summary.
+    ctx.splice(0, 0, [
+      { role: 'user', content: [{ type: 'text', text: 'm0' }], toolCalls: [] },
+      { role: 'assistant', content: [{ type: 'text', text: 'm1' }], toolCalls: [] },
+      { role: 'user', content: [{ type: 'text', text: 'm2' }], toolCalls: [] },
+    ]);
+    ctx.splice(0, 3, [
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'summary' }],
+        toolCalls: [],
+        origin: { kind: 'compaction_summary' },
+      },
+    ]);
+    await agent.accessor.get(IWireRecord).flush();
+
+    // Restart the server on the same homeDir → the session is cold for the next
+    // read (mirrors a session carried over from a prior process).
+    await server!.close();
+    server = undefined;
+    await boot();
+
+    // Full transcript preserved (pre-compaction m0/m1/m2 + summary), newest first.
+    const { body } = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?page_size=100`);
+    expect(body.code).toBe(0);
+    expect(body.data.items.map((m) => m.id)).toEqual([
+      messageId(id, 3),
+      messageId(id, 2),
+      messageId(id, 1),
+      messageId(id, 0),
+    ]);
+    expect(body.data.items[0]).toMatchObject({
+      id: messageId(id, 3),
+      role: 'assistant',
+      metadata: { origin: { kind: 'compaction_summary' } },
+    });
+
+    // get returns a specific message for a cold session …
+    const got = await getJson<MessageWire>(`/api/v1/sessions/${id}/messages/${messageId(id, 1)}`);
+    expect(got.body.code).toBe(0);
+    expect(got.body.data).toMatchObject({
+      id: messageId(id, 1),
+      role: 'assistant',
+      content: [{ type: 'text', text: 'm1' }],
+    });
+
+    // … and 40403 for an unknown message id in the same cold session.
+    const missing = await getJson<null>(`/api/v1/sessions/${id}/messages/${messageId(id, 99)}`);
+    expect(missing.body.code).toBe(40403);
   });
 });

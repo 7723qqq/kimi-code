@@ -19,6 +19,7 @@ import { FullCompactionErrors } from '#/fullCompaction/errors';
 import { GoalErrors } from '#/goal/errors';
 import { LoopErrors } from '#/loop/errors';
 import { McpErrors } from '#/mcp/errors';
+import { MessageLegacyErrors } from '#/messageLegacy/errors';
 import { ModelCatalogErrors } from '#/modelCatalog/errors';
 import { PluginErrors } from '#/plugin/errors';
 import { ProfileErrors } from '#/profile/errors';
@@ -42,6 +43,7 @@ export { FullCompactionErrors } from '#/fullCompaction/errors';
 export { GoalErrors } from '#/goal/errors';
 export { LoopErrors } from '#/loop/errors';
 export { McpErrors } from '#/mcp/errors';
+export { MessageLegacyErrors } from '#/messageLegacy/errors';
 export { ModelCatalogErrors } from '#/modelCatalog/errors';
 export { PluginErrors } from '#/plugin/errors';
 export { ProfileErrors } from '#/profile/errors';
@@ -66,6 +68,7 @@ export const ErrorCodes = {
   ...GoalErrors.codes,
   ...LoopErrors.codes,
   ...McpErrors.codes,
+  ...MessageLegacyErrors.codes,
   ...ModelCatalogErrors.codes,
   ...PluginErrors.codes,
   ...ProfileErrors.codes,

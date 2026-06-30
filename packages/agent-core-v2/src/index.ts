@@ -84,6 +84,7 @@ export * from './permissionRules/index';
 export * from './profile/index';
 export * from './prompt/index';
 export * from './promptLegacy/index';
+export * from './messageLegacy/index';
 export * from './replayBuilder/index';
 export * from './rpc/index';
 export * from './subagentHost/index';

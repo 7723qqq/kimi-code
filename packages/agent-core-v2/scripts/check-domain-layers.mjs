@@ -135,6 +135,7 @@ const DOMAIN_LAYER = new Map([
   ['promptLegacy', 7],
   ['sessionLegacy', 7],
   ['authLegacy', 7],
+  ['messageLegacy', 7],
 ]);
 
 const V1_PACKAGE = '@moonshot-ai/agent-core';
