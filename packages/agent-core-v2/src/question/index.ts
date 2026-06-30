@@ -6,3 +6,5 @@
 
 export * from './question';
 export * from './questionService';
+export * from './questionTools';
+export * from './questionToolsService';

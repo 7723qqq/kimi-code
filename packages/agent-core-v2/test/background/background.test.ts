@@ -13,6 +13,7 @@ import { IPromptService } from '#/prompt';
 import { ISessionContext } from '#/session-context';
 import { IAtomicDocumentStore, IStorageService } from '#/storage';
 import { ITelemetryService } from '#/telemetry';
+import { IToolRegistry } from '#/toolRegistry';
 import { IWireRecord } from '#/wireRecord';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
@@ -38,6 +39,9 @@ describe('BackgroundService', () => {
     ix.stub(IContextMemory, stubContextMemory());
     ix.stub(IEventSink, { emit: () => {}, on: () => toDisposable(() => {}) });
     ix.stub(ITelemetryService, { track: () => {} });
+    ix.stub(IToolRegistry, {
+      register: () => toDisposable(() => {}),
+    });
     ix.stub(IPromptService, { steer: () => undefined });
     ix.stub(IExternalHooksService, { triggerNotification: () => {} });
     ix.stub(IConfigRegistry, { registerSection: () => {} });

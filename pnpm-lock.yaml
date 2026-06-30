@@ -453,6 +453,9 @@ importers:
       '@moonshot-ai/protocol':
         specifier: workspace:^
         version: link:../protocol
+      '@mozilla/readability':
+        specifier: ^0.6.0
+        version: 0.6.0
       chokidar:
         specifier: ^4.0.3
         version: 4.0.3
@@ -462,6 +465,9 @@ importers:
       js-yaml:
         specifier: ^4.1.1
         version: 4.1.1
+      linkedom:
+        specifier: ^0.18.12
+        version: 0.18.12
       nunjucks:
         specifier: ^3.2.4
         version: 3.2.4(chokidar@4.0.3)

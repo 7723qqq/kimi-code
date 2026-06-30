@@ -9,10 +9,12 @@ import {
 import { ErrorCodes, KimiError } from "#/errors";
 import { IContextInjector } from '../contextInjector';
 import { IEventSink } from '../eventSink';
+import { IPermissionModeService } from '#/permissionMode';
 import { IReplayBuilderService } from '#/replayBuilder';
 import { ISystemReminderService } from '#/systemReminder';
 import type { TelemetryProperties } from '#/telemetry';
 import { ITelemetryService } from '#/telemetry';
+import { IToolRegistry } from '#/toolRegistry';
 import type { WireRecord } from '#/wireRecord';
 import { IWireRecord } from '#/wireRecord';
 import {
@@ -34,6 +36,10 @@ import type {
   GoalStatus,
   GoalToolResult,
 } from './types';
+import { CreateGoalTool } from './tools/create-goal';
+import { GetGoalTool } from './tools/get-goal';
+import { SetGoalBudgetTool } from './tools/set-goal-budget';
+import { UpdateGoalTool } from './tools/update-goal';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -101,6 +107,8 @@ export class GoalService extends Disposable implements IGoalService {
     @IReplayBuilderService private readonly replayBuilder: IReplayBuilderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IContextInjector private readonly dynamicInjector: IContextInjector,
+    @IToolRegistry toolRegistry: IToolRegistry,
+    @IPermissionModeService private readonly permissionMode: IPermissionModeService,
   ) {
     super();
     this._register(
@@ -138,6 +146,11 @@ export class GoalService extends Disposable implements IGoalService {
         this.normalizeAfterReplay();
       }),
     );
+
+    this._register(toolRegistry.register(new CreateGoalTool(this, this.permissionMode)));
+    this._register(toolRegistry.register(new GetGoalTool(this)));
+    this._register(toolRegistry.register(new SetGoalBudgetTool(this)));
+    this._register(toolRegistry.register(new UpdateGoalTool(this, this.reminders)));
   }
 
   get enabled(): boolean {

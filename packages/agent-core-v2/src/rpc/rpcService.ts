@@ -12,6 +12,7 @@ import { IPermissionModeService } from '#/permissionMode/permissionMode';
 import { IPlanService } from '../plan';
 import { IProfileService } from '#/profile';
 import { IPromptService } from '#/prompt';
+import { IQuestionToolsService } from '#/question';
 import { IShellToolsService } from '#/shellTools';
 import { IAgentSkillService } from '#/skill';
 import { ISubagentHost } from '#/subagentHost';
@@ -21,6 +22,7 @@ import { IToolRegistry } from '#/toolRegistry';
 import { ITurnService } from '../turn';
 import { IUsageService } from '#/usage';
 import { IUserToolService } from '#/userTool';
+import { IWebService } from '#/web';
 import type {
   ActivateSkillPayload,
   BeginCompactionPayload,
@@ -69,6 +71,8 @@ export class AgentRPCService implements IAgentRPCService {
     @IUsageService private readonly usage: IUsageService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IGoalService private readonly goal: IGoalService,
+    @IQuestionToolsService private readonly questionTools: IQuestionToolsService,
+    @IWebService private readonly web: IWebService,
   ) { }
 
   prompt(payload: PromptPayload): PromptLaunchResult | undefined {

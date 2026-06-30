@@ -9,6 +9,7 @@ import { IPromptService } from '#/prompt';
 import { IAgentSkillService, InMemorySkillCatalog, ISkillCatalog } from '#/skill';
 import { AgentSkillService } from '#/skill/skillService';
 import { ITelemetryService } from '#/telemetry';
+import { IToolRegistry } from '#/toolRegistry';
 import type { Turn } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 import { stubWireRecord } from '../contextMemory/stubs';
@@ -58,6 +59,9 @@ describe('AgentSkillService', () => {
         });
         reg.defineInstance(IWireRecord, stubWireRecord());
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
+        reg.definePartialInstance(IToolRegistry, {
+          register: () => ({ dispose: () => {} }),
+        });
       },
     });
     const skills = new InMemorySkillCatalog();

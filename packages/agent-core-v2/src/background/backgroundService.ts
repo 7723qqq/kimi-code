@@ -33,6 +33,7 @@ import { IPromptService } from '#/prompt';
 import { ISessionContext } from '#/session-context';
 import { IAtomicDocumentStore, IStorageService } from '#/storage';
 import { ITelemetryService } from '#/telemetry';
+import { IToolRegistry } from '#/toolRegistry';
 import type { WireRecord } from '#/wireRecord';
 import { IWireRecord } from '#/wireRecord';
 import {
@@ -47,6 +48,9 @@ import {
 } from './background';
 import { BACKGROUND_SECTION, type BackgroundConfig, BackgroundConfigSchema } from './configSection';
 import { BackgroundTaskPersistence } from './persist';
+import { TaskListTool } from './tools/task-list';
+import { TaskOutputTool } from './tools/task-output';
+import { TaskStopTool } from './tools/task-stop';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -135,6 +139,7 @@ export class BackgroundService extends Disposable implements IBackgroundService 
     @IPromptService private readonly prompt: IPromptService,
     @IExternalHooksService private readonly externalHooks: IExternalHooksService,
     @IContextMemory private readonly context: IContextMemory,
+    @IToolRegistry toolRegistry: IToolRegistry,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore atomicDocs: IAtomicDocumentStore,
@@ -179,6 +184,10 @@ export class BackgroundService extends Disposable implements IBackgroundService 
         }
       }),
     );
+
+    this._register(toolRegistry.register(new TaskListTool(this)));
+    this._register(toolRegistry.register(new TaskOutputTool(this)));
+    this._register(toolRegistry.register(new TaskStopTool(this)));
   }
 
   registerTask(task: BackgroundTask, options: RegisterBackgroundTaskOptions = {}): string {

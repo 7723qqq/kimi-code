@@ -22,6 +22,7 @@ import {
 import { IEventSink } from '../eventSink';
 import { IPromptService } from '#/prompt';
 import { ITelemetryService } from '#/telemetry';
+import { IToolRegistry } from '#/toolRegistry';
 import type { Turn } from '#/turn';
 import { IWireRecord } from '#/wireRecord';
 import {
@@ -30,6 +31,7 @@ import {
   type SkillActivationInput,
 } from './skill';
 import { ISkillCatalog } from './skillCatalog';
+import { SkillTool } from './tools/skill';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -48,6 +50,7 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
     @IEventSink private readonly events: IEventSink,
     @IWireRecord private readonly wireRecord: IWireRecord,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IToolRegistry toolRegistry: IToolRegistry,
   ) {
     super();
     this._register(
@@ -55,6 +58,7 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
         this.publishActivation(record.origin);
       }),
     );
+    this._register(toolRegistry.register(new SkillTool(this)));
   }
 
   async activate(input: SkillActivationInput): Promise<Turn> {

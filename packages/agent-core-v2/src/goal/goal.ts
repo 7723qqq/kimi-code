@@ -2,6 +2,7 @@ import { createDecorator } from "#/_base/di";
 import type {
   CreateGoalInput,
   GoalActor,
+  GoalBudgetLimits,
   GoalSnapshot,
   GoalToolResult,
 } from './types';
@@ -17,6 +18,12 @@ export interface IGoalService {
   pauseGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot>;
   resumeGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot>;
   cancelGoal(actor?: GoalActor): Promise<GoalSnapshot>;
+  setBudgetLimits(
+    input: { readonly budgetLimits: GoalBudgetLimits },
+    actor?: GoalActor,
+  ): Promise<GoalSnapshot>;
+  markComplete(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
+  markBlocked(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
 }
 
 export const IGoalService = createDecorator<IGoalService>('agentGoalService');
