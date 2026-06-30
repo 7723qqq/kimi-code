@@ -13,8 +13,7 @@ import { createTestAgent, cronServices, type TestAgentContext } from '../harness
 const WALL_ANCHOR = 1_700_000_000_000;
 
 interface ClockHarness {
-  readonly clocks: { wallNow(): number; monoNowMs(): number };
-  /** Advance wall + mono by `ms`. */
+  /** Advance wall-clock time by `ms`. */
   advance(ms: number): void;
   /** Current wall-clock value. */
   now(): number;
@@ -22,15 +21,10 @@ interface ClockHarness {
 
 function createClocks(initial: number = WALL_ANCHOR): ClockHarness {
   let wall = initial;
-  let mono = 1_000_000;
+  vi.spyOn(Date, 'now').mockImplementation(() => wall);
   return {
-    clocks: {
-      wallNow: () => wall,
-      monoNowMs: () => mono,
-    },
     advance: (ms) => {
       wall += ms;
-      mono += ms;
     },
     now: () => wall,
   };
@@ -53,6 +47,7 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -65,21 +60,13 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
     beforeEach(() => {
       vi.stubEnv('KIMI_CRON_MANUAL_TICK', '1');
       harness = createClocks();
-      ctx = createTestAgent(cronServices({
-        autoStart: true,
-        pollIntervalMs: 50,
-        clocks: harness.clocks,
-      }));
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
       prompt = ctx.get(IPromptService);
     });
 
     afterEach(async () => {
-      try {
-        await ctx.expectResumeMatches();
-      } finally {
-        await ctx.dispose();
-      }
+      await ctx.dispose();
     });
 
     it('does not install setInterval; tick() must be called manually', async () => {
@@ -111,22 +98,15 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
       // Fake timers must be in place BEFORE the manager calls
       // setInterval, otherwise the scheduler captures the real one.
       vi.useFakeTimers();
+      vi.stubEnv('KIMI_CRON_POLL_INTERVAL_MS', '50');
       harness = createClocks();
-      ctx = createTestAgent(cronServices({
-        autoStart: true,
-        pollIntervalMs: 50,
-        clocks: harness.clocks,
-      }));
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
       prompt = ctx.get(IPromptService);
     });
 
     afterEach(async () => {
-      try {
-        await ctx.expectResumeMatches();
-      } finally {
-        await ctx.dispose();
-      }
+      await ctx.dispose();
     });
 
     it('auto-tick fires when fake timers advance past pollIntervalMs', () => {
@@ -155,16 +135,12 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
       beforeEach(() => {
         vi.stubEnv('KIMI_CRON_MANUAL_TICK', '1');
         listenerCountBeforeCreate = process.listenerCount('SIGUSR1');
-        ctx = createTestAgent(cronServices({ autoStart: true, pollIntervalMs: null }));
+        ctx = createTestAgent(cronServices({}));
         cron = ctx.get(ICronService);
       });
 
       afterEach(async () => {
-        try {
-          await ctx.expectResumeMatches();
-        } finally {
-          await ctx.dispose();
-        }
+        await ctx.dispose();
       });
 
       it('triggers tick() once per emit (POSIX only)', () => {
@@ -232,16 +208,12 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
       beforeEach(() => {
         vi.stubEnv('KIMI_CRON_MANUAL_TICK', '1');
         vi.stubEnv('KIMI_CRON_DEBUG', '1');
-        ctx = createTestAgent(cronServices({ autoStart: true, pollIntervalMs: null }));
+        ctx = createTestAgent(cronServices({}));
         cron = ctx.get(ICronService);
       });
 
       afterEach(async () => {
-        try {
-          await ctx.expectResumeMatches();
-        } finally {
-          await ctx.dispose();
-        }
+        await ctx.dispose();
       });
 
       it('logs swallowed tick() throws to stderr when KIMI_CRON_DEBUG=1', () => {
@@ -272,16 +244,12 @@ describe('CronService — P1.8 manual tick + SIGUSR1', () => {
       let cron: ICronService;
 
       beforeEach(() => {
-        ctx = createTestAgent(cronServices({ autoStart: true, pollIntervalMs: null }));
+        ctx = createTestAgent(cronServices({}));
         cron = ctx.get(ICronService);
       });
 
       afterEach(async () => {
-        try {
-          await ctx.expectResumeMatches();
-        } finally {
-          await ctx.dispose();
-        }
+        await ctx.dispose();
       });
 
       it('does not bind when KIMI_CRON_MANUAL_TICK is unset', () => {

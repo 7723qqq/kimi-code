@@ -16,7 +16,7 @@ import {
   type Message,
   type ProviderRequestAuth,
   type Tool as KosongTool,
-  } from '@moonshot-ai/kosong';
+} from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
@@ -37,10 +37,6 @@ import { IUsageService } from '#/usage';
 import { AsyncEventQueue } from './asyncEventQueue';
 import { ILLMRequester } from './llmRequester';
 
-export interface LLMRequesterServiceOptions {
-  readonly generate?: typeof generate;
-}
-
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {},
@@ -48,8 +44,8 @@ const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
 
 export class LLMRequesterService implements ILLMRequester {
   declare readonly _serviceBrand: undefined;
+
   constructor(
-    private readonly options: LLMRequesterServiceOptions = {},
     @IContextMemory private readonly context: IContextMemory,
     @IContextProjector private readonly projector: IContextProjector,
     @IToolRegistry private readonly tools: IToolRegistry,
@@ -189,7 +185,7 @@ export class LLMRequesterService implements ILLMRequester {
       messages: [...(overrides.messages ?? this.projector.project(this.context.get()))],
       requestLogFields: overrides.requestLogFields,
       usageContext: overrides.usageContext,
-      generate: this.options.generate ?? generate,
+      generate,
     };
   }
 

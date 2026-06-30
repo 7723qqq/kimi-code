@@ -1,7 +1,6 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
 
 import { createDecorator } from "#/_base/di";
-import type { ClockSources } from './tools/clock';
 import type { SessionCronTaskInit } from './tools/session-store';
 import type { CronTask, CronToolManager } from './tools/types';
 import type { Turn } from '#/turn';
@@ -15,14 +14,7 @@ export interface CronPersistence {
 }
 
 export interface CronOptions {
-  readonly persistence?: CronPersistence;
-  readonly homedir?: string;
   readonly isSubagent?: boolean;
-  readonly clocks?: ClockSources;
-  readonly pollIntervalMs?: number | null;
-  readonly autoStart?: boolean;
-  readonly registerTools?: boolean;
-  readonly onPersistenceError?: (error: unknown, taskId: string) => void;
 }
 
 export interface CronLoadOptions {

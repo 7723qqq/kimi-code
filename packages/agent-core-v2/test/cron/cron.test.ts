@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -9,7 +9,6 @@ import { ConfigRegistry, ConfigService } from '#/config/configService';
 import type { ContextMessage } from '#/contextMemory';
 import { ICronService } from '#/cron';
 import { CronService } from '#/cron/cronService';
-import type { ClockSources } from '#/cron/tools/clock';
 import { ILogService } from '#/log';
 import { IPromptService } from '#/prompt';
 import {
@@ -59,16 +58,14 @@ describe('CronService', () => {
   let steered: ContextMessage[];
 
   beforeEach(() => {
+    vi.stubEnv('KIMI_CRON_POLL_INTERVAL_MS', '0');
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     now = 0;
     activeTurn = undefined;
     steered = [];
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
 
-    const clocks: ClockSources = {
-      wallNow: () => now,
-      monoNowMs: () => now,
-    };
     const turnService: ITurnService = {
       ...stubTurn(),
       getActiveTurn: () => activeTurn,
@@ -103,10 +100,14 @@ describe('CronService', () => {
     ix.set(IConfigService, new SyncDescriptor(ConfigService));
     ix.set(
       ICronService,
-      new SyncDescriptor(CronService, [{ autoStart: false, registerTools: false, clocks }]),
+      new SyncDescriptor(CronService, [{}]),
     );
   });
-  afterEach(() => disposables.dispose());
+  afterEach(() => {
+    disposables.dispose();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
 
   it('addTask / list / removeTasks', () => {
     const svc = ix.get(ICronService);

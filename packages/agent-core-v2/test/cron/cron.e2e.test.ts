@@ -2,7 +2,7 @@
  * Session-level cron end-to-end smoke: exercises the full
  * `CronCreateTool → SessionCronStore → CronScheduler → CronManager →
  * agent.turn.steer` pipeline through the real `AgentTestContext`,
- * with a swapped CronManager wired to an injected clock so the
+ * with Date.now controlled by the test so the
  * `coalescedCount = 3` calibration after a 15-minute advance is
  * deterministic regardless of host TZ.
  */
@@ -24,15 +24,10 @@ const LOCAL_ANCHOR_MS = new Date(2024, 5, 1, 12, 0, 0, 0).getTime();
 
 function createClocks(initial = LOCAL_ANCHOR_MS) {
   let wall = initial;
-  let mono = initial;
+  vi.spyOn(Date, 'now').mockImplementation(() => wall);
   return {
-    clocks: {
-      wallNow: () => wall,
-      monoNowMs: () => mono,
-    },
     advance(ms: number) {
       wall += ms;
-      mono += ms;
     },
   };
 }
@@ -61,12 +56,9 @@ describe('Cron — session E2E (P1.9)', () => {
     // itself — this flag is belt-and-braces against any future refactor
     // that widens the jitter window past 10 minutes.
     vi.stubEnv('KIMI_CRON_NO_JITTER', '1');
+    vi.stubEnv('KIMI_CRON_POLL_INTERVAL_MS', '0');
     harness = createClocks();
-    ctx = createTestAgent(cronServices({
-      autoStart: false,
-      clocks: harness.clocks,
-      pollIntervalMs: null,
-    }));
+    ctx = createTestAgent(cronServices({}));
     cron = ctx.get(ICronService);
     prompt = ctx.get(IPromptService);
     cron.start();
@@ -78,6 +70,7 @@ describe('Cron — session E2E (P1.9)', () => {
     } finally {
       await ctx.dispose();
       vi.unstubAllEnvs();
+      vi.restoreAllMocks();
     }
   });
 

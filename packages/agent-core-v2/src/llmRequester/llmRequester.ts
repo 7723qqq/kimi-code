@@ -3,7 +3,6 @@ import type { FinishReason, Message, StreamedMessagePart, TokenUsage, Tool } fro
 import type { LLMRequestLogFields } from '#/loop';
 import type { UsageRecordContext } from '#/usage';
 
-
 export interface LLMRequestOverrides {
   messages?: readonly Message[];
   tools?: readonly Tool[];

@@ -32,19 +32,13 @@ const WALL_ANCHOR = 1_700_000_000_000;
 
 function createClocks(initial = WALL_ANCHOR) {
   let wall = initial;
-  let mono = 1_000_000;
+  vi.spyOn(Date, 'now').mockImplementation(() => wall);
   return {
-    clocks: {
-      wallNow: () => wall,
-      monoNowMs: () => mono,
-    },
     setNow(v: number) {
       wall = v;
-      mono = v;
     },
     advance(ms: number) {
       wall += ms;
-      mono += ms;
     },
     now() {
       return wall;
@@ -95,6 +89,7 @@ describe('CronManager', () => {
     // but setting it here as well shields the construction-path tests
     // from any leaked state.
     vi.stubEnv('KIMI_CRON_NO_JITTER', '1');
+    vi.stubEnv('KIMI_CRON_POLL_INTERVAL_MS', '0');
   });
 
   afterEach(async () => {
@@ -104,6 +99,7 @@ describe('CronManager', () => {
       try {
         await ctx.dispose();
       } finally {
+        vi.restoreAllMocks();
         vi.unstubAllEnvs();
       }
     }
@@ -111,7 +107,7 @@ describe('CronManager', () => {
 
   describe('construction', () => {
     beforeEach(() => {
-      ctx = createTestAgent(cronServices({ autoStart: false, pollIntervalMs: null }));
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
     });
 
@@ -144,9 +140,7 @@ describe('CronManager', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(
-        cronServices({ clocks: harness.clocks, autoStart: false, pollIntervalMs: null }),
-      );
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
       prompt = ctx.get(IPromptService);
       telemetry = ctx.get(ITelemetryService);
@@ -218,9 +212,7 @@ describe('CronManager', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(
-        cronServices({ clocks: harness.clocks, autoStart: false, pollIntervalMs: null }),
-      );
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
       prompt = ctx.get(IPromptService);
       telemetry = ctx.get(ITelemetryService);
@@ -265,9 +257,7 @@ describe('CronManager', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(
-        cronServices({ clocks: harness.clocks, autoStart: false, pollIntervalMs: null }),
-      );
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
     });
 
@@ -322,9 +312,7 @@ describe('CronManager', () => {
     beforeEach(() => {
       vi.stubEnv('KIMI_CRON_NO_STALE', '1');
       harness = createClocks();
-      ctx = createTestAgent(
-        cronServices({ clocks: harness.clocks, autoStart: false, pollIntervalMs: null }),
-      );
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
     });
 
@@ -342,12 +330,9 @@ describe('CronManager', () => {
 
   describe('isStale with a broken clock', () => {
     beforeEach(() => {
+      vi.spyOn(Date, 'now').mockReturnValue(Number.NaN);
       ctx = createTestAgent(
-        cronServices({
-          clocks: { wallNow: () => Number.NaN, monoNowMs: () => 0 },
-          autoStart: false,
-          pollIntervalMs: null,
-        }),
+        cronServices({}),
       );
       cron = ctx.get(ICronService);
     });
@@ -371,9 +356,7 @@ describe('CronManager', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(
-        cronServices({ clocks: harness.clocks, autoStart: false, pollIntervalMs: null }),
-      );
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
       prompt = ctx.get(IPromptService);
       telemetry = ctx.get(ITelemetryService);
@@ -441,9 +424,7 @@ describe('CronManager', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(
-        cronServices({ clocks: harness.clocks, autoStart: false, pollIntervalMs: null }),
-      );
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
       prompt = ctx.get(IPromptService);
       telemetry = ctx.get(ITelemetryService);
@@ -470,9 +451,7 @@ describe('CronManager', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(
-        cronServices({ clocks: harness.clocks, autoStart: false, pollIntervalMs: null }),
-      );
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
       prompt = ctx.get(IPromptService);
       telemetry = ctx.get(ITelemetryService);
@@ -515,9 +494,7 @@ describe('CronManager', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(
-        cronServices({ clocks: harness.clocks, autoStart: false, pollIntervalMs: null }),
-      );
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
       prompt = ctx.get(IPromptService);
       steerCalls = createSteerSpy(prompt);
@@ -541,7 +518,7 @@ describe('CronManager', () => {
     let telemetryRecords: TelemetryRecord[];
 
     beforeEach(() => {
-      ctx = createTestAgent(cronServices({ autoStart: false, pollIntervalMs: null }));
+      ctx = createTestAgent(cronServices({}));
       cron = ctx.get(ICronService);
       prompt = ctx.get(IPromptService);
       telemetry = ctx.get(ITelemetryService);

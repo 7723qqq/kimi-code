@@ -1,3 +1,10 @@
+/**
+ * `microCompaction` domain (L4) - micro-compaction service contract.
+ *
+ * Defines the truncation tuning model and the Agent-scoped
+ * `IMicroCompactionService` used by context projection. Bound at Agent scope.
+ */
+
 import { createDecorator } from "#/_base/di";
 import type { ContextMessage } from '#/contextMemory';
 
@@ -7,11 +14,6 @@ export interface MicroCompactionConfig {
   cacheMissedThresholdMs: number;
   truncatedMarker: string;
   minContextUsageRatio: number;
-}
-
-export interface MicroCompactionServiceOptions {
-  readonly config?: Partial<MicroCompactionConfig>;
-  readonly maxContextTokens?: () => number | undefined;
 }
 
 export interface MicroCompactionEffect {

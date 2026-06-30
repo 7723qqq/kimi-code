@@ -1,3 +1,12 @@
+/**
+ * `microCompaction` domain (L4) - `IMicroCompactionService` implementation.
+ *
+ * Tracks cache-miss compaction cutoffs over `contextMemory`, sizes context via
+ * `contextSize`, resolves model capacity through `profile`, persists cutoffs
+ * through `wireRecord`, gates behavior through `flag`, emits telemetry, and
+ * participates in `turn` hooks. Bound at Agent scope.
+ */
+
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -10,6 +19,7 @@ import {
   estimateTokensForMessages,
 } from "#/_base/utils/tokens";
 import type { TelemetryProperties } from '#/telemetry';
+import { IConfigRegistry, IConfigService } from '#/config';
 import { IContextMemory } from '#/contextMemory';
 import { IContextSizeService } from '#/contextSize';
 import { IFlagService } from '#/flag';
@@ -22,8 +32,12 @@ import {
   IMicroCompactionService,
   type MicroCompactionConfig,
   type MicroCompactionEffect,
-  type MicroCompactionServiceOptions,
 } from './microCompaction';
+import {
+  MICRO_COMPACTION_SECTION,
+  MicroCompactionConfigSchema,
+  type MicroCompactionConfigPatch,
+} from './configSection';
 
 declare module '#/wireRecord' {
   interface WireRecordMap {
@@ -47,11 +61,10 @@ export class MicroCompactionService
 {
   declare readonly _serviceBrand: undefined;
   private cutoff = 0;
-  private readonly config: MicroCompactionConfig;
+  private microConfig: MicroCompactionConfig;
   private _lastAssistantAt: number | null = null;
 
   constructor(
-    private readonly options: MicroCompactionServiceOptions = {},
     @IContextMemory private readonly context: IContextMemory,
     @IContextSizeService private readonly contextSize: IContextSizeService,
     @IWireRecord private readonly wireRecord: IWireRecord,
@@ -59,9 +72,19 @@ export class MicroCompactionService
     @IProfileService private readonly profile: IProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ITurnService turn: ITurnService,
+    @IConfigRegistry configRegistry: IConfigRegistry,
+    @IConfigService private readonly config: IConfigService,
   ) {
     super();
-    this.config = { ...DEFAULT_CONFIG, ...options.config };
+    configRegistry.registerSection(MICRO_COMPACTION_SECTION, MicroCompactionConfigSchema);
+    this.microConfig = this.readConfig();
+    this._register(
+      this.config.onDidSectionChange((event) => {
+        if (event.domain === MICRO_COMPACTION_SECTION) {
+          this.microConfig = this.readConfig();
+        }
+      }),
+    );
     this._register(
       turn.hooks.beforeStep.register(
         'micro-compaction',
@@ -113,13 +136,13 @@ export class MicroCompactionService
     if (lastAssistantAt === null) return;
 
     const cacheAgeMs = Date.now() - lastAssistantAt;
-    if (cacheAgeMs < this.config.cacheMissedThresholdMs) return;
+    if (cacheAgeMs < this.microConfig.cacheMissedThresholdMs) return;
 
     const history = this.context.get();
-    if (this.contextSizeRatio() < this.config.minContextUsageRatio) return;
+    if (this.contextSizeRatio() < this.microConfig.minContextUsageRatio) return;
 
     const previousCutoff = this.cutoff;
-    const nextCutoff = Math.max(0, history.length - this.config.keepRecentMessages);
+    const nextCutoff = Math.max(0, history.length - this.microConfig.keepRecentMessages);
     this.apply(nextCutoff);
     if (previousCutoff === nextCutoff) return;
 
@@ -127,7 +150,7 @@ export class MicroCompactionService
     const previousEffect = this.measureEffect(history, previousCutoff);
     const rawContextTokens = estimateTokensForMessages(history);
     const properties: TelemetryProperties = {
-      ...this.config,
+      ...this.microConfig,
       ...effect,
       tokensBefore:
         rawContextTokens -
@@ -156,7 +179,7 @@ export class MicroCompactionService
         result.push({
           ...message,
           content: [
-            { type: 'text', text: this.config.truncatedMarker } satisfies ContentPart,
+            { type: 'text', text: this.microConfig.truncatedMarker } satisfies ContentPart,
           ],
         });
       } else {
@@ -193,12 +216,17 @@ export class MicroCompactionService
       index < this.cutoff &&
       message.role === 'tool' &&
       message.toolCallId !== undefined &&
-      estimateTokensForContentParts(message.content) >= this.config.minContentTokens
+      estimateTokensForContentParts(message.content) >= this.microConfig.minContentTokens
     );
   }
 
+  private readConfig(): MicroCompactionConfig {
+    const config = this.config.get<MicroCompactionConfigPatch | undefined>(MICRO_COMPACTION_SECTION);
+    return { ...DEFAULT_CONFIG, ...config };
+  }
+
   private contextSizeRatio(): number {
-    const maxContextTokens = this.options.maxContextTokens?.();
+    const maxContextTokens = this.profile.getModelCapabilities().max_context_tokens;
     if (maxContextTokens === undefined || maxContextTokens <= 0) return 1;
     return this.contextSize.getStatus().contextTokensWithPending / maxContextTokens;
   }
@@ -218,10 +246,10 @@ export class MicroCompactionService
       }
 
       const contentTokens = estimateTokensForContentParts(message.content);
-      if (contentTokens < this.config.minContentTokens) continue;
+      if (contentTokens < this.microConfig.minContentTokens) continue;
 
       markerTokenCount ??= estimateTokensForContentParts([
-        { type: 'text', text: this.config.truncatedMarker },
+        { type: 'text', text: this.microConfig.truncatedMarker },
       ]);
       truncatedToolResultCount += 1;
       truncatedToolResultTokensBefore += contentTokens;

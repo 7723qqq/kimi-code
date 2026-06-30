@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { LoopEvent } from '#/loop';
-import { ToolAccesses, type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolUpdate } from '#/tool';
+import { ToolAccesses, type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolResult, type ToolUpdate } from '#/tool';
 import { IToolExecutor, ToolExecutorService } from '#/toolExecutor';
-import { IToolRegistry, ToolRegistryService, type ToolResult } from '#/toolRegistry';
+import { IToolRegistry, ToolRegistryService } from '#/toolRegistry';
 
 let disposables: DisposableStore;
 let ix: TestInstantiationService;

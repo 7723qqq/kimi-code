@@ -99,7 +99,7 @@ export class CronService
   private sigusr1Handler: NodeJS.SignalsListener | null = null;
 
   constructor(
-    private readonly options: CronOptions = {},
+    options: CronOptions = {},
     @IPromptService private readonly prompt: IPromptService,
     @IEventSink private readonly events: IEventSink,
     @IWireRecord private readonly wireRecord: IWireRecord,
@@ -126,16 +126,9 @@ export class CronService
       }),
     );
     this.clocks =
-      options.clocks ??
       resolveClockSources(this.cronConfig.clock, this.cronConfig.debug) ??
       SYSTEM_CLOCKS;
-    this.persistStore =
-      this.enabled
-        ? options.persistence ??
-        (options.homedir === undefined
-          ? undefined
-          : createCronPersistStore(this.atomicDocs))
-        : undefined;
+    this.persistStore = this.enabled ? createCronPersistStore(this.atomicDocs) : undefined;
 
     this._register(
       wireRecord.register('cron.add', (record) => {
@@ -181,20 +174,16 @@ export class CronService
         pollIntervalMs:
           this.cronConfig.manualTick
             ? null
-            : options.pollIntervalMs,
+            : this.cronConfig.pollIntervalMs,
         debug: this.cronConfig.debug,
         noJitter: this.cronConfig.noJitter,
       });
 
-      if (options.registerTools !== false) {
-        this._register(this.toolRegistry.register(new CronCreateTool(this, this.cronConfig.disabled)));
-        this._register(this.toolRegistry.register(new CronListTool(this)));
-        this._register(this.toolRegistry.register(new CronDeleteTool(this)));
-      }
+      this._register(this.toolRegistry.register(new CronCreateTool(this, this.cronConfig.disabled)));
+      this._register(this.toolRegistry.register(new CronListTool(this)));
+      this._register(this.toolRegistry.register(new CronDeleteTool(this)));
 
-      if (options.autoStart !== false) {
-        this.start();
-      }
+      this.start();
     }
 
     this._register(
@@ -417,9 +406,7 @@ export class CronService
     const next = prev
       .catch(() => { })
       .then(() => work())
-      .catch((error: unknown) => {
-        this.options.onPersistenceError?.(error, id);
-      })
+      .catch(() => { })
       .finally(() => {
         if (this.persistQueues.get(id) === next) {
           this.persistQueues.delete(id);
