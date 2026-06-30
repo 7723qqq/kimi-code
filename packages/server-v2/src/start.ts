@@ -30,8 +30,16 @@ import {
   type ServerLogger,
   type ServerLogLevel,
 } from './services/pinoLoggerService';
+import { join } from 'node:path';
+
 import { registerRpcRoutes } from './transport/registerRpcRoutes';
-import { registerWs } from './transport/ws/registerWs';
+import {
+  ConnectionRegistry,
+  type IConnectionRegistry,
+} from './transport/ws/connectionRegistry';
+import { registerWs, WS_PATH as WS_PATH_V2 } from './transport/ws/registerWs';
+import { SessionEventBroadcaster } from './transport/ws/v1/sessionEventBroadcaster';
+import { registerWsV1, WS_PATH as WS_PATH_V1 } from './transport/ws/v1/registerWsV1';
 import { getServerVersion } from './version';
 
 export interface ServerStartOptions {
@@ -51,6 +59,7 @@ export interface ServerStartOptions {
 export interface RunningServer {
   readonly app: FastifyInstance;
   readonly core: Scope;
+  readonly connectionRegistry: IConnectionRegistry;
   readonly host: string;
   readonly port: number;
   close(): Promise<void>;
@@ -92,6 +101,13 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     await app.close();
     core.dispose();
   };
+
+  const connectionRegistry = new ConnectionRegistry();
+  const broadcaster = new SessionEventBroadcaster({
+    eventsDir: join(homeDir, 'server', 'events'),
+    core,
+    logger,
+  });
 
   const serverVersion = getServerVersion();
 
@@ -142,10 +158,36 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     onShutdown: () => {
       void close();
     },
+    connectionRegistry,
+    broadcaster,
   });
 
   registerRpcRoutes(app, core, { token: opts.rpcToken });
-  registerWs(app, core, { token: opts.rpcToken });
+  const wssV2 = registerWs(core, { token: opts.rpcToken, registry: connectionRegistry });
+  const wssV1 = registerWsV1(core, {
+    token: opts.rpcToken,
+    registry: connectionRegistry,
+    broadcaster,
+    logger,
+  });
+
+  app.server.on('upgrade', (req, socket, head) => {
+    const url = req.url ?? '';
+    if (url === WS_PATH_V1 || url.startsWith(`${WS_PATH_V1}?`)) {
+      wssV1.handleUpgrade(req, socket, head, (ws) => wssV1.emit('connection', ws, req));
+    } else if (url === WS_PATH_V2 || url.startsWith(`${WS_PATH_V2}?`)) {
+      wssV2.handleUpgrade(req, socket, head, (ws) => wssV2.emit('connection', ws, req));
+    } else {
+      socket.destroy();
+    }
+  });
+
+  app.addHook('onClose', async () => {
+    connectionRegistry.closeAll('server shutting down');
+    wssV1.close();
+    wssV2.close();
+    await broadcaster.close();
+  });
 
   app.get('/openapi.json', async (_req, reply) => {
     const openApiDocument = (app as unknown as { swagger(): unknown }).swagger();
@@ -159,5 +201,5 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   const address = app.server.address();
   const boundPort = typeof address === 'object' && address !== null ? address.port : port;
 
-  return { app, core, host, port: boundPort, close };
+  return { app, core, connectionRegistry, host, port: boundPort, close };
 }

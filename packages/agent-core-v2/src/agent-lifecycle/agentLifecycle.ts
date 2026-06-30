@@ -9,6 +9,7 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { IScopeHandle } from '#/_base/di/scope';
+import type { Event } from '#/_base/event';
 
 export interface CreateAgentOptions {
   readonly agentId?: string;
@@ -18,6 +19,10 @@ export interface CreateAgentOptions {
 
 export interface IAgentLifecycleService {
   readonly _serviceBrand: undefined;
+  /** Fires after an agent is created and registered, with its scope handle. */
+  readonly onDidCreate: Event<IScopeHandle>;
+  /** Fires after an agent is removed, with its agent id. */
+  readonly onDidDispose: Event<string>;
   create(opts: CreateAgentOptions): Promise<IScopeHandle>;
   createMain(): Promise<IScopeHandle>;
   getHandle(agentId: string): IScopeHandle | undefined;

@@ -1,18 +1,19 @@
 /**
- * `/api/v2/ws` — mounts the WebSocket endpoint on Fastify's underlying HTTP
- * server. Uses `ws` in `noServer` mode and handles the `upgrade` event for the
- * `/api/v2/ws` path only; other upgrade requests are destroyed.
+ * `/api/v2/ws` — creates the v2 (RPC) WebSocket server. The HTTP `upgrade`
+ * event is dispatched by the bootstrap (`start.ts`), which routes by path so
+ * this endpoint coexists with `/api/v1/ws`.
  *
  * Lifecycle / cleanup:
- *   - each connection is a {@link WsConnection}, tracked in a set;
- *   - on `app.close()` every connection is closed and the WS server is shut down;
+ *   - each connection is a {@link WsConnection}, tracked in the shared
+ *     {@link IConnectionRegistry};
+ *   - shutdown (close-all + wss.close) is owned by the bootstrap;
  *   - per-connection heartbeat / cleanup lives in {@link WsConnection}.
  */
 
 import type { Scope } from '@moonshot-ai/agent-core-v2';
-import type { FastifyInstance } from 'fastify';
 import { WebSocketServer } from 'ws';
 
+import { type IConnectionRegistry } from './connectionRegistry';
 import { WsConnection } from './wsConnection';
 
 export interface RegisterWsOptions {
@@ -20,26 +21,17 @@ export interface RegisterWsOptions {
   readonly pingIntervalMs?: number;
   readonly pongTimeoutMs?: number;
   readonly callTimeoutMs?: number;
+  /** Registry that tracks live connections; populated by this module. */
+  readonly registry: IConnectionRegistry;
 }
 
-const WS_PATH = '/api/v2/ws';
+export const WS_PATH = '/api/v2/ws';
 
-export function registerWs(app: FastifyInstance, core: Scope, opts: RegisterWsOptions = {}): void {
+export function registerWs(core: Scope, opts: RegisterWsOptions): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
-  const connections = new Set<WsConnection>();
+  const { registry } = opts;
 
-  app.server.on('upgrade', (req, socket, head) => {
-    const url = req.url ?? '';
-    if (url === WS_PATH || url.startsWith(`${WS_PATH}?`)) {
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit('connection', ws, req);
-      });
-    } else {
-      socket.destroy();
-    }
-  });
-
-  wss.on('connection', (socket) => {
+  wss.on('connection', (socket, req) => {
     const conn = new WsConnection({
       socket,
       core,
@@ -47,13 +39,12 @@ export function registerWs(app: FastifyInstance, core: Scope, opts: RegisterWsOp
       pingIntervalMs: opts.pingIntervalMs,
       pongTimeoutMs: opts.pongTimeoutMs,
       callTimeoutMs: opts.callTimeoutMs,
+      remoteAddress: req.socket.remoteAddress ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
     });
-    connections.add(conn);
-    socket.on('close', () => connections.delete(conn));
+    registry.add(conn);
+    socket.on('close', () => registry.remove(conn.id));
   });
 
-  app.addHook('onClose', async () => {
-    for (const conn of connections) conn.close();
-    wss.close();
-  });
+  return wss;
 }
