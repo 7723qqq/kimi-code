@@ -4,7 +4,58 @@ import { ErrorCodes, KimiError } from '../../errors';
 import type { ContextMessage } from './types';
 
 export function project(history: readonly ContextMessage[]): Message[] {
-  return mergeAdjacentUserMessages(history);
+  return repairToolExchangeAdjacency(mergeAdjacentUserMessages(history));
+}
+
+// Strict providers (Anthropic) require every assistant `tool_use` to be answered
+// by a matching `tool_result` in the immediately following message(s). A
+// misordered history — where a `tool_result` is not adjacent to its `tool_use`,
+// e.g. because a user message (background-task notification, flushed steer)
+// landed in between, or because an interrupted / nested step delayed the result
+// — is rejected with HTTP 400 ("`tool_use` without `tool_result` immediately
+// after"). Micro compaction only exposed this latent misordering by busting the
+// prompt cache and forcing a full revalidation.
+//
+// Repair the adjacency so every assistant `tool_use` is immediately followed by
+// its matching `tool_result` message(s). Matching results are moved up from
+// wherever they appear later in the history; any intervening messages keep their
+// relative order and simply follow the repaired exchange. A tool call with no
+// recorded result anywhere later in the history is left untouched — it is still
+// in-flight (pending) rather than orphaned, and the trailing-open-exchange trim
+// plus the interrupted-result synthesis during replay own those cases. This is
+// purely a projection-time fix: the underlying history is left untouched, so
+// replay and transcripts keep their original order, while the model always sees
+// a well-formed tool exchange.
+function repairToolExchangeAdjacency(messages: readonly Message[]): Message[] {
+  const out: Message[] = [];
+  const consumed = new Set<number>();
+  for (let i = 0; i < messages.length; i++) {
+    if (consumed.has(i)) continue;
+    const message = messages[i]!;
+    if (message.role !== 'assistant' || message.toolCalls.length === 0) {
+      out.push(message);
+      continue;
+    }
+
+    out.push(message);
+    const pending = new Set(message.toolCalls.map((toolCall) => toolCall.id));
+    for (let j = i + 1; j < messages.length && pending.size > 0; j++) {
+      if (consumed.has(j)) continue;
+      const next = messages[j]!;
+      const toolCallId = next.toolCallId;
+      if (next.role === 'tool' && toolCallId !== undefined && pending.has(toolCallId)) {
+        out.push(next);
+        consumed.add(j);
+        pending.delete(toolCallId);
+      }
+    }
+    // If a tool call has no recorded result anywhere later in the history, it is
+    // still in-flight (pending) rather than orphaned, so leave it untouched — the
+    // trailing-open-exchange trim and the interrupted-result synthesis during
+    // replay own those cases, and synthesizing here would wrongly close a call
+    // that is simply still running.
+  }
+  return out;
 }
 
 function mergeAdjacentUserMessages(history: readonly ContextMessage[]): Message[] {
