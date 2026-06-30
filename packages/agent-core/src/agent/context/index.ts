@@ -13,7 +13,12 @@ import {
   type CompactionInput,
   type CompactionResult,
 } from '../compaction';
-import { project, type ProjectOptions, trimTrailingOpenToolExchange } from './projector';
+import {
+  project,
+  type ProjectionAnomaly,
+  type ProjectOptions,
+  trimTrailingOpenToolExchange,
+} from './projector';
 import {
   USER_PROMPT_ORIGIN,
   type AgentContextData,
@@ -43,6 +48,9 @@ export class ContextMemory {
   private pendingToolResultIds = new Set<string>();
   private deferredMessages: ContextMessage[] = [];
   private _lastAssistantAt: number | null = null;
+  // Signature of the last logged set of projection repairs, so a repair that
+  // recurs identically on every send is logged once rather than per step.
+  private lastProjectionRepairSignature: string | null = null;
 
   constructor(protected readonly agent: Agent) {}
 
@@ -314,11 +322,93 @@ export class ContextMemory {
   }
 
   project(messages: readonly ContextMessage[], options?: ProjectOptions): Message[] {
-    return project(this.agent.microCompaction.compact(messages), options);
+    const anomalies: ProjectionAnomaly[] = [];
+    const result = project(this.agent.microCompaction.compact(messages), {
+      ...options,
+      onAnomaly: (anomaly) => {
+        anomalies.push(anomaly);
+        options?.onAnomaly?.(anomaly);
+      },
+    });
+    this.reportProjectionRepairs(anomalies);
+    return result;
+  }
+
+  // Surface the projector's wire-repairs so a silently-mangled history leaves a
+  // trace instead of being papered over. Deduped by signature: a repair that
+  // recurs identically every send (e.g. a persistently lost result re-synthesized
+  // each turn) logs once, not per step. Trailing-tail synthesis is excluded — it
+  // is the expected close of an in-flight call under `synthesizeMissing`
+  // (compaction / strict resend), not a defect.
+  private reportProjectionRepairs(anomalies: readonly ProjectionAnomaly[]): void {
+    const notable = anomalies.filter(
+      (anomaly) => !(anomaly.kind === 'tool_result_synthesized' && anomaly.trailing),
+    );
+    if (notable.length === 0) {
+      this.lastProjectionRepairSignature = null;
+      return;
+    }
+    const signature = notable
+      .map((anomaly) => ('toolCallId' in anomaly ? `${anomaly.kind}:${anomaly.toolCallId}` : anomaly.kind))
+      .toSorted()
+      .join('|');
+    if (signature === this.lastProjectionRepairSignature) return;
+    this.lastProjectionRepairSignature = signature;
+
+    let reordered = 0;
+    let synthesized = 0;
+    let droppedOrphan = 0;
+    let leadingDropped = 0;
+    let assistantsMerged = 0;
+    let whitespaceDropped = 0;
+    for (const anomaly of notable) {
+      if (anomaly.kind === 'tool_result_reordered') reordered += 1;
+      else if (anomaly.kind === 'tool_result_synthesized') synthesized += 1;
+      else if (anomaly.kind === 'orphan_tool_result_dropped') droppedOrphan += 1;
+      else if (anomaly.kind === 'leading_non_user_dropped') leadingDropped += 1;
+      else if (anomaly.kind === 'consecutive_assistants_merged') assistantsMerged += 1;
+      else whitespaceDropped += 1;
+    }
+    const toolCallIds = [
+      ...new Set(
+        notable.flatMap((anomaly) => ('toolCallId' in anomaly ? [anomaly.toolCallId] : [])),
+      ),
+    ].slice(0, 5);
+    this.agent.log.warn('repaired the request to keep it wire-valid', {
+      reordered,
+      synthesized,
+      droppedOrphan,
+      leadingDropped,
+      assistantsMerged,
+      whitespaceDropped,
+      toolCallIds,
+    });
+    this.agent.telemetry.track('context_projection_repaired', {
+      reordered,
+      synthesized,
+      dropped_orphan: droppedOrphan,
+      leading_dropped: leadingDropped,
+      assistants_merged: assistantsMerged,
+      whitespace_dropped: whitespaceDropped,
+    });
   }
 
   get messages(): Message[] {
     return this.project(this.history);
+  }
+
+  // Last-resort projection for the post-400 strict resend: close every open tool
+  // call (including a trailing in-flight one) and drop any stray tool result with
+  // no matching call, so the request is wire-compliant for strict providers no
+  // matter how the history was mangled. Only used when the provider has already
+  // rejected the normal projection — see the adjacency fallback in `turn-step`.
+  get strictMessages(): Message[] {
+    return this.project(this.history, {
+      synthesizeMissing: true,
+      dropOrphanResults: true,
+      dropLeadingNonUser: true,
+      mergeConsecutiveAssistants: true,
+    });
   }
 
   useProjectedHistoryFrom(source: ContextMemory): void {
@@ -500,7 +590,12 @@ function toolResultOutputForModel(result: ExecutableToolResult): string | Conten
     return isEmptyOutputText(output) ? TOOL_EMPTY_STATUS : output;
   }
 
-  if (output.length === 0) {
+  // Treat an array output with no sendable content (empty, or only empty/
+  // whitespace-only text blocks) the same as an empty string output: emit the
+  // placeholder. Otherwise projection would strip the blank text blocks, leave
+  // the tool message empty, and throw on every send — bricking the session. A
+  // non-text part (image/etc.) or any non-whitespace text keeps the real output.
+  if (isEmptyEquivalentContentArray(output)) {
     return [
       {
         type: 'text',
@@ -514,8 +609,12 @@ function toolResultOutputForModel(result: ExecutableToolResult): string | Conten
   return output;
 }
 
+function isEmptyEquivalentContentArray(output: readonly ContentPart[]): boolean {
+  return output.every((part) => part.type === 'text' && part.text.trim().length === 0);
+}
+
 function isEmptyOutputText(output: string): boolean {
-  return output.length === 0 || output.trim() === TOOL_OUTPUT_EMPTY_TEXT;
+  return output.trim().length === 0 || output.trim() === TOOL_OUTPUT_EMPTY_TEXT;
 }
 
 function formatUndoUnavailableMessage(

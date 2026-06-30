@@ -168,6 +168,52 @@ describe('Agent context', () => {
     expect(textOf(output)).toContain('exit code');
   });
 
+  it('normalizes a whitespace-only array tool result to the empty-output placeholder', () => {
+    const ctx = testAgent();
+    ctx.configure();
+
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: { type: 'step.begin', uuid: 's1', turnId: 't', step: 1 },
+    });
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.call',
+        uuid: 'call_ws',
+        turnId: 't',
+        step: 1,
+        stepUuid: 's1',
+        toolCallId: 'call_ws',
+        name: 'Run',
+        args: {},
+      },
+    });
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.result',
+        parentUuid: 'call_ws',
+        toolCallId: 'call_ws',
+        // Array (ContentPart[]) output whose only block is whitespace. The tool
+        // contract allows arbitrary content arrays (e.g. MCP tools), so this must
+        // be normalized to the empty placeholder rather than left to be stripped
+        // empty by projection (which would throw on every send).
+        result: { output: [{ type: 'text', text: '   \n' }] },
+      },
+    });
+
+    expect(() => ctx.agent.context.messages).not.toThrow();
+    expect(ctx.agent.context.messages).toMatchObject([
+      { role: 'assistant', toolCalls: [{ id: 'call_ws' }] },
+      {
+        role: 'tool',
+        content: [{ type: 'text', text: '<system>Tool output is empty.</system>' }],
+        toolCallId: 'call_ws',
+      },
+    ]);
+  });
+
   it('renders tool error and empty-output status as model-visible text', () => {
     const ctx = testAgent();
     ctx.configure();
@@ -227,7 +273,7 @@ describe('Agent context', () => {
     ]);
   });
 
-  it('drops empty text parts only in LLM projection', () => {
+  it('drops empty and whitespace-only text parts in LLM projection', () => {
     const history: ContextMessage[] = [
       {
         role: 'user',
@@ -248,11 +294,19 @@ describe('Agent context', () => {
         toolCalls: [{ type: 'function', id: 'call_empty', name: 'empty', arguments: '{}' }],
       },
       {
+        role: 'tool',
+        content: [{ type: 'text', text: 'result' }],
+        toolCalls: [],
+        toolCallId: 'call_empty',
+      },
+      {
         role: 'assistant',
         content: [{ type: 'think', think: '', encrypted: 'enc_empty_thinking' }],
         toolCalls: [],
       },
       {
+        // Whitespace-only message: strict providers reject the block, so the
+        // whole message is dropped from the projection.
         role: 'user',
         content: [{ type: 'text', text: '   ' }],
         toolCalls: [],
@@ -271,13 +325,14 @@ describe('Agent context', () => {
         toolCalls: [{ type: 'function', id: 'call_empty', name: 'empty', arguments: '{}' }],
       },
       {
-        role: 'assistant',
-        content: [{ type: 'think', think: '', encrypted: 'enc_empty_thinking' }],
+        role: 'tool',
+        content: [{ type: 'text', text: 'result' }],
         toolCalls: [],
+        toolCallId: 'call_empty',
       },
       {
-        role: 'user',
-        content: [{ type: 'text', text: '   ' }],
+        role: 'assistant',
+        content: [{ type: 'think', think: '', encrypted: 'enc_empty_thinking' }],
         toolCalls: [],
       },
     ]);
