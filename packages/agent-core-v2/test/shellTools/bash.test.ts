@@ -1235,7 +1235,7 @@ describe('BashTool background mode', () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
     const { service } = createFakeBackgroundService();
-    const tool = bashTool(runner, createTestKaos(), service, { allowBackground: false });
+    const tool = bashTool(runner, createTestKaos(), service, { allowBackground: () => false });
 
     const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
     await vi.waitFor(() => {
@@ -1306,7 +1306,7 @@ describe('BashTool background mode', () => {
       runner,
       createTestKaos(),
       createFakeBackgroundService().service,
-      { allowBackground: false },
+      { allowBackground: () => false },
     );
 
     const unavailable = await executeTool(
@@ -1582,7 +1582,7 @@ describe('BashTool prompt / runtime consistency', () => {
     );
 
     const tool = bashTool(runner, createTestKaos(), createFakeBackgroundService().service, {
-      allowBackground: false,
+      allowBackground: () => false,
     });
     const result = await executeTool(
       tool,

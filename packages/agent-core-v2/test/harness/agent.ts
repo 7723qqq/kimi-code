@@ -10,6 +10,7 @@ import {
   type ChatProvider,
   type ContentPart,
   type GenerateOptions,
+  KimiChatProvider,
   type Message as KosongMessage,
   type ModelCapability,
   type ProviderConfig,
@@ -112,6 +113,12 @@ import { IAgentPromptService } from '#/prompt/prompt';
 import { AgentGoalService, IAgentGoalService, type GoalServiceOptions } from '#/goal';
 import { IAgentPlanService } from '#/plan';
 import { ISessionQuestionService, type QuestionResult } from '#/question/question';
+import {
+  ISessionInteractionService,
+  type Interaction,
+  type InteractionRequest,
+  type InteractionResolution,
+} from '#/interaction';
 import {
   IAgentReplayBuilderService,
   AgentReplayBuilderService,
@@ -258,21 +265,18 @@ type RpcPromise<T> = Promise<T> & {
   reject(reason?: unknown): void;
 };
 
-interface UserToolExecutionRequest {
-  readonly turnId?: string | number;
-  readonly signal: AbortSignal;
-  readonly toolCallId: string;
-  readonly args: unknown;
-}
-
-type UserToolExecutionHandler = (request: UserToolExecutionRequest) => Promise<ToolResult>;
-
 type PromiseAgentAPI = PromisifyMethods<AgentAPI>;
 type GenerateFn = typeof kosongGenerate;
 
 type TestToolResult = ToolResult & {
   readonly content?: unknown;
 };
+
+interface UserToolInteractionPayload {
+  readonly turnId?: number;
+  readonly toolCallId: string;
+  readonly args: unknown;
+}
 
 interface ResumeStateSnapshot {
   readonly background: ReturnType<IAgentBackgroundService['list']>;
@@ -883,6 +887,7 @@ export class AgentTestContext {
             sessionDir: `${bootstrap.sessionsDir}/test-workspace/${sessionId}`,
             metaScope: `sessions/test-workspace/${sessionId}/session-meta`,
           });
+          reg.defineInstance(ISessionInteractionService, this.createInteractionService());
           reg.defineInstance(ISessionApprovalService, this.createApprovalService());
           reg.defineInstance(ISessionQuestionService, this.createQuestionService());
           reg.defineInstance(IKaos, createIKaos(kaos));
@@ -930,13 +935,7 @@ export class AgentTestContext {
           reg.defineDescriptor(IAgentReplayBuilderService, new SyncDescriptor(AgentReplayBuilderService, [{}]));
           reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService, [{}]));
           reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
-          reg.defineDescriptor(
-            IAgentUserToolService,
-            new SyncDescriptor(AgentUserToolService, [{
-              execute: (request: Parameters<UserToolExecutionHandler>[0]) =>
-                this.executeUserTool(request),
-            }]),
-          );
+          reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
           reg.defineDescriptor(
             ISessionSubagentHost,
             new SyncDescriptor(SessionSubagentHostService, [unavailableSubagentHost()]),
@@ -1456,6 +1455,73 @@ export class AgentTestContext {
     this.snapshots.respondPending(method, id, result);
   }
 
+  private createInteractionService(): ISessionInteractionService {
+    const pending = new Map<string, Interaction>();
+    function createTestInteraction<TPayload>(
+      request: InteractionRequest<TPayload>,
+    ): Interaction<TPayload> {
+      return {
+        id: request.id ?? 'interaction:test',
+        kind: request.kind,
+        payload: request.payload,
+        origin: request.origin ?? {},
+        createdAt: Date.now(),
+      };
+    }
+    return {
+      _serviceBrand: undefined,
+      request: <TPayload, TResponse>(request: InteractionRequest<TPayload>) => {
+        if (request.kind !== 'user_tool') {
+          throw new Error(`Unsupported test interaction kind: ${request.kind}`);
+        }
+        const interaction = createTestInteraction(request);
+        pending.set(interaction.id, interaction);
+        const payload = request.payload as UserToolInteractionPayload;
+        const promise = this.createRpcPromise<ToolResult>();
+        promise.then(
+          () => pending.delete(interaction.id),
+          () => pending.delete(interaction.id),
+        );
+        this.recordRpc(
+          'toolCall',
+          {
+            turnId: payload.turnId,
+            toolCallId: payload.toolCallId,
+            args: payload.args,
+          },
+          promise,
+        );
+        return promise as unknown as Promise<TResponse>;
+      },
+      enqueue: <TPayload>(request: InteractionRequest<TPayload>): Interaction<TPayload> => {
+        const interaction = createTestInteraction(request);
+        pending.set(interaction.id, interaction);
+        if (request.kind === 'user_tool') {
+          const payload = request.payload as UserToolInteractionPayload;
+          this.recordRpc('toolCall', {
+            turnId: payload.turnId,
+            toolCallId: payload.toolCallId,
+            args: payload.args,
+          });
+        }
+        return interaction;
+      },
+      respond: (id, response) => {
+        pending.delete(id);
+        this.resolvePendingRpc('toolCall', id, response);
+      },
+      listPending: (kind) => {
+        const interactions = [...pending.values()];
+        return kind === undefined
+          ? interactions
+          : interactions.filter((interaction) => interaction.kind === kind);
+      },
+      isRecentlyResolved: () => false,
+      onDidChange: Event.None as Event<void>,
+      onDidResolve: Event.None as Event<InteractionResolution>,
+    };
+  }
+
   private createApprovalService(): ISessionApprovalService {
     return {
       _serviceBrand: undefined,
@@ -1501,21 +1567,6 @@ export class AgentTestContext {
       listPending: () => [],
     };
   }
-
-  private executeUserTool: UserToolExecutionHandler = (request) => {
-    const turnId = Number(request.turnId);
-    const promise = this.createRpcPromise<ToolResult>(request.signal);
-    this.recordRpc(
-      'toolCall',
-      {
-        turnId: Number.isFinite(turnId) ? turnId : undefined,
-        toolCallId: request.toolCallId,
-        args: request.args,
-      },
-      promise,
-    );
-    return promise;
-  };
 
   private captureRecord(event: PersistedWireRecord): void {
     const cloned = cloneRecord(event);
@@ -1793,17 +1844,33 @@ function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
 function normalizeBackgroundSnapshot(
   background: readonly BackgroundTaskInfo[],
 ): readonly BackgroundTaskInfo[] {
-  return background.toSorted(
-    (left, right) => left.startedAt - right.startedAt || left.taskId.localeCompare(right.taskId),
-  );
+  return background
+    .map((task) => stripUndefinedFields(task) as BackgroundTaskInfo)
+    .toSorted(
+      (left, right) => left.startedAt - right.startedAt || left.taskId.localeCompare(right.taskId),
+    );
+}
+
+function stripUndefinedFields<T extends object>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, nested]) => nested !== undefined),
+  ) as T;
 }
 
 function resumeContextSnapshot(ctx: AgentTestContext) {
   const context = ctx.contextData();
   return {
     ...context,
-    history: context.history.filter((message) => !isSystemReminderMessage(message)),
+    history: context.history
+      .filter((message) => !isSystemReminderMessage(message))
+      .map(stripMessageId),
   };
+}
+
+function stripMessageId(message: ContextMessage): ContextMessage {
+  if (message.id === undefined) return message;
+  const { id: _id, ...rest } = message;
+  return rest as ContextMessage;
 }
 
 function isSystemReminderMessage(message: ContextMessage): boolean {
@@ -1884,19 +1951,32 @@ function configWithEnvOverrides(config: KimiConfig): KimiConfig {
   const maxCompletionTokens =
     parseEnvCompletionTokens(process.env['KIMI_MODEL_MAX_COMPLETION_TOKENS']) ??
     parseEnvCompletionTokens(process.env['KIMI_MODEL_MAX_TOKENS']);
+  const temperature = parseEnvFloat(process.env['KIMI_MODEL_TEMPERATURE']);
+  const topP = parseEnvFloat(process.env['KIMI_MODEL_TOP_P']);
+  const thinkingKeep = process.env['KIMI_MODEL_THINKING_KEEP']?.trim();
   const cron = cronEnvOverrides(asMutableRecord(config['cron']));
-  if (maxCompletionTokens === undefined && cron === undefined) return config;
+  if (
+    maxCompletionTokens === undefined &&
+    temperature === undefined &&
+    topP === undefined &&
+    (thinkingKeep === undefined || thinkingKeep.length === 0) &&
+    cron === undefined
+  ) {
+    return config;
+  }
   const modelOverrides = asMutableRecord(config['modelOverrides']);
+  if (temperature !== undefined) modelOverrides['temperature'] = temperature;
+  if (topP !== undefined) modelOverrides['topP'] = topP;
+  if (thinkingKeep !== undefined && thinkingKeep.length > 0) {
+    modelOverrides['thinkingKeep'] = thinkingKeep;
+  }
+  if (maxCompletionTokens !== undefined) {
+    modelOverrides['maxCompletionTokens'] = maxCompletionTokens;
+  }
   return {
     ...config,
     cron: cron ?? config['cron'],
-    modelOverrides:
-      maxCompletionTokens === undefined
-        ? modelOverrides
-        : {
-          ...modelOverrides,
-          maxCompletionTokens,
-        },
+    modelOverrides,
   };
 }
 
@@ -1946,6 +2026,13 @@ function parseEnvCompletionTokens(raw: string | undefined): number | undefined {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return undefined;
   return parsed;
+}
+
+function parseEnvFloat(raw: string | undefined): number | undefined {
+  const value = raw?.trim();
+  if (value === undefined || value.length === 0) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function asMutableRecord(value: unknown): Record<string, unknown> {
@@ -2055,9 +2142,37 @@ function createLogService(
 function createGenerateBackedChatProviderFactory(generate: GenerateFn): IChatProviderFactory {
   return {
     _serviceBrand: undefined,
-    create: (config) => new GenerateBackedChatProvider(config, generate),
+    create: (config) =>
+      config.type === 'kimi'
+        ? new GenerateBackedKimiChatProvider(config, generate)
+        : new GenerateBackedChatProvider(config, generate),
     register: () => {},
   };
+}
+
+class GenerateBackedKimiChatProvider extends KimiChatProvider {
+  constructor(
+    config: Extract<ProviderConfig, { type: 'kimi' }>,
+    private readonly generateFn: GenerateFn,
+  ) {
+    super(config);
+  }
+
+  override async generate(
+    systemPrompt: string,
+    tools: KosongTool[],
+    history: KosongMessage[],
+    options?: GenerateOptions,
+  ): Promise<StreamedMessage> {
+    return generateBackedResponse(
+      this,
+      this.generateFn,
+      systemPrompt,
+      tools,
+      history,
+      options,
+    );
+  }
 }
 
 class GenerateBackedChatProvider implements ChatProvider {
@@ -2080,32 +2195,13 @@ class GenerateBackedChatProvider implements ChatProvider {
     history: KosongMessage[],
     options?: GenerateOptions,
   ): Promise<StreamedMessage> {
-    const parts: StreamedMessagePart[] = [];
-    const result = await this.generateFn(
+    return generateBackedResponse(
       this,
+      this.generateFn,
       systemPrompt,
       tools,
       history,
-      {
-        onMessagePart: (part) => {
-          parts.push(structuredClone(part));
-        },
-      },
-      {
-        signal: options?.signal,
-        auth: options?.auth,
-      },
-    );
-    return createStreamedMessage(
-      parts.length > 0
-        ? normalizeProviderStreamParts(parts)
-        : partsFromGeneratedMessage(result.message),
-      {
-        id: result.id,
-        usage: result.usage,
-        finishReason: result.finishReason,
-        rawFinishReason: result.rawFinishReason,
-      },
+      options,
     );
   }
 
@@ -2129,6 +2225,43 @@ class GenerateBackedChatProvider implements ChatProvider {
       },
     );
   }
+}
+
+async function generateBackedResponse(
+  provider: ChatProvider,
+  generateFn: GenerateFn,
+  systemPrompt: string,
+  tools: KosongTool[],
+  history: KosongMessage[],
+  options?: GenerateOptions,
+): Promise<StreamedMessage> {
+  const parts: StreamedMessagePart[] = [];
+  const result = await generateFn(
+    provider,
+    systemPrompt,
+    tools,
+    history,
+    {
+      onMessagePart: (part) => {
+        parts.push(structuredClone(part));
+      },
+    },
+    {
+      signal: options?.signal,
+      auth: options?.auth,
+    },
+  );
+  return createStreamedMessage(
+    parts.length > 0
+      ? normalizeProviderStreamParts(parts)
+      : partsFromGeneratedMessage(result.message),
+    {
+      id: result.id,
+      usage: result.usage,
+      finishReason: result.finishReason,
+      rawFinishReason: result.rawFinishReason,
+    },
+  );
 }
 
 function modelParametersFromConfig(config: ProviderConfig): Record<string, unknown> {

@@ -12,6 +12,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentBackgroundService } from '#/background';
 import { IKaos } from '#/kaos';
 import { ISessionProcessRunner } from '#/process';
+import { IAgentProfileService } from '#/profile';
 import { IAgentToolRegistryService } from '#/toolRegistry';
 
 import { IAgentShellToolsService } from './shellTools';
@@ -25,8 +26,12 @@ export class AgentShellToolsService implements IAgentShellToolsService {
     @ISessionProcessRunner runner: ISessionProcessRunner,
     @IKaos kaos: IKaos,
     @IAgentBackgroundService background: IAgentBackgroundService,
+    @IAgentProfileService profile: IAgentProfileService,
   ) {
-    toolRegistry.register(new BashTool(runner, kaos, background));
+    toolRegistry.register(new BashTool(runner, kaos, background, {
+      allowBackground: () =>
+        profile.isToolActive('TaskOutput') && profile.isToolActive('TaskStop'),
+    }));
   }
 }
 

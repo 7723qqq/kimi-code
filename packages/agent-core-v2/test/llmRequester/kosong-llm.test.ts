@@ -159,14 +159,17 @@ describe('LLMRequester service migration coverage', () => {
       });
       expect(events).toContainEqual({
         type: 'finish',
+        id: 'response-1',
         providerFinishReason: 'completed',
         rawFinishReason: 'stop',
       });
-      expect(events).toContainEqual({
-        type: 'timing',
-        firstTokenLatencyMs: expect.any(Number),
-        streamDurationMs: expect.any(Number),
-      });
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'timing',
+          firstTokenLatencyMs: expect.any(Number),
+          streamDurationMs: expect.any(Number),
+        }),
+      );
     });
 
     it('applies a per-request output budget override', async () => {

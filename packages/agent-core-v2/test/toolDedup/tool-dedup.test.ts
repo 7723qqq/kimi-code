@@ -44,9 +44,13 @@ function okResult(text: string): ToolDedupResult {
 }
 
 interface ToolDedupeInternals extends IAgentToolDedupeService {
-  beginStep(): void;
-  endStep(): void;
-  checkSameStep(toolCallId: string, toolName: string, args: unknown): ToolDedupResult | null;
+  beginStep(): Promise<void>;
+  endStep(): Promise<void>;
+  checkSameStep(
+    toolCallId: string,
+    toolName: string,
+    args: unknown,
+  ): Promise<ToolDedupResult | null>;
   finalizeResult(
     toolCallId: string,
     toolName: string,
@@ -71,7 +75,7 @@ async function runOriginal(
   args: unknown,
   result: ToolDedupResult,
 ): Promise<ToolDedupResult> {
-  const cached = deduper.checkSameStep(callId, tool, args);
+  const cached = await deduper.checkSameStep(callId, tool, args);
   expect(cached).toBeNull();
   return deduper.finalizeResult(callId, tool, args, result);
 }
@@ -80,9 +84,9 @@ describe('AgentToolDedupeService', () => {
   describe('same-step dedup', () => {
     it('returns a placeholder synchronously and resolves to the real result on finalize', async () => {
       const dedup = createDeduper();
-      dedup.beginStep();
+      await dedup.beginStep();
       const original = await runOriginal(dedup, 'c1', 'Read', { path: '/a' }, okResult('FILE_A'));
-      const cached = dedup.checkSameStep('c2', 'Read', { path: '/a' });
+      const cached = await dedup.checkSameStep('c2', 'Read', { path: '/a' });
       // Same-step dup gets a synthetic placeholder (non-error, empty string).
       expect(cached).not.toBeNull();
       expect(cached!.isError).toBeUndefined();
@@ -93,9 +97,9 @@ describe('AgentToolDedupeService', () => {
 
     it('propagates error results to same-step dups', async () => {
       const dedup = createDeduper();
-      dedup.beginStep();
+      await dedup.beginStep();
       await runOriginal(dedup, 'c1', 'Bash', { cmd: 'x' }, errResult('boom'));
-      const cached = dedup.checkSameStep('c2', 'Bash', { cmd: 'x' });
+      const cached = await dedup.checkSameStep('c2', 'Bash', { cmd: 'x' });
       expect(cached).not.toBeNull();
       const finalDup = await dedup.finalizeResult('c2', 'Bash', { cmd: 'x' }, cached!);
       expect(finalDup).toEqual(errResult('boom'));
@@ -105,10 +109,10 @@ describe('AgentToolDedupeService', () => {
       // The loop guarantees finalize runs in provider order, so by the time a
       // dup's finalize runs, the original's deferred is already resolved.
       const dedup = createDeduper();
-      dedup.beginStep();
-      const origCached = dedup.checkSameStep('c1', 'Read', { path: '/a' });
+      await dedup.beginStep();
+      const origCached = await dedup.checkSameStep('c1', 'Read', { path: '/a' });
       expect(origCached).toBeNull();
-      const dupCached = dedup.checkSameStep('c2', 'Read', { path: '/a' });
+      const dupCached = await dedup.checkSameStep('c2', 'Read', { path: '/a' });
       expect(dupCached).not.toBeNull();
       // Finalize in provider order: c1 first, then c2.
       const origFinal = await dedup.finalizeResult('c1', 'Read', { path: '/a' }, okResult('A'));
@@ -123,9 +127,9 @@ describe('AgentToolDedupeService', () => {
       const dedup = createDeduper();
       let last: ToolDedupResult | undefined;
       for (let i = 0; i < 2; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         last = await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       expect(typeof last!.output).toBe('string');
       expect(last!.output as string).not.toContain('<system-reminder>');
@@ -135,9 +139,9 @@ describe('AgentToolDedupeService', () => {
       const dedup = createDeduper();
       let last: ToolDedupResult | undefined;
       for (let i = 0; i < 3; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         last = await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       expect(last!.output as string).toContain('<system-reminder>');
       expect(last!.output as string).toContain('repeating the exact same tool call');
@@ -148,9 +152,9 @@ describe('AgentToolDedupeService', () => {
       const dedup = createDeduper();
       let last: ToolDedupResult | undefined;
       for (let i = 0; i < 4; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         last = await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       expect(last!.output as string).toContain('<system-reminder>');
       expect(last!.output as string).toContain('repeating the exact same tool call');
@@ -160,9 +164,9 @@ describe('AgentToolDedupeService', () => {
       const dedup = createDeduper();
       let last: ToolDedupResult | undefined;
       for (let i = 0; i < 5; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         last = await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       expect(last!.output as string).toContain('<system-reminder>');
       expect(last!.output as string).toContain('repeated_times: 5');
@@ -174,9 +178,9 @@ describe('AgentToolDedupeService', () => {
       const dedup = createDeduper();
       let last: ToolDedupResult | undefined;
       for (let i = 0; i < streak; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         last = await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       expect(last!.output as string).toContain('<system-reminder>');
       expect(last!.output as string).toContain(`repeated_times: ${String(streak)}`);
@@ -187,9 +191,9 @@ describe('AgentToolDedupeService', () => {
       const dedup = createDeduper();
       let last: ToolDedupResult | undefined;
       for (let i = 0; i < 8; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         last = await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       expect(last!.output as string).toContain('<system-reminder>');
       expect(last!.output as string).toContain('stuck in a dead end');
@@ -199,18 +203,18 @@ describe('AgentToolDedupeService', () => {
       const dedup = createDeduper();
       // 2× Read({p:1}) — should NOT trigger yet
       for (let i = 0; i < 2; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `a${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       // 1× Read({p:2}) interrupts the streak
-      dedup.beginStep();
+      await dedup.beginStep();
       await runOriginal(dedup, 'b1', 'Read', { p: 2 }, okResult('R'));
-      dedup.endStep();
+      await dedup.endStep();
       // Back to Read({p:1}); streak restarts → 1 occurrence, no reminder
-      dedup.beginStep();
+      await dedup.beginStep();
       const last = await runOriginal(dedup, 'c1', 'Read', { p: 1 }, okResult('R'));
-      dedup.endStep();
+      await dedup.endStep();
       expect(last.output as string).not.toContain('<system-reminder>');
     });
 
@@ -218,13 +222,13 @@ describe('AgentToolDedupeService', () => {
       const dedup = createDeduper();
       // Build streak up to 2 across previous steps.
       for (let i = 0; i < 2; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `p${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       // Next step: same call appears twice. First is the original (triggers reminder1 at streak=3),
       // second is a same-step dup that should inherit it.
-      dedup.beginStep();
+      await dedup.beginStep();
       const original = await runOriginal(
         dedup,
         'orig',
@@ -232,10 +236,10 @@ describe('AgentToolDedupeService', () => {
         { p: 1 },
         okResult('R'),
       );
-      const dupCached = dedup.checkSameStep('dup', 'Read', { p: 1 });
+      const dupCached = await dedup.checkSameStep('dup', 'Read', { p: 1 });
       expect(dupCached).not.toBeNull();
       const finalDup = await dedup.finalizeResult('dup', 'Read', { p: 1 }, dupCached!);
-      dedup.endStep();
+      await dedup.endStep();
 
       expect(original.output as string).toContain('<system-reminder>');
       expect(original.output as string).toContain('repeating the exact same tool call');
@@ -248,11 +252,11 @@ describe('AgentToolDedupeService', () => {
       // 8 occurrences of the same call within a single step, but no prior
       // streak — the trigger is about sustained behaviour across steps, not
       // intra-step spam. Same-step dedup already short-circuits execution.
-      dedup.beginStep();
-      const cached = dedup.checkSameStep('orig', 'Read', { p: 1 });
+      await dedup.beginStep();
+      const cached = await dedup.checkSameStep('orig', 'Read', { p: 1 });
       expect(cached).toBeNull();
       for (let i = 0; i < 7; i += 1) {
-        dedup.checkSameStep(`dup${String(i)}`, 'Read', { p: 1 });
+        await dedup.checkSameStep(`dup${String(i)}`, 'Read', { p: 1 });
       }
       const final = await dedup.finalizeResult('orig', 'Read', { p: 1 }, okResult('R'));
       expect(final.output as string).not.toContain('<system-reminder>');
@@ -267,13 +271,13 @@ describe('AgentToolDedupeService', () => {
       };
       // Build streak up to 2 prior steps then this one (streak=3).
       for (let i = 0; i < 2; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `p${String(i)}`, 'X', {}, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
-      dedup.beginStep();
+      await dedup.beginStep();
       const final = await runOriginal(dedup, 'final', 'X', {}, arrayResult);
-      dedup.endStep();
+      await dedup.endStep();
       const arr = final.output as Array<{ type: string; text: string }>;
       expect(arr).toHaveLength(1);
       expect(arr[0]!.type).toBe('text');
@@ -287,13 +291,13 @@ describe('AgentToolDedupeService', () => {
       };
       // Build streak up to 4 prior steps then this one (streak=5).
       for (let i = 0; i < 4; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `p${String(i)}`, 'X', { a: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
-      dedup.beginStep();
+      await dedup.beginStep();
       const final = await runOriginal(dedup, 'final', 'X', { a: 1 }, arrayResult);
-      dedup.endStep();
+      await dedup.endStep();
       const arr = final.output as Array<{ type: string; text: string }>;
       expect(arr).toHaveLength(1);
       expect(arr[0]!.type).toBe('text');
@@ -307,13 +311,13 @@ describe('AgentToolDedupeService', () => {
       };
       // Build streak to 3.
       for (let i = 0; i < 2; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `p${String(i)}`, 'X', {}, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
-      dedup.beginStep();
+      await dedup.beginStep();
       const final = await runOriginal(dedup, 'final', 'X', {}, arrayResult);
-      dedup.endStep();
+      await dedup.endStep();
       const arr = final.output as Array<{ type: string; text?: string }>;
       expect(arr).toHaveLength(2);
       expect(arr[0]!.type).toBe('image_url');
@@ -325,13 +329,13 @@ describe('AgentToolDedupeService', () => {
       const dedup = createDeduper();
       // Build streak to 3.
       for (let i = 0; i < 2; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `p${String(i)}`, 'X', {}, errResult('boom'));
-        dedup.endStep();
+        await dedup.endStep();
       }
-      dedup.beginStep();
+      await dedup.beginStep();
       const final = await runOriginal(dedup, 'final', 'X', {}, errResult('boom'));
-      dedup.endStep();
+      await dedup.endStep();
       expect(final.isError).toBe(true);
       expect(final.output as string).toContain('<system-reminder>');
     });
@@ -340,9 +344,9 @@ describe('AgentToolDedupeService', () => {
   describe('key canonicalization', () => {
     it('treats argument objects with different key order as the same call', async () => {
       const dedup = createDeduper();
-      dedup.beginStep();
+      await dedup.beginStep();
       await runOriginal(dedup, 'c1', 'Read', { a: 1, b: 2 }, okResult('SAME'));
-      const cached = dedup.checkSameStep('c2', 'Read', { b: 2, a: 1 });
+      const cached = await dedup.checkSameStep('c2', 'Read', { b: 2, a: 1 });
       expect(cached).not.toBeNull();
       const finalDup = await dedup.finalizeResult('c2', 'Read', { b: 2, a: 1 }, cached!);
       expect(finalDup).toEqual(okResult('SAME'));
@@ -356,10 +360,10 @@ describe('AgentToolDedupeService', () => {
       // args. The dedup key registered at checkSameStep time uses the
       // LLM-issued args; the deferred must be resolved under that same key.
       const dedup = createDeduper();
-      dedup.beginStep();
-      const c1 = dedup.checkSameStep('c1', 'Read', { path: '/a' });
+      await dedup.beginStep();
+      const c1 = await dedup.checkSameStep('c1', 'Read', { path: '/a' });
       expect(c1).toBeNull();
-      const c2 = dedup.checkSameStep('c2', 'Read', { path: '/a' });
+      const c2 = await dedup.checkSameStep('c2', 'Read', { path: '/a' });
       expect(c2).not.toBeNull();
 
       // Original finalize is called with REWRITTEN args (simulates a hook
@@ -388,19 +392,19 @@ describe('AgentToolDedupeService', () => {
   describe('beginStep cleanup', () => {
     it('resolves leaked deferreds from a prior aborted step with an error result', async () => {
       const dedup = createDeduper();
-      dedup.beginStep();
+      await dedup.beginStep();
       // Register an original but never finalize it (simulates abort mid-step).
-      const orig = dedup.checkSameStep('leaked', 'Read', { p: 1 });
+      const orig = await dedup.checkSameStep('leaked', 'Read', { p: 1 });
       expect(orig).toBeNull();
       // Register a dup that captures the leaked deferred.
-      const dupCached = dedup.checkSameStep('dup', 'Read', { p: 1 });
+      const dupCached = await dedup.checkSameStep('dup', 'Read', { p: 1 });
       expect(dupCached).not.toBeNull();
 
       // Next step begins — the leaked deferred should resolve so an awaiter
       // doesn't hang. (In production the dup's finalize would have already
       // happened before beginStep, but defensively resolving leaked deferreds
       // protects against any ordering bug.)
-      dedup.beginStep();
+      await dedup.beginStep();
       // Finalize the dup that captured the leaked deferred. Since we cleared
       // syntheticCallIds in beginStep, this is no longer tracked — it just
       // returns the placeholder it was passed. The leaked deferred has been
@@ -421,9 +425,9 @@ describe('AgentToolDedupeService', () => {
     ): Promise<ToolDedupResult> {
       let last: ToolDedupResult | undefined;
       for (let i = 0; i < count; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         last = await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       return last!;
     }
@@ -476,9 +480,9 @@ describe('AgentToolDedupeService', () => {
       const dedup = createDeduper();
       let last: ToolDedupResult | undefined;
       for (let i = 0; i < 12; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         last = await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, errResult('boom'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       // The underlying tool was an error — that must survive force-stop.
       expect(last!.isError).toBe(true);
@@ -491,9 +495,9 @@ describe('AgentToolDedupeService', () => {
     it('emits tool_call_repeat with the streak count starting at the second occurrence', async () => {
       const dedup = createDeduper();
       for (let i = 0; i < 3; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       const repeats = telemetryEvents.filter((e) => e.event === 'tool_call_repeat');
       expect(repeats.map((e) => e.properties?.['repeat_count'])).toEqual([2, 3]);
@@ -502,18 +506,18 @@ describe('AgentToolDedupeService', () => {
 
     it('does not emit telemetry on the first call', async () => {
       const dedup = createDeduper();
-      dedup.beginStep();
+      await dedup.beginStep();
       await runOriginal(dedup, 'c0', 'Read', { p: 1 }, okResult('R'));
-      dedup.endStep();
+      await dedup.endStep();
       expect(telemetryEvents.filter((e) => e.event === 'tool_call_repeat')).toHaveLength(0);
     });
 
     it('labels the action as r1/r2/r3 according to the reminder tier from streak 3 through 11', async () => {
       const dedup = createDeduper();
       for (let i = 0; i < 11; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       const byCount = new Map<number, string>();
       for (const e of telemetryEvents) {
@@ -535,9 +539,9 @@ describe('AgentToolDedupeService', () => {
     it('labels the action as "stop" at streak 12+', async () => {
       const dedup = createDeduper();
       for (let i = 0; i < 13; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       const at12 = telemetryEvents.find(
         (e) => e.event === 'tool_call_repeat' && e.properties?.['repeat_count'] === 12,
@@ -552,16 +556,16 @@ describe('AgentToolDedupeService', () => {
     it('resets the count when a different call interleaves', async () => {
       const dedup = createDeduper();
       for (let i = 0; i < 2; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `a${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
-      dedup.beginStep();
+      await dedup.beginStep();
       await runOriginal(dedup, 'b1', 'Read', { p: 2 }, okResult('R'));
-      dedup.endStep();
-      dedup.beginStep();
+      await dedup.endStep();
+      await dedup.beginStep();
       await runOriginal(dedup, 'c1', 'Read', { p: 1 }, okResult('R'));
-      dedup.endStep();
+      await dedup.endStep();
       const counts = telemetryEvents
         .filter((e) => e.event === 'tool_call_repeat')
         .map((e) => e.properties?.['repeat_count']);
@@ -572,9 +576,9 @@ describe('AgentToolDedupeService', () => {
     it('runs with a no-op telemetry service', async () => {
       const dedup = createDeduper(recordingTelemetry([]));
       for (let i = 0; i < 3; i += 1) {
-        dedup.beginStep();
+        await dedup.beginStep();
         await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
-        dedup.endStep();
+        await dedup.endStep();
       }
       expect(telemetryEvents.filter((e) => e.event === 'tool_call_repeat')).toHaveLength(0);
     });

@@ -4,6 +4,7 @@ import type { IAgentBackgroundService } from '#/background';
 import type { IDisposable } from '#/_base/di';
 import type { IKaos } from '#/kaos';
 import type { ISessionProcessRunner } from '#/process';
+import type { IAgentProfileService } from '#/profile';
 import { AgentShellToolsService } from '#/shellTools';
 import type { IAgentToolRegistryService } from '#/toolRegistry';
 
@@ -27,11 +28,14 @@ const fakeKaos = {
   pathClass: () => 'posix',
 } as unknown as IKaos;
 const fakeBackground = {} as unknown as IAgentBackgroundService;
+const fakeProfile = {
+  isToolActive: () => true,
+} as unknown as IAgentProfileService;
 
 describe('AgentShellToolsService', () => {
   it('registers Bash into the tool registry', () => {
     const { registry, names } = fakeToolRegistry();
-    new AgentShellToolsService(registry, fakeRunner, fakeKaos, fakeBackground);
+    new AgentShellToolsService(registry, fakeRunner, fakeKaos, fakeBackground, fakeProfile);
     expect(names()).toEqual(['Bash']);
   });
 });

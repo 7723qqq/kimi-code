@@ -34,7 +34,11 @@ interface OnceAnyWaiter {
 interface TakeWaiter {
   readonly event: string;
   readonly start: number;
-  readonly resolve: (value: { event: RecordedEventEntry; events: EventSnapshot; respond(result: unknown): void }) => void;
+  readonly resolve: (value: {
+    event: RecordedEventEntry;
+    events: EventSnapshot;
+    respond(result: unknown): void;
+  }) => void;
 }
 
 export function recordAgentEvents() {
@@ -147,13 +151,20 @@ export function recordAgentEvents() {
     },
 
     respondPending(method: string, id: string, result: unknown): void {
-      const entry = entries.find(
-        (candidate) =>
-          candidate.type === '[rpc]' &&
-          candidate.event === method &&
-          (candidate.args as { readonly id?: unknown } | null)?.id === id &&
-          candidate.response !== undefined,
-      );
+      const entry = entries.find((candidate) => {
+        if (
+          candidate.type !== '[rpc]' ||
+          candidate.event !== method ||
+          candidate.response === undefined
+        ) {
+          return false;
+        }
+        const args = candidate.args as {
+          readonly id?: unknown;
+          readonly toolCallId?: unknown;
+        } | null;
+        return args?.id === id || args?.toolCallId === id;
+      });
       entry?.response?.resolve(result);
     },
   };

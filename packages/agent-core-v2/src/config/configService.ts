@@ -115,6 +115,23 @@ function applySectionEnv(base: unknown, env: AnyEnvBindings, getEnv: GetEnv): un
   return target;
 }
 
+function isSameSection(
+  existing: ConfigSection,
+  schema: ConfigSchema<unknown>,
+  options: RegisterSectionOptions<unknown>,
+): boolean {
+  return (
+    existing.schema === schema &&
+    existing.merge === (options.merge ?? deepMerge) &&
+    existing.scope === (options.scope ?? ConfigScope.Core) &&
+    existing.env === (options.env as ConfigSection['env']) &&
+    existing.stripEnv === (options.stripEnv as ConfigSection['stripEnv']) &&
+    existing.fromToml === options.fromToml &&
+    existing.toToml === options.toToml &&
+    deepEqual(existing.defaultValue, options.defaultValue)
+  );
+}
+
 export class ConfigRegistry implements IConfigRegistry {
   declare readonly _serviceBrand: undefined;
   private readonly sections = new Map<string, ConfigSection>();
@@ -131,7 +148,22 @@ export class ConfigRegistry implements IConfigRegistry {
     schema: ConfigSchema<T>,
     options: RegisterSectionOptions<T> = {},
   ): void {
-    if (this.sections.has(domain)) {
+    const existing = this.sections.get(domain);
+    if (existing !== undefined) {
+      // A section's owner may live in a child scope (Session/Agent) that is
+      // instantiated more than once per process (e.g. one Agent scope per
+      // session), so the same owner can register its section again. Treat an
+      // identical re-registration as a no-op; only a conflicting registration
+      // from a different owner is an error.
+      if (
+        isSameSection(
+          existing,
+          schema as ConfigSchema<unknown>,
+          options as RegisterSectionOptions<unknown>,
+        )
+      ) {
+        return;
+      }
       throw new Error(`ConfigRegistry: section '${domain}' is already registered`);
     }
     this.sections.set(domain, {

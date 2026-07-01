@@ -530,31 +530,35 @@ describe('Plan service', () => {
         [emit] agent.status.updated    { "permission": "yolo" }
         [wire] plan_mode.enter         { "id": "test-plan", "time": "<time>" }
         [emit] agent.status.updated    { "planMode": true }
-        [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Inspect without mutating files" } ], "toolCalls": [] } ], "time": "<time>" }
-        [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-        [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
-        [wire] context.splice          { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" } } ], "time": "<time>" }
+        [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Inspect without mutating files" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
+        [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
+        [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+        [wire] context.splice          { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" }, "id": "<msg-2>" } ], "time": "<time>" }
         [emit] turn.step.started       { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
         [emit] assistant.delta         { "turnId": 0, "delta": "I will inspect safely." }
         [emit] tool.call.delta         { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf plan-safe\\",\\"timeout\\":60}" }
         [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
         [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] context.splice          { "start": 2, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will inspect safely." } ], "toolCalls": [] } ], "time": "<time>" }
-        [wire] context.splice          { "start": 2, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will inspect safely." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf plan-safe\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
+        [wire] context.splice          { "start": 2, "deleteCount": 0, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will inspect safely." } ], "toolCalls": [] } ], "time": "<time>" }
+        [wire] context.splice          { "start": 2, "deleteCount": 1, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will inspect safely." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf plan-safe\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
         [wire] context_size.measured   { "length": 3, "tokens": 553, "time": "<time>" }
         [emit] agent.status.updated    { "contextTokens": 553 }
         [emit] tool.call.started       { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf plan-safe", "timeout": 60 }, "description": "Running: printf plan-safe", "display": { "kind": "command", "command": "printf plan-safe", "cwd": "<cwd>", "language": "bash" } }
         [emit] tool.progress           { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "plan-safe" } }
-        [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "plan-safe" } ], "toolCalls": [], "toolCallId": "call_bash" } ], "time": "<time>" }
+        [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "plan-safe" } ], "toolCalls": [], "toolCallId": "call_bash", "id": "<msg-4>" } ], "time": "<time>" }
         [emit] tool.result             { "turnId": 0, "toolCallId": "call_bash", "output": "plan-safe" }
+        [wire] context.splice          { "start": 2, "deleteCount": 1, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will inspect safely." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf plan-safe\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
+        [emit] agent.status.updated    { "contextTokens": 0 }
         [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
         [emit] turn.step.started       { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
         [emit] assistant.delta         { "turnId": 0, "delta": "The safe command printed plan-safe." }
         [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 557, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
         [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 1087, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 1087, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 1087, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The safe command printed plan-safe." } ], "toolCalls": [] } ], "time": "<time>" }
+        [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "The safe command printed plan-safe." } ], "toolCalls": [] } ], "time": "<time>" }
         [wire] context_size.measured   { "length": 5, "tokens": 569, "time": "<time>" }
         [emit] agent.status.updated    { "contextTokens": 569 }
+        [wire] context.splice          { "start": 4, "deleteCount": 1, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "The safe command printed plan-safe." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
+        [emit] agent.status.updated    { "contextTokens": 0 }
         [emit] turn.step.completed     { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 557, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
         [emit] turn.ended              { "turnId": 0, "reason": "completed" }
       `);
@@ -590,31 +594,35 @@ describe('Plan service', () => {
         [emit] agent.status.updated    { "permission": "yolo" }
         [wire] plan_mode.enter         { "id": "test-plan", "time": "<time>" }
         [emit] agent.status.updated    { "planMode": true }
-        [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ], "toolCalls": [] } ], "time": "<time>" }
-        [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-        [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
-        [wire] context.splice          { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" } } ], "time": "<time>" }
+        [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
+        [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
+        [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+        [wire] context.splice          { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" }, "id": "<msg-2>" } ], "time": "<time>" }
         [emit] turn.step.started       { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
         [emit] assistant.delta         { "turnId": 0, "delta": "I will mutate a file." }
         [emit] tool.call.delta         { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"rm forbidden.txt\\",\\"timeout\\":60}" }
         [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
         [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] context.splice          { "start": 2, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will mutate a file." } ], "toolCalls": [] } ], "time": "<time>" }
-        [wire] context.splice          { "start": 2, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will mutate a file." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"rm forbidden.txt\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
+        [wire] context.splice          { "start": 2, "deleteCount": 0, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will mutate a file." } ], "toolCalls": [] } ], "time": "<time>" }
+        [wire] context.splice          { "start": 2, "deleteCount": 1, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will mutate a file." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"rm forbidden.txt\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
         [wire] context_size.measured   { "length": 3, "tokens": 550, "time": "<time>" }
         [emit] agent.status.updated    { "contextTokens": 550 }
         [emit] tool.call.started       { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "rm forbidden.txt", "timeout": 60 }, "description": "Running: rm forbidden.txt", "display": { "kind": "command", "command": "rm forbidden.txt", "cwd": "<cwd>", "language": "bash" } }
         [emit] tool.progress           { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "removed" } }
-        [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "removed" } ], "toolCalls": [], "toolCallId": "call_bash" } ], "time": "<time>" }
+        [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "removed" } ], "toolCalls": [], "toolCallId": "call_bash", "id": "<msg-4>" } ], "time": "<time>" }
         [emit] tool.result             { "turnId": 0, "toolCallId": "call_bash", "output": "removed" }
+        [wire] context.splice          { "start": 2, "deleteCount": 1, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will mutate a file." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"rm forbidden.txt\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
+        [emit] agent.status.updated    { "contextTokens": 0 }
         [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
         [emit] turn.step.started       { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
         [emit] assistant.delta         { "turnId": 0, "delta": "The command completed." }
         [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 553, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
         [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 1080, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 1080, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 1080, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The command completed." } ], "toolCalls": [] } ], "time": "<time>" }
+        [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "The command completed." } ], "toolCalls": [] } ], "time": "<time>" }
         [wire] context_size.measured   { "length": 5, "tokens": 562, "time": "<time>" }
         [emit] agent.status.updated    { "contextTokens": 562 }
+        [wire] context.splice          { "start": 4, "deleteCount": 1, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "The command completed." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
+        [emit] agent.status.updated    { "contextTokens": 0 }
         [emit] turn.step.completed     { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 553, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
         [emit] turn.ended              { "turnId": 0, "reason": "completed" }
       `);
