@@ -8,12 +8,13 @@ import { join } from 'node:path';
 
 import type { IScopeHandle, Scope } from '@moonshot-ai/agent-core-v2';
 import {
+  IAgentEventSinkService,
   IAgentLifecycleService,
-  IEventSink,
+  IEventService,
   ISessionLifecycleService,
 } from '@moonshot-ai/agent-core-v2';
 import type { AgentEvent } from '@moonshot-ai/protocol';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   type BroadcastTarget,
@@ -41,13 +42,29 @@ class FakeSink {
   }
 }
 
+class FakeEventBus {
+  private handlers: Array<(e: { type: string; payload: unknown }) => void> = [];
+  subscribe(handler: (e: { type: string; payload: unknown }) => void) {
+    this.handlers.push(handler);
+    return {
+      dispose: () => {
+        const i = this.handlers.indexOf(handler);
+        if (i >= 0) this.handlers.splice(i, 1);
+      },
+    };
+  }
+  emit(e: { type: string; payload: unknown }): void {
+    for (const h of [...this.handlers]) h(e);
+  }
+}
+
 class FakeAgentHandle {
   readonly kind = 2;
   readonly sink = new FakeSink();
   readonly accessor;
   constructor(readonly id: string) {
     this.accessor = {
-      get: (t: unknown) => (t === IEventSink ? this.sink : undefined),
+      get: (t: unknown) => (t === IAgentEventSinkService ? this.sink : undefined),
     };
   }
   dispose(): void {}
@@ -84,9 +101,10 @@ class FakeLifecycle {
   }
 }
 
-function makeCore(sessions: Map<string, FakeLifecycle>): Scope {
+function makeCore(sessions: Map<string, FakeLifecycle>, eventBus = new FakeEventBus()): Scope {
   const accessor = {
     get(token: unknown): unknown {
+      if (token === IEventService) return eventBus;
       if (token === ISessionLifecycleService) {
         return {
           get: (sid: string) => {
@@ -121,14 +139,16 @@ function collectingTarget(): { target: BroadcastTarget; envelopes: EventEnvelope
 describe('SessionEventBroadcaster', () => {
   let dir: string;
   let sessions: Map<string, FakeLifecycle>;
+  let eventBus: FakeEventBus;
   let bc: SessionEventBroadcaster;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'kimi-broadcaster-test-'));
     sessions = new Map();
+    eventBus = new FakeEventBus();
     bc = new SessionEventBroadcaster({
       eventsDir: dir,
-      core: makeCore(sessions),
+      core: makeCore(sessions, eventBus),
       maxBufferSize: 3,
     });
   });
@@ -242,6 +262,35 @@ describe('SessionEventBroadcaster', () => {
 
     expect(snap.seq).toBe(1); // only the durable turn.started advanced seq
     expect(snap.inFlightTurn).toMatchObject({ turn_id: 1, assistant_text: 'Hello' });
+  });
+
+  it('fans core model-catalog changes out to every session subscriber', async () => {
+    const lc = new FakeLifecycle();
+    lc.addAgent('main');
+    sessions.set('s1', lc);
+    const { target, envelopes } = collectingTarget();
+    await bc.subscribe('s1', target);
+
+    eventBus.emit({
+      type: 'event.model_catalog.changed',
+      payload: {
+        changed: [{ provider_id: 'managed:kimi-code', provider_name: 'Kimi Code', added: 1, removed: 0 }],
+        unchanged: [],
+        failed: [],
+      },
+    });
+
+    await vi.waitFor(() => expect(envelopes).toHaveLength(1));
+    expect(envelopes[0]).toMatchObject({
+      type: 'event.model_catalog.changed',
+      seq: 1,
+      session_id: '__global__',
+      payload: {
+        type: 'event.model_catalog.changed',
+        agentId: 'main',
+        sessionId: '__global__',
+      },
+    });
   });
 
   it('subscribe returns false for an unknown session', async () => {

@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 describe('server-v2 OpenAPI', () => {
   let server: RunningServer | undefined;
@@ -38,7 +39,9 @@ describe('server-v2 OpenAPI', () => {
       homeDir: home,
       logLevel: 'silent',
     });
-    const res = await fetch(`http://127.0.0.1:${server.port}/openapi.json`);
+    const res = await fetch(`http://127.0.0.1:${server.port}/openapi.json`, {
+      headers: authHeaders(server),
+    } as never);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
     return (await res.json()) as Record<string, unknown>;

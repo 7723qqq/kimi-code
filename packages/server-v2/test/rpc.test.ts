@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { RpcClient, RpcError } from '../src/transport/rpcClient';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -45,7 +46,7 @@ describe('server-v2 /api/v2 RPC', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
       home = undefined;
     }
   });
@@ -68,7 +69,10 @@ describe('server-v2 /api/v2 RPC', () => {
       headers['content-type'] = 'application/json';
       init.body = JSON.stringify(arg);
     }
-    if (token !== undefined) headers['authorization'] = `Bearer ${token}`;
+    // Default to the persistent bearer token — `/api/v2` is now gated by the
+    // same credential as every other route.
+    const credential = token ?? (server as RunningServer).authTokenService.getToken();
+    headers['authorization'] = `Bearer ${credential}`;
     const res = await fetch(url, init);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
@@ -76,9 +80,9 @@ describe('server-v2 /api/v2 RPC', () => {
   async function createSession(cwd: string): Promise<string> {
     const res = await fetch(`${base}/api/v1/sessions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify({ metadata: { cwd } }),
-    });
+    } as never);
     const body = (await res.json()) as Envelope<{ id: string }>;
     expect(body.code).toBe(0);
     return body.data.id;
@@ -205,6 +209,67 @@ describe('server-v2 /api/v2 RPC', () => {
     expect(body.data.turn_id).toBe(0);
   });
 
+  it('runs a shell command through shell:run', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+
+    const { body } = await call<{ stdout: string; stderr: string; isError?: boolean }>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/shell:run`,
+      { command: 'printf hello' },
+    );
+    expect(body.code).toBe(0);
+    expect(body.data.stdout).toBe('hello');
+    expect(body.data.stderr).toBe('');
+    expect(body.data.isError).not.toBe(true);
+  });
+
+  it('lists and installs plugins through plugins:* RPC', async () => {
+    const pluginRoot = await mkdtemp(join(tmpdir(), 'server-v2-plugin-source-'));
+    try {
+      await writeFile(join(pluginRoot, 'deploy.md'), '---\ndescription: Deploy\n---\n\nDeploy body', 'utf8');
+      await writeFile(
+        join(pluginRoot, 'kimi.plugin.json'),
+        JSON.stringify({ name: 'rpc-plugin', commands: ['./deploy.md'] }),
+        'utf8',
+      );
+
+      const installed = await call<{ id: string }>('POST', '/api/v2/plugins:install', { source: pluginRoot });
+      expect(installed.body.code).toBe(0);
+      expect(installed.body.data.id).toBe('rpc-plugin');
+
+      const listed = await call<readonly { id: string; state: string }[]>('GET', '/api/v2/plugins:list');
+      expect(listed.body.code).toBe(0);
+      expect(listed.body.data).toEqual([
+        expect.objectContaining({ id: 'rpc-plugin', state: 'ok' }),
+      ]);
+
+      const info = await call<{ id: string }>('POST', '/api/v2/plugins:getInfo', { id: 'rpc-plugin' });
+      expect(info.body.code).toBe(0);
+      expect(info.body.data.id).toBe('rpc-plugin');
+
+      const commands = await call<readonly { pluginId: string; name: string }[]>(
+        'GET',
+        '/api/v2/plugins:listCommands',
+      );
+      expect(commands.body.code).toBe(0);
+      expect(commands.body.data).toEqual([
+        expect.objectContaining({ pluginId: 'rpc-plugin', name: 'deploy' }),
+      ]);
+
+      const sessionId = await createSession(home as string);
+      await createMainAgent(sessionId);
+      const activated = await call<null>(
+        'POST',
+        `/api/v2/session/${sessionId}/agent/main/plugins:activateCommand`,
+        { pluginId: 'rpc-plugin', commandName: 'deploy', args: 'prod' },
+      );
+      expect(activated.body.code).toBe(0);
+    } finally {
+      await rm(pluginRoot, { recursive: true, force: true });
+    }
+  });
+
   it('returns 40401 when the agent does not exist', async () => {
     const id = await createSession(home as string);
     const { body } = await call<null>(
@@ -220,7 +285,10 @@ describe('server-v2 /api/v2 RPC', () => {
   it('works through the typed RpcClient', async () => {
     const cwd = home as string;
     await createSession(cwd);
-    const client = new RpcClient({ url: base });
+    const client = new RpcClient({
+      url: base,
+      token: (server as RunningServer).authTokenService.getToken(),
+    });
 
     const sessions = client.core<ISessionIndex>('sessions');
     const page = await sessions.list({});
@@ -233,7 +301,10 @@ describe('server-v2 /api/v2 RPC', () => {
   });
 
   it('throws RpcError on unknown action', async () => {
-    const client = new RpcClient({ url: base });
+    const client = new RpcClient({
+      url: base,
+      token: (server as RunningServer).authTokenService.getToken(),
+    });
     const sessions = client.core<ISessionIndex>('sessions');
     // @ts-expect-error — intentionally calling a non-existent method
     await expect(sessions.nope()).rejects.toBeInstanceOf(RpcError);
@@ -266,13 +337,16 @@ describe('server-v2 /api/v2 RPC', () => {
     // Fastify's default bodyLimit is 1MB; a larger body is rejected. Fastify's
     // body-parser throws a 413 which our global error handler currently wraps
     // as `50001` (HTTP 200) — either way the request is rejected, not served.
+    // A valid token is sent so the request reaches the body parser (the auth
+    // hook would short-circuit with 401 before reading the body otherwise).
     const huge = 'x'.repeat(2 * 1024 * 1024);
+    const token = (server as RunningServer).authTokenService.getToken();
     let rejected = false;
     let code: number | undefined;
     try {
       const res = await fetch(`${base}/api/v2/sessions:list`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
         body: JSON.stringify({ big: huge }),
       });
       const body = (await res.json()) as Envelope<null>;
@@ -315,18 +389,19 @@ describe('server-v2 /api/v2 RPC auth', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
       home = undefined;
     }
   });
 
-  it('rejects calls without a token (40112)', async () => {
+  it('rejects calls without a token (40101)', async () => {
     const res = await fetch(`${base}/api/v2/sessions:list`, { method: 'POST' });
+    expect(res.status).toBe(401);
     const body = (await res.json()) as Envelope<null>;
-    expect(body.code).toBe(40112);
+    expect(body.code).toBe(40101);
   });
 
-  it('accepts calls with the correct token', async () => {
+  it('accepts calls with the correct rpcToken', async () => {
     const res = await fetch(`${base}/api/v2/sessions:list`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -336,12 +411,24 @@ describe('server-v2 /api/v2 RPC auth', () => {
     expect(body.code).toBe(0);
   });
 
-  it('rejects a wrong token (40112)', async () => {
+  it('accepts the persistent token on /api/v2', async () => {
+    const persistent = (server as RunningServer).authTokenService.getToken();
+    const res = await fetch(`${base}/api/v2/sessions:list`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${persistent}`, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const body = (await res.json()) as Envelope<{ items: unknown[] }>;
+    expect(body.code).toBe(0);
+  });
+
+  it('rejects a wrong token (40101)', async () => {
     const res = await fetch(`${base}/api/v2/sessions:list`, {
       method: 'POST',
       headers: { authorization: 'Bearer wrong' },
     });
+    expect(res.status).toBe(401);
     const body = (await res.json()) as Envelope<null>;
-    expect(body.code).toBe(40112);
+    expect(body.code).toBe(40101);
   });
 });

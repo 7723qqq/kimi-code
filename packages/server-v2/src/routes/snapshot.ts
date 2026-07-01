@@ -14,8 +14,8 @@
  */
 
 import {
+  IAgentContextMemoryService,
   IAgentLifecycleService,
-  IContextMemory,
   ISessionInteractionService,
   ISessionContext,
   ISessionLifecycleService,
@@ -76,7 +76,10 @@ export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRou
     async (req, reply) => {
       const { session_id } = req.params;
 
-      const handle = core.accessor.get(ISessionLifecycleService).get(session_id);
+      // Resolve the live handle, loading the session from disk when it is cold
+      // (created by a previous process or by v1). `resume` returns `undefined`
+      // only when the session is unknown or its workspace is gone → 404.
+      const handle = await core.accessor.get(ISessionLifecycleService).resume(session_id);
       if (handle === undefined) {
         reply.send(
           errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} not found`, req.id),
@@ -88,6 +91,9 @@ export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRou
       const snapState = await broadcaster.getSnapshotState(session_id);
 
       // Session wire shape (needs the workspace root for `metadata.cwd`).
+      // `ISessionMetadata` normalizes legacy v1 documents on load (absent
+      // `version` → ISO-string timestamps → epoch ms, id backfilled), so the
+      // metadata read here is always v2-shaped and safe to project.
       const workspaceId = handle.accessor.get(ISessionContext).workspaceId;
       const workspace = await core.accessor.get(IWorkspaceRegistry).get(workspaceId);
       const cwd = workspace?.root ?? '';
@@ -99,7 +105,7 @@ export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRou
       let items: Message[] = [];
       let hasMore = false;
       if (main !== undefined) {
-        const history = main.accessor.get(IContextMemory).get();
+        const history = main.accessor.get(IAgentContextMemoryService).get();
         hasMore = history.length > SNAPSHOT_MESSAGE_PAGE_SIZE;
         const page = history.slice(-SNAPSHOT_MESSAGE_PAGE_SIZE);
         const offset = history.length - page.length;

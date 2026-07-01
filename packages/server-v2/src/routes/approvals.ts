@@ -201,8 +201,8 @@ export function toWireApproval(interaction: Interaction, sessionId: string): {
   const p = interaction.payload as ApprovalRequest;
   return {
     approval_id: interaction.id,
-    session_id: p.sessionId ?? sessionId,
-    turn_id: p.turnId,
+    session_id: sessionId,
+    turn_id: interaction.origin.turnId,
     tool_call_id: p.toolCallId ?? interaction.id,
     tool_name: p.toolName,
     action: p.action,

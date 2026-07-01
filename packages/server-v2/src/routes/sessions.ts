@@ -119,6 +119,7 @@ const sessionsListQueryCoercion = z
     page_size: z.coerce.number().int().min(1).max(100).optional(),
     status: sessionStatusSchema.optional(),
     include_archive: booleanQueryParam,
+    exclude_empty: booleanQueryParam,
     workspace_id: z.string().min(1).optional(),
   })
   .superRefine((value, ctx) => {
@@ -302,6 +303,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       for (const summary of summaries) {
         const cwd = roots.get(summary.workspaceId);
         if (cwd === undefined) continue; // gap G3: cannot represent cwd
+        if (raw.exclude_empty === true && (summary.lastPrompt ?? '').length === 0) continue;
         items.push(toWireSession(summary, cwd));
       }
       reply.send(okEnvelope({ items, has_more: hasMore }, req.id));

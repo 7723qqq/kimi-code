@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import {
   IAgentLifecycleService,
-  IBackgroundService,
+  IAgentBackgroundService,
   ISessionLifecycleService,
   modelResolverSeed,
   SingleModelResolver,
@@ -13,6 +13,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -48,7 +49,7 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-tasks-'));
     // Seed a stub ISessionModelResolver so the agent scope can instantiate if a
-    // transitive service needs it; IBackgroundService itself does not.
+    // transitive service needs it; IAgentBackgroundService itself does not.
     const modelResolver = new SingleModelResolver({
       type: 'openai',
       model: 'stub',
@@ -70,27 +71,32 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
       home = undefined;
     }
   });
 
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`);
+    const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
   async function postJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`, { method: 'POST' });
+    const res = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer),
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
   async function createSession(): Promise<string> {
     const res = await fetch(`${base}/api/v1/sessions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify({ metadata: { cwd: home as string } }),
-    });
+    } as never);
     const body = (await res.json()) as Envelope<{ id: string }>;
     expect(body.code).toBe(0);
     return body.data.id;
@@ -98,14 +104,14 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
 
   // The main agent scope is not created automatically on session creation
   // (server-v2 gap G10); create it here, then register fake background tasks
-  // directly into its IBackgroundService to bypass the tool loop.
-  async function mainAgentBackground(sessionId: string): Promise<IBackgroundService> {
+  // directly into its IAgentBackgroundService to bypass the tool loop.
+  async function mainAgentBackground(sessionId: string): Promise<IAgentBackgroundService> {
     const session = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
     const agent =
       session.accessor.get(IAgentLifecycleService).getHandle('main') ??
       (await session.accessor.get(IAgentLifecycleService).createMain());
-    return agent.accessor.get(IBackgroundService);
+    return agent.accessor.get(IAgentBackgroundService);
   }
 
   // Let the `registerTask` microtask run `start` (which appends output) before

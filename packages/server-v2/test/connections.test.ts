@@ -18,6 +18,7 @@ import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
 import { WsClient } from '../src/transport/ws/wsClient';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -51,7 +52,9 @@ describe('server-v2 GET /api/v1/connections', () => {
   });
 
   async function listConnections() {
-    const res = await fetch(`${base}/api/v1/connections`);
+    const res = await fetch(`${base}/api/v1/connections`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     const body = (await res.json()) as Envelope<unknown>;
     expect(body.code).toBe(0);
     return connectionsListResponseSchema.parse(body.data).connections;
@@ -60,9 +63,9 @@ describe('server-v2 GET /api/v1/connections', () => {
   async function createSession(cwd: string): Promise<string> {
     const res = await fetch(`${base}/api/v1/sessions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify({ metadata: { cwd } }),
-    });
+    } as never);
     const body = (await res.json()) as Envelope<{ id: string }>;
     expect(body.code).toBe(0);
     return body.data.id;
@@ -71,7 +74,8 @@ describe('server-v2 GET /api/v1/connections', () => {
   /** Open a raw WS and resolve on the server's first (`ready`) frame — no `hello`. */
   function openRaw(): Promise<{ ws: WebSocket; closed: Promise<void> }> {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(wsUrl);
+      const token = (server as RunningServer).authTokenService.getToken();
+      const ws = new WebSocket(wsUrl, [`kimi-code.bearer.${token}`]);
       const closed = new Promise<void>((res) => ws.on('close', () => res()));
       ws.once('message', () => resolve({ ws, closed }));
       ws.once('error', reject);
@@ -112,7 +116,10 @@ describe('server-v2 GET /api/v1/connections', () => {
 
   it('reflects hello and session-scoped listen subscriptions', async () => {
     const sessionId = await createSession(home as string);
-    const client = new WsClient({ url: wsUrl });
+    const client = new WsClient({
+      url: wsUrl,
+      token: (server as RunningServer).authTokenService.getToken(),
+    });
     try {
       // A successful call guarantees the `hello` handshake completed.
       await client.call('core', 'sessions:list', {});
@@ -138,7 +145,10 @@ describe('server-v2 GET /api/v1/connections', () => {
   });
 
   it('removes the connection after the socket closes', async () => {
-    const client = new WsClient({ url: wsUrl });
+    const client = new WsClient({
+      url: wsUrl,
+      token: (server as RunningServer).authTokenService.getToken(),
+    });
     await client.call('core', 'sessions:list', {});
     await waitForSize(1);
 

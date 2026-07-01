@@ -9,8 +9,8 @@
  *                                                               output_bytes?} data: BackgroundTask
  *   POST /sessions/{session_id}/tasks/{task_id}:cancel body: empty            data: {cancelled:true}
  *
- * **Thin wrapper over `IBackgroundService`**: the main agent's
- * `IBackgroundService` is already exposed at Agent scope (`tasks:*` in the RPC
+ * **Thin wrapper over `IAgentBackgroundService`**: the main agent's
+ * `IAgentBackgroundService` is already exposed at Agent scope (`tasks:*` in the RPC
  * action map). These REST routes borrow it by interface and project its
  * `BackgroundTaskInfo` (camelCase + ms timestamps + agent-core literal sets)
  * into the protocol's `BackgroundTask` shape (snake_case + ISO + spec literal
@@ -19,7 +19,7 @@
  *
  * **Resolution**: `core` → `ISessionIndex` (existence, → 40401) →
  * `ISessionLifecycleService` (live session handle) → `IAgentLifecycleService`
- * (the `main` agent) → `IBackgroundService`. When the session is not live or
+ * (the `main` agent) → `IAgentBackgroundService`. When the session is not live or
  * has no main agent yet (server-v2 gap G10 — the main agent is not created on
  * session creation), there is no background service: `list` returns an empty
  * page and `get`/`cancel` answer `40406`.
@@ -39,7 +39,7 @@
  */
 
 import {
-  IBackgroundService,
+  IAgentBackgroundService,
   ISessionIndex,
   ISessionLifecycleService,
   type BackgroundTaskInfo,
@@ -242,7 +242,7 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
       }
 
       // Pre-fetch so we can distinguish 40406 (not found) from 40904 (already
-      // finished) deterministically — `IBackgroundService.stop` does not
+      // finished) deterministically — `IAgentBackgroundService.stop` does not
       // surface this distinction on its own.
       const found = resolved.bg?.getTask(task_id);
       if (found === undefined) {
@@ -263,7 +263,7 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
 }
 
 // ---------------------------------------------------------------------------
-// Resolution — walk core → session → main agent → `IBackgroundService`.
+// Resolution — walk core → session → main agent → `IAgentBackgroundService`.
 // Returns `{kind:'not_found'}` when the session does not exist (→ 40401). A
 // missing live session / main agent yields `{kind:'resolved', bg: undefined}`
 // (gap G10), which `list` treats as empty and `get`/`cancel` treat as 40406.
@@ -271,7 +271,7 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
 
 type ResolvedBackground =
   | { readonly kind: 'not_found' }
-  | { readonly kind: 'resolved'; readonly bg: IBackgroundService | undefined };
+  | { readonly kind: 'resolved'; readonly bg: IAgentBackgroundService | undefined };
 
 async function resolveSessionBackground(core: Scope, sid: string): Promise<ResolvedBackground> {
   const summary = await core.accessor.get(ISessionIndex).get(sid);
@@ -280,7 +280,7 @@ async function resolveSessionBackground(core: Scope, sid: string): Promise<Resol
   const session = core.accessor.get(ISessionLifecycleService).get(sid);
   if (session === undefined) return { kind: 'resolved', bg: undefined };
   const agent = await ensureMainAgent(session);
-  const bg = agent.accessor.get(IBackgroundService);
+  const bg = agent.accessor.get(IAgentBackgroundService);
   return { kind: 'resolved', bg };
 }
 

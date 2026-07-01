@@ -7,6 +7,7 @@ import { ErrorCode } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -70,9 +71,9 @@ describe('server-v2 /api/v1/sessions/{sid}/fs:*', () => {
   async function createSession(): Promise<string> {
     const res = await fetch(`${base}/api/v1/sessions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify({ metadata: { cwd: work as string } }),
-    });
+    } as never);
     const body = (await res.json()) as Envelope<{ id: string }>;
     expect(body.code).toBe(0);
     return body.data.id;
@@ -81,9 +82,9 @@ describe('server-v2 /api/v1/sessions/{sid}/fs:*', () => {
   async function postFs<T>(id: string, action: string, body: unknown): Promise<Envelope<T>> {
     const res = await fetch(`${base}/api/v1/sessions/${id}/fs:${action}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify(body),
-    });
+    } as never);
     return (await res.json()) as Envelope<T>;
   }
 
@@ -211,7 +212,9 @@ describe('server-v2 /api/v1/sessions/{sid}/fs:*', () => {
     await writeFile(join(work!, 'a.txt'), 'download-me');
     const id = await createSession();
 
-    const res = await fetch(`${base}/api/v1/sessions/${id}/fs/a.txt:download`);
+    const res = await fetch(`${base}/api/v1/sessions/${id}/fs/a.txt:download`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toBe('download-me');
@@ -219,8 +222,8 @@ describe('server-v2 /api/v1/sessions/{sid}/fs:*', () => {
     expect(etag).toBeTruthy();
 
     const cached = await fetch(`${base}/api/v1/sessions/${id}/fs/a.txt:download`, {
-      headers: { 'if-none-match': etag as string },
-    });
+      headers: authHeaders(server as RunningServer, { 'if-none-match': etag as string }),
+    } as never);
     expect(cached.status).toBe(304);
   });
 });

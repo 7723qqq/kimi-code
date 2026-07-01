@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -63,9 +64,12 @@ describe('server-v2 /api/v1/workspaces', () => {
     const hasBody = body !== undefined;
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
-      headers: hasBody ? { 'content-type': 'application/json' } : undefined,
+      headers: authHeaders(
+        server as RunningServer,
+        hasBody ? { 'content-type': 'application/json' } : {},
+      ),
       body: hasBody ? JSON.stringify(body) : undefined,
-    });
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
@@ -75,19 +79,24 @@ describe('server-v2 /api/v1/workspaces', () => {
   ): Promise<{ status: number; body: Envelope<T> }> {
     const res = await fetch(`${base}${path}`, {
       method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify(body ?? {}),
-    });
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
   async function deleteJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`, { method: 'DELETE' });
+    const res = await fetch(`${base}${path}`, {
+      method: 'DELETE',
+      headers: authHeaders(server as RunningServer),
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`);
+    const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 

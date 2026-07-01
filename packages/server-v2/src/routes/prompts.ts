@@ -6,7 +6,7 @@
  */
 
 import {
-  IPromptLegacyService,
+  IAgentPromptLegacyService,
   ISessionLifecycleService,
   isKimiError,
   KimiError,
@@ -53,13 +53,13 @@ const sessionIdParamSchema = z.object({
 
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
-async function resolveLegacy(core: Scope, sessionId: string): Promise<IPromptLegacyService> {
+async function resolveLegacy(core: Scope, sessionId: string): Promise<IAgentPromptLegacyService> {
   const session = core.accessor.get(ISessionLifecycleService).get(sessionId);
   if (session === undefined) {
     throw new KimiError('session.not_found', `session ${sessionId} does not exist`);
   }
   const agent = await ensureMainAgent(session);
-  return agent.accessor.get(IPromptLegacyService);
+  return agent.accessor.get(IAgentPromptLegacyService);
 }
 
 export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {

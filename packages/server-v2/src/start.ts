@@ -9,6 +9,8 @@
 
 import {
   bootstrap,
+  IConfigService,
+  IModelCatalogService,
   logSeed,
   resolveConfigPath,
   resolveKimiHome,
@@ -55,6 +57,7 @@ import { createOriginHook, isOriginAllowed, parseCorsOrigins } from './middlewar
 import { createSecurityHeadersHook } from './middleware/securityHeaders';
 import { createAuthHook } from './middleware/auth';
 import { GuiStoreService } from './services/guiStore/guiStoreService';
+import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
 import { createAuthFailureLimiter } from './middleware/rateLimit';
 import {
   createAuthTokenService,
@@ -182,6 +185,12 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
       );
     }
   }
+  const modelCatalogRefreshScheduler = new ModelCatalogRefreshScheduler(
+    core.accessor.get(IModelCatalogService),
+    core.accessor.get(IConfigService),
+    logger,
+  );
+
   const app = Fastify({
     loggerInstance: logger,
     disableRequestLogging: false,
@@ -213,6 +222,7 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   const close = async (): Promise<void> => {
     await app.close();
     authFailureLimiter?.dispose();
+    modelCatalogRefreshScheduler.dispose();
     core.dispose();
     lockHandle.release();
   };
@@ -393,6 +403,13 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   // Advertise the actually-bound port (e.g. ephemeral when `port: 0`) so a
   // status/kill lookup against the lock file finds the real listener.
   lockHandle.updatePort(boundPort);
+
+  void modelCatalogRefreshScheduler.start().catch((error) => {
+    logger.warn(
+      { err: error instanceof Error ? error.message : String(error) },
+      'provider-model catalog auto-refresh failed to start',
+    );
+  });
 
   return { app, core, connectionRegistry, authTokenService, host, port: boundPort, close };
 }

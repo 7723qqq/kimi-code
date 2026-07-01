@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  IAgentContextMemoryService,
   IAgentLifecycleService,
-  IContextMemory,
+  IAgentWireRecordService,
   ISessionLifecycleService,
-  IWireRecord,
   modelResolverSeed,
   SingleModelResolver,
   type ScopeSeed,
@@ -14,6 +14,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -81,16 +82,18 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
   });
 
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`);
+    const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
   async function createSession(): Promise<string> {
     const res = await fetch(`${base}/api/v1/sessions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify({ metadata: { cwd: home as string } }),
-    });
+    } as never);
     const body = (await res.json()) as Envelope<{ id: string }>;
     expect(body.code).toBe(0);
     return body.data.id;
@@ -101,7 +104,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
   // its IContextMemory to bypass the LLM loop.
   async function seedMainAgentMessages(
     sessionId: string,
-    messages: Parameters<IContextMemory['splice']>[2],
+    messages: Parameters<IAgentContextMemoryService['splice']>[2],
   ): Promise<void> {
     const session = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
@@ -110,10 +113,10 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
       agent = await session.accessor.get(IAgentLifecycleService).createMain();
     }
     if (messages.length > 0) {
-      agent.accessor.get(IContextMemory).splice(0, 0, messages);
+      agent.accessor.get(IAgentContextMemoryService).splice(0, 0, messages);
       // Flush the wire log so the temp home is quiescent before afterEach rm's
       // it (macOS can ENOTEMPTY an rmdir while an append is still in flight).
-      await agent.accessor.get(IWireRecord).flush();
+      await agent.accessor.get(IAgentWireRecordService).flush();
     }
   }
 
@@ -281,7 +284,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     const session = server!.core.accessor.get(ISessionLifecycleService).get(id);
     if (session === undefined) throw new Error(`session ${id} not found`);
     const agent = await session.accessor.get(IAgentLifecycleService).createMain();
-    const ctx = agent.accessor.get(IContextMemory);
+    const ctx = agent.accessor.get(IAgentContextMemoryService);
     // Three messages, then a compaction that folds the prefix into a summary.
     ctx.splice(0, 0, [
       { role: 'user', content: [{ type: 'text', text: 'm0' }], toolCalls: [] },
@@ -296,7 +299,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
         origin: { kind: 'compaction_summary' },
       },
     ]);
-    await agent.accessor.get(IWireRecord).flush();
+    await agent.accessor.get(IAgentWireRecordService).flush();
 
     // Live (post-compaction) context exposes only the folded summary; capture
     // its id so we can assert it survives the restart unchanged.
@@ -317,7 +320,9 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     expect(body.data.items.every((m) => MSG_ID.test(m.id))).toBe(true);
 
     // newest first → summary, m2, m1, m0.
-    const [summary, _m2, m1] = body.data.items;
+    const [summary, _m2, maybeM1] = body.data.items;
+    if (maybeM1 === undefined) throw new Error('expected m1 message');
+    const m1 = maybeM1;
     // The summary id is persisted in the wire record and survives restore.
     expect(summary!.id).toBe(liveSummaryId);
     expect(summary).toMatchObject({

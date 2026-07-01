@@ -1,13 +1,13 @@
 /**
  * `SessionEventBroadcaster` — per-session single fan-out point that turns
- * agent `IEventSink` emissions into a sequenced, journaled, replayable
+ * agent `IAgentEventSinkService` emissions into a sequenced, journaled, replayable
  * `/api/v1/ws` event stream (the `{seq, epoch}` watermark).
  *
  * Port of v1's `WSBroadcastService` (`packages/server/.../wsBroadcastService.ts`),
- * adapted to v2 where agent events live on per-agent `IEventSink`s (not a Core
+ * adapted to v2 where agent events live on per-agent `IAgentEventSinkService`s (not a Core
  * firehose). For each session it:
  *
- *   1. Subscribes to every agent's `IEventSink` via `IAgentLifecycleService`
+ *   1. Subscribes to every agent's `IAgentEventSinkService` via `IAgentLifecycleService`
  *      reach-down-via-handle (and `onDidCreate`/`onDidDispose` for late agents).
  *   2. Attaches `agentId`/`sessionId` to build the wire `Event`.
  *   3. Classifies durable vs volatile (`VOLATILE_EVENT_TYPES`).
@@ -24,13 +24,20 @@
  * the journal is continuous from first activation onward.
  */
 
-import type { IDisposable, IScopeHandle, Scope } from '@moonshot-ai/agent-core-v2';
+import type { DomainEvent, IDisposable, IScopeHandle, Scope } from '@moonshot-ai/agent-core-v2';
 import {
   IAgentLifecycleService,
-  IEventSink,
+  IAgentEventSinkService,
+  IEventService,
   ISessionLifecycleService,
 } from '@moonshot-ai/agent-core-v2';
-import type { AgentEvent, Event, InFlightTurn, SessionCursor } from '@moonshot-ai/protocol';
+import type {
+  AgentEvent,
+  Event,
+  InFlightTurn,
+  ModelCatalogChangedEvent,
+  SessionCursor,
+} from '@moonshot-ai/protocol';
 import { isVolatileEventType } from '@moonshot-ai/protocol';
 
 import { InFlightTurnTracker } from './inFlightTurnTracker';
@@ -78,10 +85,12 @@ interface SessionState {
 }
 
 export const DEFAULT_MAX_BUFFER_SIZE = 1000;
+const GLOBAL_SESSION_ID = '__global__';
 
 export class SessionEventBroadcaster {
   private readonly sessions = new Map<string, SessionState>();
   private readonly maxBufferSize: number;
+  private readonly coreEventSubscription: IDisposable;
 
   constructor(
     private readonly opts: {
@@ -92,6 +101,9 @@ export class SessionEventBroadcaster {
     },
   ) {
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
+    this.coreEventSubscription = opts.core.accessor
+      .get(IEventService)
+      .subscribe((event) => this.onCoreEvent(event));
   }
 
   /** Subscribe a connection to a session's stream (activates the session). */
@@ -161,6 +173,7 @@ export class SessionEventBroadcaster {
   }
 
   async close(): Promise<void> {
+    this.coreEventSubscription.dispose();
     for (const state of this.sessions.values()) {
       for (const d of state.lifecycleDisposables) d.dispose();
       for (const d of state.agentDisposables.values()) d.dispose();
@@ -195,11 +208,50 @@ export class SessionEventBroadcaster {
     return state;
   }
 
+  private async ensureGlobalState(): Promise<SessionState> {
+    let state = this.sessions.get(GLOBAL_SESSION_ID);
+    if (state !== undefined) return state;
+
+    const journal = await SessionEventJournal.open(
+      sessionJournalPath(this.opts.eventsDir, GLOBAL_SESSION_ID),
+      this.opts.logger,
+    );
+    state = {
+      sessionId: GLOBAL_SESSION_ID,
+      journal,
+      tracker: new InFlightTurnTracker(),
+      tail: [],
+      targets: new Set(),
+      queue: Promise.resolve(),
+      agentDisposables: new Map(),
+      lifecycleDisposables: [],
+    };
+    this.sessions.set(GLOBAL_SESSION_ID, state);
+    return state;
+  }
+
+  private onCoreEvent(event: DomainEvent): void {
+    if (event.type !== 'event.model_catalog.changed') return;
+    const payload = modelCatalogChangedPayload(event.payload);
+    if (payload === undefined) return;
+    const modelEvent: ModelCatalogChangedEvent = { type: 'event.model_catalog.changed', ...payload };
+    void this.dispatchGlobal({
+      ...modelEvent,
+      agentId: 'main',
+      sessionId: GLOBAL_SESSION_ID,
+    });
+  }
+
+  private async dispatchGlobal(event: Event): Promise<void> {
+    const state = await this.ensureGlobalState();
+    state.queue = state.queue.then(() => this.dispatch(state, event)).catch(() => {});
+  }
+
   private attachAgents(sessionId: string, session: IScopeHandle, state: SessionState): void {
     const agents = session.accessor.get(IAgentLifecycleService);
     const subscribeAgent = (handle: IScopeHandle): void => {
       if (state.agentDisposables.has(handle.id)) return;
-      const sink = handle.accessor.get(IEventSink);
+      const sink = handle.accessor.get(IAgentEventSinkService);
       const d = sink.on((agentEvent) => this.onAgentEvent(sessionId, handle.id, agentEvent));
       state.agentDisposables.set(handle.id, d);
     };
@@ -276,11 +328,31 @@ export class SessionEventBroadcaster {
   }
 }
 
-/** Session/workspace/config events are broadcast to every connection. */
+/** Session/workspace/config/model-catalog events are broadcast to every connection. */
 function isGlobalEvent(type: string): boolean {
   return (
     type.startsWith('event.session.') ||
     type.startsWith('event.workspace.') ||
-    type.startsWith('event.config.')
+    type.startsWith('event.config.') ||
+    type.startsWith('event.model_catalog.')
   );
+}
+
+function modelCatalogChangedPayload(
+  payload: unknown,
+): Pick<ModelCatalogChangedEvent, 'changed' | 'unchanged' | 'failed'> | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  const candidate = payload as Partial<ModelCatalogChangedEvent>;
+  if (
+    !Array.isArray(candidate.changed) ||
+    !Array.isArray(candidate.unchanged) ||
+    !Array.isArray(candidate.failed)
+  ) {
+    return undefined;
+  }
+  return {
+    changed: candidate.changed,
+    unchanged: candidate.unchanged,
+    failed: candidate.failed,
+  };
 }
