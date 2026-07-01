@@ -1,9 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { APIProviderRateLimitError } from '@moonshot-ai/kosong';
 
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
 import type { IScopeHandle } from '#/_base/di/scope';
+import { IKaos } from '#/app/kaos';
+import { ITelemetryService } from '#/app/telemetry';
+import { IAgentBackgroundService } from '#/agent/background';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
@@ -14,9 +19,12 @@ import {
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
-import { ITelemetryService } from '#/app/telemetry';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentUsageService } from '#/agent/usage';
-import { DefaultSessionSubagentHost } from '#/session/subagentHost/defaultSessionSubagentHost';
+import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { ISessionProcessRunner } from '#/session/process';
+import { ISessionMetadata } from '#/session/session-metadata';
+import { ISessionSubagentHost, SessionSubagentHostService } from '#/session/subagentHost';
 
 const CHILD_SUMMARY = 'child summary '.repeat(20);
 
@@ -157,12 +165,39 @@ function makeAgents(parent: IScopeHandle, children: Record<string, IScopeHandle>
   };
 }
 
-describe('DefaultSessionSubagentHost', () => {
+describe('SessionSubagentHostService built-in host behavior', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    ix = disposables.add(new TestInstantiationService());
+  });
+
+  afterEach(() => {
+    disposables.dispose();
+  });
+
+  function createHost(
+    agents: IAgentLifecycleService,
+    metadata?: Partial<ISessionMetadata>,
+  ): SessionSubagentHostService {
+    ix.stub(IAgentLifecycleService, agents);
+    if (metadata !== undefined) ix.stub(ISessionMetadata, metadata);
+    ix.stub(IAgentToolRegistryService, { register: vi.fn(() => ({ dispose: () => {} })) });
+    ix.stub(IAgentBackgroundService, {});
+    ix.stub(IAgentProfileService, { isToolActive: vi.fn().mockReturnValue(false) });
+    ix.stub(IKaos, { cwd: '/repo' });
+    ix.stub(ISessionProcessRunner, { exec: vi.fn() });
+    ix.set(ISessionSubagentHost, new SyncDescriptor(SessionSubagentHostService));
+    return ix.get(ISessionSubagentHost) as SessionSubagentHostService;
+  }
+
   it('aborts a running subagent when the caller signal aborts', async () => {
     const parent = fakeScope('main');
     const child = fakeScope('child', { result: new Promise(() => {}) });
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
     const controller = new AbortController();
 
     const handle = await host.spawn({
@@ -183,7 +218,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main', { events });
     const child = fakeScope('child');
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.spawn({
       profileName: 'explore',
@@ -211,7 +246,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main', { initialText: 'short' });
     const child = fakeScope('child', { initialText: 'short' });
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.spawn({
       profileName: 'coder',
@@ -231,7 +266,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main');
     const child = fakeScope('child');
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     await host.spawn({
       profileName: 'coder',
@@ -266,11 +301,7 @@ describe('DefaultSessionSubagentHost', () => {
         },
       }),
     };
-    const host = new DefaultSessionSubagentHost(
-      agents as unknown as IAgentLifecycleService,
-      'main',
-      metadata as never,
-    );
+    const host = createHost(agents as unknown as IAgentLifecycleService, metadata as never);
 
     await expect(
       host.resume('child', {
@@ -293,7 +324,7 @@ describe('DefaultSessionSubagentHost', () => {
       result: Promise.resolve({ reason: 'failed', error: new Error('boom') }),
     });
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.spawn({
       profileName: 'coder',
@@ -317,7 +348,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main', { result: new Promise(() => {}), events });
     const child = fakeScope('child', { result: new Promise(() => {}) });
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
     const controller = new AbortController();
 
     const handle = await host.spawn({
@@ -347,7 +378,7 @@ describe('DefaultSessionSubagentHost', () => {
       createMain: vi.fn(),
       create: vi.fn(),
     };
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.resume('child', {
       parentToolCallId: 'call_agent',
@@ -377,7 +408,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main', { parentMessages });
     const child = fakeScope('btw-child');
     const agents = makeAgents(parent, { 'btw-child': child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     await expect(host.startBtw()).resolves.toBe('btw-child');
     expect(agents.create).toHaveBeenCalledWith({ parentAgentId: 'main', type: 'sub' });
@@ -415,7 +446,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main');
     const child = fakeScope('child');
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const results = await host.runQueued([
       {
@@ -445,7 +476,7 @@ describe('DefaultSessionSubagentHost', () => {
         pending.push(d);
         return fakeScope(`child-${pending.length}`, { result: d.promise });
       });
-      const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+      const host = createHost(agents as unknown as IAgentLifecycleService);
 
       const tasks = Array.from({ length: 4 }, (_, index) => ({
         kind: 'spawn' as const,
@@ -488,7 +519,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main', { result: new Promise(() => {}) });
     const child = fakeScope('child', { result: new Promise(() => {}) });
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     await host.spawn({
       profileName: 'coder',
@@ -507,7 +538,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main');
     const child = fakeScope('child');
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.spawn({
       profileName: 'explore',
@@ -534,7 +565,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main');
     const child = fakeScope('child');
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.spawn({
       profileName: 'explore',
@@ -561,7 +592,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main');
     const child = fakeScope('child');
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.spawn({
       profileName: 'coder',
@@ -585,7 +616,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main');
     const child = fakeScope('child', { ready: ready.promise });
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
     const onReady = vi.fn();
 
     const handle = await host.spawn({
@@ -613,7 +644,7 @@ describe('DefaultSessionSubagentHost', () => {
       createMain: vi.fn(),
       create: vi.fn(),
     };
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.retry('child', {
       parentToolCallId: 'call_agent',
@@ -633,7 +664,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main');
     const child = fakeScope('child', { result: Promise.resolve({ reason: 'filtered' }) });
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.spawn({
       profileName: 'coder',
@@ -656,7 +687,7 @@ describe('DefaultSessionSubagentHost', () => {
       }),
     });
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.spawn({
       profileName: 'coder',
@@ -674,7 +705,7 @@ describe('DefaultSessionSubagentHost', () => {
     const events: unknown[] = [];
     const parent = fakeScope('main', { events });
     const agents = makeAgents(parent, {});
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     host.suspended({
       task: {
@@ -703,7 +734,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main');
     const child = fakeScope('child', { result: new Promise(() => {}) });
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.spawn({
       profileName: 'coder',
@@ -730,7 +761,7 @@ describe('DefaultSessionSubagentHost', () => {
     const parent = fakeScope('main');
     const child = fakeScope('child');
     const agents = makeAgents(parent, { child });
-    const host = new DefaultSessionSubagentHost(agents as unknown as IAgentLifecycleService, 'main');
+    const host = createHost(agents as unknown as IAgentLifecycleService);
 
     const handle = await host.spawn({
       profileName: 'explore',

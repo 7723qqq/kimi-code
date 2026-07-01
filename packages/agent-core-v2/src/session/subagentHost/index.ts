@@ -4,7 +4,7 @@
 
 export * from './subagentHost';
 export * from './subagentHostService';
-export * from './defaultSessionSubagentHost';
 export * from './profiles';
 export { AgentTool, AgentToolInputSchema, AgentToolOutputSchema } from './agentTool';
 export type { AgentToolInput, AgentToolOutput } from './agentTool';
+export type { QueuedSubagentTask } from './subagent-batch';

@@ -41,12 +41,21 @@ function mockSubagentHost({
   readonly getSwarmItem?: (agentId: string) => string | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly runQueued?: (...args: any[]) => any;
-} = {}) {
+} = {}): ISessionSubagentHost {
   return {
+    _serviceBrand: undefined,
     getSwarmItem: vi.fn(getSwarmItem),
+    startBtw: vi.fn(),
+    generateAgentsMd: vi.fn(),
+    spawn: vi.fn(),
+    resume: vi.fn(),
+    retry: vi.fn(),
+    getProfileName: vi.fn(),
+    markActiveChildDetached: vi.fn(),
     runQueued,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any;
+    cancelAll: vi.fn(),
+    suspended: vi.fn(),
+  };
 }
 
 function mockSwarmMode() {

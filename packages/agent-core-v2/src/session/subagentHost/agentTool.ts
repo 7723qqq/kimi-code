@@ -2,7 +2,7 @@
  * AgentTool — collaboration tool for spawning task subagents.
  *
  * Unlike the built-in tools (Read/Write/Edit/Bash/Grep/Glob), this is a
- * "collaboration tool". It uses `ISessionSubagentHost` (injected via the constructor
+ * "collaboration tool". It uses the session subagent host (injected via the constructor
  * rather than through the runtime) to create in-process subagent loop instances.
  *
  * Foreground and background subagents both run through the background service.

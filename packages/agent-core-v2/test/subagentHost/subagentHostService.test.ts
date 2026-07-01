@@ -44,7 +44,7 @@ describe('SessionSubagentHostService DI wiring', () => {
 
   afterEach(() => disposables.dispose());
 
-  it('constructs a DefaultSessionSubagentHost when no host override is provided', async () => {
+  it('uses the built-in host behavior when no host override is provided', async () => {
     const register = vi.fn(() => ({ dispose: () => {} }));
     const parent = fakeProfileScope('main');
     const child = fakeProfileScope('child');
@@ -56,7 +56,7 @@ describe('SessionSubagentHostService DI wiring', () => {
     ix.stub(ISessionMetadata, {
       ready: Promise.resolve(),
       read: vi.fn().mockResolvedValue({ agents: {} }),
-      onDidChange: () => ({ dispose: () => {} }),
+      onDidChangeMetadata: () => ({ dispose: () => {} }),
       update: vi.fn(),
       setTitle: vi.fn(),
       setArchived: vi.fn(),
@@ -68,7 +68,7 @@ describe('SessionSubagentHostService DI wiring', () => {
     ix.stub(IKaos, { cwd: '/repo' });
     ix.stub(ISessionProcessRunner, { exec: vi.fn() });
     ix.stub(ILogService, { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() });
-    ix.set(ISessionSubagentHost, new SyncDescriptor(SessionSubagentHostService, [undefined]));
+    ix.set(ISessionSubagentHost, new SyncDescriptor(SessionSubagentHostService));
 
     const service = ix.get(ISessionSubagentHost);
 

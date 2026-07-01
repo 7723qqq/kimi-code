@@ -35,7 +35,7 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type {
   QueuedSubagentRunResult,
   QueuedSubagentTask,
-  SessionSubagentHost,
+  ISessionSubagentHost,
 } from '#/session/subagentHost';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
@@ -457,7 +457,7 @@ describe('Agent turn flow', () => {
       }));
     });
     const subagentHost = mockSubagentHost({
-      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
+      runQueued: runQueued as unknown as ISessionSubagentHost['runQueued'],
     });
     const ctx = testAgent(subagentHostServices(subagentHost));
     ctx.configure({ tools: ['AgentSwarm'] });
@@ -1995,11 +1995,24 @@ function agentSwarmCall(): ToolCall {
   };
 }
 
-function mockSubagentHost<T extends Partial<SessionSubagentHost>>(
+function mockSubagentHost<T extends Partial<ISessionSubagentHost>>(
   host: T,
-): T & SessionSubagentHost {
-  return { spawn: vi.fn(), resume: vi.fn(), runQueued: vi.fn(), ...host } as unknown as T &
-    SessionSubagentHost;
+): T & ISessionSubagentHost {
+  return {
+    _serviceBrand: undefined,
+    getSwarmItem: vi.fn(),
+    startBtw: vi.fn(),
+    generateAgentsMd: vi.fn(),
+    spawn: vi.fn(),
+    resume: vi.fn(),
+    retry: vi.fn(),
+    getProfileName: vi.fn(),
+    markActiveChildDetached: vi.fn(),
+    runQueued: vi.fn(),
+    cancelAll: vi.fn(),
+    suspended: vi.fn(),
+    ...host,
+  } as T & ISessionSubagentHost;
 }
 
 interface ApiErrorTelemetryCase {
