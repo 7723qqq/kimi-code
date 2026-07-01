@@ -21,7 +21,6 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import type { HookEngine } from '#/agent/externalHooks/engine';
 import { IAgentPromptService } from '#/agent/prompt';
-import type { SubagentDetachHandle } from '#/agent/background';
 import type { SubagentHandle } from '#/agent/agentTool';
 import { ISessionMetadata } from '#/session/session-metadata';
 import {
@@ -84,7 +83,6 @@ function agentTask(
   options: {
     readonly agentId?: string;
     readonly subagentType?: string;
-    readonly subagentHost?: Pick<SubagentDetachHandle, 'markActiveChildDetached'>;
     readonly abortController?: AbortController;
     readonly timeoutMs?: number;
   } = {},
@@ -98,7 +96,6 @@ function agentTask(
   const task = new AgentBackgroundTask(
     handle,
     description,
-    options.subagentHost ?? { markActiveChildDetached: vi.fn() },
     options.abortController ?? new AbortController(),
   );
   if (options.timeoutMs !== undefined) {

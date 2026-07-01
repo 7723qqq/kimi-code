@@ -24,6 +24,7 @@ import { ITelemetryService } from '#/app/telemetry';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentRecordService } from '#/agent/record';
+import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn } from '#/agent/turn';
 import { IAgentTurnService } from '#/agent/turn';
@@ -36,7 +37,6 @@ import {
 import {
   IAgentCronService,
   type CronLoadOptions,
-  type CronOptions,
   type CronTask,
   type CronTaskInit,
 } from './cron';
@@ -142,7 +142,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
   private sigusr1Handler: NodeJS.SignalsListener | null = null;
 
   constructor(
-    options: CronOptions = {},
+    @IAgentScopeContext private readonly ctx: IAgentScopeContext,
     @IAgentPromptService private readonly prompt: IAgentPromptService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
@@ -152,7 +152,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
   ) {
     super();
-    this.enabled = options.isSubagent !== true;
+    this.enabled = this.ctx.agentId === 'main';
     this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
     this._register(
       this.config.onDidChangeConfiguration((e) => {

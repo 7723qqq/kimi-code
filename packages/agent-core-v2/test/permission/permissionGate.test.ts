@@ -199,7 +199,7 @@ describe('AgentPermissionGate', () => {
 
   it('adds subagent retry guidance to policy deny messages', async () => {
     policyResult = { policyName: 'p', result: { kind: 'deny', message: 'nope' } };
-    const svc = make({ agentType: 'sub' });
+    const svc = make({ agentId: 'sub-1' });
     const retryGuidance =
       "Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
 

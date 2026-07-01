@@ -260,10 +260,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     // log. Creating them registers fresh agent entries with TARGET homedirs.
     for (const agentId of agentIds) {
       const sourceAgent = sourceAgents[agentId]!;
+      const legacy = sourceAgent as { parentAgentId?: string };
       const agentHandle = await target.accessor.get(IAgentLifecycleService).create({
         agentId,
-        type: sourceAgent.type,
-        parentAgentId: sourceAgent.parentAgentId,
+        forkedFrom: sourceAgent.forkedFrom ?? legacy.parentAgentId,
         swarmItem: sourceAgent.swarmItem,
       });
       await agentHandle.accessor.get(IAgentWireRecordService).restore();

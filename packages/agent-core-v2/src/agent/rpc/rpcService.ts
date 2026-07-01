@@ -14,7 +14,7 @@ import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentPermissionGate } from '#/agent/permissionGate';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPlanService } from '#/agent/plan';
-import { IKaos } from '#/app/kaos';
+import { IExecContext } from '#/session/execContext';
 import { expandCommandArguments, IPluginService } from '#/app/plugin';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
@@ -85,7 +85,7 @@ export class AgentRPCService implements IAgentRPCService {
     @IAgentFileToolsService private readonly fileTools: IAgentFileToolsService,
     @IAgentShellToolsService private readonly shellTools: IAgentShellToolsService,
     @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
-    @IKaos private readonly kaos: IKaos,
+    @IExecContext private readonly execContext: IExecContext,
     @IAgentBackgroundService private readonly background: IAgentBackgroundService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
@@ -113,7 +113,7 @@ export class AgentRPCService implements IAgentRPCService {
   private ensureBashTool() {
     const existing = this.toolRegistry.resolve('Bash');
     if (existing !== undefined) return existing;
-    const bash = new BashTool(this.processRunner, this.kaos, this.background);
+    const bash = new BashTool(this.processRunner, this.execContext, this.background);
     this.toolRegistry.register(bash);
     return bash;
   }

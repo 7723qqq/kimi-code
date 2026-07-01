@@ -1,10 +1,10 @@
 /**
  * `btw` domain — `ISessionBtwService` implementation.
  *
- * Forks the main agent into a side-question child: inherits profile/context via
- * `IAgentLifecycleService.fork`, then disables tool calls (deny-all permission
+ * Clones the main agent into a side-question child: inherits profile/context via
+ * `IAgentLifecycleService.clone`, then disables tool calls (deny-all permission
  * policy) and appends the side-channel system reminder. Bound at Session scope —
- * `fork('main')` is a session-level operation, so the service injects the
+ * `clone('main')` is a session-level operation, so the service injects the
  * session's `IAgentLifecycleService` directly rather than resolving it through
  * the main agent's accessor.
  */
@@ -28,7 +28,7 @@ export class SessionBtwService implements ISessionBtwService {
   ) {}
 
   async start(): Promise<string> {
-    const child = await this.lifecycle.fork('main');
+    const child = await this.lifecycle.clone('main');
     child.accessor
       .get(IAgentSystemReminderService)
       ?.appendSystemReminder(SIDE_QUESTION_SYSTEM_REMINDER, {

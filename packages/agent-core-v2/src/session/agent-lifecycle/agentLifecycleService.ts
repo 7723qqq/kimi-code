@@ -42,7 +42,7 @@ import {
   AgentExternalHooksService,
 } from '#/agent/externalHooks';
 
-import { type CreateAgentOptions, IAgentLifecycleService } from './agentLifecycle';
+import { type AgentListFilter, type CreateAgentOptions, IAgentLifecycleService } from './agentLifecycle';
 
 let nextAgentId = 0;
 
@@ -101,8 +101,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     // enumerate every agent and relocate its wire log.
     await this.sessionMetadata.registerAgent(agentId, {
       homedir: agentHomedir,
-      type: opts.type ?? (opts.parentAgentId === undefined ? 'main' : 'sub'),
-      parentAgentId: opts.parentAgentId,
+      forkedFrom: opts.forkedFrom,
       swarmItem: opts.swarmItem,
     });
     this.onDidCreateEmitter.fire(handle);
@@ -123,24 +122,24 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     return handle;
   }
 
-  async fork(parentAgentId: string): Promise<IAgentScopeHandle> {
-    const parent =
-      this.handles.get(parentAgentId) ??
-      (parentAgentId === 'main' ? await this.createMain() : undefined);
-    if (parent === undefined) throw new Error(`Parent agent "${parentAgentId}" does not exist`);
-    const child = await this.create({ parentAgentId: parent.id, type: 'sub' });
+  async clone(sourceAgentId: string): Promise<IAgentScopeHandle> {
+    const source =
+      this.handles.get(sourceAgentId) ??
+      (sourceAgentId === 'main' ? await this.createMain() : undefined);
+    if (source === undefined) throw new Error(`Source agent "${sourceAgentId}" does not exist`);
+    const child = await this.create({ forkedFrom: source.id });
 
-    const parentData = parent.accessor.get(IAgentProfileService).data();
+    const sourceData = source.accessor.get(IAgentProfileService).data();
     child.accessor.get(IAgentProfileService).update({
-      modelAlias: parentData.modelAlias,
-      thinkingLevel: parentData.thinkingLevel,
-      systemPrompt: parentData.systemPrompt,
-      activeToolNames: parentData.activeToolNames,
+      modelAlias: sourceData.modelAlias,
+      thinkingLevel: sourceData.thinkingLevel,
+      systemPrompt: sourceData.systemPrompt,
+      activeToolNames: sourceData.activeToolNames,
     });
 
-    const parentMessages = parent.accessor.get(IAgentContextMemoryService)?.get();
-    if (parentMessages !== undefined && parentMessages.length > 0) {
-      child.accessor.get(IAgentContextMemoryService)?.splice(0, 0, parentMessages);
+    const sourceMessages = source.accessor.get(IAgentContextMemoryService)?.get();
+    if (sourceMessages !== undefined && sourceMessages.length > 0) {
+      child.accessor.get(IAgentContextMemoryService)?.splice(0, 0, sourceMessages);
     }
     return child;
   }
@@ -177,8 +176,11 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     return this.handles.get(agentId);
   }
 
-  list(): readonly IAgentScopeHandle[] {
-    return [...this.handles.values()];
+  list(filter?: AgentListFilter): readonly IAgentScopeHandle[] {
+    const all = [...this.handles.values()];
+    const prefix = filter?.prefix;
+    if (prefix === undefined) return all;
+    return all.filter((handle) => handle.id.startsWith(prefix));
   }
 
   remove(agentId: string): Promise<void> {

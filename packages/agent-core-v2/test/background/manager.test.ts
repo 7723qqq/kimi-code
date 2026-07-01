@@ -17,7 +17,6 @@ import {
   ProcessBackgroundTask,
   type BackgroundTaskInfo,
 } from '#/agent/background';
-import type { SubagentDetachHandle } from '#/agent/background';
 import type { SubagentHandle } from '#/agent/agentTool';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import {
@@ -80,7 +79,6 @@ function agentTask(
   options: {
     readonly agentId?: string;
     readonly subagentType?: string;
-    readonly subagentHost?: Pick<SubagentDetachHandle, 'markActiveChildDetached'>;
     readonly abortController?: AbortController;
     readonly timeoutMs?: number;
   } = {},
@@ -94,7 +92,6 @@ function agentTask(
   const task = new AgentBackgroundTask(
     handle,
     description,
-    options.subagentHost ?? { markActiveChildDetached: vi.fn() },
     options.abortController ?? new AbortController(),
   );
   if (options.timeoutMs !== undefined) {
