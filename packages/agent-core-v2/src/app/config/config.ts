@@ -5,7 +5,7 @@
  * `IConfigRegistry` for section schemas, and the App-scoped `IConfigService`
  * that resolves a value by precedence across layers (defaults → user config →
  * per-run memory overrides) and writes through a `ConfigTarget`. Owners react
- * to edits through two change events — `onDidChange` (a domain was touched) and
+ * to edits through two change events — `onDidChangeConfiguration` (a domain was touched) and
  * `onDidSectionChange` (the delivered value actually changed, deep-diffed) —
  * each carrying the delivered `value` and `previousValue`.
  */
@@ -148,7 +148,7 @@ export interface ConfigInspectValue<T = unknown> {
 export interface IConfigService {
   readonly _serviceBrand: undefined;
   readonly ready: Promise<void>;
-  readonly onDidChange: Event<ConfigChangedEvent>;
+  readonly onDidChangeConfiguration: Event<ConfigChangedEvent>;
   readonly onDidSectionChange: Event<ConfigSectionChangedEvent>;
 
   get<T = unknown>(domain: string): T;

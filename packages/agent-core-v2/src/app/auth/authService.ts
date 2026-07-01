@@ -82,7 +82,7 @@ export class OAuthService extends Disposable implements IOAuthService {
     @IEventService private readonly events: IEventService,
   ) {
     super();
-    this._register(providerService.onDidChange(() => this.invalidateFlows()));
+    this._register(providerService.onDidChangeProviders(() => this.invalidateFlows()));
   }
 
   async startLogin(provider = KIMI_CODE_PROVIDER_NAME): Promise<OAuthFlowStart> {

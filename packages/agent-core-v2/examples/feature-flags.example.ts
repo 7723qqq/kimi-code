@@ -44,7 +44,7 @@ describe('feature-flags slice (flag, with config stubbed)', () => {
         reg.definePartialInstance(IConfigService, {
           ready: Promise.resolve(),
           get: () => configValue,
-          onDidChange: () => toDisposable(() => {}),
+          onDidChangeConfiguration: () => toDisposable(() => {}),
         });
         reg.definePartialInstance(IBootstrapService, { getEnv: () => undefined });
         reg.define(IFlagRegistry, FlagRegistryService);

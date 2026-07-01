@@ -115,13 +115,13 @@ describe('interaction kernel + approval/question facades (Session scope)', () =>
     console.log('4) after answer, pending questions:', questions.listPending());
   });
 
-  test('one kernel backs both facades; onDidChange announces every mutation', () => {
+  test('one kernel backs both facades; onDidChangePending announces every mutation', () => {
     const interaction = session.accessor.get(ISessionInteractionService);
     const approvals = session.accessor.get(ISessionApprovalService);
     const questions = session.accessor.get(ISessionQuestionService);
 
     let changes = 0;
-    disposables.add(interaction.onDidChange(() => changes++));
+    disposables.add(interaction.onDidChangePending(() => changes++));
 
     void approvals.request(approval('bash-1')); // change #1 (park approval)
     questions.enqueue(question('q-name')); // change #2 (park question)
@@ -133,7 +133,7 @@ describe('interaction kernel + approval/question facades (Session scope)', () =>
 
     approvals.decide('bash-1', { decision: 'rejected' }); // change #3 (resolve approval)
     questions.answer('q-name', { answers: { q_0: 'kimi' } }); // change #4 (resolve question)
-    console.log('4) onDidChange fired', changes, 'times (park x2 + resolve x2)');
+    console.log('4) onDidChangePending fired', changes, 'times (park x2 + resolve x2)');
   });
 
   test('Session scope isolates brokers: a request parked in A is invisible to B', async () => {

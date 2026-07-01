@@ -170,7 +170,7 @@ an **event**, or a **hook**. From first principles, they answer three different 
   `session` drives `agent-lifecycle`; `loop` drives `llmRequester` / `toolExecutor` — that
   *is* their job.
 - B's reaction is B's own concern, and A is merely **stating a fact** → **event**. E.g.
-  `flag` reacts to `config.onDidChange`; `config` does not know who is listening.
+  `flag` reacts to `config.onDidChangeConfiguration`; `config` does not know who is listening.
 
 **Q3. How many consumers?**
 

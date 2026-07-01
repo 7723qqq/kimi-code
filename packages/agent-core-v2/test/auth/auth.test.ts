@@ -86,7 +86,7 @@ describe('OAuthService', () => {
           get: ((name: string) => providers[name]) as IProviderService['get'],
           list: (() => providers) as IProviderService['list'],
           set: providerSet as unknown as IProviderService['set'],
-          onDidChange: (() => ({ dispose: () => { } })) as IProviderService['onDidChange'],
+          onDidChangeProviders: (() => ({ dispose: () => { } })) as IProviderService['onDidChangeProviders'],
         });
         reg.definePartialInstance(IConfigService, {
           get: ((domain: string) => configBacking()[domain]) as IConfigService['get'],
@@ -99,7 +99,7 @@ describe('OAuthService', () => {
           set: configSet as unknown as IConfigService['set'],
           replace: configReplace as unknown as IConfigService['replace'],
           reload: vi.fn().mockResolvedValue(undefined) as unknown as IConfigService['reload'],
-          onDidChange: (() => ({ dispose: () => { } })) as IConfigService['onDidChange'],
+          onDidChangeConfiguration: (() => ({ dispose: () => { } })) as IConfigService['onDidChangeConfiguration'],
           onDidSectionChange: (() => ({ dispose: () => { } })) as IConfigService['onDidSectionChange'],
         });
         reg.definePartialInstance(ILogService, {

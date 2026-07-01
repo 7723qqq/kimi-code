@@ -4,7 +4,7 @@
  * Defines the `Interaction` model and the `ISessionInteractionService` kernel that
  * owns the session's pending interaction set: a unified, blocking request /
  * response primitive (`request` → `respond`) with change notification
- * (`onDidChange`), a non-blocking enqueue (`enqueue`) for callers that observe
+ * (`onDidChangePending`), a non-blocking enqueue (`enqueue`) for callers that observe
  * the outcome through the `onDidResolve` stream, and a `listPending` view.
  * `approval`, `question`, and user-tool execution are typed specializations
  * layered on top of this kernel; the kernel itself is domain-agnostic.
@@ -43,6 +43,12 @@ export interface InteractionResolution {
   readonly response: unknown;
 }
 
+/** Emitted by {@link ISessionInteractionService.onDidChangePending} when the pending set changes. */
+export interface InteractionPendingChangedEvent {
+  /** Ids of the currently pending interactions, in insertion order. */
+  readonly pending: readonly string[];
+}
+
 export interface ISessionInteractionService {
   readonly _serviceBrand: undefined;
   request<TPayload, TResponse>(req: InteractionRequest<TPayload>): Promise<TResponse>;
@@ -62,7 +68,7 @@ export interface ISessionInteractionService {
    * exists purely for idempotency signaling.
    */
   isRecentlyResolved(id: string): boolean;
-  readonly onDidChange: Event<void>;
+  readonly onDidChangePending: Event<InteractionPendingChangedEvent>;
   /** Fires when a pending request is responded to, carrying its id and response. */
   readonly onDidResolve: Event<InteractionResolution>;
 }

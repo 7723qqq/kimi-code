@@ -3,7 +3,7 @@
  *
  * Owns the in-memory view of the `providers` config section, persists changes
  * through `config`, registers the section schema on construction, and forwards
- * section changes as `onDidChange`. Bound at App scope.
+ * section changes as `onDidChangeProviders`. Bound at App scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -14,6 +14,7 @@ import { IConfigRegistry, IConfigService } from '#/app/config/config';
 
 import {
   type ProviderConfig,
+  type ProvidersChangedEvent,
   type ProvidersSection,
   IProviderService,
   PROVIDERS_SECTION,
@@ -28,8 +29,8 @@ import {
 
 export class ProviderService extends Disposable implements IProviderService {
   declare readonly _serviceBrand: undefined;
-  private readonly _onDidChange = this._register(new Emitter<void>());
-  readonly onDidChange: Event<void> = this._onDidChange.event;
+  private readonly _onDidChangeProviders = this._register(new Emitter<ProvidersChangedEvent>());
+  readonly onDidChangeProviders: Event<ProvidersChangedEvent> = this._onDidChangeProviders.event;
 
   constructor(
     @IConfigRegistry registry: IConfigRegistry,
@@ -44,9 +45,14 @@ export class ProviderService extends Disposable implements IProviderService {
       toToml: providersToToml,
     });
     this._register(
-      config.onDidChange((e) => {
+      config.onDidChangeConfiguration((e) => {
         if (e.domain === PROVIDERS_SECTION) {
-          this._onDidChange.fire();
+          this._onDidChangeProviders.fire(
+            diffProviders(
+              e.previousValue as ProvidersSection | undefined,
+              e.value as ProvidersSection | undefined,
+            ),
+          );
         }
       }),
     );
@@ -70,6 +76,48 @@ export class ProviderService extends Disposable implements IProviderService {
     const { [name]: _removed, ...rest } = current;
     await this.config.replace(PROVIDERS_SECTION, rest);
   }
+}
+
+function diffProviders(
+  previous: ProvidersSection | undefined,
+  current: ProvidersSection | undefined,
+): ProvidersChangedEvent {
+  const prev = previous ?? {};
+  const curr = current ?? {};
+  const added: string[] = [];
+  const removed: string[] = [];
+  const changed: string[] = [];
+  for (const key of Object.keys(curr)) {
+    if (!(key in prev)) {
+      added.push(key);
+    } else if (!deepEqual(prev[key], curr[key])) {
+      changed.push(key);
+    }
+  }
+  for (const key of Object.keys(prev)) {
+    if (!(key in curr)) {
+      removed.push(key);
+    }
+  }
+  return { added, removed, changed };
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+    if (
+      !deepEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 registerScopedService(LifecycleScope.App, IProviderService, ProviderService, InstantiationType.Delayed, 'provider');

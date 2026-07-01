@@ -338,7 +338,7 @@ shellTools --> background #34495E
 
 ' ---- event-driven (dashed) ----
 gateway ..> event #16A085 : subscribe
-flag ..> config #16A085 : onDidChange
+flag ..> config #16A085 : onDidChangeConfiguration
 permissionMode ..> wireRecord #16A085 : permission.set_mode
 userTool ..> wireRecord #16A085 : tools.register_/unregister_user_tool
 profile ..> wireRecord #16A085 : config.update / tools.set_active_tools

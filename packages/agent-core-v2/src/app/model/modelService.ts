@@ -4,7 +4,7 @@
  * Owns the in-memory view of the `models` config section, persists changes
  * through `config`, registers the section schema plus the `KIMI_MODEL_*`
  * effective overlay on construction, and forwards section changes as
- * `onDidChange`. Bound at App scope, eager — registering the `models` section
+ * `onDidChangeModels`. Bound at App scope, eager — registering the `models` section
  * is an early side effect that config reads depend on.
  */
 
@@ -18,6 +18,7 @@ import { modelsFromToml, modelsToToml } from './configSection';
 import { kimiModelEnvOverlay } from './envOverlay';
 import {
   type ModelAlias,
+  type ModelsChangedEvent,
   type ModelsSection,
   IModelService,
   MODELS_SECTION,
@@ -26,8 +27,8 @@ import {
 
 export class ModelService extends Disposable implements IModelService {
   declare readonly _serviceBrand: undefined;
-  private readonly _onDidChange = this._register(new Emitter<void>());
-  readonly onDidChange: Event<void> = this._onDidChange.event;
+  private readonly _onDidChangeModels = this._register(new Emitter<ModelsChangedEvent>());
+  readonly onDidChangeModels: Event<ModelsChangedEvent> = this._onDidChangeModels.event;
 
   constructor(
     @IConfigRegistry registry: IConfigRegistry,
@@ -41,9 +42,14 @@ export class ModelService extends Disposable implements IModelService {
     });
     registry.registerEffectiveOverlay(kimiModelEnvOverlay);
     this._register(
-      config.onDidChange((e) => {
+      config.onDidChangeConfiguration((e) => {
         if (e.domain === MODELS_SECTION) {
-          this._onDidChange.fire();
+          this._onDidChangeModels.fire(
+            diffModels(
+              e.previousValue as ModelsSection | undefined,
+              e.value as ModelsSection | undefined,
+            ),
+          );
         }
       }),
     );
@@ -67,6 +73,48 @@ export class ModelService extends Disposable implements IModelService {
     const { [alias]: _removed, ...rest } = current;
     await this.config.replace(MODELS_SECTION, rest);
   }
+}
+
+function diffModels(
+  previous: ModelsSection | undefined,
+  current: ModelsSection | undefined,
+): ModelsChangedEvent {
+  const prev = previous ?? {};
+  const curr = current ?? {};
+  const added: string[] = [];
+  const removed: string[] = [];
+  const changed: string[] = [];
+  for (const key of Object.keys(curr)) {
+    if (!(key in prev)) {
+      added.push(key);
+    } else if (!deepEqual(prev[key], curr[key])) {
+      changed.push(key);
+    }
+  }
+  for (const key of Object.keys(prev)) {
+    if (!(key in curr)) {
+      removed.push(key);
+    }
+  }
+  return { added, removed, changed };
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+    if (
+      !deepEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 registerScopedService(LifecycleScope.App, IModelService, ModelService, InstantiationType.Eager, 'model');

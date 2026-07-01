@@ -21,6 +21,7 @@ import {
   SESSION_META_VERSION,
   type AgentMeta,
   type SessionMeta,
+  type SessionMetadataChangedEvent,
   type SessionMetaPatch,
 } from './sessionMetadata';
 
@@ -29,9 +30,11 @@ const META_KEY = 'state.json';
 export class SessionMetadata extends Disposable implements ISessionMetadata {
   declare readonly _serviceBrand: undefined;
   readonly ready: Promise<void>;
-  readonly onDidChange: Event<void>;
+  readonly onDidChangeMetadata: Event<SessionMetadataChangedEvent>;
 
-  private readonly _onDidChange = this._register(new Emitter<void>());
+  private readonly _onDidChangeMetadata = this._register(
+    new Emitter<SessionMetadataChangedEvent>(),
+  );
   private readonly scope: string;
   private data!: SessionMeta;
 
@@ -42,7 +45,7 @@ export class SessionMetadata extends Disposable implements ISessionMetadata {
   ) {
     super();
     this.scope = ctx.metaScope;
-    this.onDidChange = this._onDidChange.event;
+    this.onDidChangeMetadata = this._onDidChangeMetadata.event;
     this.ready = this.load();
   }
 
@@ -55,7 +58,9 @@ export class SessionMetadata extends Disposable implements ISessionMetadata {
     await this.ready;
     this.data = { ...this.data, ...patch, updatedAt: Date.now() };
     await this.store.set(this.scope, META_KEY, this.data);
-    this._onDidChange.fire();
+    this._onDidChangeMetadata.fire({
+      changed: Object.keys(patch) as (keyof SessionMeta)[],
+    });
   }
 
   async setTitle(title: string): Promise<void> {

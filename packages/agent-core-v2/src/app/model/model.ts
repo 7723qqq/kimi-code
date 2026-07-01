@@ -31,9 +31,15 @@ export const ModelsSectionSchema = z.record(z.string(), ModelAliasSchema);
 
 export type ModelsSection = z.infer<typeof ModelsSectionSchema>;
 
+export interface ModelsChangedEvent {
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+  readonly changed: readonly string[];
+}
+
 export interface IModelService {
   readonly _serviceBrand: undefined;
-  readonly onDidChange: Event<void>;
+  readonly onDidChangeModels: Event<ModelsChangedEvent>;
   get(alias: string): ModelAlias | undefined;
   list(): Readonly<Record<string, ModelAlias>>;
   set(alias: string, model: ModelAlias): Promise<void>;

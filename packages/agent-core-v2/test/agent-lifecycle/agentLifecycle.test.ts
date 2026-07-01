@@ -65,7 +65,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(ISessionMetadata, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
-      onDidChange: () => ({ dispose: () => {} }),
+      onDidChangeMetadata: () => ({ dispose: () => {} }),
       read: () => Promise.resolve({ id: 'sess_test', createdAt: 0, updatedAt: 0, archived: false }),
       update: () => Promise.resolve(),
       setTitle: () => Promise.resolve(),

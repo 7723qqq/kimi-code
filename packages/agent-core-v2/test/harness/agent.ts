@@ -117,6 +117,7 @@ import {
   ISessionInteractionService,
   type Interaction,
   type InteractionRequest,
+  type InteractionPendingChangedEvent,
   type InteractionResolution,
 } from '#/session/interaction';
 import {
@@ -1517,7 +1518,7 @@ export class AgentTestContext {
           : interactions.filter((interaction) => interaction.kind === kind);
       },
       isRecentlyResolved: () => false,
-      onDidChange: Event.None as Event<void>,
+      onDidChangePending: Event.None as Event<InteractionPendingChangedEvent>,
       onDidResolve: Event.None as Event<InteractionResolution>,
     };
   }
@@ -1927,7 +1928,7 @@ function configService(readConfig: () => KimiConfig): IConfigService {
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    onDidChange: () => ({ dispose: () => {} }),
+    onDidChangeConfiguration: () => ({ dispose: () => {} }),
     onDidSectionChange: () => ({ dispose: () => {} }),
     get: <T>(domain: string) => (effectiveConfig() as Record<string, unknown>)[domain] as T,
     inspect: (domain: string) => {

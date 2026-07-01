@@ -19,6 +19,8 @@ import {
   LifecycleScope,
   registerScopedService,
 } from '#/_base/di/scope';
+import { Disposable } from '#/_base/di/lifecycle';
+import { Emitter, type Event } from '#/_base/event';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IAgentLifecycleService } from '#/session/agent-lifecycle';
 import { IBootstrapService } from '#/app/bootstrap';
@@ -43,12 +45,24 @@ import {
 import {
   type CreateSessionOptions,
   type ForkSessionOptions,
+  type SessionArchivedEvent,
+  type SessionClosedEvent,
+  type SessionCreatedEvent,
+  type SessionForkedEvent,
   ISessionLifecycleService,
 } from './sessionLifecycle';
 
-export class SessionLifecycleService implements ISessionLifecycleService {
+export class SessionLifecycleService extends Disposable implements ISessionLifecycleService {
   declare readonly _serviceBrand: undefined;
   private readonly sessions = new Map<string, IScopeHandle>();
+  private readonly _onDidCreateSession = this._register(new Emitter<SessionCreatedEvent>());
+  readonly onDidCreateSession: Event<SessionCreatedEvent> = this._onDidCreateSession.event;
+  private readonly _onDidCloseSession = this._register(new Emitter<SessionClosedEvent>());
+  readonly onDidCloseSession: Event<SessionClosedEvent> = this._onDidCloseSession.event;
+  private readonly _onDidArchiveSession = this._register(new Emitter<SessionArchivedEvent>());
+  readonly onDidArchiveSession: Event<SessionArchivedEvent> = this._onDidArchiveSession.event;
+  private readonly _onDidForkSession = this._register(new Emitter<SessionForkedEvent>());
+  readonly onDidForkSession: Event<SessionForkedEvent> = this._onDidForkSession.event;
   /** In-flight `resume` promises, keyed by session id — de-dupes concurrent
    *  cold loads so a hot read path (e.g. snapshot retry) cannot materialize
    *  the same session twice and leak a handle. */
@@ -62,7 +76,9 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     @IAppendLogStore private readonly appendLogStore: IAppendLogStore,
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
     @IWorkspaceRegistry private readonly workspaceRegistry: IWorkspaceRegistry,
-  ) {}
+  ) {
+    super();
+  }
 
   async create(opts: CreateSessionOptions): Promise<IScopeHandle> {
     const workspaceId = encodeWorkDirKey(opts.workDir);
@@ -93,6 +109,7 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     this.sessions.set(opts.sessionId, handle);
     await handle.accessor.get(ISessionMetadata).ready;
     void handle.accessor.get(ISessionSkillCatalog).load();
+    this._onDidCreateSession.fire({ sessionId: opts.sessionId, handle });
     return handle;
   }
 
@@ -143,6 +160,7 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     if (handle === undefined) return;
     this.sessions.delete(sessionId);
     handle.dispose();
+    this._onDidCloseSession.fire({ sessionId });
   }
 
   async archive(sessionId: string): Promise<void> {
@@ -151,6 +169,7 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     await handle.accessor.get(ISessionService).archive();
     this.sessions.delete(sessionId);
     handle.dispose();
+    this._onDidArchiveSession.fire({ sessionId });
   }
 
   async fork(opts: ForkSessionOptions): Promise<IScopeHandle> {
@@ -243,6 +262,11 @@ export class SessionLifecycleService implements ISessionLifecycleService {
       await agentHandle.accessor.get(IAgentWireRecordService).restore();
     }
 
+    this._onDidForkSession.fire({
+      sourceSessionId: sourceId,
+      sessionId: targetId,
+      handle: target,
+    });
     return target;
   }
 

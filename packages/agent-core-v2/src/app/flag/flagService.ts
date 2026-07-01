@@ -48,7 +48,7 @@ export class FlagService extends Disposable implements IFlagService {
     });
     this.configOverrides = this.readConfig();
     this._register(
-      this.config.onDidChange((e) => {
+      this.config.onDidChangeConfiguration((e) => {
         if (e.domain === EXPERIMENTAL_SECTION) {
           this.configOverrides = this.readConfig();
         }

@@ -51,7 +51,7 @@ describe('SessionService', () => {
     ix.stub(ISessionMetadata, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
-      onDidChange: () => ({ dispose: () => {} }),
+      onDidChangeMetadata: () => ({ dispose: () => {} }),
       read: () =>
         Promise.resolve({ id: 's1', createdAt: 0, updatedAt: 0, archived: false }),
       update: () => Promise.resolve(),

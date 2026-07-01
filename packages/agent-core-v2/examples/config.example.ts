@@ -270,7 +270,7 @@ describe('config slice (every section owner against one shared registry)', () =>
     // Write each persistable section through IConfigService — every owner's
     // value is validated, env-stripped, and persisted to config.toml.
     let changes = 0;
-    const sub = config.onDidChange(() => changes++);
+    const sub = config.onDidChangeConfiguration(() => changes++);
     for (const [domain, value] of Object.entries(SECTION_VALUES)) {
       await config.set(domain, value);
     }
@@ -282,7 +282,7 @@ describe('config slice (every section owner against one shared registry)', () =>
       console.log('   ', line);
     }
     console.log(
-      `\n${Object.keys(SECTION_VALUES).length} sections written; onDidChange fired ${changes} times.`,
+      `\n${Object.keys(SECTION_VALUES).length} sections written; onDidChangeConfiguration fired ${changes} times.`,
     );
     console.log('(cron is operational/env-only and intentionally not persisted.)');
 

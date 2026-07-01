@@ -6,8 +6,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
+import { Emitter } from '#/_base/event';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IConfigRegistry, IConfigService } from '#/app/config/config';
+import { type ConfigChangedEvent, IConfigRegistry, IConfigService } from '#/app/config/config';
 import { ConfigRegistry } from '#/app/config/configService';
 import {
   providersEnvBindings,
@@ -45,7 +46,7 @@ describe('ProviderService', () => {
             domain === PROVIDERS_SECTION ? providers : undefined) as IConfigService['get'],
           set: configSet as unknown as IConfigService['set'],
           replace: configReplace as unknown as IConfigService['replace'],
-          onDidChange: (() => ({ dispose: () => { } })) as IConfigService['onDidChange'],
+          onDidChangeConfiguration: (() => ({ dispose: () => { } })) as IConfigService['onDidChangeConfiguration'],
         });
         reg.define(IProviderService, ProviderService);
       },
@@ -101,6 +102,49 @@ describe('ProviderService', () => {
     const svc = ix.get(IProviderService);
     await svc.delete('missing');
     expect(configReplace).not.toHaveBeenCalled();
+  });
+
+  it('forwards providers section changes as onDidChangeProviders with a diff', () => {
+    const configEvents = disposables.add(new Emitter<ConfigChangedEvent>());
+    const local = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.defineInstance(IConfigRegistry, registry);
+        reg.definePartialInstance(IConfigService, {
+          get: (() => undefined) as unknown as IConfigService['get'],
+          onDidChangeConfiguration: configEvents.event,
+        });
+        reg.define(IProviderService, ProviderService);
+      },
+    });
+    const svc = local.get(IProviderService);
+    const diffs: { added: readonly string[]; removed: readonly string[]; changed: readonly string[] }[] = [];
+    disposables.add(svc.onDidChangeProviders((e) => diffs.push(e)));
+
+    configEvents.fire({
+      domain: PROVIDERS_SECTION,
+      source: 'set',
+      value: { p1: { type: 'openai' } },
+      previousValue: {},
+    });
+    configEvents.fire({
+      domain: PROVIDERS_SECTION,
+      source: 'set',
+      value: { p1: { type: 'kimi' } },
+      previousValue: { p1: { type: 'openai' } },
+    });
+    configEvents.fire({
+      domain: PROVIDERS_SECTION,
+      source: 'set',
+      value: {},
+      previousValue: { p1: { type: 'kimi' } },
+    });
+    configEvents.fire({ domain: 'models', source: 'set', value: {}, previousValue: {} });
+
+    expect(diffs).toEqual([
+      { added: ['p1'], removed: [], changed: [] },
+      { added: [], removed: [], changed: ['p1'] },
+      { added: [], removed: ['p1'], changed: [] },
+    ]);
   });
 });
 

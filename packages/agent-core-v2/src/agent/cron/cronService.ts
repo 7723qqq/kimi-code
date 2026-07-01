@@ -119,7 +119,7 @@ export class AgentCronService
     });
     this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
     this._register(
-      this.config.onDidChange((e) => {
+      this.config.onDidChangeConfiguration((e) => {
         if (e.domain === CRON_SECTION) {
           this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
         }

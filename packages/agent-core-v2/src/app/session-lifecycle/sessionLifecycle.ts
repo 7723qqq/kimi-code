@@ -4,14 +4,17 @@
  * Defines the public contract of session lifecycle: the `CreateSessionOptions`,
  * `ForkSessionOptions`, and the `ISessionLifecycleService` used to create
  * sessions (`create`), look up the live ones (`get` / `list`), close them
- * (`close`), archive them (`archive`), and fork them (`fork`). App-scoped — a
- * single process-wide instance owns the live session scope tree. Persisted
+ * (`close`), archive them (`archive`), and fork them (`fork`). Announces
+ * lifecycle transitions through `onDidCreateSession` / `onDidCloseSession` /
+ * `onDidArchiveSession` / `onDidForkSession`. App-scoped — a single
+ * process-wide instance owns the live session scope tree. Persisted
  * sessions (open or closed) are the `session-index` read model; per-session
  * behaviour lives in the Session-scoped domains.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { IScopeHandle } from '#/_base/di/scope';
+import type { Event } from '#/_base/event';
 
 export interface CreateSessionOptions {
   readonly sessionId: string;
@@ -27,8 +30,31 @@ export interface ForkSessionOptions {
   readonly metadata?: Record<string, unknown>;
 }
 
+export interface SessionCreatedEvent {
+  readonly sessionId: string;
+  readonly handle: IScopeHandle;
+}
+
+export interface SessionClosedEvent {
+  readonly sessionId: string;
+}
+
+export interface SessionArchivedEvent {
+  readonly sessionId: string;
+}
+
+export interface SessionForkedEvent {
+  readonly sourceSessionId: string;
+  readonly sessionId: string;
+  readonly handle: IScopeHandle;
+}
+
 export interface ISessionLifecycleService {
   readonly _serviceBrand: undefined;
+  readonly onDidCreateSession: Event<SessionCreatedEvent>;
+  readonly onDidCloseSession: Event<SessionClosedEvent>;
+  readonly onDidArchiveSession: Event<SessionArchivedEvent>;
+  readonly onDidForkSession: Event<SessionForkedEvent>;
   create(opts: CreateSessionOptions): Promise<IScopeHandle>;
   get(sessionId: string): IScopeHandle | undefined;
   list(): readonly IScopeHandle[];

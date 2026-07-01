@@ -76,15 +76,18 @@ describe('SessionMetadata', () => {
     expect(await fresh.read()).toMatchObject({ id: 's1', title: 'persisted' });
   });
 
-  it('fires onDidChange after update', async () => {
+  it('fires onDidChangeMetadata with the changed keys after update', async () => {
     const meta = ix.get(ISessionMetadata);
     await meta.ready;
     let fired = 0;
-    const sub = meta.onDidChange(() => {
+    let captured: { readonly changed: readonly string[] } | undefined;
+    const sub = meta.onDidChangeMetadata((e) => {
       fired++;
+      captured = e;
     });
     await meta.update({ title: 'x' });
     expect(fired).toBe(1);
+    expect(captured).toEqual({ changed: ['title'] });
     sub.dispose();
   });
 });

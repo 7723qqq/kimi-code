@@ -42,7 +42,7 @@ describe('ModelService', () => {
             domain === MODELS_SECTION ? models : undefined) as IConfigService['get'],
           set: configSet as unknown as IConfigService['set'],
           replace: configReplace as unknown as IConfigService['replace'],
-          onDidChange: (() => ({ dispose: () => { } })) as IConfigService['onDidChange'],
+          onDidChangeConfiguration: (() => ({ dispose: () => { } })) as IConfigService['onDidChangeConfiguration'],
         });
         reg.define(IModelService, ModelService);
       },

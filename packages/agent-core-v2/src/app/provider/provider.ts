@@ -56,9 +56,15 @@ export const ProvidersSectionSchema = z.record(z.string(), ProviderConfigSchema)
 
 export type ProvidersSection = z.infer<typeof ProvidersSectionSchema>;
 
+export interface ProvidersChangedEvent {
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+  readonly changed: readonly string[];
+}
+
 export interface IProviderService {
   readonly _serviceBrand: undefined;
-  readonly onDidChange: Event<void>;
+  readonly onDidChangeProviders: Event<ProvidersChangedEvent>;
   get(name: string): ProviderConfig | undefined;
   list(): Readonly<Record<string, ProviderConfig>>;
   set(name: string, config: ProviderConfig): Promise<void>;

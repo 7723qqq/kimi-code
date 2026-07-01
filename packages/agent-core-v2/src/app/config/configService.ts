@@ -214,8 +214,8 @@ export class ConfigRegistry implements IConfigRegistry {
 
 export class ConfigService extends Disposable implements IConfigService {
   declare readonly _serviceBrand: undefined;
-  private readonly _onDidChange = this._register(new Emitter<ConfigChangedEvent>());
-  readonly onDidChange: Event<ConfigChangedEvent> = this._onDidChange.event;
+  private readonly _onDidChangeConfiguration = this._register(new Emitter<ConfigChangedEvent>());
+  readonly onDidChangeConfiguration: Event<ConfigChangedEvent> = this._onDidChangeConfiguration.event;
   private readonly _onDidSectionChange = this._register(new Emitter<ConfigSectionChangedEvent>());
   readonly onDidSectionChange: Event<ConfigSectionChangedEvent> = this._onDidSectionChange.event;
   readonly ready: Promise<void>;
@@ -394,7 +394,7 @@ export class ConfigService extends Disposable implements IConfigService {
     for (const domain of domains) {
       const previousValue = this.delivered[domain];
       const value = this.deliveredValue(domain);
-      this._onDidChange.fire({ domain, source, value, previousValue });
+      this._onDidChangeConfiguration.fire({ domain, source, value, previousValue });
       if (!deepEqual(value, previousValue)) {
         this._onDidSectionChange.fire({ domain, source, value, previousValue });
       }

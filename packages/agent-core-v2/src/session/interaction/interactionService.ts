@@ -2,7 +2,7 @@
  * `interaction` domain (L6) — `ISessionInteractionService` implementation.
  *
  * Owns the pending interaction set and resolves requests when a response
- * arrives; announces add/remove through a typed `onDidChange`. Bound at
+ * arrives; announces add/remove through a typed `onDidChangePending`. Bound at
  * Session scope.
  */
 
@@ -15,6 +15,7 @@ import {
   type Interaction,
   type InteractionKind,
   type InteractionOrigin,
+  type InteractionPendingChangedEvent,
   type InteractionRequest,
   type InteractionResolution,
   ISessionInteractionService,
@@ -36,8 +37,8 @@ export class SessionInteractionService extends Disposable implements ISessionInt
   private readonly pending = new Map<string, Pending>();
   /** id → epoch ms when it was resolved. */
   private readonly recentlyResolved = new Map<string, number>();
-  private readonly _onDidChange = this._register(new Emitter<void>());
-  readonly onDidChange: Event<void> = this._onDidChange.event;
+  private readonly _onDidChangePending = this._register(new Emitter<InteractionPendingChangedEvent>());
+  readonly onDidChangePending: Event<InteractionPendingChangedEvent> = this._onDidChangePending.event;
   private readonly _onDidResolve = this._register(new Emitter<InteractionResolution>());
   readonly onDidResolve: Event<InteractionResolution> = this._onDidResolve.event;
   private nextId = 0;
@@ -58,7 +59,7 @@ export class SessionInteractionService extends Disposable implements ISessionInt
     this.pending.delete(id);
     this.rememberResolved(id);
     entry.resolve(response);
-    this._onDidChange.fire();
+    this._onDidChangePending.fire({ pending: [...this.pending.keys()] });
     this._onDidResolve.fire({ id, response });
   }
 
@@ -91,7 +92,7 @@ export class SessionInteractionService extends Disposable implements ISessionInt
       createdAt: Date.now(),
     };
     this.pending.set(id, { interaction, resolve });
-    this._onDidChange.fire();
+    this._onDidChangePending.fire({ pending: [...this.pending.keys()] });
     return interaction;
   }
 

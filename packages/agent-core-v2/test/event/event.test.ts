@@ -13,4 +13,14 @@ describe('EventService', () => {
     svc.publish({ type: 'c', payload: null });
     expect(received).toEqual(['a', 'b']);
   });
+
+  it('onDidPublish mirrors subscribe (same underlying stream)', () => {
+    const svc = new EventService();
+    const received: string[] = [];
+    const sub = svc.onDidPublish((e) => received.push(e.type));
+    svc.publish({ type: 'a', payload: null });
+    sub.dispose();
+    svc.publish({ type: 'b', payload: null });
+    expect(received).toEqual(['a']);
+  });
 });

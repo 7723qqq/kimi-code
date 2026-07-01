@@ -47,15 +47,25 @@ describe('SessionInteractionService', () => {
     expect(svc.listPending()).toHaveLength(2);
   });
 
-  it('onDidChange fires on request and on respond', async () => {
+  it('onDidChangePending fires on request and on respond', async () => {
     const svc = ix.get(ISessionInteractionService);
     let count = 0;
-    disposables.add(svc.onDidChange(() => count++));
+    disposables.add(svc.onDidChangePending(() => count++));
     const pending = svc.request({ kind: 'question', payload: {} });
     expect(count).toBe(1);
     svc.respond(svc.listPending()[0]!.id, 'x');
     await pending;
     expect(count).toBe(2);
+  });
+
+  it('onDidChangePending carries the pending ids snapshot', () => {
+    const svc = ix.get(ISessionInteractionService);
+    const snapshots: (readonly string[])[] = [];
+    disposables.add(svc.onDidChangePending((e) => snapshots.push(e.pending)));
+    void svc.request({ id: 'a', kind: 'approval', payload: {} });
+    void svc.request({ id: 'b', kind: 'question', payload: {} });
+    svc.respond('a', {});
+    expect(snapshots).toEqual([['a'], ['a', 'b'], ['b']]);
   });
 
   it('respond to an unknown id is a no-op', () => {

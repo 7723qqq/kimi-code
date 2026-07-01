@@ -29,7 +29,7 @@ function metadataStub(): ISessionMetadata {
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    onDidChange: () => ({ dispose: () => {} }),
+    onDidChangeMetadata: () => ({ dispose: () => {} }),
     read: () => Promise.resolve({} as never),
     update: () => Promise.resolve(),
     setTitle: () => Promise.resolve(),
@@ -196,5 +196,37 @@ describe('SessionLifecycleService', () => {
 
     expect(archived).toBe(true);
     expect(svc.get('s1')).toBeUndefined();
+  });
+
+  it('fires onDidCreateSession with the new handle', async () => {
+    const svc = build();
+    let captured: { readonly sessionId: string } | undefined;
+    svc.onDidCreateSession((e) => {
+      captured = e;
+    });
+    const h = await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
+    expect(captured).toMatchObject({ sessionId: 's1', handle: h });
+  });
+
+  it('fires onDidCloseSession when a session is closed', async () => {
+    const svc = build();
+    const closed: string[] = [];
+    svc.onDidCloseSession((e) => closed.push(e.sessionId));
+    await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
+    await svc.close('s1');
+    expect(closed).toEqual(['s1']);
+  });
+
+  it('fires onDidArchiveSession when a session is archived', async () => {
+    const sessionStub: ISessionService = {
+      _serviceBrand: undefined,
+      archive: () => Promise.resolve(),
+    };
+    const svc = build([stubPair(ISessionService, sessionStub)]);
+    const archived: string[] = [];
+    svc.onDidArchiveSession((e) => archived.push(e.sessionId));
+    await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
+    await svc.archive('s1');
+    expect(archived).toEqual(['s1']);
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Scenario: the **auth → modelCatalog** slice — a device-code OAuth login
  * followed by a managed `/models` refresh, with both steps observed through
- * `config.onDidChange`.
+ * `config.onDidChangeConfiguration`.
  *
  * This example exists to make one design point concrete: **the caller never
  * hand-rolls a `/models` request.** The flow is split into two internal,
@@ -11,15 +11,15 @@
  *  1. **Login writes a credential, not models.** `IOAuthService.startLogin`
  *     drives the device-code flow; on success `OAuthService` only provisions
  *     the provider credential (the OAuth ref) into the `providers` config
- *     section. That write fires `config.onDidChange('providers')`, which the
- *     `provider` domain forwards as `providerService.onDidChange`. `auth` does
+ *     section. That write fires `config.onDidChangeConfiguration('providers')`, which the
+ *     `provider` domain forwards as `providerService.onDidChangeProviders`. `auth` does
  *     not know about `modelCatalog` — dependency direction stays one-way
  *     (`modelCatalog` → `auth`, never the reverse).
  *  2. **Refresh pulls `/models` internally and merges it into config.**
  *     `IOAuthService.refreshOAuthProviderModels` resolves the OAuth
  *     token through `IOAuthService`, fetches the managed model list, and
  *     writes the result into the `models` / `providers` / `defaultModel`
- *     sections through `IConfigService` — each firing `onDidChange`. The caller
+ *     sections through `IConfigService` — each firing `onDidChangeConfiguration`. The caller
  *     *triggers* the refresh explicitly (it is not auto-chained inside login),
  *     then observes the new aliases arrive through config.
  *
@@ -167,7 +167,7 @@ describe('oauth → modelCatalog slice (request-layer fetch mock, real clients)'
     ).app;
   }
 
-  test('device-code login provisions the provider credential through config.onDidChange', async () => {
+  test('device-code login provisions the provider credential through config.onDidChangeConfiguration', async () => {
     app = buildApp();
     const config = app.accessor.get(IConfigService);
     const oauth = app.accessor.get(IOAuthService);
@@ -176,7 +176,7 @@ describe('oauth → modelCatalog slice (request-layer fetch mock, real clients)'
     providers.list();
 
     const changed: string[] = [];
-    const sub = config.onDidChange((e) => changed.push(e.domain));
+    const sub = config.onDidChangeConfiguration((e) => changed.push(e.domain));
 
     const start = await oauth.startLogin();
     console.log('device code issued:', start.user_code, '→', start.verification_uri);
@@ -198,7 +198,7 @@ describe('oauth → modelCatalog slice (request-layer fetch mock, real clients)'
     expect(await oauth.status()).toEqual({ loggedIn: true, provider: KIMI_CODE_PROVIDER_NAME });
   });
 
-  test('refreshOAuthProviderModels fetches /models internally and lands aliases through config.onDidChange', async () => {
+  test('refreshOAuthProviderModels fetches /models internally and lands aliases through config.onDidChangeConfiguration', async () => {
     app = buildApp();
     const config = app.accessor.get(IConfigService);
     const oauth = app.accessor.get(IOAuthService);
@@ -214,7 +214,7 @@ describe('oauth → modelCatalog slice (request-layer fetch mock, real clients)'
     await waitUntil(() => providers.get(KIMI_CODE_PROVIDER_NAME)?.oauth !== undefined);
 
     const changed: string[] = [];
-    const sub = config.onDidChange((e) => changed.push(e.domain));
+    const sub = config.onDidChangeConfiguration((e) => changed.push(e.domain));
     const result = await oauth.refreshOAuthProviderModels();
     sub.dispose();
 

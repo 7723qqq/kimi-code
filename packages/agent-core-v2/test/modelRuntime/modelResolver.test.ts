@@ -9,7 +9,7 @@ function stubConfig(sections: Record<string, unknown>): IConfigService {
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    onDidChange: () => ({ dispose: () => {} }),
+    onDidChangeConfiguration: () => ({ dispose: () => {} }),
     get: <T>(domain: string) => sections[domain] as T,
     inspect: () => ({ value: undefined, defaultValue: undefined, userValue: undefined, memoryValue: undefined }),
     getAll: () => ({ ...sections }),

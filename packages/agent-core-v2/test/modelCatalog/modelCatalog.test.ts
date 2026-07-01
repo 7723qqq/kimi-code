@@ -101,7 +101,7 @@ describe('ModelCatalogService', () => {
           set: configSet as unknown as IConfigService['set'],
           replace: configReplace as unknown as IConfigService['replace'],
           reload: vi.fn().mockResolvedValue(undefined) as unknown as IConfigService['reload'],
-          onDidChange: (() => ({ dispose: () => {} })) as IConfigService['onDidChange'],
+          onDidChangeConfiguration: (() => ({ dispose: () => {} })) as IConfigService['onDidChangeConfiguration'],
           onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
         });
         reg.definePartialInstance(IOAuthService, {

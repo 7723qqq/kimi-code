@@ -5,7 +5,7 @@
  * layers to read and update the session's durable metadata (title, timestamps,
  * archived flag, fork provenance). Owns the in-memory copy, persists it as a
  * single atomic document through `storage`, and notifies changes via
- * `onDidChange`. Session-scoped — one instance per session. The initial
+ * `onDidChangeMetadata`. Session-scoped — one instance per session. The initial
  * document is materialized when the session is created.
  */
 
@@ -50,10 +50,15 @@ export interface SessionMeta {
 
 export type SessionMetaPatch = Partial<Omit<SessionMeta, 'id' | 'createdAt'>>;
 
+export interface SessionMetadataChangedEvent {
+  /** Metadata fields touched by the update (the `SessionMetaPatch` keys). */
+  readonly changed: readonly (keyof SessionMeta)[];
+}
+
 export interface ISessionMetadata {
   readonly _serviceBrand: undefined;
   readonly ready: Promise<void>;
-  readonly onDidChange: Event<void>;
+  readonly onDidChangeMetadata: Event<SessionMetadataChangedEvent>;
   read(): Promise<SessionMeta>;
   update(patch: SessionMetaPatch): Promise<void>;
   setTitle(title: string): Promise<void>;
