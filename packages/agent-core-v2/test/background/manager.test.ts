@@ -17,7 +17,7 @@ import {
   ProcessBackgroundTask,
   type BackgroundTaskInfo,
 } from '#/agent/background';
-import type { SessionSubagentHost, SubagentHandle } from '#/session/subagentHost';
+import type { ISessionSubagentHost, SubagentHandle } from '#/session/subagentHost';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import {
   configServices,
@@ -79,7 +79,7 @@ function agentTask(
   options: {
     readonly agentId?: string;
     readonly subagentType?: string;
-    readonly subagentHost?: Pick<SessionSubagentHost, 'markActiveChildDetached'>;
+    readonly subagentHost?: Pick<ISessionSubagentHost, 'markActiveChildDetached'>;
     readonly abortController?: AbortController;
     readonly timeoutMs?: number;
   } = {},

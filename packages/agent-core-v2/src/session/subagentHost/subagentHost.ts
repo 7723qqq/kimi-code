@@ -36,9 +36,11 @@ export type SubagentHandle = {
   }>;
 };
 
-export interface SessionSubagentHost {
+export interface ISessionSubagentHost {
+  readonly _serviceBrand: undefined;
   getSwarmItem(agentId: string): string | undefined;
   startBtw(): Promise<string>;
+  generateAgentsMd(): Promise<void>;
   spawn(options: SpawnSubagentOptions): Promise<SubagentHandle>;
   resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle>;
   retry(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle>;
@@ -52,21 +54,5 @@ export interface SessionSubagentHost {
 }
 
 export type QueuedSubagentRunResult<T = unknown> = SubagentResult<T>;
-export type { QueuedSubagentTask };
-
-export interface ISessionSubagentHost {
-  readonly _serviceBrand: undefined;
-  getSwarmItem(agentId: string): string | undefined;
-  startBtw(): Promise<string>;
-  generateAgentsMd(): Promise<void>;
-  spawn(options: SpawnSubagentOptions): Promise<SubagentHandle>;
-  resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle>;
-  getProfileName(agentId: string): Promise<string | undefined>;
-  markActiveChildDetached(agentId: string): void;
-  runQueued<T>(tasks: readonly QueuedSubagentTask<T>[]): Promise<Array<SubagentResult<T>>>;
-  cancelAll(reason?: unknown): void;
-  suspended(event: SubagentSuspendedEvent): void;
-}
-
 
 export const ISessionSubagentHost = createDecorator<ISessionSubagentHost>('sessionSubagentHost');

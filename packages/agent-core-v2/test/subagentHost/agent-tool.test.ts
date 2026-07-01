@@ -9,7 +9,6 @@ import {
   AgentToolInputSchema,
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   type ISessionSubagentHost,
-  type SessionSubagentHost,
 } from '#/session/subagentHost';
 import type { AgentToolSubagentMap } from '#/session/subagentHost/agentTool';
 import { ToolAccesses } from '#/agent/tool';
@@ -69,7 +68,7 @@ describe('AgentTool direct contract', () => {
     canRunInBackground,
     log,
   }: {
-    readonly host?: SessionSubagentHost;
+    readonly host?: ISessionSubagentHost;
     readonly maxRunningTasks?: number;
     readonly subagents?: AgentToolSubagentMap;
     readonly canRunInBackground?: () => boolean;
@@ -77,7 +76,7 @@ describe('AgentTool direct contract', () => {
   } = {}): {
     readonly ctx: TestAgentContext;
     readonly background: IAgentBackgroundService;
-    readonly host: SessionSubagentHost;
+    readonly host: ISessionSubagentHost;
     readonly tool: AgentTool;
   } {
     const ctx =
@@ -739,7 +738,7 @@ describe('Agent tool service runtime', () => {
 
   describe('with a resolving subagent host', () => {
     let ctx: TestAgentContext;
-    let subagentHost: SessionSubagentHost;
+    let subagentHost: ISessionSubagentHost;
     let profile: IAgentProfileService;
     let tools: IAgentToolRegistryService;
 
@@ -857,7 +856,7 @@ describe('Agent tool service runtime', () => {
 
   describe('with a non-resuming subagent host', () => {
     let ctx: TestAgentContext;
-    let subagentHost: SessionSubagentHost;
+    let subagentHost: ISessionSubagentHost;
     let profile: IAgentProfileService;
     let tools: IAgentToolRegistryService;
 
@@ -902,11 +901,13 @@ describe('Agent tool service runtime', () => {
 });
 
 function createSubagentHost(
-  overrides: Partial<SessionSubagentHost> = {},
-): SessionSubagentHost {
-  const host: SessionSubagentHost = {
+  overrides: Partial<ISessionSubagentHost> = {},
+): ISessionSubagentHost {
+  const host: ISessionSubagentHost = {
+    _serviceBrand: undefined,
     getSwarmItem: vi.fn(),
     startBtw: vi.fn().mockResolvedValue('btw-url'),
+    generateAgentsMd: vi.fn().mockResolvedValue(undefined),
     spawn: vi.fn(),
     resume: vi.fn(),
     retry: vi.fn(),

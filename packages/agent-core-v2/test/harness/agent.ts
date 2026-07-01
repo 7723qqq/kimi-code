@@ -57,6 +57,7 @@ import {
   IAgentShellToolsService,
   IStorageService,
   ISessionSubagentHost,
+  ISessionProcessRunner,
   IAgentSwarmService,
   ITelemetryService,
   ISessionTerminalBackend,
@@ -80,13 +81,15 @@ import {
   bootstrapSeed,
   createAppScope,
   resolveBootstrapOptions,
+  type QueuedSubagentRunResult,
+  type QueuedSubagentTask,
   type IDisposable,
   type Scope,
   type ScopeSeed,
   type ServiceIdentifier,
 } from '#/index';
 import { Event } from '#/_base/event';
-import { toDisposable } from '#/_base/di';
+import { Disposable, toDisposable } from '#/_base/di';
 import type { PromisifyMethods } from '#/_base/utils/types';
 import type { ApprovalResponse } from '#/session/approval';
 import type { BackgroundTaskInfo } from '#/agent/background';
@@ -131,7 +134,11 @@ import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog
 import { AgentSkillService } from '#/agent/skill/skillService';
 import { ModelSkillTool } from '#/agent/skill/tools/modelSkill';
 import type { SkillCatalog } from '#/app/globalSkillCatalog/types';
-import { SessionSubagentHostService, type SessionSubagentHost } from '#/session/subagentHost';
+import {
+  AgentTool,
+  DEFAULT_AGENT_SUBAGENT_PROFILES,
+  SessionSubagentHostService,
+} from '#/session/subagentHost';
 import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/agent/tool';
 import type {
   PersistedWireRecord,
@@ -541,8 +548,91 @@ function createSessionSkillCatalog(catalog: SkillCatalog): ISessionSkillCatalog 
   };
 }
 
-export function subagentHostServices(host: SessionSubagentHost): TestAgentServiceOverride {
-  return agentService(ISessionSubagentHost, new SyncDescriptor(SessionSubagentHostService, [host]));
+class TestSessionSubagentHostService extends Disposable implements ISessionSubagentHost {
+  declare readonly _serviceBrand: undefined;
+
+  constructor(
+    private readonly host: ISessionSubagentHost,
+    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
+    @IAgentBackgroundService background: IAgentBackgroundService,
+    @IAgentProfileService profile: IAgentProfileService,
+    @IKaos kaos: IKaos,
+    @ISessionProcessRunner runner: ISessionProcessRunner,
+    @ILogService log?: ILogService,
+  ) {
+    super();
+    this._register(
+      toolRegistry.register(
+        new AgentTool(this, background, DEFAULT_AGENT_SUBAGENT_PROFILES, {
+          log,
+          gitContext: { cwd: kaos.cwd, runner },
+          canRunInBackground: () => {
+            return profile.isToolActive('TaskList') &&
+              profile.isToolActive('TaskOutput') &&
+              profile.isToolActive('TaskStop');
+          },
+        }),
+      ),
+    );
+  }
+
+  getSwarmItem(agentId: string): string | undefined {
+    return this.host.getSwarmItem(agentId);
+  }
+
+  startBtw(): Promise<string> {
+    return this.host.startBtw();
+  }
+
+  generateAgentsMd(): Promise<void> {
+    return this.host.generateAgentsMd();
+  }
+
+  spawn(
+    options: Parameters<ISessionSubagentHost['spawn']>[0],
+  ): ReturnType<ISessionSubagentHost['spawn']> {
+    return this.host.spawn(options);
+  }
+
+  resume(
+    agentId: string,
+    options: Parameters<ISessionSubagentHost['resume']>[1],
+  ): ReturnType<ISessionSubagentHost['resume']> {
+    return this.host.resume(agentId, options);
+  }
+
+  retry(
+    agentId: string,
+    options: Parameters<ISessionSubagentHost['retry']>[1],
+  ): ReturnType<ISessionSubagentHost['retry']> {
+    return this.host.retry(agentId, options);
+  }
+
+  getProfileName(agentId: string): Promise<string | undefined> {
+    return this.host.getProfileName(agentId);
+  }
+
+  markActiveChildDetached(agentId: string): void {
+    this.host.markActiveChildDetached(agentId);
+  }
+
+  runQueued<T>(
+    tasks: readonly QueuedSubagentTask<T>[],
+  ): Promise<Array<QueuedSubagentRunResult<T>>> {
+    return this.host.runQueued(tasks);
+  }
+
+  cancelAll(reason?: unknown): void {
+    this.host.cancelAll(reason);
+  }
+
+  suspended(event: Parameters<ISessionSubagentHost['suspended']>[0]): void {
+    this.host.suspended(event);
+  }
+}
+
+export function subagentHostServices(host: ISessionSubagentHost): TestAgentServiceOverride {
+  return agentService(ISessionSubagentHost, new SyncDescriptor(TestSessionSubagentHostService, [host]));
 }
 
 export function goalServices(options: GoalServiceOptions): TestAgentServiceOverride {
@@ -939,7 +1029,7 @@ export class AgentTestContext {
           reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
           reg.defineDescriptor(
             ISessionSubagentHost,
-            new SyncDescriptor(SessionSubagentHostService, [unavailableSubagentHost()]),
+            new SyncDescriptor(TestSessionSubagentHostService, [unavailableSubagentHost()]),
           );
         },
       ], this.serviceOverrides, 'agent'),
@@ -1773,13 +1863,15 @@ function createTerminalBackend(): ISessionTerminalBackend {
   };
 }
 
-function unavailableSubagentHost(): SessionSubagentHost {
+function unavailableSubagentHost(): ISessionSubagentHost {
   const fail = async (): Promise<never> => {
     throw new Error('Subagent host is not configured in this test.');
   };
   return {
+    _serviceBrand: undefined,
     getSwarmItem: () => undefined,
     startBtw: fail,
+    generateAgentsMd: fail,
     spawn: fail,
     resume: fail,
     retry: fail,

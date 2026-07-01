@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { HookEngine } from '#/agent/externalHooks/engine';
 import { IAgentProfileService } from '#/agent/profile';
-import type { SessionSubagentHost } from '#/session/subagentHost';
+import type { ISessionSubagentHost } from '#/session/subagentHost';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import {
@@ -220,7 +220,7 @@ describe('Agent tools', () => {
   });
 
   describe('foreground Agent tool recovery', () => {
-    let subagentHost: SessionSubagentHost;
+    let subagentHost: ISessionSubagentHost;
 
     beforeEach(() => {
       const completion = Promise.reject(
@@ -228,6 +228,10 @@ describe('Agent tools', () => {
       );
       void completion.catch(() => undefined);
       subagentHost = {
+        _serviceBrand: undefined,
+        getSwarmItem: vi.fn(),
+        startBtw: vi.fn(),
+        generateAgentsMd: vi.fn(),
         spawn: vi.fn().mockResolvedValue({
           agentId: 'agent-child',
           profileName: 'coder',
@@ -235,7 +239,13 @@ describe('Agent tools', () => {
           completion,
         }),
         resume: vi.fn(),
-      } as unknown as SessionSubagentHost;
+        retry: vi.fn(),
+        getProfileName: vi.fn(),
+        markActiveChildDetached: vi.fn(),
+        runQueued: vi.fn(),
+        cancelAll: vi.fn(),
+        suspended: vi.fn(),
+      };
       ctx = createTestAgent(subagentHostServices(subagentHost));
       profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Agent'] });
