@@ -1830,8 +1830,9 @@ export class KimiTUI {
 
     // Only trim the logical entries (LLM context). Rendered children are NOT
     // destroyed — they commit into native scrollback, and the engine releases
-    // them once they scroll off-screen. Old components whose entry was trimmed
-    // stay in the tree; their metadata entry simply returns undefined.
+    // them once they scroll off-screen. Old components stay in the tree, and
+    // their metadata (keyed by component) is retained alongside them, so
+    // getTranscriptComponentEntry still resolves them.
     this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !toRemove.has(e));
     return true;
   }
