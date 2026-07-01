@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import {
   type CallExpression,
   type ClassDeclaration,
+  type InterfaceDeclaration,
   type Node,
   type ParameterDeclaration,
   Project,
@@ -68,6 +69,28 @@ const FRAMEWORK_BINDINGS: readonly { token: string; scope: ServiceScope; impl: s
   { token: 'IBootstrapOptions', scope: 'App', impl: 'BootstrapOptions' },
   { token: 'ISessionContext', scope: 'Session', impl: 'SessionContext' },
   { token: 'IAgentScopeContext', scope: 'Agent', impl: 'AgentScopeContext' },
+];
+
+/**
+ * Production composition-root bindings seeded by `bootstrap()` via
+ * `ScopeOptions.extra`. `buildCollection` applies `extra` AFTER the static
+ * `registerScopedService` registry, so these take precedence at runtime: they
+ * override a static default where one exists (e.g. `ISkillCatalogStore` →
+ * `FileSkillCatalogStore`) and supply the binding where the layer ships no
+ * in-package default (the Storage-layer tokens → `FileStorageService`, whose
+ * in-memory backend is no longer auto-registered). The analyzer mirrors that
+ * so the graph reflects the backend that actually runs in production.
+ *
+ * Each entry's `file`/`line`/`domain` are derived from the impl class
+ * declaration at analysis time, so the node points at the real backend rather
+ * than any registration site it replaces.
+ */
+const PRODUCTION_OVERRIDES: readonly { token: string; scope: ServiceScope; impl: string }[] = [
+  { token: 'IStorageService', scope: 'App', impl: 'FileStorageService' },
+  { token: 'IAppendLogStorage', scope: 'App', impl: 'FileStorageService' },
+  { token: 'IAtomicDocumentStorage', scope: 'App', impl: 'FileStorageService' },
+  { token: 'IBlobStorage', scope: 'App', impl: 'FileStorageService' },
+  { token: 'ISkillCatalogStore', scope: 'App', impl: 'FileSkillCatalogStore' },
 ];
 
 /**
@@ -167,6 +190,53 @@ function sameRef(a: EdgeRef, b: EdgeRef): boolean {
     (a.fromMethod ?? '') === (b.fromMethod ?? '') &&
     (a.toMethod ?? '') === (b.toMethod ?? '')
   );
+}
+
+/**
+ * Collect every top-level `interface` declaration in the tree, keyed by
+ * name. Used to pull each service's public callable surface out of its
+ * token interface (e.g. `interface IAgentSystemReminderService { ... }`)
+ * so the graph view can render every method as a port row even when
+ * nothing calls into it yet.
+ *
+ * Duplicate names win latest — TS itself would merge them via declaration
+ * merging, but the codebase does not intentionally split a service
+ * interface across files, so ties here are effectively edge cases.
+ */
+function collectInterfaces(sourceFiles: SourceFile[]): Map<string, InterfaceDeclaration> {
+  const out = new Map<string, InterfaceDeclaration>();
+  for (const file of sourceFiles) {
+    for (const iface of file.getInterfaces()) {
+      const name = iface.getName();
+      if (!name) continue;
+      out.set(name, iface);
+    }
+  }
+  return out;
+}
+
+/**
+ * Return the public callable surface names on an interface — every method
+ * signature name plus every property name — sorted and de-duplicated.
+ * Skips `_serviceBrand` (the DI type-erased identity marker) and index /
+ * call signatures (they have no member name to render as a port). TS
+ * interfaces cannot declare `private` members, so every remaining name is
+ * part of the public API by construction.
+ */
+function collectInterfaceMembers(iface: InterfaceDeclaration): string[] {
+  const names = new Set<string>();
+  for (const member of iface.getMembers()) {
+    const kind = member.getKind();
+    if (kind === SyntaxKind.MethodSignature) {
+      const name = member.asKindOrThrow(SyntaxKind.MethodSignature).getName();
+      names.add(name);
+    } else if (kind === SyntaxKind.PropertySignature) {
+      const name = member.asKindOrThrow(SyntaxKind.PropertySignature).getName();
+      if (name === '_serviceBrand') continue;
+      names.add(name);
+    }
+  }
+  return [...names].sort();
 }
 
 /**
@@ -471,6 +541,7 @@ export function analyze(options: { srcRoot?: string; generatedAt?: string } = {}
   const sourceFiles = project.getSourceFiles();
 
   const { services, implClasses, bindings } = collectServices(sourceFiles);
+  const interfacesByName = collectInterfaces(sourceFiles);
 
   // Seed the framework tokens as synthetic nodes so edges to them resolve
   // like any other registered service. They are marked domain=`framework`
@@ -495,12 +566,58 @@ export function analyze(options: { srcRoot?: string; generatedAt?: string } = {}
     if (!scopeMap.has(node.scope)) scopeMap.set(node.scope, node);
   }
 
+  // Apply production composition-root bindings: bootstrap() seeds these tokens
+  // via `extra`, which the container applies after the static registry. They
+  // override any static default (skill catalog) or supply the binding outright
+  // (storage layer, which ships no in-package default). Mirror that here so
+  // edges resolve to the backend that actually runs in production.
+  for (const override of PRODUCTION_OVERRIDES) {
+    const id = nodeId(override.scope, override.token);
+    const cls = implClasses.get(override.impl);
+    const file = cls ? relFromRepo(cls.getSourceFile().getFilePath()) : SRC_ROOT;
+    const domain = cls ? domainOf(cls.getSourceFile().getFilePath()) : 'unknown';
+    const line = cls ? cls.getStartLineNumber() : 0;
+    const node: ServiceNode = {
+      id,
+      token: override.token,
+      impl: override.impl,
+      scope: override.scope,
+      domain,
+      file,
+      line,
+    };
+    const existingIndex = services.findIndex((s) => s.id === id);
+    if (existingIndex >= 0) {
+      services[existingIndex] = node;
+    } else {
+      services.push(node);
+    }
+    let scopeMap = bindings.get(override.token);
+    if (!scopeMap) {
+      scopeMap = new Map();
+      bindings.set(override.token, scopeMap);
+    }
+    scopeMap.set(override.scope, node);
+  }
+
   const acc: EdgeAccumulator = {
     services,
     edges: new Map(),
     bindings,
     unknownRefs: new Set(),
   };
+
+  // Attach each service's public callable surface. Runs after registration,
+  // framework seeding, and PRODUCTION_OVERRIDES so every node in the graph
+  // gets the same treatment. Nodes whose token has no interface declaration
+  // in `src/` (framework tokens, synthetic overrides) simply get no
+  // `publicMembers` field — the view falls back to the edge-derived ports.
+  for (const svc of services) {
+    const iface = interfacesByName.get(svc.token);
+    if (!iface) continue;
+    const members = collectInterfaceMembers(iface);
+    if (members.length > 0) svc.publicMembers = members;
+  }
 
   for (const svc of services) {
     const cls = implClasses.get(svc.impl);
@@ -514,6 +631,53 @@ export function analyze(options: { srcRoot?: string; generatedAt?: string } = {}
       pushEdge(acc, svc.id, svc, dep.token, 'ctor', { file: filePath, line: dep.line });
     }
     collectRuntimeEdges(cls, svc, injectedFields, acc);
+  }
+
+  // Synthesise interface-only nodes for tokens referenced by edges but with no
+  // registered impl at any scope. Each unresolved edge already targets
+  // `unresolved::${token}`; creating a matching node lets the viewer render it
+  // (with a distinct border) instead of dropping the edge as dangling. The node
+  // is placed at the outer-most scope that references it — a hint at where the
+  // missing binding is first needed — and inherits the interface's declared
+  // public surface so its ports read like a real service.
+  const nodeById = new Map(services.map((s) => [s.id, s]));
+  const unresolvedReferrers = new Map<string, Set<ServiceScope>>();
+  for (const edge of acc.edges.values()) {
+    if (!edge.unresolved) continue;
+    let scopes = unresolvedReferrers.get(edge.token);
+    if (!scopes) {
+      scopes = new Set();
+      unresolvedReferrers.set(edge.token, scopes);
+    }
+    const source = nodeById.get(edge.from);
+    if (source) scopes.add(source.scope);
+  }
+  for (const [token, scopes] of unresolvedReferrers) {
+    let scope: ServiceScope = 'App';
+    let minLevel = Number.POSITIVE_INFINITY;
+    for (const s of scopes) {
+      const lvl = SCOPE_LEVEL[s];
+      if (lvl < minLevel) {
+        minLevel = lvl;
+        scope = s;
+      }
+    }
+    const node: ServiceNode = {
+      id: `unresolved::${token}`,
+      token,
+      impl: token,
+      scope,
+      domain: 'unresolved',
+      file: '',
+      line: 0,
+      unresolved: true,
+    };
+    const iface = interfacesByName.get(token);
+    if (iface) {
+      const members = collectInterfaceMembers(iface);
+      if (members.length > 0) node.publicMembers = members;
+    }
+    services.push(node);
   }
 
   return {

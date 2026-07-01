@@ -41,6 +41,22 @@ export interface ServiceNode {
   file: string;
   /** 1-indexed line of the `registerScopedService(...)` call. */
   line: number;
+  /**
+   * Public callable surface of this service — the method/property names
+   * declared on the interface identified by `token`. Sorted, deduped, with
+   * the `_serviceBrand` DI marker filtered out. Absent when the analyzer
+   * couldn't locate an interface declaration for the token (e.g. synthetic
+   * framework bindings whose token has no interface in `src/`).
+   */
+  publicMembers?: string[];
+  /**
+   * True for synthesized interface-only nodes: the token is referenced by at
+   * least one edge but has no implementation registered at any scope. These
+   * nodes have no real impl (so `impl` mirrors `token`) and the viewer renders
+   * them with a distinct border so missing bindings stand out from concrete
+   * services rather than being dropped as dangling edges.
+   */
+  unresolved?: true;
 }
 
 export interface EdgeRef {

@@ -45,31 +45,59 @@ interface PluginOptions {
   writeSnapshotFile?: boolean;
 }
 
+/**
+ * Structural fingerprint of a graph: services + edges + unknownTokens only,
+ * with `generatedAt` deliberately excluded. The analyzer already sorts each
+ * of these arrays deterministically, so a stable `JSON.stringify` is enough
+ * to detect real content changes and ignore metadata-only churn (e.g. the
+ * HEAD sha bumping without any DI edit).
+ */
+function fingerprint(g: Graph): string {
+  return JSON.stringify({
+    services: g.services,
+    edges: g.edges,
+    unknownTokens: g.unknownTokens,
+  });
+}
+
 export function depGraphPlugin(options: PluginOptions = {}): Plugin {
   const shouldWrite = options.writeSnapshotFile ?? true;
   let cached: Graph | undefined;
+  let cachedFingerprint: string | undefined;
   let server: ViteDevServer | undefined;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let watcher: FSWatcher | undefined;
 
-  function analyzeNow(reason: string): void {
+  /**
+   * Re-run the analyzer and swap `cached` only when the structural
+   * fingerprint changed. Returns whether the graph actually changed so the
+   * caller can decide whether to invalidate the virtual module.
+   */
+  function analyzeNow(reason: string): boolean {
     const started = Date.now();
-    cached = analyze({ generatedAt: tag() });
-    if (shouldWrite) writeSnapshot(cached);
+    const next = analyze({ generatedAt: tag() });
+    const nextFingerprint = fingerprint(next);
+    const changed = nextFingerprint !== cachedFingerprint;
+    if (changed) {
+      cached = next;
+      cachedFingerprint = nextFingerprint;
+      if (shouldWrite) writeSnapshot(next);
+    }
     const took = Date.now() - started;
-    console.log(
-      `[dep-graph] ${reason} → ${summarize(cached)}${
-        shouldWrite ? ` (wrote ${relative(process.cwd(), SNAPSHOT_PATH)})` : ''
-      } in ${took}ms`,
-    );
+    const suffix = changed
+      ? shouldWrite
+        ? ` (wrote ${relative(process.cwd(), SNAPSHOT_PATH)})`
+        : ''
+      : ' (no change)';
+    console.log(`[dep-graph] ${reason} → ${summarize(next)}${suffix} in ${took}ms`);
+    return changed;
   }
 
   function scheduleRefresh(reason: string): void {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       debounceTimer = undefined;
-      analyzeNow(reason);
-      invalidate();
+      if (analyzeNow(reason)) invalidate();
     }, DEBOUNCE_MS);
   }
 

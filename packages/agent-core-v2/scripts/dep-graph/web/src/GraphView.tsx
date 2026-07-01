@@ -9,6 +9,7 @@ import {
   Position,
   ReactFlow,
   type Edge as RFEdge,
+  type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useMemo } from 'react';
@@ -36,6 +37,13 @@ const PORTS_PAD_TOP = 4;
 interface ServicePortsInfo {
   inPorts: string[];
   outPorts: string[];
+  /**
+   * Subset of `inPorts` that actually has at least one edge terminating on
+   * it (as opposed to being seeded from the interface's declared surface
+   * with no caller). Used to dim the handle / label so unused public
+   * methods stand out visually.
+   */
+  connectedIn: Set<string>;
 }
 
 interface GraphViewProps {
@@ -49,6 +57,12 @@ interface GraphViewProps {
 interface ServiceNodeData extends Record<string, unknown> {
   service: ServiceNode;
   selected: boolean;
+  /**
+   * True when the search box has content and this node matches. Rendered
+   * as a distinct cyan outline so search hits are visually separable from
+   * the yellow-outlined click-selected node.
+   */
+  matched: boolean;
   dim: boolean;
   ports: ServicePortsInfo;
 }
@@ -71,18 +85,34 @@ function effectiveToMethod(kind: EdgeKind, refTo: string | undefined): string | 
 /**
  * Build the port lists per node from a set of edges.
  *
- * The port list depends on which edges are actually rendered — filtering out
- * a whole edge kind, for example, also hides the port rows it would have
- * populated. Computing this off the filtered edges keeps the node from
- * showing dangling ports with nothing connected.
+ * `inPorts` are seeded from `service.publicMembers` — every method /
+ * property declared on the service's interface, whether anything actually
+ * calls it or not, so the node advertises its full public surface. Any
+ * inbound edge method that isn't already in that seed (unusual — usually
+ * event-bus edges named after the kind) is folded in too.
+ *
+ * `outPorts` remain edge-driven: they are the methods on THIS service
+ * that make a call outward, so filtering out an edge kind naturally
+ * collapses the rows it would have populated.
  */
 function computeServicePorts(
   services: ServiceNode[],
   edges: Edge[],
 ): Map<string, ServicePortsInfo> {
-  const acc = new Map<string, { in: Set<string>; out: Set<string> }>();
+  const acc = new Map<
+    string,
+    { in: Set<string>; out: Set<string>; connectedIn: Set<string> }
+  >();
   for (const s of services) {
-    acc.set(s.id, { in: new Set(), out: new Set() });
+    const bucket = {
+      in: new Set<string>(),
+      out: new Set<string>(),
+      connectedIn: new Set<string>(),
+    };
+    if (s.publicMembers) {
+      for (const name of s.publicMembers) bucket.in.add(name);
+    }
+    acc.set(s.id, bucket);
   }
   for (const e of edges) {
     const src = acc.get(e.from);
@@ -90,7 +120,10 @@ function computeServicePorts(
     for (const ref of e.refs) {
       const toMethod = effectiveToMethod(e.kind, ref.toMethod);
       if (ref.fromMethod !== undefined && src) src.out.add(ref.fromMethod);
-      if (toMethod !== undefined && dst) dst.in.add(toMethod);
+      if (toMethod !== undefined && dst) {
+        dst.in.add(toMethod);
+        dst.connectedIn.add(toMethod);
+      }
     }
   }
   const result = new Map<string, ServicePortsInfo>();
@@ -98,6 +131,7 @@ function computeServicePorts(
     result.set(id, {
       inPorts: [...sets.in].sort(),
       outPorts: [...sets.out].sort(),
+      connectedIn: sets.connectedIn,
     });
   }
   return result;
@@ -110,17 +144,36 @@ function nodeHeight(ports: ServicePortsInfo): number {
 }
 
 function ServiceNodeView({ data }: NodeProps<Node<ServiceNodeData>>): JSX.Element {
-  const { service, selected, dim, ports } = data;
+  const { service, selected, matched, dim, ports } = data;
   const bg = SCOPE_STYLE[service.scope].color;
   const rowCount = Math.max(ports.inPorts.length, ports.outPorts.length);
+  // Interface-only node: the token is referenced but has no registered impl.
+  // Flagged with a dashed warning border so missing bindings stand out from
+  // concrete services at a glance. Selection / search-match still win so the
+  // active node stays unambiguous.
+  const isUnresolved = service.unresolved === true;
+  const borderColor = selected
+    ? '#ffdf5d'
+    : matched
+      ? '#79c0ff'
+      : isUnresolved
+        ? '#f85149'
+        : 'rgba(0,0,0,0.4)';
+  const borderWidth = selected || matched || isUnresolved ? 2 : 1;
+  const borderStyle = isUnresolved && !selected && !matched ? 'dashed' : 'solid';
+  const glow = selected
+    ? '0 0 0 3px rgba(255,223,93,0.25)'
+    : matched
+      ? '0 0 0 3px rgba(121,192,255,0.25)'
+      : 'none';
   return (
     <div
       style={{
         background: bg,
         color: 'white',
         borderRadius: 6,
-        border: selected ? '2px solid #ffdf5d' : '1px solid rgba(0,0,0,0.4)',
-        boxShadow: selected ? '0 0 0 3px rgba(255,223,93,0.25)' : 'none',
+        border: `${borderWidth}px ${borderStyle} ${borderColor}`,
+        boxShadow: glow,
         fontSize: 12,
         fontFamily:
           'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
@@ -171,7 +224,7 @@ function ServiceNodeView({ data }: NodeProps<Node<ServiceNodeData>>): JSX.Elemen
           </span>
         </div>
         <div style={{ fontSize: 10, opacity: 0.65, marginTop: 2, fontStyle: 'italic' }}>
-          {service.token}
+          {isUnresolved ? 'no implementation registered' : service.token}
         </div>
         <div style={{ fontSize: 10, opacity: 0.75, marginTop: 2 }}>{service.domain}</div>
       </div>
@@ -215,7 +268,13 @@ function ServiceNodeView({ data }: NodeProps<Node<ServiceNodeData>>): JSX.Elemen
                     id={`in:${inn}`}
                     type="target"
                     position={Position.Right}
-                    style={{ background: '#a8c8f6' }}
+                    // Dim handle when the port is only there because it's
+                    // declared on the interface — nothing calls into it.
+                    // The connected-vs-declared distinction reads at a
+                    // glance without hunting for edges.
+                    style={{
+                      background: ports.connectedIn.has(inn) ? '#a8c8f6' : '#3d444d',
+                    }}
                   />
                 )}
                 <div
@@ -247,7 +306,10 @@ function ServiceNodeView({ data }: NodeProps<Node<ServiceNodeData>>): JSX.Elemen
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      color: '#c8e0fb',
+                      color:
+                        inn !== undefined && !ports.connectedIn.has(inn)
+                          ? '#6e7681'
+                          : '#c8e0fb',
                     }}
                   >
                     {inn ?? ''}
@@ -289,6 +351,42 @@ function BandLabelView({ data }: NodeProps<Node<{ scope: string; width: number }
 
 const nodeTypes = { service: ServiceNodeView, band: BandLabelView };
 
+/**
+ * Persist the pan/zoom viewport across dev-server reloads so a source-code
+ * edit (which triggers a `full-reload` from the `virtual:dep-graph` plugin)
+ * doesn't wipe the position the user carefully panned to. Scoped to
+ * `sessionStorage` so each fresh browser session starts with `fitView`.
+ */
+const VIEWPORT_STORAGE_KEY = 'agent-core-v2:dep-graph:viewport';
+
+function loadViewport(): Viewport | undefined {
+  try {
+    const raw = sessionStorage.getItem(VIEWPORT_STORAGE_KEY);
+    if (raw === null) return undefined;
+    const parsed = JSON.parse(raw) as Partial<Viewport> | null;
+    if (
+      parsed === null ||
+      typeof parsed.x !== 'number' ||
+      typeof parsed.y !== 'number' ||
+      typeof parsed.zoom !== 'number'
+    ) {
+      return undefined;
+    }
+    return { x: parsed.x, y: parsed.y, zoom: parsed.zoom };
+  } catch {
+    return undefined;
+  }
+}
+
+function saveViewport(v: Viewport): void {
+  try {
+    sessionStorage.setItem(VIEWPORT_STORAGE_KEY, JSON.stringify(v));
+  } catch {
+    // Storage disabled (private mode / quota) — silently drop; the graph
+    // still works, it just won't remember the viewport across reloads.
+  }
+}
+
 function passesFilter(
   service: ServiceNode,
   filters: FilterState,
@@ -296,13 +394,21 @@ function passesFilter(
 ): boolean {
   if (!filters.scopes.has(service.scope)) return false;
   if (filters.hiddenDomains.has(service.domain)) return false;
-  if (filters.search) {
-    const q = filters.search.toLowerCase();
-    const hay = `${service.token} ${service.impl} ${service.domain}`.toLowerCase();
-    if (!hay.includes(q)) return false;
-  }
+  // NOTE: search intentionally does NOT filter here — it drives the
+  // highlight/dim treatment below so context around a hit stays visible.
   if (filters.hideOrphans && !connected.has(service.id)) return false;
   return true;
+}
+
+/**
+ * Case-insensitive substring match across the identity fields and public
+ * surface. Kept close to `passesFilter` so the two search-related pieces
+ * (highlight input, matches predicate) stay obviously in sync.
+ */
+function matchesSearch(service: ServiceNode, query: string): boolean {
+  const members = service.publicMembers ? ` ${service.publicMembers.join(' ')}` : '';
+  const hay = `${service.token} ${service.impl} ${service.domain}${members}`.toLowerCase();
+  return hay.includes(query);
 }
 
 export function GraphView({
@@ -311,14 +417,17 @@ export function GraphView({
   selectedId,
   onSelect,
 }: GraphViewProps): JSX.Element {
+  // Compute once at mount so a re-render that adds nodes doesn't yank the
+  // viewport back to the stored value while the user is panning.
+  const initialViewport = useMemo(() => loadViewport(), []);
+
   const { nodes, edges, selectedService, selectedEdges } = useMemo(() => {
-    // Which edges survive the edge-kind filter?
-    const survivingEdges: Edge[] = graph.edges
-      .filter((e) => filters.kinds.has(e.kind))
-      // Drop unresolved edges — their `to` points at a pseudo id that isn't
-      // in the node set. The lint reports them separately; showing them
-      // here would just clutter the graph with dangling arrows.
-      .filter((e) => !e.unresolved);
+    // Which edges survive the edge-kind filter? Unresolved edges are kept: the
+    // analyzer now synthesises an interface-only node for each unresolved token
+    // (rendered with a distinct border), so their `to` resolves to a real node
+    // instead of dangling. Edges whose endpoint is filtered out are dropped
+    // below via the `visibleIds` check.
+    const survivingEdges: Edge[] = graph.edges.filter((e) => filters.kinds.has(e.kind));
 
     // Node ids that appear on either end of any surviving edge — for the
     // orphan filter.
@@ -342,15 +451,34 @@ export function GraphView({
     // dead weight on the node, so we compute after filter+visibility.
     const ports = computeServicePorts(visibleServices, finalEdges);
 
-    // Neighbours of the selected node — used to dim non-related ones.
-    const highlighted = new Set<string>();
-    if (selectedId) {
-      highlighted.add(selectedId);
-      for (const e of finalEdges) {
-        if (e.from === selectedId) highlighted.add(e.to);
-        if (e.to === selectedId) highlighted.add(e.from);
+    // Compute the two focus drivers:
+    //   • `selectedId` — the click-selected node (0 or 1 at a time).
+    //   • `matched`    — every node whose identity or public surface hits
+    //                     the current search string.
+    // Their neighbours (nodes touched by any surviving edge) are folded in
+    // so the graph keeps enough context around a hit to be readable —
+    // this is the "act like a click" behaviour: nothing disappears, just
+    // dims. `focused` is the union used to decide dim vs bright.
+    const searchQuery = filters.search.trim().toLowerCase();
+    const matched = new Set<string>();
+    if (searchQuery) {
+      for (const s of visibleServices) {
+        if (matchesSearch(s, searchQuery)) matched.add(s.id);
       }
     }
+
+    const focused = new Set<string>();
+    const seedFocus = (id: string): void => {
+      focused.add(id);
+      for (const e of finalEdges) {
+        if (e.from === id) focused.add(e.to);
+        if (e.to === id) focused.add(e.from);
+      }
+    };
+    if (selectedId !== undefined) seedFocus(selectedId);
+    for (const id of matched) seedFocus(id);
+
+    const focusActive = selectedId !== undefined || matched.size > 0;
 
     const layout = layoutDagre(visibleServices, finalEdges, {
       groupByScope: filters.groupByScope,
@@ -369,8 +497,13 @@ export function GraphView({
         data: {
           service,
           selected: service.id === selectedId,
-          dim: selectedId !== undefined && !highlighted.has(service.id),
-          ports: ports.get(service.id) ?? { inPorts: [], outPorts: [] },
+          matched: matched.has(service.id),
+          dim: focusActive && !focused.has(service.id),
+          ports: ports.get(service.id) ?? {
+            inPorts: [],
+            outPorts: [],
+            connectedIn: new Set<string>(),
+          },
         },
       }),
     );
@@ -396,8 +529,11 @@ export function GraphView({
     const rfEdges: RFEdge[] = [];
     for (const e of finalEdges) {
       const style = EDGE_STYLE[e.kind];
-      const isHighlighted =
-        selectedId !== undefined && (e.from === selectedId || e.to === selectedId);
+      // With a focus (click or search) active, an edge is bright when both
+      // ends are in the focus set — i.e. it either sits directly on a hit
+      // or bridges two things adjacent to a hit. When no focus is active
+      // every edge stays at its default opacity.
+      const isHighlighted = focusActive && focused.has(e.from) && focused.has(e.to);
       // Group refs by (fromMethod, effectiveToMethod) so identical method
       // pairs on different lines collapse into a single arrow between the
       // same two handles instead of stacking.
@@ -423,7 +559,7 @@ export function GraphView({
             stroke: style.color,
             strokeWidth: isHighlighted ? 2.2 : 1.2,
             strokeDasharray: style.dashed ? '4 3' : undefined,
-            opacity: selectedId !== undefined ? (isHighlighted ? 1 : 0.1) : 0.75,
+            opacity: focusActive ? (isHighlighted ? 1 : 0.1) : 0.75,
           },
           animated: false,
         });
@@ -446,7 +582,14 @@ export function GraphView({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        fitView
+        // Only `fitView` on the very first mount of a fresh browser session.
+        // Once a viewport is remembered, hand it to React Flow as
+        // `defaultViewport` so the pan/zoom the user last landed on is
+        // preserved across dev-server reloads.
+        {...(initialViewport
+          ? { defaultViewport: initialViewport }
+          : { fitView: true })}
+        onMoveEnd={(_, viewport) => saveViewport(viewport)}
         minZoom={0.1}
         maxZoom={1.6}
         onNodeClick={(_, node) => {
@@ -464,7 +607,8 @@ export function GraphView({
           nodeColor={(n) => {
             if (n.id.startsWith('band::')) return 'transparent';
             const service = (n.data as ServiceNodeData | undefined)?.service;
-            return service ? SCOPE_STYLE[service.scope].color : '#7d8590';
+            if (!service) return '#7d8590';
+            return service.unresolved ? '#f85149' : SCOPE_STYLE[service.scope].color;
           }}
         />
         <Controls showInteractive={false} style={{ background: '#151b23' }} />
@@ -512,13 +656,21 @@ function ServicePanel({ service, graph, edges, onClose }: ServicePanelProps): JS
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 13 }}>{service.impl}</div>
-          <div style={{ color: '#a5b0bc', fontSize: 11 }}>{service.token}</div>
+          {service.unresolved ? (
+            <div style={{ color: '#f85149', fontSize: 11, marginTop: 2 }}>
+              No implementation registered
+            </div>
+          ) : (
+            <div style={{ color: '#a5b0bc', fontSize: 11 }}>{service.token}</div>
+          )}
           <div style={{ color: '#7d8590', fontSize: 11 }}>
             <b>{service.scope}</b> · {service.domain}
           </div>
-          <div style={{ color: '#7d8590', fontSize: 10, marginTop: 4, wordBreak: 'break-all' }}>
-            {service.file}:{service.line}
-          </div>
+          {!service.unresolved && (
+            <div style={{ color: '#7d8590', fontSize: 10, marginTop: 4, wordBreak: 'break-all' }}>
+              {service.file}:{service.line}
+            </div>
+          )}
         </div>
         <button
           onClick={onClose}
