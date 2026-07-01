@@ -6,6 +6,7 @@ import { ISessionApprovalService, ISessionLifecycleService } from '@moonshot-ai/
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -70,14 +71,19 @@ describe('server-v2 /api/v1/sessions/{sid}/approvals', () => {
     const hasBody = body !== undefined;
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
-      headers: hasBody ? { 'content-type': 'application/json' } : undefined,
+      headers: authHeaders(
+        server as RunningServer,
+        hasBody ? { 'content-type': 'application/json' } : {},
+      ),
       body: hasBody ? JSON.stringify(body) : undefined,
-    });
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`);
+    const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
@@ -97,7 +103,7 @@ describe('server-v2 /api/v1/sessions/{sid}/approvals', () => {
       toolCallId,
       toolName: 'Bash',
       action: 'run',
-      display: { command: 'echo hi' },
+      display: { kind: 'command', command: 'echo hi' },
     });
     return parked.id;
   }
@@ -115,7 +121,7 @@ describe('server-v2 /api/v1/sessions/{sid}/approvals', () => {
     expect(item.tool_call_id).toBe('tc-1');
     expect(item.tool_name).toBe('Bash');
     expect(item.action).toBe('run');
-    expect(item.tool_input_display).toEqual({ command: 'echo hi' });
+    expect(item.tool_input_display).toEqual({ kind: 'command', command: 'echo hi' });
     expect(Number.isNaN(Date.parse(item.created_at))).toBe(false);
     expect(Number.isNaN(Date.parse(item.expires_at))).toBe(false);
   });

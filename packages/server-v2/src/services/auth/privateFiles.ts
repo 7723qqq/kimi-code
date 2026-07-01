@@ -1,9 +1,13 @@
-/**
- * Atomic private-file read/write helpers for sensitive local files.
- */
-
 import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+} from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 export class PrivateFileTooPermissiveError extends Error {
@@ -20,7 +24,10 @@ export class PrivateFileTooPermissiveError extends Error {
   }
 }
 
-export async function writePrivateFile(filePath: string, data: string | Buffer): Promise<void> {
+export async function writePrivateFile(
+  filePath: string,
+  data: string | Buffer,
+): Promise<void> {
   const dir = dirname(filePath);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await chmod(dir, 0o700);
@@ -47,6 +54,10 @@ export async function writePrivateFile(filePath: string, data: string | Buffer):
 
 export async function readPrivateFile(filePath: string): Promise<Buffer> {
   const info = await stat(filePath);
+  // Windows does not have Unix-style permission bits; libuv synthesises the
+  // mode from the read-only attribute, so a private writable file is reported
+  // as 0o666 and a read-only one as 0o444. The ACL-based security model is
+  // different, so this check only makes sense on POSIX systems.
   if (process.platform !== 'win32' && (info.mode & 0o077) !== 0) {
     throw new PrivateFileTooPermissiveError(filePath, info.mode & 0o777);
   }

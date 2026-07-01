@@ -9,8 +9,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  IAgentEventSinkService,
   IAgentLifecycleService,
-  IEventSink,
   ISessionLifecycleService,
 } from '@moonshot-ai/agent-core-v2';
 import type { AgentEvent } from '@moonshot-ai/protocol';
@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 interface Frame {
   type: string;
@@ -38,9 +39,9 @@ interface Conn {
   next: (pred: (f: Frame) => boolean, timeoutMs?: number) => Promise<Frame>;
 }
 
-function openConn(url: string): Promise<Conn> {
+function openConn(url: string, token: string): Promise<Conn> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(url, [`kimi-code.bearer.${token}`]);
     const frames: Frame[] = [];
     const waiters: Array<(f: Frame) => void> = [];
     const closed = new Promise<void>((res) => ws.on('close', () => res()));
@@ -117,9 +118,9 @@ describe('server-v2 /api/v1/ws resync', () => {
   async function createSession(): Promise<string> {
     const res = await fetch(`${base}/api/v1/sessions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify({ metadata: { cwd: home } }),
-    });
+    } as never);
     const body = (await res.json()) as { code: number; data: { id: string } };
     expect(body.code).toBe(0);
     return body.data.id;
@@ -134,18 +135,22 @@ describe('server-v2 /api/v1/ws resync', () => {
     }
   }
 
+  function withToken<T extends Record<string, unknown>>(payload: T): T & { token: string } {
+    return { ...payload, token: server!.authTokenService.getToken() };
+  }
+
   function emitAgentEvent(sessionId: string, event: AgentEvent): void {
     const session = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     expect(session).toBeDefined();
     const agents = session!.accessor.get(IAgentLifecycleService);
     const main = agents.getHandle('main');
     expect(main).toBeDefined();
-    main!.accessor.get(IEventSink).emit(event);
+    main!.accessor.get(IAgentEventSinkService).emit(event);
   }
 
   it('server_hello then client_hello ack with accepted subscription', async () => {
     const sid = await createSession();
-    const c = await openConn(wsUrl);
+    const c = await openConn(wsUrl, server!.authTokenService.getToken());
 
     const hello = await c.next((f) => f.type === 'server_hello');
     expect(hello.payload).toMatchObject({ protocol_version: 2 });
@@ -153,7 +158,7 @@ describe('server-v2 /api/v1/ws resync', () => {
     c.send({
       type: 'client_hello',
       id: 'h1',
-      payload: { client_id: 'cli', subscriptions: [sid] },
+      payload: withToken({ client_id: 'cli', subscriptions: [sid] }),
     });
     const ack = await c.next((f) => f.type === 'ack' && f.id === 'h1');
     expect(ack.payload).toMatchObject({ accepted_subscriptions: [sid], resync_required: [] });
@@ -165,9 +170,9 @@ describe('server-v2 /api/v1/ws resync', () => {
   it('delivers a sequenced durable event to a subscribed connection', async () => {
     const sid = await createSession();
     await ensureMainAgent(sid);
-    const c = await openConn(wsUrl);
+    const c = await openConn(wsUrl, server!.authTokenService.getToken());
     await c.next((f) => f.type === 'server_hello');
-    c.send({ type: 'client_hello', id: 'h1', payload: { client_id: 'cli', subscriptions: [sid] } });
+    c.send({ type: 'client_hello', id: 'h1', payload: withToken({ client_id: 'cli', subscriptions: [sid] }) });
     await c.next((f) => f.type === 'ack' && f.id === 'h1');
 
     emitAgentEvent(sid, { type: 'turn.started', turnId: 1 } as unknown as AgentEvent);
@@ -186,9 +191,9 @@ describe('server-v2 /api/v1/ws resync', () => {
     await ensureMainAgent(sid);
 
     // First connection — subscribe, generate two durable events.
-    const c1 = await openConn(wsUrl);
+    const c1 = await openConn(wsUrl, server!.authTokenService.getToken());
     await c1.next((f) => f.type === 'server_hello');
-    c1.send({ type: 'client_hello', id: 'h1', payload: { client_id: 'cli', subscriptions: [sid] } });
+    c1.send({ type: 'client_hello', id: 'h1', payload: withToken({ client_id: 'cli', subscriptions: [sid] }) });
     await c1.next((f) => f.type === 'ack' && f.id === 'h1');
     emitAgentEvent(sid, { type: 'turn.started', turnId: 1 } as unknown as AgentEvent);
     emitAgentEvent(sid, { type: 'turn.ended', turnId: 1 } as unknown as AgentEvent);
@@ -197,12 +202,12 @@ describe('server-v2 /api/v1/ws resync', () => {
     await c1.closed;
 
     // Second connection — replay from seq 1, expect only seq 2.
-    const c2 = await openConn(wsUrl);
+    const c2 = await openConn(wsUrl, server!.authTokenService.getToken());
     await c2.next((f) => f.type === 'server_hello');
     c2.send({
       type: 'client_hello',
       id: 'h2',
-      payload: { client_id: 'cli', subscriptions: [sid], cursors: { [sid]: { seq: 1 } } },
+      payload: withToken({ client_id: 'cli', subscriptions: [sid], cursors: { [sid]: { seq: 1 } } }),
     });
     const replayed = await c2.next((f) => f.type === 'turn.ended');
     expect(replayed.seq).toBe(2);
@@ -215,16 +220,16 @@ describe('server-v2 /api/v1/ws resync', () => {
 
   it('sends resync_required on epoch mismatch', async () => {
     const sid = await createSession();
-    const c = await openConn(wsUrl);
+    const c = await openConn(wsUrl, server!.authTokenService.getToken());
     await c.next((f) => f.type === 'server_hello');
     c.send({
       type: 'client_hello',
       id: 'h1',
-      payload: {
+      payload: withToken({
         client_id: 'cli',
         subscriptions: [sid],
         cursors: { [sid]: { seq: 0, epoch: 'ep_wrong' } },
-      },
+      }),
     });
     const rs = await c.next((f) => f.type === 'resync_required');
     expect(rs.payload).toMatchObject({ session_id: sid, reason: 'epoch_changed' });

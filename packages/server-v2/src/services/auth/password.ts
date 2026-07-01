@@ -1,7 +1,3 @@
-/**
- * Optional password credential hashing and verification.
- */
-
 import bcrypt from 'bcryptjs';
 
 const { compare, hash } = bcrypt;

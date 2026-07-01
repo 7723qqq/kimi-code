@@ -57,7 +57,19 @@ interface AppLike {
 }
 
 function appOf(r: RunningServer): AppLike {
-  return r.app as unknown as AppLike;
+  const app = r.app as unknown as AppLike;
+  return {
+    inject(req: unknown): Promise<InjectResponse> {
+      const request = req as { headers?: Record<string, string> };
+      return app.inject({
+        ...request,
+        headers: {
+          ...request.headers,
+          authorization: `Bearer ${r.authTokenService.getToken()}`,
+        },
+      });
+    },
+  };
 }
 
 interface Envelope<T = unknown> {

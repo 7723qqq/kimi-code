@@ -31,6 +31,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -65,13 +66,15 @@ describe('server-v2 /api/v1 skills', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
       home = undefined;
     }
   });
 
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`);
+    const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
@@ -81,9 +84,9 @@ describe('server-v2 /api/v1 skills', () => {
   ): Promise<{ status: number; body: Envelope<T> }> {
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify(body ?? {}),
-    });
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 

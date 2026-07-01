@@ -8,8 +8,8 @@
  *   GET  /mcp/servers                            -                       data: {servers: McpServer[]}
  *   POST /mcp/servers/{mcp_server_id}:restart    body: empty             data: {restarting: true}
  *
- * **Thin wrapper over Agent-scoped services**: `IToolRegistry.list` /
- * `IMcpService.list` / `IMcpService.reconnect` are already exposed on the
+ * **Thin wrapper over Agent-scoped services**: `IAgentToolRegistryService.list` /
+ * `IAgentMcpService.list` / `IAgentMcpService.reconnect` are already exposed on the
  * `/api/v2` RPC action map (`tools:list`, `mcp:list`, `mcp:reconnect`). These
  * REST routes borrow them by interface and project their v2 models into the
  * protocol's `ToolDescriptor` / `McpServer` shapes.
@@ -39,16 +39,16 @@
  *   - malformed `{tail}` (bad action, bare id) → `40001 validation.failed`.
  *   - other errors → 50001 via the global `installErrorHandler`.
  *
- * **Anti-corruption**: route resolves `IToolRegistry` / `IMcpService` via the
+ * **Anti-corruption**: route resolves `IAgentToolRegistryService` / `IAgentMcpService` via the
  * accessor; no SDK imports.
  */
 
 import {
   ErrorCodes,
-  IMcpService,
+  IAgentMcpService,
   ISessionIndex,
   ISessionLifecycleService,
-  IToolRegistry,
+  IAgentToolRegistryService,
   KimiError,
   type Scope,
   type ToolInfo,
@@ -74,7 +74,7 @@ const MCP_NAME_PREFIX = 'mcp__';
 const MCP_NAME_SEPARATOR = '__';
 
 /** One entry from the agent's MCP server list (type not re-exported publicly). */
-type McpEntry = ReturnType<IMcpService['list']>[number];
+type McpEntry = ReturnType<IAgentMcpService['list']>[number];
 
 interface ToolsRouteHost {
   get(
@@ -111,7 +111,7 @@ export function registerToolsRoutes(app: ToolsRouteHost, core: Scope): void {
       const tools =
         agent === undefined
           ? []
-          : agent.accessor.get(IToolRegistry).list().map(toProtocolTool);
+          : agent.accessor.get(IAgentToolRegistryService).list().map(toProtocolTool);
       reply.send(okEnvelope({ tools }, req.id));
     },
   );
@@ -135,7 +135,7 @@ export function registerToolsRoutes(app: ToolsRouteHost, core: Scope): void {
       const servers =
         agent === undefined
           ? []
-          : agent.accessor.get(IMcpService).list().map(toProtocolMcpServer);
+          : agent.accessor.get(IAgentMcpService).list().map(toProtocolMcpServer);
       reply.send(okEnvelope({ servers }, req.id));
     },
   );
@@ -182,7 +182,7 @@ export function registerToolsRoutes(app: ToolsRouteHost, core: Scope): void {
         reply.send(mcpServerNotFound(parsed.id, req.id));
         return;
       }
-      const mcp = agent.accessor.get(IMcpService);
+      const mcp = agent.accessor.get(IAgentMcpService);
       // Pre-check existence so a missing/idle connection manager (where
       // `reconnect` is a no-op) still reports 40408 for unknown servers.
       if (!mcp.list().some((entry) => entry.name === parsed.id)) {

@@ -3,7 +3,7 @@
  *
  * This is the server-side map from a public `resource:action` segment to the
  * internal `ServiceIdentifier` + method. Domain names (`ISessionMetadata`,
- * `IProfileService` …) never appear in the URL; this table is the only place
+ * `IAgentProfileService` …) never appear in the URL; this table is the only place
  * that binds a public action to an internal Service.
  *
  * It also doubles as the **cheatsheet** of every directly-exposed endpoint.
@@ -26,32 +26,33 @@ import {
   IAgentRPCService,
   ISessionApprovalService,
   IAuthSummaryService,
-  IBackgroundService,
+  IAgentBackgroundService,
   IBootstrapService,
   IConfigService,
-  IContextMemory,
-  IContextSizeService,
+  IAgentContextMemoryService,
+  IAgentContextSizeService,
   IFlagService,
   ISessionFsService,
-  IGoalService,
+  IAgentGoalService,
   IHostFolderBrowser,
   ISessionInteractionService,
-  IMcpService,
+  IAgentMcpService,
   IOAuthService,
-  IPermissionModeService,
-  IPermissionRulesService,
-  IPlanService,
-  IProfileService,
+  IAgentPermissionModeService,
+  IAgentPermissionRulesService,
+  IAgentPlanService,
+  IAgentProfileService,
+  IPluginService,
   IProviderService,
   ISessionQuestionService,
   ISessionActivity,
   ISessionIndex,
   ISessionMetadata,
   ISessionService,
-  ISwarmService,
-  IToolRegistry,
-  IToolStoreService,
-  IUsageService,
+  IAgentSwarmService,
+  IAgentToolRegistryService,
+  IAgentToolStoreService,
+  IAgentUsageService,
   ISessionWorkspaceContext,
   IWorkspaceRegistry,
 } from '@moonshot-ai/agent-core-v2';
@@ -100,6 +101,19 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'flags:enabledIds': { service: IFlagService, method: 'enabledIds', readonly: true },
     'flags:explain': { service: IFlagService, method: 'explain', readonly: true },
     'flags:explainAll': { service: IFlagService, method: 'explainAll', readonly: true },
+
+    'plugins:list': { service: IPluginService, method: 'listPlugins', readonly: true },
+    'plugins:install': { service: IPluginService, method: 'installPlugin' },
+    'plugins:setEnabled': { service: IPluginService, method: 'setPluginEnabled' },
+    'plugins:setMcpServerEnabled': {
+      service: IPluginService,
+      method: 'setPluginMcpServerEnabled',
+    },
+    'plugins:remove': { service: IPluginService, method: 'removePlugin' },
+    'plugins:reload': { service: IPluginService, method: 'reloadPlugins' },
+    'plugins:getInfo': { service: IPluginService, method: 'getPluginInfo', readonly: true },
+    'plugins:listCommands': { service: IPluginService, method: 'listPluginCommands', readonly: true },
+    'plugins:checkUpdates': { service: IPluginService, method: 'checkUpdates', readonly: true },
 
     'fs:browse': { service: IHostFolderBrowser, method: 'browse', readonly: true },
     'fs:home': { service: IHostFolderBrowser, method: 'home', readonly: true },
@@ -158,70 +172,73 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
   // Agent  (/api/v2/session/:session_id/agent/:agent_id/:resource:action)
   // -------------------------------------------------------------------------
   agent: {
-    'goal:get': { service: IGoalService, method: 'getGoal', readonly: true },
-    'goal:create': { service: IGoalService, method: 'createGoal' },
-    'goal:pause': { service: IGoalService, method: 'pauseGoal' },
-    'goal:resume': { service: IGoalService, method: 'resumeGoal' },
-    'goal:cancel': { service: IGoalService, method: 'cancelGoal' },
+    'goal:get': { service: IAgentGoalService, method: 'getGoal', readonly: true },
+    'goal:create': { service: IAgentGoalService, method: 'createGoal' },
+    'goal:pause': { service: IAgentGoalService, method: 'pauseGoal' },
+    'goal:resume': { service: IAgentGoalService, method: 'resumeGoal' },
+    'goal:cancel': { service: IAgentGoalService, method: 'cancelGoal' },
 
-    'plan:status': { service: IPlanService, method: 'status', readonly: true },
-    'plan:enter': { service: IPlanService, method: 'enter' },
-    'plan:exit': { service: IPlanService, method: 'exit' },
-    'plan:cancel': { service: IPlanService, method: 'cancel' },
-    'plan:clear': { service: IPlanService, method: 'clear' },
+    'plan:status': { service: IAgentPlanService, method: 'status', readonly: true },
+    'plan:enter': { service: IAgentPlanService, method: 'enter' },
+    'plan:exit': { service: IAgentPlanService, method: 'exit' },
+    'plan:cancel': { service: IAgentPlanService, method: 'cancel' },
+    'plan:clear': { service: IAgentPlanService, method: 'clear' },
 
-    'tasks:list': { service: IBackgroundService, method: 'list', readonly: true },
-    'tasks:get': { service: IBackgroundService, method: 'getTask', readonly: true },
-    'tasks:readOutput': { service: IBackgroundService, method: 'readOutput', readonly: true },
-    'tasks:stop': { service: IBackgroundService, method: 'stop' },
-    'tasks:detach': { service: IBackgroundService, method: 'detach' },
+    'tasks:list': { service: IAgentBackgroundService, method: 'list', readonly: true },
+    'tasks:get': { service: IAgentBackgroundService, method: 'getTask', readonly: true },
+    'tasks:readOutput': { service: IAgentBackgroundService, method: 'readOutput', readonly: true },
+    'tasks:stop': { service: IAgentBackgroundService, method: 'stop' },
+    'tasks:detach': { service: IAgentBackgroundService, method: 'detach' },
 
-    'usage:status': { service: IUsageService, method: 'status', readonly: true },
+    'usage:status': { service: IAgentUsageService, method: 'status', readonly: true },
 
-    'context:status': { service: IContextSizeService, method: 'getStatus', readonly: true },
+    'context:status': { service: IAgentContextSizeService, method: 'getStatus', readonly: true },
 
-    'swarm:isActive': { service: ISwarmService, method: 'isActive', readonly: true },
-    'swarm:enter': { service: ISwarmService, method: 'enter' },
-    'swarm:exit': { service: ISwarmService, method: 'exit' },
+    'swarm:isActive': { service: IAgentSwarmService, method: 'isActive', readonly: true },
+    'swarm:enter': { service: IAgentSwarmService, method: 'enter' },
+    'swarm:exit': { service: IAgentSwarmService, method: 'exit' },
 
-    'permission:getMode': { service: IPermissionModeService, method: 'mode', readonly: true },
-    'permission:setMode': { service: IPermissionModeService, method: 'setMode' },
+    'permission:getMode': { service: IAgentPermissionModeService, method: 'mode', readonly: true },
+    'permission:setMode': { service: IAgentPermissionModeService, method: 'setMode' },
 
-    'permissionRules:list': { service: IPermissionRulesService, method: 'rules', readonly: true },
-    'permissionRules:addRules': { service: IPermissionRulesService, method: 'addRules' },
+    'permissionRules:list': { service: IAgentPermissionRulesService, method: 'rules', readonly: true },
+    'permissionRules:addRules': { service: IAgentPermissionRulesService, method: 'addRules' },
 
-    'profile:get': { service: IProfileService, method: 'data', readonly: true },
-    'profile:getModel': { service: IProfileService, method: 'getModel', readonly: true },
+    'profile:get': { service: IAgentProfileService, method: 'data', readonly: true },
+    'profile:getModel': { service: IAgentProfileService, method: 'getModel', readonly: true },
     'profile:getSystemPrompt': {
-      service: IProfileService,
+      service: IAgentProfileService,
       method: 'getSystemPrompt',
       readonly: true,
     },
     'profile:getActiveToolNames': {
-      service: IProfileService,
+      service: IAgentProfileService,
       method: 'getActiveToolNames',
       readonly: true,
     },
-    'profile:setModel': { service: IProfileService, method: 'setModel' },
-    'profile:setThinking': { service: IProfileService, method: 'setThinking' },
+    'profile:setModel': { service: IAgentProfileService, method: 'setModel' },
+    'profile:setThinking': { service: IAgentProfileService, method: 'setThinking' },
 
-    'messages:list': { service: IContextMemory, method: 'get', readonly: true },
-    'messages:splice': { service: IContextMemory, method: 'splice' },
+    'messages:list': { service: IAgentContextMemoryService, method: 'get', readonly: true },
+    'messages:splice': { service: IAgentContextMemoryService, method: 'splice' },
 
-    'toolStore:get': { service: IToolStoreService, method: 'get', readonly: true },
-    'toolStore:data': { service: IToolStoreService, method: 'data', readonly: true },
-    'toolStore:set': { service: IToolStoreService, method: 'set' },
+    'toolStore:get': { service: IAgentToolStoreService, method: 'get', readonly: true },
+    'toolStore:data': { service: IAgentToolStoreService, method: 'data', readonly: true },
+    'toolStore:set': { service: IAgentToolStoreService, method: 'set' },
 
-    'mcp:list': { service: IMcpService, method: 'list', readonly: true },
-    'mcp:reconnect': { service: IMcpService, method: 'reconnect' },
+    'mcp:list': { service: IAgentMcpService, method: 'list', readonly: true },
+    'mcp:reconnect': { service: IAgentMcpService, method: 'reconnect' },
 
-    'tools:list': { service: IToolRegistry, method: 'list', readonly: true },
+    'tools:list': { service: IAgentToolRegistryService, method: 'list', readonly: true },
 
     // `prompts:*` is the one facade-backed group in this map: `IPromptService`
     // returns a live `Turn` handle, so it is reached through the wire-shaped
     // `IAgentRPCService` facade which surfaces the serializable `turn_id`
     // instead (see edge-exposure.md §4).
     'prompts:submit': { service: IAgentRPCService, method: 'prompt' },
+    'shell:run': { service: IAgentRPCService, method: 'runShellCommand' },
+    'shell:cancel': { service: IAgentRPCService, method: 'cancelShellCommand' },
+    'plugins:activateCommand': { service: IAgentRPCService, method: 'activatePluginCommand' },
     'prompts:steer': { service: IAgentRPCService, method: 'steer' },
     'prompts:undo': { service: IAgentRPCService, method: 'undoHistory' },
     'prompts:clear': { service: IAgentRPCService, method: 'clearContext' },

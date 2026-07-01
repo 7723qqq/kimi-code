@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { RpcWsError, WsClient } from '../src/transport/ws/wsClient';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -23,10 +24,12 @@ describe('server-v2 /api/v2/ws', () => {
   let home: string | undefined;
   let base: string;
   let wsUrl: string;
+  let token: string;
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-ws-'));
     server = await startServer({ host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    token = server.authTokenService.getToken();
     base = `http://127.0.0.1:${server.port}`;
     wsUrl = `ws://127.0.0.1:${server.port}/api/v2/ws`;
   });
@@ -45,16 +48,16 @@ describe('server-v2 /api/v2/ws', () => {
   async function createSession(cwd: string): Promise<string> {
     const res = await fetch(`${base}/api/v1/sessions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify({ metadata: { cwd } }),
-    });
+    } as never);
     const body = (await res.json()) as Envelope<{ id: string }>;
     expect(body.code).toBe(0);
     return body.data.id;
   }
 
   it('performs a core call over WS', async () => {
-    const client = new WsClient({ url: wsUrl });
+    const client = new WsClient({ url: wsUrl, token });
     const page = await client.call<{ items: unknown[] }>('core', 'sessions:list', {});
     expect(Array.isArray(page.items)).toBe(true);
     client.close();
@@ -62,7 +65,7 @@ describe('server-v2 /api/v2/ws', () => {
 
   it('performs a session call over WS', async () => {
     const id = await createSession(home as string);
-    const client = new WsClient({ url: wsUrl });
+    const client = new WsClient({ url: wsUrl, token });
     const meta = await client.call<SessionMetaWire>('session', 'session:read', undefined, {
       sessionId: id,
     });
@@ -71,7 +74,7 @@ describe('server-v2 /api/v2/ws', () => {
   });
 
   it('returns an error for an unknown action', async () => {
-    const client = new WsClient({ url: wsUrl });
+    const client = new WsClient({ url: wsUrl, token });
     await expect(client.call('core', 'sessions:nope')).rejects.toMatchObject({
       code: 40001,
     });
@@ -79,7 +82,8 @@ describe('server-v2 /api/v2/ws', () => {
   });
 
   it('streams core events via listen', async () => {
-    const client = new WsClient({ url: wsUrl });
+    const id = await createSession(home as string);
+    const client = new WsClient({ url: wsUrl, token });
     const { iterator, cancel } = client.listen<{ type: string; payload: unknown }>(
       'core',
       'events',
@@ -88,8 +92,10 @@ describe('server-v2 /api/v2/ws', () => {
     // Ensure the subscription is registered before publishing.
     await new Promise((r) => setTimeout(r, 50));
 
-    const id = await createSession(home as string);
-    await fetch(`${base}/api/v1/sessions/${id}:archive`, { method: 'POST' });
+    await fetch(`${base}/api/v1/sessions/${id}:archive`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer),
+    } as never);
 
     const iter = iterator[Symbol.asyncIterator]();
     const next = await Promise.race([
@@ -106,7 +112,7 @@ describe('server-v2 /api/v2/ws', () => {
   });
 
   it('cancels a subscription', async () => {
-    const client = new WsClient({ url: wsUrl });
+    const client = new WsClient({ url: wsUrl, token });
     const { iterator, cancel } = client.listen('core', 'events');
     await new Promise((r) => setTimeout(r, 50));
     cancel();
@@ -117,7 +123,7 @@ describe('server-v2 /api/v2/ws', () => {
   });
 
   it('rejects pending calls on close', async () => {
-    const client = new WsClient({ url: wsUrl });
+    const client = new WsClient({ url: wsUrl, token });
     const pending = client.call('core', 'sessions:list', {});
     client.close();
     await expect(pending).rejects.toThrow();

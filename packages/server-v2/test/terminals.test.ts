@@ -16,6 +16,7 @@ import { ErrorCode, type Terminal } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 // --- Fake PTY backend -------------------------------------------------------
 //
@@ -138,9 +139,9 @@ describe('server-v2 /api/v1/sessions/{sid}/terminals', () => {
   async function createSession(cwd: string): Promise<string> {
     const res = await fetch(`${base}/api/v1/sessions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify({ metadata: { cwd } }),
-    });
+    } as never);
     const body = (await res.json()) as Envelope<{ id: string }>;
     expect(body.code).toBe(0);
     return body.data.id;
@@ -149,14 +150,16 @@ describe('server-v2 /api/v1/sessions/{sid}/terminals', () => {
   async function post<T>(path: string, body: unknown): Promise<Envelope<T>> {
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
       body: JSON.stringify(body),
-    });
+    } as never);
     return (await res.json()) as Envelope<T>;
   }
 
   async function get<T>(path: string): Promise<Envelope<T>> {
-    const res = await fetch(`${base}${path}`);
+    const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     return (await res.json()) as Envelope<T>;
   }
 

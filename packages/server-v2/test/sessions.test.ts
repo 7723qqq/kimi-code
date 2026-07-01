@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -69,14 +70,19 @@ describe('server-v2 /api/v1/sessions', () => {
     const hasBody = body !== undefined;
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
-      headers: hasBody ? { 'content-type': 'application/json' } : undefined,
+      headers: authHeaders(
+        server as RunningServer,
+        hasBody ? { 'content-type': 'application/json' } : {},
+      ),
       body: hasBody ? JSON.stringify(body) : undefined,
-    });
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`);
+    const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
@@ -146,6 +152,18 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(body.code).toBe(0);
     expect(body.data.items.some((s) => s.id === created.body.data.id)).toBe(true);
     expect(typeof body.data.has_more).toBe('boolean');
+  });
+
+  it('supports exclude_empty when listing sessions', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+
+    const all = await getJson<PageWire>('/api/v1/sessions');
+    expect(all.body.data.items.some((s) => s.id === created.body.data.id)).toBe(true);
+
+    const filtered = await getJson<PageWire>('/api/v1/sessions?exclude_empty=true');
+    expect(filtered.body.code).toBe(0);
+    expect(filtered.body.data.items.some((s) => s.id === created.body.data.id)).toBe(false);
   });
 
   it('gets a session by id and 404s for unknown', async () => {

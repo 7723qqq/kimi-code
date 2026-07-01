@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -36,14 +37,19 @@ interface HomeWire {
 describe('server-v2 /api/v1 fs folder picker', () => {
   let server: RunningServer | undefined;
   let home: string | undefined;
+  let lockDir: string | undefined;
   let base: string;
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-'));
+    // Keep the single-instance lock OUTSIDE the browsed homeDir (mirrors v1's
+    // isolated-lock harness) so the folder picker only sees the test fixtures.
+    lockDir = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-lock-'));
     server = await startServer({
       host: '127.0.0.1',
       port: 0,
       homeDir: home,
+      lockPath: join(lockDir, 'lock'),
       logLevel: 'silent',
     });
     base = `http://127.0.0.1:${server.port}`;
@@ -58,10 +64,16 @@ describe('server-v2 /api/v1 fs folder picker', () => {
       await rm(home, { recursive: true, force: true });
       home = undefined;
     }
+    if (lockDir !== undefined) {
+      await rm(lockDir, { recursive: true, force: true });
+      lockDir = undefined;
+    }
   });
 
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`);
+    const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
@@ -72,9 +84,12 @@ describe('server-v2 /api/v1 fs folder picker', () => {
     const hasBody = body !== undefined;
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
-      headers: hasBody ? { 'content-type': 'application/json' } : undefined,
+      headers: authHeaders(
+        server as RunningServer,
+        hasBody ? { 'content-type': 'application/json' } : {},
+      ),
       body: hasBody ? JSON.stringify(body) : undefined,
-    });
+    } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
@@ -92,7 +107,9 @@ describe('server-v2 /api/v1 fs folder picker', () => {
     // the wire as single-colon `/fs:browse`; the double-colon form 404s. This
     // guards against reintroducing a `/fs:action` parametric dispatcher that
     // would accept the non-v1 double-colon URL.
-    const res = await fetch(`${base}/api/v1/fs::browse`);
+    const res = await fetch(`${base}/api/v1/fs::browse`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     expect(res.status).toBe(404);
   });
 

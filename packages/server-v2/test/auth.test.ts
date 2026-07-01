@@ -6,6 +6,7 @@ import { authSummarySchema, type AuthSummary } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { authedFetch } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -48,7 +49,7 @@ describe('server-v2 GET /api/v1/auth', () => {
   }
 
   async function getAuth(): Promise<AuthSummary> {
-    const res = await fetch(`${base}/api/v1/auth`);
+    const res = await authedFetch(server as RunningServer, base, '/api/v1/auth');
     expect(res.status).toBe(200);
     const body = (await res.json()) as Envelope<AuthSummary>;
     expect(body.code).toBe(0);
