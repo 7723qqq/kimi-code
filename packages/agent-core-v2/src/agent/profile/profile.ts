@@ -2,10 +2,10 @@ import type {
   ChatProvider,
   ModelCapability,
   ProviderConfig,
+  ThinkingEffort,
 } from '@moonshot-ai/kosong';
 
 import { createDecorator } from "#/_base/di";
-import type { ThinkingEffort } from '#/app/config/thinking';
 import type { ToolSource } from '#/agent/tool';
 
 /**
