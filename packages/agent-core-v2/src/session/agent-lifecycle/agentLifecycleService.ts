@@ -15,7 +15,7 @@ import { Emitter } from '#/_base/event';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import {
   createScopedChildHandle,
-  type IScopeHandle,
+  type IAgentScopeHandle,
   LifecycleScope,
   registerScopedService,
 } from '#/_base/di/scope';
@@ -48,8 +48,8 @@ let nextAgentId = 0;
 
 export class AgentLifecycleService extends Disposable implements IAgentLifecycleService {
   declare readonly _serviceBrand: undefined;
-  private readonly handles = new Map<string, IScopeHandle>();
-  private readonly onDidCreateEmitter = this._register(new Emitter<IScopeHandle>());
+  private readonly handles = new Map<string, IAgentScopeHandle>();
+  private readonly onDidCreateEmitter = this._register(new Emitter<IAgentScopeHandle>());
   private readonly onDidDisposeEmitter = this._register(new Emitter<string>());
   private mcpManager: McpConnectionManager | undefined;
 
@@ -72,7 +72,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     super();
   }
 
-  async create(opts: CreateAgentOptions): Promise<IScopeHandle> {
+  async create(opts: CreateAgentOptions): Promise<IAgentScopeHandle> {
     const agentId = opts.agentId ?? `agent-${nextAgentId++}`;
     // Per-agent homedir → the wire-record persistence key (`hashKey(homedir)`).
     // Co-located under the session dir, mirroring v1's `<sessionDir>/agents/<id>`.
@@ -95,7 +95,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
           [IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService, [{}], true)],
         ],
       },
-    );
+    ) as IAgentScopeHandle;
     this.handles.set(agentId, handle);
     // Record the agent in the session registry so a closed-session fork can
     // enumerate every agent and relocate its wire log.
@@ -114,7 +114,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     return handle;
   }
 
-  async createMain(): Promise<IScopeHandle> {
+  async createMain(): Promise<IAgentScopeHandle> {
     const handle = await this.create({ agentId: 'main' });
     // Force-instantiate the plugin session-start injector so it registers its
     // turn-cadence injection before the first turn. Main-agent only, matching
@@ -123,7 +123,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     return handle;
   }
 
-  async fork(parentAgentId: string): Promise<IScopeHandle> {
+  async fork(parentAgentId: string): Promise<IAgentScopeHandle> {
     const parent =
       this.handles.get(parentAgentId) ??
       (parentAgentId === 'main' ? await this.createMain() : undefined);
@@ -173,11 +173,11 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     await manager.connectAll(servers);
   }
 
-  getHandle(agentId: string): IScopeHandle | undefined {
+  getHandle(agentId: string): IAgentScopeHandle | undefined {
     return this.handles.get(agentId);
   }
 
-  list(): readonly IScopeHandle[] {
+  list(): readonly IAgentScopeHandle[] {
     return [...this.handles.values()];
   }
 
