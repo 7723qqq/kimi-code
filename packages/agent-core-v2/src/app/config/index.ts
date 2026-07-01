@@ -6,4 +6,3 @@
 
 export * from './config';
 export * from './configService';
-export * from './thinking';

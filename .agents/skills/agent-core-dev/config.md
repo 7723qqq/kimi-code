@@ -89,7 +89,7 @@ pass `ConfigTarget.Memory` for a per-run override that is never written to disk.
 - `src/config/config.ts` — `IConfigRegistry` / `IConfigService` tokens, `ConfigSection`, `ConfigEffectiveOverlay`, event types.
 - `src/config/configService.ts` — `ConfigRegistry` + `ConfigService` impl; self-registers at App scope.
 - `src/config/toml.ts` — generic snake_case ↔ camelCase machinery plus the registry-aware `transformTomlData` / `applySectionToToml` entry points. Per-domain normalization lives in the section owner's `configSection.ts` (registered as `fromToml` / `toToml`); this module stays free of any other domain's semantics.
-- `src/config/thinking.ts` — `resolveThinkingEffort` / `resolveThinkingLevel` helpers (own a local `ThinkingConfigDefaults` structural type; do not import `profile`).
+- `src/profile/thinking.ts` (owner domain, not `config`) — `resolveThinkingEffort` / `resolveThinkingLevel` helpers; uses the authoritative `ThinkingConfig` from `configSection.ts`.
 - `src/config/configPure.ts` — `isPlainObject`, `deepMerge`, `omitUndefined`, `describeUnknownError`.
 
 A domain that owns a section keeps the schema in its own `configSection.ts` (e.g. `src/flag/flag.ts` for `experimental`, `src/profile/configSection.ts` for `thinking`, `src/loop/configSection.ts` for `loopControl`). A cross-section env overlay (e.g. the `KIMI_MODEL_*` synthesis) lives in the owning domain too (`src/provider/envOverlay.ts`) and is registered via `IConfigRegistry.registerEffectiveOverlay`.

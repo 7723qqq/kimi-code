@@ -16,13 +16,14 @@ import {
   type ChatProvider,
   type ModelCapability,
   type ProviderConfig,
+  type ThinkingEffort,
 } from '@moonshot-ai/kosong';
 import picomatch from 'picomatch';
 
 import { ErrorCodes, KimiError } from "#/errors";
 import { IBootstrapService } from '#/app/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/app/config';
-import { resolveThinkingEffort, type ThinkingEffort } from '#/app/config/thinking';
+import { resolveThinkingEffort } from './thinking';
 import { applyKimiModelOverrides, IChatProviderFactory, type KimiModelOverrides } from '#/app/chatProvider';
 import type { LoopControl } from '#/agent/loop/configSection';
 import { IKaos } from '#/app/kaos';

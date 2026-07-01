@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveThinkingEffort,
   resolveThinkingLevel,
-} from '#/app/config/thinking';
+} from '#/agent/profile/thinking';
 
-describe('config/thinking', () => {
+describe('profile/thinking', () => {
   describe('resolveThinkingEffort', () => {
     it('returns config effort when no request', () => {
       expect(resolveThinkingEffort(undefined, { effort: 'low' })).toBe('low');
