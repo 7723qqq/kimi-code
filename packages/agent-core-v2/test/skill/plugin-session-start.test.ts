@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { IAgentContextInjectorService } from '#/contextInjector';
-import type { ContextMessage } from '#/contextMemory';
-import type { LogContext, LogPayload } from '#/log';
-import type { EnabledPluginSessionStart } from '#/plugin/types';
-import { InMemorySkillCatalog } from '#/skill';
-import type { SkillDefinition } from '#/skill/types';
+import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import type { ContextMessage } from '#/agent/contextMemory';
+import type { LogContext, LogPayload } from '#/app/log';
+import type { EnabledPluginSessionStart } from '#/app/plugin/types';
+import { InMemorySkillCatalog } from '#/app/globalSkillCatalog';
+import type { SkillDefinition } from '#/app/globalSkillCatalog/types';
 import { testAgent } from '../harness';
 import { stubSkill } from './stubs';
 

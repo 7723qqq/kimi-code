@@ -13,12 +13,12 @@ import {
   ILogService,
   ILogWriterService,
   levelEnabled,
-} from '#/log/log';
+} from '#/app/log/log';
 import {
   ConsoleLogWriterService,
   LogService,
   MemoryLogWriterService,
-} from '#/log/logService';
+} from '#/app/log/logService';
 
 describe('LogService', () => {
   let disposables: DisposableStore;

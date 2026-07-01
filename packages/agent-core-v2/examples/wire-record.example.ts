@@ -25,9 +25,9 @@ import { afterEach, beforeEach, describe, test } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { FileStorageService, IAppendLogStorage, IAppendLogStore, AppendLogStore } from '#/storage';
-import { AgentWireRecordService, type IAgentWireRecordService } from '#/wireRecord';
-import '#/swarm/swarm';
+import { FileStorageService, IAppendLogStorage, IAppendLogStore, AppendLogStore } from '#/app/storage';
+import { AgentWireRecordService, type IAgentWireRecordService } from '#/agent/wireRecord';
+import '#/agent/swarm/swarm';
 
 const textDecoder = new TextDecoder();
 

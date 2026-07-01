@@ -9,11 +9,11 @@ import {
   type ToolResult,
   type ToolUpdate,
   type ToolWillExecuteContext,
-} from '#/tool';
+} from '#/agent/tool';
 import { OrderedHookSlot } from '#/hooks';
-import type { ILogger as Logger } from '#/log';
-import { createLoopEventDispatcher, runTurn as runTurnImpl, type LLM, type LLMChatParams, type LLMChatResponse, type LoopEvent, type LoopHooks, type LoopLiveEventEmitter, type LoopMessageBuilder, type LoopRecordedEvent, type LoopStepStopReason, type RunTurnInput, type TurnResult } from '#/loop';
-import type { IAgentToolExecutorService } from '#/toolExecutor';
+import type { ILogger as Logger } from '#/app/log';
+import { createLoopEventDispatcher, runTurn as runTurnImpl, type LLM, type LLMChatParams, type LLMChatResponse, type LoopEvent, type LoopHooks, type LoopLiveEventEmitter, type LoopMessageBuilder, type LoopRecordedEvent, type LoopStepStopReason, type RunTurnInput, type TurnResult } from '#/agent/loop';
+import type { IAgentToolExecutorService } from '#/agent/toolExecutor';
 
 export type FakeOutputPart = TextPart | ThinkPart;
 

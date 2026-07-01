@@ -11,7 +11,7 @@ import {
   ITelemetryService,
   type TelemetryContextPatch,
   type TelemetryProperties,
-} from '#/telemetry/telemetry';
+} from '#/app/telemetry/telemetry';
 
 export interface TelemetryRecord {
   readonly event: string;

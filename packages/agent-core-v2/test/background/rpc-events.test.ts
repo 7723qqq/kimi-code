@@ -16,12 +16,12 @@ import {
   type BackgroundTaskInfo,
   IAgentBackgroundService,
   ProcessBackgroundTask,
-} from '#/background';
-import { IAgentContextMemoryService } from '#/contextMemory';
-import { IAgentEventSinkService } from '#/eventSink';
-import type { HookEngine } from '#/externalHooks/engine';
-import { IAgentPromptService } from '#/prompt';
-import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
+} from '#/agent/background';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentEventSinkService } from '#/agent/eventSink';
+import type { HookEngine } from '#/agent/externalHooks/engine';
+import { IAgentPromptService } from '#/agent/prompt';
+import type { SessionSubagentHost, SubagentHandle } from '#/session/subagentHost';
 import {
   configServices,
   createTestAgent,

@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
-import { AgentContextMemoryService } from '#/contextMemory/contextMemoryService';
-import { IAgentReplayBuilderService } from '#/replayBuilder';
-import { IAgentWireRecordService } from '#/wireRecord';
+import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
+import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
+import { IAgentWireRecordService } from '#/agent/wireRecord';
 import { stubReplayBuilder, stubWireRecord } from '../contextMemory/stubs';
 
 function textMessage(role: ContextMessage['role'], text: string): ContextMessage {

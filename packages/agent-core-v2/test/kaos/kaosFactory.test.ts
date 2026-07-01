@@ -7,7 +7,7 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
-import { IKaosFactory, KaosFactory } from '#/kaos';
+import { IKaosFactory, KaosFactory } from '#/app/kaos';
 
 describe('KaosFactory', () => {
   beforeEach(() => {

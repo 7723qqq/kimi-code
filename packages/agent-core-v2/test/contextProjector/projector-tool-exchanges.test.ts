@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { project, trimTrailingOpenToolExchange } from '#/contextProjector';
-import type { ContextMessage } from '#/contextMemory';
+import { project, trimTrailingOpenToolExchange } from '#/agent/contextProjector';
+import type { ContextMessage } from '#/agent/contextMemory';
 
 // Unit tests for how the projector normalizes tool exchanges: results are
 // pulled up right after their call, messages that landed between a call and its

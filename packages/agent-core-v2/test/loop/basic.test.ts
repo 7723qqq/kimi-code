@@ -2,7 +2,7 @@ import { emptyUsage, type ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService } from '#/index';
-import { IAgentLLMRequesterService, type LLMEvent } from '#/llmRequester';
+import { IAgentLLMRequesterService, type LLMEvent } from '#/agent/llmRequester';
 import {
   IAgentLoopService,
   runTurn,
@@ -10,10 +10,10 @@ import {
   type LLMStreamTiming,
   type LoopEvent,
   type LoopEventDispatcher,
-} from '#/loop';
-import type { ExecutableTool } from '#/tool';
-import { IAgentToolExecutorService } from '#/toolExecutor';
-import { IAgentToolRegistryService } from '#/toolRegistry';
+} from '#/agent/loop';
+import type { ExecutableTool } from '#/agent/tool';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 
 import { agentService, createTestAgent, type TestAgentContext } from '../harness';
 

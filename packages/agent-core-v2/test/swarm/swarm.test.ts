@@ -3,23 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextMemoryService } from '#/contextMemory';
-import { IAgentEventSinkService } from '../../src/eventSink';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentEventSinkService } from '#/agent/eventSink';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   ISessionSubagentHost,
   type QueuedSubagentRunResult,
   type QueuedSubagentTask,
-} from '#/subagentHost';
-import { IAgentSystemReminderService } from '#/systemReminder';
-import { AgentSystemReminderService } from '#/systemReminder/systemReminderService';
-import { IAgentSwarmService } from '#/swarm';
-import { AgentSwarmService } from '#/swarm/swarmService';
-import { AgentSwarmTool, AgentSwarmToolInputSchema } from '#/swarm/tools/agent-swarm';
-import type { ExecutableToolContext } from '#/tool';
-import { IAgentToolRegistryService, AgentToolRegistryService } from '#/toolRegistry';
-import { IAgentTurnService } from '#/turn';
-import { IAgentWireRecordService } from '#/wireRecord';
+} from '#/session/subagentHost';
+import { IAgentSystemReminderService } from '#/agent/systemReminder';
+import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
+import { IAgentSwarmService } from '#/agent/swarm';
+import { AgentSwarmService } from '#/agent/swarm/swarmService';
+import { AgentSwarmTool, AgentSwarmToolInputSchema } from '#/agent/swarm/tools/agent-swarm';
+import type { ExecutableToolContext } from '#/agent/tool';
+import { IAgentToolRegistryService, AgentToolRegistryService } from '#/agent/toolRegistry';
+import { IAgentTurnService } from '#/agent/turn';
+import { IAgentWireRecordService } from '#/agent/wireRecord';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
 import { executeTool } from '../tools/fixtures/execute-tool';

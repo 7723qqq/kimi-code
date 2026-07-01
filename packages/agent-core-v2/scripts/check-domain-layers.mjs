@@ -44,6 +44,7 @@ const DOMAIN_LAYER = new Map([
   ['kaos', 0],
   // L1 — abstraction bridges & low-level capabilities
   ['log', 1],
+  ['sessionLog', 1],
   ['telemetry', 1],
   ['bootstrap', 1],
   ['hostFs', 1],
@@ -70,6 +71,8 @@ const DOMAIN_LAYER = new Map([
   // L3 — registries & capabilities
   ['tool', 3],
   ['skill', 3],
+  ['globalSkillCatalog', 3],
+  ['sessionSkillCatalog', 3],
   ['permissionGate', 3],
   ['flag', 3],
   ['toolExecutor', 3],
@@ -130,6 +133,7 @@ const DOMAIN_LAYER = new Map([
   ['event', 7],
   ['approval', 7],
   ['question', 7],
+  ['questionTools', 7],
   ['gateway', 7],
   ['rpc', 7],
   ['promptLegacy', 7],
@@ -141,6 +145,29 @@ const DOMAIN_LAYER = new Map([
 const V1_PACKAGE = '@moonshot-ai/agent-core';
 
 /**
+ * Scope directories introduced by the `src/{scope}/{domain}` layout. A path's
+ * first segment is a scope tier, not a domain; the domain is the next segment.
+ */
+const SCOPE_DIRS = new Set(['app', 'session', 'agent']);
+
+/**
+ * Resolve a `src/`-relative path to its domain, skipping the scope tier when
+ * present. Returns `undefined` for top-level root files (e.g. the package
+ * barrel `index.ts`, or the `errors`/`hooks` facades), which are exempt.
+ * @param {string} rel
+ */
+function domainFromRel(rel, { exemptRootFile }) {
+  const segments = rel.split(/[\\/]/);
+  if (SCOPE_DIRS.has(segments[0])) {
+    // `src/{scope}/{domain}/…`
+    return segments[1];
+  }
+  // Top-level `src/*.ts` facades are not domains — exempt from layering.
+  if (exemptRootFile && segments.length < 2) return undefined;
+  return segments[0];
+}
+
+/**
  * Deliberate, documented exceptions to the strict low→high layering rule.
  * Each entry is `[fromDomain, toDomain]`.
  *
@@ -150,9 +177,9 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  * shape for several of them. They are surfaced here (and in the dependency
  * report) for review rather than hidden.
  *
- *  - `bootstrap>skill`        : composition root wires the skill catalog Store
- *                              to its filesystem backend (same role as the
- *                              storage backend bindings).
+ *  - `bootstrap>globalSkillCatalog` : composition root wires the skill catalog
+ *                              Store to its filesystem backend (same role as
+ *                              the storage backend bindings).
  *
  *  - `permissionGate>approval`  : permissionGate(Agent) requests approval(Session broker).
  *  - `userTool>interaction`     : userTool(Agent) requests host-side execution
@@ -177,7 +204,7 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  * layering violation to fix here.
  */
 const ALLOWED_EXCEPTIONS = new Set([
-  'bootstrap>skill',
+  'bootstrap>globalSkillCatalog',
   'permissionGate>approval',
   'userTool>interaction',
   'skill>turn',
@@ -234,24 +261,20 @@ const IMPORT_RE =
 function domainOf(absPath) {
   const rel = relative(SRC_ROOT, absPath);
   if (rel.startsWith('..') || rel === '') return undefined;
-  const segments = rel.split(/[\\/]/);
-  // Top-level `src/*.ts` files (e.g. the package barrel `index.ts`) are not
-  // domains — they re-export other domains and are exempt from layering.
-  if (segments.length < 2) return undefined;
-  return segments[0];
+  return domainFromRel(rel, { exemptRootFile: true });
 }
 
 /**
  * Determine the v2 domain for an *import target* absolute path. Unlike
  * {@link domainOf} (which is for source files and exempts top-level barrels),
  * a target may resolve straight to a domain directory — e.g. the bare domain
- * import `#/turn` resolves to `src/turn`, whose domain is `turn`.
+ * import `#/turn` resolves to `src/agent/turn`, whose domain is `turn`.
  * @param {string} targetAbs
  */
 function targetDomainOf(targetAbs) {
   const rel = relative(SRC_ROOT, targetAbs);
   if (rel.startsWith('..') || rel === '') return undefined;
-  return rel.split(/[\\/]/)[0];
+  return domainFromRel(rel, { exemptRootFile: false });
 }
 
 /**

@@ -1,0 +1,449 @@
+/**
+ * `cron` domain (L5) — `AgentCronService` implementation.
+ *
+ * Owns the agent's cron task set: schedules and fires due tasks (steering
+ * the agent through `prompt`), persists task records through the `cron`
+ * persistence helper (over the `storage` atomic-document store), mirrors
+ * mutations onto `wireRecord` for replay, and registers the cron tools into
+ * `toolRegistry`. Bound at Agent scope.
+ */
+
+import type { ContentPart } from '@moonshot-ai/kosong';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+
+import {
+  Disposable,
+  toDisposable,
+} from "#/_base/di";
+import type { ContextMessage } from '#/agent/contextMemory';
+import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IConfigRegistry, IConfigService } from '#/app/config';
+import { IAgentPromptService } from '#/agent/prompt';
+import { IAtomicDocumentStore } from '#/app/storage';
+import { ITelemetryService } from '#/app/telemetry';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import type { Turn } from '#/agent/turn';
+import { IAgentTurnService } from '#/agent/turn';
+import { IAgentWireRecordService } from '#/agent/wireRecord';
+import {
+  IAgentCronService,
+  type CronFireOptions,
+  type CronLoadOptions,
+  type CronOptions,
+  type CronPersistence,
+  type CronTaskInit,
+} from './cron';
+import {
+  CRON_SECTION,
+  type CronConfig,
+  cronEnvBindings,
+  DEFAULT_CRON_CONFIG,
+  stripCronEnv,
+} from './configSection';
+import {
+  resolveClockSources,
+  SYSTEM_CLOCKS,
+  type ClockSources,
+} from '#/agent/cron/tools/clock';
+import { CronCreateTool } from '#/agent/cron/tools/cron-create';
+import { CronDeleteTool } from '#/agent/cron/tools/cron-delete';
+import { renderCronFireXml } from '#/agent/cron/tools/cron-fire-xml';
+import { CronListTool } from '#/agent/cron/tools/cron-list';
+import { createCronPersistStore } from '#/agent/cron/tools/persist';
+import {
+  createCronScheduler,
+  type CronScheduler,
+} from '#/agent/cron/tools/scheduler';
+import { SessionCronStore } from '#/agent/cron/tools/session-store';
+import {
+  CRON_DELETED,
+  CRON_FIRED,
+  CRON_MISSED,
+  CRON_SCHEDULED,
+} from '#/agent/cron/tools/telemetry-events';
+import type { CronTask, CronToolManager } from '#/agent/cron/tools/types';
+import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';
+
+declare module '#/agent/wireRecord' {
+  interface WireRecordMap {
+    'cron.add': {
+      task: CronTask;
+    };
+    'cron.delete': {
+      ids: readonly string[];
+    };
+    'cron.cursor': {
+      id: string;
+      lastFiredAt: number;
+    };
+  }
+}
+
+const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
+
+export class AgentCronService
+  extends Disposable
+  implements IAgentCronService, CronToolManager {
+  declare readonly _serviceBrand: undefined;
+
+  readonly store = new SessionCronStore();
+  readonly clocks: ClockSources;
+
+  private readonly enabled: boolean;
+  private cronConfig: CronConfig;
+  private readonly scheduler: CronScheduler | undefined;
+  private readonly persistStore: CronPersistence | undefined;
+  private readonly persistQueues = new Map<string, Promise<void>>();
+  private started = false;
+  private sigusr1Handler: NodeJS.SignalsListener | null = null;
+
+  constructor(
+    options: CronOptions = {},
+    @IAgentPromptService private readonly prompt: IAgentPromptService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @IConfigRegistry configRegistry: IConfigRegistry,
+    @IConfigService private readonly config: IConfigService,
+    @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
+  ) {
+    super();
+    this.enabled = options.isSubagent !== true;
+    configRegistry.registerSection(CRON_SECTION, { parse: (v) => v as CronConfig }, {
+      defaultValue: DEFAULT_CRON_CONFIG,
+      env: cronEnvBindings,
+      stripEnv: stripCronEnv,
+    });
+    this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
+    this._register(
+      this.config.onDidChange((e) => {
+        if (e.domain === CRON_SECTION) {
+          this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
+        }
+      }),
+    );
+    this.clocks =
+      resolveClockSources(this.cronConfig.clock, this.cronConfig.debug) ??
+      SYSTEM_CLOCKS;
+    this.persistStore = this.enabled ? createCronPersistStore(this.atomicDocs) : undefined;
+
+    this._register(
+      wireRecord.register('cron.add', (record) => {
+        if (this.enabled) this.store.adopt(record.task);
+      }),
+    );
+    this._register(
+      wireRecord.register('cron.delete', (record) => {
+        if (this.enabled) this.store.remove(record.ids);
+      }),
+    );
+    this._register(
+      wireRecord.register('cron.cursor', (record) => {
+        if (this.enabled) this.store.markFired(record.id, record.lastFiredAt);
+      }),
+    );
+    this._register(
+      wireRecord.hooks.onResumeEnded.register(
+        'cron-lifecycle-resume',
+        async (_ctx, next) => {
+          await this.loadFromDisk({ replace: false });
+          this.start();
+          await next();
+        },
+      ),
+    );
+
+    if (this.enabled) {
+      this.scheduler = createCronScheduler({
+        clocks: this.clocks,
+        source: () => this.store.list(),
+        isIdle: () => this.turnService.getActiveTurn() === undefined,
+        isKilled: () => this.cronConfig.disabled,
+        onFire: (task, ctx) => {
+          this.handleFire(task, ctx);
+        },
+        removeOneShot: (id) => {
+          this.removeTasks([id]);
+        },
+        onAdvanceCursor: (id, lastFiredAt) => {
+          this.advanceCursor(id, lastFiredAt);
+        },
+        pollIntervalMs:
+          this.cronConfig.manualTick
+            ? null
+            : this.cronConfig.pollIntervalMs,
+        debug: this.cronConfig.debug,
+        noJitter: this.cronConfig.noJitter,
+      });
+
+      this._register(this.toolRegistry.register(new CronCreateTool(this, this.cronConfig.disabled)));
+      this._register(this.toolRegistry.register(new CronListTool(this)));
+      this._register(this.toolRegistry.register(new CronDeleteTool(this)));
+
+      this.start();
+    }
+
+    this._register(
+      toDisposable(() => {
+        void this.stop();
+      }),
+    );
+  }
+
+  get isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  addTask(init: CronTaskInit): CronTask {
+    const task = this.store.add(init, this.clocks.wallNow());
+    this.wireRecord.append({ type: 'cron.add', task });
+    this.persistEnqueue(task.id, () => this.persistStore!.write(task.id, task));
+    return task;
+  }
+
+  removeTasks(ids: readonly string[]): readonly string[] {
+    const removed = this.store.remove(ids);
+    if (removed.length === 0) return removed;
+
+    this.wireRecord.append({ type: 'cron.delete', ids: removed });
+    for (const id of removed) {
+      this.persistEnqueue(id, () => this.persistStore!.remove(id));
+    }
+    return removed;
+  }
+
+  private removeTasksSilent(ids: readonly string[]): readonly string[] {
+    const removed = this.store.remove(ids);
+    if (removed.length === 0) return removed;
+
+    for (const id of removed) {
+      this.persistEnqueue(id, () => this.persistStore!.remove(id));
+    }
+    return removed;
+  }
+
+  getTask(id: string): CronTask | undefined {
+    return this.store.get(id);
+  }
+
+  list(): readonly CronTask[] {
+    return this.store.list();
+  }
+
+  async loadFromDisk(options: CronLoadOptions = {}): Promise<void> {
+    if (!this.enabled || this.persistStore === undefined) return;
+    const tasks = await this.persistStore.list();
+    if (options.replace !== false) {
+      this.store.clear();
+    }
+    for (const task of tasks) {
+      this.store.adopt(task);
+    }
+  }
+
+  start(): void {
+    if (!this.enabled || this.started) return;
+    this.started = true;
+    this.scheduler?.start();
+    this.bindSigusr1();
+  }
+
+  async stop(): Promise<void> {
+    this.unbindSigusr1();
+    await this.scheduler?.stop();
+    await this.flushPersist();
+    this.started = false;
+  }
+
+  tick(): void {
+    this.scheduler?.tick();
+  }
+
+  getNextFireTime(): number | null {
+    return this.scheduler?.getNextFireTime() ?? null;
+  }
+
+  getNextFireForTask(taskId: string): number | null {
+    return this.scheduler?.getNextFireForTask(taskId) ?? null;
+  }
+
+  fire(id: string, options: CronFireOptions = {}): Turn | undefined {
+    if (!this.enabled) return undefined;
+    const task = this.store.get(id);
+    if (task === undefined) return undefined;
+
+    const firedAt = options.firedAt ?? this.clocks.wallNow();
+    const stale = this.isStaleAt(task, firedAt);
+    const turn = this.deliverFire(task, {
+      coalescedCount: options.coalescedCount ?? 1,
+      firedAt,
+    });
+    if (task.recurring === false) {
+      this.removeTasksSilent([task.id]);
+    } else if (stale) {
+      const removed = this.removeTasks([task.id]);
+      if (removed.length > 0) {
+        this.emitDeleted(task.id);
+      }
+    } else {
+      this.advanceCursor(task.id, firedAt);
+    }
+    return turn;
+  }
+
+  isStale(task: CronTask): boolean {
+    return this.isStaleAt(task, this.clocks.wallNow());
+  }
+
+  handleMissed(
+    tasks: readonly CronTask[],
+    renderMissedNotification: (
+      tasks: readonly CronTask[],
+    ) => readonly ContentPart[],
+  ): Turn | undefined {
+    if (!this.enabled || tasks.length === 0) return undefined;
+    const origin: CronMissedOrigin = {
+      kind: 'cron_missed',
+      count: tasks.length,
+    };
+    const message: ContextMessage = {
+      role: 'user',
+      content: [...renderMissedNotification(tasks)],
+      toolCalls: [],
+      origin,
+    };
+    const turn = this.prompt.steer(message);
+    this.telemetry.track(CRON_MISSED, { count: tasks.length });
+    return turn;
+  }
+
+  emitScheduled(task: CronTask): void {
+    this.telemetry.track(CRON_SCHEDULED, {
+      recurring: task.recurring !== false,
+    });
+  }
+
+  emitDeleted(taskId: string): void {
+    this.telemetry.track(CRON_DELETED, { task_id: taskId });
+  }
+
+  async flushPersist(): Promise<void> {
+    const inFlight = Array.from(this.persistQueues.values());
+    await Promise.allSettled(inFlight);
+  }
+
+  private handleFire(
+    task: CronTask,
+    ctx: { readonly coalescedCount: number },
+  ): void {
+    const firedAt = this.clocks.wallNow();
+    const stale = this.isStaleAt(task, firedAt);
+    this.deliverFire(task, {
+      coalescedCount: ctx.coalescedCount,
+      firedAt,
+    });
+    if (stale && task.recurring !== false) {
+      const removed = this.removeTasks([task.id]);
+      if (removed.length > 0) this.emitDeleted(task.id);
+    }
+  }
+
+  private deliverFire(
+    task: CronTask,
+    ctx: { readonly coalescedCount: number; readonly firedAt: number },
+  ): Turn | undefined {
+    const origin: CronJobOrigin = {
+      kind: 'cron_job',
+      jobId: task.id,
+      cron: task.cron,
+      recurring: task.recurring !== false,
+      coalescedCount: ctx.coalescedCount,
+      stale: this.isStaleAt(task, ctx.firedAt),
+    };
+    const message: ContextMessage = {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: renderCronFireXml(origin, task.prompt),
+        },
+      ],
+      toolCalls: [],
+      origin,
+    };
+    this.events.emit({ type: 'cron.fired', origin, prompt: task.prompt });
+    const turn = this.prompt.steer(message);
+    this.telemetry.track(CRON_FIRED, {
+      recurring: task.recurring !== false,
+      coalesced_count: ctx.coalescedCount,
+      stale: origin.stale,
+      buffered: turn === undefined,
+    });
+    return turn;
+  }
+
+  private advanceCursor(id: string, lastFiredAt: number): void {
+    const updated = this.store.markFired(id, lastFiredAt);
+    if (updated === undefined) return;
+
+    this.wireRecord.append({ type: 'cron.cursor', id, lastFiredAt });
+    this.persistEnqueue(id, () => this.persistStore!.write(id, updated));
+  }
+
+  private isStaleAt(task: CronTask, now: number): boolean {
+    if (this.cronConfig.noStale) return false;
+    if (task.recurring === false) return false;
+    const age = now - task.createdAt;
+    return Number.isFinite(age) && age >= STALE_THRESHOLD_MS;
+  }
+
+  private persistEnqueue(id: string, work: () => Promise<void>): void {
+    if (this.persistStore === undefined) return;
+    const prev = this.persistQueues.get(id) ?? Promise.resolve();
+    const next = prev
+      .catch(() => { })
+      .then(() => work())
+      .catch(() => { })
+      .finally(() => {
+        if (this.persistQueues.get(id) === next) {
+          this.persistQueues.delete(id);
+        }
+      });
+    this.persistQueues.set(id, next);
+  }
+
+  private bindSigusr1(): void {
+    if (process.platform === 'win32') return;
+    if (!this.cronConfig.manualTick) return;
+    if (this.sigusr1Handler !== null) return;
+    const handler: NodeJS.SignalsListener = () => {
+      try {
+        this.tick();
+      } catch (error) {
+        if (this.cronConfig.debug) {
+          const msg = error instanceof Error ? error.message : String(error);
+          process.stderr.write(`[cron/service] SIGUSR1 tick threw: ${msg}\n`);
+        }
+      }
+    };
+    this.sigusr1Handler = handler;
+    process.on('SIGUSR1', handler);
+  }
+
+  private unbindSigusr1(): void {
+    if (this.sigusr1Handler === null) return;
+    process.off('SIGUSR1', this.sigusr1Handler);
+    this.sigusr1Handler = null;
+  }
+}
+
+registerScopedService(
+  LifecycleScope.Agent,
+  IAgentCronService,
+  AgentCronService,
+  InstantiationType.Delayed,
+  'cron',
+);

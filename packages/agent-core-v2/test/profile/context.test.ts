@@ -5,8 +5,8 @@ import { join } from 'pathe';
 import { LocalKaos, type Environment, type Kaos } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { IKaos, PathClass } from '#/kaos';
-import { loadAgentsMd, prepareSystemPromptContext } from '#/profile';
+import type { IKaos, PathClass } from '#/app/kaos';
+import { loadAgentsMd, prepareSystemPromptContext } from '#/agent/profile';
 
 const TEST_OS_ENV: Environment = {
   osKind: 'Linux',

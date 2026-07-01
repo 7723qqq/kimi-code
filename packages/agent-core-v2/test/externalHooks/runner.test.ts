@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { runHook } from '#/externalHooks/runner';
+import { runHook } from '#/agent/externalHooks/runner';
 
 function nodeCommand(source: string): string {
   return `node -e ${JSON.stringify(source.replace(/\s*\n\s*/g, ' '))}`;

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
-import { IAgentContextInjectorService } from '#/contextInjector';
-import { IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
-import { IAgentPlanService } from '#/plan';
+import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import { IAgentPlanService } from '#/agent/plan';
 import {
   createTestAgent,
   kaosServices,

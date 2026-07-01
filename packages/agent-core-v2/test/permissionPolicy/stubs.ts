@@ -10,7 +10,7 @@
 import type {
   IAgentPermissionPolicyService,
   PermissionPolicyEvaluation,
-} from '#/permissionPolicy';
+} from '#/agent/permissionPolicy';
 
 export function stubPermissionPolicyService(
   next: () => PermissionPolicyEvaluation | undefined,

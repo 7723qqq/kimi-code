@@ -2,9 +2,9 @@ import { Readable, Writable } from 'node:stream';
 
 import { describe, expect, it } from 'vitest';
 
-import { type IProcess, type ISessionProcessRunner } from '#/process';
+import { type IProcess, type ISessionProcessRunner } from '#/session/process';
 
-import { runCommand, type RunCommandOptions } from '#/agentFs/fsProcess';
+import { runCommand, type RunCommandOptions } from '#/session/agentFs/fsProcess';
 
 interface FakeProcessOptions {
   readonly stdout?: string;

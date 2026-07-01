@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { EventService } from '#/event/eventService';
+import { EventService } from '#/app/event/eventService';
 
 describe('EventService', () => {
   it('publish delivers to subscribers; unsubscribe stops delivery', () => {

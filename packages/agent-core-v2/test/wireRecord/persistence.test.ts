@@ -8,13 +8,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentBlobStoreService } from '#/blobStore';
-import { AgentBlobStoreService } from '#/blobStore/blobStoreService';
-import { IBootstrapService } from '#/bootstrap';
-import { IHostFileSystem, HostFileSystem } from '#/hostFs';
-import { AgentContextMemoryService } from '#/contextMemory/contextMemoryService';
-import { IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
-import { IAgentReplayBuilderService } from '#/replayBuilder';
+import { IAgentBlobStoreService } from '#/agent/blobStore';
+import { AgentBlobStoreService } from '#/agent/blobStore/blobStoreService';
+import { IBootstrapService } from '#/app/bootstrap';
+import { IHostFileSystem, HostFileSystem } from '#/app/hostFs';
+import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
+import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import {
   AppendLogStore,
   AGENT_WIRE_PROTOCOL_VERSION,
@@ -25,9 +25,9 @@ import {
   type PersistedWireRecord,
   AgentWireRecordService,
 } from '#/index';
-import { FileStorageService } from '#/storage/fileStorageService';
-import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
-import type { IStorageService } from '#/storage';
+import { FileStorageService } from '#/app/storage/fileStorageService';
+import { InMemoryStorageService } from '#/app/storage/inMemoryStorageService';
+import type { IStorageService } from '#/app/storage';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubReplayBuilder } from '../contextMemory/stubs';
 
@@ -104,7 +104,7 @@ async function createWireHarness(): Promise<{
   ix.stub(IAgentReplayBuilderService, stubReplayBuilder());
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   ix.set(IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService));
-  ix.set(IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService));
+  ix.set(IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{}]));
   ix.set(IAgentContextMemoryService, new SyncDescriptor(AgentContextMemoryService));
   ix.get(IAgentContextMemoryService);
 

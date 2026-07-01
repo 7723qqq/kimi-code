@@ -5,11 +5,11 @@ import { Emitter } from '#/_base/event';
 import {
   IPluginSessionStartInjectorService,
   PluginSessionStartInjectorService,
-} from '#/contextInjector/pluginSessionStart';
-import { IPluginService } from '#/plugin';
-import type { EnabledPluginSessionStart, ReloadSummary } from '#/plugin/types';
-import { InMemorySkillCatalog } from '#/skill/registry';
-import type { SkillDefinition } from '#/skill/types';
+} from '#/agent/contextInjector/pluginSessionStart';
+import { IPluginService } from '#/app/plugin';
+import type { EnabledPluginSessionStart, ReloadSummary } from '#/app/plugin/types';
+import { InMemorySkillCatalog } from '#/app/globalSkillCatalog/registry';
+import type { SkillDefinition } from '#/app/globalSkillCatalog/types';
 
 import { agentService, appService, createTestAgent, skillServices, type TestAgentContext } from '../harness';
 

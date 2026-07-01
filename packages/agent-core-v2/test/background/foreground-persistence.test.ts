@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   IAgentBackgroundService,
   ProcessBackgroundTask,
-} from '#/background';
+} from '#/agent/background';
 import {
   backgroundServices,
   createTestAgent,

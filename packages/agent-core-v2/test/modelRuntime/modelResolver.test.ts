@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { IOAuthService } from '#/auth';
-import type { IConfigService } from '#/config';
+import type { IOAuthService } from '#/app/auth';
+import type { IConfigService } from '#/app/config';
 import { ErrorCodes, KimiError } from '#/errors';
-import { SessionModelResolver } from '#/modelRuntime';
+import { SessionModelResolver } from '#/session/modelRuntime';
 
 function stubConfig(sections: Record<string, unknown>): IConfigService {
   return {

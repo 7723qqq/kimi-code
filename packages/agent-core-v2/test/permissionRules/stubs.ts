@@ -12,7 +12,7 @@ import type { Hooks } from '#/hooks';
 import type {
   IAgentPermissionRulesService,
   PermissionRule,
-} from '#/permissionRules';
+} from '#/agent/permissionRules';
 
 export function stubPermissionRulesService(
   rules: () => readonly PermissionRule[],

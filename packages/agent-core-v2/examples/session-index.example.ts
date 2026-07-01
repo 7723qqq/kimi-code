@@ -25,13 +25,13 @@ import { afterEach, beforeEach, describe, test } from 'vitest';
 import { relative } from 'pathe';
 
 import type { Scope } from '#/_base/di/scope';
-import { bootstrap } from '#/bootstrap/bootstrap';
-import { IBootstrapService } from '#/bootstrap';
-import '#/bootstrap/index';
-import { ISessionIndex, type SessionSummary } from '#/session-index';
-import '#/session-index/index';
-import { IAtomicDocumentStore } from '#/storage';
-import '#/storage/index';
+import { bootstrap } from '#/app/bootstrap/bootstrap';
+import { IBootstrapService } from '#/app/bootstrap';
+import '#/app/bootstrap';
+import { ISessionIndex, type SessionSummary } from '#/app/session-index';
+import '#/app/session-index';
+import { IAtomicDocumentStore } from '#/app/storage';
+import '#/app/storage';
 
 const META_SCOPE = 'session-meta';
 const META_KEY = 'state.json';

@@ -16,11 +16,11 @@ import {
   ISessionLogService,
   resolveLoggingConfig,
   resolveSessionLogPath,
-} from '#/log/index';
-import { logSeed } from '#/log/logConfig';
-import { SessionFileLogWriterService } from '#/log/logWriter';
-import { SessionLogService } from '#/log/sessionLogService';
-import { sessionContextSeed } from '#/session-context';
+} from '#/app/log';
+import { logSeed } from '#/app/log/logConfig';
+import { SessionFileLogWriterService } from '#/session/sessionLog/logWriter';
+import { SessionLogService } from '#/session/sessionLog/sessionLogService';
+import { sessionContextSeed } from '#/session/session-context';
 
 let homeDir: string;
 let sessionDir: string;

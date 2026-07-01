@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveInstallSource } from '../../src/plugin/source';
+import { resolveInstallSource } from '#/app/plugin/source';
 
 describe('resolveInstallSource', () => {
   it('resolves absolute local paths', () => {

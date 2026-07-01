@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   SessionCronStore,
   type SessionCronTaskInit,
-} from '#/cron/tools/session-store';
-import type { CronTask } from '#/cron/tools/types';
+} from '#/agent/cron/tools/session-store';
+import type { CronTask } from '#/agent/cron/tools/types';
 
 const ID_REGEX = /^[0-9a-f]{8}$/;
 

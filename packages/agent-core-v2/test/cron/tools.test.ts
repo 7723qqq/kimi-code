@@ -7,22 +7,22 @@ import type {
   ExecutableToolResult,
   RunnableToolExecution,
   ToolExecution,
-} from '#/tool';
-import type { ClockSources } from '#/cron/tools/clock';
+} from '#/agent/tool';
+import type { ClockSources } from '#/agent/cron/tools/clock';
 import {
   CronCreateTool,
   MAX_CRON_JOBS_PER_SESSION,
   type CronCreateInput,
-} from '#/cron/tools/cron-create';
-import { CronDeleteTool, type CronDeleteInput } from '#/cron/tools/cron-delete';
-import { renderCronFireXml } from '#/cron/tools/cron-fire-xml';
-import { CronListTool, type CronListInput } from '#/cron/tools/cron-list';
-import { createCronScheduler } from '#/cron/tools/scheduler';
+} from '#/agent/cron/tools/cron-create';
+import { CronDeleteTool, type CronDeleteInput } from '#/agent/cron/tools/cron-delete';
+import { renderCronFireXml } from '#/agent/cron/tools/cron-fire-xml';
+import { CronListTool, type CronListInput } from '#/agent/cron/tools/cron-list';
+import { createCronScheduler } from '#/agent/cron/tools/scheduler';
 import {
   SessionCronStore,
   type SessionCronTaskInit,
-} from '#/cron/tools/session-store';
-import type { CronTask, CronToolManager } from '#/cron/tools/types';
+} from '#/agent/cron/tools/session-store';
+import type { CronTask, CronToolManager } from '#/agent/cron/tools/types';
 
 const WALL_ANCHOR = 1_700_000_000_000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;

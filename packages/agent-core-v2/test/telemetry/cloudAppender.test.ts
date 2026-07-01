@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { FileStorageService } from '#/storage';
-import { CloudAppender, type CloudAppenderOptions } from '#/telemetry/cloudAppender';
+import { FileStorageService } from '#/app/storage';
+import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
 
 interface CapturedRequest {
   readonly url: string;

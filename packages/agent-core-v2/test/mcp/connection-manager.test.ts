@@ -14,8 +14,8 @@ import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 
 import { KimiError } from '#/errors';
-import { McpConnectionManager, type McpServerEntry } from '#/mcp/connection-manager';
-import { McpOAuthService } from '#/mcp/oauth';
+import { McpConnectionManager, type McpServerEntry } from '#/agent/mcp/connection-manager';
+import { McpOAuthService } from '#/agent/mcp/oauth';
 
 import {
   closeServer,

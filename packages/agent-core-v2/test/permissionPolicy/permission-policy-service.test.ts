@@ -15,27 +15,27 @@ import {
   matchesGlobRuleSubject,
   matchesPathRuleSubject,
 } from '#/_base/tools/support/rule-match';
-import type { ResolvedToolExecutionHookContext } from '#/tool';
-import { IKaos, type IKaos as KaosService } from '#/kaos';
-import { IAgentPermissionModeService } from '#/permissionMode';
+import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
+import { IKaos, type IKaos as KaosService } from '#/app/kaos';
+import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import {
   DenyAllPermissionPolicyService,
   IAgentPermissionPolicyService,
   type PermissionMode,
   type PermissionPolicyEvaluation,
-} from '#/permissionPolicy';
-import { AgentPermissionPolicyService } from '#/permissionPolicy/permissionPolicyService';
+} from '#/agent/permissionPolicy';
+import { AgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicyService';
 import {
   IAgentPermissionRulesService,
   type IAgentPermissionRulesService as PermissionRulesServiceContract,
   type PermissionApprovalResultRecord,
   type PermissionRule,
-} from '#/permissionRules';
-import { IAgentPlanService, type PlanData } from '#/plan';
-import { IAgentSwarmService } from '#/swarm';
-import { ITelemetryService } from '#/telemetry';
-import { ToolAccesses, type ToolAccesses as ToolAccessList } from '#/tool';
-import { ISessionWorkspaceContext } from '#/workspaceContext';
+} from '#/agent/permissionRules';
+import { IAgentPlanService, type PlanData } from '#/agent/plan';
+import { IAgentSwarmService } from '#/agent/swarm';
+import { ITelemetryService } from '#/app/telemetry';
+import { ToolAccesses, type ToolAccesses as ToolAccessList } from '#/agent/tool';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 import { stubPermissionModeService } from '../permissionMode/stubs';
 import { recordingTelemetry } from '../telemetry/stubs';

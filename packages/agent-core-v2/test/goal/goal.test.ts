@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes } from '#/errors';
-import { IAgentContextMemoryService } from '#/contextMemory';
-import { IAgentEventSinkService } from '#/eventSink';
-import { IAgentGoalService, type AgentGoalService } from '#/goal';
-import { IAgentReplayBuilderService } from '#/replayBuilder';
-import type { PersistedWireRecord, WireRecord } from '#/wireRecord';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentGoalService, type AgentGoalService } from '#/agent/goal';
+import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
+import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import {
   InMemoryWireRecordPersistence,

@@ -2,7 +2,7 @@
  * `skill` domain test stubs — shared skill fixtures for skill tests.
  */
 
-import type { SkillDefinition } from '#/skill/types';
+import type { SkillDefinition } from '#/app/globalSkillCatalog/types';
 
 export function stubSkill(
   name: string,

@@ -17,11 +17,11 @@ import {
   FileStorageService,
   IAtomicDocumentStore,
   IStorageService,
-} from '#/storage';
-import { IWorkspaceRegistry } from '#/workspaceRegistry/workspaceRegistry';
-import { WorkspaceRegistryService } from '#/workspaceRegistry/workspaceRegistryService';
-import { FileWorkspaceStore } from '#/workspaceRegistry/fileWorkspaceStore';
-import { IWorkspaceStore, type PersistedWorkspaceEntry } from '#/workspaceRegistry/workspaceStore';
+} from '#/app/storage';
+import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
+import { WorkspaceRegistryService } from '#/app/workspaceRegistry/workspaceRegistryService';
+import { FileWorkspaceStore } from '#/app/workspaceRegistry/fileWorkspaceStore';
+import { IWorkspaceStore, type PersistedWorkspaceEntry } from '#/app/workspaceRegistry/workspaceStore';
 
 interface SessionIndexLine {
   readonly sessionId: string;

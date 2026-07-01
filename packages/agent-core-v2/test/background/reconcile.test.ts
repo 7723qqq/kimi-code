@@ -11,8 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   IAgentBackgroundService,
   type BackgroundTaskInfo,
-} from '#/background';
-import { IAgentEventSinkService } from '#/eventSink';
+} from '#/agent/background';
+import { IAgentEventSinkService } from '#/agent/eventSink';
 import {
   backgroundServices,
   createTestAgent,

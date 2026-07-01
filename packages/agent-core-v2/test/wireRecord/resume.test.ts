@@ -10,10 +10,10 @@ import {
   type PersistedWireRecord,
   type PromptOrigin,
 } from '#/index';
-import { IAgentBackgroundService } from '#/background';
-import { IAgentPlanService } from '#/plan';
-import { IAgentPromptService } from '#/prompt';
-import { IAgentTurnService } from '#/turn';
+import { IAgentBackgroundService } from '#/agent/background';
+import { IAgentPlanService } from '#/agent/plan';
+import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentTurnService } from '#/agent/turn';
 import {
   createBackgroundTaskPersistence,
   type BackgroundServiceTestManager,

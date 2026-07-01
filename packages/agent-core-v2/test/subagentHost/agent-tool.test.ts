@@ -1,19 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { userCancellationReason } from '#/_base/utils/abort';
-import { IAgentBackgroundService } from '#/background';
-import type { ILogger, LogPayload } from '#/log';
-import { IAgentProfileService } from '#/profile';
+import { IAgentBackgroundService } from '#/agent/background';
+import type { ILogger, LogPayload } from '#/app/log';
+import { IAgentProfileService } from '#/agent/profile';
 import {
   AgentTool,
   AgentToolInputSchema,
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   type ISessionSubagentHost,
   type SessionSubagentHost,
-} from '#/subagentHost';
-import type { AgentToolSubagentMap } from '#/subagentHost/agentTool';
-import { ToolAccesses } from '#/tool';
-import { IAgentToolRegistryService } from '#/toolRegistry';
+} from '#/session/subagentHost';
+import type { AgentToolSubagentMap } from '#/session/subagentHost/agentTool';
+import { ToolAccesses } from '#/agent/tool';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { executeTool } from '../tools/fixtures/execute-tool';
 import {
   createTestAgent,

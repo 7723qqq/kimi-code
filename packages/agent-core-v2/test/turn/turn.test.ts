@@ -17,26 +17,26 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 
 import { abortError, abortable } from '#/_base/utils/abort';
-import { ISessionAgentFileSystem } from '#/agentFs';
-import type { ContextMessage } from '#/contextMemory';
-import { IOAuthService } from '#/auth';
+import { ISessionAgentFileSystem } from '#/session/agentFs';
+import type { ContextMessage } from '#/agent/contextMemory';
+import { IOAuthService } from '#/app/auth';
 import { ErrorCodes, KimiError } from '#/errors';
-import { HookEngine } from '#/externalHooks/engine';
-import { IKaos } from '#/kaos';
-import type { ILogger as Logger, LogPayload } from '#/log';
-import { IAgentMcpService } from '#/mcp';
-import { McpConnectionManager } from '#/mcp/connection-manager';
-import { registerMediaTools, type VideoUploader } from '#/media';
-import { IAgentPermissionGate } from '#/permissionGate';
-import { IAgentProfileService } from '#/profile';
-import { IAgentSwarmService } from '#/swarm';
-import { IAgentTurnService } from '#/turn';
-import { IAgentToolRegistryService } from '#/toolRegistry';
+import { HookEngine } from '#/agent/externalHooks/engine';
+import { IKaos } from '#/app/kaos';
+import type { ILogger as Logger, LogPayload } from '#/app/log';
+import { IAgentMcpService } from '#/agent/mcp';
+import { McpConnectionManager } from '#/agent/mcp/connection-manager';
+import { registerMediaTools, type VideoUploader } from '#/agent/media';
+import { IAgentPermissionGate } from '#/agent/permissionGate';
+import { IAgentProfileService } from '#/agent/profile';
+import { IAgentSwarmService } from '#/agent/swarm';
+import { IAgentTurnService } from '#/agent/turn';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type {
   QueuedSubagentRunResult,
   QueuedSubagentTask,
   SessionSubagentHost,
-} from '#/subagentHost';
+} from '#/session/subagentHost';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import {

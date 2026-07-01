@@ -4,11 +4,11 @@ import type { Kaos, KaosProcess } from '@moonshot-ai/kaos';
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IAgentContextMemoryService } from '#/contextMemory';
-import { HookEngine } from '#/externalHooks/engine';
-import { IAgentProfileService } from '#/profile';
-import type { SessionSubagentHost } from '#/subagentHost';
-import { IAgentToolRegistryService } from '#/toolRegistry';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { HookEngine } from '#/agent/externalHooks/engine';
+import { IAgentProfileService } from '#/agent/profile';
+import type { SessionSubagentHost } from '#/session/subagentHost';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import {
   createCommandKaos,

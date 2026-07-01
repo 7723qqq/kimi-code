@@ -2,10 +2,10 @@ import type { ToolCall } from '@moonshot-ai/kosong';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { describe, expect, it } from 'vitest';
 
-import type { ResolvedToolExecutionHookContext } from '#/tool';
-import type { IAgentPermissionModeService } from '#/permissionMode';
-import { GoalStartReviewAskPermissionPolicyService } from '#/permissionPolicy/policies/goal-start-review-ask';
-import { ToolAccesses } from '#/tool';
+import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
+import type { IAgentPermissionModeService } from '#/agent/permissionMode';
+import { GoalStartReviewAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/goal-start-review-ask';
+import { ToolAccesses } from '#/agent/tool';
 
 const signal = new AbortController().signal;
 type PermissionMode = IAgentPermissionModeService['mode'];

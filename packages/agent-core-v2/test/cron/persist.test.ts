@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import { Event } from '#/_base/event';
 import type { IDisposable } from '#/_base/di/lifecycle';
-import { createCronPersistStore, CRON_ID_REGEX, isValidCronTask } from '#/cron/tools/persist';
-import type { CronTask } from '#/cron/tools/types';
-import type { IAtomicDocumentStore } from '#/storage';
+import { createCronPersistStore, CRON_ID_REGEX, isValidCronTask } from '#/agent/cron/tools/persist';
+import type { CronTask } from '#/agent/cron/tools/types';
+import type { IAtomicDocumentStore } from '#/app/storage';
 
 const validTask: CronTask = {
   id: '0123abcd',

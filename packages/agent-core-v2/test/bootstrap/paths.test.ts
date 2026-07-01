@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ensureKimiHome, resolveConfigPath, resolveKimiHome } from '#/bootstrap';
+import { ensureKimiHome, resolveConfigPath, resolveKimiHome } from '#/app/bootstrap';
 
 describe('bootstrap path helpers', () => {
   describe('resolveKimiHome', () => {

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { parseManifest } from '../../src/plugin/manifest';
+import { parseManifest } from '#/app/plugin/manifest';
 
 describe('plugin manifest parser', () => {
   let dir: string;

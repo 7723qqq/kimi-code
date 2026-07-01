@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import type { LoopEvent } from '#/loop';
-import { ToolAccesses, type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolResult, type ToolUpdate } from '#/tool';
-import { IAgentToolExecutorService, AgentToolExecutorService, parseToolCallArguments } from '#/toolExecutor';
-import { IAgentToolRegistryService, AgentToolRegistryService } from '#/toolRegistry';
+import type { LoopEvent } from '#/agent/loop';
+import { ToolAccesses, type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolResult, type ToolUpdate } from '#/agent/tool';
+import { IAgentToolExecutorService, AgentToolExecutorService, parseToolCallArguments } from '#/agent/toolExecutor';
+import { IAgentToolRegistryService, AgentToolRegistryService } from '#/agent/toolRegistry';
 import { registerLogServices } from '../log/stubs';
 
 let disposables: DisposableStore;

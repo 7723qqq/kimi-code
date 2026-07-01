@@ -30,12 +30,12 @@ import {
   type BackgroundTaskStatus,
   type ForegroundTaskReleaseReason,
   type RegisterBackgroundTaskOptions,
-} from '../../src/background';
-import type { BackgroundTaskSettlement } from '../../src/background/task';
-import type { Environment, IKaos } from '../../src/kaos';
-import type { IProcess, ISessionProcessRunner } from '../../src/process';
-import { type BashInput, BashInputSchema, BashTool } from '../../src/shellTools/tools/bash';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../src/tool';
+} from '#/agent/background';
+import type { BackgroundTaskSettlement } from '#/agent/background/task';
+import type { Environment, IKaos } from '#/app/kaos';
+import type { IProcess, ISessionProcessRunner } from '#/session/process';
+import { type BashInput, BashInputSchema, BashTool } from '#/agent/shellTools/tools/bash';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const posixEnv: Environment = {
   osKind: 'Linux',

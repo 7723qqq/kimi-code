@@ -12,8 +12,8 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IKaos, IKaosFactory, KaosFactory } from '#/kaos';
-import { ISessionProcessRunner, SessionProcessRunner } from '#/process';
+import { IKaos, IKaosFactory, KaosFactory } from '#/app/kaos';
+import { ISessionProcessRunner, SessionProcessRunner } from '#/session/process';
 
 async function collect(stream: Readable): Promise<string> {
   const chunks: Buffer[] = [];

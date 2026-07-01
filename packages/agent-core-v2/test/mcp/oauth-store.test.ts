@@ -7,8 +7,8 @@ import {
   McpOAuthService,
   mcpOAuthStoreKey,
   sanitizeStoreKey,
-} from '#/mcp/oauth';
-import type { IAtomicDocumentStore } from '#/storage';
+} from '#/agent/mcp/oauth';
+import type { IAtomicDocumentStore } from '#/app/storage';
 
 import { createMemoryMcpOAuthStore } from './stubs';
 

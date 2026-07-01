@@ -3,16 +3,16 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
-import { IBootstrapService, bootstrapSeed, resolveBootstrapOptions } from '#/bootstrap';
-import { bootstrap } from '#/bootstrap/bootstrap';
-import { BootstrapService } from '#/bootstrap/bootstrapService';
+import { IBootstrapService, bootstrapSeed, resolveBootstrapOptions } from '#/app/bootstrap';
+import { bootstrap } from '#/app/bootstrap/bootstrap';
+import { BootstrapService } from '#/app/bootstrap/bootstrapService';
 import {
   FileStorageService,
   IAppendLogStorage,
   IAtomicDocumentStorage,
   IBlobStorage,
   IStorageService,
-} from '#/storage';
+} from '#/app/storage';
 
 describe('BootstrapService (scoped)', () => {
   beforeEach(() => {

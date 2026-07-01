@@ -2,9 +2,9 @@ import type { Message } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import { IAgentContextMemoryService, IAgentContextSizeService, IAgentProfileService } from '#/index';
-import { project } from '#/contextProjector';
-import type { ContextMessage } from '#/contextMemory';
-import { renderNotificationXml } from '#/contextMemory/notification-xml';
+import { project } from '#/agent/contextProjector';
+import type { ContextMessage } from '#/agent/contextMemory';
+import { renderNotificationXml } from '#/agent/contextMemory/notification-xml';
 import { createTestAgent, type TestAgentContext } from '../harness';
 
 describe('Agent context', () => {

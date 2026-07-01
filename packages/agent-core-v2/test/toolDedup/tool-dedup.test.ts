@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import { ITelemetryService } from '#/telemetry';
+import { ITelemetryService } from '#/app/telemetry';
 import {
   IAgentToolDedupeService,
   AgentToolDedupeService,
   __testing as toolDedupTesting,
-} from '#/tooldedup';
-import type { ToolDedupResult } from '#/tooldedup';
-import { IAgentToolExecutorService } from '#/toolExecutor';
-import { IAgentTurnService } from '#/turn';
+} from '#/agent/tooldedup';
+import type { ToolDedupResult } from '#/agent/tooldedup';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor';
+import { IAgentTurnService } from '#/agent/turn';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import { stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';
 

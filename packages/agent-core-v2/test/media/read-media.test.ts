@@ -8,18 +8,18 @@
 import type { ContentPart, ModelCapability } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ISessionAgentFileSystem } from '../../src/agentFs';
-import type { IKaos } from '../../src/kaos';
+import type { ISessionAgentFileSystem } from '#/session/agentFs';
+import type { IKaos } from '#/app/kaos';
 import {
   ReadMediaFileInputSchema,
   ReadMediaFileTool,
   type VideoUploader,
-} from '../../src/media/tools/read-media';
-import { registerMediaTools } from '../../src/media/registerMediaTools';
-import { AgentToolRegistryService } from '../../src/toolRegistry';
-import { ToolAccesses } from '../../src/tool';
+} from '#/agent/media/tools/read-media';
+import { registerMediaTools } from '#/agent/media/registerMediaTools';
+import { AgentToolRegistryService } from '#/agent/toolRegistry';
+import { ToolAccesses } from '#/agent/tool';
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../src/tool';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const WORKSPACE: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: [] };
 

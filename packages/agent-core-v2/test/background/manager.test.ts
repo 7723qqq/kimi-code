@@ -16,8 +16,8 @@ import {
   IAgentBackgroundService,
   ProcessBackgroundTask,
   type BackgroundTaskInfo,
-} from '#/background';
-import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
+} from '#/agent/background';
+import type { SessionSubagentHost, SubagentHandle } from '#/session/subagentHost';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import {
   configServices,

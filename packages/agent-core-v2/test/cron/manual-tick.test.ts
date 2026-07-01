@@ -5,9 +5,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ContextMessage } from '#/contextMemory';
-import { IAgentCronService } from '#/cron';
-import { IAgentPromptService } from '#/prompt';
+import type { ContextMessage } from '#/agent/contextMemory';
+import { IAgentCronService } from '#/agent/cron';
+import { IAgentPromptService } from '#/agent/prompt';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 
 const WALL_ANCHOR = 1_700_000_000_000;

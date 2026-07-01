@@ -11,7 +11,7 @@ const GUARDED_FILES = [
 
 describe('cron source clock guard', () => {
   it.each(GUARDED_FILES)('%s does not call Date.now()', (file) => {
-    const source = readFileSync(new URL(`../../src/cron/tools/${file}`, import.meta.url), 'utf8');
+    const source = readFileSync(new URL(`../../src/agent/cron/tools/${file}`, import.meta.url), 'utf8');
     expect(stripComments(source)).not.toMatch(/\bDate\.now\s*\(/);
   });
 });

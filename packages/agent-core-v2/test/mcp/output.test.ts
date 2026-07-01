@@ -2,8 +2,8 @@ import { ContentBlockSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { describe, expect, test } from 'vitest';
 
-import { convertMCPContentBlock, mcpResultToExecutableOutput } from '#/mcp/output';
-import type { MCPContentBlock, MCPToolResult } from '#/mcp/types';
+import { convertMCPContentBlock, mcpResultToExecutableOutput } from '#/agent/mcp/output';
+import type { MCPContentBlock, MCPToolResult } from '#/agent/mcp/types';
 
 const MCP_OUTPUT_TRUNCATED_TEXT =
   '\n\n[Output truncated: exceeded 100000 character limit. ' +

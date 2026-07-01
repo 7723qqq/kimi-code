@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ChatProvider, Message, StreamedMessage, Tool } from '@moonshot-ai/kosong';
 
 import { createScopedTestHost } from '#/_base/di/test';
-import { IChatProviderFactory } from '#/chatProvider';
+import { IChatProviderFactory } from '#/app/chatProvider';
 
 function stubProvider(): ChatProvider {
   const stream: StreamedMessage = {

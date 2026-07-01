@@ -14,14 +14,14 @@ import type { FsGrepFileHit, FsGrepRequest, FsGrepResponse } from '@moonshot-ai/
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
-import type { ISessionFsService } from '../../src/agentFs';
+import type { ISessionFsService } from '#/session/agentFs';
 import {
   type GrepInput,
   GrepInputSchema,
   GrepTool,
-} from '../../src/fileTools/tools/grep';
-import type { IKaos } from '../../src/kaos';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../src/tool';
+} from '#/agent/fileTools/tools/grep';
+import type { IKaos } from '#/app/kaos';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;
 const workspace: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: ['/extra'] };

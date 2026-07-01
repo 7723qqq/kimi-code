@@ -8,13 +8,13 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CronCreateTool } from '#/cron/tools/cron-create';
-import { CronDeleteTool } from '#/cron/tools/cron-delete';
-import { CronListTool } from '#/cron/tools/cron-list';
-import type { ExecutableToolOutput } from '#/tool';
-import type { ContextMessage } from '#/contextMemory';
-import { IAgentCronService } from '#/cron';
-import { IAgentPromptService } from '#/prompt';
+import { CronCreateTool } from '#/agent/cron/tools/cron-create';
+import { CronDeleteTool } from '#/agent/cron/tools/cron-delete';
+import { CronListTool } from '#/agent/cron/tools/cron-list';
+import type { ExecutableToolOutput } from '#/agent/tool';
+import type { ContextMessage } from '#/agent/contextMemory';
+import { IAgentCronService } from '#/agent/cron';
+import { IAgentPromptService } from '#/agent/prompt';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 
 // Local-time anchor (cron-expr matches on local fields, so a UTC anchor

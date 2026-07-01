@@ -13,11 +13,11 @@ import { afterEach, beforeEach, describe, test } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { ILogService, ILogWriterService } from '#/log/log';
-import { ConsoleLogWriterService, LogService } from '#/log/logService';
-import { ConsoleAppender } from '#/telemetry/consoleAppender';
-import { ITelemetryService } from '#/telemetry/telemetry';
-import { TelemetryService } from '#/telemetry/telemetryService';
+import { ILogService, ILogWriterService } from '#/app/log/log';
+import { ConsoleLogWriterService, LogService } from '#/app/log/logService';
+import { ConsoleAppender } from '#/app/telemetry/consoleAppender';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { TelemetryService } from '#/app/telemetry/telemetryService';
 
 describe('observability slice (log + telemetry)', () => {
   let disposables: DisposableStore;

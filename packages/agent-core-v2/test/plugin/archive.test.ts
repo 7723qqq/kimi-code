@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { extractZip } from '../../src/plugin/archive';
+import { extractZip } from '#/app/plugin/archive';
 
 describe('plugin archive extraction', () => {
   let dir: string;

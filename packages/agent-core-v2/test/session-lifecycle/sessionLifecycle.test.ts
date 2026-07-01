@@ -7,16 +7,16 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IBootstrapService } from '#/bootstrap';
-import { IKaosFactory, type IKaos } from '#/kaos';
-import { ISessionService } from '#/session';
-import { ISessionLifecycleService } from '#/session-lifecycle/sessionLifecycle';
-import { SessionLifecycleService } from '#/session-lifecycle/sessionLifecycleService';
-import { ISessionMetadata } from '#/session-metadata';
-import { ISessionSkillCatalog } from '#/skill';
-import { ISessionIndex } from '#/session-index';
-import { IAppendLogStore, IAtomicDocumentStore } from '#/storage';
-import { IWorkspaceRegistry, type Workspace } from '#/workspaceRegistry';
+import { IBootstrapService } from '#/app/bootstrap';
+import { IKaosFactory, type IKaos } from '#/app/kaos';
+import { ISessionService } from '#/session/session';
+import { ISessionLifecycleService } from '#/app/session-lifecycle/sessionLifecycle';
+import { SessionLifecycleService } from '#/app/session-lifecycle/sessionLifecycleService';
+import { ISessionMetadata } from '#/session/session-metadata';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
+import { ISessionIndex } from '#/app/session-index';
+import { IAppendLogStore, IAtomicDocumentStore } from '#/app/storage';
+import { IWorkspaceRegistry, type Workspace } from '#/app/workspaceRegistry';
 
 function bootstrapStub(): IBootstrapService {
   return {

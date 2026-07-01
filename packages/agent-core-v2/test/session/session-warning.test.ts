@@ -12,12 +12,12 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IAgentLifecycleService } from '#/agent-lifecycle';
-import { IBootstrapService } from '#/bootstrap';
-import { IKaos, type IKaos as IKaosType, type PathClass } from '#/kaos';
-import { IAgentProfileService } from '#/profile';
-import { ISessionWarningService, SessionWarningService } from '#/session';
-import { ISessionWorkspaceContext } from '#/workspaceContext';
+import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IBootstrapService } from '#/app/bootstrap';
+import { IKaos, type IKaos as IKaosType, type PathClass } from '#/app/kaos';
+import { IAgentProfileService } from '#/agent/profile';
+import { ISessionWarningService, SessionWarningService } from '#/session/session';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 const TEST_OS_ENV: Environment = {
   osKind: 'Linux',

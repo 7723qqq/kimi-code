@@ -41,9 +41,9 @@ import {
   type Scope,
 } from '#/_base/di/scope';
 import { createScopedTestHost, type ScopedTestHost } from '#/_base/di/test';
-import { type ApprovalRequest, SessionApprovalService, ISessionApprovalService } from '#/approval';
-import { ISessionInteractionService, SessionInteractionService } from '#/interaction';
-import { type QuestionRequest, ISessionQuestionService, SessionQuestionService } from '#/question';
+import { type ApprovalRequest, SessionApprovalService, ISessionApprovalService } from '#/session/approval';
+import { ISessionInteractionService, SessionInteractionService } from '#/session/interaction';
+import { type QuestionRequest, ISessionQuestionService, SessionQuestionService } from '#/session/question';
 
 const display: ToolInputDisplay = { kind: 'command', command: 'rm -rf /tmp/demo' };
 

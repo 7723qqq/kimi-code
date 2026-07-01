@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import type { ApprovalRequest } from '#/approval';
-import { ISessionApprovalService } from '#/approval';
-import { SessionApprovalService } from '#/approval/approvalService';
-import { ISessionInteractionService } from '#/interaction';
-import { SessionInteractionService } from '#/interaction/interactionService';
+import type { ApprovalRequest } from '#/session/approval';
+import { ISessionApprovalService } from '#/session/approval';
+import { SessionApprovalService } from '#/session/approval/approvalService';
+import { ISessionInteractionService } from '#/session/interaction';
+import { SessionInteractionService } from '#/session/interaction/interactionService';
 
 const display: ToolInputDisplay = { kind: 'command', command: 'bash' };
 

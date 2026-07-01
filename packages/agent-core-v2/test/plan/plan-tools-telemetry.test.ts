@@ -1,14 +1,14 @@
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { IAgentPlanService, PlanData } from '#/plan';
-import { EnterPlanModeTool } from '#/plan/tools/enter-plan-mode';
+import type { IAgentPlanService, PlanData } from '#/agent/plan';
+import { EnterPlanModeTool } from '#/agent/plan/tools/enter-plan-mode';
 import {
   ExitPlanModeTool,
   type ExitPlanModeInput,
-} from '#/plan/tools/exit-plan-mode';
-import type { ITelemetryService } from '#/telemetry';
-import { IAgentToolExecutorService } from '#/toolExecutor';
+} from '#/agent/plan/tools/exit-plan-mode';
+import type { ITelemetryService } from '#/app/telemetry';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';

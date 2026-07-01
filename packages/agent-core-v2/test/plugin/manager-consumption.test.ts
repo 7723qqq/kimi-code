@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { PluginManager } from '../../src/plugin/manager';
+import { PluginManager } from '#/app/plugin/manager';
 
 async function makeKimiHome(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), 'kimi-home-'));

@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { AppendLogCorruptedError, IAppendLogStorage, IAppendLogStore, IStorageService } from '#/storage';
-import { AppendLogStore } from '#/storage/appendLogStore';
-import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
+import { AppendLogCorruptedError, IAppendLogStorage, IAppendLogStore, IStorageService } from '#/app/storage';
+import { AppendLogStore } from '#/app/storage/appendLogStore';
+import { InMemoryStorageService } from '#/app/storage/inMemoryStorageService';
 
 const enc = new TextEncoder();
 

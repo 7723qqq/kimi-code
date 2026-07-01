@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { IAgentBackgroundService } from '#/background';
+import type { IAgentBackgroundService } from '#/agent/background';
 import type { IDisposable } from '#/_base/di';
-import type { IKaos } from '#/kaos';
-import type { ISessionProcessRunner } from '#/process';
-import type { IAgentProfileService } from '#/profile';
-import { AgentShellToolsService } from '#/shellTools';
-import type { IAgentToolRegistryService } from '#/toolRegistry';
+import type { IKaos } from '#/app/kaos';
+import type { ISessionProcessRunner } from '#/session/process';
+import type { IAgentProfileService } from '#/agent/profile';
+import { AgentShellToolsService } from '#/agent/shellTools';
+import type { IAgentToolRegistryService } from '#/agent/toolRegistry';
 
 function fakeToolRegistry(): { registry: IAgentToolRegistryService; names: () => string[] } {
   const tools = new Map<string, unknown>();

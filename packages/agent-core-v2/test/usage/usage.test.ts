@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { toDisposable } from '#/_base/di';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IAgentEventSinkService } from '#/eventSink';
-import { IAgentUsageService, type UsageStatus } from '#/usage';
-import { AgentUsageService } from '#/usage/usageService';
-import { IAgentWireRecordService, type WireRecord } from '#/wireRecord';
+import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentUsageService, type UsageStatus } from '#/agent/usage';
+import { AgentUsageService } from '#/agent/usage/usageService';
+import { IAgentWireRecordService, type WireRecord } from '#/agent/wireRecord';
 
 let disposables: DisposableStore;
 

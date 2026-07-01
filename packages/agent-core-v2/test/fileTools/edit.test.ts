@@ -12,10 +12,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
-import type { ISessionAgentFileSystem } from '../../src/agentFs';
-import { type EditInput, EditInputSchema, EditTool } from '../../src/fileTools/tools/edit';
-import type { IKaos } from '../../src/kaos';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../src/tool';
+import type { ISessionAgentFileSystem } from '#/session/agentFs';
+import { type EditInput, EditInputSchema, EditTool } from '#/agent/fileTools/tools/edit';
+import type { IKaos } from '#/app/kaos';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE: WorkspaceConfig = { workspaceDir: '/', additionalDirs: [] };

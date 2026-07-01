@@ -2,14 +2,16 @@ import { describe, expect, it } from 'vitest';
 
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { LifecycleScope } from '#/_base/di/scope';
-import { IBootstrapService } from '#/bootstrap';
-import { IPluginService } from '#/plugin';
-import { ISessionWorkspaceContext } from '#/workspaceContext';
-import '#/skill';
-import { InMemorySkillCatalogStore } from '#/skill/inMemorySkillCatalogStore';
-import { ISessionSkillCatalog } from '#/skill/skillCatalog';
-import { ISkillCatalogStore } from '#/skill/skillCatalogStore';
-import type { SkillRoot } from '#/skill/types';
+import { IBootstrapService } from '#/app/bootstrap';
+import { IPluginService } from '#/app/plugin';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import '#/app/globalSkillCatalog';
+import '#/session/sessionSkillCatalog';
+import '#/agent/skill';;
+import { InMemorySkillCatalogStore } from '#/app/globalSkillCatalog/inMemorySkillCatalogStore';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISkillCatalogStore } from '#/app/globalSkillCatalog/skillCatalogStore';
+import type { SkillRoot } from '#/app/globalSkillCatalog/types';
 
 import { stubSkill } from './stubs';
 

@@ -11,8 +11,8 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { SessionAgentFileSystem, ISessionAgentFileSystem } from '#/agentFs';
-import { IKaos, IKaosFactory, KaosFactory } from '#/kaos';
+import { SessionAgentFileSystem, ISessionAgentFileSystem } from '#/session/agentFs';
+import { IKaos, IKaosFactory, KaosFactory } from '#/app/kaos';
 
 describe('SessionAgentFileSystem (backed by IKaos)', () => {
   let dir: string;

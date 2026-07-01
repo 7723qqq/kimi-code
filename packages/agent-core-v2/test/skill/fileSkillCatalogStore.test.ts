@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { FileSkillCatalogStore } from '#/skill/fileSkillCatalogStore';
+import { FileSkillCatalogStore } from '#/app/globalSkillCatalog/fileSkillCatalogStore';
 
 describe('FileSkillCatalogStore', () => {
   let root: string;

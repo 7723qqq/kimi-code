@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AgentBackgroundTask, IAgentBackgroundService } from '#/background';
+import { AgentBackgroundTask, IAgentBackgroundService } from '#/agent/background';
 import { createTestAgent, type TestAgentContext } from '../harness';
 
 function agentTask(

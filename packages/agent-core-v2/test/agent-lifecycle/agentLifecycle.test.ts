@@ -3,18 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { AgentLifecycleService } from '#/agent-lifecycle/agentLifecycleService';
-import { IBootstrapService } from '#/bootstrap';
-import { IPluginSessionStartInjectorService } from '#/contextInjector';
-import { IAgentEventSinkService } from '#/eventSink';
-import { ILogService } from '#/log';
-import { IPluginService } from '#/plugin';
-import { ISessionContext } from '#/session-context/sessionContext';
-import { ISessionMetadata } from '#/session-metadata/sessionMetadata';
-import { IAgentToolExecutorService } from '#/toolExecutor';
-import { IAgentToolRegistryService } from '#/toolRegistry';
-import { ISessionWorkspaceContext } from '#/workspaceContext';
+import { IAgentLifecycleService } from '#/session/agent-lifecycle/agentLifecycle';
+import { AgentLifecycleService } from '#/session/agent-lifecycle/agentLifecycleService';
+import { IBootstrapService } from '#/app/bootstrap';
+import { IPluginSessionStartInjectorService } from '#/agent/contextInjector';
+import { IAgentEventSinkService } from '#/agent/eventSink';
+import { ILogService } from '#/app/log';
+import { IPluginService } from '#/app/plugin';
+import { ISessionContext } from '#/session/session-context/sessionContext';
+import { ISessionMetadata } from '#/session/session-metadata/sessionMetadata';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 const noopLog = {
   _serviceBrand: undefined,

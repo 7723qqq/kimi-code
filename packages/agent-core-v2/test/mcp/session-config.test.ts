@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { mergeCallerMcpServers, type SessionMcpConfig } from '#/mcp/session-config';
-import type { McpServerConfig } from '#/mcp/config-schema';
+import { mergeCallerMcpServers, type SessionMcpConfig } from '#/agent/mcp/session-config';
+import type { McpServerConfig } from '#/agent/mcp/config-schema';
 
 const stdio = (command: string): McpServerConfig => ({
   transport: 'stdio',

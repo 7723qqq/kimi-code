@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PluginManager } from '../../src/plugin/manager';
+import { PluginManager } from '#/app/plugin/manager';
 
 describe('PluginManager', () => {
   let home: string;

@@ -3,16 +3,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { ILogService } from '#/log';
-import { ISessionContext } from '#/session-context';
-import { ISessionMetadata } from '#/session-metadata';
-import { SessionMetadata } from '#/session-metadata/sessionMetadataService';
+import { ILogService } from '#/app/log';
+import { ISessionContext } from '#/session/session-context';
+import { ISessionMetadata } from '#/session/session-metadata';
+import { SessionMetadata } from '#/session/session-metadata/sessionMetadataService';
 import {
   AtomicDocumentStore,
   IAtomicDocumentStorage,
   IAtomicDocumentStore,
   InMemoryStorageService,
-} from '#/storage';
+} from '#/app/storage';
 
 import { stubLog } from '../log/stubs';
 

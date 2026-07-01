@@ -1,8 +1,8 @@
 import { APIConnectionError, emptyUsage } from '@moonshot-ai/kosong';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { LLM, LLMChatParams, LLMChatResponse } from '#/loop';
-import { chatWithRetry } from '#/loop/retry';
+import type { LLM, LLMChatParams, LLMChatResponse } from '#/agent/loop';
+import { chatWithRetry } from '#/agent/loop/retry';
 
 function okResponse(): LLMChatResponse {
   return { toolCalls: [], usage: emptyUsage() };

@@ -25,10 +25,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AgentBackgroundTask,
   IAgentBackgroundService,
-} from '#/background';
-import { IAgentPromptService } from '#/prompt';
-import { IAgentProfileService } from '#/profile';
-import { IAgentTurnService } from '#/turn';
+} from '#/agent/background';
+import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentProfileService } from '#/agent/profile';
+import { IAgentTurnService } from '#/agent/turn';
 import {
   backgroundServices,
   createTestAgent,

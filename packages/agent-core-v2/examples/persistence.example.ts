@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'vitest';
 
 import type { Scope } from '#/_base/di/scope';
-import { bootstrap } from '#/bootstrap/bootstrap';
+import { bootstrap } from '#/app/bootstrap/bootstrap';
 import {
   IAppendLogStorage,
   IAppendLogStore,
@@ -42,8 +42,8 @@ import {
   IAtomicDocumentStore,
   IAtomicTomlDocumentStore,
   IStorageService,
-} from '#/storage';
-import '#/storage/index';
+} from '#/app/storage';
+import '#/app/storage';
 
 const textDecoder = new TextDecoder();
 
