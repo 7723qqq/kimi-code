@@ -243,6 +243,10 @@ goal --> systemReminder #34495E
 goal --> replayBuilder #34495E
 goal --> telemetry #34495E
 goal --> contextInjector #34495E
+goal --> contextMemory #34495E
+goal --> turn #34495E
+goal --> toolRegistry #34495E
+goal --> permissionMode #34495E
 skill --> prompt #34495E
 skill --> eventSink #34495E
 skill --> wireRecord #34495E
@@ -349,6 +353,8 @@ fullCompaction ..> turn #16A085 : hooks.onContextOverflow
 permissionRules ..> wireRecord #16A085 : permission.rules.add / record_approval_result
 skill ..> wireRecord #16A085 : skill.activate
 goal ..> wireRecord #16A085 : goal.create/update/clear
+goal ..> turn #16A085 : turn lifecycle hooks
+goal ..> eventSink #16A085 : hook.result / goal.updated
 microCompaction ..> wireRecord #16A085 : micro_compaction.apply / full_compaction.complete
 swarm ..> wireRecord #16A085 : swarm_mode.enter/exit
 swarm ..> turn #16A085 : hooks.onEnded

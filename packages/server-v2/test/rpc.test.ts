@@ -29,6 +29,22 @@ interface SessionMetaWire {
   archived: boolean;
 }
 
+interface GoalSnapshotWire {
+  goalId: string;
+  objective: string;
+  completionCriterion?: string;
+  status: 'active' | 'paused' | 'blocked' | 'complete';
+  turnsUsed: number;
+  tokensUsed: number;
+  wallClockMs: number;
+  budget: unknown;
+  terminalReason?: string;
+}
+
+interface GoalToolResultWire {
+  goal: GoalSnapshotWire | null;
+}
+
 describe('server-v2 /api/v2 RPC', () => {
   let server: RunningServer | undefined;
   let home: string | undefined;
@@ -222,6 +238,77 @@ describe('server-v2 /api/v2 RPC', () => {
     expect(body.data.stdout).toBe('hello');
     expect(body.data.stderr).toBe('');
     expect(body.data.isError).not.toBe(true);
+  });
+
+  it('controls goals through goal:* RPC', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+
+    const created = await call<GoalSnapshotWire>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/goal:create`,
+      { objective: 'finish the migration' },
+    );
+    expect(created.body.code).toBe(0);
+    expect(created.body.data).toMatchObject({
+      objective: 'finish the migration',
+      status: 'active',
+    });
+
+    const read = await call<GoalToolResultWire>(
+      'GET',
+      `/api/v2/session/${id}/agent/main/goal:get`,
+    );
+    expect(read.body.code).toBe(0);
+    expect(read.body.data.goal).toMatchObject({
+      objective: 'finish the migration',
+      status: 'active',
+    });
+
+    const paused = await call<GoalSnapshotWire>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/goal:pause`,
+      {},
+    );
+    expect(paused.body.data.status).toBe('paused');
+
+    const resumed = await call<GoalSnapshotWire>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/goal:resume`,
+      {},
+    );
+    expect(resumed.body.data.status).toBe('active');
+
+    const cancelled = await call<GoalSnapshotWire>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/goal:cancel`,
+      {},
+    );
+    expect(cancelled.body.code).toBe(0);
+    expect(cancelled.body.data.status).toBe('active');
+
+    const afterCancel = await call<GoalToolResultWire>(
+      'GET',
+      `/api/v2/session/${id}/agent/main/goal:get`,
+    );
+    expect(afterCancel.body.data.goal).toBeNull();
+  });
+
+  it('maps goal errors through RPC envelopes', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+
+    await call<GoalSnapshotWire>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/goal:create`,
+      { objective: 'first' },
+    );
+    const duplicate = await call<null>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/goal:create`,
+      { objective: 'second' },
+    );
+    expect(duplicate.body.code).toBe(40913);
   });
 
   it('lists and installs plugins through plugins:* RPC', async () => {

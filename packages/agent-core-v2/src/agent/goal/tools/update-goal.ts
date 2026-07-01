@@ -6,24 +6,16 @@
  *
  * The argument is intentionally just a status enum — no reason or evidence. The
  * model explains itself in its own reply; the status is the machine-readable
- * signal. The tool is only offered to the model while a goal exists.
+ * signal.
  */
 
 import { z } from 'zod';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import type { IAgentSystemReminderService } from '#/agent/systemReminder';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
 
 import type { IAgentGoalService } from '#/agent/goal/goal';
-import {
-  buildGoalBlockedReasonPrompt,
-  buildGoalCompletionSummaryPrompt,
-} from './outcome-prompts';
 import DESCRIPTION from './update-goal.md?raw';
-
-const GOAL_COMPLETION_REMINDER_NAME = 'goal_completion_summary';
-const GOAL_BLOCKED_REMINDER_NAME = 'goal_blocked_reason';
 
 export const UpdateGoalToolInputSchema = z
   .object({
@@ -40,10 +32,7 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(UpdateGoalToolInputSchema);
 
-  constructor(
-    private readonly goal: IAgentGoalService,
-    private readonly reminders: IAgentSystemReminderService,
-  ) {}
+  constructor(private readonly goal: IAgentGoalService) {}
 
   resolveExecution(args: UpdateGoalToolInput): ToolExecution {
     return {
@@ -56,28 +45,11 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
           return { output: 'Goal resumed.' };
         }
         if (args.status === 'complete') {
-          const completed = await this.goal.markComplete({}, 'model');
-          // `complete` is transient: markComplete announces then clears the
-          // record. Store the summary request as a system reminder, so the next
-          // provider request ends with a user message after the UpdateGoal tool
-          // result. Anthropic-compatible providers reject trailing assistant
-          // messages as unsupported prefill.
-          if (completed !== null) {
-            this.reminders.appendSystemReminder(buildGoalCompletionSummaryPrompt(completed), {
-              kind: 'system_trigger',
-              name: GOAL_COMPLETION_REMINDER_NAME,
-            });
-          }
+          await this.goal.markComplete({}, 'model');
           return { output: 'Goal marked complete.', stopTurn: true };
         }
         if (args.status === 'blocked') {
-          const blocked = await this.goal.markBlocked({}, 'model');
-          if (blocked !== null) {
-            this.reminders.appendSystemReminder(buildGoalBlockedReasonPrompt(blocked), {
-              kind: 'system_trigger',
-              name: GOAL_BLOCKED_REMINDER_NAME,
-            });
-          }
+          await this.goal.markBlocked({}, 'model');
           return { output: 'Goal marked blocked.', stopTurn: true };
         }
         await this.goal.pauseGoal({}, 'model');
