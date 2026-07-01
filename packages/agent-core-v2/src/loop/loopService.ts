@@ -43,6 +43,7 @@ import { IAgentContextSizeService } from '#/contextSize';
 import { IAgentEventSinkService } from '../eventSink';
 import { IAgentExternalHooksService } from '#/externalHooks';
 import { IAgentLLMRequesterService } from '#/llmRequester';
+import { ILogService } from '#/log';
 import { IAgentProfileService } from '#/profile';
 import { IConfigRegistry, IConfigService } from '#/config';
 import { ITelemetryService } from '#/telemetry';
@@ -104,6 +105,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
+    @ILogService private readonly log: ILogService,
   ) {
     super();
     configRegistry.registerSection(LOOP_CONTROL_SECTION, LoopControlSchema, {
@@ -145,6 +147,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             dispatchEvent: this.dispatchEvent,
             tools: this.executableTools(),
             hooks: loopHooks,
+            log: this.log,
             toolExecutor: this.toolExecutor,
             maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
             maxRetryAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
@@ -270,6 +273,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           finishReason: event.finishReason,
           llmFirstTokenLatencyMs: event.llmFirstTokenLatencyMs,
           llmStreamDurationMs: event.llmStreamDurationMs,
+          llmRequestBuildMs: event.llmRequestBuildMs,
+          llmServerFirstTokenMs: event.llmServerFirstTokenMs,
+          llmServerDecodeMs: event.llmServerDecodeMs,
+          llmClientConsumeMs: event.llmClientConsumeMs,
           providerFinishReason: event.providerFinishReason,
           rawFinishReason: event.rawFinishReason,
         });
@@ -528,6 +535,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           streamTiming = {
             firstTokenLatencyMs: event.firstTokenLatencyMs,
             streamDurationMs: event.streamDurationMs,
+            requestBuildMs: event.requestBuildMs,
+            serverFirstTokenMs: event.serverFirstTokenMs,
+            serverDecodeMs: event.serverDecodeMs,
+            clientConsumeMs: event.clientConsumeMs,
           };
           continue;
       }

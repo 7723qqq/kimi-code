@@ -159,9 +159,15 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     finishReason: effectiveStopReason,
     llmFirstTokenLatencyMs: response.streamTiming?.firstTokenLatencyMs,
     llmStreamDurationMs: response.streamTiming?.streamDurationMs,
+    llmRequestBuildMs: response.streamTiming?.requestBuildMs,
+    llmServerFirstTokenMs: response.streamTiming?.serverFirstTokenMs,
+    llmServerDecodeMs: response.streamTiming?.serverDecodeMs,
+    llmClientConsumeMs: response.streamTiming?.clientConsumeMs,
     providerMessageId: response.providerMessageId,
     ...stepEndProviderDiagnostics(response, effectiveStopReason),
   });
+
+  logStepTiming(log, turnId, currentStep, response);
 
   let stopTurnAfterStep = stopTurnAfterUsage;
   if (hooks?.afterStep !== undefined) {
@@ -185,6 +191,47 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     stopReason:
       stopTurnAfterStep && effectiveStopReason === 'tool_use' ? 'end_turn' : effectiveStopReason,
   };
+}
+
+/**
+ * Emit a per-step completion log with the LLM response timing. TTFT is split
+ * into the client-side request-build portion and the network + API-server
+ * portion, and the decode window is split into server (awaiting parts) vs.
+ * client (processing parts) time, so slow turns can be attributed without
+ * parsing the wire log. Split components are omitted when the provider did not
+ * report the corresponding boundary.
+ */
+function logStepTiming(
+  log: Logger | undefined,
+  turnId: string,
+  currentStep: number,
+  response: LLMChatResponse,
+): void {
+  if (log === undefined) return;
+  const timing = response.streamTiming;
+  if (timing === undefined) return;
+  const payload: {
+    turnStep: string;
+    ttftMs: number;
+    requestBuildMs?: number;
+    serverFirstTokenMs?: number;
+    streamDurationMs: number;
+    serverDecodeMs?: number;
+    clientConsumeMs?: number;
+    outputTokens: number;
+  } = {
+    turnStep: `${turnId}.${String(currentStep)}`,
+    ttftMs: timing.firstTokenLatencyMs,
+    streamDurationMs: timing.streamDurationMs,
+    outputTokens: response.usage.output,
+  };
+  if (timing.requestBuildMs !== undefined) payload.requestBuildMs = timing.requestBuildMs;
+  if (timing.serverFirstTokenMs !== undefined) {
+    payload.serverFirstTokenMs = timing.serverFirstTokenMs;
+  }
+  if (timing.serverDecodeMs !== undefined) payload.serverDecodeMs = timing.serverDecodeMs;
+  if (timing.clientConsumeMs !== undefined) payload.clientConsumeMs = timing.clientConsumeMs;
+  log.info('llm response', payload);
 }
 
 function deriveStepStopReason(response: LLMChatResponse): LoopStepStopReason {
