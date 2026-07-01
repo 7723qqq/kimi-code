@@ -147,6 +147,7 @@ import type {
   WireRecordRestoreOptions,
   WireRecordRestoreResult,
 } from '#/agent/wireRecord';
+import { IAgentRecordService } from '#/agent/record';
 import type { PathAccessOperation } from '#/session/workspaceContext';
 import { createFakeAgentFs, createFakeHostEnvironment, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 
@@ -213,12 +214,11 @@ class TestAgentSkillService extends AgentSkillService {
   constructor(
     @ISessionSkillCatalog skillCatalog: ISessionSkillCatalog,
     @IAgentPromptService prompt: IAgentPromptService,
-    @IAgentEventSinkService events: IAgentEventSinkService,
-    @IAgentWireRecordService wireRecord: IAgentWireRecordService,
+    @IAgentRecordService records: IAgentRecordService,
     @ITelemetryService telemetry: ITelemetryService,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
   ) {
-    super(skillCatalog, prompt, events, wireRecord, telemetry, toolRegistry);
+    super(skillCatalog, prompt, records, telemetry, toolRegistry);
     if (skillCatalog.catalog.listInvocableSkills().length > 0) {
       this._register(toolRegistry.register(new ModelSkillTool(this)));
     }

@@ -21,14 +21,14 @@ import {
 
 import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import { IAgentLifecycleService } from '#/session/agent-lifecycle';
-import type { IScopeHandle } from '#/_base/di/scope';
+import type { IAgentScopeHandle } from '#/_base/di/scope';
 import {
   IAgentContextMemoryService,
   type ContextMessage,
   type PromptOrigin,
 } from '#/agent/contextMemory';
 import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
-import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentRecordService } from '#/agent/record';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { isAbortError } from '#/agent/loop/errors';
 import { IAgentProfileService } from '#/agent/profile';
@@ -183,7 +183,7 @@ export function cancelAllChildren(
 async function ensureParent(
   lifecycle: IAgentLifecycleService,
   parentAgentId: string,
-): Promise<IScopeHandle> {
+): Promise<IAgentScopeHandle> {
   const existing = lifecycle.getHandle(parentAgentId);
   if (existing !== undefined) return existing;
   throw new Error(`Parent agent "${parentAgentId}" does not exist`);
@@ -194,7 +194,7 @@ async function requireChild(
   parentAgentId: string,
   metadata: ISessionMetadata | undefined,
   agentId: string,
-): Promise<IScopeHandle> {
+): Promise<IAgentScopeHandle> {
   if (metadata !== undefined) {
     const meta = (await metadata.read()).agents?.[agentId];
     if (meta === undefined) throw new Error(`Agent instance "${agentId}" does not exist`);
@@ -212,13 +212,13 @@ async function requireChild(
   return child;
 }
 
-function ensureAgentTool(child: IScopeHandle): void {
+function ensureAgentTool(child: IAgentScopeHandle): void {
   // Force-instantiate the child agent's `Agent` tool registrar so its `Agent`
   // tool is registered before the child's first turn builds its tool list.
   child.accessor.get(IAgentToolService);
 }
 
-function configureChild(parent: IScopeHandle, child: IScopeHandle, profileName: string): void {
+function configureChild(parent: IAgentScopeHandle, child: IAgentScopeHandle, profileName: string): void {
   const parentProfile = parent.accessor.get(IAgentProfileService);
   const childProfile = child.accessor.get(IAgentProfileService);
   const parentData = parentProfile.data();
@@ -241,13 +241,13 @@ function configureChild(parent: IScopeHandle, child: IScopeHandle, profileName: 
 }
 
 function emitSpawned(
-  parent: IScopeHandle,
+  parent: IAgentScopeHandle,
   parentAgentId: string,
   subagentId: string,
   profileName: string,
   options: RunSubagentOptions,
 ): void {
-  parent.accessor.get(IAgentEventSinkService)?.emit({
+  parent.accessor.get(IAgentRecordService)?.signal({
     type: 'subagent.spawned',
     subagentId,
     subagentName: profileName,
@@ -264,17 +264,17 @@ function emitSpawned(
   });
 }
 
-function emitStarted(parent: IScopeHandle, subagentId: string): void {
-  parent.accessor.get(IAgentEventSinkService)?.emit({ type: 'subagent.started', subagentId });
+function emitStarted(parent: IAgentScopeHandle, subagentId: string): void {
+  parent.accessor.get(IAgentRecordService)?.signal({ type: 'subagent.started', subagentId });
 }
 
 function emitCompleted(
-  parent: IScopeHandle,
+  parent: IAgentScopeHandle,
   subagentId: string,
   resultSummary: string,
   usage?: TokenUsage,
 ): void {
-  parent.accessor.get(IAgentEventSinkService)?.emit({
+  parent.accessor.get(IAgentRecordService)?.signal({
     type: 'subagent.completed',
     subagentId,
     resultSummary,
@@ -283,14 +283,14 @@ function emitCompleted(
 }
 
 function emitFailed(
-  parent: IScopeHandle,
+  parent: IAgentScopeHandle,
   subagentId: string,
   error: unknown,
   options: RunSubagentOptions,
 ): void {
   if (isAbortError(error)) return;
   if (shouldSuppressQueuedAttemptFailureEvent(options, error)) return;
-  parent.accessor.get(IAgentEventSinkService)?.emit({
+  parent.accessor.get(IAgentRecordService)?.signal({
     type: 'subagent.failed',
     subagentId,
     error: errorMessage(error),
@@ -299,7 +299,7 @@ function emitFailed(
 
 
 async function triggerSubagentStart(
-  parent: IScopeHandle,
+  parent: IAgentScopeHandle,
   profileName: string,
   prompt: string,
   signal: AbortSignal,
@@ -313,7 +313,7 @@ async function triggerSubagentStart(
   );
 }
 
-function triggerSubagentStop(parent: IScopeHandle, profileName: string, result: string): void {
+function triggerSubagentStop(parent: IAgentScopeHandle, profileName: string, result: string): void {
   parent.accessor.get(IAgentExternalHooksService)?.triggerSubagentStop({
     agentName: profileName,
     response: result.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
@@ -327,9 +327,9 @@ function observeFirstRequest(turn: Turn, options: RunSubagentOptions): void {
 
 async function runWithActiveChild(
   parentAgentId: string,
-  child: IScopeHandle,
+  child: IAgentScopeHandle,
   options: RunSubagentOptions,
-  parent: IScopeHandle,
+  parent: IAgentScopeHandle,
   profileName: string,
   run: (
     turn: { current?: Turn },
@@ -359,8 +359,8 @@ async function runWithActiveChild(
 }
 
 async function runPromptTurn(
-  child: IScopeHandle,
-  parent: IScopeHandle,
+  child: IAgentScopeHandle,
+  parent: IAgentScopeHandle,
   options: RunSubagentOptions,
   profileName: string,
   turnRef: { current?: Turn },
@@ -389,8 +389,8 @@ async function runPromptTurn(
 }
 
 async function runRetryTurn(
-  child: IScopeHandle,
-  parent: IScopeHandle,
+  child: IAgentScopeHandle,
+  parent: IAgentScopeHandle,
   options: RunSubagentOptions,
   profileName: string,
   turnRef: { current?: Turn },
@@ -429,7 +429,7 @@ async function awaitTurn(
 }
 
 async function completeSummary(
-  child: IScopeHandle,
+  child: IAgentScopeHandle,
   controller: AbortController,
   turnRef: { current?: Turn },
 ): Promise<string> {

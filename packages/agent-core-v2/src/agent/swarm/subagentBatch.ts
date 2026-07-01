@@ -22,7 +22,7 @@ import {
 } from '#/agent/agentTool';
 import type { IAgentLifecycleService } from '#/session/agent-lifecycle';
 import type { ISessionMetadata } from '#/session/session-metadata';
-import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentRecordService } from '#/agent/record';
 import { isUserCancellation } from '#/_base/utils/abort';
 
 /*
@@ -719,7 +719,7 @@ export function runChildAgentQueued<T>({
       retryChildAgent({ lifecycle, parentAgentId, metadata, agentId, ...options }),
     suspended: (event) => {
       const parent = lifecycle.getHandle(parentAgentId);
-      parent?.accessor.get(IAgentEventSinkService)?.emit({
+      parent?.accessor.get(IAgentRecordService)?.signal({
         type: 'subagent.suspended',
         subagentId: event.agentId,
         reason: event.reason,

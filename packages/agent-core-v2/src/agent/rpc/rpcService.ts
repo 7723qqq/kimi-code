@@ -8,7 +8,7 @@ import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentFileToolsService } from '#/agent/fileTools';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction';
 import { IAgentGoalService } from '#/agent/goal';
-import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentRecordService } from '#/agent/record';
 import { ErrorCodes, KimiError } from '#/errors';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentPermissionGate } from '#/agent/permissionGate';
@@ -96,7 +96,7 @@ export class AgentRPCService implements IAgentRPCService {
     @IAgentUsageService private readonly usage: IAgentUsageService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentGoalService private readonly goal: IAgentGoalService,
-    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentQuestionToolsService private readonly questionTools: IAgentQuestionToolsService,
     @IAgentWebService private readonly web: IAgentWebService,
     @IPluginService private readonly plugins: IPluginService,
@@ -149,12 +149,12 @@ export class AgentRPCService implements IAgentRPCService {
           else if (update.kind === 'stderr') stderr += update.text ?? '';
           else return;
           if (payload.commandId !== undefined) {
-            this.events.emit({ type: 'shell.output', commandId: payload.commandId, update });
+            this.record.signal({ type: 'shell.output', commandId: payload.commandId, update });
           }
         },
         onForegroundTaskStart: (taskId: string) => {
           if (payload.commandId !== undefined) {
-            this.events.emit({ type: 'shell.started', commandId: payload.commandId, taskId });
+            this.record.signal({ type: 'shell.started', commandId: payload.commandId, taskId });
           }
         },
       });
@@ -316,7 +316,7 @@ export class AgentRPCService implements IAgentRPCService {
       commandArgs: payload.args,
       trigger: 'user-slash' as const,
     };
-    this.events.emit({
+    this.record.signal({
       type: 'plugin_command.activated',
       activationId: origin.activationId,
       pluginId: origin.pluginId,

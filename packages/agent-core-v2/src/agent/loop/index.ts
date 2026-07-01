@@ -27,7 +27,6 @@ export type {
 } from './types';
 
 export type {
-  CreateLoopEventDispatcherInput,
   LoopContentPartEvent,
   LoopRecordedEvent,
   LoopStepBeginEvent,
@@ -36,7 +35,6 @@ export type {
   LoopLiveOnlyEvent,
   LoopEvent,
   LoopInterruptReason,
-  LoopLiveEventEmitter,
   LoopEventDispatcher,
   LoopTextDeltaEvent,
   LoopThinkingDeltaEvent,
@@ -46,7 +44,6 @@ export type {
   LoopToolResultEvent,
   LoopTurnInterruptedEvent,
 } from './events';
-export { createLoopEventDispatcher } from './events';
 
 export type {
   LLM,

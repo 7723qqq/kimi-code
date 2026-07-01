@@ -136,66 +136,8 @@ export type LoopLiveOnlyEvent =
   | LoopToolProgressEvent;
 
 export type LoopEvent = LoopRecordedEvent | LoopLiveOnlyEvent;
-export type LoopLiveEventEmitter = (event: LoopEvent) => void;
 
 export type LoopEventDispatcher = {
   (event: LoopRecordedEvent): Promise<void>;
   (event: LoopLiveOnlyEvent): void;
 };
-
-export interface CreateLoopEventDispatcherInput {
-  readonly appendTranscriptRecord: (record: LoopRecordedEvent) => Promise<void>;
-  readonly emitLiveEvent?: LoopLiveEventEmitter | undefined;
-}
-
-export function createLoopEventDispatcher(
-  input: CreateLoopEventDispatcherInput,
-): LoopEventDispatcher {
-  function dispatchEvent(event: LoopRecordedEvent): Promise<void>;
-  function dispatchEvent(event: LoopLiveOnlyEvent): void;
-  function dispatchEvent(event: LoopEvent): Promise<void> | void {
-    if (isRecordedEvent(event)) {
-      return recordEvent(input, event);
-    }
-    safeEmitLive(input.emitLiveEvent, event);
-  }
-  return dispatchEvent;
-}
-
-function isRecordedEvent(event: LoopEvent): event is LoopRecordedEvent {
-  return (
-    event.type === 'step.begin' ||
-    event.type === 'step.end' ||
-    event.type === 'content.part' ||
-    event.type === 'tool.call' ||
-    event.type === 'tool.result'
-  );
-}
-
-async function recordEvent(
-  input: CreateLoopEventDispatcherInput,
-  event: LoopRecordedEvent,
-): Promise<void> {
-  await input.appendTranscriptRecord(event);
-  safeEmitLive(input.emitLiveEvent, event);
-}
-
-function safeEmitLive(emit: LoopLiveEventEmitter | undefined, event: LoopEvent): void {
-  if (emit === undefined) return;
-  let maybePromise: unknown;
-  try {
-    maybePromise = (emit as (event: LoopEvent) => unknown)(event);
-  } catch {
-    return;
-  }
-  if (
-    maybePromise !== undefined &&
-    maybePromise !== null &&
-    typeof (maybePromise as { then?: unknown }).then === 'function' &&
-    typeof (maybePromise as { catch?: unknown }).catch === 'function'
-  ) {
-    (maybePromise as Promise<unknown>).catch(() => {
-      // Live listeners are best-effort; their failures must not affect the turn.
-    });
-  }
-}
