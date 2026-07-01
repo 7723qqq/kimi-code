@@ -2,8 +2,8 @@
  * `gateway` domain (L7) — REST/WS gateways.
  *
  * Defines the public contracts of the gateway layer: the `IRestGateway` /
- * `IWSGateway` / `IWSBroadcastService` entry points. Session scope creation is
- * owned by `session-lifecycle`; the gateway resolves sessions through it.
+ * `IWSGateway` entry points. Session scope creation is owned by
+ * `session-lifecycle`; the gateway resolves sessions through it.
  * App-scoped — shared across the application.
  */
 
@@ -38,10 +38,3 @@ export interface IWSGateway {
 
 export const IWSGateway: ServiceIdentifier<IWSGateway> =
   createDecorator<IWSGateway>('wsGateway');
-
-export interface IWSBroadcastService {
-  readonly _serviceBrand: undefined;
-}
-
-export const IWSBroadcastService: ServiceIdentifier<IWSBroadcastService> =
-  createDecorator<IWSBroadcastService>('wsBroadcastService');
