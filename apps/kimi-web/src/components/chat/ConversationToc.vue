@@ -1,6 +1,6 @@
 <!-- apps/kimi-web/src/components/chat/ConversationToc.vue -->
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ChatTurn } from '../../types';
 
@@ -25,11 +25,66 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+// Width the rail needs beside the reading column once its labels are fully
+// revealed on hover/focus: 3px bar + 10px gap + 220px label, plus a small
+// buffer so the text never kisses the container edge. Kept in sync with the
+// `.toc-bar` / `.toc-label` rules below.
+const EXPANDED_WIDTH = 240;
+
+const navRef = ref<HTMLElement | null>(null);
+// Whether the rail, once expanded, fits within the room to the right of the
+// reading column. When it would overflow, we hide the outline entirely rather
+// than showing a panel that gets clipped by the container edge.
+const fits = ref(true);
+
+let observer: ResizeObserver | null = null;
+
+function measure(): void {
+  const nav = navRef.value;
+  const parent = nav?.offsetParent as HTMLElement | null;
+  if (!nav || !parent) return;
+  const navLeft = nav.getBoundingClientRect().left;
+  const parentRight = parent.getBoundingClientRect().right;
+  fits.value = parentRight - navLeft >= EXPANDED_WIDTH;
+}
+
 // The outline is only useful once there is something to navigate, and it never
-// shows on mobile or while the session is still loading.
+// shows on mobile or while the session is still loading. `fits` is kept out of
+// this computed so the nav stays mounted (and measurable) even when hidden;
+// clipping is applied via the `toc-clipped` class instead.
 const visible = computed(
   () => !props.mobile && !props.sessionLoading && props.items.length > 1,
 );
+
+// The nav is rendered only while `visible` (v-if), so a mount while navRef is
+// still null (during sessionLoading, on mobile, or before a second user turn)
+// would skip the ResizeObserver setup and leave `fits` at its default `true`.
+// Re-initialize whenever the nav is actually rendered so `fits` is measured
+// against the real layout instead.
+watch(
+  visible,
+  (isVisible) => {
+    observer?.disconnect();
+    observer = null;
+    if (!isVisible) return;
+    void nextTick(() => {
+      const nav = navRef.value;
+      const parent = nav?.offsetParent as HTMLElement | null;
+      if (!nav || !parent) return;
+      if (typeof ResizeObserver !== 'undefined') {
+        observer = new ResizeObserver(measure);
+        observer.observe(parent);
+      }
+      measure();
+    });
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(() => {
+  observer?.disconnect();
+  observer = null;
+});
 </script>
 
 <template>
@@ -38,8 +93,11 @@ const visible = computed(
        and reveals each query's title to the right, making rows easy to click. -->
   <nav
     v-if="visible"
+    ref="navRef"
     class="conversation-toc"
+    :class="{ 'toc-clipped': !fits }"
     :aria-label="t('conversation.toc')"
+    :aria-hidden="fits ? undefined : true"
   >
     <div class="toc-scroll">
       <button
@@ -151,7 +209,11 @@ const visible = computed(
 .toc-row:hover .toc-bar { opacity: 1; }
 .toc-row:hover .toc-label { color: var(--color-text); }
 
-@container (max-width: 920px) {
-  .conversation-toc { display: none; }
+/* When there is not enough room to the right of the reading column to reveal
+   the labels, the rail is kept mounted (so its position can keep being
+   measured) but hidden from view and from pointer/screen-reader interaction. */
+.conversation-toc.toc-clipped {
+  visibility: hidden;
+  pointer-events: none;
 }
 </style>
