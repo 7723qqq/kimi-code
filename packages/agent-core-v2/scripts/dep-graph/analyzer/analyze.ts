@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import {
   type CallExpression,
   type ClassDeclaration,
+  type Node,
   type ParameterDeclaration,
   Project,
   type SourceFile,
@@ -66,6 +67,7 @@ const FRAMEWORK_BINDINGS: readonly { token: string; scope: ServiceScope; impl: s
   { token: 'ILogOptions', scope: 'App', impl: 'LogOptions' },
   { token: 'IBootstrapOptions', scope: 'App', impl: 'BootstrapOptions' },
   { token: 'ISessionContext', scope: 'Session', impl: 'SessionContext' },
+  { token: 'IAgentScopeContext', scope: 'Agent', impl: 'AgentScopeContext' },
 ];
 
 /**
@@ -141,7 +143,7 @@ function pushEdge(
   const key = edgeKey(fromId, toId, kind);
   const existing = acc.edges.get(key);
   if (existing) {
-    if (!existing.refs.some((r) => r.file === ref.file && r.line === ref.line)) {
+    if (!existing.refs.some((r) => sameRef(r, ref))) {
       existing.refs.push(ref);
     }
     return;
@@ -156,6 +158,15 @@ function pushEdge(
   };
   acc.edges.set(key, edge);
   if (!target) acc.unknownRefs.add(token);
+}
+
+function sameRef(a: EdgeRef, b: EdgeRef): boolean {
+  return (
+    a.file === b.file &&
+    a.line === b.line &&
+    (a.fromMethod ?? '') === (b.fromMethod ?? '') &&
+    (a.toMethod ?? '') === (b.toMethod ?? '')
+  );
 }
 
 /**
@@ -257,40 +268,37 @@ function collectServices(sourceFiles: SourceFile[]): {
 
 /**
  * From a class ctor, list `{decorator, param}` for every `@IToken`-decorated
- * parameter, in declaration order. Also returns the "event bus fields": params
- * whose declared type is `IEventService` or `IAgentEventSinkService`, keyed
- * by field/param name so we can find `this.<name>.publish(...)` etc.
+ * parameter, in declaration order. Also returns the "injected fields": params
+ * lifted to a class field via a visibility modifier, keyed by field name and
+ * mapped to the token they're bound to. That map lets pass 2 attribute
+ * `this.<field>.<method>()` call sites back to the correct ctor edge.
  */
 function readCtor(cls: ClassDeclaration): {
   ctorDeps: { token: string; line: number }[];
-  eventBusFields: Map<string, string>;
+  injectedFields: Map<string, string>;
 } {
   const ctorDeps: { token: string; line: number }[] = [];
-  const eventBusFields = new Map<string, string>();
+  const injectedFields = new Map<string, string>();
 
   const ctors = cls.getConstructors();
-  if (ctors.length === 0) return { ctorDeps, eventBusFields };
+  if (ctors.length === 0) return { ctorDeps, injectedFields };
   const ctor = ctors[0];
 
   for (const param of ctor.getParameters()) {
     const decorators = param.getDecorators();
+    let paramToken: string | undefined;
     for (const dec of decorators) {
       const decName = dec.getName();
       if (!decName.startsWith('I')) continue;
       ctorDeps.push({ token: decName, line: dec.getStartLineNumber() });
+      paramToken = decName;
     }
-    // Field type — for detecting event-bus fields regardless of decorator.
-    const typeNode = param.getTypeNode();
-    if (typeNode) {
-      const typeText = typeNode.getText();
-      if (EVENT_BUS_TOKENS.has(typeText)) {
-        const name = fieldNameOf(param);
-        if (name) eventBusFields.set(name, typeText);
-      }
-    }
+    if (paramToken === undefined) continue;
+    const fieldName = fieldNameOf(param);
+    if (fieldName) injectedFields.set(fieldName, paramToken);
   }
 
-  return { ctorDeps, eventBusFields };
+  return { ctorDeps, injectedFields };
 }
 
 /**
@@ -308,14 +316,69 @@ function fieldNameOf(param: ParameterDeclaration): string | undefined {
 }
 
 /**
+ * Walk parents from `node` to the nearest class-body scope so we can label
+ * a call site by the source method that contains it. Arrow functions and
+ * `function` expressions are transparent — we want the surrounding method,
+ * not the closure. Returns `undefined` when the call sits directly in a
+ * class body but outside any declared member (rare — decorators, etc.).
+ */
+function enclosingMethodName(node: Node): string | undefined {
+  let cur: Node | undefined = node.getParent();
+  while (cur) {
+    const kind = cur.getKind();
+    if (kind === SyntaxKind.MethodDeclaration) {
+      const m = cur.asKindOrThrow(SyntaxKind.MethodDeclaration);
+      return m.getName();
+    }
+    if (kind === SyntaxKind.Constructor) return '<ctor>';
+    if (kind === SyntaxKind.GetAccessor) {
+      const g = cur.asKindOrThrow(SyntaxKind.GetAccessor);
+      return `get ${g.getName()}`;
+    }
+    if (kind === SyntaxKind.SetAccessor) {
+      const s = cur.asKindOrThrow(SyntaxKind.SetAccessor);
+      return `set ${s.getName()}`;
+    }
+    if (kind === SyntaxKind.PropertyDeclaration) {
+      const p = cur.asKindOrThrow(SyntaxKind.PropertyDeclaration);
+      return `<field ${p.getName()}>`;
+    }
+    if (kind === SyntaxKind.ClassDeclaration) return undefined;
+    cur = cur.getParent();
+  }
+  return undefined;
+}
+
+/**
+ * When a `.get(IToken)` call is immediately chained with a method call —
+ * `<expr>.get(IX).<method>(...)` — return that method name. This is the
+ * only accessor pattern we can attribute without a type checker; results
+ * stored in a local variable are indistinguishable from other locals and
+ * would need dataflow tracking to follow.
+ */
+function chainedMethodName(getCall: CallExpression): string | undefined {
+  const parent = getCall.getParent();
+  if (!parent || parent.getKind() !== SyntaxKind.PropertyAccessExpression) return undefined;
+  const pae = parent.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
+  if (pae.getExpression() !== getCall) return undefined;
+  const grandparent = pae.getParent();
+  if (!grandparent || grandparent.getKind() !== SyntaxKind.CallExpression) return undefined;
+  const outer = grandparent.asKindOrThrow(SyntaxKind.CallExpression);
+  if (outer.getExpression() !== pae) return undefined;
+  return pae.getName();
+}
+
+/**
  * Pass 2 — for a given impl class, walk method bodies and detect:
- *   - `<expr>.get(IToken)`             → accessor edge
- *   - `this.<busField>.publish/...`    → publish/subscribe/emit/on edges
+ *   - `<expr>.get(IToken)[.method(...)]` → accessor edge (with optional `toMethod`)
+ *   - `this.<injectedField>.<method>(...)` → attach method info to the ctor
+ *     edge for that field, or emit an event-bus edge when the field's token
+ *     is an event bus (`publish` / `subscribe` / `emit` / `on`).
  */
 function collectRuntimeEdges(
   cls: ClassDeclaration,
   source: ServiceNode,
-  eventBusFields: Map<string, string>,
+  injectedFields: Map<string, string>,
   acc: EdgeAccumulator,
 ): void {
   const filePath = relFromRepo(cls.getSourceFile().getFilePath());
@@ -326,8 +389,11 @@ function collectRuntimeEdges(
     const pae = callee.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
     const methodName = pae.getName();
     const line = call.getStartLineNumber();
-    const ref: EdgeRef = { file: filePath, line };
+    const fromMethod = enclosingMethodName(call);
+    const baseRef: EdgeRef = { file: filePath, line };
+    if (fromMethod !== undefined) baseRef.fromMethod = fromMethod;
 
+    // Case 1: <accessor>.get(IX)[.method(...)]
     if (methodName === 'get') {
       const args = call.getArguments();
       if (args.length === 0) continue;
@@ -337,29 +403,47 @@ function collectRuntimeEdges(
       if (!tokenName.startsWith('I')) continue;
       // Ignore self-references — a service asking the accessor for itself.
       if (tokenName === source.token) continue;
+      const toMethod = chainedMethodName(call);
+      const ref: EdgeRef = { ...baseRef };
+      if (toMethod !== undefined) ref.toMethod = toMethod;
       pushEdge(acc, source.id, source, tokenName, 'accessor', ref);
       continue;
     }
 
-    const edgeKind = EVENT_METHOD_KIND[methodName];
-    if (edgeKind === undefined) continue;
-
-    // Detect `this.<field>` or `<field>` receivers where the field holds an
-    // event bus. `<expr>.<field>.<method>()` patterns are ignored: those come
-    // up rarely, and we would need the type checker to be sure.
+    // Case 2: <receiver>.<method>(...) where receiver is a DI-injected field.
+    // Detect `this.<field>` (the common form) and a bare `<field>` identifier
+    // (rare — event-bus code historically supported it; kept for parity).
     const receiver = pae.getExpression();
-    let busToken: string | undefined;
+    let fieldName: string | undefined;
     if (receiver.getKind() === SyntaxKind.PropertyAccessExpression) {
       const inner = receiver.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
       if (inner.getExpression().getKind() === SyntaxKind.ThisKeyword) {
-        busToken = eventBusFields.get(inner.getName());
+        fieldName = inner.getName();
       }
     } else if (receiver.getKind() === SyntaxKind.Identifier) {
-      busToken = eventBusFields.get(receiver.getText());
+      fieldName = receiver.getText();
     }
-    if (!busToken) continue;
-    if (busToken === source.token) continue;
-    pushEdge(acc, source.id, source, busToken, edgeKind, ref);
+    if (fieldName === undefined) continue;
+
+    const fieldToken = injectedFields.get(fieldName);
+    if (fieldToken === undefined) continue;
+    if (fieldToken === source.token) continue;
+
+    // Event-bus fields: keep the specialised publish/subscribe/emit/on edge
+    // kind; the method name is already carried by the kind so we don't
+    // duplicate it in `toMethod`.
+    if (EVENT_BUS_TOKENS.has(fieldToken)) {
+      const eventKind = EVENT_METHOD_KIND[methodName];
+      if (eventKind === undefined) continue;
+      pushEdge(acc, source.id, source, fieldToken, eventKind, baseRef);
+      continue;
+    }
+
+    // Regular DI field — attach method-call info to the ctor edge. The ctor
+    // param declaration ref (pushed in the outer loop below) has no
+    // `toMethod`; this ref does, so both survive the dedup.
+    const ref: EdgeRef = { ...baseRef, toMethod: methodName };
+    pushEdge(acc, source.id, source, fieldToken, 'ctor', ref);
   }
 }
 
@@ -421,7 +505,7 @@ export function analyze(options: { srcRoot?: string; generatedAt?: string } = {}
   for (const svc of services) {
     const cls = implClasses.get(svc.impl);
     if (!cls) continue;
-    const { ctorDeps, eventBusFields } = readCtor(cls);
+    const { ctorDeps, injectedFields } = readCtor(cls);
     const filePath = relFromRepo(cls.getSourceFile().getFilePath());
     for (const dep of ctorDeps) {
       // Self-refs happen when a service also declares a param typed as
@@ -429,7 +513,7 @@ export function analyze(options: { srcRoot?: string; generatedAt?: string } = {}
       if (dep.token === svc.token) continue;
       pushEdge(acc, svc.id, svc, dep.token, 'ctor', { file: filePath, line: dep.line });
     }
-    collectRuntimeEdges(cls, svc, eventBusFields, acc);
+    collectRuntimeEdges(cls, svc, injectedFields, acc);
   }
 
   return {
