@@ -1,3 +1,4 @@
+import type { HookDefConfig } from '#/externalHooks/configSection';
 import type { McpServerConfig } from '#/mcp/config-schema';
 
 export type PluginDiagnosticSeverity = 'error' | 'warn' | 'info';
@@ -35,6 +36,8 @@ export interface PluginManifest {
   readonly skills?: readonly string[]; // resolved absolute paths
   readonly sessionStart?: PluginSessionStart;
   readonly mcpServers?: Readonly<Record<string, McpServerConfig>>;
+  readonly hooks?: readonly HookDefConfig[];
+  readonly commands?: readonly PluginCommandEntry[];
   readonly interface?: PluginInterface;
   readonly skillInstructions?: string;
 }
@@ -58,6 +61,27 @@ export interface PluginMcpServerInfo {
   readonly url?: string;
   readonly envKeys?: readonly string[];
   readonly headerKeys?: readonly string[];
+}
+
+export interface PluginCommandDef {
+  readonly pluginId: string;
+  readonly name: string;
+  readonly description: string;
+  readonly body: string;
+  readonly path: string;
+}
+
+/**
+ * A resolved command file plus its namespace-preserving name.
+ *
+ * `name` is the path of the file relative to the declared `commands` entry
+ * (without the `.md` extension, using `/` separators), so a file at
+ * `commands/frontend/component.md` yields the name `frontend/component`.
+ * Frontmatter `name` in the file itself takes precedence over this at load time.
+ */
+export interface PluginCommandEntry {
+  readonly path: string;
+  readonly name: string;
 }
 
 export type PluginManifestKind = 'kimi-plugin-root' | 'kimi-plugin-dir';
@@ -105,6 +129,8 @@ export interface PluginSummary {
   readonly skillCount: number;
   readonly mcpServerCount: number;
   readonly enabledMcpServerCount: number;
+  readonly hookCount: number;
+  readonly commandCount: number;
   readonly hasErrors: boolean;
   readonly source: PluginSource;
   readonly originalSource?: string;
@@ -132,6 +158,15 @@ export interface ReloadSummary {
   readonly added: readonly string[];
   readonly removed: readonly string[];
   readonly errors: ReadonlyArray<{ readonly id: string; readonly message: string }>;
+}
+
+export interface PluginUpdateStatus {
+  readonly id: string;
+  readonly source: PluginSource;
+  readonly current?: PluginGithubRef;
+  readonly latest: PluginGithubRef;
+  readonly displayVersion: string;
+  readonly updateAvailable: boolean;
 }
 
 export const PLUGIN_NAME_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;

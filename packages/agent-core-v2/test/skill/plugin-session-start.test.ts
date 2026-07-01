@@ -74,7 +74,7 @@ function sessionStartRuntime(input: {
   });
   ctx.configure();
   if (input.history !== undefined) {
-    ctx.context.spliceHistory(0, 0, input.history);
+    ctx.context.splice(0, 0, input.history);
   }
   return { ctx, warnings };
 }
@@ -84,8 +84,15 @@ async function injectDynamic(ctx: ReturnType<typeof testAgent>): Promise<void> {
 }
 
 function lastReminder(ctx: ReturnType<typeof testAgent>): string {
-  const last = ctx.context.getHistory().findLast((message) => message.role === 'user');
+  const last = ctx.context.get().findLast((message) => message.role === 'user');
   return last?.content.map((part) => (part.type === 'text' ? part.text : '')).join('') ?? '';
+}
+
+function pluginSessionStartMessages(ctx: ReturnType<typeof testAgent>) {
+  return ctx.context.get().filter(
+    (message) =>
+      message.origin?.kind === 'injection' && message.origin.variant === 'plugin_session_start',
+  );
 }
 
 describe('plugin session-start dynamic injection', () => {
@@ -109,7 +116,7 @@ describe('plugin session-start dynamic injection', () => {
     expect(text).toContain('TodoList');
     expect(text).toContain('body of skill');
     expect(text).toContain('</plugin_session_start>');
-    expect(ctx.context.getHistory().at(-1)?.origin).toEqual({
+    expect(ctx.context.get().at(-1)?.origin).toEqual({
       kind: 'injection',
       variant: 'plugin_session_start',
     });
@@ -139,7 +146,7 @@ describe('plugin session-start dynamic injection', () => {
     await injectDynamic(ctx);
     await injectDynamic(ctx);
 
-    expect(ctx.context.getHistory()).toHaveLength(1);
+    expect(pluginSessionStartMessages(ctx)).toHaveLength(1);
   });
 
   it('does not re-inject when a replayed history already contains plugin sessionStart', async () => {
@@ -158,7 +165,7 @@ describe('plugin session-start dynamic injection', () => {
 
     await injectDynamic(ctx);
 
-    expect(ctx.context.getHistory()).toHaveLength(1);
+    expect(pluginSessionStartMessages(ctx)).toHaveLength(1);
   });
 
   it('skips a sessionStart whose skill is not registered and warns', async () => {
@@ -188,7 +195,7 @@ describe('plugin session-start dynamic injection', () => {
 
     await injectDynamic(ctx);
 
-    expect(ctx.context.getHistory()).toEqual([]);
+    expect(ctx.context.get()).toEqual([]);
   });
 
   it('resolves sessionStart skills by plugin identity when names collide', async () => {
