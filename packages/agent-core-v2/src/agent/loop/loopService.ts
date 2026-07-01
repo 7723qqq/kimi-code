@@ -43,6 +43,7 @@ import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester';
+import { OrderedHookSlot } from '#/hooks';
 import { ILogService } from '#/app/log';
 import { IAgentProfileService } from '#/agent/profile';
 import { IConfigService } from '#/app/config';
@@ -56,7 +57,7 @@ import type {
   LoopRecordedEvent,
 } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
-import { IAgentLoopService, type LoopRunHooks } from './loop';
+import { IAgentLoopService } from './loop';
 import {
   LOOP_CONTROL_SECTION,
   type LoopControl,
@@ -78,6 +79,13 @@ type TelemetryProperties = Record<string, unknown>;
 
 export class AgentLoopService extends Disposable implements IAgentLoopService {
   declare readonly _serviceBrand: undefined;
+  readonly hooks: IAgentLoopService['hooks'] = {
+    beforeStep: new OrderedHookSlot(),
+    onStepUsage: new OrderedHookSlot(),
+    afterStep: new OrderedHookSlot(),
+    onContextOverflow: new OrderedHookSlot(),
+  };
+
   private readonly openSteps = new Map<string, OpenStep>();
   private readonly toolCallStartedAt = new Map<string, ToolCallTelemetryStart>();
   private readonly toolCallDupType = new Map<string, 'normal' | 'cross_step'>();
@@ -102,6 +110,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @ILogService private readonly log: ILogService,
   ) {
     super();
+    this._register(
+      this.hooks.beforeStep.register('turn-before-step-event', async (_ctx, next) => {
+        await next();
+      }),
+    );
     this.context.hooks.onSpliced.register('loop-service-reconcile', async (_event, next) => {
       if (this.ownSpliceDepth === 0) {
         this.resetLiveStateFromHistory();
@@ -117,11 +130,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     );
   }
 
-  async runTurn(turn: Turn, hooks: LoopRunHooks | undefined): Promise<TurnResult> {
+  async runTurn(turn: Turn): Promise<TurnResult> {
     const startedAt = Date.now();
     this.protocolTurnId = turn.id;
     const llm = this.createLLM(turn.id);
-    const loopHooks = this.loopHooks(turn, hooks);
+    const loopHooks = this.loopHooks(turn);
     try {
       // Preflight the model configuration before any step begins. Legacy reads
       // `config.model` at the top of its step loop, so a missing model fails the
@@ -141,17 +154,28 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             toolExecutor: this.toolExecutor,
             maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
             maxRetryAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
-            recordStepUsage: (usage, context) => {
+            recordStepUsage: async (usage, context) => {
               const tokens = tokenUsageTotal(usage);
-              if (tokens <= 0) return;
-              if (context.toolCallCount > 0) {
-                this.pendingMeasurements.set(context.stepUuid, {
-                  tokens,
-                  remainingToolCalls: context.toolCallCount,
-                });
-              } else {
-                this.contextSize.measured(this.measurementLength(context.stepUuid), tokens);
+              if (tokens > 0) {
+                if (context.toolCallCount > 0) {
+                  this.pendingMeasurements.set(context.stepUuid, {
+                    tokens,
+                    remainingToolCalls: context.toolCallCount,
+                  });
+                } else {
+                  this.contextSize.measured(this.measurementLength(context.stepUuid), tokens);
+                }
               }
+              const usageContext = {
+                turn,
+                usage,
+                stepNumber: context.stepNumber,
+                stepUuid: context.stepUuid,
+                toolCallCount: context.toolCallCount,
+                stopTurn: false,
+              };
+              await this.hooks.onStepUsage.run(usageContext);
+              return usageContext.stopTurn ? { stopTurn: true } : undefined;
             },
           });
           if (result.stopReason === 'aborted') {
@@ -164,7 +188,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         } catch (error) {
           if (isContextOverflowError(error)) {
             const context = { turn, error, handled: false };
-            await hooks?.onContextOverflow.run(context);
+            await this.hooks.onContextOverflow.run(context);
             if (context.handled) continue;
           }
           throw error;
@@ -558,17 +582,17 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       });
   }
 
-  private loopHooks(turn: Turn, hooks: LoopRunHooks | undefined): LoopHooks {
+  private loopHooks(turn: Turn): LoopHooks {
     let continueAfterStop = false;
     let stopHookContinuationUsed = false;
     return {
       beforeStep: async () => {
-        await hooks?.beforeStep.run({ turn, continueTurn: false });
+        await this.hooks.beforeStep.run({ turn, continueTurn: false });
         return undefined;
       },
       afterStep: async (context) => {
         const turnContext = { turn, continueTurn: false };
-        await hooks?.afterStep.run(turnContext);
+        await this.hooks.afterStep.run(turnContext);
         if (context.stopReason !== 'tool_use' && turnContext.continueTurn) {
           continueAfterStop = true;
         }

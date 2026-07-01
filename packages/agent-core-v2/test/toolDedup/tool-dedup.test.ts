@@ -3,16 +3,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { ITelemetryService } from '#/app/telemetry';
+import { IAgentLoopService } from '#/agent/loop';
 import {
   IAgentToolDedupeService,
   AgentToolDedupeService,
   __testing as toolDedupTesting,
-} from '#/agent/tooldedup';
-import type { ToolDedupResult } from '#/agent/tooldedup';
+} from '#/agent/toolDedupe';
+import type { ToolDedupResult } from '#/agent/toolDedupe';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentTurnService } from '#/agent/turn';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
-import { stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';
+import { stubLoopWithHooks, stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';
 
 const { REMINDER_TEXT_1, REMINDER_TEXT_3, makeReminderText2 } = toolDedupTesting;
 
@@ -30,6 +31,7 @@ function createDeduper(telemetry = recordingTelemetry(telemetryEvents)): ToolDed
   const ix = createServices(disposables, {
     additionalServices: (reg) => {
       reg.defineInstance(ITelemetryService, telemetry);
+      reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
       reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
       reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
       reg.define(IAgentToolDedupeService, AgentToolDedupeService);

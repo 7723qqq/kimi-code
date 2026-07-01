@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
+import type { Kaos } from '@moonshot-ai/kaos';
 import {
   isToolCall,
   isToolCallPart,
@@ -32,6 +33,7 @@ import {
   IAppendLogStore,
   IAppendLogStorage,
   ISessionApprovalService,
+  ISessionMetadata,
   IAtomicDocumentStorage,
   IAgentBackgroundService,
   IBlobStorage,
@@ -45,7 +47,7 @@ import {
   IAgentExternalHooksService,
   IAgentFileToolsService,
   IAgentFullCompactionService,
-  IHostEnvironment,
+  IKaos,
   IAgentLLMRequesterService,
   ILogService,
   IAgentMcpService,
@@ -91,7 +93,6 @@ import {
   type ServiceIdentifier,
   type AgentToolRunOverride,
 } from '#/index';
-import { IExecContext, createExecContext, execContextSeed } from '#/session/execContext';
 import type { IProcess } from '#/session/process';
 import type { AgentSwarmToolHost } from '#/agent/swarm/tools/agent-swarm';
 import { Event } from '#/_base/event';
@@ -149,7 +150,8 @@ import type {
 } from '#/agent/wireRecord';
 import { IAgentRecordService } from '#/agent/record';
 import type { PathAccessOperation } from '#/session/workspaceContext';
-import { createFakeAgentFs, createFakeHostEnvironment, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
+import { createFakeAgentFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
+import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 
 import { createScriptedGenerate } from './scripted-generate';
 import {
@@ -160,8 +162,7 @@ import {
 } from './snapshots';
 import { recordAgentEvents, type RecordedEventEntry } from '../snapshot/events';
 
-const TEST_HOST_ENVIRONMENT: IHostEnvironment = createFakeHostEnvironment();
-const TEST_HOME_DIR: string = TEST_HOST_ENVIRONMENT.homeDir;
+const TEST_HOME_DIR = '/home/test';
 
 const MOCK_PROVIDER = {
   type: 'kimi',
@@ -401,69 +402,80 @@ function defineServiceValue<T>(
   }
 }
 
+type KaosOverride =
+  | IKaos
+  | Kaos
+  | { readonly cwd?: string; readonly envLayers?: readonly Record<string, string>[] };
+
 /**
- * Session-scope override for the execution-environment atoms
- * (`IHostEnvironment` / `IExecContext` / `ISessionAgentFileSystem` /
- * `ISessionProcessRunner`). Replaces the v1 `kaosServices(kaos)` helper —
- * tests now pass just the atoms they care about.
+ * Session-scope override for the execution environment and derived atoms.
  */
 export interface ExecEnvOverride {
-  readonly hostEnvironment?: IHostEnvironment | Partial<IHostEnvironment>;
-  readonly execContext?: IExecContext | { readonly cwd?: string; readonly envLayers?: readonly Record<string, string>[] };
+  readonly kaos?: KaosOverride;
+  readonly execContext?: { readonly cwd?: string; readonly envLayers?: readonly Record<string, string>[] };
   readonly agentFs?: ISessionAgentFileSystem | Partial<ISessionAgentFileSystem>;
   readonly processRunner?: ISessionProcessRunner | Partial<ISessionProcessRunner>;
 }
 
 /**
- * Register a fake execution-environment atom set for a test session. Any
- * unspecified atom keeps the harness default (fake host env, `/workspace`
- * exec ctx, throwing fs/runner).
+ * Register a fake execution-environment set for a test session. Any
+ * unspecified atom keeps the harness default fake `IKaos` and the real
+ * services backed by it.
  */
 export function execEnvServices(override: ExecEnvOverride = {}): TestAgentServiceOverride {
-  return [
-    override.hostEnvironment !== undefined
-      ? appService(IHostEnvironment, resolveHostEnvironmentOverride(override.hostEnvironment))
-      : appServices(() => {}),
-    sessionServices((reg) => {
-      if (override.execContext !== undefined) {
-        const ctx = resolveExecContextOverride(override.execContext);
-        for (const [id, value] of execContextSeed(ctx)) {
-          reg.defineInstance(id as ServiceIdentifier<unknown>, value);
-        }
-      }
-      if (override.agentFs !== undefined) {
-        reg.defineInstance(ISessionAgentFileSystem, resolveAgentFsOverride(override.agentFs));
-      }
-      if (override.processRunner !== undefined) {
-        reg.defineInstance(ISessionProcessRunner, resolveProcessRunnerOverride(override.processRunner));
-      }
-      reg.defineDescriptor(ISessionWorkspaceContext, new SyncDescriptor(SessionWorkspaceContextService));
-    }),
-  ];
+  return sessionServices((reg) => {
+    const kaosOverride = override.kaos ?? override.execContext;
+    if (kaosOverride !== undefined) {
+      reg.defineInstance(IKaos, resolveKaosOverride(kaosOverride));
+    }
+    if (override.agentFs !== undefined) {
+      reg.defineInstance(ISessionAgentFileSystem, resolveAgentFsOverride(override.agentFs));
+    }
+    if (override.processRunner !== undefined) {
+      reg.defineInstance(ISessionProcessRunner, resolveProcessRunnerOverride(override.processRunner));
+    }
+    reg.defineDescriptor(ISessionWorkspaceContext, new SyncDescriptor(SessionWorkspaceContextService));
+  });
 }
 
-function resolveHostEnvironmentOverride(
-  input: IHostEnvironment | Partial<IHostEnvironment>,
-): IHostEnvironment {
-  // A full `IHostEnvironment` is an object literal (constructed via
-  // `createFakeHostEnvironment` or the real service). Anything that is not a
-  // plain-object literal (no prototype tricks) is treated as a full instance
-  // and passed through. Plain object literals with partial fields fall
-  // through to the fake factory. Since both `createFakeHostEnvironment` and
-  // real services produce plain-shape objects, we discriminate on the
-  // presence of `osKind` — a full env always has it.
-  if (typeof (input as IHostEnvironment).osKind === 'string') {
-    return input as IHostEnvironment;
-  }
-  return createFakeHostEnvironment(input as Partial<IHostEnvironment>);
+export function kaosServices(input: IKaos | Kaos): TestAgentServiceOverride {
+  return sessionService(IKaos, resolveKaosOverride(input));
 }
 
-function resolveExecContextOverride(
-  input: IExecContext | { readonly cwd?: string; readonly envLayers?: readonly Record<string, string>[] },
-): IExecContext {
-  if ('withCwd' in input && 'withEnv' in input) return input as IExecContext;
-  const partial = input as { readonly cwd?: string; readonly envLayers?: readonly Record<string, string>[] };
-  return createExecContext(partial.cwd ?? '/workspace', partial.envLayers ?? []);
+function resolveKaosOverride(input: KaosOverride): IKaos {
+  if (isIKaos(input)) return input;
+  if (isKaosBackend(input)) return wrapKaos(input);
+  return wrapKaos(createFakeKaos(undefined, input.envLayers).withCwd(input.cwd ?? '/workspace'));
+}
+
+function isIKaos(input: KaosOverride): input is IKaos {
+  return typeof (input as IKaos).backend === 'object' && typeof (input as IKaos).getcwd === 'function';
+}
+
+function isKaosBackend(input: KaosOverride): input is Kaos {
+  return typeof (input as Kaos).execWithEnv === 'function' && typeof (input as Kaos).getcwd === 'function';
+}
+
+function wrapKaos(backend: Kaos): IKaos {
+  return {
+    _serviceBrand: undefined,
+    get name() {
+      return backend.name;
+    },
+    get cwd() {
+      return backend.getcwd();
+    },
+    get osEnv() {
+      return backend.osEnv;
+    },
+    backend,
+    pathClass: () => backend.pathClass(),
+    normpath: (path) => backend.normpath(path),
+    gethome: () => backend.gethome(),
+    getcwd: () => backend.getcwd(),
+    withCwd: (cwd) => wrapKaos(backend.withCwd(cwd)),
+    withEnv: (env) => wrapKaos(backend.withEnv(env)),
+  };
 }
 
 function resolveAgentFsOverride(
@@ -687,6 +699,13 @@ export function createCommandRunner(stdout: string, exitCode = 0): ISessionProce
   }
   return createFakeProcessRunner({
     exec: vi.fn().mockImplementation(async () => createProcess()),
+  });
+}
+
+export function createCommandKaos(stdout: string, exitCode = 0): Kaos {
+  const runner = createCommandRunner(stdout, exitCode);
+  return createFakeKaos({
+    execWithEnv: async (args, env) => runner.exec(args, { env }) as unknown as ReturnType<Kaos['execWithEnv']>,
   });
 }
 
@@ -967,12 +986,6 @@ export class AgentTestContext {
         })) {
           reg.defineInstance(id, value);
         }
-        // Fake `IHostEnvironment` — a real `HostEnvironmentService` would kick
-        // off an async probe (spawn `sh --version` on Windows, `os.homedir()`,
-        // etc.) at App-scope construction; the harness stubs it with a
-        // deterministic Linux/bash snapshot instead. Tests can override with
-        // `execEnvServices({ hostEnvironment: … })`.
-        reg.defineInstance(IHostEnvironment, TEST_HOST_ENVIRONMENT);
         // In-memory Storage-layer backend. The `InMemoryStorageService` is no
         // longer auto-registered, so the harness seeds it here to keep a
         // workable default for storage-backed services. Tests that need durable
@@ -1023,14 +1036,10 @@ export class AgentTestContext {
           reg.defineInstance(ISessionInteractionService, this.createInteractionService());
           reg.defineInstance(ISessionApprovalService, this.createApprovalService());
           reg.defineInstance(ISessionQuestionService, this.createQuestionService());
-          // Seed the session `IExecContext` (was `IKaos` in the old harness).
-          for (const [id, value] of execContextSeed(createExecContext(this.cwd))) {
-            reg.defineInstance(id as ServiceIdentifier<unknown>, value);
-          }
+          reg.defineInstance(IKaos, wrapKaos(createFakeKaos().withCwd(this.cwd)));
           // Note: `ISessionAgentFileSystem` and `ISessionProcessRunner` are
-          // auto-registered by their service files (backed by `IExecContext`
-          // and Node fs/spawn). Tests that need a fake override them via
-          // `execEnvServices({ agentFs: … })` / `execEnvServices({ processRunner: … })`.
+          // auto-registered by their service files and backed by `IKaos`.
+          // Tests that need a fake override them via `execEnvServices`.
           reg.defineInstance(ISessionTerminalBackend, createTerminalBackend());
           reg.defineDescriptor(ISessionWorkspaceContext, new SyncDescriptor(SessionWorkspaceContextService));
           reg.defineDescriptor(ISessionModelResolver, new SyncDescriptor(ConfigBackedModelResolver, [{}]));
@@ -1502,6 +1511,7 @@ export class AgentTestContext {
   }
 
   async expectResumeMatches(): Promise<void> {
+    await this.waitForSessionMetadata();
     await this.drainWirePersistence();
     const profile = this.get(IAgentProfileService);
     const configSnapshot = structuredClone(this.get(IConfigService).getAll() as KimiConfig);
@@ -1518,12 +1528,18 @@ export class AgentTestContext {
 
     try {
       await resumed.restorePersisted();
+      await resumed.waitForSessionMetadata();
 
       // oxlint-disable-next-line jest/no-standalone-expect
       expect(resumeStateSnapshot(resumed)).toEqual(resumeStateSnapshot(this));
     } finally {
+      await resumed.waitForSessionMetadata();
       await resumed.dispose();
     }
+  }
+
+  private async waitForSessionMetadata(): Promise<void> {
+    await this.session.accessor.get(ISessionMetadata).ready;
   }
 
   private async drainWirePersistence(): Promise<void> {

@@ -36,7 +36,7 @@ export * from '#/agent/plan';
 export * from '#/agent/goal';
 export * from '#/agent/swarm';
 export * from '#/agent/usage';
-export * from '#/agent/tooldedup';
+export * from '#/agent/toolDedupe';
 
 export * from '#/agent/background';
 import '#/agent/cron';
@@ -58,8 +58,7 @@ export * from '#/app/gateway';
 export * from '#/session/workspaceContext';
 export * from '#/app/workspaceRegistry';
 export * from '#/app/hostFolderBrowser';
-export * from '#/app/hostEnvironment';
-export * from '#/session/execContext';
+export * from '#/app/kaos';
 export * from '#/session/agentFs';
 export * from '#/session/process';
 export * from '#/session/terminal';

@@ -9,7 +9,7 @@
  * identity through `scopeContext`, creates child agents through
  * `agent-lifecycle`, reads the parent check through `session-metadata`, gates
  * background execution through the agent `profile`, and gathers git context
- * through `execContext` (cwd) + `process` (runner).
+ * through `kaos` (cwd) + `process` (runner).
  */
 
 import { Disposable } from '#/_base/di';
@@ -19,7 +19,7 @@ import { IAgentBackgroundService } from '#/agent/background';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IExecContext } from '#/session/execContext';
+import { IKaos } from '#/app/kaos';
 import { ILogService } from '#/app/log';
 import { IAgentLifecycleService } from '#/session/agent-lifecycle';
 import { ISessionProcessRunner } from '#/session/process';
@@ -40,7 +40,7 @@ export class AgentToolService extends Disposable implements IAgentToolService {
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
     @IAgentBackgroundService background: IAgentBackgroundService,
     @IAgentProfileService profile: IAgentProfileService,
-    @IExecContext execCtx: IExecContext,
+    @IKaos kaos: IKaos,
     @ISessionProcessRunner processRunner: ISessionProcessRunner,
     @ILogService log?: ILogService,
   ) {
@@ -53,7 +53,7 @@ export class AgentToolService extends Disposable implements IAgentToolService {
           metadata,
           background,
           profile,
-          cwd: execCtx.cwd,
+          cwd: kaos.cwd,
           processRunner,
           log,
           runOverride: runner,

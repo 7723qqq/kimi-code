@@ -14,6 +14,7 @@ import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentPermissionGate } from '#/agent/permissionGate';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPlanService } from '#/agent/plan';
+import { IKaos } from '#/app/kaos';
 import { expandCommandArguments, IPluginService } from '#/app/plugin';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
@@ -21,8 +22,6 @@ import { IAgentQuestionToolsService } from '#/agent/questionTools';
 import { ISessionMetadata, type SessionMetaPatch } from '#/session/session-metadata';
 import { BashTool, IAgentShellToolsService } from '#/agent/shellTools';
 import { IAgentSkillService } from '#/agent/skill';
-import { IHostEnvironment } from '#/app/hostEnvironment';
-import { IExecContext } from '#/session/execContext';
 import { ISessionProcessRunner } from '#/session/process';
 import { IAgentToolService } from '#/agent/agentTool';
 import { IAgentSwarmService } from '#/agent/swarm';
@@ -86,8 +85,7 @@ export class AgentRPCService implements IAgentRPCService {
     @IAgentFileToolsService private readonly fileTools: IAgentFileToolsService,
     @IAgentShellToolsService private readonly shellTools: IAgentShellToolsService,
     @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
-    @IHostEnvironment private readonly env: IHostEnvironment,
-    @IExecContext private readonly ctx: IExecContext,
+    @IKaos private readonly kaos: IKaos,
     @IAgentBackgroundService private readonly background: IAgentBackgroundService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
@@ -115,7 +113,7 @@ export class AgentRPCService implements IAgentRPCService {
   private ensureBashTool() {
     const existing = this.toolRegistry.resolve('Bash');
     if (existing !== undefined) return existing;
-    const bash = new BashTool(this.processRunner, this.env, this.ctx, this.background);
+    const bash = new BashTool(this.processRunner, this.kaos, this.background);
     this.toolRegistry.register(bash);
     return bash;
   }

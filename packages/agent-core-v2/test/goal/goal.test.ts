@@ -1,19 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { TokenUsage } from '@moonshot-ai/kosong';
 
 import { ErrorCodes } from '#/errors';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentGoalService, type AgentGoalService } from '#/agent/goal';
+import { IAgentLoopService } from '#/agent/loop';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
+import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn';
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import {
   InMemoryWireRecordPersistence,
+  agentService,
   createTestAgent,
   telemetryServices,
   wireRecordPersistenceServices,
   type TestAgentContext,
 } from '../harness';
+import { stubLoopWithHooks, stubTurn, type StubTurn } from '../turn/stubs';
 
 type GoalServiceTestManager = IAgentGoalService & AgentGoalService;
 type GoalRecord = Extract<PersistedWireRecord, { type: `goal.${string}` }>;
@@ -33,6 +38,47 @@ async function restoreGoalRecords(
 ): Promise<void> {
   goals.getGoal();
   await ctx.restore(records as readonly PersistedWireRecord[]);
+}
+
+function makeTurn(id: number): Turn {
+  return {
+    id,
+    abortController: new AbortController(),
+    ready: Promise.resolve(),
+    result: Promise.resolve({ reason: 'completed' }),
+  };
+}
+
+async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<boolean> {
+  const step = { turn, continueTurn: false };
+  await loopService.hooks.beforeStep.run(step);
+  await loopService.hooks.afterStep.run(step);
+  return step.continueTurn;
+}
+
+async function recordStepUsage(
+  loopService: IAgentLoopService,
+  turn: Turn,
+  usage: TokenUsage,
+): Promise<boolean> {
+  const usageContext = {
+    turn,
+    usage,
+    stepNumber: 1,
+    stepUuid: 'step-1',
+    toolCallCount: 0,
+    stopTurn: false,
+  };
+  await loopService.hooks.onStepUsage.run(usageContext);
+  return usageContext.stopTurn;
+}
+
+async function endTurn(
+  turnService: IAgentTurnService,
+  turn: Turn,
+  result: TurnResult = { reason: 'completed' },
+): Promise<void> {
+  await turnService.hooks.onEnded.run({ turn, result });
 }
 
 describe('AgentGoalService', () => {
@@ -70,350 +116,573 @@ describe('AgentGoalService', () => {
     }
   });
 
-describe('AgentGoalService creation', () => {
-  it('creates a goal and exposes it through getGoal', async () => {
-    const snapshot = await goals.createGoal({ objective: 'Ship feature X' });
+  describe('AgentGoalService creation', () => {
+    it('creates a goal and exposes it through getGoal', async () => {
+      const snapshot = await goals.createGoal({ objective: 'Ship feature X' });
 
-    expect(snapshot.objective).toBe('Ship feature X');
-    expect(snapshot.status).toBe('active');
-    expect(goals.getGoal().goal?.goalId).toBe(snapshot.goalId);
-  });
-
-  it('stores a completion criterion when provided', async () => {
-    const snapshot = await goals.createGoal({
-      objective: 'Ship feature X',
-      completionCriterion: ' tests pass ',
+      expect(snapshot.objective).toBe('Ship feature X');
+      expect(snapshot.status).toBe('active');
+      expect(goals.getGoal().goal?.goalId).toBe(snapshot.goalId);
     });
 
-    expect(snapshot.completionCriterion).toBe('tests pass');
-    expect(goals.getGoal().goal?.completionCriterion).toBe('tests pass');
-  });
+    it('stores a completion criterion when provided', async () => {
+      const snapshot = await goals.createGoal({
+        objective: 'Ship feature X',
+        completionCriterion: ' tests pass ',
+      });
 
-  it('sets no default work caps when none is provided', async () => {
-    const snapshot = await goals.createGoal({ objective: 'Do work' });
-
-    expect(snapshot.budget.turnBudget).toBeNull();
-    expect(snapshot.budget.tokenBudget).toBeNull();
-    expect(snapshot.budget.wallClockBudgetMs).toBeNull();
-    expect(snapshot.budget.overBudget).toBe(false);
-  });
-
-  it('rejects empty and too-long objectives', async () => {
-    await expect(goals.createGoal({ objective: '   ' })).rejects.toMatchObject({
-      code: ErrorCodes.GOAL_OBJECTIVE_EMPTY,
+      expect(snapshot.completionCriterion).toBe('tests pass');
+      expect(goals.getGoal().goal?.completionCriterion).toBe('tests pass');
     });
-    await expect(goals.createGoal({ objective: 'x'.repeat(4001) })).rejects.toMatchObject({
-      code: ErrorCodes.GOAL_OBJECTIVE_TOO_LONG,
+
+    it('sets no default work caps when none is provided', async () => {
+      const snapshot = await goals.createGoal({ objective: 'Do work' });
+
+      expect(snapshot.budget.turnBudget).toBeNull();
+      expect(snapshot.budget.tokenBudget).toBeNull();
+      expect(snapshot.budget.wallClockBudgetMs).toBeNull();
+      expect(snapshot.budget.overBudget).toBe(false);
+    });
+
+    it('rejects empty and too-long objectives', async () => {
+      await expect(goals.createGoal({ objective: '   ' })).rejects.toMatchObject({
+        code: ErrorCodes.GOAL_OBJECTIVE_EMPTY,
+      });
+      await expect(goals.createGoal({ objective: 'x'.repeat(4001) })).rejects.toMatchObject({
+        code: ErrorCodes.GOAL_OBJECTIVE_TOO_LONG,
+      });
+    });
+
+    it('rejects duplicate active, paused, and blocked goals without replace', async () => {
+      await goals.createGoal({ objective: 'first' });
+      await expect(goals.createGoal({ objective: 'second' })).rejects.toMatchObject({
+        code: ErrorCodes.GOAL_ALREADY_EXISTS,
+      });
+      await goals.pauseGoal();
+      await expect(goals.createGoal({ objective: 'second' })).rejects.toMatchObject({
+        code: ErrorCodes.GOAL_ALREADY_EXISTS,
+      });
+      await goals.resumeGoal();
+      await goals.markBlocked({ reason: 'stuck' });
+      await expect(goals.createGoal({ objective: 'second' })).rejects.toMatchObject({
+        code: ErrorCodes.GOAL_ALREADY_EXISTS,
+      });
+    });
+
+    it('replaces an existing goal when replace is set', async () => {
+      const first = await goals.createGoal({ objective: 'first' });
+      const second = await goals.createGoal({ objective: 'second', replace: true });
+      await ctx.wireRecord.flush();
+
+      expect(second.goalId).not.toBe(first.goalId);
+      expect(goals.getGoal().goal?.objective).toBe('second');
+      expect(goalRecords(records).map((record) => record.type)).toEqual([
+        'goal.create',
+        'goal.clear',
+        'goal.create',
+      ]);
+    });
+
+    it('cancels with dispatcher-style empty input', async () => {
+      await goals.createGoal({ objective: 'work' });
+      const removed = await goals.cancelGoal({});
+      expect(removed.status).toBe('active');
+      expect(goals.getGoal().goal).toBeNull();
     });
   });
 
-  it('rejects duplicate active, paused, and blocked goals without replace', async () => {
-    await goals.createGoal({ objective: 'first' });
-    await expect(goals.createGoal({ objective: 'second' })).rejects.toMatchObject({
-      code: ErrorCodes.GOAL_ALREADY_EXISTS,
+  describe('AgentGoalService lifecycle', () => {
+    it('emits typed lifecycle and completion changes', async () => {
+      await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
+      expect(events.at(-1)?.change).toBeUndefined();
+
+      await goals.pauseGoal();
+      expect(events.at(-1)?.change).toMatchObject({ kind: 'lifecycle', status: 'paused' });
+
+      await goals.resumeGoal();
+      expect(events.at(-1)?.change).toMatchObject({ kind: 'lifecycle', status: 'active' });
+
+      await goals.markComplete({ reason: 'done' }, 'model');
+      const completion = events.find((event) => event.change?.kind === 'completion')?.change;
+      expect(completion).toMatchObject({ kind: 'completion', status: 'complete', reason: 'done' });
+      expect(goals.getGoal().goal).toBeNull();
+      expect(events.at(-1)?.snapshot).toBeNull();
     });
-    await goals.pauseGoal();
-    await expect(goals.createGoal({ objective: 'second' })).rejects.toMatchObject({
-      code: ErrorCodes.GOAL_ALREADY_EXISTS,
+
+    it('keeps blocked goals resumable', async () => {
+      await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
+      const blocked = await goals.markBlocked({ reason: 'need creds' });
+      expect(blocked?.status).toBe('blocked');
+      expect(blocked?.terminalReason).toBe('need creds');
+
+      const resumed = await goals.resumeGoal();
+      expect(resumed.status).toBe('active');
+      expect(resumed.terminalReason).toBeUndefined();
     });
-    await goals.resumeGoal();
-    await goals.markBlocked({ reason: 'stuck' });
-    await expect(goals.createGoal({ objective: 'second' })).rejects.toMatchObject({
-      code: ErrorCodes.GOAL_ALREADY_EXISTS,
+
+    it('pauseOnInterrupt parks active goals and no-ops for stopped goals', async () => {
+      await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
+      const paused = await goals.pauseOnInterrupt({ reason: 'Paused after interruption' });
+      expect(paused?.status).toBe('paused');
+      expect(paused?.terminalReason).toBe('Paused after interruption');
+
+      expect(await goals.pauseOnInterrupt({ reason: 'again' })).toBeNull();
+      expect(goals.getGoal().goal?.status).toBe('paused');
+    });
+
+    it('cancelGoal discards the goal and throws when missing', async () => {
+      await goals.createGoal({ objective: 'work' });
+      const removed = await goals.cancelGoal();
+      expect(removed.status).toBe('active');
+      expect(goals.getGoal()).toEqual({ goal: null });
+      const reminder = context.get().at(-1);
+      expect(reminder?.origin).toEqual({ kind: 'system_trigger', name: 'goal_cancelled' });
+      expect(JSON.stringify(reminder?.content)).toContain('Ignore earlier active-goal reminders');
+      await expect(goals.cancelGoal()).rejects.toMatchObject({ code: ErrorCodes.GOAL_NOT_FOUND });
     });
   });
 
-  it('replaces an existing goal when replace is set', async () => {
-    const first = await goals.createGoal({ objective: 'first' });
-    const second = await goals.createGoal({ objective: 'second', replace: true });
-    await ctx.wireRecord.flush();
+  describe('AgentGoalService accounting and budgets', () => {
+    it('counts tokens and turns only while active', async () => {
+      await goals.createGoal({ objective: 'work' });
+      await goals.recordTokenUsage(30);
+      await goals.incrementTurn();
+      expect(goals.getGoal().goal).toMatchObject({ tokensUsed: 30, turnsUsed: 1 });
 
-    expect(second.goalId).not.toBe(first.goalId);
-    expect(goals.getGoal().goal?.objective).toBe('second');
-    expect(goalRecords(records).map((record) => record.type)).toEqual([
-      'goal.create',
-      'goal.clear',
-      'goal.create',
-    ]);
-  });
-});
+      await goals.pauseGoal();
+      await goals.recordTokenUsage(12);
+      await goals.incrementTurn();
+      expect(goals.getGoal().goal).toMatchObject({ tokensUsed: 30, turnsUsed: 1 });
+    });
 
-describe('AgentGoalService lifecycle', () => {
-  it('emits typed lifecycle and completion changes', async () => {
-    await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
-    expect(events.at(-1)?.change).toBeUndefined();
+    it('sets budget limits through SetGoalBudget-style updates', async () => {
+      await goals.createGoal({ objective: 'work' });
+      const snapshot = await goals.setBudgetLimits({
+        budgetLimits: { tokenBudget: 100, turnBudget: 2, wallClockBudgetMs: 1000 },
+      }, 'model');
 
-    await goals.pauseGoal();
-    expect(events.at(-1)?.change).toMatchObject({ kind: 'lifecycle', status: 'paused' });
+      expect(snapshot.budget.tokenBudget).toBe(100);
+      expect(snapshot.budget.turnBudget).toBe(2);
+      expect(snapshot.budget.wallClockBudgetMs).toBe(1000);
+    });
 
-    await goals.resumeGoal();
-    expect(events.at(-1)?.change).toMatchObject({ kind: 'lifecycle', status: 'active' });
+    it('blocks when a token budget is reached', async () => {
+      await goals.createGoal({ objective: 'work' });
+      await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 10 } }, 'model');
 
-    await goals.markComplete({ reason: 'done' }, 'model');
-    const completion = events.find((event) => event.change?.kind === 'completion')?.change;
-    expect(completion).toMatchObject({ kind: 'completion', status: 'complete', reason: 'done' });
-    expect(goals.getGoal().goal).toBeNull();
-    expect(events.at(-1)?.snapshot).toBeNull();
-  });
+      const snapshot = await goals.recordTokenUsage(10);
 
-  it('keeps blocked goals resumable', async () => {
-    await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
-    const blocked = await goals.markBlocked({ reason: 'need creds' });
-    expect(blocked?.status).toBe('blocked');
-    expect(blocked?.terminalReason).toBe('need creds');
-
-    const resumed = await goals.resumeGoal();
-    expect(resumed.status).toBe('active');
-    expect(resumed.terminalReason).toBeUndefined();
-  });
-
-  it('pauseOnInterrupt parks active goals and no-ops for stopped goals', async () => {
-    await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
-    const paused = await goals.pauseOnInterrupt({ reason: 'Paused after interruption' });
-    expect(paused?.status).toBe('paused');
-    expect(paused?.terminalReason).toBe('Paused after interruption');
-
-    expect(await goals.pauseOnInterrupt({ reason: 'again' })).toBeNull();
-    expect(goals.getGoal().goal?.status).toBe('paused');
-  });
-
-  it('cancelGoal discards the goal and throws when missing', async () => {
-    await goals.createGoal({ objective: 'work' });
-    const removed = await goals.cancelGoal();
-    expect(removed.status).toBe('active');
-    expect(goals.getGoal()).toEqual({ goal: null });
-    const reminder = context.get().at(-1);
-    expect(reminder?.origin).toEqual({ kind: 'system_trigger', name: 'goal_cancelled' });
-    expect(JSON.stringify(reminder?.content)).toContain('Ignore earlier active-goal reminders');
-    await expect(goals.cancelGoal()).rejects.toMatchObject({ code: ErrorCodes.GOAL_NOT_FOUND });
-  });
-});
-
-describe('AgentGoalService accounting and budgets', () => {
-  it('counts tokens and turns only while active', async () => {
-    await goals.createGoal({ objective: 'work' });
-    await goals.recordTokenUsage(30);
-    await goals.incrementTurn();
-    expect(goals.getGoal().goal).toMatchObject({ tokensUsed: 30, turnsUsed: 1 });
-
-    await goals.pauseGoal();
-    await goals.recordTokenUsage(12);
-    await goals.incrementTurn();
-    expect(goals.getGoal().goal).toMatchObject({ tokensUsed: 30, turnsUsed: 1 });
-  });
-
-  it('sets budget limits through SetGoalBudget-style updates', async () => {
-    await goals.createGoal({ objective: 'work' });
-    const snapshot = await goals.setBudgetLimits({
-      budgetLimits: { tokenBudget: 100, turnBudget: 2, wallClockBudgetMs: 1000 },
-    }, 'model');
-
-    expect(snapshot.budget.tokenBudget).toBe(100);
-    expect(snapshot.budget.turnBudget).toBe(2);
-    expect(snapshot.budget.wallClockBudgetMs).toBe(1000);
-  });
-
-  it('tracks telemetry without goal text', async () => {
-    await goals.createGoal({ objective: 'private objective', replace: true });
-    await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 100 } }, 'model');
-    await goals.incrementTurn();
-    await goals.pauseGoal({ reason: 'private pause reason' });
-    await goals.resumeGoal();
-    await goals.markComplete({ reason: 'private completion reason' }, 'model');
-
-    expect(telemetry.map((record) => record.event)).toEqual([
-      'goal_created',
-      'goal_budget_set',
-      'goal_continued',
-      'goal_status_changed',
-      'goal_status_changed',
-      'goal_status_changed',
-      'goal_cleared',
-    ]);
-    expect(telemetry[0]?.properties).toEqual({ actor: 'user', replace: true });
-    expect(telemetry[1]?.properties).toMatchObject({ actor: 'model', has_token_budget: true });
-    expect(telemetry[3]?.properties).toMatchObject({ status: 'paused', actor: 'user' });
-    expect(JSON.stringify(telemetry)).not.toContain('private objective');
-    expect(JSON.stringify(telemetry)).not.toContain('private pause reason');
-    expect(JSON.stringify(telemetry)).not.toContain('private completion reason');
-  });
-});
-
-describe('AgentGoalService records', () => {
-  it('records only replay-relevant create/update/clear fields', async () => {
-    await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
-    await goals.recordTokenUsage(5);
-    await goals.incrementTurn();
-    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 2 } }, 'model');
-    await goals.markBlocked({ reason: 'stuck' });
-    await goals.cancelGoal();
-    await ctx.wireRecord.flush();
-
-    const recordsWithoutMetadata = goalRecords(records);
-    expect(recordsWithoutMetadata).toEqual([
-      expect.objectContaining({
-        type: 'goal.create',
-        goalId: expect.any(String),
-        objective: 'work',
-        completionCriterion: 'tests pass',
-      }),
-      expect.objectContaining({ type: 'goal.update', tokensUsed: 5 }),
-      expect.objectContaining({ type: 'goal.update', turnsUsed: 1 }),
-      expect.objectContaining({
-        type: 'goal.update',
-        budgetLimits: { turnBudget: 2 },
-      }),
-      expect.objectContaining({
-        type: 'goal.update',
+      expect(snapshot).toMatchObject({
         status: 'blocked',
-        reason: 'stuck',
-        actor: 'runtime',
-      }),
-      expect.objectContaining({ type: 'goal.clear' }),
-    ]);
-    expect(recordsWithoutMetadata[0]).not.toHaveProperty('actor');
-    expect(recordsWithoutMetadata[0]).not.toHaveProperty('budgetLimits');
-    expect(recordsWithoutMetadata[1]).not.toHaveProperty('goalId');
-    expect(recordsWithoutMetadata[1]).not.toHaveProperty('status');
-    expect(recordsWithoutMetadata.at(-1)).not.toHaveProperty('goalId');
-    expect(recordsWithoutMetadata.at(-1)).not.toHaveProperty('reason');
-  });
-
-  it('restores state from patch records', async () => {
-    await restoreGoalRecords(ctx, goals, [
-      {
-        type: 'goal.create',
-        goalId: 'g1',
-        objective: 'work',
-        completionCriterion: 'tests pass',
-        time: Date.parse('2026-01-01T00:00:00.000Z'),
-      },
-      { type: 'goal.update', tokensUsed: 5 },
-      { type: 'goal.update', turnsUsed: 1 },
-      { type: 'goal.update', budgetLimits: { turnBudget: 2 } },
-      { type: 'goal.update', status: 'blocked', reason: 'stuck' },
-    ]);
-
-    expect(goals.getGoal().goal).toMatchObject({
-      objective: 'work',
-      completionCriterion: 'tests pass',
-      status: 'blocked',
-      terminalReason: 'stuck',
-      tokensUsed: 5,
-      turnsUsed: 1,
+        tokensUsed: 10,
+        terminalReason: 'Blocked after goal budget reached: token budget 10',
+      });
+      expect(goals.getGoal().goal).toMatchObject({
+        status: 'blocked',
+        budget: {
+          tokenBudgetReached: true,
+          overBudget: true,
+        },
+      });
     });
-    expect(goals.getGoal().goal?.budget.turnBudget).toBe(2);
+
+    it('blocks when a newly set budget is already exhausted', async () => {
+      await goals.createGoal({ objective: 'work' });
+      await goals.incrementTurn();
+
+      const snapshot = await goals.setBudgetLimits(
+        { budgetLimits: { turnBudget: 1 } },
+        'model',
+      );
+
+      expect(snapshot).toMatchObject({
+        status: 'blocked',
+        terminalReason: 'Blocked after goal budget reached: turn budget 1',
+      });
+    });
+
+    it('tracks telemetry without goal text', async () => {
+      await goals.createGoal({ objective: 'private objective', replace: true });
+      await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 100 } }, 'model');
+      await goals.incrementTurn();
+      await goals.pauseGoal({ reason: 'private pause reason' });
+      await goals.resumeGoal();
+      await goals.markComplete({ reason: 'private completion reason' }, 'model');
+
+      expect(telemetry.map((record) => record.event)).toEqual([
+        'goal_created',
+        'goal_budget_set',
+        'goal_continued',
+        'goal_status_changed',
+        'goal_status_changed',
+        'goal_status_changed',
+        'goal_cleared',
+      ]);
+      expect(telemetry[0]?.properties).toEqual({ actor: 'user', replace: true });
+      expect(telemetry[1]?.properties).toMatchObject({ actor: 'model', has_token_budget: true });
+      expect(telemetry[3]?.properties).toMatchObject({ status: 'paused', actor: 'user' });
+      expect(JSON.stringify(telemetry)).not.toContain('private objective');
+      expect(JSON.stringify(telemetry)).not.toContain('private pause reason');
+      expect(JSON.stringify(telemetry)).not.toContain('private completion reason');
+    });
   });
 
-  it('projects restored goal status changes into replay records', async () => {
-    await restoreGoalRecords(ctx, goals, [
-      {
-        type: 'goal.create',
-        goalId: 'g1',
+  describe('AgentGoalService records', () => {
+    it('records only replay-relevant create/update/clear fields', async () => {
+      await goals.createGoal({ objective: 'work', completionCriterion: 'tests pass' });
+      await goals.recordTokenUsage(5);
+      await goals.incrementTurn();
+      await goals.setBudgetLimits({ budgetLimits: { turnBudget: 2 } }, 'model');
+      await goals.markBlocked({ reason: 'stuck' });
+      await goals.cancelGoal();
+      await ctx.wireRecord.flush();
+
+      const recordsWithoutMetadata = goalRecords(records);
+      expect(recordsWithoutMetadata).toEqual([
+        expect.objectContaining({
+          type: 'goal.create',
+          goalId: expect.any(String),
+          objective: 'work',
+          completionCriterion: 'tests pass',
+        }),
+        expect.objectContaining({ type: 'goal.update', tokensUsed: 5 }),
+        expect.objectContaining({ type: 'goal.update', turnsUsed: 1 }),
+        expect.objectContaining({
+          type: 'goal.update',
+          budgetLimits: { turnBudget: 2 },
+        }),
+        expect.objectContaining({
+          type: 'goal.update',
+          status: 'blocked',
+          reason: 'stuck',
+          actor: 'runtime',
+        }),
+        expect.objectContaining({ type: 'goal.clear' }),
+      ]);
+      expect(recordsWithoutMetadata[0]).not.toHaveProperty('actor');
+      expect(recordsWithoutMetadata[0]).not.toHaveProperty('budgetLimits');
+      expect(recordsWithoutMetadata[1]).not.toHaveProperty('goalId');
+      expect(recordsWithoutMetadata[1]).not.toHaveProperty('status');
+      expect(recordsWithoutMetadata.at(-1)).not.toHaveProperty('goalId');
+      expect(recordsWithoutMetadata.at(-1)).not.toHaveProperty('reason');
+    });
+
+    it('restores state from patch records', async () => {
+      await restoreGoalRecords(ctx, goals, [
+        {
+          type: 'goal.create',
+          goalId: 'g1',
+          objective: 'work',
+          completionCriterion: 'tests pass',
+          time: Date.parse('2026-01-01T00:00:00.000Z'),
+        },
+        { type: 'goal.update', tokensUsed: 5 },
+        { type: 'goal.update', turnsUsed: 1 },
+        { type: 'goal.update', budgetLimits: { turnBudget: 2 } },
+        { type: 'goal.update', status: 'blocked', reason: 'stuck' },
+      ]);
+
+      expect(goals.getGoal().goal).toMatchObject({
         objective: 'work',
         completionCriterion: 'tests pass',
-        time: Date.parse('2026-01-01T00:00:00.000Z'),
-      },
-      { type: 'goal.update', tokensUsed: 5 },
-      { type: 'goal.update', turnsUsed: 1 },
-      {
-        type: 'goal.update',
-        status: 'paused',
-        reason: 'break',
-        actor: 'runtime',
-      },
-      { type: 'goal.update', status: 'active', actor: 'user' },
-      {
-        type: 'goal.update',
-        status: 'complete',
-        reason: 'done',
-        actor: 'model',
-      },
-    ]);
+        status: 'blocked',
+        terminalReason: 'stuck',
+        tokensUsed: 5,
+        turnsUsed: 1,
+      });
+      expect(goals.getGoal().goal?.budget.turnBudget).toBe(2);
+    });
 
-    expect(replayBuilder.buildResult()).toEqual([
-      expect.objectContaining({
-        type: 'goal_updated',
-        snapshot: expect.objectContaining({ objective: 'work', status: 'active' }),
-        change: { kind: 'created' },
-      }),
-      expect.objectContaining({
-        type: 'goal_updated',
-        snapshot: expect.objectContaining({ status: 'paused', terminalReason: 'break' }),
-        change: { kind: 'lifecycle', status: 'paused', reason: 'break', actor: 'runtime' },
-      }),
-      expect.objectContaining({
-        type: 'goal_updated',
-        snapshot: expect.objectContaining({ status: 'active' }),
-        change: { kind: 'lifecycle', status: 'active', reason: undefined, actor: 'user' },
-      }),
-      expect.objectContaining({
-        type: 'goal_updated',
-        snapshot: expect.objectContaining({
-          status: 'complete',
-          terminalReason: 'done',
-          turnsUsed: 1,
-          tokensUsed: 5,
-        }),
-        change: {
-          kind: 'completion',
+    it('projects restored goal status changes into replay records', async () => {
+      await restoreGoalRecords(ctx, goals, [
+        {
+          type: 'goal.create',
+          goalId: 'g1',
+          objective: 'work',
+          completionCriterion: 'tests pass',
+          time: Date.parse('2026-01-01T00:00:00.000Z'),
+        },
+        { type: 'goal.update', tokensUsed: 5 },
+        { type: 'goal.update', turnsUsed: 1 },
+        {
+          type: 'goal.update',
+          status: 'paused',
+          reason: 'break',
+          actor: 'runtime',
+        },
+        { type: 'goal.update', status: 'active', actor: 'user' },
+        {
+          type: 'goal.update',
           status: 'complete',
           reason: 'done',
-          stats: { turnsUsed: 1, tokensUsed: 5, wallClockMs: 0 },
           actor: 'model',
         },
-      }),
-    ]);
+      ]);
+
+      expect(replayBuilder.buildResult()).toEqual([
+        expect.objectContaining({
+          type: 'goal_updated',
+          snapshot: expect.objectContaining({ objective: 'work', status: 'active' }),
+          change: { kind: 'created' },
+        }),
+        expect.objectContaining({
+          type: 'goal_updated',
+          snapshot: expect.objectContaining({ status: 'paused', terminalReason: 'break' }),
+          change: { kind: 'lifecycle', status: 'paused', reason: 'break', actor: 'runtime' },
+        }),
+        expect.objectContaining({
+          type: 'goal_updated',
+          snapshot: expect.objectContaining({ status: 'active' }),
+          change: { kind: 'lifecycle', status: 'active', reason: undefined, actor: 'user' },
+        }),
+        expect.objectContaining({
+          type: 'goal_updated',
+          snapshot: expect.objectContaining({
+            status: 'complete',
+            terminalReason: 'done',
+            turnsUsed: 1,
+            tokensUsed: 5,
+          }),
+          change: {
+            kind: 'completion',
+            status: 'complete',
+            reason: 'done',
+            stats: { turnsUsed: 1, tokensUsed: 5, wallClockMs: 0 },
+            actor: 'model',
+          },
+        }),
+      ]);
+    });
+
+    it('keeps resume-normalization pauses in core replay records', async () => {
+      await restoreGoalRecords(ctx, goals, [
+        {
+          type: 'goal.create',
+          goalId: 'g1',
+          objective: 'work',
+          time: Date.parse('2026-01-01T00:00:00.000Z'),
+        },
+        {
+          type: 'goal.update',
+          status: 'paused',
+          reason: 'Paused after agent resume',
+        },
+      ]);
+
+      expect(replayBuilder.buildResult().at(-1)).toMatchObject({
+        type: 'goal_updated',
+        snapshot: { status: 'paused', terminalReason: 'Paused after agent resume' },
+        change: {
+          kind: 'lifecycle',
+          status: 'paused',
+          reason: 'Paused after agent resume',
+          actor: undefined,
+        },
+      });
+    });
+
+    it('normalizes active replayed goals to paused', async () => {
+      records.length = 0;
+      await restoreGoalRecords(ctx, goals, [
+        {
+          type: 'goal.create',
+          goalId: 'g1',
+          objective: 'resume me',
+        },
+      ]);
+
+      expect(goals.getGoal().goal).toMatchObject({
+        status: 'paused',
+        terminalReason: 'Paused after agent resume',
+      });
+      expect(goalRecords(records)).toEqual([
+        expect.objectContaining({
+          type: 'goal.update',
+          status: 'paused',
+          reason: 'Paused after agent resume',
+        }),
+      ]);
+    });
+  });
+});
+
+describe('AgentGoalService core workflow hooks', () => {
+  let ctx: TestAgentContext | undefined;
+  let context: IAgentContextMemoryService;
+  let goals: IAgentGoalService;
+  let turnService: StubTurn;
+  let loopService: IAgentLoopService;
+  let eventSink: IAgentEventSinkService;
+
+  beforeEach(() => {
+    turnService = stubTurn({ hasActiveTurn: true });
+    loopService = stubLoopWithHooks();
+    loopService.hooks.beforeStep.register('turn-before-step-event', (_ctx, next) => next());
+    ctx = createTestAgent(
+      agentService(IAgentTurnService, turnService),
+      agentService(IAgentLoopService, loopService),
+    );
+    context = ctx.get(IAgentContextMemoryService);
+    goals = ctx.get(IAgentGoalService);
+    eventSink = ctx.get(IAgentEventSinkService);
   });
 
-  it('keeps resume-normalization pauses in core replay records', async () => {
-    await restoreGoalRecords(ctx, goals, [
-      {
-        type: 'goal.create',
-        goalId: 'g1',
-        objective: 'work',
-        time: Date.parse('2026-01-01T00:00:00.000Z'),
-      },
-      {
-        type: 'goal.update',
-        status: 'paused',
-        reason: 'Paused after agent resume',
-      },
-    ]);
+  afterEach(async () => {
+    await ctx?.dispose();
+  });
 
-    expect(replayBuilder.buildResult().at(-1)).toMatchObject({
-      type: 'goal_updated',
-      snapshot: { status: 'paused', terminalReason: 'Paused after agent resume' },
-      change: {
-        kind: 'lifecycle',
-        status: 'paused',
-        reason: 'Paused after agent resume',
-        actor: undefined,
-      },
+  it('counts an active goal turn and launches the next continuation', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+
+    const turn = makeTurn(1);
+    await turnService.hooks.onLaunched.run({ turn });
+    await runGoalStep(loopService, turn);
+    await endTurn(turnService, turn);
+
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'active',
+      turnsUsed: 1,
+    });
+    expect(turnService.launches).toEqual([
+      { kind: 'system_trigger', name: 'goal_continuation' },
+    ]);
+    expect(context.get().at(-1)?.origin).toEqual({
+      kind: 'system_trigger',
+      name: 'goal_continuation',
+    });
+    expect(JSON.stringify(context.get().at(-1)?.content)).toContain('Continue working toward');
+  });
+
+  it('blocks at the turn budget instead of launching a continuation', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
+
+    const turn = makeTurn(11);
+    await turnService.hooks.onLaunched.run({ turn });
+    await runGoalStep(loopService, turn);
+    await endTurn(turnService, turn);
+
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'blocked',
+      turnsUsed: 1,
+      terminalReason: 'Blocked after goal budget reached: turn budget 1',
+    });
+    expect(turnService.launches).toEqual([]);
+  });
+
+  it('accounts step usage through the loop usage hook for active goal turns', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+    await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 7 } }, 'model');
+
+    const turn = turnService.launch({ kind: 'user' });
+    await turnService.hooks.onLaunched.run({ turn });
+
+    expect(await recordStepUsage(loopService, turn, {
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+      inputOther: 4,
+      output: 0,
+    })).toBe(false);
+    expect(await recordStepUsage(loopService, turn, {
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+      inputOther: 0,
+      output: 3,
+    })).toBe(true);
+
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'blocked',
+      tokensUsed: 7,
+      terminalReason: 'Blocked after goal budget reached: token budget 7',
     });
   });
 
-  it('normalizes active replayed goals to paused', async () => {
-    records.length = 0;
-    await restoreGoalRecords(ctx, goals, [
-      {
-        type: 'goal.create',
-        goalId: 'g1',
-        objective: 'resume me',
-      },
+  it('ignores step usage for non-goal turns', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+
+    const turn = makeTurn(99);
+    expect(await recordStepUsage(loopService, turn, {
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+      inputOther: 10,
+      output: 5,
+    })).toBe(false);
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'active',
+      tokensUsed: 0,
+    });
+  });
+
+  it('continues after creating a goal mid-turn without counting the starter turn', async () => {
+    const turn = makeTurn(2);
+    await turnService.hooks.onLaunched.run({ turn });
+    await runGoalStep(loopService, turn);
+
+    await goals.createGoal({ objective: 'finish the task' }, 'model');
+    await endTurn(turnService, turn);
+
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'active',
+      turnsUsed: 0,
+    });
+    expect(turnService.launches).toEqual([
+      { kind: 'system_trigger', name: 'goal_continuation' },
     ]);
+  });
+
+  it('requests one final outcome turn after model completion', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+
+    const turn = makeTurn(3);
+    await turnService.hooks.onLaunched.run({ turn });
+    const step = { turn, continueTurn: false };
+    await loopService.hooks.beforeStep.run(step);
+
+    await goals.markComplete({}, 'model');
+    await loopService.hooks.afterStep.run(step);
+    await endTurn(turnService, turn);
+
+    expect(step.continueTurn).toBe(true);
+    expect(goals.getGoal().goal).toBeNull();
+    expect(turnService.launches).toEqual([]);
+    expect(context.get().at(-1)?.origin).toEqual({
+      kind: 'system_trigger',
+      name: 'goal_completion_summary',
+    });
+  });
+
+  it('pauses active goals after failed turns', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+
+    const turn = makeTurn(4);
+    await turnService.hooks.onLaunched.run({ turn });
+    await endTurn(turnService, turn, { reason: 'failed', error: new Error('boom') });
 
     expect(goals.getGoal().goal).toMatchObject({
       status: 'paused',
-      terminalReason: 'Paused after agent resume',
+      terminalReason: 'Paused after runtime error: boom',
     });
-    expect(goalRecords(records)).toEqual([
-      expect.objectContaining({
-        type: 'goal.update',
-        status: 'paused',
-        reason: 'Paused after agent resume',
-      }),
-    ]);
+    expect(turnService.launches).toEqual([]);
   });
-});
+
+  it('blocks active goals when the user prompt hook blocks the turn', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+
+    const turn = makeTurn(5);
+    await turnService.hooks.onLaunched.run({ turn });
+    eventSink.emit({
+      type: 'hook.result',
+      turnId: turn.id,
+      hookEvent: 'UserPromptSubmit',
+      content: 'blocked',
+      blocked: true,
+    });
+    await endTurn(turnService, turn);
+
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'blocked',
+      terminalReason: 'Blocked by UserPromptSubmit hook',
+    });
+    expect(turnService.launches).toEqual([]);
+  });
 });

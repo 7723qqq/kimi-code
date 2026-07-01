@@ -20,6 +20,7 @@ import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentLLMRequesterService, type LLMEvent } from '#/agent/llmRequester';
+import { IAgentLoopService } from '#/agent/loop';
 import { isAbortError } from '#/agent/loop/errors';
 import { retryBackoffDelays, sleepForRetry } from '#/agent/loop/retry';
 import { IAgentProfileService } from '#/agent/profile';
@@ -107,6 +108,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IAgentTurnService turnService: IAgentTurnService,
+    @IAgentLoopService loopService: IAgentLoopService,
   ) {
     super();
     this.strategy =
@@ -119,19 +121,19 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       }),
     );
     this._register(
-      turnService.hooks.beforeStep.register('full-compaction', async (ctx, next) => {
+      loopService.hooks.beforeStep.register('full-compaction', async (ctx, next) => {
         await this.beforeStep(ctx.turn.abortController.signal, ctx.turn.id);
         await next();
       }),
     );
     this._register(
-      turnService.hooks.afterStep.register('full-compaction', async (_ctx, next) => {
+      loopService.hooks.afterStep.register('full-compaction', async (_ctx, next) => {
         await this.afterStep();
         await next();
       }),
     );
     this._register(
-      turnService.hooks.onContextOverflow.register('full-compaction', async (ctx, next) => {
+      loopService.hooks.onContextOverflow.register('full-compaction', async (ctx, next) => {
         await this.onContextOverflow(ctx, next);
       }),
     );
@@ -596,8 +598,8 @@ function isTodoItem(value: unknown): value is TodoItem {
 
 export { AgentFullCompactionService as FullCompaction };
 
-// Construct eagerly (not delayed): the service registers turn-lifecycle hooks
-// (onLaunched / beforeStep / afterStep) in its constructor that drive auto
+// Construct eagerly (not delayed): the service registers turn and loop hooks
+// (onLaunched / beforeStep / afterStep / onContextOverflow) that drive auto
 // compaction. With delayed instantiation the eager `accessor.get(IAgentFullCompactionService)`
 // only realizes a proxy, so the hooks would not register until the first RPC —
 // after turns have already run without the auto-compaction gate.

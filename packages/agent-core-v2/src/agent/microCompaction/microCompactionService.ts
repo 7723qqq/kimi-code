@@ -4,7 +4,7 @@
  * Tracks cache-miss compaction cutoffs over `contextMemory`, sizes context via
  * `contextSize`, resolves model capacity through `profile`, persists cutoffs
  * through `wireRecord`, gates behavior through `flag`, emits telemetry, and
- * participates in `turn` hooks. Bound at Agent scope.
+ * participates in `loop` hooks. Bound at Agent scope.
  */
 
 import type { ContentPart } from '@moonshot-ai/kosong';
@@ -23,9 +23,9 @@ import { IConfigService } from '#/app/config';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IFlagService } from '#/app/flag';
+import { IAgentLoopService } from '#/agent/loop';
 import { IAgentProfileService } from '#/agent/profile';
 import { ITelemetryService } from '#/app/telemetry';
-import { IAgentTurnService } from '#/agent/turn';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentRecordService } from '#/agent/record';
 import {
@@ -70,7 +70,7 @@ export class AgentMicroCompactionService
     @IFlagService private readonly flags: IFlagService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentTurnService turn: IAgentTurnService,
+    @IAgentLoopService loop: IAgentLoopService,
     @IConfigService private readonly config: IConfigService,
   ) {
     super();
@@ -83,7 +83,7 @@ export class AgentMicroCompactionService
       }),
     );
     this._register(
-      turn.hooks.beforeStep.register(
+      loop.hooks.beforeStep.register(
         'micro-compaction',
         async (_ctx, next) => {
           this.detect();

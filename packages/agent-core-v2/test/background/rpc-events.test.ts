@@ -23,6 +23,7 @@ import type { HookEngine } from '#/agent/externalHooks/engine';
 import { IAgentPromptService } from '#/agent/prompt';
 import type { SubagentDetachHandle } from '#/agent/background';
 import type { SubagentHandle } from '#/agent/agentTool';
+import { ISessionMetadata } from '#/session/session-metadata';
 import {
   configServices,
   createTestAgent,
@@ -238,6 +239,17 @@ function createBackgroundManager(options: {
   };
 }
 
+async function cleanupSessionDir(
+  sessionDir: string,
+  fixture?: BackgroundServiceFixture,
+): Promise<void> {
+  if (fixture !== undefined) {
+    await fixture.ctx.get(ISessionMetadata).ready;
+    await fixture.ctx.dispose();
+  }
+  await rm(sessionDir, { recursive: true, force: true });
+}
+
 function firstAppendedContextMessage(agent: FakeBackgroundAgent): TestContextMessage {
   const call = agent.context.appendUserMessage.mock.calls[0] as unknown as [
     number,
@@ -367,6 +379,7 @@ describe('BackgroundManager — event emission', () => {
 
   it('emits background.task.terminated when a restored task is marked lost', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-agent-reconcile-'));
+    let fixture: BackgroundServiceFixture | undefined;
     try {
       const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(
@@ -379,7 +392,8 @@ describe('BackgroundManager — event emission', () => {
           status: 'running',
         }),
       );
-      const { agent, manager } = createBackgroundManager({ sessionDir });
+      fixture = createBackgroundManager({ sessionDir });
+      const { agent, manager } = fixture;
 
       await manager.loadFromDisk();
       await manager.reconcile();
@@ -392,7 +406,7 @@ describe('BackgroundManager — event emission', () => {
         }),
       });
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, fixture);
     }
   });
 });
@@ -477,11 +491,13 @@ describe('BackgroundManager — notification delivery', () => {
 
   it('replays restored terminal agent task notifications when undelivered', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-agent-replay-'));
+    let fixture: BackgroundServiceFixture | undefined;
     try {
       const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(persistedAgent());
       await persistence.appendTaskOutput('agent-done0000', 'restored subagent summary');
-      const { agent, manager } = createBackgroundManager({ sessionDir });
+      fixture = createBackgroundManager({ sessionDir });
+      const { agent, manager } = fixture;
 
       await manager.loadFromDisk();
       await manager.reconcile();
@@ -503,17 +519,19 @@ describe('BackgroundManager — notification delivery', () => {
       expect(text).toContain('<output-file');
       expect(text).toContain(persistence.taskOutputFile('agent-done0000'));
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, fixture);
     }
   });
 
   it('replays restored terminal process task notifications when undelivered', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-bash-replay-'));
+    let fixture: BackgroundServiceFixture | undefined;
     try {
       const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(persistedProcess());
       await persistence.appendTaskOutput('bash-done0000', 'restored shell output');
-      const { agent, manager } = createBackgroundManager({ sessionDir });
+      fixture = createBackgroundManager({ sessionDir });
+      const { agent, manager } = fixture;
 
       await manager.loadFromDisk();
       await manager.reconcile();
@@ -535,19 +553,21 @@ describe('BackgroundManager — notification delivery', () => {
       expect(text).toContain('<output-file');
       expect(text).toContain(persistence.taskOutputFile('bash-done0000'));
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, fixture);
     }
   });
 
   it('references persisted output without reading a tail for restored process notifications', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-bash-tail-'));
+    let fixture: BackgroundServiceFixture | undefined;
     try {
       const taskId = 'bash-large000';
       const largeOutput = `early-output-marker\n${'x'.repeat(8_000)}\nfinal output line`;
       const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(persistedProcess({ taskId }));
       await persistence.appendTaskOutput(taskId, largeOutput);
-      const { agent, manager } = createBackgroundManager({ sessionDir });
+      fixture = createBackgroundManager({ sessionDir });
+      const { agent, manager } = fixture;
 
       await manager.loadFromDisk();
       await manager.reconcile();
@@ -562,12 +582,13 @@ describe('BackgroundManager — notification delivery', () => {
       expect(text).not.toContain('final output line');
       expect(text).not.toContain('early-output-marker');
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, fixture);
     }
   });
 
   it('does not replay restored notifications already marked delivered', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-agent-replay-'));
+    let fixture: BackgroundServiceFixture | undefined;
     try {
       const origin = {
         kind: 'background_task',
@@ -578,7 +599,8 @@ describe('BackgroundManager — notification delivery', () => {
       const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(persistedAgent({ taskId: 'agent-seen0000' }));
       await persistence.appendTaskOutput('agent-seen0000', 'already delivered summary');
-      const { agent, ctx, manager } = createBackgroundManager({ sessionDir });
+      fixture = createBackgroundManager({ sessionDir });
+      const { agent, ctx, manager } = fixture;
       const context = ctx.get(IAgentContextMemoryService);
       context.splice(context.get().length, 0, [
         {
@@ -597,12 +619,13 @@ describe('BackgroundManager — notification delivery', () => {
       expect(agent.turn.steer).not.toHaveBeenCalled();
       expect(agent.context.appendUserMessage).not.toHaveBeenCalled();
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, fixture);
     }
   });
 
   it('does not double-notify newly lost restored agent tasks', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-agent-lost-'));
+    let fixture: BackgroundServiceFixture | undefined;
     try {
       const persistence = createBackgroundTaskPersistence(sessionDir);
       await persistence.writeTask(
@@ -613,7 +636,8 @@ describe('BackgroundManager — notification delivery', () => {
           status: 'running',
         }),
       );
-      const { agent, manager } = createBackgroundManager({ sessionDir });
+      fixture = createBackgroundManager({ sessionDir });
+      const { agent, manager } = fixture;
 
       await manager.loadFromDisk();
       await manager.reconcile();
@@ -634,7 +658,7 @@ describe('BackgroundManager — notification delivery', () => {
         'Background agent lost',
       );
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, fixture);
     }
   });
 

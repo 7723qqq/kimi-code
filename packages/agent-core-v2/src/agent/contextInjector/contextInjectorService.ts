@@ -6,6 +6,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentLoopService } from '#/agent/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { IAgentTurnService } from '#/agent/turn';
 import type { ContextMessage } from '#/agent/contextMemory';
@@ -32,11 +33,12 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService turnService: IAgentTurnService,
+    @IAgentLoopService loopService: IAgentLoopService,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
   ) {
     super();
     this._register(
-      turnService.hooks.beforeStep.register('context-injector', async (_ctx, next) => {
+      loopService.hooks.beforeStep.register('context-injector', async (_ctx, next) => {
         await next();
         await this.inject();
       }),

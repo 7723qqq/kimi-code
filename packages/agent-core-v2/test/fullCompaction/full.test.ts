@@ -869,35 +869,43 @@ describe('FullCompaction', () => {
 
   it('names truncated compaction responses when retries are exhausted', async () => {
     vi.useFakeTimers();
+    const firstAttemptFinished = deferred<void>();
     let attempts = 0;
     const generate: GenerateFn = async () => {
       attempts += 1;
+      if (attempts === 1) {
+        firstAttemptFinished.resolve();
+      }
       return {
         ...textResult('Partial summary.'),
         finishReason: 'truncated',
         rawFinishReason: 'length',
       };
     };
-    const ctx = testAgent({ generate, fullCompaction: { compactionStrategy: alwaysCompactOnce } });
-    ctx.configure();
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const failed = ctx.once('error');
 
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger truncated auto compaction' }] });
+    await ctx.rpc.beginCompaction({});
+    await firstAttemptFinished.promise;
     await vi.advanceTimersByTimeAsync(60_000);
-    const events = await ctx.untilTurnEnd();
+    await failed;
 
     expect(attempts).toBe(5);
-    expect(events).toContainEqual(
+    expect(ctx.newEvents()).toContainEqual(
       expect.objectContaining({
-        event: 'turn.ended',
-        args: {
-          turnId: 0,
-          reason: 'failed',
-          error: expect.objectContaining({
-            code: 'compaction.failed',
-            message:
-              'CompactionTruncatedError: Compaction response was truncated before producing a complete summary.',
-          }),
-        },
+        event: 'error',
+        args: expect.objectContaining({
+          code: 'compaction.failed',
+          message:
+            'CompactionTruncatedError: Compaction response was truncated before producing a complete summary.',
+          name: 'KimiError',
+        }),
       }),
     );
     await ctx.expectResumeMatches();
@@ -1905,12 +1913,13 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    // Set maxOutputSize on the harness's internal kimiConfig — the
-    // compaction path reads it via resolveModelContext().maxOutputSize.
+    // Set maxOutputSize on the harness's internal kimiConfig. Keep it below
+    // the Kimi model context window so provider-side context clipping does not
+    // hide whether compaction passed this configured value through.
     const models = (ctx as unknown as MutableKimiConfig).kimiConfig.models;
     models![CATALOGUED_PROVIDER.model] = {
       ...models![CATALOGUED_PROVIDER.model]!,
-      maxOutputSize: 384000,
+      maxOutputSize: 64_000,
     };
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.newEvents();
@@ -1919,7 +1928,7 @@ describe('FullCompaction', () => {
     await ctx.untilTurnEnd();
 
     expect(callCount).toBe(3);
-    expect(compactionMaxCompletionTokens).toEqual([384000]);
+    expect(compactionMaxCompletionTokens).toEqual([64_000]);
   });
 
   it('uses default 128k hardCap when maxOutputSize is not configured', async () => {

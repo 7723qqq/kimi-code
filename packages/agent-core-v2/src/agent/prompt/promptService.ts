@@ -8,6 +8,7 @@ import {
   USER_PROMPT_ORIGIN,
   type ContextMessage,
 } from '#/agent/contextMemory';
+import { IAgentLoopService } from '#/agent/loop';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
 import { IAgentPromptService } from './prompt';
@@ -21,12 +22,13 @@ export class AgentPromptService implements IAgentPromptService {
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentRecordService private readonly record: IAgentRecordService,
+    @IAgentLoopService loopService: IAgentLoopService,
   ) {
-    turnService.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
+    loopService.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
       this.flushSteerQueue();
       await next();
     });
-    turnService.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
+    loopService.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
       await next();
       if (this.flushSteerQueue()) {
         ctx.continueTurn = true;

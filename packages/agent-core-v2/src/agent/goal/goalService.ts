@@ -1,16 +1,44 @@
-import {
-  randomUUID } from 'node:crypto';
+/**
+ * `goal` domain (L4) - `IAgentGoalService` implementation.
+ *
+ * Owns the per-agent goal lifecycle; persists records and broadcasts through
+ * `record`, injects reminders through `contextInjector`, drives continuation
+ * turns through `turn`, participates in steps through `loop`, updates context
+ * through `contextMemory`, writes system reminders through `systemReminder`,
+ * registers model tools through `toolRegistry`, and reports telemetry through
+ * `telemetry`. Bound at Agent scope.
+ */
+
+import { randomUUID } from 'node:crypto';
+import type { TokenUsage } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
+import { Disposable } from "#/_base/di";
 import {
-  Disposable,
-} from "#/_base/di";
-import { ErrorCodes, KimiError } from "#/errors";
+  ErrorCodes,
+  KimiError,
+  toKimiErrorPayload,
+  type KimiErrorPayload,
+} from "#/errors";
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import {
+  ensureMessageId,
+  IAgentContextMemoryService,
+  type ContextMessage,
+  type PromptOrigin,
+} from '#/agent/contextMemory';
+import { IAgentLoopService } from '#/agent/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
+import {
+  IAgentTurnService,
+  type Turn,
+  type TurnEndedContext,
+  type TurnStepContext,
+  type TurnStepUsageContext,
+} from '#/agent/turn';
 import type { TelemetryProperties } from '#/app/telemetry';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
@@ -36,6 +64,10 @@ import type {
 } from './types';
 import { CreateGoalTool } from '#/agent/goal/tools/create-goal';
 import { GetGoalTool } from '#/agent/goal/tools/get-goal';
+import {
+  buildGoalBlockedReasonPrompt,
+  buildGoalCompletionSummaryPrompt,
+} from '#/agent/goal/tools/outcome-prompts';
 import { SetGoalBudgetTool } from '#/agent/goal/tools/set-goal-budget';
 import { UpdateGoalTool } from '#/agent/goal/tools/update-goal';
 
@@ -74,6 +106,37 @@ const GOAL_FORK_CLEARED_REMINDER = [
   'Handle requests normally unless the user starts a new goal.',
 ].join(' ');
 
+const GOAL_CONTINUATION_ORIGIN: PromptOrigin = {
+  kind: 'system_trigger',
+  name: 'goal_continuation',
+};
+const GOAL_COMPLETION_REMINDER_NAME = 'goal_completion_summary';
+const GOAL_BLOCKED_REMINDER_NAME = 'goal_blocked_reason';
+const GOAL_RATE_LIMIT_PAUSE_REASON = 'Paused after provider rate limit';
+const GOAL_PROVIDER_CONNECTION_PAUSE_PREFIX = 'Paused after provider connection error';
+const GOAL_PROVIDER_AUTH_PAUSE_PREFIX = 'Paused after provider authentication error';
+const GOAL_PROVIDER_API_PAUSE_PREFIX = 'Paused after provider API error';
+const GOAL_MODEL_CONFIG_PAUSE_PREFIX = 'Paused after model configuration error';
+const GOAL_RUNTIME_PAUSE_PREFIX = 'Paused after runtime error';
+const GOAL_PROVIDER_FILTERED_PAUSE_REASON = 'Paused after provider safety policy block';
+const GOAL_BUDGET_BLOCK_PREFIX = 'Blocked after goal budget reached';
+const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
+
+const GOAL_CONTINUATION_PROMPT = [
+  'Continue working toward the active goal.',
+  'Keep the self-audit brief. Do not explore unrelated interpretations once the goal can be',
+  'decided. If the objective is simple, already answered, impossible, unsafe, or contradictory,',
+  'do not run another goal turn. Explain briefly if useful, then call UpdateGoal with `complete`',
+  'or `blocked` in the same turn. Otherwise, weigh the objective and any completion criteria',
+  'against the work done so far. Goal mode is iterative: do one coherent slice of work, then',
+  'reassess. Call UpdateGoal with `complete` only when all required work is done, any stated',
+  'validation has passed, and there is no useful next action. Do not mark complete after only',
+  'producing a plan, summary, first pass, or partial result. If an external condition or required',
+  'user input prevents progress, or the objective cannot be completed as stated, call UpdateGoal',
+  'with `blocked`. Otherwise keep going - use the existing conversation context and your tools,',
+  'and do not ask the user for input unless a real blocker prevents progress.',
+].join(' ');
+
 export interface GoalServiceOptions {
   readonly enabled?: boolean | (() => boolean);
   readonly injection?: GoalInjectionOptions;
@@ -96,6 +159,10 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   declare readonly _serviceBrand: undefined;
 
   private state: GoalState | undefined;
+  private readonly goalDrivenTurns = new Set<number>();
+  private readonly countedGoalTurns = new Set<number>();
+  private readonly goalOutcomeContinuationTurns = new Set<number>();
+  private readonly promptHookBlockedTurns = new Set<number>();
 
   constructor(
     private readonly options: GoalServiceOptions = {},
@@ -103,7 +170,10 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentContextInjectorService private readonly dynamicInjector: IAgentContextInjectorService,
+    @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @IAgentLoopService loopService: IAgentLoopService,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
   ) {
@@ -151,11 +221,48 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
         this.normalizeAfterReplay();
       }),
     );
+    this._register(
+      turnService.hooks.onLaunched.register('goal-track-launched-turn', (ctx, next) => {
+        this.handleTurnLaunched(ctx.turn);
+        return next();
+      }),
+    );
+    this._register(
+      loopService.hooks.beforeStep.register('goal-count-turn', async (ctx, next) => {
+        await this.handleBeforeStep(ctx);
+        await next();
+      }),
+    );
+    this._register(
+      loopService.hooks.onStepUsage.register('goal-record-step-usage', async (ctx, next) => {
+        this.handleStepUsage(ctx);
+        await next();
+      }),
+    );
+    this._register(
+      loopService.hooks.afterStep.register('goal-outcome-continuation', async (ctx, next) => {
+        await next();
+        this.handleAfterStep(ctx);
+      }),
+    );
+    this._register(
+      turnService.hooks.onEnded.register('goal-drive-continuation', async (ctx, next) => {
+        await next();
+        await this.handleTurnEnded(ctx);
+      }),
+    );
+    this._register(
+      this.record.on((event) => {
+        if (event.type === 'hook.result' && event.blocked === true) {
+          this.promptHookBlockedTurns.add(event.turnId);
+        }
+      }),
+    );
 
     this._register(toolRegistry.register(new CreateGoalTool(this, this.permissionMode)));
     this._register(toolRegistry.register(new GetGoalTool(this)));
     this._register(toolRegistry.register(new SetGoalBudgetTool(this)));
-    this._register(toolRegistry.register(new UpdateGoalTool(this, this.reminders)));
+    this._register(toolRegistry.register(new UpdateGoalTool(this)));
   }
 
   get enabled(): boolean {
@@ -291,10 +398,13 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       actor,
       ...budgetTelemetryProperties(input.budgetLimits),
     });
-    return this.toSnapshot(state);
+    return this.blockIfBudgetReached(state) ?? this.toSnapshot(state);
   }
 
-  async cancelGoal(actor: GoalActor = 'user'): Promise<GoalSnapshot> {
+  async cancelGoal(
+    _input: GoalReasonInput = {},
+    actor: GoalActor = 'user',
+  ): Promise<GoalSnapshot> {
     const state = this.requireState();
     const snapshot = this.toSnapshot(state);
     this.clearInternal(actor);
@@ -319,7 +429,14 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       change: { kind: 'lifecycle', status: 'blocked', reason: input.reason, actor },
     });
     this.appendStatusUpdate(state, actor, input.reason);
-    return this.toSnapshot(state);
+    const snapshot = this.toSnapshot(state);
+    if (actor === 'model') {
+      this.reminders.appendSystemReminder(buildGoalBlockedReasonPrompt(snapshot), {
+        kind: 'system_trigger',
+        name: GOAL_BLOCKED_REMINDER_NAME,
+      });
+    }
+    return snapshot;
   }
 
   async markComplete(
@@ -339,6 +456,12 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       stats: this.statsOf(state),
       actor,
     });
+    if (actor === 'model') {
+      this.reminders.appendSystemReminder(buildGoalCompletionSummaryPrompt(snapshot), {
+        kind: 'system_trigger',
+        name: GOAL_COMPLETION_REMINDER_NAME,
+      });
+    }
     this.clearInternal(actor);
     return snapshot;
   }
@@ -348,12 +471,16 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   }
 
   async recordTokenUsage(tokenDelta: number): Promise<GoalSnapshot | null> {
+    return this.accountTokenUsage(tokenDelta);
+  }
+
+  private accountTokenUsage(tokenDelta: number): GoalSnapshot | null {
     const state = this.state;
     if (state === undefined || state.status !== 'active') return null;
     state.tokensUsed += Math.max(0, tokenDelta);
     this.persistState(state, { silent: true });
     this.appendGoalUpdate({ tokensUsed: state.tokensUsed });
-    return this.toSnapshot(state);
+    return this.blockIfBudgetReached(state) ?? this.toSnapshot(state);
   }
 
   async incrementTurn(): Promise<GoalSnapshot | null> {
@@ -363,7 +490,76 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.persistState(state);
     this.appendGoalUpdate({ turnsUsed: state.turnsUsed });
     this.telemetry.track('goal_continued', { turns_used: state.turnsUsed });
-    return this.toSnapshot(state);
+    return this.blockIfBudgetReached(state) ?? this.toSnapshot(state);
+  }
+
+  private handleTurnLaunched(turn: Turn): void {
+    if (this.state?.status === 'active') this.goalDrivenTurns.add(turn.id);
+    this.goalOutcomeContinuationTurns.delete(turn.id);
+    this.promptHookBlockedTurns.delete(turn.id);
+  }
+
+  private async handleBeforeStep(ctx: TurnStepContext): Promise<void> {
+    if (!this.goalDrivenTurns.has(ctx.turn.id)) return;
+    if (this.countedGoalTurns.has(ctx.turn.id)) return;
+    this.countedGoalTurns.add(ctx.turn.id);
+    await this.incrementTurn();
+  }
+
+  private handleStepUsage(ctx: TurnStepUsageContext): void {
+    if (!this.goalDrivenTurns.has(ctx.turn.id)) return;
+    const snapshot = this.accountTokenUsage(tokenUsageTotal(ctx.usage));
+    if (snapshot?.budget.overBudget === true) {
+      ctx.stopTurn = true;
+    }
+  }
+
+  private handleAfterStep(ctx: TurnStepContext): void {
+    if (this.goalOutcomeContinuationTurns.has(ctx.turn.id)) return;
+    if (!isGoalOutcomeReminder(this.context.get().at(-1))) return;
+    this.goalOutcomeContinuationTurns.add(ctx.turn.id);
+    ctx.continueTurn = true;
+  }
+
+  private async handleTurnEnded(ctx: TurnEndedContext): Promise<void> {
+    this.goalDrivenTurns.delete(ctx.turn.id);
+    this.countedGoalTurns.delete(ctx.turn.id);
+    this.goalOutcomeContinuationTurns.delete(ctx.turn.id);
+
+    const blockedByPromptHook = this.promptHookBlockedTurns.delete(ctx.turn.id);
+    if (blockedByPromptHook) {
+      await this.markBlocked({ reason: 'Blocked by UserPromptSubmit hook' });
+      return;
+    }
+
+    if (ctx.result.reason === 'cancelled') {
+      await this.pauseOnInterrupt({ reason: 'Paused after interruption' });
+      return;
+    }
+    if (ctx.result.reason === 'failed') {
+      await this.pauseActiveGoal({ reason: goalFailurePauseReason(ctx.result.error) });
+      return;
+    }
+    if (ctx.result.reason === 'filtered') {
+      await this.pauseActiveGoal({ reason: GOAL_PROVIDER_FILTERED_PAUSE_REASON });
+      return;
+    }
+
+    if (this.state?.status !== 'active') return;
+    if (this.blockIfBudgetReached(this.state) !== null) return;
+    if (this.turnService.getActiveTurn() !== undefined) return;
+    this.launchContinuationTurn();
+  }
+
+  private launchContinuationTurn(): void {
+    const message = ensureMessageId({
+      role: 'user',
+      content: [{ type: 'text', text: GOAL_CONTINUATION_PROMPT }],
+      toolCalls: [],
+      origin: GOAL_CONTINUATION_ORIGIN,
+    });
+    this.context.splice(this.context.get().length, 0, [message]);
+    this.turnService.launch(GOAL_CONTINUATION_ORIGIN, message.id);
   }
 
   private normalizeAfterReplay(): void {
@@ -547,6 +743,19 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       terminalReason: state.terminalReason,
     };
   }
+
+  private blockIfBudgetReached(state: GoalState): GoalSnapshot | null {
+    if (state.status !== 'active') return null;
+    const reason = goalBudgetBlockReason(this.toSnapshot(state).budget);
+    if (reason === undefined) return null;
+    this.applyStatus(state, 'blocked');
+    state.terminalReason = reason;
+    this.persistState(state, {
+      change: { kind: 'lifecycle', status: 'blocked', reason, actor: 'runtime' },
+    });
+    this.appendStatusUpdate(state, 'runtime', reason);
+    return this.toSnapshot(state);
+  }
 }
 
 function liveWallClockMs(state: GoalState, now: number = Date.now()): number {
@@ -585,6 +794,20 @@ function computeBudgetReport(
   };
 }
 
+function goalBudgetBlockReason(budget: GoalBudgetReport): string | undefined {
+  const reached: string[] = [];
+  if (budget.turnBudgetReached) {
+    reached.push(`turn budget ${budget.turnBudget ?? ''}`.trim());
+  }
+  if (budget.tokenBudgetReached) {
+    reached.push(`token budget ${budget.tokenBudget ?? ''}`.trim());
+  }
+  if (budget.wallClockBudgetReached) {
+    reached.push(`wall-clock budget ${budget.wallClockBudgetMs ?? ''}ms`.trim());
+  }
+  return reached.length === 0 ? undefined : `${GOAL_BUDGET_BLOCK_PREFIX}: ${reached.join(', ')}`;
+}
+
 function budgetTelemetryProperties(limits: GoalBudgetLimits): TelemetryProperties {
   return {
     has_token_budget: limits.tokenBudget !== undefined,
@@ -593,15 +816,60 @@ function budgetTelemetryProperties(limits: GoalBudgetLimits): TelemetryPropertie
   };
 }
 
+function tokenUsageTotal(usage: TokenUsage): number {
+  return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
+}
+
 function normalizeCompletionCriterion(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed?.length ? trimmed : undefined;
+}
+
+function isGoalOutcomeReminder(message: ContextMessage | undefined): boolean {
+  if (message?.origin?.kind !== 'system_trigger') return false;
+  return (
+    message.origin.name === GOAL_COMPLETION_REMINDER_NAME ||
+    message.origin.name === GOAL_BLOCKED_REMINDER_NAME
+  );
+}
+
+function goalFailurePauseReason(error: unknown): string {
+  const payload = normalizeGoalErrorPayload(error);
+  switch (payload.code) {
+    case ErrorCodes.PROVIDER_RATE_LIMIT:
+      return GOAL_RATE_LIMIT_PAUSE_REASON;
+    case ErrorCodes.PROVIDER_CONNECTION_ERROR:
+      return pauseReasonWithMessage(GOAL_PROVIDER_CONNECTION_PAUSE_PREFIX, payload.message);
+    case ErrorCodes.PROVIDER_AUTH_ERROR:
+      return pauseReasonWithMessage(GOAL_PROVIDER_AUTH_PAUSE_PREFIX, payload.message);
+    case ErrorCodes.PROVIDER_API_ERROR:
+      return pauseReasonWithMessage(GOAL_PROVIDER_API_PAUSE_PREFIX, payload.message);
+    case ErrorCodes.MODEL_NOT_CONFIGURED:
+      return pauseReasonWithMessage(GOAL_MODEL_CONFIG_PAUSE_PREFIX, LLM_NOT_SET_MESSAGE);
+    case ErrorCodes.MODEL_CONFIG_INVALID:
+      return pauseReasonWithMessage(GOAL_MODEL_CONFIG_PAUSE_PREFIX, payload.message);
+    default:
+      return pauseReasonWithMessage(GOAL_RUNTIME_PAUSE_PREFIX, payload.message);
+  }
+}
+
+function normalizeGoalErrorPayload(error: unknown): KimiErrorPayload {
+  const payload = toKimiErrorPayload(error);
+  if (payload.code === ErrorCodes.MODEL_NOT_CONFIGURED) {
+    return { ...payload, message: LLM_NOT_SET_MESSAGE };
+  }
+  return payload;
+}
+
+function pauseReasonWithMessage(prefix: string, message: string | undefined): string {
+  const trimmed = message?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? prefix : `${prefix}: ${trimmed}`;
 }
 
 registerScopedService(
   LifecycleScope.Agent,
   IAgentGoalService,
   AgentGoalService,
-  InstantiationType.Delayed,
+  InstantiationType.Eager,
   'goal',
 );

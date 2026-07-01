@@ -7,6 +7,7 @@
 
 import { createHooks } from '#/hooks';
 import type { PromptOrigin } from '#/agent/contextMemory';
+import type { IAgentLoopService } from '#/agent/loop';
 import type { IAgentTurnService, Turn } from '#/agent/turn';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor';
 
@@ -43,10 +44,16 @@ function makeHooks(): IAgentTurnService['hooks'] {
   return createHooks([
     'onLaunched',
     'onEnded',
+  ]) as IAgentTurnService['hooks'];
+}
+
+function makeLoopHooks(): IAgentLoopService['hooks'] {
+  return createHooks([
     'beforeStep',
+    'onStepUsage',
     'afterStep',
     'onContextOverflow',
-  ]) as IAgentTurnService['hooks'];
+  ]) as IAgentLoopService['hooks'];
 }
 
 /** A configurable `IAgentTurnService` stub backed by real `OrderedHookSlot`s. */
@@ -74,9 +81,9 @@ export function stubTurn(options: StubTurnOptions = {}): StubTurn {
 
 /**
  * An `IAgentTurnService` stub backed by real `OrderedHookSlot`s. Use when the system
- * under test registers turn-lifecycle hooks (`onLaunched` / `beforeStep` /
- * `afterStep`) in its constructor, or when a test needs to drive those hooks
- * directly. `launch` returns a minimal {@link Turn}; `getActiveTurn` is a no-op.
+ * under test registers turn-lifecycle hooks (`onLaunched` / `onEnded`) in its
+ * constructor, or when a test needs to drive those hooks directly. `launch`
+ * returns a minimal {@link Turn}; `getActiveTurn` is a no-op.
  */
 export function stubTurnWithHooks(): IAgentTurnService {
   const turn = makeTurn(0);
@@ -86,6 +93,17 @@ export function stubTurnWithHooks(): IAgentTurnService {
     launch: () => turn,
     getActiveTurn: () => undefined,
     lastEndedReason: () => undefined,
+  };
+}
+
+/** An `IAgentLoopService` stub backed by real loop lifecycle hook slots. */
+export function stubLoopWithHooks(): IAgentLoopService {
+  const hooks = makeLoopHooks();
+  hooks.beforeStep.register('turn-before-step-event', (_ctx, next) => next());
+  return {
+    _serviceBrand: undefined,
+    hooks,
+    runTurn: async () => ({ reason: 'completed' }),
   };
 }
 

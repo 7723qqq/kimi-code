@@ -85,8 +85,6 @@ function createHarness(): Harness {
     hooks: {
       onLaunched: { run: async () => {} },
       onEnded: { run: async () => {} },
-      beforeStep: { run: async () => {} },
-      afterStep: { run: async () => {} },
     },
   } as unknown as IAgentTurnService;
 

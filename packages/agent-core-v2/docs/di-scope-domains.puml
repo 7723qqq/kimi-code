@@ -170,6 +170,7 @@ contextMemory --> wireRecord #34495E
 contextMemory --> replayBuilder #34495E
 contextInjector --> contextMemory #34495E
 contextInjector --> turn #34495E
+contextInjector --> loop #34495E
 contextInjector --> systemReminder #34495E
 contextSize --> contextMemory #34495E
 contextSize --> record #34495E
@@ -185,6 +186,7 @@ profile --> modelProvider #34495E
 profile --> chatProvider #34495E
 prompt --> contextMemory #34495E
 prompt --> turn #34495E
+prompt --> loop #34495E
 prompt --> wireRecord #34495E
 prompt --> record #34495E
 turn --> loop #34495E
@@ -217,7 +219,7 @@ llmRequestLog --> log #34495E
 toolExecutor --> toolRegistry #34495E
 toolStore --> wireRecord #34495E
 toolDedup --> telemetry #34495E
-toolDedup --> turn #34495E
+toolDedup --> loop #34495E
 toolDedup --> toolExecutor #34495E
 permissionGate --> permissionMode #34495E
 permissionGate --> permissionRules #34495E
@@ -247,6 +249,11 @@ goal --> systemReminder #34495E
 goal --> replayBuilder #34495E
 goal --> telemetry #34495E
 goal --> contextInjector #34495E
+goal --> contextMemory #34495E
+goal --> turn #34495E
+goal --> loop #34495E
+goal --> toolRegistry #34495E
+goal --> permissionMode #34495E
 skill --> prompt #34495E
 skill --> record #34495E
 skill --> wireRecord #34495E
@@ -295,13 +302,14 @@ fullCompaction --> record #34495E
 fullCompaction --> replayBuilder #34495E
 fullCompaction --> externalHooks #34495E
 fullCompaction --> turn #34495E
+fullCompaction --> loop #34495E
 microCompaction --> contextMemory #34495E
 microCompaction --> contextSize #34495E
 microCompaction --> wireRecord #34495E
 microCompaction --> flag #34495E
 microCompaction --> profile #34495E
 microCompaction --> telemetry #34495E
-microCompaction --> turn #34495E
+microCompaction --> loop #34495E
 externalHooks --> toolExecutor #34495E
 externalHooks --> config #34495E
 todoList --> contextMemory #34495E
@@ -351,10 +359,13 @@ profile ..> wireRecord #16A085 : config.update / tools.set_active_tools
 contextMemory ..> wireRecord #16A085 : context.splice
 cron ..> wireRecord #16A085 : cron.add / delete / cursor
 fullCompaction ..> wireRecord #16A085 : full_compaction.begin/cancel/complete
-fullCompaction ..> turn #16A085 : hooks.onContextOverflow
+fullCompaction ..> loop #16A085 : hooks.onContextOverflow
 permissionRules ..> wireRecord #16A085 : permission.rules.add / record_approval_result
 skill ..> wireRecord #16A085 : skill.activate
 goal ..> wireRecord #16A085 : goal.create/update/clear
+goal ..> turn #16A085 : turn lifecycle hooks
+goal ..> loop #16A085 : step/usage hooks
+goal ..> eventSink #16A085 : hook.result / goal.updated
 microCompaction ..> wireRecord #16A085 : micro_compaction.apply / full_compaction.complete
 swarm ..> wireRecord #16A085 : swarm_mode.enter/exit
 swarm ..> turn #16A085 : hooks.onEnded

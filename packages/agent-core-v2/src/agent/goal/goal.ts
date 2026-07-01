@@ -17,7 +17,7 @@ export interface IAgentGoalService {
   createGoal(input: CreateGoalInput, actor?: GoalActor): Promise<GoalSnapshot>;
   pauseGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot>;
   resumeGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot>;
-  cancelGoal(actor?: GoalActor): Promise<GoalSnapshot>;
+  cancelGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot>;
   setBudgetLimits(
     input: { readonly budgetLimits: GoalBudgetLimits },
     actor?: GoalActor,

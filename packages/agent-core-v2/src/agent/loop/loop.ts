@@ -1,16 +1,22 @@
 import { createDecorator } from "#/_base/di";
-import type { HookSlot } from '#/hooks';
-import type { Turn, TurnContextOverflowContext, TurnResult, TurnStepContext } from '#/agent/turn';
-
-export interface LoopRunHooks {
-  readonly beforeStep: HookSlot<TurnStepContext>;
-  readonly afterStep: HookSlot<TurnStepContext>;
-  readonly onContextOverflow: HookSlot<TurnContextOverflowContext>;
-}
+import type { Hooks } from '#/hooks';
+import type {
+  Turn,
+  TurnContextOverflowContext,
+  TurnResult,
+  TurnStepContext,
+  TurnStepUsageContext,
+} from '#/agent/turn';
 
 export interface IAgentLoopService {
   readonly _serviceBrand: undefined;
-  runTurn(turn: Turn, hooks?: LoopRunHooks): Promise<TurnResult>;
+  readonly hooks: Hooks<{
+    beforeStep: TurnStepContext;
+    onStepUsage: TurnStepUsageContext;
+    afterStep: TurnStepContext;
+    onContextOverflow: TurnContextOverflowContext;
+  }>;
+  runTurn(turn: Turn): Promise<TurnResult>;
 }
 
 export const IAgentLoopService = createDecorator<IAgentLoopService>('agentLoopService');
