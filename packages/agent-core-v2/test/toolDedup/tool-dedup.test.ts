@@ -26,7 +26,7 @@ beforeEach(() => {
 
 afterEach(() => disposables.dispose());
 
-function createDeduper(telemetry = recordingTelemetry(telemetryEvents)): IAgentToolDedupeService {
+function createDeduper(telemetry = recordingTelemetry(telemetryEvents)): ToolDedupeInternals {
   const ix = createServices(disposables, {
     additionalServices: (reg) => {
       reg.defineInstance(ITelemetryService, telemetry);
@@ -36,11 +36,23 @@ function createDeduper(telemetry = recordingTelemetry(telemetryEvents)): IAgentT
     },
     strict: true,
   });
-  return ix.get(IAgentToolDedupeService);
+  return ix.get(IAgentToolDedupeService) as unknown as ToolDedupeInternals;
 }
 
 function okResult(text: string): ToolDedupResult {
   return { output: text };
+}
+
+interface ToolDedupeInternals extends IAgentToolDedupeService {
+  beginStep(): void;
+  endStep(): void;
+  checkSameStep(toolCallId: string, toolName: string, args: unknown): ToolDedupResult | null;
+  finalizeResult(
+    toolCallId: string,
+    toolName: string,
+    args: unknown,
+    result: ToolDedupResult,
+  ): Promise<ToolDedupResult>;
 }
 
 function errResult(text: string): ToolDedupResult {
@@ -53,7 +65,7 @@ function errResult(text: string): ToolDedupResult {
  * + finalizeResult for the original (first-occurrence) call.
  */
 async function runOriginal(
-  deduper: IAgentToolDedupeService,
+  deduper: ToolDedupeInternals,
   callId: string,
   tool: string,
   args: unknown,
@@ -404,7 +416,7 @@ describe('AgentToolDedupeService', () => {
     }
 
     async function runStreak(
-      dedup: IAgentToolDedupeService,
+      dedup: ToolDedupeInternals,
       count: number,
     ): Promise<ToolDedupResult> {
       let last: ToolDedupResult | undefined;

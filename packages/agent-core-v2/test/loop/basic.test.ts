@@ -1,12 +1,21 @@
-import type { ToolCall } from '@moonshot-ai/kosong';
+import { emptyUsage, type ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService } from '#/index';
-import { IAgentLoopService } from '#/loop';
+import { IAgentLLMRequesterService, type LLMEvent } from '#/llmRequester';
+import {
+  IAgentLoopService,
+  runTurn,
+  type LLM,
+  type LLMStreamTiming,
+  type LoopEvent,
+  type LoopEventDispatcher,
+} from '#/loop';
 import type { ExecutableTool } from '#/tool';
+import { IAgentToolExecutorService } from '#/toolExecutor';
 import { IAgentToolRegistryService } from '#/toolRegistry';
 
-import { createTestAgent, type TestAgentContext } from '../harness';
+import { agentService, createTestAgent, type TestAgentContext } from '../harness';
 
 describe('Agent loop', () => {
   let ctx: TestAgentContext;
@@ -175,3 +184,99 @@ describe('Agent loop', () => {
   `);
   });
 });
+
+describe('step timing split propagation', () => {
+  const splitTiming: LLMStreamTiming = {
+    firstTokenLatencyMs: 100,
+    streamDurationMs: 200,
+    requestBuildMs: 30,
+    serverFirstTokenMs: 70,
+    serverDecodeMs: 150,
+    clientConsumeMs: 50,
+  };
+
+  it('carries the split from streamTiming onto the step.end event', async () => {
+    const llm: LLM = {
+      systemPrompt: 'system',
+      modelName: 'mock-model',
+      chat: async () => ({ toolCalls: [], usage: emptyUsage(), streamTiming: splitTiming }),
+    };
+    const dispatched: LoopEvent[] = [];
+    const dispatchEvent = ((event: LoopEvent) => {
+      dispatched.push(event);
+    }) as LoopEventDispatcher;
+    // No tool calls are produced, so the executor is never invoked.
+    const toolExecutor = {
+      _serviceBrand: undefined,
+      execute: async () => {
+        throw new Error('unexpected tool execution');
+      },
+    } as unknown as IAgentToolExecutorService;
+
+    await runTurn({
+      turnId: '0',
+      signal: new AbortController().signal,
+      llm,
+      buildMessages: () => [],
+      dispatchEvent,
+      toolExecutor,
+    });
+
+    const stepEnd = dispatched.find((event) => event.type === 'step.end');
+    expect(stepEnd).toMatchObject({
+      type: 'step.end',
+      llmFirstTokenLatencyMs: 100,
+      llmStreamDurationMs: 200,
+      llmRequestBuildMs: 30,
+      llmServerFirstTokenMs: 70,
+      llmServerDecodeMs: 150,
+      llmClientConsumeMs: 50,
+    });
+  });
+
+  it('carries the split from the llmRequester timing event to the turn.step.completed protocol event', async () => {
+    const ctx = createTestAgent(agentService(IAgentLLMRequesterService, createTimingRequester()));
+    try {
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
+      await ctx.untilTurnEnd();
+
+      const stepCompleted = ctx.allEvents.find(
+        (event) => event.type === '[rpc]' && event.event === 'turn.step.completed',
+      );
+      // The protocol event is copied field-by-field from the step.end event, so
+      // these exact values also prove the split survived on step.end.
+      expect(stepCompleted?.args).toMatchObject({
+        llmFirstTokenLatencyMs: 100,
+        llmStreamDurationMs: 200,
+        llmRequestBuildMs: 30,
+        llmServerFirstTokenMs: 70,
+        llmServerDecodeMs: 150,
+        llmClientConsumeMs: 50,
+      });
+    } finally {
+      await ctx.dispose();
+    }
+  });
+});
+
+function createTimingRequester(): IAgentLLMRequesterService {
+  return {
+    _serviceBrand: undefined,
+    request(): AsyncIterable<LLMEvent> {
+      return (async function* (): AsyncGenerator<LLMEvent> {
+        yield { type: 'part', part: { type: 'text', text: 'answer' } };
+        yield { type: 'usage', usage: emptyUsage(), model: 'mock-model' };
+        yield { type: 'finish' };
+        yield {
+          type: 'timing',
+          firstTokenLatencyMs: 100,
+          streamDurationMs: 200,
+          requestBuildMs: 30,
+          serverFirstTokenMs: 70,
+          serverDecodeMs: 150,
+          clientConsumeMs: 50,
+        };
+      })();
+    },
+  };
+}

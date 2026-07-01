@@ -1191,6 +1191,32 @@ describe('Agent turn flow', () => {
     expect(JSON.stringify(entries)).not.toContain('secret prompt body should stay out of logs');
   });
 
+  it('logs an llm response line with the timing split', async () => {
+    const { logger, entries } = captureLogs();
+    const ctx = testAgent(logServices(logger));
+    ctx.configure();
+    ctx.mockNextResponse({ type: 'text', text: 'done' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
+    await ctx.untilTurnEnd();
+
+    const responseLogs = entries.filter((entry) => entry.message === 'llm response');
+    expect(responseLogs).toHaveLength(1);
+    const payload = responseLogs[0]?.payload as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      turnStep: '0.1',
+      ttftMs: expect.any(Number),
+      streamDurationMs: expect.any(Number),
+      outputTokens: expect.any(Number),
+      serverDecodeMs: expect.any(Number),
+      clientConsumeMs: expect.any(Number),
+    });
+    // The scripted provider does not report the request-dispatch boundary, so
+    // the TTFT split is omitted from the log.
+    expect(payload).not.toHaveProperty('requestBuildMs');
+    expect(payload).not.toHaveProperty('serverFirstTokenMs');
+  });
+
   it('does not repeat unchanged LLM config metadata', async () => {
     const { logger, entries } = captureLogs();
     const ctx = testAgent(logServices(logger));
@@ -1363,6 +1389,14 @@ describe('Agent turn flow', () => {
         }),
       }),
     );
+    const maxStepsMessage = (
+      ctx.allEvents.find((event) => event.type === '[rpc]' && event.event === 'turn.ended')?.args as
+        | { error?: { message?: unknown } }
+        | undefined
+    )?.error?.message;
+    expect(maxStepsMessage).toEqual(expect.stringContaining('loop_control.max_steps_per_turn'));
+    expect(maxStepsMessage).toEqual(expect.stringContaining('/update-config'));
+    expect(maxStepsMessage).toEqual(expect.stringContaining('/reload'));
   });
 
   it('force-refreshes OAuth credentials and replays the request on 401', async () => {

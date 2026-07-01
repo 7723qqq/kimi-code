@@ -10,7 +10,9 @@
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
+import { Disposable } from '#/_base/di';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IPluginService } from '#/plugin';
 import { ISessionWorkspaceContext } from '#/workspaceContext';
 
 import { IGlobalSkillCatalog } from './globalSkillCatalog';
@@ -19,7 +21,7 @@ import { ISessionSkillCatalog } from './skillCatalog';
 import { ISkillCatalogStore } from './skillCatalogStore';
 import type { SkillCatalog } from './types';
 
-export class SessionSkillCatalogService implements ISessionSkillCatalog {
+export class SessionSkillCatalogService extends Disposable implements ISessionSkillCatalog {
   declare readonly _serviceBrand: undefined;
 
   private inner = new InMemorySkillCatalog();
@@ -30,7 +32,18 @@ export class SessionSkillCatalogService implements ISessionSkillCatalog {
     @IGlobalSkillCatalog private readonly global: IGlobalSkillCatalog,
     @ISkillCatalogStore private readonly store: ISkillCatalogStore,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
-  ) {}
+    @IPluginService private readonly plugins: IPluginService,
+  ) {
+    super();
+    // Re-discover skills when plugins are reloaded so newly enabled/installed
+    // plugin skills become invocable and removed plugins' skills disappear
+    // without restarting the session.
+    this._register(
+      this.plugins.onDidReload(() => {
+        void this.reload();
+      }),
+    );
+  }
 
   get catalog(): SkillCatalog {
     return this.inner;
@@ -49,7 +62,8 @@ export class SessionSkillCatalogService implements ISessionSkillCatalog {
 
   private async discover(workDir: string): Promise<void> {
     await this.global.load();
-    const { skills } = await this.store.discoverProject(workDir);
+    const pluginRoots = await this.plugins.pluginSkillRoots();
+    const { skills } = await this.store.discoverProject(workDir, pluginRoots);
     const merged = new InMemorySkillCatalog();
     for (const skill of this.global.catalog.listSkills()) {
       merged.register(skill);

@@ -33,6 +33,7 @@ export interface SessionSummary {
 
 export interface SessionListQuery {
   readonly workspaceId?: string;
+  readonly sessionId?: string;
   readonly includeArchived?: boolean;
   readonly cursor?: string;
   readonly limit?: number;

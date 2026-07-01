@@ -32,6 +32,19 @@ export interface ISessionLifecycleService {
   create(opts: CreateSessionOptions): Promise<IScopeHandle>;
   get(sessionId: string): IScopeHandle | undefined;
   list(): readonly IScopeHandle[];
+  /**
+   * Load a persisted session into the live scope tree and restore its main
+   * agent from the persisted wire log. Returns the existing handle when the
+   * session is already live (a no-op in that case — live agents are never
+   * re-restored). Returns `undefined` when the session is unknown to the index
+   * or its workspace is no longer registered (mirrors the cold-source
+   * limitation of `fork`).
+   *
+   * Lets the read edges (snapshot / messages) serve cold sessions — created by
+   * a previous process or by v1 — without requiring a prior `create` in this
+   * process. Restores only the main agent; sub-agents are materialized lazily.
+   */
+  resume(sessionId: string): Promise<IScopeHandle | undefined>;
   close(sessionId: string): Promise<void>;
   archive(sessionId: string): Promise<void>;
   fork(opts: ForkSessionOptions): Promise<IScopeHandle>;

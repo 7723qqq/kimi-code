@@ -31,6 +31,7 @@ function metadataStub(): ISessionMetadata {
     update: () => Promise.resolve(),
     setTitle: () => Promise.resolve(),
     setArchived: () => Promise.resolve(),
+    registerAgent: () => Promise.resolve(),
   };
 }
 

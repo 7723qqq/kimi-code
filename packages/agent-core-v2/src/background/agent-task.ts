@@ -1,3 +1,5 @@
+import type { TokenUsage } from '@moonshot-ai/kosong';
+
 import {
   type BackgroundTask,
   type BackgroundTaskInfoBase,
@@ -6,6 +8,7 @@ import {
 
 type SubagentCompletion = {
   readonly result: string;
+  readonly usage?: TokenUsage;
 };
 
 export type SubagentHandle = {

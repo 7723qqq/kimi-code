@@ -23,10 +23,8 @@ import {
 } from '#/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IAgentReplayBuilderService } from '#/replayBuilder';
-import { ISessionIndex, type SessionSummary } from '#/session-index';
+import { ISessionIndex } from '#/session-index';
 import { ISessionLifecycleService } from '#/session-lifecycle';
-import { IAgentWireRecordService } from '#/wireRecord';
-import { IWorkspaceRegistry } from '#/workspaceRegistry';
 
 import { IMessageLegacyService, type MessageListQuery } from './messageLegacy';
 
@@ -40,7 +38,6 @@ export class MessageLegacyService implements IMessageLegacyService {
   constructor(
     @ISessionLifecycleService private readonly lifecycle: ISessionLifecycleService,
     @ISessionIndex private readonly index: ISessionIndex,
-    @IWorkspaceRegistry private readonly workspaceRegistry: IWorkspaceRegistry,
   ) {}
 
   async list(sessionId: string, query: MessageListQuery): Promise<PageResponse<Message>> {
@@ -104,7 +101,7 @@ export class MessageLegacyService implements IMessageLegacyService {
       throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
     }
 
-    const agent = await this.resolveMainAgent(sessionId, summary);
+    const agent = await this.resolveMainAgent(sessionId);
     if (agent === undefined) return [];
 
     // Prefer the replay transcript: it is populated only by `wireRecord.restore`
@@ -124,38 +121,20 @@ export class MessageLegacyService implements IMessageLegacyService {
 
   /**
    * Resolve the session's main agent, loading + restoring it from the persisted
-   * wire log when the session is cold. Returns `undefined` only when a cold
-   * session's workspace is gone and the session directory cannot be
-   * reconstructed (mirrors the `fork` limitation).
+   * wire log when the session is cold (delegated to `ISessionLifecycleService.resume`).
+   * Returns `undefined` only when a cold session's workspace is gone and the
+   * session directory cannot be reconstructed (mirrors the `fork` limitation).
    */
-  private async resolveMainAgent(
-    sessionId: string,
-    summary: SessionSummary,
-  ): Promise<IScopeHandle | undefined> {
-    let session = this.lifecycle.get(sessionId);
-    let loaded = false;
-    if (session === undefined) {
-      const workspace = await this.workspaceRegistry.get(summary.workspaceId);
-      if (workspace === undefined) return undefined;
-      session = await this.lifecycle.create({ sessionId, workDir: workspace.root });
-      loaded = true;
-    }
-
+  private async resolveMainAgent(sessionId: string): Promise<IScopeHandle | undefined> {
+    const session = await this.lifecycle.resume(sessionId);
+    if (session === undefined) return undefined;
     const agents = session.accessor.get(IAgentLifecycleService);
-    let agent = agents.getHandle(MAIN_AGENT_ID);
-    if (agent === undefined) {
-      agent = await agents.createMain();
-      // Restore only the agent we just materialized from a cold session; an
-      // already-live agent must not be re-restored (it would re-apply splices).
-      if (loaded) {
-        // `IAgentContextMemoryService` registers the `context.splice` resumer and pulls in
-        // `IAgentReplayBuilderService`; both are Delayed, so resolve them before
-        // replaying the wire or the restore would replay into a void.
-        agent.accessor.get(IAgentContextMemoryService);
-        await agent.accessor.get(IAgentWireRecordService).restore();
-      }
-    }
-    return agent;
+    const existing = agents.getHandle(MAIN_AGENT_ID);
+    if (existing !== undefined) return existing;
+    // Live session whose main agent has not been materialized yet: create it
+    // fresh. No restore here — the session was already live, so any persisted
+    // wire is already reflected in memory; re-restoring would re-apply splices.
+    return agents.createMain();
   }
 }
 

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentBackgroundService } from '#/background';
@@ -6,24 +8,32 @@ import { IAgentContextSizeService } from '#/contextSize';
 import { IAgentFileToolsService } from '#/fileTools';
 import { IAgentFullCompactionService } from '#/fullCompaction';
 import { IAgentGoalService } from '#/goal';
+import { IAgentEventSinkService } from '#/eventSink';
+import { ErrorCodes, KimiError } from '#/errors';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentPermissionGate } from '#/permissionGate';
 import { IAgentPermissionModeService } from '#/permissionMode/permissionMode';
 import { IAgentPlanService } from '../plan';
+import { expandCommandArguments, IPluginService } from '#/plugin';
 import { IAgentProfileService } from '#/profile';
 import { IAgentPromptService } from '#/prompt';
 import { IAgentQuestionToolsService } from '#/question';
-import { IAgentShellToolsService } from '#/shellTools';
+import { ISessionMetadata, type SessionMetaPatch } from '#/session-metadata';
+import { BashTool, IAgentShellToolsService } from '#/shellTools';
 import { IAgentSkillService } from '#/skill';
+import { IKaos } from '#/kaos';
+import { ISessionProcessRunner } from '#/process';
 import { ISessionSubagentHost } from '#/subagentHost';
 import { IAgentSwarmService } from '../swarm';
 import { ITelemetryService } from '#/telemetry';
 import { IAgentToolRegistryService } from '#/toolRegistry';
+import type { ToolUpdate } from '#/tool';
 import { IAgentTurnService } from '../turn';
 import { IAgentUsageService } from '#/usage';
 import { IAgentUserToolService } from '#/userTool';
 import { IAgentWebService } from '#/web';
 import type {
+  ActivatePluginCommandPayload,
   ActivateSkillPayload,
   BeginCompactionPayload,
   CancelPayload,
@@ -37,6 +47,9 @@ import type {
   PromptLaunchResult,
   PromptPayload,
   RegisterToolPayload,
+  RunShellCommandPayload,
+  ShellCommandResult,
+  CancelShellCommandPayload,
   SetActiveToolsPayload,
   SetModelPayload,
   SetPermissionPayload,
@@ -47,9 +60,17 @@ import type {
   UnregisterToolPayload,
 } from './core-api';
 import { IAgentRPCService } from './rpc';
+import {
+  promptMetadataTextFromPluginCommand,
+  titleFromPromptMetadataText,
+} from './prompt-metadata';
+
+const SHELL_FOREGROUND_TIMEOUT_S = 2 * 60;
 
 export class AgentRPCService implements IAgentRPCService {
   declare readonly _serviceBrand: undefined;
+  private readonly shellCommandControllers = new Map<string, AbortController>();
+
   constructor(
     @IAgentPromptService private readonly promptService: IAgentPromptService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
@@ -63,6 +84,8 @@ export class AgentRPCService implements IAgentRPCService {
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentFileToolsService private readonly fileTools: IAgentFileToolsService,
     @IAgentShellToolsService private readonly shellTools: IAgentShellToolsService,
+    @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
+    @IKaos private readonly kaos: IKaos,
     @IAgentBackgroundService private readonly background: IAgentBackgroundService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
@@ -71,8 +94,11 @@ export class AgentRPCService implements IAgentRPCService {
     @IAgentUsageService private readonly usage: IAgentUsageService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentGoalService private readonly goal: IAgentGoalService,
+    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
     @IAgentQuestionToolsService private readonly questionTools: IAgentQuestionToolsService,
     @IAgentWebService private readonly web: IAgentWebService,
+    @IPluginService private readonly plugins: IPluginService,
+    @ISessionMetadata private readonly metadata: ISessionMetadata,
   ) { }
 
   prompt(payload: PromptPayload): PromptLaunchResult | undefined {
@@ -82,6 +108,75 @@ export class AgentRPCService implements IAgentRPCService {
       toolCalls: [],
     });
     return turn === undefined ? undefined : { turn_id: turn.id };
+  }
+
+  private ensureBashTool() {
+    const existing = this.toolRegistry.resolve('Bash');
+    if (existing !== undefined) return existing;
+    const bash = new BashTool(this.processRunner, this.kaos, this.background);
+    this.toolRegistry.register(bash);
+    return bash;
+  }
+
+  async runShellCommand(payload: RunShellCommandPayload): Promise<ShellCommandResult> {
+    const bash = this.ensureBashTool();
+
+    const controller = new AbortController();
+    if (payload.commandId !== undefined) {
+      this.shellCommandControllers.set(payload.commandId, controller);
+    }
+
+    let stdout = '';
+    let stderr = '';
+    try {
+      const execution = await bash.resolveExecution({
+        command: payload.command,
+        timeout: SHELL_FOREGROUND_TIMEOUT_S,
+      });
+      if (execution.isError === true) {
+        const output = typeof execution.output === 'string' ? execution.output : 'Command failed.';
+        return { stdout: '', stderr: output, isError: true };
+      }
+
+      const result = await execution.execute({
+        turnId: '',
+        toolCallId: 'shell-command',
+        signal: controller.signal,
+        onUpdate: (update: ToolUpdate) => {
+          if (update.kind === 'stdout') stdout += update.text ?? '';
+          else if (update.kind === 'stderr') stderr += update.text ?? '';
+          else return;
+          if (payload.commandId !== undefined) {
+            this.events.emit({ type: 'shell.output', commandId: payload.commandId, update });
+          }
+        },
+        onForegroundTaskStart: (taskId: string) => {
+          if (payload.commandId !== undefined) {
+            this.events.emit({ type: 'shell.started', commandId: payload.commandId, taskId });
+          }
+        },
+      });
+
+      const isError = result.isError === true;
+      if (typeof result.output === 'string' && result.output.startsWith('task_id: ')) {
+        return { stdout: result.output, stderr: '', isError: false, backgrounded: true };
+      }
+      if (!isError && stdout.length === 0 && typeof result.output === 'string') {
+        stdout = result.output;
+      }
+      if (isError && stdout.length === 0 && stderr.length === 0) {
+        stderr = typeof result.output === 'string' ? result.output : 'Command failed.';
+      }
+      return { stdout, stderr, isError };
+    } finally {
+      if (payload.commandId !== undefined) {
+        this.shellCommandControllers.delete(payload.commandId);
+      }
+    }
+  }
+
+  cancelShellCommand(payload: CancelShellCommandPayload): void {
+    this.shellCommandControllers.get(payload.commandId)?.abort(userCancellationReason());
   }
 
   steer(payload: SteerPayload): PromptLaunchResult | undefined {
@@ -198,6 +293,60 @@ export class AgentRPCService implements IAgentRPCService {
     this.skills.activate(payload);
   }
 
+  async activatePluginCommand(payload: ActivatePluginCommandPayload): Promise<void> {
+    const commands = await this.plugins.listPluginCommands();
+    const def = commands.find(
+      (command) => command.pluginId === payload.pluginId && command.name === payload.commandName,
+    );
+    if (def === undefined) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `Plugin command "${payload.pluginId}:${payload.commandName}" was not found`,
+      );
+    }
+    const commandArgs = payload.args ?? '';
+    const expanded = expandCommandArguments(def.body, commandArgs);
+    const origin = {
+      kind: 'plugin_command' as const,
+      activationId: randomUUID(),
+      pluginId: payload.pluginId,
+      commandName: payload.commandName,
+      commandArgs: payload.args,
+      trigger: 'user-slash' as const,
+    };
+    this.events.emit({
+      type: 'plugin_command.activated',
+      activationId: origin.activationId,
+      pluginId: origin.pluginId,
+      commandName: origin.commandName,
+      commandArgs: origin.commandArgs,
+      trigger: origin.trigger,
+    });
+    this.promptService.prompt({
+      role: 'user',
+      content: [{ type: 'text', text: expanded }],
+      toolCalls: [],
+      origin,
+    });
+    await this.updatePluginCommandPromptMetadata(payload);
+  }
+
+  private async updatePluginCommandPromptMetadata(
+    payload: ActivatePluginCommandPayload,
+  ): Promise<void> {
+    const text = promptMetadataTextFromPluginCommand(payload);
+    if (text === undefined) return;
+    const current = await this.metadata.read();
+    const patch: { lastPrompt: string; title?: string; isCustomTitle?: boolean } = {
+      lastPrompt: text,
+    };
+    if (!current.isCustomTitle && isUntitled(current.title)) {
+      patch.title = titleFromPromptMetadataText(text);
+      patch.isCustomTitle = false;
+    }
+    await this.metadata.update(patch satisfies SessionMetaPatch);
+  }
+
   startBtw(_payload: EmptyPayload): Promise<string> {
     return this.subagentHost.startBtw();
   }
@@ -261,6 +410,10 @@ export class AgentRPCService implements IAgentRPCService {
   getBackground(payload: GetBackgroundPayload) {
     return this.background.list(payload.activeOnly ?? false, payload.limit);
   }
+}
+
+function isUntitled(title: string | undefined): boolean {
+  return typeof title !== 'string' || title.trim().length === 0 || title === 'New Session';
 }
 
 registerScopedService(

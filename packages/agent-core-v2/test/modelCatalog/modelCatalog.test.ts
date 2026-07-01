@@ -16,6 +16,8 @@ import { IOAuthService } from '#/auth/auth';
 import { IConfigRegistry, IConfigService } from '#/config/config';
 import { ConfigRegistry } from '#/config/configService';
 import { isKimiError } from '#/errors';
+import { IEventService } from '#/event/event';
+import { MODEL_CATALOG_SECTION } from '#/modelCatalog/configSection';
 import { IModelCatalogService } from '#/modelCatalog/modelCatalog';
 import { ModelCatalogService } from '#/modelCatalog/modelCatalogService';
 import { IModelService, type ModelAlias } from '#/model/model';
@@ -65,7 +67,9 @@ describe('ModelCatalogService', () => {
   let ix: TestInstantiationService;
   let backing: Backing;
   let configSet: ReturnType<typeof vi.fn>;
+  let configReplace: ReturnType<typeof vi.fn>;
   let getCachedAccessToken: ReturnType<typeof vi.fn>;
+  let publishEvent: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -78,6 +82,10 @@ describe('ModelCatalogService', () => {
           : patch;
     });
     getCachedAccessToken = vi.fn<IOAuthService['getCachedAccessToken']>().mockResolvedValue(undefined);
+    configReplace = vi.fn().mockImplementation(async (domain: string, value: unknown) => {
+      (backing as unknown as Record<string, unknown>)[domain] = value;
+    });
+    publishEvent = vi.fn();
 
     ix = createServices(disposables, {
       additionalServices: (reg) => {
@@ -91,12 +99,19 @@ describe('ModelCatalogService', () => {
             memoryValue: undefined,
           })) as IConfigService['inspect'],
           set: configSet as unknown as IConfigService['set'],
+          replace: configReplace as unknown as IConfigService['replace'],
           reload: vi.fn().mockResolvedValue(undefined) as unknown as IConfigService['reload'],
           onDidChange: (() => ({ dispose: () => {} })) as IConfigService['onDidChange'],
           onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
         });
         reg.definePartialInstance(IOAuthService, {
           getCachedAccessToken: getCachedAccessToken as unknown as IOAuthService['getCachedAccessToken'],
+          resolveTokenProvider: vi
+            .fn()
+            .mockReturnValue(undefined) as unknown as IOAuthService['resolveTokenProvider'],
+        });
+        reg.definePartialInstance(IEventService, {
+          publish: publishEvent as unknown as IEventService['publish'],
         });
         reg.define(IModelService, ModelService);
         reg.define(IProviderService, ProviderService);
@@ -213,5 +228,41 @@ describe('ModelCatalogService', () => {
     getCachedAccessToken.mockResolvedValue('cached-token');
     const [provider] = await catalog().listProviders();
     expect(provider).toMatchObject({ id: 'acme', has_api_key: false, status: 'connected' });
+  });
+
+  it('registers and validates the modelCatalog config section', () => {
+    // Constructing the service registers the section as a side effect.
+    catalog();
+    const registry = ix.get(IConfigRegistry);
+    expect(registry.getSection(MODEL_CATALOG_SECTION)).toBeDefined();
+    expect(
+      registry.validate(MODEL_CATALOG_SECTION, {
+        refreshIntervalMs: 1000,
+        refreshOnStart: false,
+      }),
+    ).toEqual({ refreshIntervalMs: 1000, refreshOnStart: false });
+    expect(() => registry.validate(MODEL_CATALOG_SECTION, { refreshIntervalMs: -1 })).toThrow();
+  });
+
+  it('refreshProviderModels throws provider.not_found for an unknown provider', async () => {
+    await catalog()
+      .refreshProviderModels({ providerId: 'missing' })
+      .then(
+        () => {
+          throw new Error('expected rejection');
+        },
+        (err) => {
+          expect(isKimiError(err)).toBe(true);
+          expect((err as { code: string }).code).toBe('provider.not_found');
+        },
+      );
+  });
+
+  it('refreshProviderModels returns an empty result and stays silent when nothing is refreshable', async () => {
+    // `kimi` (api_key) and `openai` are plain API-key providers with no
+    // server-side catalog endpoint, so the orchestrator has nothing to refresh.
+    const result = await catalog().refreshProviderModels({ scope: 'all' });
+    expect(result).toEqual({ changed: [], unchanged: [], failed: [] });
+    expect(publishEvent).not.toHaveBeenCalled();
   });
 });

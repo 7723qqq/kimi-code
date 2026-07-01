@@ -220,7 +220,11 @@ export class FileStorageService implements IStorageService {
 
   private async syncDirOnce(dir: string): Promise<void> {
     if (this.syncedDirs.has(dir)) return;
-    await syncDir(dir);
-    this.syncedDirs.add(dir);
+    try {
+      await syncDir(dir);
+      this.syncedDirs.add(dir);
+    } catch (error) {
+      if (!isEnoent(error)) throw error;
+    }
   }
 }

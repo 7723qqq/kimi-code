@@ -50,6 +50,15 @@ export class FileSessionIndex implements ISessionIndex {
   ) {}
 
   async list(query: SessionListQuery): Promise<Page<SessionSummary>> {
+    if (query.sessionId !== undefined) {
+      const summary = await this.get(query.sessionId);
+      const items =
+        summary !== undefined && (!summary.archived || query.includeArchived === true)
+          ? [summary]
+          : [];
+      return { items: query.limit !== undefined ? items.slice(0, query.limit) : items };
+    }
+
     const workspaceIds =
       query.workspaceId !== undefined ? [query.workspaceId] : await this.listWorkspaceIds();
     const items: SessionSummary[] = [];

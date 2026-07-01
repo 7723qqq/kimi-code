@@ -270,16 +270,16 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         source: 'manual',
         instruction: 'Keep the important test facts.',
-        tokensBefore: 39,
-        tokensAfter: 5,
-        duration: expect.any(Number),
-        compactedCount: 6,
-        retryCount: 0,
-        thinkingLevel: 'off',
-        inputOther: 520,
+        tokens_before: 39,
+        tokens_after: 5,
+        duration_ms: expect.any(Number),
+        compacted_count: 6,
+        retry_count: 0,
+        thinking_level: 'off',
+        input_other: 520,
         output: 8,
-        inputCacheRead: 0,
-        inputCacheCreation: 0,
+        input_cache_read: 0,
+        input_cache_creation: 0,
       }),
     });
     await ctx.expectResumeMatches();
@@ -565,8 +565,8 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'manual',
-        tokensBefore: 25,
-        retryCount: 1,
+        tokens_before: 25,
+        retry_count: 1,
       }),
     });
     await ctx.expectResumeMatches();
@@ -701,8 +701,8 @@ describe('FullCompaction', () => {
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        retryCount: 4,
-        errorType: 'APIEmptyResponseError',
+        retry_count: 4,
+        error_type: 'APIEmptyResponseError',
       }),
     });
     // No summary was ever applied; the original history is left intact.
@@ -815,16 +815,16 @@ describe('FullCompaction', () => {
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        tokensBefore: 25,
-        duration: expect.any(Number),
+        tokens_before: 25,
+        duration_ms: expect.any(Number),
         round: 1,
-        retryCount: 0,
-        errorType: 'Error',
+        retry_count: 0,
+        error_type: 'Error',
       }),
     });
     expect(
       records.find((record) => record.event === 'compaction_failed')?.properties,
-    ).not.toHaveProperty('tokensAfter');
+    ).not.toHaveProperty('tokens_after');
     await ctx.expectResumeMatches();
   });
 
@@ -929,10 +929,10 @@ describe('FullCompaction', () => {
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        tokensBefore: 25,
-        duration: expect.any(Number),
-        retryCount: 4,
-        errorType: 'APIConnectionError',
+        tokens_before: 25,
+        duration_ms: expect.any(Number),
+        retry_count: 4,
+        error_type: 'APIConnectionError',
       }),
     });
     await ctx.expectResumeMatches();
@@ -1242,10 +1242,10 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'auto',
-        tokensBefore: 46,
-        tokensAfter: 28,
-        compactedCount: 4,
-        retryCount: 0,
+        tokens_before: 46,
+        tokens_after: 28,
+        compacted_count: 4,
+        retry_count: 0,
       }),
     });
     await ctx.expectResumeMatches();
@@ -1739,7 +1739,7 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'auto',
-        thinkingLevel: 'high',
+        thinking_level: 'high',
       }),
     });
   });
@@ -1881,6 +1881,79 @@ describe('FullCompaction', () => {
       expect(compactionMaxCompletionTokens).toEqual([undefined]);
     },
   );
+
+  it('honors maxOutputSize from model config during compaction', async () => {
+    let callCount = 0;
+    const compactionMaxCompletionTokens: unknown[] = [];
+    const generate: GenerateFn = async (provider, _system, _tools, _history, callbacks) => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new APIContextOverflowError(400, 'Context length exceeded', 'req-max-output');
+      }
+      if (callCount === 2) {
+        compactionMaxCompletionTokens.push(providerMaxCompletionTokens(provider));
+        return textResult('Max output compacted summary.');
+      }
+      await callbacks?.onMessagePart?.({
+        type: 'text',
+        text: 'Recovered with max output.',
+      });
+      return textResult('Recovered with max output.');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    // Set maxOutputSize on the harness's internal kimiConfig — the
+    // compaction path reads it via resolveModelContext().maxOutputSize.
+    const models = (ctx as unknown as MutableKimiConfig).kimiConfig.models;
+    models![CATALOGUED_PROVIDER.model] = {
+      ...models![CATALOGUED_PROVIDER.model]!,
+      maxOutputSize: 384000,
+    };
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.newEvents();
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Retry with max output' }] });
+    await ctx.untilTurnEnd();
+
+    expect(callCount).toBe(3);
+    expect(compactionMaxCompletionTokens).toEqual([384000]);
+  });
+
+  it('uses default 128k hardCap when maxOutputSize is not configured', async () => {
+    let callCount = 0;
+    const compactionMaxCompletionTokens: unknown[] = [];
+    const generate: GenerateFn = async (provider, _system, _tools, _history, callbacks) => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new APIContextOverflowError(400, 'Context length exceeded', 'req-default-cap');
+      }
+      if (callCount === 2) {
+        compactionMaxCompletionTokens.push(providerMaxCompletionTokens(provider));
+        return textResult('Default cap compacted summary.');
+      }
+      await callbacks?.onMessagePart?.({
+        type: 'text',
+        text: 'Recovered with default cap.',
+      });
+      return textResult('Recovered with default cap.');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.newEvents();
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Retry with default cap' }] });
+    await ctx.untilTurnEnd();
+
+    expect(callCount).toBe(3);
+    expect(compactionMaxCompletionTokens).toEqual([128 * 1024]);
+  });
 
   it('ignores filtered assistant placeholders when checking the retained overflow suffix', async () => {
     let callCount = 0;
@@ -2094,6 +2167,12 @@ function oauthTestAgentOptions(
     }),
   };
 }
+
+type MutableKimiConfig = {
+  kimiConfig: {
+    models?: Record<string, { maxOutputSize?: number }>;
+  };
+};
 
 function providerMaxCompletionTokens(provider: Parameters<GenerateFn>[0]): unknown {
   return (

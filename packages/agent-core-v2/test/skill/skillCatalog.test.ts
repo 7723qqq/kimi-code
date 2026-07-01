@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { LifecycleScope } from '#/_base/di/scope';
 import { IBootstrapService } from '#/bootstrap';
+import { IPluginService } from '#/plugin';
 import { ISessionWorkspaceContext } from '#/workspaceContext';
 import '#/skill';
 import { InMemorySkillCatalogStore } from '#/skill/inMemorySkillCatalogStore';
 import { ISessionSkillCatalog } from '#/skill/skillCatalog';
 import { ISkillCatalogStore } from '#/skill/skillCatalogStore';
+import type { SkillRoot } from '#/skill/types';
 
 import { stubSkill } from './stubs';
 
@@ -16,6 +18,26 @@ const bootstrapStub = {
   homeDir: '/home',
   osHomeDir: '/home',
 } as unknown as IBootstrapService;
+
+function pluginStub(skillRoots: readonly SkillRoot[] = []): IPluginService {
+  return {
+    _serviceBrand: undefined,
+    onDidReload: () => ({ dispose: () => {} }),
+    listPlugins: async () => [],
+    installPlugin: async () => ({ id: '' }) as never,
+    setPluginEnabled: async () => {},
+    setPluginMcpServerEnabled: async () => {},
+    removePlugin: async () => {},
+    reloadPlugins: async () => ({ added: [], removed: [], errors: [] }),
+    getPluginInfo: async () => undefined,
+    listPluginCommands: async () => [],
+    checkUpdates: async () => [],
+    pluginSkillRoots: async () => skillRoots,
+    enabledSessionStarts: async () => [],
+    enabledMcpServers: async () => ({}),
+    enabledHooks: async () => [],
+  };
+}
 
 function workspaceStub(workDir: string): {
   readonly stub: ISessionWorkspaceContext;
@@ -40,10 +62,15 @@ function workspaceStub(workDir: string): {
   return { stub, setWorkDir: (dir) => { current = dir; } };
 }
 
-function makeHost(store: InMemorySkillCatalogStore, ws: ISessionWorkspaceContext) {
+function makeHost(
+  store: ISkillCatalogStore,
+  ws: ISessionWorkspaceContext,
+  pluginRoots: readonly SkillRoot[] = [],
+) {
   const host = createScopedTestHost([
     stubPair(ISkillCatalogStore, store),
     stubPair(IBootstrapService, bootstrapStub),
+    stubPair(IPluginService, pluginStub(pluginRoots)),
   ]);
   const session = host.child(LifecycleScope.Session, 's1', [stubPair(ISessionWorkspaceContext, ws)]);
   return { host, session };
@@ -109,6 +136,39 @@ describe('SessionSkillCatalogService', () => {
 
     expect(catalog.catalog.getSkill('first')).toBeDefined();
     expect(catalog.catalog.getSkill('second')).toBeUndefined();
+    host.dispose();
+  });
+
+  it('passes plugin skill roots to the store so plugin skills are discoverable', async () => {
+    const pluginRoot: SkillRoot = {
+      path: '/plugins/demo/skills',
+      source: 'extra',
+      plugin: { id: 'demo', instructions: 'Use the demo tools.' },
+    };
+    class ExtraRootStore implements ISkillCatalogStore {
+      declare readonly _serviceBrand: undefined;
+      receivedRoots: readonly SkillRoot[] | undefined;
+      async discoverProject(_workDir: string, extraRoots?: readonly SkillRoot[]) {
+        this.receivedRoots = extraRoots;
+        const pluginSkills = (extraRoots ?? [])
+          .filter((root) => root.plugin !== undefined)
+          .map((root) => stubSkill('demo-skill', { source: 'extra', plugin: root.plugin }));
+        return { skills: pluginSkills, skipped: [], scannedRoots: [] };
+      }
+      async discoverUser() {
+        return { skills: [], skipped: [], scannedRoots: [] };
+      }
+    }
+    const store = new ExtraRootStore();
+    const { stub: ws } = workspaceStub('/work');
+    const { host, session } = makeHost(store, ws, [pluginRoot]);
+
+    const catalog = session.accessor.get(ISessionSkillCatalog);
+    await catalog.load();
+
+    expect(store.receivedRoots).toEqual([pluginRoot]);
+    expect(catalog.catalog.getSkill('demo-skill')?.plugin?.id).toBe('demo');
+    expect(catalog.catalog.getPluginSkill('demo', 'demo-skill')).toBeDefined();
     host.dispose();
   });
 });

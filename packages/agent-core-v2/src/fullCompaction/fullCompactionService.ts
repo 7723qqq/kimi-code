@@ -59,6 +59,7 @@ declare module '#/wireRecord' {
 }
 
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
+const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS = 128 * 1024;
 
 export interface FullCompactionServiceOptions {
   // Optional override for the compaction strategy. Defaults to the
@@ -358,6 +359,14 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         signal,
       );
 
+      const resolvedModel = this.profile.resolveModelContext();
+      const maxContextTokens = resolvedModel.modelCapabilities.max_context_tokens;
+      const defaultCompactionCap =
+        maxContextTokens > 0
+          ? Math.min(maxContextTokens, DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS)
+          : undefined;
+      const compactionMaxOutputSize = resolvedModel.maxOutputSize ?? defaultCompactionCap;
+
       const delays = retryBackoffDelays(MAX_COMPACTION_RETRY_ATTEMPTS);
       let attempt: CompactionAttemptResult | undefined;
       while (true) {
@@ -370,7 +379,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         ];
 
         try {
-          attempt = await collectSummary(this.llmRequester.request({ messages }, signal));
+          attempt = await collectSummary(
+            this.llmRequester.request({ messages, maxOutputSize: compactionMaxOutputSize }, signal),
+          );
           break;
         } catch (error) {
           if (
@@ -412,13 +423,13 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       };
 
       this.telemetry.track('compaction_finished', {
-        tokensBefore: result.tokensBefore,
-        tokensAfter: result.tokensAfter,
-        duration: Date.now() - startedAt,
-        compactedCount: result.compactedCount,
-        retryCount,
+        tokens_before: result.tokensBefore,
+        tokens_after: result.tokensAfter,
+        duration_ms: Date.now() - startedAt,
+        compacted_count: result.compactedCount,
+        retry_count: retryCount,
         round,
-        thinkingLevel: this.profile.data().thinkingLevel,
+        thinking_level: this.profile.data().thinkingLevel,
         ...usageTelemetry(attempt.usage),
         ...data,
       });
@@ -434,12 +445,12 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       if (isAbortError(error)) return undefined;
       this.telemetry.track('compaction_failed', {
         ...data,
-        tokensBefore,
-        duration: Date.now() - startedAt,
+        tokens_before: tokensBefore,
+        duration_ms: Date.now() - startedAt,
         round,
-        retryCount,
-        thinkingLevel: this.profile.data().thinkingLevel,
-        errorType: error instanceof Error ? error.name : 'Unknown',
+        retry_count: retryCount,
+        thinking_level: this.profile.data().thinkingLevel,
+        error_type: error instanceof Error ? error.name : 'Unknown',
       });
       if (isKimiError(error) && error.code === ErrorCodes.AUTH_LOGIN_REQUIRED) throw error;
       throw new KimiError(ErrorCodes.COMPACTION_FAILED, String(error), { cause: error });
@@ -563,10 +574,10 @@ function historyUnchanged(
 function usageTelemetry(usage: TokenUsage | null): CompactionTelemetryProperties {
   if (usage === null) return {};
   return {
-    inputOther: usage.inputOther,
+    input_other: usage.inputOther,
     output: usage.output,
-    inputCacheRead: usage.inputCacheRead,
-    inputCacheCreation: usage.inputCacheCreation,
+    input_cache_read: usage.inputCacheRead,
+    input_cache_creation: usage.inputCacheCreation,
   };
 }
 

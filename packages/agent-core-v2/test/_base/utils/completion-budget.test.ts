@@ -116,6 +116,21 @@ describe('applyCompletionBudget', () => {
     expect(withMaxCompletionTokens.mock.calls[0]?.[0]).toBe(10000);
     expect(result).not.toBe(original);
   });
+
+  it('passes used and max context tokens to the provider budget hook', () => {
+    applyCompletionBudget({
+      provider: original,
+      budget: { hardCap: 4096 },
+      capability: makeCapability(10000),
+      usedContextTokens: 2500,
+    });
+
+    expect(withMaxCompletionTokens).toHaveBeenCalledOnce();
+    expect(withMaxCompletionTokens.mock.calls[0]?.[1]).toEqual({
+      usedContextTokens: 2500,
+      maxContextTokens: 10000,
+    });
+  });
 });
 
 describe('resolveCompletionBudget', () => {

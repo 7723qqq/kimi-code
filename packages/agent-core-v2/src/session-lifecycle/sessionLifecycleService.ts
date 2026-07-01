@@ -22,6 +22,7 @@ import {
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IAgentLifecycleService } from '#/agent-lifecycle';
 import { IBootstrapService } from '#/bootstrap';
+import { IAgentContextMemoryService } from '#/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IKaos, IKaosFactory } from '#/kaos';
 import { ISessionActivity } from '#/session-activity';
@@ -48,6 +49,10 @@ import {
 export class SessionLifecycleService implements ISessionLifecycleService {
   declare readonly _serviceBrand: undefined;
   private readonly sessions = new Map<string, IScopeHandle>();
+  /** In-flight `resume` promises, keyed by session id — de-dupes concurrent
+   *  cold loads so a hot read path (e.g. snapshot retry) cannot materialize
+   *  the same session twice and leak a handle. */
+  private readonly resuming = new Map<string, Promise<IScopeHandle | undefined>>();
 
   constructor(
     @IInstantiationService private readonly instantiation: IInstantiationService,
@@ -93,6 +98,40 @@ export class SessionLifecycleService implements ISessionLifecycleService {
 
   get(sessionId: string): IScopeHandle | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  resume(sessionId: string): Promise<IScopeHandle | undefined> {
+    const live = this.sessions.get(sessionId);
+    if (live !== undefined) return Promise.resolve(live);
+    const inflight = this.resuming.get(sessionId);
+    if (inflight !== undefined) return inflight;
+    const promise = this.doResume(sessionId).finally(() => this.resuming.delete(sessionId));
+    this.resuming.set(sessionId, promise);
+    return promise;
+  }
+
+  private async doResume(sessionId: string): Promise<IScopeHandle | undefined> {
+    // Re-check after the serialized entry: a prior `resume` for the same id may
+    // have already materialized the session while this call was queued.
+    const live = this.sessions.get(sessionId);
+    if (live !== undefined) return live;
+
+    const summary = await this.index.get(sessionId);
+    if (summary === undefined) return undefined;
+    const workspace = await this.workspaceRegistry.get(summary.workspaceId);
+    if (workspace === undefined) return undefined;
+
+    const handle = await this.create({ sessionId, workDir: workspace.root });
+    const agents = handle.accessor.get(IAgentLifecycleService);
+    if (agents.getHandle('main') === undefined) {
+      const main = await agents.createMain();
+      // Resolve context memory BEFORE restoring so its `context.splice` resumer
+      // is registered; otherwise the wire replay applies splices into a void and
+      // the restored transcript never lands in context memory.
+      main.accessor.get(IAgentContextMemoryService);
+      await main.accessor.get(IAgentWireRecordService).restore();
+    }
+    return handle;
   }
 
   list(): readonly IScopeHandle[] {
@@ -194,7 +233,13 @@ export class SessionLifecycleService implements ISessionLifecycleService {
     // 9. Create the target agents (same ids) and restore each from its copied
     // log. Creating them registers fresh agent entries with TARGET homedirs.
     for (const agentId of agentIds) {
-      const agentHandle = await target.accessor.get(IAgentLifecycleService).create({ agentId });
+      const sourceAgent = sourceAgents[agentId]!;
+      const agentHandle = await target.accessor.get(IAgentLifecycleService).create({
+        agentId,
+        type: sourceAgent.type,
+        parentAgentId: sourceAgent.parentAgentId,
+        swarmItem: sourceAgent.swarmItem,
+      });
       await agentHandle.accessor.get(IAgentWireRecordService).restore();
     }
 

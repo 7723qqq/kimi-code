@@ -39,6 +39,8 @@ export interface RegisterBackgroundTaskOptions {
   readonly detached?: boolean;
   /** Deadline owned by the background manager. `0` and `undefined` do not arm a timer. */
   readonly timeoutMs?: number;
+  /** Deadline to apply if a foreground task is detached. `0` and `undefined` do not arm a timer. */
+  readonly detachTimeoutMs?: number;
   /** Foreground caller signal. Ignored for tasks created already detached. */
   readonly signal?: AbortSignal;
 }

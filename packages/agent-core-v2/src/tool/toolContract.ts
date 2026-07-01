@@ -50,6 +50,7 @@ export interface ExecutableToolContext {
   readonly metadata?: unknown;
   readonly signal: AbortSignal;
   readonly onUpdate?: ((update: ToolUpdate) => void) | undefined;
+  readonly onForegroundTaskStart?: ((taskId: string) => void) | undefined;
 }
 
 export interface RunnableToolExecution {

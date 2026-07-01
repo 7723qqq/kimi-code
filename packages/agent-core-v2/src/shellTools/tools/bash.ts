@@ -193,7 +193,8 @@ export class BashTool implements BuiltinTool<BashInput> {
       },
       approvalRule: literalRulePattern(this.name, args.command),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.command),
-      execute: ({ signal, onUpdate }) => this.execution(args, signal, onUpdate),
+      execute: ({ signal, onUpdate, onForegroundTaskStart }) =>
+        this.execution(args, signal, onUpdate, onForegroundTaskStart),
     };
   }
 
@@ -225,6 +226,7 @@ export class BashTool implements BuiltinTool<BashInput> {
     args: BashInput,
     signal: AbortSignal,
     onUpdate?: (update: ToolUpdate) => void,
+    onForegroundTaskStart?: (taskId: string) => void,
   ): Promise<ExecutableToolResult> {
     const validationError = this.validateRunRequest(args, signal);
     if (validationError !== undefined) return validationError;
@@ -253,12 +255,18 @@ export class BashTool implements BuiltinTool<BashInput> {
     closeProcessStdin(proc);
 
     let collectForegroundOutput = !startsInBackground;
+    let foregroundOutputPersisted = false;
+    let foregroundTaskId: string | undefined;
     const onProcessOutput = startsInBackground
       ? undefined
       : (kind: 'stdout' | 'stderr', text: string): void => {
           if (!collectForegroundOutput) return;
           onUpdate?.({ kind, text });
           builder.write(text);
+          if (!foregroundOutputPersisted && builder.truncated && foregroundTaskId !== undefined) {
+            this.background.persistOutput(foregroundTaskId);
+            foregroundOutputPersisted = true;
+          }
         };
 
     let taskId: string;
@@ -268,9 +276,11 @@ export class BashTool implements BuiltinTool<BashInput> {
         {
           detached: startsInBackground,
           timeoutMs,
+          detachTimeoutMs: DEFAULT_BACKGROUND_TIMEOUT_S * MS_PER_SECOND,
           signal: startsInBackground ? undefined : signal,
         },
       );
+      foregroundTaskId = startsInBackground ? undefined : taskId;
     } catch (error) {
       collectForegroundOutput = false;
       await killSpawnedProcess(proc);
@@ -279,6 +289,8 @@ export class BashTool implements BuiltinTool<BashInput> {
         output: error instanceof Error ? error.message : String(error),
       };
     }
+
+    if (!startsInBackground) onForegroundTaskStart?.(taskId);
 
     if (startsInBackground) {
       return this.backgroundStartedResult(taskId, proc, description, {

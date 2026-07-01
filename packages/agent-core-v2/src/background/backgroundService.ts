@@ -94,7 +94,7 @@ interface ManagedTask {
   outputSizeBytes: number;
   retainedOutputBytes: number;
   status: BackgroundTaskStatus;
-  readonly options: RegisterBackgroundTaskOptions;
+  options: RegisterBackgroundTaskOptions;
   readonly startedAt: number;
   endedAt: number | null;
   foregroundRelease?: ForegroundRelease;
@@ -196,6 +196,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     const entryOptions: RegisterBackgroundTaskOptions = {
       detached,
       timeoutMs,
+      detachTimeoutMs: options.detachTimeoutMs,
       signal: detached ? undefined : options.signal,
     };
     this.assertCanRegister(detached);
@@ -382,6 +383,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     entry.foregroundRelease = undefined;
     entry.foregroundSignalCleanup?.();
     entry.foregroundSignalCleanup = undefined;
+    this.applyDetachTimeout(entry);
     try {
       entry.task.onDetach?.();
     } catch {
@@ -392,6 +394,23 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     this.recordTaskStarted(this.toInfo(entry));
     foregroundRelease.resolve('detached');
     return this.toInfo(entry);
+  }
+
+  private applyDetachTimeout(entry: ManagedTask): void {
+    const timeoutMs = entry.options.detachTimeoutMs;
+    if (timeoutMs === undefined) return;
+    entry.options = { ...entry.options, timeoutMs };
+    if (entry.timeoutHandle !== undefined) {
+      clearTimeout(entry.timeoutHandle);
+      entry.timeoutHandle = undefined;
+    }
+    if (timeoutMs > 0) {
+      entry.timeoutHandle = setTimeout(() => {
+        entry.abortController.abort('Timed out');
+        void this.settleTask(entry, { status: 'timed_out' });
+      }, timeoutMs);
+      entry.timeoutHandle.unref?.();
+    }
   }
 
   async stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined> {

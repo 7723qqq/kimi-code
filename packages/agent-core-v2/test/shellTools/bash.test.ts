@@ -317,6 +317,7 @@ interface ManagedEntry {
   readonly taskId: string;
   readonly task: BackgroundTask;
   readonly startedDetached: boolean;
+  readonly options: RegisterBackgroundTaskOptions;
   readonly outputChunks: string[];
   readonly abortController: AbortController;
   readonly startedAt: number;
@@ -450,6 +451,7 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
         taskId,
         task,
         startedDetached: detached,
+        options: registerOptions,
         outputChunks: [],
         abortController,
         startedAt: Date.now(),
@@ -558,6 +560,20 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
       entry.foregroundRelease = undefined;
       entry.signalCleanup?.();
       entry.signalCleanup = undefined;
+      const detachTimeoutMs = entry.options.detachTimeoutMs;
+      if (detachTimeoutMs !== undefined) {
+        if (entry.timeoutHandle !== undefined) {
+          clearTimeout(entry.timeoutHandle);
+          entry.timeoutHandle = undefined;
+        }
+        if (detachTimeoutMs > 0) {
+          entry.timeoutHandle = setTimeout(() => {
+            entry.abortController.abort('Timed out');
+            void settleTask(entry, { status: 'timed_out' });
+          }, detachTimeoutMs);
+          entry.timeoutHandle.unref?.();
+        }
+      }
       try {
         entry.task.onDetach?.();
       } catch {
@@ -627,8 +643,12 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
 
 // ── Test execution helper ────────────────────────────────────────────
 
-function context(args: BashInput, signal = new AbortController().signal) {
-  return { turnId: '0', toolCallId: 'call_bash', args, signal };
+function context(
+  args: BashInput,
+  signal = new AbortController().signal,
+  onForegroundTaskStart?: (taskId: string) => void,
+) {
+  return { turnId: '0', toolCallId: 'call_bash', args, signal, onForegroundTaskStart };
 }
 
 function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
@@ -1163,6 +1183,52 @@ describe('BashTool background mode', () => {
     await expect(service.wait(task.taskId)).resolves.toMatchObject({
       status: 'completed',
     });
+  });
+
+  it('notifies when a foreground command registers its background task', async () => {
+    const { proc, finish } = pendingProcess();
+    const { runner } = createTestRunner(proc);
+    const { service } = createFakeBackgroundService();
+    const tool = bashTool(runner, createTestKaos(), service);
+    const started = vi.fn();
+
+    const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }, undefined, started));
+    await vi.waitFor(() => {
+      expect(service.list(false)).toHaveLength(1);
+    });
+    const task = service.list(false)[0]!;
+
+    expect(started).toHaveBeenCalledWith(task.taskId);
+
+    finish();
+    await running;
+  });
+
+  it('applies the background timeout when a foreground command is detached', async () => {
+    vi.useFakeTimers();
+    try {
+      const { proc } = pendingProcess();
+      const { runner } = createTestRunner(proc);
+      const { service } = createFakeBackgroundService();
+      const tool = bashTool(runner, createTestKaos(), service);
+
+      const running = executeTool(tool, context({ command: 'sleep 10', timeout: 1 }));
+      await vi.waitFor(() => {
+        expect(service.list(false)).toHaveLength(1);
+      });
+      const task = service.list(false)[0]!;
+
+      service.detach(task.taskId);
+      await running;
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(service.getTask(task.taskId)?.status).toBe('running');
+
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(service.getTask(task.taskId)?.status).toBe('timed_out');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not recommend disabled task tools when a foreground command is detached', async () => {

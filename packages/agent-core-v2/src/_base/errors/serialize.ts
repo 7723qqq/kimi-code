@@ -62,6 +62,13 @@ export function makeErrorPayload(
   };
 }
 
+function sanitizeStatusErrorMessage(message: string): string {
+  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(message);
+  const extracted = titleMatch?.[1]?.trim();
+  const normalized = extracted !== undefined && extracted.length > 0 ? extracted : message;
+  return normalized.replaceAll('\r', '');
+}
+
 export function toErrorPayload(error: unknown): ErrorPayload {
   if (isCancellationError(error)) {
     return makeErrorPayload(CoreErrors.codes.INTERNAL, error.message);
@@ -82,7 +89,7 @@ export function toErrorPayload(error: unknown): ErrorPayload {
         : error.statusCode === 401 || error.statusCode === 403
           ? PROVIDER_AUTH_ERROR
           : PROVIDER_API_ERROR;
-    return makeErrorPayload(code, error.message, {
+    return makeErrorPayload(code, sanitizeStatusErrorMessage(error.message), {
       name: error.name,
       details: {
         statusCode: error.statusCode,

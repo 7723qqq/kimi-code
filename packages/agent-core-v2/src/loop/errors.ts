@@ -15,7 +15,8 @@ export const LoopErrors = {
       title: 'Loop max steps exceeded',
       retryable: false,
       public: true,
-      action: 'Raise the max step limit or inspect the tool loop for non-convergence.',
+      action:
+        'Raise loop_control.max_steps_per_turn in config.toml, or run "/update-config" then "/reload".',
     },
     'context.overflow': {
       title: 'Context overflow',
@@ -31,7 +32,8 @@ registerErrorDomain(LoopErrors);
 export function createMaxStepsExceededError(maxSteps: number, message?: string): KimiError {
   return new KimiError(
     LoopErrors.codes.LOOP_MAX_STEPS_EXCEEDED,
-    message ?? `Turn exceeded maxSteps=${maxSteps}`,
+    message ??
+      `Turn exceeded maxSteps=${maxSteps}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run "/update-config" to update it, then "/reload".`,
     { details: { maxSteps } },
   );
 }

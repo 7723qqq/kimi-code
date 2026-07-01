@@ -20,6 +20,7 @@ export * from './provider/index';
 export * from './model/index';
 export * from './modelCatalog/index';
 export * from './modelRuntime/index';
+export * from './plugin/index';
 
 import './skill/index';
 export { IAgentSkillService, ISessionSkillCatalog } from './skill/index';

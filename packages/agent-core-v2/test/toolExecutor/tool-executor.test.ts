@@ -6,8 +6,9 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { LoopEvent } from '#/loop';
 import { ToolAccesses, type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolResult, type ToolUpdate } from '#/tool';
-import { IAgentToolExecutorService, AgentToolExecutorService } from '#/toolExecutor';
+import { IAgentToolExecutorService, AgentToolExecutorService, parseToolCallArguments } from '#/toolExecutor';
 import { IAgentToolRegistryService, AgentToolRegistryService } from '#/toolRegistry';
+import { registerLogServices } from '../log/stubs';
 
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
@@ -22,6 +23,7 @@ beforeEach(() => {
     additionalServices: (reg) => {
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
+      registerLogServices(reg);
     },
     strict: true,
   });
@@ -95,6 +97,89 @@ describe('AgentToolExecutorService', () => {
       calls: ['call_strict'],
       results: ['call_strict'],
     });
+  });
+
+  it('routes malformed JSON args through schema validation', async () => {
+    const tool = new TestTool('strict', {
+      parameters: {
+        type: 'object',
+        properties: { value: { type: 'number' } },
+        required: ['value'],
+        additionalProperties: false,
+      },
+    });
+    registry.register(tool);
+
+    const results = await execute([
+      {
+        type: 'function',
+        id: 'call_malformed',
+        name: 'strict',
+        arguments: '{not valid json',
+      },
+    ]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        output: expect.stringContaining('Invalid args for tool "strict"'),
+        isError: true,
+      }),
+    ]);
+    expect(tool.calls).toEqual([]);
+    expect(pairedToolCallIds()).toEqual({
+      calls: ['call_malformed'],
+      results: ['call_malformed'],
+    });
+  });
+
+  it('does not repair malformed tool args JSON with a trailing comma', async () => {
+    const tool = new TestTool('strict', {
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+        additionalProperties: false,
+      },
+    });
+    registry.register(tool);
+
+    const results = await execute([
+      {
+        type: 'function',
+        id: 'call_trailing_comma',
+        name: 'strict',
+        arguments: '{"text":"hi",}',
+      },
+    ]);
+
+    // The trailing comma is NOT repaired: args fall back to `{}`, which fails
+    // schema validation, so the tool is never invoked.
+    expect(tool.calls).toEqual([]);
+    expect(results).toEqual([
+      expect.objectContaining({
+        output: expect.stringContaining('Invalid args for tool "strict"'),
+        isError: true,
+      }),
+    ]);
+    expect(pairedToolCallIds()).toEqual({
+      calls: ['call_trailing_comma'],
+      results: ['call_trailing_comma'],
+    });
+  });
+
+  it('preserves an unknown tool\'s valid args in the tool.call transcript', async () => {
+    const results = await execute([toolCall('call_unknown', 'missing', { x: 1 })]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        output: 'Tool "missing" not found',
+        isError: true,
+      }),
+    ]);
+    const toolCallEvent = events.find(
+      (event): event is Extract<LoopEvent, { type: 'tool.call' }> => event.type === 'tool.call',
+    );
+    expect(toolCallEvent?.args).toEqual({ x: 1 });
   });
 
   it('onWillExecuteTool block records an error result without invoking execute', async () => {
@@ -351,6 +436,36 @@ describe('AgentToolExecutorService', () => {
         stopTurn: true,
       }),
     ]);
+  });
+});
+
+describe('parseToolCallArguments', () => {
+  it('treats null or empty arguments as an empty object', () => {
+    expect(parseToolCallArguments(null)).toEqual({ data: {}, parseFailed: false });
+    expect(parseToolCallArguments('')).toEqual({ data: {}, parseFailed: false });
+  });
+
+  it('parses valid JSON', () => {
+    expect(parseToolCallArguments('{"text":"hi"}')).toEqual({
+      data: { text: 'hi' },
+      parseFailed: false,
+    });
+  });
+
+  it('falls back to an empty object when JSON is malformed', () => {
+    expect(parseToolCallArguments('{"text":"hi",}')).toEqual({
+      data: {},
+      parseFailed: true,
+      error: expect.any(String),
+    });
+  });
+
+  it('falls back to an empty object for unrecoverable JSON', () => {
+    expect(parseToolCallArguments('{}{')).toEqual({
+      data: {},
+      parseFailed: true,
+      error: expect.any(String),
+    });
   });
 });
 

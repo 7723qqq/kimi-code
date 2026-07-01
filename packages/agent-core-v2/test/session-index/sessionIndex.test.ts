@@ -96,6 +96,21 @@ describe('FileSessionIndex', () => {
     expect(await store.get('missing')).toBeUndefined();
   });
 
+  it('list filters by sessionId without enumerating all sessions', async () => {
+    await seedSession('active', { title: 'hello' });
+    await seedSession('archived', { archived: true });
+
+    const store = build();
+    const active = await store.list({ sessionId: 'active' });
+    expect(active.items.map((s) => s.id)).toEqual(['active']);
+
+    const archived = await store.list({ sessionId: 'archived' });
+    expect(archived.items).toEqual([]);
+
+    const archivedIncluded = await store.list({ sessionId: 'archived', includeArchived: true });
+    expect(archivedIncluded.items.map((s) => s.id)).toEqual(['archived']);
+  });
+
   it('countActive counts non-archived sessions', async () => {
     await seedSession('a', {});
     await seedSession('b', {});

@@ -150,13 +150,19 @@ export class AgentMicroCompactionService
     const previousEffect = this.measureEffect(history, previousCutoff);
     const rawContextTokens = estimateTokensForMessages(history);
     const properties: TelemetryProperties = {
-      ...this.microConfig,
-      ...effect,
-      tokensBefore:
+      keep_recent_messages: this.microConfig.keepRecentMessages,
+      min_content_tokens: this.microConfig.minContentTokens,
+      cache_missed_threshold_ms: this.microConfig.cacheMissedThresholdMs,
+      truncated_marker: this.microConfig.truncatedMarker,
+      min_context_usage_ratio: this.microConfig.minContextUsageRatio,
+      truncated_tool_result_count: effect.truncatedToolResultCount,
+      truncated_tool_result_tokens_before: effect.truncatedToolResultTokensBefore,
+      truncated_tool_result_tokens_after: effect.truncatedToolResultTokensAfter,
+      tokens_before:
         rawContextTokens -
         previousEffect.truncatedToolResultTokensBefore +
         previousEffect.truncatedToolResultTokensAfter,
-      tokensAfter:
+      tokens_after:
         rawContextTokens -
         effect.truncatedToolResultTokensBefore +
         effect.truncatedToolResultTokensAfter,
@@ -164,7 +170,7 @@ export class AgentMicroCompactionService
       cutoff: nextCutoff,
       message_count: history.length,
       cache_age_ms: cacheAgeMs,
-      thinkingLevel: this.profile.data().thinkingLevel,
+      thinking_level: this.profile.data().thinkingLevel,
     };
     this.telemetry.track('micro_compaction_finished', properties);
   }

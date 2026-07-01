@@ -43,6 +43,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IBootstrapService } from '#/bootstrap';
 import { IConfigService } from '#/config/config';
+import { IEventService } from '#/event/event';
 import { ILogService } from '#/log/log';
 import { type ModelAlias, MODELS_SECTION } from '#/model/model';
 import { IProviderService, type OAuthRef, type ProviderConfig, PROVIDERS_SECTION } from '#/provider/provider';
@@ -78,6 +79,7 @@ export class OAuthService extends Disposable implements IOAuthService {
     @IConfigService private readonly config: IConfigService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ILogService private readonly log: ILogService,
+    @IEventService private readonly events: IEventService,
   ) {
     super();
     this._register(providerService.onDidChange(() => this.invalidateFlows()));
@@ -280,7 +282,11 @@ export class OAuthService extends Disposable implements IOAuthService {
       });
     }
 
-    return { changed, unchanged, failed };
+    const result = { changed, unchanged, failed };
+    if (result.changed.length > 0) {
+      this.events.publish({ type: 'event.model_catalog.changed', payload: result });
+    }
+    return result;
   }
 
   private readUserConfigShape(): ManagedKimiConfigShape {

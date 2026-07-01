@@ -5,5 +5,6 @@
  * registry and self-registers the domain's error codes.
  */
 
+export * from './configSection';
 export * from './modelCatalog';
 export * from './modelCatalogService';

@@ -22,7 +22,7 @@ import type { SessionMeta } from '#/session-metadata';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import type { SessionWarning, UsageStatus } from '@moonshot-ai/protocol';
 
-import type { PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
+import type { PluginCommandDef, PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
 import type { WithAgentId, WithSessionId } from './types';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -74,6 +74,12 @@ export interface ResumeSessionPayload {
 
 export interface ReloadSessionPayload {
   readonly sessionId: string;
+  /**
+   * When true, the reloaded session force-appends a fresh plugin session-start
+   * reminder (or a neutralizing reminder when none are active) so the model
+   * picks up reloaded plugin guidance. Mirrors the `/reload` re-injection flow.
+   */
+  readonly forcePluginSessionStartReminder?: boolean | undefined;
 }
 
 export interface ForkSessionPayload {
@@ -160,6 +166,24 @@ export interface SessionSummary {
 export interface PromptPayload {
   readonly input: readonly ContentPart[];
 }
+export interface RunShellCommandPayload {
+  readonly command: string;
+  /**
+   * TUI-generated correlation id echoed back on every `shell.output` live event
+   * so the client can route chunks to the matching entry and drop stale events
+   * from a prior run. Optional for callers that don't stream.
+   */
+  readonly commandId?: string;
+}
+export interface ShellCommandResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly isError?: boolean;
+  readonly backgrounded?: boolean;
+}
+export interface CancelShellCommandPayload {
+  readonly commandId: string;
+}
 export interface SteerPayload {
   readonly input: readonly ContentPart[];
 }
@@ -236,6 +260,12 @@ export interface SkillSummary {
 
 export interface ActivateSkillPayload {
   readonly name: string;
+  readonly args?: string | undefined;
+}
+
+export interface ActivatePluginCommandPayload {
+  readonly pluginId: string;
+  readonly commandName: string;
   readonly args?: string | undefined;
 }
 
@@ -347,6 +377,8 @@ export interface PromptLaunchResult {
 
 export interface AgentAPI {
   prompt: (payload: PromptPayload) => PromptLaunchResult | undefined;
+  runShellCommand: (payload: RunShellCommandPayload) => ShellCommandResult;
+  cancelShellCommand: (payload: CancelShellCommandPayload) => void;
   steer: (payload: SteerPayload) => PromptLaunchResult | undefined;
   cancel: (payload: CancelPayload) => void;
   undoHistory: (payload: UndoHistoryPayload) => number;
@@ -369,6 +401,7 @@ export interface AgentAPI {
   detachBackground: (payload: DetachBackgroundPayload) => BackgroundTaskInfo | undefined;
   clearContext: (payload: EmptyPayload) => void;
   activateSkill: (payload: ActivateSkillPayload) => void;
+  activatePluginCommand: (payload: ActivatePluginCommandPayload) => void;
   startBtw: (payload: EmptyPayload) => string;
   createGoal: (payload: CreateGoalPayload) => GoalSnapshot;
   getGoal: (payload: EmptyPayload) => GoalToolResult;
@@ -392,6 +425,7 @@ export interface SessionAPI extends AgentAPIWithId {
   updateSessionMetadata: (payload: UpdateSessionMetadataPayload) => void;
   getSessionMetadata: (payload: EmptyPayload) => SessionMeta;
   listSkills: (payload: EmptyPayload) => readonly SkillSummary[];
+  listPluginCommands: (payload: EmptyPayload) => readonly PluginCommandDef[];
   listMcpServers: (payload: EmptyPayload) => readonly McpServerInfo[];
   getMcpStartupMetrics: (payload: EmptyPayload) => McpStartupMetrics;
   reconnectMcpServer: (payload: ReconnectMcpServerPayload) => void;

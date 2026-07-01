@@ -15,6 +15,7 @@ import {
   type GenerateCallbacks,
   type Message,
   type ProviderRequestAuth,
+  type StreamDecodeStats,
   type Tool as KosongTool,
 } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
@@ -30,6 +31,7 @@ import type { KimiModelOverrides } from '#/chatProvider';
 import { IAgentProfileService } from '#/profile';
 import { IAgentContextMemoryService } from '#/contextMemory';
 import { IAgentContextProjectorService } from '#/contextProjector';
+import { IAgentContextSizeService } from '#/contextSize';
 import { IAgentToolRegistryService } from '#/toolRegistry';
 import type { LLMEvent, LLMRequestOverrides } from '.';
 import { IAgentLLMRequestLogService } from '#/llmRequestLog';
@@ -48,6 +50,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
+    @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentToolRegistryService private readonly tools: IAgentToolRegistryService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentLLMRequestLogService private readonly requestLog: IAgentLLMRequestLogService,
@@ -83,8 +86,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     queue: AsyncEventQueue<LLMEvent>,
   ): Promise<void> {
     let requestStartedAt = Date.now();
+    let requestSentAt: number | undefined;
     let firstChunkAt: number | undefined;
     let streamEndedAt: number | undefined;
+    let decodeStats: StreamDecodeStats | undefined;
     let streamedAnyPart = false;
     const callbacks: GenerateCallbacks = {
       onMessagePart: (part) => {
@@ -95,8 +100,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     };
     const run = async (auth: ProviderRequestAuth | undefined): Promise<void> => {
       requestStartedAt = Date.now();
+      requestSentAt = undefined;
       firstChunkAt = undefined;
       streamEndedAt = undefined;
+      decodeStats = undefined;
       streamedAnyPart = false;
       this.requestLog.logRequest({
         provider: request.provider,
@@ -118,8 +125,12 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           onRequestStart: () => {
             requestStartedAt = Date.now();
           },
-          onStreamEnd: () => {
+          onRequestSent: () => {
+            requestSentAt = Date.now();
+          },
+          onStreamEnd: (stats) => {
             streamEndedAt = Date.now();
+            decodeStats = stats;
           },
         },
       );
@@ -149,11 +160,9 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         id: result.id ?? undefined,
       });
       if (firstChunkAt !== undefined) {
-        const outputEndedAt = streamEndedAt ?? Date.now();
         queue.push({
           type: 'timing',
-          firstTokenLatencyMs: Math.max(0, firstChunkAt - requestStartedAt),
-          streamDurationMs: Math.max(0, outputEndedAt - firstChunkAt),
+          ...buildStreamTiming(requestStartedAt, requestSentAt, firstChunkAt, streamEndedAt, decodeStats),
         });
       }
     };
@@ -171,11 +180,12 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const provider = applyCompletionBudget({
       provider: providerWithEnv,
       budget: resolveCompletionBudget({
-        maxOutputSize: resolved.maxOutputSize,
+        maxOutputSize: overrides.maxOutputSize ?? resolved.maxOutputSize,
         reservedContextSize: resolved.reservedContextSize,
         maxCompletionTokensCap: this.config.get<KimiModelOverrides>('modelOverrides')?.maxCompletionTokens,
       }),
       capability: resolved.modelCapabilities,
+      usedContextTokens: this.contextSize.getStatus().contextTokens,
     });
 
     return {
@@ -204,6 +214,44 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
       }));
   }
+}
+
+export function buildStreamTiming(
+  requestStartedAt: number,
+  requestSentAt: number | undefined,
+  firstChunkAt: number,
+  streamEndedAt: number | undefined,
+  decodeStats: StreamDecodeStats | undefined,
+): {
+  firstTokenLatencyMs: number;
+  streamDurationMs: number;
+  requestBuildMs?: number;
+  serverFirstTokenMs?: number;
+  serverDecodeMs?: number;
+  clientConsumeMs?: number;
+} {
+  const outputEndedAt = streamEndedAt ?? Date.now();
+  const timing: {
+    firstTokenLatencyMs: number;
+    streamDurationMs: number;
+    requestBuildMs?: number;
+    serverFirstTokenMs?: number;
+    serverDecodeMs?: number;
+    clientConsumeMs?: number;
+  } = {
+    firstTokenLatencyMs: Math.max(0, firstChunkAt - requestStartedAt),
+    streamDurationMs: Math.max(0, outputEndedAt - firstChunkAt),
+  };
+  if (requestSentAt !== undefined) {
+    const sentAt = Math.min(Math.max(requestSentAt, requestStartedAt), firstChunkAt);
+    timing.requestBuildMs = sentAt - requestStartedAt;
+    timing.serverFirstTokenMs = firstChunkAt - sentAt;
+  }
+  if (decodeStats !== undefined) {
+    timing.serverDecodeMs = Math.max(0, decodeStats.serverDecodeMs);
+    timing.clientConsumeMs = Math.max(0, decodeStats.clientConsumeMs);
+  }
+  return timing;
 }
 
 interface ResolvedLLMRequest {

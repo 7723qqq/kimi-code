@@ -15,6 +15,9 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 export interface AgentMeta {
   /** Per-agent directory used as the wire-record `homedir` (persistence key). */
   readonly homedir: string;
+  readonly type?: 'main' | 'sub';
+  readonly parentAgentId?: string;
+  readonly swarmItem?: string;
 }
 
 /**

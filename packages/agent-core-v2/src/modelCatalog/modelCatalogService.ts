@@ -3,26 +3,46 @@
  *
  * Projects the `provider` / `model` registries into protocol catalog items,
  * resolves credential state through `config` and `auth`, and persists the
- * global default-model selection through `config`. Bound at App scope. The
- * The managed OAuth-provider refresh lives in `auth` (`IOAuthService`), not here.
+ * global default-model selection through `config`. Also owns the all-provider
+ * model refresh (`refreshProviderModels`), which delegates to the shared
+ * `@moonshot-ai/kimi-code-oauth` orchestrator (managed OAuth + open platforms
+ * + custom registries) and publishes `event.model_catalog.changed` on change.
+ * The OAuth-only managed-provider refresh additionally lives in `auth`
+ * (`IOAuthService.refreshOAuthProviderModels`). Bound at App scope.
  */
 
+import {
+  refreshProviderModels,
+  type ManagedKimiConfigShape,
+  type ManagedKimiOAuthRef,
+  type RefreshProviderHost,
+  type RefreshResult,
+} from '@moonshot-ai/kimi-code-oauth';
 import type {
   ModelCatalogItem,
   ProviderCatalogItem,
+  RefreshProviderModelsResponse,
   SetDefaultModelResponse,
 } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IOAuthService } from '#/auth/auth';
-import { IConfigService } from '#/config/config';
+import { IConfigRegistry, IConfigService } from '#/config/config';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IModelService, type ModelAlias } from '#/model/model';
-import { IProviderService, type ProviderConfig } from '#/provider/provider';
+import { IEventService } from '#/event/event';
+import { IModelService, MODELS_SECTION, type ModelAlias } from '#/model/model';
+import {
+  IProviderService,
+  type OAuthRef,
+  type ProviderConfig,
+  PROVIDERS_SECTION,
+} from '#/provider/provider';
 
+import { MODEL_CATALOG_SECTION, ModelCatalogConfigSchema } from './configSection';
 import {
   type ProviderCredentialState,
+  type RefreshProviderModelsOptions,
   IModelCatalogService,
   modelIdsForProvider,
   toProtocolModel,
@@ -30,6 +50,7 @@ import {
 } from './modelCatalog';
 
 const DEFAULT_MODEL_SECTION = 'defaultModel';
+const DEFAULT_THINKING_SECTION = 'defaultThinking';
 
 export class ModelCatalogService implements IModelCatalogService {
   declare readonly _serviceBrand: undefined;
@@ -39,7 +60,11 @@ export class ModelCatalogService implements IModelCatalogService {
     @IProviderService private readonly providerService: IProviderService,
     @IConfigService private readonly config: IConfigService,
     @IOAuthService private readonly oauth: IOAuthService,
-  ) {}
+    @IEventService private readonly events: IEventService,
+    @IConfigRegistry configRegistry: IConfigRegistry,
+  ) {
+    configRegistry.registerSection(MODEL_CATALOG_SECTION, ModelCatalogConfigSchema);
+  }
 
   async listModels(): Promise<readonly ModelCatalogItem[]> {
     const models = this.modelService.list();
@@ -78,6 +103,111 @@ export class ModelCatalogService implements IModelCatalogService {
       default_model: modelId,
       model: toProtocolModel(modelId, updatedAlias),
     };
+  }
+
+  async refreshProviderModels(
+    options: RefreshProviderModelsOptions = {},
+  ): Promise<RefreshProviderModelsResponse> {
+    await this.config.reload();
+    if (options.providerId !== undefined) {
+      const provider = this.providerService.get(options.providerId);
+      if (provider === undefined) {
+        throw new KimiError(
+          ErrorCodes.PROVIDER_NOT_FOUND,
+          `provider ${options.providerId} does not exist`,
+        );
+      }
+    }
+
+    const result = await refreshProviderModels(this.buildRefreshHost(), {
+      scope: options.scope,
+      providerId: options.providerId,
+    });
+    const response = mapRefreshResult(result);
+    if (response.changed.length > 0) {
+      // Broadcasts to every connected client via the core event bus →
+      // `SessionEventBroadcaster` (any provider kind, not just OAuth).
+      this.events.publish({ type: 'event.model_catalog.changed', payload: response });
+    }
+    return response;
+  }
+
+  private buildRefreshHost(): RefreshProviderHost {
+    return {
+      getConfig: async () => this.readUserConfigShape(),
+      removeProvider: (providerId) => this.removeProviderForRefresh(providerId),
+      setConfig: (patch) => this.applyRefreshPatch(patch),
+      resolveOAuthToken: (providerName, oauthRef) => this.resolveOAuthToken(providerName, oauthRef),
+    };
+  }
+
+  /**
+   * User-layer config shape the orchestrator diffs and edits. Mirrors
+   * `OAuthService.readUserConfigShape` so both refresh paths edit the same
+   * persisted user config (never env/memory-overlaid effective values).
+   */
+  private readUserConfigShape(): ManagedKimiConfigShape {
+    const providers =
+      this.config.inspect<Record<string, ProviderConfig>>(PROVIDERS_SECTION).userValue ?? {};
+    const models =
+      this.config.inspect<Record<string, ModelAlias>>(MODELS_SECTION).userValue ?? {};
+    const defaultModel = this.config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
+    const defaultThinking = this.config.inspect<boolean>(DEFAULT_THINKING_SECTION).userValue;
+    return {
+      providers: { ...providers } as ManagedKimiConfigShape['providers'],
+      models: { ...models } as ManagedKimiConfigShape['models'],
+      defaultModel,
+      defaultThinking,
+    };
+  }
+
+  private async removeProviderForRefresh(providerId: string): Promise<ManagedKimiConfigShape> {
+    const current = this.readUserConfigShape();
+    const providers = current.providers as Record<string, ProviderConfig>;
+    const restProviders = Object.fromEntries(
+      Object.entries(providers).filter(([id]) => id !== providerId),
+    );
+    const models = (current.models ?? {}) as Record<string, ModelAlias>;
+    const restModels = Object.fromEntries(
+      Object.entries(models).filter(([, alias]) => alias.provider !== providerId),
+    );
+    await this.config.replace(PROVIDERS_SECTION, restProviders);
+    await this.config.replace(MODELS_SECTION, restModels);
+    return {
+      ...current,
+      providers: restProviders,
+      models: restModels,
+    } as ManagedKimiConfigShape;
+  }
+
+  private async applyRefreshPatch(patch: ManagedKimiConfigShape): Promise<ManagedKimiConfigShape> {
+    if (patch.providers !== undefined) {
+      await this.config.replace(PROVIDERS_SECTION, patch.providers);
+    }
+    if (patch.models !== undefined) {
+      await this.config.replace(MODELS_SECTION, patch.models);
+    }
+    if (patch.defaultModel !== undefined) {
+      await this.config.set(DEFAULT_MODEL_SECTION, patch.defaultModel);
+    }
+    if (patch.defaultThinking !== undefined) {
+      await this.config.set(DEFAULT_THINKING_SECTION, patch.defaultThinking);
+    }
+    return this.readUserConfigShape();
+  }
+
+  private async resolveOAuthToken(
+    providerName: string,
+    oauthRef?: ManagedKimiOAuthRef,
+  ): Promise<string> {
+    const tokenProvider = this.oauth.resolveTokenProvider(
+      providerName,
+      oauthRef as unknown as OAuthRef | undefined,
+    );
+    if (tokenProvider === undefined) {
+      throw new Error('OAuth token provider is not configured.');
+    }
+    return tokenProvider.getAccessToken();
   }
 
   private async toCatalogProvider(
@@ -136,6 +266,22 @@ function nonEmpty(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function mapRefreshResult(result: RefreshResult): RefreshProviderModelsResponse {
+  return {
+    changed: result.changed.map((change) => ({
+      provider_id: change.providerId,
+      provider_name: change.providerName,
+      added: change.added,
+      removed: change.removed,
+    })),
+    unchanged: [...result.unchanged],
+    failed: result.failed.map((failure) => ({
+      provider: failure.provider,
+      reason: failure.reason,
+    })),
+  };
 }
 
 registerScopedService(

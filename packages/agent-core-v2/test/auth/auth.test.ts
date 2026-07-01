@@ -14,6 +14,7 @@ import { IAuthSummaryService, IOAuthService, IOAuthToolkit } from '#/auth/auth';
 import { AuthSummaryService, OAuthService } from '#/auth/authService';
 import { AuthLegacyService, IAuthLegacyService } from '#/authLegacy';
 import { IConfigService } from '#/config/config';
+import { type DomainEvent, IEventService } from '#/event/event';
 import { ILogService } from '#/log/log';
 import { type ModelAlias } from '#/model/model';
 import { IProviderService, type ProviderConfig } from '#/provider/provider';
@@ -53,6 +54,7 @@ describe('OAuthService', () => {
   let providerSet: ReturnType<typeof vi.fn>;
   let configSet: ReturnType<typeof vi.fn>;
   let configReplace: ReturnType<typeof vi.fn>;
+  let events: DomainEvent[];
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -70,6 +72,7 @@ describe('OAuthService', () => {
     defaultThinking = undefined;
     configSet = vi.fn().mockResolvedValue(undefined);
     configReplace = vi.fn().mockResolvedValue(undefined);
+    events = [];
     toolkit = {
       login: vi.fn(),
       logout: vi.fn().mockResolvedValue({ providerName: OAUTH_PROVIDER, ok: true }),
@@ -104,6 +107,10 @@ describe('OAuthService', () => {
           warn: vi.fn(),
           debug: vi.fn(),
           error: vi.fn(),
+        });
+        reg.definePartialInstance(IEventService, {
+          publish: (event: DomainEvent) => events.push(event),
+          subscribe: () => ({ dispose: () => {} }),
         });
         reg.defineInstance(IOAuthToolkit, toolkit as unknown as IOAuthToolkit);
         reg.define(IOAuthService, OAuthService);
@@ -271,6 +278,7 @@ describe('OAuthService', () => {
       failed: [],
     });
     expect(toolkit.tokenProvider).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
   });
 
   it('refreshOAuthProviderModels fetches models and writes back the changed sections', async () => {
@@ -312,6 +320,12 @@ describe('OAuthService', () => {
       }),
     );
     expect(configSet).toHaveBeenCalledWith('defaultModel', 'kimi-code/kimi-k2');
+    expect(events).toEqual([
+      {
+        type: 'event.model_catalog.changed',
+        payload: result,
+      },
+    ]);
   });
 });
 

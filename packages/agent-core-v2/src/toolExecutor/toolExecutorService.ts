@@ -21,6 +21,7 @@ import type {
   ToolWillExecuteContext,
 } from '#/tool';
 import type { ToolCall } from '@moonshot-ai/kosong';
+import { ILogService } from '#/log';
 import { isAbortError } from '#/loop/errors';
 import { IAgentToolRegistryService } from '#/toolRegistry';
 import { ToolAccesses } from '#/tool';
@@ -50,7 +51,10 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),
   };
 
-  constructor(@IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService) {}
+  constructor(
+    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @ILogService private readonly log?: ILogService,
+  ) {}
 
   async execute(
     calls: ToolCall[],
@@ -59,7 +63,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     if (calls.length === 0) return [];
 
     const signal = options.signal ?? NEVER_ABORTS;
-    const preflighted = calls.map((call) => preflightToolCall(this.toolRegistry, call));
+    const preflighted = calls.map((call) => preflightToolCall(this.toolRegistry, call, this.log));
     const preparedTasks: Array<{
       task: ToolExecutionTask;
       call: PreflightedToolCall;
@@ -386,27 +390,26 @@ function buildWillExecuteContext(
 function preflightToolCall(
   toolRegistry: IAgentToolRegistryService,
   toolCall: ToolCall,
+  log?: ILogService,
 ): PreflightedToolCall {
   const toolName = toolCall.name;
   const parsedArgs = parseToolCallArguments(toolCall.arguments);
-  const args = parsedArgs.success ? parsedArgs.data : {};
+  if (parsedArgs.parseFailed) {
+    log?.debug('tool args JSON parse failed', {
+      toolName,
+      toolCallId: toolCall.id,
+      rawLength: typeof toolCall.arguments === 'string' ? toolCall.arguments.length : 0,
+      error: parsedArgs.error,
+    });
+  }
   const tool = toolRegistry.resolve(toolName);
   if (tool === undefined) {
     return {
       kind: 'rejected',
       toolCall,
       toolName,
-      args,
+      args: parsedArgs.data,
       output: `Tool "${toolName}" not found`,
-    };
-  }
-  if (!parsedArgs.success) {
-    return {
-      kind: 'rejected',
-      toolCall,
-      toolName,
-      args,
-      output: `Invalid args for tool "${toolName}": malformed JSON in arguments: ${parsedArgs.error}`,
     };
   }
   const validationError = validateExecutableToolArgs(tool, parsedArgs.data);
@@ -422,21 +425,21 @@ function preflightToolCall(
   return { kind: 'runnable', toolCall, toolName, tool, args: parsedArgs.data };
 }
 
-function parseToolCallArguments(
-  raw: unknown,
-):
-  | { readonly success: true; readonly data: unknown }
-  | { readonly success: false; readonly error: string } {
+export function parseToolCallArguments(raw: unknown): {
+  readonly data: unknown;
+  readonly parseFailed: boolean;
+  readonly error?: string;
+} {
   if (raw === null || raw === undefined || (typeof raw === 'string' && raw.length === 0)) {
-    return { success: true, data: {} };
+    return { data: {}, parseFailed: false };
   }
   if (typeof raw !== 'string') {
-    return { success: true, data: raw };
+    return { data: raw, parseFailed: false };
   }
   try {
-    return { success: true, data: JSON.parse(raw) as unknown };
+    return { data: JSON.parse(raw) as unknown, parseFailed: false };
   } catch (error) {
-    return { success: false, error: errorMessage(error) };
+    return { data: {}, parseFailed: true, error: errorMessage(error) };
   }
 }
 

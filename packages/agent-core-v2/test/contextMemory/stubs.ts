@@ -32,6 +32,7 @@ export function stubWireRecord(): IAgentWireRecordService {
     restore: () => Promise.resolve({}),
     flush: () => Promise.resolve(),
     close: () => Promise.resolve(),
+    getRecords: () => [],
   };
 }
 

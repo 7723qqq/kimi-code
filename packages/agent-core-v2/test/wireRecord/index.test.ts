@@ -361,7 +361,7 @@ describe('IAgentWireRecordService.records()', () => {
       { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'context.splice', start: 0, deleteCount: 0, messages: [userMessage('restored')] },
     ]);
-    const records = testAgent({ persistence }).wireRecord;
+    const records = createTestAgent({ persistence, autoConfigure: false }).wireRecord;
     await records.restore();
     records.append({ type: 'turn.launch', turnId: 0, origin: { kind: 'user' } });
 

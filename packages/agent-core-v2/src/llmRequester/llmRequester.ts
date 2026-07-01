@@ -9,6 +9,7 @@ export interface LLMRequestOverrides {
   systemPrompt?: string;
   requestLogFields?: LLMRequestLogFields;
   usageContext?: UsageRecordContext;
+  maxOutputSize?: number;
 }
 
 export type LLMEvent =
@@ -25,6 +26,10 @@ export type LLMEvent =
       readonly type: 'timing';
       readonly firstTokenLatencyMs: number;
       readonly streamDurationMs: number;
+      readonly requestBuildMs?: number;
+      readonly serverFirstTokenMs?: number;
+      readonly serverDecodeMs?: number;
+      readonly clientConsumeMs?: number;
     };
 
 export interface IAgentLLMRequesterService {

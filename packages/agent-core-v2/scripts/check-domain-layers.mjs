@@ -198,6 +198,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'permissionPolicy>externalHooks',
   'permissionPolicy>profile',
   'permissionRules>replayBuilder',
+  'plugin>externalHooks',
   'plugin>mcp',
   'profile>session',
   'replayBuilder>background',

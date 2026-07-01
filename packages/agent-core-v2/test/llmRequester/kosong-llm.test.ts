@@ -168,8 +168,46 @@ describe('LLMRequester service migration coverage', () => {
         streamDurationMs: expect.any(Number),
       });
     });
+
+    it('applies a per-request output budget override', async () => {
+      await collectLLMEvents(llmRequester.request({ maxOutputSize: 123_000 }));
+
+      expect(requestMaxTokens).toBe(123_000);
+    });
+
+    it('carries kosong decode accounting and leaves the TTFT split undefined without a dispatch boundary', async () => {
+      const events = await collectLLMEvents(llmRequester.request());
+      const timing = events.find(isTimingEvent);
+
+      expect(timing?.firstTokenLatencyMs).toBeGreaterThanOrEqual(0);
+      // kosong accounts the decode window (server wait vs. client consume) and
+      // the requester surfaces it on the timing event.
+      expect(timing?.serverDecodeMs).toBeGreaterThanOrEqual(0);
+      expect(timing?.clientConsumeMs).toBeGreaterThanOrEqual(0);
+      // The scripted provider does not fire onRequestSent, so the TTFT split is
+      // not reported through the requester event.
+      expect(timing?.requestBuildMs).toBeUndefined();
+      expect(timing?.serverFirstTokenMs).toBeUndefined();
+    });
   });
+
 });
+
+interface TimingEvent {
+  readonly type: 'timing';
+  readonly firstTokenLatencyMs: number;
+  readonly streamDurationMs: number;
+  readonly requestBuildMs?: number;
+  readonly serverFirstTokenMs?: number;
+  readonly serverDecodeMs?: number;
+  readonly clientConsumeMs?: number;
+}
+
+function isTimingEvent(event: unknown): event is TimingEvent {
+  return (
+    typeof event === 'object' && event !== null && (event as { type?: unknown }).type === 'timing'
+  );
+}
 
 type ProtocolEvent = Extract<
   TestAgentContext['allEvents'][number],

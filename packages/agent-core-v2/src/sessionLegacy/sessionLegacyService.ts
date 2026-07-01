@@ -377,6 +377,12 @@ function isRealUserPrompt(message: ContextMessage): boolean {
   ) {
     return true;
   }
+  if (
+    origin.kind === 'plugin_command' &&
+    (origin as { trigger?: string }).trigger === 'user-slash'
+  ) {
+    return true;
+  }
   return false;
 }
 

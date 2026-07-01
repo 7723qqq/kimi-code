@@ -15,6 +15,8 @@ export interface CreateAgentOptions {
   readonly agentId?: string;
   readonly parentAgentId?: string;
   readonly cwd?: string;
+  readonly type?: 'main' | 'sub';
+  readonly swarmItem?: string;
 }
 
 export interface IAgentLifecycleService {
