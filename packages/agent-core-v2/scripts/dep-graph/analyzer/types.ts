@@ -41,12 +41,46 @@ export interface ServiceNode {
   file: string;
   /** 1-indexed line of the `registerScopedService(...)` call. */
   line: number;
+  /**
+   * Public callable surface of this service — the method/property names
+   * declared on the interface identified by `token`. Sorted, deduped, with
+   * the `_serviceBrand` DI marker filtered out. Absent when the analyzer
+   * couldn't locate an interface declaration for the token (e.g. synthetic
+   * framework bindings whose token has no interface in `src/`).
+   */
+  publicMembers?: string[];
+  /**
+   * True for synthesized interface-only nodes: the token is referenced by at
+   * least one edge but has no implementation registered at any scope. These
+   * nodes have no real impl (so `impl` mirrors `token`) and the viewer renders
+   * them with a distinct border so missing bindings stand out from concrete
+   * services rather than being dropped as dangling edges.
+   */
+  unresolved?: true;
 }
 
 export interface EdgeRef {
   /** Repo-relative path where the reference occurs. */
   file: string;
   line: number;
+  /**
+   * Method on the source impl that contains this reference — the caller.
+   * `<ctor>` for the constructor, `get <name>` / `set <name>` for accessors,
+   * `<field <name>>` for a property initializer, or the plain method name.
+   * Absent for the ctor-param declaration refs and for refs the analyzer
+   * couldn't attribute to a named scope.
+   */
+  fromMethod?: string;
+  /**
+   * Method invoked on the target service at this ref site.
+   *  - `ctor` edge: the method the source calls on the injected field,
+   *    e.g. `this.log.error(...)` → `error`.
+   *  - `accessor` edge: the method chained on `<accessor>.get(IX).<method>()`.
+   * Absent for the pure declaration ref (the ctor param), for the pure
+   * lookup ref (a `get()` whose result is stored rather than called), and
+   * for event-bus edges where the method name is already the edge kind.
+   */
+  toMethod?: string;
 }
 
 export interface Edge {

@@ -1,26 +1,21 @@
 /**
- * `config` domain (L2) — thinking-level normalization helpers.
+ * `profile` domain — thinking-level resolution helpers.
  *
- * Owns a local structural `ThinkingConfigDefaults` type so `config` does not
- * reach upward into `profile`, which owns the authoritative
- * `ThinkingConfigSchema`.
+ * Resolves the effective `ThinkingEffort` from a requested level, the
+ * `thinking` config section (`ThinkingConfig`, owned here in `profile`), and
+ * the `defaultThinking` toggle. Pure functions; own no scoped state.
  */
 
 import type { ThinkingEffort } from '@moonshot-ai/kosong';
 
-export type { ThinkingEffort };
-
-export interface ThinkingConfigDefaults {
-  readonly mode?: 'auto' | 'on' | 'off' | undefined;
-  readonly effort?: string | undefined;
-}
+import type { ThinkingConfig } from './configSection';
 
 const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'high';
 const THINKING_EFFORTS = new Set<ThinkingEffort>(['low', 'medium', 'high', 'xhigh', 'max']);
 
 export interface ResolveThinkingLevelOptions {
-  readonly defaultThinking?: boolean | undefined;
-  readonly thinking?: ThinkingConfigDefaults | undefined;
+  readonly defaultThinking?: boolean;
+  readonly thinking?: ThinkingConfig;
 }
 
 export function resolveThinkingLevel(
@@ -39,7 +34,7 @@ export function resolveThinkingLevel(
 
 export function resolveThinkingEffort(
   requested: string | undefined,
-  defaults: ThinkingConfigDefaults | undefined,
+  defaults: ThinkingConfig | undefined,
 ): ThinkingEffort {
   const configEffort = parseEffort(defaults?.effort) ?? DEFAULT_THINKING_EFFORT;
   const normalized = requested?.trim().toLowerCase();

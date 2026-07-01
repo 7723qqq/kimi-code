@@ -7,12 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
 
+import type { CronTask } from '#/agent/cron';
 import {
   CRON_FIRED,
   CRON_MISSED,
-} from '#/agent/cron/tools/telemetry-events';
-import type { CronTask } from '#/agent/cron/tools/types';
-import { IAgentCronService } from '#/agent/cron';
+  IAgentCronService,
+} from '#/agent/cron';
 import { IAgentPromptService } from '#/agent/prompt';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { ITelemetryService } from '#/app/telemetry';
@@ -76,7 +76,7 @@ function captureTelemetry(telemetry: ITelemetryService): TelemetryRecord[] {
   return records;
 }
 
-describe('CronManager', () => {
+describe('AgentCronService', () => {
   let cron: IAgentCronService;
   let ctx: TestAgentContext;
   let prompt: IAgentPromptService;
@@ -122,11 +122,11 @@ describe('CronManager', () => {
     });
 
     it('exposes the session store as an empty list on construction', () => {
-      expect(cron.store.list()).toEqual([]);
+      expect(cron.list()).toEqual([]);
       expect(cron.getNextFireTime()).toBeNull();
     });
 
-    it('getNextFireForTask delegates to the scheduler', () => {
+    it('getNextFireForTask is callable with a task id', () => {
       const spy = vi.spyOn(cron, 'getNextFireForTask').mockReturnValue(123);
       expect(cron.getNextFireForTask('deadbeef')).toBe(123);
       expect(spy).toHaveBeenCalledWith('deadbeef');
@@ -399,11 +399,11 @@ describe('CronManager', () => {
       harness.setNow(harness.now() - 8 * ONE_DAY_MS);
       cron.addTask({ cron: '*/5 * * * *', prompt: 'stale-recurring', recurring: true });
       harness.setNow(WALL_ANCHOR);
-      expect(cron.store.list()).toHaveLength(1);
+      expect(cron.list()).toHaveLength(1);
 
       cron.tick();
       expect(steerCalls.length).toBe(1);
-      expect(cron.store.list()).toHaveLength(0);
+      expect(cron.list()).toHaveLength(0);
 
       // A `cron_deleted` event closes the lifecycle in telemetry,
       // symmetric with manual `CronDelete` calls.
@@ -564,6 +564,64 @@ describe('CronManager', () => {
       const cronMissedTelemetry = telemetryRecords.filter((r) => r.event === CRON_MISSED);
       expect(cronMissedTelemetry).toHaveLength(1);
       expect(cronMissedTelemetry[0]!.properties).toEqual({ count: 2 });
+    });
+  });
+
+  describe('tick loop', () => {
+    let harness: ReturnType<typeof createClocks>;
+    let steerCalls: ReturnType<typeof createSteerSpy>;
+
+    beforeEach(() => {
+      harness = createClocks();
+      ctx = createTestAgent(cronServices({}));
+      cron = ctx.get(IAgentCronService);
+      prompt = ctx.get(IAgentPromptService);
+    });
+
+    it('continues past a task with a malformed cron and still fires due tasks', () => {
+      steerCalls = createSteerSpy(prompt);
+      // A malformed cron cannot be scheduled through CronCreate (which
+      // validates), but the public addTask API does not validate, so a
+      // corrupt or persisted record can still reach the store. It must
+      // not poison the tick loop for the healthy task behind it.
+      cron.addTask({ cron: 'not a cron', prompt: 'broken' });
+      cron.addTask({ cron: '*/5 * * * *', prompt: 'healthy' });
+      harness.advance(6 * 60_000);
+      expect(() => cron.tick()).not.toThrow();
+      expect(steerCalls.length).toBe(1);
+      const text = (steerCalls[0]!.content[0] as { type: 'text'; text: string }).text;
+      expect(text).toContain('healthy');
+    });
+
+    it('fires only the due task when two tasks are scheduled', () => {
+      steerCalls = createSteerSpy(prompt);
+      cron.addTask({ cron: '*/5 * * * *', prompt: 'due' });
+      cron.addTask({ cron: '0 23 * * *', prompt: 'later' });
+      harness.advance(6 * 60_000);
+      cron.tick();
+      expect(steerCalls.length).toBe(1);
+      const text = (steerCalls[0]!.content[0] as { type: 'text'; text: string }).text;
+      expect(text).toContain('due');
+    });
+
+    it('retries a recurring task on the next tick when steer throws', () => {
+      let shouldThrow = true;
+      const delivered: ContextMessage[] = [];
+      vi.spyOn(prompt, 'steer').mockImplementation((message: ContextMessage) => {
+        if (shouldThrow) throw new Error('steer boom');
+        delivered.push(message);
+        return undefined;
+      });
+      cron.addTask({ cron: '*/5 * * * *', prompt: 'retry me' });
+      harness.advance(6 * 60_000);
+
+      expect(() => cron.tick()).not.toThrow();
+      // Not delivered → task retained and cursor not advanced.
+      expect(cron.list()).toHaveLength(1);
+
+      shouldThrow = false;
+      cron.tick();
+      expect(delivered.length).toBe(1);
     });
   });
 });

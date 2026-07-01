@@ -9,14 +9,42 @@ import {
   Position,
   ReactFlow,
   type Edge as RFEdge,
+  type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useMemo } from 'react';
 
-import type { Edge, Graph, ServiceNode } from '../../analyzer/types';
+import type { Edge, EdgeKind, Graph, ServiceNode } from '../../analyzer/types';
 import type { FilterState } from './Filters';
 import { layoutDagre } from './layout-dagre';
 import { EDGE_STYLE, SCOPE_STYLE } from './style';
+
+/** Fixed node width so port rows have a stable horizontal box. */
+const NODE_WIDTH = 300;
+/** Height of the header block (impl / token / domain lines + padding). */
+const HEADER_HEIGHT = 68;
+/** Per-port row height. Must stay in sync with the CSS below. */
+const PORT_ROW_HEIGHT = 18;
+/** Vertical padding between the header divider and the first port row. */
+const PORTS_PAD_TOP = 4;
+
+/**
+ * Per-node method port lists. `outPorts` are methods on this service that
+ * make calls into a dependency (they anchor the source end of edges leaving
+ * this node); `inPorts` are methods on this service that other services
+ * call into (they anchor the target end of edges entering this node).
+ */
+interface ServicePortsInfo {
+  inPorts: string[];
+  outPorts: string[];
+  /**
+   * Subset of `inPorts` that actually has at least one edge terminating on
+   * it (as opposed to being seeded from the interface's declared surface
+   * with no caller). Used to dim the handle / label so unused public
+   * methods stand out visually.
+   */
+  connectedIn: Set<string>;
+}
 
 interface GraphViewProps {
   graph: Graph;
@@ -29,52 +57,269 @@ interface GraphViewProps {
 interface ServiceNodeData extends Record<string, unknown> {
   service: ServiceNode;
   selected: boolean;
+  /**
+   * True when the search box has content and this node matches. Rendered
+   * as a distinct cyan outline so search hits are visually separable from
+   * the yellow-outlined click-selected node.
+   */
+  matched: boolean;
   dim: boolean;
+  ports: ServicePortsInfo;
+}
+
+const EVENT_KINDS: Set<EdgeKind> = new Set(['publish', 'subscribe', 'emit', 'on']);
+
+/**
+ * The method name that an edge terminates at on the target node. For plain
+ * calls this is `ref.toMethod`; for event-bus edges, where the call is
+ * `bus.publish(...)` etc., the method name is already carried by the edge
+ * kind so we surface it as the effective toMethod so the target node grows
+ * a matching port row.
+ */
+function effectiveToMethod(kind: EdgeKind, refTo: string | undefined): string | undefined {
+  if (refTo !== undefined) return refTo;
+  if (EVENT_KINDS.has(kind)) return kind;
+  return undefined;
+}
+
+/**
+ * Build the port lists per node from a set of edges.
+ *
+ * `inPorts` are seeded from `service.publicMembers` — every method /
+ * property declared on the service's interface, whether anything actually
+ * calls it or not, so the node advertises its full public surface. Any
+ * inbound edge method that isn't already in that seed (unusual — usually
+ * event-bus edges named after the kind) is folded in too.
+ *
+ * `outPorts` remain edge-driven: they are the methods on THIS service
+ * that make a call outward, so filtering out an edge kind naturally
+ * collapses the rows it would have populated.
+ */
+function computeServicePorts(
+  services: ServiceNode[],
+  edges: Edge[],
+): Map<string, ServicePortsInfo> {
+  const acc = new Map<
+    string,
+    { in: Set<string>; out: Set<string>; connectedIn: Set<string> }
+  >();
+  for (const s of services) {
+    const bucket = {
+      in: new Set<string>(),
+      out: new Set<string>(),
+      connectedIn: new Set<string>(),
+    };
+    if (s.publicMembers) {
+      for (const name of s.publicMembers) bucket.in.add(name);
+    }
+    acc.set(s.id, bucket);
+  }
+  for (const e of edges) {
+    const src = acc.get(e.from);
+    const dst = acc.get(e.to);
+    for (const ref of e.refs) {
+      const toMethod = effectiveToMethod(e.kind, ref.toMethod);
+      if (ref.fromMethod !== undefined && src) src.out.add(ref.fromMethod);
+      if (toMethod !== undefined && dst) {
+        dst.in.add(toMethod);
+        dst.connectedIn.add(toMethod);
+      }
+    }
+  }
+  const result = new Map<string, ServicePortsInfo>();
+  for (const [id, sets] of acc) {
+    result.set(id, {
+      inPorts: [...sets.in].sort(),
+      outPorts: [...sets.out].sort(),
+      connectedIn: sets.connectedIn,
+    });
+  }
+  return result;
+}
+
+function nodeHeight(ports: ServicePortsInfo): number {
+  const rows = Math.max(ports.inPorts.length, ports.outPorts.length);
+  if (rows === 0) return HEADER_HEIGHT;
+  return HEADER_HEIGHT + PORTS_PAD_TOP + rows * PORT_ROW_HEIGHT + PORTS_PAD_TOP;
 }
 
 function ServiceNodeView({ data }: NodeProps<Node<ServiceNodeData>>): JSX.Element {
-  const { service, selected, dim } = data;
+  const { service, selected, matched, dim, ports } = data;
   const bg = SCOPE_STYLE[service.scope].color;
+  const rowCount = Math.max(ports.inPorts.length, ports.outPorts.length);
+  // Interface-only node: the token is referenced but has no registered impl.
+  // Flagged with a dashed warning border so missing bindings stand out from
+  // concrete services at a glance. Selection / search-match still win so the
+  // active node stays unambiguous.
+  const isUnresolved = service.unresolved === true;
+  const borderColor = selected
+    ? '#ffdf5d'
+    : matched
+      ? '#79c0ff'
+      : isUnresolved
+        ? '#f85149'
+        : 'rgba(0,0,0,0.4)';
+  const borderWidth = selected || matched || isUnresolved ? 2 : 1;
+  const borderStyle = isUnresolved && !selected && !matched ? 'dashed' : 'solid';
+  const glow = selected
+    ? '0 0 0 3px rgba(255,223,93,0.25)'
+    : matched
+      ? '0 0 0 3px rgba(121,192,255,0.25)'
+      : 'none';
   return (
     <div
       style={{
         background: bg,
         color: 'white',
-        padding: '6px 10px',
         borderRadius: 6,
-        border: selected ? '2px solid #ffdf5d' : '1px solid rgba(0,0,0,0.4)',
-        boxShadow: selected ? '0 0 0 3px rgba(255,223,93,0.25)' : 'none',
+        border: `${borderWidth}px ${borderStyle} ${borderColor}`,
+        boxShadow: glow,
         fontSize: 12,
         fontFamily:
           'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
         opacity: dim ? 0.18 : 1,
-        minWidth: 200,
-        maxWidth: 240,
+        width: NODE_WIDTH,
+        position: 'relative',
       }}
     >
-      <Handle type="target" position={Position.Right} style={{ background: '#555' }} />
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        <span
+      {/* Fallback handles at the header — for refs with no method attribution
+          (raw ctor param declarations, un-chained `.get(IX)` lookups). */}
+      <Handle
+        id="default-target"
+        type="target"
+        position={Position.Right}
+        style={{ background: '#555', top: HEADER_HEIGHT / 2 }}
+      />
+      <Handle
+        id="default-source"
+        type="source"
+        position={Position.Left}
+        style={{ background: '#555', top: HEADER_HEIGHT / 2 }}
+      />
+
+      {/* Header */}
+      <div style={{ padding: '6px 10px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          <span
+            style={{
+              fontSize: 9,
+              padding: '1px 5px',
+              background: 'rgba(0,0,0,0.35)',
+              borderRadius: 3,
+            }}
+          >
+            {SCOPE_STYLE[service.scope].badge}
+          </span>
+          {/* Impl is the primary label — that's the actual class the container
+              constructs; the token is a secondary identity shown below. */}
+          <span
+            style={{
+              fontWeight: 600,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {service.impl}
+          </span>
+        </div>
+        <div style={{ fontSize: 10, opacity: 0.65, marginTop: 2, fontStyle: 'italic' }}>
+          {isUnresolved ? 'no implementation registered' : service.token}
+        </div>
+        <div style={{ fontSize: 10, opacity: 0.75, marginTop: 2 }}>{service.domain}</div>
+      </div>
+
+      {rowCount > 0 && (
+        <div
           style={{
-            fontSize: 9,
-            padding: '1px 5px',
-            background: 'rgba(0,0,0,0.35)',
-            borderRadius: 3,
+            borderTop: '1px solid rgba(0,0,0,0.25)',
+            background: 'rgba(0,0,0,0.15)',
+            padding: `${PORTS_PAD_TOP}px 0`,
           }}
         >
-          {SCOPE_STYLE[service.scope].badge}
-        </span>
-        {/* Impl is the primary label — that's the actual class the container
-            constructs; the token is a secondary identity shown below. */}
-        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {service.impl}
-        </span>
-      </div>
-      <div style={{ fontSize: 10, opacity: 0.65, marginTop: 2, fontStyle: 'italic' }}>
-        {service.token}
-      </div>
-      <div style={{ fontSize: 10, opacity: 0.75, marginTop: 2 }}>{service.domain}</div>
-      <Handle type="source" position={Position.Left} style={{ background: '#555' }} />
+          {Array.from({ length: rowCount }, (_, i) => {
+            const out = ports.outPorts[i];
+            const inn = ports.inPorts[i];
+            return (
+              <div
+                key={i}
+                style={{
+                  // `position: relative` anchors the row's Handles to the
+                  // row itself; React Flow measures the dot's centre from
+                  // this box, so alignment tracks the label automatically
+                  // — no hardcoded pixel offsets to drift out of sync.
+                  position: 'relative',
+                  height: PORT_ROW_HEIGHT,
+                }}
+              >
+                {/* Handles live directly on the row (no `overflow: hidden`
+                    ancestor), so React Flow's default translate(-50%, -50%)
+                    positions the dot straddling the node's border. */}
+                {out !== undefined && (
+                  <Handle
+                    id={`out:${out}`}
+                    type="source"
+                    position={Position.Left}
+                    style={{ background: '#f6c896' }}
+                  />
+                )}
+                {inn !== undefined && (
+                  <Handle
+                    id={`in:${inn}`}
+                    type="target"
+                    position={Position.Right}
+                    // Dim handle when the port is only there because it's
+                    // declared on the interface — nothing calls into it.
+                    // The connected-vs-declared distinction reads at a
+                    // glance without hunting for edges.
+                    style={{
+                      background: ports.connectedIn.has(inn) ? '#a8c8f6' : '#3d444d',
+                    }}
+                  />
+                )}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    height: '100%',
+                    padding: '0 10px',
+                    fontSize: 10,
+                  }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      textAlign: 'left',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      color: '#fbe4c8',
+                    }}
+                  >
+                    {out ?? ''}
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      textAlign: 'right',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      color:
+                        inn !== undefined && !ports.connectedIn.has(inn)
+                          ? '#6e7681'
+                          : '#c8e0fb',
+                    }}
+                  >
+                    {inn ?? ''}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -106,6 +351,42 @@ function BandLabelView({ data }: NodeProps<Node<{ scope: string; width: number }
 
 const nodeTypes = { service: ServiceNodeView, band: BandLabelView };
 
+/**
+ * Persist the pan/zoom viewport across dev-server reloads so a source-code
+ * edit (which triggers a `full-reload` from the `virtual:dep-graph` plugin)
+ * doesn't wipe the position the user carefully panned to. Scoped to
+ * `sessionStorage` so each fresh browser session starts with `fitView`.
+ */
+const VIEWPORT_STORAGE_KEY = 'agent-core-v2:dep-graph:viewport';
+
+function loadViewport(): Viewport | undefined {
+  try {
+    const raw = sessionStorage.getItem(VIEWPORT_STORAGE_KEY);
+    if (raw === null) return undefined;
+    const parsed = JSON.parse(raw) as Partial<Viewport> | null;
+    if (
+      parsed === null ||
+      typeof parsed.x !== 'number' ||
+      typeof parsed.y !== 'number' ||
+      typeof parsed.zoom !== 'number'
+    ) {
+      return undefined;
+    }
+    return { x: parsed.x, y: parsed.y, zoom: parsed.zoom };
+  } catch {
+    return undefined;
+  }
+}
+
+function saveViewport(v: Viewport): void {
+  try {
+    sessionStorage.setItem(VIEWPORT_STORAGE_KEY, JSON.stringify(v));
+  } catch {
+    // Storage disabled (private mode / quota) — silently drop; the graph
+    // still works, it just won't remember the viewport across reloads.
+  }
+}
+
 function passesFilter(
   service: ServiceNode,
   filters: FilterState,
@@ -113,13 +394,21 @@ function passesFilter(
 ): boolean {
   if (!filters.scopes.has(service.scope)) return false;
   if (filters.hiddenDomains.has(service.domain)) return false;
-  if (filters.search) {
-    const q = filters.search.toLowerCase();
-    const hay = `${service.token} ${service.impl} ${service.domain}`.toLowerCase();
-    if (!hay.includes(q)) return false;
-  }
+  // NOTE: search intentionally does NOT filter here — it drives the
+  // highlight/dim treatment below so context around a hit stays visible.
   if (filters.hideOrphans && !connected.has(service.id)) return false;
   return true;
+}
+
+/**
+ * Case-insensitive substring match across the identity fields and public
+ * surface. Kept close to `passesFilter` so the two search-related pieces
+ * (highlight input, matches predicate) stay obviously in sync.
+ */
+function matchesSearch(service: ServiceNode, query: string): boolean {
+  const members = service.publicMembers ? ` ${service.publicMembers.join(' ')}` : '';
+  const hay = `${service.token} ${service.impl} ${service.domain}${members}`.toLowerCase();
+  return hay.includes(query);
 }
 
 export function GraphView({
@@ -128,14 +417,17 @@ export function GraphView({
   selectedId,
   onSelect,
 }: GraphViewProps): JSX.Element {
+  // Compute once at mount so a re-render that adds nodes doesn't yank the
+  // viewport back to the stored value while the user is panning.
+  const initialViewport = useMemo(() => loadViewport(), []);
+
   const { nodes, edges, selectedService, selectedEdges } = useMemo(() => {
-    // Which edges survive the edge-kind filter?
-    const survivingEdges: Edge[] = graph.edges
-      .filter((e) => filters.kinds.has(e.kind))
-      // Drop unresolved edges — their `to` points at a pseudo id that isn't
-      // in the node set. The lint reports them separately; showing them
-      // here would just clutter the graph with dangling arrows.
-      .filter((e) => !e.unresolved);
+    // Which edges survive the edge-kind filter? Unresolved edges are kept: the
+    // analyzer now synthesises an interface-only node for each unresolved token
+    // (rendered with a distinct border), so their `to` resolves to a real node
+    // instead of dangling. Edges whose endpoint is filtered out are dropped
+    // below via the `visibleIds` check.
+    const survivingEdges: Edge[] = graph.edges.filter((e) => filters.kinds.has(e.kind));
 
     // Node ids that appear on either end of any surviving edge — for the
     // orphan filter.
@@ -155,18 +447,45 @@ export function GraphView({
       (e) => visibleIds.has(e.from) && visibleIds.has(e.to),
     );
 
-    // Neighbours of the selected node — used to dim non-related ones.
-    const highlighted = new Set<string>();
-    if (selectedId) {
-      highlighted.add(selectedId);
-      for (const e of finalEdges) {
-        if (e.from === selectedId) highlighted.add(e.to);
-        if (e.to === selectedId) highlighted.add(e.from);
+    // Ports depend on the *rendered* edges: a port with no visible edge is
+    // dead weight on the node, so we compute after filter+visibility.
+    const ports = computeServicePorts(visibleServices, finalEdges);
+
+    // Compute the two focus drivers:
+    //   • `selectedId` — the click-selected node (0 or 1 at a time).
+    //   • `matched`    — every node whose identity or public surface hits
+    //                     the current search string.
+    // Their neighbours (nodes touched by any surviving edge) are folded in
+    // so the graph keeps enough context around a hit to be readable —
+    // this is the "act like a click" behaviour: nothing disappears, just
+    // dims. `focused` is the union used to decide dim vs bright.
+    const searchQuery = filters.search.trim().toLowerCase();
+    const matched = new Set<string>();
+    if (searchQuery) {
+      for (const s of visibleServices) {
+        if (matchesSearch(s, searchQuery)) matched.add(s.id);
       }
     }
 
+    const focused = new Set<string>();
+    const seedFocus = (id: string): void => {
+      focused.add(id);
+      for (const e of finalEdges) {
+        if (e.from === id) focused.add(e.to);
+        if (e.to === id) focused.add(e.from);
+      }
+    };
+    if (selectedId !== undefined) seedFocus(selectedId);
+    for (const id of matched) seedFocus(id);
+
+    const focusActive = selectedId !== undefined || matched.size > 0;
+
     const layout = layoutDagre(visibleServices, finalEdges, {
       groupByScope: filters.groupByScope,
+      nodeSize: (id) => {
+        const p = ports.get(id);
+        return { width: NODE_WIDTH, height: p ? nodeHeight(p) : HEADER_HEIGHT };
+      },
     });
     const pos = layout.positions;
 
@@ -178,7 +497,13 @@ export function GraphView({
         data: {
           service,
           selected: service.id === selectedId,
-          dim: selectedId !== undefined && !highlighted.has(service.id),
+          matched: matched.has(service.id),
+          dim: focusActive && !focused.has(service.id),
+          ports: ports.get(service.id) ?? {
+            inPorts: [],
+            outPorts: [],
+            connectedIn: new Set<string>(),
+          },
         },
       }),
     );
@@ -201,24 +526,45 @@ export function GraphView({
       }
     }
 
-    const rfEdges: RFEdge[] = finalEdges.map((e) => {
+    const rfEdges: RFEdge[] = [];
+    for (const e of finalEdges) {
       const style = EDGE_STYLE[e.kind];
-      const isHighlighted =
-        selectedId !== undefined && (e.from === selectedId || e.to === selectedId);
-      return {
-        id: `${e.from}::${e.kind}::${e.to}`,
-        source: e.from,
-        target: e.to,
-        label: undefined,
-        style: {
-          stroke: style.color,
-          strokeWidth: isHighlighted ? 2.2 : 1.2,
-          strokeDasharray: style.dashed ? '4 3' : undefined,
-          opacity: selectedId !== undefined ? (isHighlighted ? 1 : 0.1) : 0.75,
-        },
-        animated: false,
-      };
-    });
+      // With a focus (click or search) active, an edge is bright when both
+      // ends are in the focus set — i.e. it either sits directly on a hit
+      // or bridges two things adjacent to a hit. When no focus is active
+      // every edge stays at its default opacity.
+      const isHighlighted = focusActive && focused.has(e.from) && focused.has(e.to);
+      // Group refs by (fromMethod, effectiveToMethod) so identical method
+      // pairs on different lines collapse into a single arrow between the
+      // same two handles instead of stacking.
+      const pairs = new Map<
+        string,
+        { fromMethod: string | undefined; toMethod: string | undefined }
+      >();
+      for (const ref of e.refs) {
+        const toMethod = effectiveToMethod(e.kind, ref.toMethod);
+        const key = `${ref.fromMethod ?? ''}|${toMethod ?? ''}`;
+        if (!pairs.has(key)) pairs.set(key, { fromMethod: ref.fromMethod, toMethod });
+      }
+      for (const [key, pair] of pairs) {
+        const sourceHandle = pair.fromMethod ? `out:${pair.fromMethod}` : 'default-source';
+        const targetHandle = pair.toMethod ? `in:${pair.toMethod}` : 'default-target';
+        rfEdges.push({
+          id: `${e.from}::${e.kind}::${e.to}::${key}`,
+          source: e.from,
+          target: e.to,
+          sourceHandle,
+          targetHandle,
+          style: {
+            stroke: style.color,
+            strokeWidth: isHighlighted ? 2.2 : 1.2,
+            strokeDasharray: style.dashed ? '4 3' : undefined,
+            opacity: focusActive ? (isHighlighted ? 1 : 0.1) : 0.75,
+          },
+          animated: false,
+        });
+      }
+    }
 
     const selectedService = selectedId
       ? graph.services.find((s) => s.id === selectedId)
@@ -236,7 +582,14 @@ export function GraphView({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        fitView
+        // Only `fitView` on the very first mount of a fresh browser session.
+        // Once a viewport is remembered, hand it to React Flow as
+        // `defaultViewport` so the pan/zoom the user last landed on is
+        // preserved across dev-server reloads.
+        {...(initialViewport
+          ? { defaultViewport: initialViewport }
+          : { fitView: true })}
+        onMoveEnd={(_, viewport) => saveViewport(viewport)}
         minZoom={0.1}
         maxZoom={1.6}
         onNodeClick={(_, node) => {
@@ -254,7 +607,8 @@ export function GraphView({
           nodeColor={(n) => {
             if (n.id.startsWith('band::')) return 'transparent';
             const service = (n.data as ServiceNodeData | undefined)?.service;
-            return service ? SCOPE_STYLE[service.scope].color : '#7d8590';
+            if (!service) return '#7d8590';
+            return service.unresolved ? '#f85149' : SCOPE_STYLE[service.scope].color;
           }}
         />
         <Controls showInteractive={false} style={{ background: '#151b23' }} />
@@ -302,13 +656,21 @@ function ServicePanel({ service, graph, edges, onClose }: ServicePanelProps): JS
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 13 }}>{service.impl}</div>
-          <div style={{ color: '#a5b0bc', fontSize: 11 }}>{service.token}</div>
+          {service.unresolved ? (
+            <div style={{ color: '#f85149', fontSize: 11, marginTop: 2 }}>
+              No implementation registered
+            </div>
+          ) : (
+            <div style={{ color: '#a5b0bc', fontSize: 11 }}>{service.token}</div>
+          )}
           <div style={{ color: '#7d8590', fontSize: 11 }}>
             <b>{service.scope}</b> · {service.domain}
           </div>
-          <div style={{ color: '#7d8590', fontSize: 10, marginTop: 4, wordBreak: 'break-all' }}>
-            {service.file}:{service.line}
-          </div>
+          {!service.unresolved && (
+            <div style={{ color: '#7d8590', fontSize: 10, marginTop: 4, wordBreak: 'break-all' }}>
+              {service.file}:{service.line}
+            </div>
+          )}
         </div>
         <button
           onClick={onClose}
@@ -368,34 +730,76 @@ function EdgeList({ title, edges, direction, byId }: EdgeListProps): JSX.Element
         const peerId = direction === 'out' ? e.to : e.from;
         const peer = byId.get(peerId);
         const label = peer ? `${peer.impl} (${peer.token})` : peerId;
+        const methodRefs = e.refs.filter((r) => r.toMethod !== undefined || r.fromMethod !== undefined);
         return (
-          <div
-            key={`${e.from}::${e.kind}::${e.to}`}
-            style={{ padding: '3px 0', display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <span
-              style={{
-                display: 'inline-block',
-                width: 10,
-                height: 3,
-                borderTop: `${EDGE_STYLE[e.kind].dashed ? '2px dashed' : '2px solid'} ${
-                  EDGE_STYLE[e.kind].color
-                }`,
-              }}
-            />
-            <span style={{ color: '#7d8590', fontSize: 10, minWidth: 62 }}>{e.kind}</span>
-            <span
-              style={{
-                fontFamily: 'ui-monospace, monospace',
-                fontSize: 11,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                flex: 1,
-              }}
-            >
-              {label}
-            </span>
-            <span style={{ color: '#7d8590', fontSize: 10 }}>×{e.refs.length}</span>
+          <div key={`${e.from}::${e.kind}::${e.to}`} style={{ padding: '3px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 10,
+                  height: 3,
+                  borderTop: `${EDGE_STYLE[e.kind].dashed ? '2px dashed' : '2px solid'} ${
+                    EDGE_STYLE[e.kind].color
+                  }`,
+                }}
+              />
+              <span style={{ color: '#7d8590', fontSize: 10, minWidth: 62 }}>{e.kind}</span>
+              <span
+                style={{
+                  fontFamily: 'ui-monospace, monospace',
+                  fontSize: 11,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  flex: 1,
+                }}
+              >
+                {label}
+              </span>
+              <span style={{ color: '#7d8590', fontSize: 10 }}>×{e.refs.length}</span>
+            </div>
+            {methodRefs.length > 0 && (
+              <details style={{ marginLeft: 20, marginTop: 2 }}>
+                <summary
+                  style={{
+                    fontSize: 10,
+                    color: '#8b949e',
+                    cursor: 'pointer',
+                    listStyle: 'revert',
+                  }}
+                >
+                  {methodRefs.length} call{methodRefs.length === 1 ? '' : 's'}
+                </summary>
+                <div style={{ marginTop: 3 }}>
+                  {methodRefs.map((r, i) => (
+                    <div
+                      key={`${r.file}:${r.line}:${i}`}
+                      style={{
+                        fontFamily: 'ui-monospace, monospace',
+                        fontSize: 10,
+                        color: '#a5b0bc',
+                        padding: '1px 0',
+                      }}
+                    >
+                      {direction === 'out' ? (
+                        <>
+                          <span>{r.fromMethod ?? '?'}</span>
+                          <span style={{ color: '#6e7681' }}>{' → '}</span>
+                          <span style={{ color: '#e6edf3' }}>{r.toMethod ?? '?'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ color: '#e6edf3' }}>{r.fromMethod ?? '?'}</span>
+                          <span style={{ color: '#6e7681' }}>{' → '}</span>
+                          <span>{r.toMethod ?? '?'}</span>
+                        </>
+                      )}
+                      <span style={{ color: '#6e7681' }}>{`  (:${r.line})`}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         );
       })}

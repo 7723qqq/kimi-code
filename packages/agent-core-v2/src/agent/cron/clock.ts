@@ -17,7 +17,7 @@
  * Mixing the two pollutes test reproducibility: a heartbeat tied to
  * `wallNow()` will appear stuck when the test clock is frozen; a cron
  * fire tied to `monoNowMs()` will not advance when the bench rewinds
- * the simulated day. Every component in `tools/cron/` MUST take a
+ * the simulated day. Every component in the cron domain MUST take a
  * `ClockSources` and route every time read through it.
  *
  * `monoNowMs` is ALWAYS `process.hrtime.bigint()` (converted to ms).

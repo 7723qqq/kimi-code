@@ -1,19 +1,31 @@
+/**
+ * `swarm` domain (L4) — `AgentSwarm` collaboration tool.
+ *
+ * Launches a batch of child agents (an ordinary Agent scope each) through the
+ * `agentTool` queued run helper and renders the per-subagent XML result. Keeps
+ * a module-level map of spawned agent id → swarm item so a later
+ * `resume_agent_ids` call can relabel resumed subagents. Pure tool — owns no
+ * scoped state.
+ */
+
 import { z } from 'zod';
 
 import type { BuiltinTool } from '#/agent/tool';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
-  type QueuedSubagentRunResult,
-  type QueuedSubagentTask,
-} from '#/session/subagentHost';
+} from '#/agent/agentTool';
 import { ToolAccesses } from '#/agent/tool';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import type { IAgentLifecycleService } from '#/session/agent-lifecycle';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
+import { runChildAgentQueued, type QueuedSubagentTask, type SubagentResult } from '../subagentBatch';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
 const PROMPT_TEMPLATE_PLACEHOLDER = '{{item}}';
 const MAX_AGENT_SWARM_SUBAGENTS = 128;
+
+const swarmItems = new Map<string, string>();
 
 export const AgentSwarmToolInputSchema = z
   .object({
@@ -82,15 +94,15 @@ interface SwarmRunResult {
   readonly error?: string;
 }
 
-interface AgentSwarmSubagentHost {
-  getSwarmItem(agentId: string): string | undefined;
-  runQueued<T>(
-    tasks: readonly QueuedSubagentTask<T>[],
-  ): Promise<Array<QueuedSubagentRunResult<T>>>;
-}
-
 interface AgentSwarmMode {
   enter(trigger: 'tool'): void;
+}
+
+export interface AgentSwarmToolHost {
+  readonly lifecycle: IAgentLifecycleService;
+  readonly parentAgentId: string;
+  readonly runQueued?: typeof runChildAgentQueued;
+  readonly getSwarmItem?: (agentId: string) => string | undefined;
 }
 
 export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
@@ -99,7 +111,7 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentSwarmToolInputSchema);
 
   constructor(
-    private readonly subagentHost: AgentSwarmSubagentHost,
+    private readonly host: AgentSwarmToolHost,
     private readonly swarmMode: AgentSwarmMode,
   ) {}
 
@@ -142,7 +154,8 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
     toolCallId: string,
   ): Promise<string> {
     const profileName = normalizeOptionalString(args.subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
-    const specs = createAgentSwarmSpecs(args, (agentId) => this.subagentHost.getSwarmItem(agentId));
+    const getSwarmItem = this.host.getSwarmItem ?? ((id: string) => swarmItems.get(id));
+    const specs = createAgentSwarmSpecs(args, getSwarmItem);
     const tasks = specs.map((spec): QueuedSubagentTask<AgentSwarmSpec> => {
       const descriptionName = spec.kind === 'resume' ? 'resume' : profileName;
       const common = {
@@ -169,8 +182,20 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
         kind: 'spawn',
       };
     });
-    const results = await this.subagentHost.runQueued(tasks);
-    return renderSwarmResults(results.map(({ task, ...result }) => ({ spec: task.data, ...result })));
+    const runQueued = this.host.runQueued ?? runChildAgentQueued;
+    const results = (await runQueued({
+      lifecycle: this.host.lifecycle,
+      parentAgentId: this.host.parentAgentId,
+      tasks,
+    })) as Array<SubagentResult<AgentSwarmSpec>>;
+    for (const result of results) {
+      if (result.agentId !== undefined && result.task.swarmItem !== undefined) {
+        swarmItems.set(result.agentId, result.task.swarmItem);
+      }
+    }
+    return renderSwarmResults(
+      results.map(({ task, ...result }) => ({ spec: task.data as AgentSwarmSpec, ...result })),
+    );
   }
 }
 

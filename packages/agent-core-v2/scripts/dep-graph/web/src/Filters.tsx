@@ -62,9 +62,10 @@ export function Filters({ graph, domains, state, onChange }: FiltersProps): JSX.
       </div>
 
       <input
-        placeholder="filter by token/impl…"
+        placeholder="search service, interface, method…"
         value={state.search}
         onChange={(e) => onChange({ ...state, search: e.target.value })}
+        title="Substring match across impl class, token interface, domain, and public members"
         style={{
           width: '100%',
           padding: '6px 8px',

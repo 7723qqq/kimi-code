@@ -1,17 +1,26 @@
-import {
-  Disposable,
-} from "#/_base/di";
+/**
+ * `swarm` domain (L4) — `IAgentSwarmService` implementation.
+ *
+ * Tracks swarm-mode enter/exit (mirroring it into `wireRecord` and
+ * `systemReminder`), auto-exits on turn end, and registers the `AgentSwarm`
+ * tool bound to this agent as the parent. Bound at Agent scope; spawns child
+ * agents through `agent-lifecycle`, reads its identity through `scopeContext`,
+ * and registers the tool through `toolRegistry`.
+ */
+
+import { Disposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentEventSinkService } from '#/agent/eventSink';
-import { ISessionSubagentHost } from '#/session/subagentHost';
+import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentTurnService } from '#/agent/turn';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
+import { IAgentLifecycleService } from '#/session/agent-lifecycle';
 import SWARM_MODE_ENTER_REMINDER from './enter-reminder.md?raw';
 import SWARM_MODE_EXIT_REMINDER from './exit-reminder.md?raw';
-import { AgentSwarmTool } from '#/agent/swarm/tools/agent-swarm';
+import { AgentSwarmTool, type AgentSwarmToolHost } from '#/agent/swarm/tools/agent-swarm';
 import {
   IAgentSwarmService,
   type SwarmModeTrigger,
@@ -32,12 +41,14 @@ export class AgentSwarmService extends Disposable implements IAgentSwarmService 
   private _active: SwarmModeTrigger | null = null;
 
   constructor(
+    runQueued: AgentSwarmToolHost['runQueued'] | undefined,
     @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
     @IAgentEventSinkService private readonly events: IAgentEventSinkService,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @IAgentTurnService turnService: IAgentTurnService,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
-    @ISessionSubagentHost subagentHost: ISessionSubagentHost,
+    @IAgentLifecycleService lifecycle: IAgentLifecycleService,
+    @IAgentScopeContext ctx: IAgentScopeContext,
   ) {
     super();
     this._register(
@@ -59,7 +70,11 @@ export class AgentSwarmService extends Disposable implements IAgentSwarmService 
         return done;
       }),
     );
-    this._register(toolRegistry.register(new AgentSwarmTool(subagentHost, this)));
+    this._register(
+      toolRegistry.register(
+        new AgentSwarmTool({ lifecycle, parentAgentId: ctx.agentId, runQueued }, this),
+      ),
+    );
   }
 
   enter(trigger: SwarmModeTrigger): void {

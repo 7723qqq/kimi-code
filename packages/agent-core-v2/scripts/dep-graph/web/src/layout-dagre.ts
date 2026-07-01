@@ -2,7 +2,7 @@ import Dagre from '@dagrejs/dagre';
 
 import type { Edge, ServiceNode, ServiceScope } from '../../analyzer/types';
 
-/** Rough node box used for dagre spacing; must approximately match the CSS in GraphView. */
+/** Fallback node box used when the caller doesn't supply per-node dimensions. */
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 48;
 
@@ -29,6 +29,13 @@ export interface LayoutOptions {
    * whole set.
    */
   groupByScope?: boolean;
+  /**
+   * Per-node dimensions. Returned dagre positions match the box the caller
+   * declares here, which lets nodes with per-method port rows request more
+   * vertical space so their neighbours don't collide with the extra rows.
+   * Missing entries fall back to `(NODE_WIDTH, NODE_HEIGHT)`.
+   */
+  nodeSize?: (id: string) => { width: number; height: number };
 }
 
 export interface ScopeBand {
@@ -149,9 +156,10 @@ function runDagre(
   const known = new Set<string>();
   for (const s of services) {
     const isolated = (degree.get(s.id) ?? 0) === 0;
+    const size = options.nodeSize?.(s.id) ?? { width: NODE_WIDTH, height: NODE_HEIGHT };
     g.setNode(s.id, {
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
+      width: size.width,
+      height: size.height,
       ...(isolated ? { rank: 'max' } : {}),
     });
     known.add(s.id);
@@ -171,8 +179,9 @@ function runDagre(
   for (const s of services) {
     const n = g.node(s.id);
     if (!n) continue;
+    const size = options.nodeSize?.(s.id) ?? { width: NODE_WIDTH, height: NODE_HEIGHT };
     // Dagre returns center coordinates; React Flow uses top-left.
-    positions.set(s.id, { x: n.x - NODE_WIDTH / 2, y: n.y - NODE_HEIGHT / 2 });
+    positions.set(s.id, { x: n.x - size.width / 2, y: n.y - size.height / 2 });
   }
   const { width = 0, height = 0 } = g.graph();
   return { positions, width, height };

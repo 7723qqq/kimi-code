@@ -9,7 +9,8 @@ import {
   IAgentBackgroundService,
   ProcessBackgroundTask,
 } from '#/agent/background';
-import type { ISessionSubagentHost, SubagentHandle } from '#/session/subagentHost';
+import type { SubagentDetachHandle } from '#/agent/background';
+import type { SubagentHandle } from '#/agent/agentTool';
 import { createTestAgent, type TestAgentContext } from '../harness';
 import { createBackgroundTaskPersistence } from './stubs';
 
@@ -36,7 +37,7 @@ function agentTask(
     handle,
     description,
     { markActiveChildDetached: vi.fn() } as unknown as Pick<
-      ISessionSubagentHost,
+      SubagentDetachHandle,
       'markActiveChildDetached'
     >,
     new AbortController(),

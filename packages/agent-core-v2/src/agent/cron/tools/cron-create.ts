@@ -3,24 +3,24 @@
  * at a future wall-clock time, either once (`recurring: false`) or on a
  * cron cadence (`recurring: true`, the default).
  *
- * Tasks live in `SessionCronStore` and are mirrored to
- * `<sessionDir>/cron/<id>.json` via `CronManager.addTask`, so a
+ * Tasks live in `AgentCronService` and are mirrored to
+ * `<sessionDir>/cron/<id>.json` via `IAgentCronService.addTask`, so a
  * `kimi resume` of the same session reloads them and the scheduler
  * picks up where it left off (fires that fell during downtime are
  * collapsed into a single delivery with `coalescedCount`). Tasks do
  * NOT carry over into a brand-new session.
  *
  * The tool itself is pure validation + bookkeeping; the firing /
- * coalesce / jitter logic lives in `CronScheduler` (one layer below)
- * and `CronManager` (one layer up). This file only knows how to:
+ * coalesce / jitter / persistence logic lives in `AgentCronService`.
+ * This file only knows how to:
  *
  *   1. validate the request (killswitch, cron parse, 5-year window,
  *      session cap, byte-length cap);
- *   2. add it to the manager (which writes through to disk on success);
+ *   2. add it to the service (which writes through to disk on success);
  *   3. report back the post-jitter `nextFireAt` and a human-readable
  *      schedule for the model's benefit;
- *   4. emit `cron_scheduled` telemetry through the manager (the tool
- *      does **not** reach into `manager.agent.telemetry` directly).
+ *   4. emit `cron_scheduled` telemetry through the service (the tool
+ *      does **not** reach into `ITelemetryService` directly).
  */
 
 import { z } from 'zod';
@@ -28,19 +28,19 @@ import { z } from 'zod';
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern } from '#/_base/tools/support/rule-match';
+import type { IAgentCronService } from '#/agent/cron';
 import {
   computeNextCronRun,
   cronToHuman,
   hasFireWithinYears,
   parseCronExpression,
   type ParsedCronExpression,
-} from './cron-expr';
+} from '#/agent/cron/cron-expr';
+import { formatLocalIsoWithOffset } from '#/agent/cron/format';
 import {
   jitteredNextCronRunMs,
   oneShotJitteredNextCronRunMs,
-} from './jitter';
-import { formatLocalIsoWithOffset } from './time-format';
-import type { CronToolManager } from './types';
+} from '#/agent/cron/jitter';
 import CRON_CREATE_DESCRIPTION from './cron-create.md?raw';
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -120,7 +120,7 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
   );
 
   constructor(
-    private readonly manager: CronToolManager,
+    private readonly cron: IAgentCronService,
     private readonly disabled: boolean = false,
   ) {}
 
@@ -166,7 +166,7 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
     //    not matter for this judgment (it only changes the search
     //    window by < 5 years), so we read it here at prepare time and
     //    re-read inside `execute()` for the actual schedule anchor.
-    const nowAtPrepare = this.manager.clocks.wallNow();
+    const nowAtPrepare = this.cron.now();
     if (!hasFireWithinYears(parsed, 5, nowAtPrepare)) {
       return {
         isError: true,
@@ -180,7 +180,7 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
     //    `execute()` because manual-approval mode can delay execution
     //    long enough for parallel CronCreate calls to all pass this
     //    gate and then collectively breach the cap on insert.
-    if (this.manager.store.list().length >= MAX_CRON_JOBS_PER_SESSION) {
+    if (this.cron.list().length >= MAX_CRON_JOBS_PER_SESSION) {
       return {
         isError: true,
         output: `Cron job cap reached (max ${String(
@@ -259,12 +259,12 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
         // with a stale `nowMs` would let the scheduler treat a fresh
         // one-shot as already overdue and fire it on the next tick
         // with a phantom `coalescedCount > 1`.
-        const nowMs = this.manager.clocks.wallNow();
+        const nowMs = this.cron.now();
 
         // Re-check the session cap against the live store size so two
         // concurrently-prepared CronCreate calls cannot collectively
         // breach it after both passed the prepare-time check.
-        if (this.manager.store.list().length >= MAX_CRON_JOBS_PER_SESSION) {
+        if (this.cron.list().length >= MAX_CRON_JOBS_PER_SESSION) {
           return {
             isError: true,
             output: `Cron job cap reached (max ${String(
@@ -273,7 +273,7 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
           };
         }
 
-        const task = this.manager.addTask({
+        const task = this.cron.addTask({
           cron: normalizedCron,
           prompt: args.prompt,
           recurring,
@@ -293,10 +293,9 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
 
         const humanSchedule = cronToHuman(parsed);
 
-        // Telemetry goes through the manager so the tool stays out of
-        // `manager.agent.telemetry`. CronDelete (P1.6) will use the
-        // symmetric `emitDeleted`.
-        this.manager.emitScheduled(task);
+        // Telemetry goes through the service so the tool stays out of
+        // `service.telemetry`.
+        this.cron.emitScheduled(task);
 
         const output: CronCreateOutput = {
           id: task.id,

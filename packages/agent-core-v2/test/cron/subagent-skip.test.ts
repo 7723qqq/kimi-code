@@ -1,6 +1,6 @@
 /**
  * Subagent cron suppression: each session can spawn many subagents, and
- * unconditionally starting a CronManager per agent leaks 1s setInterval
+ * unconditionally starting an AgentCronService per agent leaks 1s setInterval
  * timers and SIGUSR1 listeners (under KIMI_CRON_MANUAL_TICK=1) that
  * never serve any purpose — default subagent profiles don't expose the
  * Cron tools to the LLM. This test pins both halves of the fix:

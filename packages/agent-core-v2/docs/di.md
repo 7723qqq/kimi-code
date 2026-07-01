@@ -180,19 +180,21 @@ App (0)
 
 ## 场景 4：你的服务要释放资源
 
-> 你要做的：服务里订阅了事件、开了定时器、持有了句柄，scope 销毁时要释放。参考 `WSBroadcastService`（[`gatewayService.ts`](../src/gateway/gatewayService.ts)）。
+> 你要做的：服务里订阅了事件、开了定时器、持有了句柄，scope 销毁时要释放。参考 `FlagService`（[`flagService.ts`](../src/app/flag/flagService.ts)）。
 
 这一步引入：**`Disposable` / `IDisposable` 生命周期**。
 
 ```ts
 import { Disposable } from '#/_base/di/lifecycle';
 
-export class WSBroadcastService extends Disposable implements IWSBroadcastService {
+export class FlagService extends Disposable implements IFlagService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IEventService event: IEventService) {
+  constructor(@IConfigService private readonly config: IConfigService) {
     super();
-    this._register(event.subscribe(() => { /* … */ }));   // 收集子资源
+    this._register(
+      this.config.onDidChangeConfiguration(() => { /* … */ }),   // 收集子资源
+    );
   }
 }
 ```

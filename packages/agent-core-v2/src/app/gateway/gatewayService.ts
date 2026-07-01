@@ -1,16 +1,17 @@
 /**
- * `gateway` domain (L7) — `IRestGateway` / `IWSGateway` / `IWSBroadcastService`
- * implementation.
+ * `gateway` domain (L7) — `IRestGateway` / `IWSGateway` implementations.
  *
  * Owns the REST/WS entry points; resolves sessions through `session-lifecycle`,
- * agents through `agent-lifecycle`, drives turns through `turn`, flushes logs
- * through `log`, and subscribes to broadcasts through `event`. Bound at App
- * scope.
+ * agents through `agent-lifecycle`, drives turns through `turn`, and flushes
+ * logs through `log`. Bound at App scope.
+ *
+ * WS event fan-out (sequencing, journaling, replay, per-connection dispatch)
+ * is a transport concern and lives in the edge package (`packages/server-v2`)
+ * on top of `IEventService` + `IAgentEventSinkService` — not here.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { Disposable } from '#/_base/di/lifecycle';
 import { IAgentLifecycleService } from '#/session/agent-lifecycle/agentLifecycle';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { ILogService, ISessionLogService } from '#/app/log';
@@ -18,7 +19,7 @@ import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionLifecycleService } from '#/app/session-lifecycle';
 import { IAgentTurnService } from '#/agent/turn';
 
-import { IRestGateway, IWSBroadcastService, IWSGateway } from './gateway';
+import { IRestGateway, IWSGateway } from './gateway';
 
 export class RestGateway implements IRestGateway {
   declare readonly _serviceBrand: undefined;
@@ -101,18 +102,5 @@ export class WSGateway implements IWSGateway {
   }
 }
 
-export class WSBroadcastService extends Disposable implements IWSBroadcastService {
-  declare readonly _serviceBrand: undefined;
-
-  constructor(@IAgentEventSinkService event: IAgentEventSinkService) {
-    super();
-    this._register(
-      event.on(() => {
-      }),
-    );
-  }
-}
-
 registerScopedService(LifecycleScope.App, IRestGateway, RestGateway, InstantiationType.Delayed, 'gateway');
 registerScopedService(LifecycleScope.App, IWSGateway, WSGateway, InstantiationType.Delayed, 'gateway');
-registerScopedService(LifecycleScope.App, IWSBroadcastService, WSBroadcastService, InstantiationType.Delayed, 'gateway');

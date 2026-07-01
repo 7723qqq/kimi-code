@@ -25,7 +25,7 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>event</b>\n<size:9><i>App</i></size>\n  IEventService" as event #D6EAF8
   rectangle "<b>storage</b>\n<size:9><i>App</i></size>\n  IStorageService\n  IAppendLogStore\n  IAtomicDocumentStore\n  IAtomicTomlDocumentStore" as storage #D6EAF8
   rectangle "<b>filestore</b>\n<size:9><i>App</i></size>\n  IFileStore" as filestore #D6EAF8
-  rectangle "<b>gateway</b>\n<size:9><i>App</i></size>\n  IRestGateway\n  IWSGateway\n  IWSBroadcastService" as gateway #D6EAF8
+  rectangle "<b>gateway</b>\n<size:9><i>App</i></size>\n  IRestGateway\n  IWSGateway" as gateway #D6EAF8
   rectangle "<b>session-lifecycle</b>\n<size:9><i>App</i></size>\n  ISessionLifecycleService" as session_lifecycle #D6EAF8
   rectangle "<b>session-index</b>\n<size:9><i>App</i></size>\n  ISessionIndex" as sessionIndex #D6EAF8
   rectangle "<b>hostFs</b>\n<size:9><i>App</i></size>\n  IHostFileSystem" as hostFs #D6EAF8
@@ -56,7 +56,6 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>agentFs</b>\n<size:9><i>Session</i></size>\n  IAgentFileSystem\n  IFsService" as agentFs #D5F5E3
   rectangle "<b>approval</b>\n<size:9><i>Session</i></size>\n  IApprovalService" as approval #D5F5E3
   rectangle "<b>question</b>\n<size:9><i>Session</i></size>\n  IQuestionService" as question #D5F5E3
-  rectangle "<b>subagentHost</b>\n<size:9><i>Session</i></size>\n  ISubagentHost" as subagentHost #D5F5E3
   rectangle "<b>process</b>\n<size:9><i>Session</i></size>\n  IProcessRunner\n  IProcess" as process #D5F5E3
   rectangle "<b>terminal</b>\n<size:9><i>Session</i></size>\n  ITerminalService\n  ITerminalBackend" as terminal #D5F5E3
   rectangle "<b>modelProvider</b>\n<size:9><i>Session</i></size>\n  IModelProvider (seed)" as modelProvider #D5F5E3
@@ -103,6 +102,8 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>rpc</b>\n<size:9><i>Agent</i></size>\n  IAgentRPCService" as rpc #FDEBD0
   rectangle "<b>fileTools</b>\n<size:9><i>Agent</i></size>\n  IAgentFileToolsService" as fileTools #FDEBD0
   rectangle "<b>shellTools</b>\n<size:9><i>Agent</i></size>\n  IAgentShellToolsService" as shellTools #FDEBD0
+  rectangle "<b>agentTool</b>\n<size:9><i>Agent</i></size>\n  IAgentToolService" as agentTool #FDEBD0
+  rectangle "<b>scopeContext</b>\n<size:9><i>Agent</i></size>\n  IAgentScopeContext (seed)" as scopeContext #FDEBD0
 }
 
 ' ---- DI injection (solid) ----
@@ -143,9 +144,12 @@ terminal --> workspaceContext #34495E
 terminal --> session_context #34495E
 approval --> interaction #34495E
 question --> interaction #34495E
-subagentHost --> toolRegistry #34495E
-subagentHost --> background #34495E
-subagentHost --> profile #34495E
+agentTool --> agent_lifecycle #34495E
+agentTool --> session_metadata #34495E
+agentTool --> scopeContext #34495E
+agentTool --> toolRegistry #34495E
+agentTool --> background #34495E
+agentTool --> profile #34495E
 modelProvider --> config #34495E
 session --> session_context #34495E
 session --> session_metadata #34495E
@@ -279,6 +283,7 @@ cron --> storage #34495E
 swarm --> wireRecord #34495E
 swarm --> eventSink #34495E
 swarm --> systemReminder #34495E
+swarm --> agentTool #34495E
 mcp --> toolRegistry #34495E
 mcp --> eventSink #34495E
 mcp --> toolExecutor #34495E
@@ -325,7 +330,7 @@ rpc --> contextMemory #34495E
 rpc --> contextSize #34495E
 rpc --> skill #34495E
 rpc --> questionTools #34495E
-rpc --> subagentHost #34495E
+rpc --> agentTool #34495E
 rpc --> usage #34495E
 rpc --> telemetry #34495E
 rpc --> goal #34495E
@@ -341,7 +346,6 @@ shellTools --> kaos #34495E
 shellTools --> background #34495E
 
 ' ---- event-driven (dashed) ----
-gateway ..> event #16A085 : subscribe
 flag ..> config #16A085 : onDidChangeConfiguration
 permissionMode ..> wireRecord #16A085 : permission.set_mode
 userTool ..> wireRecord #16A085 : tools.register_/unregister_user_tool

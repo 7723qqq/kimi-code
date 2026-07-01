@@ -5,7 +5,7 @@ import {
   cronToHuman,
   hasFireWithinYears,
   parseCronExpression,
-} from '#/agent/cron/tools/cron-expr';
+} from '#/agent/cron/cron-expr';
 
 function localDate(
   year: number,

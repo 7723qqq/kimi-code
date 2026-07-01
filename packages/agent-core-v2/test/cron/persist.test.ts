@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { Event } from '#/_base/event';
-import type { IDisposable } from '#/_base/di/lifecycle';
-import { createCronPersistStore, CRON_ID_REGEX, isValidCronTask } from '#/agent/cron/tools/persist';
-import type { CronTask } from '#/agent/cron/tools/types';
-import type { IAtomicDocumentStore } from '#/app/storage';
+import type { CronTask } from '#/agent/cron';
+import { CRON_ID_REGEX, isValidCronTask } from '#/agent/cron';
 
 const validTask: CronTask = {
   id: '0123abcd',
@@ -13,45 +10,6 @@ const validTask: CronTask = {
   createdAt: 1_700_000_000_000,
   recurring: true,
 };
-
-class MemoryAtomicDocumentStore implements IAtomicDocumentStore {
-  declare readonly _serviceBrand: undefined;
-
-  private readonly data = new Map<string, unknown>();
-
-  async get<T>(scope: string, key: string): Promise<T | undefined> {
-    return this.data.get(this.mapKey(scope, key)) as T | undefined;
-  }
-
-  async set<T>(scope: string, key: string, value: T): Promise<void> {
-    this.data.set(this.mapKey(scope, key), value);
-  }
-
-  async delete(scope: string, key: string): Promise<void> {
-    this.data.delete(this.mapKey(scope, key));
-  }
-
-  async list(scope: string, prefix = ''): Promise<readonly string[]> {
-    const marker = `${scope}/`;
-    return Array.from(this.data.keys())
-      .filter((key) => key.startsWith(marker))
-      .map((key) => key.slice(marker.length))
-      .filter((key) => key.startsWith(prefix))
-      .toSorted();
-  }
-
-  watch(_scope: string, _key: string): Event<void> {
-    return Event.None as Event<void>;
-  }
-
-  acquire(_scope: string, _key: string): IDisposable {
-    return { dispose() {} };
-  }
-
-  private mapKey(scope: string, key: string): string {
-    return `${scope}/${key}`;
-  }
-}
 
 describe('cron persistence guards', () => {
   describe('CRON_ID_REGEX', () => {
@@ -105,37 +63,6 @@ describe('cron persistence guards', () => {
       expect(isValidCronTask({ ...validTask, createdAt: 'recent' })).toBe(false);
       expect(isValidCronTask({ ...validTask, recurring: 'yes' })).toBe(false);
       expect(isValidCronTask({ ...validTask, lastFiredAt: Number.NaN })).toBe(false);
-    });
-  });
-
-  describe('createCronPersistStore', () => {
-    it('roundtrips valid tasks through the cron document scope', async () => {
-      const documents = new MemoryAtomicDocumentStore();
-      const store = createCronPersistStore(documents);
-
-      await store.write(validTask.id, validTask);
-
-      expect(await documents.get('cron', `${validTask.id}.json`)).toEqual(validTask);
-      expect(await store.list()).toEqual([validTask]);
-    });
-
-    it('skips invalid keys and invalid task records while listing', async () => {
-      const documents = new MemoryAtomicDocumentStore();
-      const store = createCronPersistStore(documents);
-
-      await documents.set('cron', '0123abcd.json', validTask);
-      await documents.set('cron', 'ffffffff.json', { ...validTask, id: 'BAD' });
-      await documents.set('cron', 'readme.txt', validTask);
-      await documents.set('other', 'deadbeef.json', { ...validTask, id: 'deadbeef' });
-
-      expect(await store.list()).toEqual([validTask]);
-    });
-
-    it('validates ids before writing or deleting document keys', async () => {
-      const store = createCronPersistStore(new MemoryAtomicDocumentStore());
-
-      await expect(store.write('../etcok', validTask)).rejects.toThrow(/Invalid cron job id/);
-      await expect(store.remove('0123ABCD')).rejects.toThrow(/Invalid cron job id/);
     });
   });
 });

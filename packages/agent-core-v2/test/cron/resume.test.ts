@@ -1,5 +1,5 @@
 /**
- * Resume / cross-restart persistence for CronManager.
+ * Resume / cross-restart persistence for AgentCronService.
  *
  * The manager's `addTask` / `removeTasks` wrappers mirror every mutation
  * to `<sessionDir>/cron/<id>.json`, and `loadFromDisk()` re-populates
@@ -18,9 +18,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
+import type { CronTask } from '#/agent/cron';
 import { IAgentCronService } from '#/agent/cron';
-import { createCronPersistStore } from '#/agent/cron/tools/persist';
-import type { CronTask } from '#/agent/cron/tools/types';
 import { IAtomicDocumentStore } from '#/app/storage';
 import {
   createTestAgent,
@@ -98,7 +97,7 @@ async function readPersistedTask(
   return cronDocuments(ctx).get<CronTask>('cron', `${id}.json`);
 }
 
-describe('CronManager — persistence and resume', () => {
+describe('AgentCronService — persistence and resume', () => {
   let sessionDir: string;
   let ctx: TestAgentContext;
   let cron: IAgentCronService;
@@ -203,11 +202,11 @@ describe('CronManager — persistence and resume', () => {
       });
       await cron.flushPersist();
 
-      expect(resumedCron!.store.list()).toEqual([]);
+      expect(resumedCron!.list()).toEqual([]);
       clockB.install();
       await resumedCron!.loadFromDisk();
 
-      const loaded = resumedCron!.store.list().slice().toSorted((a, b) => a.id.localeCompare(b.id));
+      const loaded = resumedCron!.list().slice().toSorted((a, b) => a.id.localeCompare(b.id));
       const expected = [t1, t2].toSorted((a, b) => a.id.localeCompare(b.id));
       expect(loaded.map((t) => t.id)).toEqual(expected.map((t) => t.id));
       for (const original of expected) {
@@ -305,7 +304,7 @@ describe('CronManager — persistence and resume', () => {
       expect(origin.coalescedCount).toBe(1);
 
       await resumedCron!.flushPersist();
-      expect(resumedCron!.store.list()).toEqual([]);
+      expect(resumedCron!.list()).toEqual([]);
       expect(await readDiskIds(sessionDir)).toEqual([]);
     });
   });
@@ -390,10 +389,9 @@ describe('CronManager — persistence and resume', () => {
       const task = cron.addTask({ cron: '*/5 * * * *', prompt: 'check' });
       await cron.flushPersist();
 
-      const store = createCronPersistStore(cronDocuments(ctx));
       const original = await readPersistedTask(ctx, task.id);
       if (original === undefined) throw new Error('expected persisted task');
-      await store.write(task.id, {
+      await cronDocuments(ctx).set('cron', `${task.id}.json`, {
         ...original,
         lastFiredAt: clockA.now() + 365 * 24 * 60 * 60 * 1000,
       });
@@ -426,9 +424,9 @@ describe('CronManager — persistence and resume', () => {
       await cron.flushPersist();
       expect(await readDiskIds(sessionDir)).toEqual([]);
 
-      expect(cron.store.list().length).toBe(1);
+      expect(cron.list().length).toBe(1);
       await cron.loadFromDisk();
-      expect(cron.store.list().length).toBe(1);
+      expect(cron.list().length).toBe(1);
     });
   });
 });
