@@ -174,15 +174,16 @@ describe('GoalInjection content', () => {
     expect(text).toContain('avoid starting new discretionary work');
   });
 
-  it('has no separate over-budget guidance (the runtime auto-blocks instead)', async () => {
+  it('shows a blocked note once a budget is reached', async () => {
     const text = (await readGoalReminder(async (goals) => {
       await goals.createGoal({ objective: 'work' });
       await goals.setBudgetLimits({ budgetLimits: { turnBudget: 2 } }, 'model');
       await goals.incrementTurn();
       await goals.incrementTurn(); // 2/2 = 100%
     }))!;
-    expect(text).not.toContain('report the best terminal state');
-    expect(text).toContain('nearing a budget');
+    expect(text).toContain('currently blocked');
+    expect(text).toContain('Blocked after goal budget reached: turn budget 2');
+    expect(text).not.toContain('Budget guidance');
   });
 
   it('tells the model to call UpdateGoal to finish', async () => {

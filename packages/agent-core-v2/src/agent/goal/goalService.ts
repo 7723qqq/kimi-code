@@ -118,6 +118,7 @@ const GOAL_PROVIDER_API_PAUSE_PREFIX = 'Paused after provider API error';
 const GOAL_MODEL_CONFIG_PAUSE_PREFIX = 'Paused after model configuration error';
 const GOAL_RUNTIME_PAUSE_PREFIX = 'Paused after runtime error';
 const GOAL_PROVIDER_FILTERED_PAUSE_REASON = 'Paused after provider safety policy block';
+const GOAL_BUDGET_BLOCK_PREFIX = 'Blocked after goal budget reached';
 const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
 
 const GOAL_CONTINUATION_PROMPT = [
@@ -161,6 +162,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   private readonly countedGoalTurns = new Set<number>();
   private readonly goalOutcomeContinuationTurns = new Set<number>();
   private readonly promptHookBlockedTurns = new Set<number>();
+  private readonly observedUsageTotalsByTurn = new Map<number, number>();
 
   constructor(
     private readonly options: GoalServiceOptions = {},
@@ -239,6 +241,10 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       events.on((event) => {
         if (event.type === 'hook.result' && event.blocked === true) {
           this.promptHookBlockedTurns.add(event.turnId);
+          return;
+        }
+        if (event.type === 'agent.status.updated' && event.usage?.currentTurn !== undefined) {
+          this.handleUsageStatusUpdated(event.usage.currentTurn);
         }
       }),
     );
@@ -382,7 +388,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       actor,
       ...budgetTelemetryProperties(input.budgetLimits),
     });
-    return this.toSnapshot(state);
+    return this.blockIfBudgetReached(state) ?? this.toSnapshot(state);
   }
 
   async cancelGoal(
@@ -455,12 +461,16 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   }
 
   async recordTokenUsage(tokenDelta: number): Promise<GoalSnapshot | null> {
+    return this.accountTokenUsage(tokenDelta);
+  }
+
+  private accountTokenUsage(tokenDelta: number): GoalSnapshot | null {
     const state = this.state;
     if (state === undefined || state.status !== 'active') return null;
     state.tokensUsed += Math.max(0, tokenDelta);
     this.persistState(state, { silent: true });
     this.appendGoalUpdate({ tokensUsed: state.tokensUsed });
-    return this.toSnapshot(state);
+    return this.blockIfBudgetReached(state) ?? this.toSnapshot(state);
   }
 
   async incrementTurn(): Promise<GoalSnapshot | null> {
@@ -470,13 +480,14 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.persistState(state);
     this.appendGoalUpdate({ turnsUsed: state.turnsUsed });
     this.telemetry.track('goal_continued', { turns_used: state.turnsUsed });
-    return this.toSnapshot(state);
+    return this.blockIfBudgetReached(state) ?? this.toSnapshot(state);
   }
 
   private handleTurnLaunched(turn: Turn): void {
     if (this.state?.status === 'active') this.goalDrivenTurns.add(turn.id);
     this.goalOutcomeContinuationTurns.delete(turn.id);
     this.promptHookBlockedTurns.delete(turn.id);
+    this.observedUsageTotalsByTurn.delete(turn.id);
   }
 
   private async handleBeforeStep(ctx: TurnStepContext): Promise<void> {
@@ -497,6 +508,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.goalDrivenTurns.delete(ctx.turn.id);
     this.countedGoalTurns.delete(ctx.turn.id);
     this.goalOutcomeContinuationTurns.delete(ctx.turn.id);
+    this.observedUsageTotalsByTurn.delete(ctx.turn.id);
 
     const blockedByPromptHook = this.promptHookBlockedTurns.delete(ctx.turn.id);
     if (blockedByPromptHook) {
@@ -518,8 +530,20 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     }
 
     if (this.state?.status !== 'active') return;
+    if (this.blockIfBudgetReached(this.state) !== null) return;
     if (this.turnService.getActiveTurn() !== undefined) return;
     this.launchContinuationTurn();
+  }
+
+  private handleUsageStatusUpdated(usage: TokenUsageLike): void {
+    const turn = this.turnService.getActiveTurn();
+    if (turn === undefined || !this.goalDrivenTurns.has(turn.id)) return;
+    const total = tokenUsageTotal(usage);
+    const previous = this.observedUsageTotalsByTurn.get(turn.id) ?? 0;
+    this.observedUsageTotalsByTurn.set(turn.id, total);
+    const delta = total - previous;
+    if (delta <= 0) return;
+    this.accountTokenUsage(delta);
   }
 
   private launchContinuationTurn(): void {
@@ -714,6 +738,26 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       terminalReason: state.terminalReason,
     };
   }
+
+  private blockIfBudgetReached(state: GoalState): GoalSnapshot | null {
+    if (state.status !== 'active') return null;
+    const reason = goalBudgetBlockReason(this.toSnapshot(state).budget);
+    if (reason === undefined) return null;
+    this.applyStatus(state, 'blocked');
+    state.terminalReason = reason;
+    this.persistState(state, {
+      change: { kind: 'lifecycle', status: 'blocked', reason, actor: 'runtime' },
+    });
+    this.appendStatusUpdate(state, 'runtime', reason);
+    return this.toSnapshot(state);
+  }
+}
+
+interface TokenUsageLike {
+  readonly inputCacheRead: number;
+  readonly inputCacheCreation: number;
+  readonly inputOther: number;
+  readonly output: number;
 }
 
 function liveWallClockMs(state: GoalState, now: number = Date.now()): number {
@@ -752,12 +796,30 @@ function computeBudgetReport(
   };
 }
 
+function goalBudgetBlockReason(budget: GoalBudgetReport): string | undefined {
+  const reached: string[] = [];
+  if (budget.turnBudgetReached) {
+    reached.push(`turn budget ${budget.turnBudget ?? ''}`.trim());
+  }
+  if (budget.tokenBudgetReached) {
+    reached.push(`token budget ${budget.tokenBudget ?? ''}`.trim());
+  }
+  if (budget.wallClockBudgetReached) {
+    reached.push(`wall-clock budget ${budget.wallClockBudgetMs ?? ''}ms`.trim());
+  }
+  return reached.length === 0 ? undefined : `${GOAL_BUDGET_BLOCK_PREFIX}: ${reached.join(', ')}`;
+}
+
 function budgetTelemetryProperties(limits: GoalBudgetLimits): TelemetryProperties {
   return {
     has_token_budget: limits.tokenBudget !== undefined,
     has_turn_budget: limits.turnBudget !== undefined,
     has_wall_clock_budget: limits.wallClockBudgetMs !== undefined,
   };
+}
+
+function tokenUsageTotal(usage: TokenUsageLike): number {
+  return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
 }
 
 function normalizeCompletionCriterion(value: string | undefined): string | undefined {

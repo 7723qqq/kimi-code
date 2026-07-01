@@ -247,6 +247,41 @@ describe('AgentGoalService', () => {
       expect(snapshot.budget.wallClockBudgetMs).toBe(1000);
     });
 
+    it('blocks when a token budget is reached', async () => {
+      await goals.createGoal({ objective: 'work' });
+      await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 10 } }, 'model');
+
+      const snapshot = await goals.recordTokenUsage(10);
+
+      expect(snapshot).toMatchObject({
+        status: 'blocked',
+        tokensUsed: 10,
+        terminalReason: 'Blocked after goal budget reached: token budget 10',
+      });
+      expect(goals.getGoal().goal).toMatchObject({
+        status: 'blocked',
+        budget: {
+          tokenBudgetReached: true,
+          overBudget: true,
+        },
+      });
+    });
+
+    it('blocks when a newly set budget is already exhausted', async () => {
+      await goals.createGoal({ objective: 'work' });
+      await goals.incrementTurn();
+
+      const snapshot = await goals.setBudgetLimits(
+        { budgetLimits: { turnBudget: 1 } },
+        'model',
+      );
+
+      expect(snapshot).toMatchObject({
+        status: 'blocked',
+        terminalReason: 'Blocked after goal budget reached: turn budget 1',
+      });
+    });
+
     it('tracks telemetry without goal text', async () => {
       await goals.createGoal({ objective: 'private objective', replace: true });
       await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 100 } }, 'model');
@@ -460,7 +495,7 @@ describe('AgentGoalService core workflow hooks', () => {
   let eventSink: IAgentEventSinkService;
 
   beforeEach(() => {
-    turnService = stubTurn();
+    turnService = stubTurn({ hasActiveTurn: true });
     turnService.hooks.beforeStep.register('turn-before-step-event', (_ctx, next) => next());
     ctx = createTestAgent(agentService(IAgentTurnService, turnService));
     context = ctx.get(IAgentContextMemoryService);
@@ -492,6 +527,60 @@ describe('AgentGoalService core workflow hooks', () => {
       name: 'goal_continuation',
     });
     expect(JSON.stringify(context.get().at(-1)?.content)).toContain('Continue working toward');
+  });
+
+  it('blocks at the turn budget instead of launching a continuation', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
+
+    const turn = makeTurn(11);
+    await turnService.hooks.onLaunched.run({ turn });
+    await runGoalStep(turnService, turn);
+    await endTurn(turnService, turn);
+
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'blocked',
+      turnsUsed: 1,
+      terminalReason: 'Blocked after goal budget reached: turn budget 1',
+    });
+    expect(turnService.launches).toEqual([]);
+  });
+
+  it('accounts live usage status deltas for active goal turns', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+    await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 7 } }, 'model');
+
+    const turn = turnService.launch({ kind: 'user' });
+    await turnService.hooks.onLaunched.run({ turn });
+
+    eventSink.emit({
+      type: 'agent.status.updated',
+      usage: {
+        currentTurn: {
+          inputCacheRead: 0,
+          inputCacheCreation: 0,
+          inputOther: 4,
+          output: 0,
+        },
+      },
+    });
+    eventSink.emit({
+      type: 'agent.status.updated',
+      usage: {
+        currentTurn: {
+          inputCacheRead: 0,
+          inputCacheCreation: 0,
+          inputOther: 4,
+          output: 3,
+        },
+      },
+    });
+
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'blocked',
+      tokensUsed: 7,
+      terminalReason: 'Blocked after goal budget reached: token budget 7',
+    });
   });
 
   it('continues after creating a goal mid-turn without counting the starter turn', async () => {
