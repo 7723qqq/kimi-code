@@ -22,7 +22,7 @@ import picomatch from 'picomatch';
 
 import { ErrorCodes, KimiError } from "#/errors";
 import { IBootstrapService } from '#/app/bootstrap';
-import { IConfigRegistry, IConfigService } from '#/app/config';
+import { IConfigService } from '#/app/config';
 import { resolveThinkingEffort } from './thinking';
 import { applyKimiModelOverrides, IChatProviderFactory, type KimiModelOverrides } from '#/app/chatProvider';
 import type { LoopControl } from '#/agent/loop/configSection';
@@ -34,11 +34,9 @@ import { ISessionModelResolver, type ResolvedModel } from '#/session/modelRuntim
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile';
 
-import { IAgentEventSinkService } from '#/agent/eventSink';
-import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
+import { IAgentRecordService } from '#/agent/record';
 import { ITelemetryService } from '#/app/telemetry';
 import type { ToolSource } from '#/agent/tool';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
 import { prepareSystemPromptContext } from './context';
 import type {
   ApplyProfileOptions,
@@ -50,12 +48,8 @@ import type {
 } from './profile';
 import { IAgentProfileService } from './profile';
 import {
-  DEFAULT_THINKING_SECTION,
-  defaultThinkingEnvBindings,
   THINKING_SECTION,
-  ThinkingConfigSchema,
   type ThinkingConfig,
-  thinkingEnvBindings,
 } from './configSection';
 
 declare module '#/agent/wireRecord' {
@@ -80,11 +74,8 @@ export class AgentProfileService implements IAgentProfileService {
   private agentsMdWarning: string | undefined;
 
   constructor(
-    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
-    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
-    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
+    @IAgentRecordService private readonly record: IAgentRecordService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
     @ISessionModelResolver private readonly modelResolver: ISessionModelResolver,
     @IChatProviderFactory private readonly chatProviders: IChatProviderFactory,
@@ -94,20 +85,18 @@ export class AgentProfileService implements IAgentProfileService {
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
   ) {
-    configRegistry.registerSection(THINKING_SECTION, ThinkingConfigSchema, {
-      env: thinkingEnvBindings,
-    });
-    configRegistry.registerSection(DEFAULT_THINKING_SECTION, { parse: (v) => v as boolean }, {
-      env: defaultThinkingEnvBindings,
-    });
     this.configure({});
-    wireRecord.register('config.update', (record) => {
-      const { type: _type, time: _time, ...changed } = record;
-      this.apply(changed);
+    record.define('config.update', {
+      resume: (r) => {
+        this.apply(stripConfigMeta(r));
+      },
+      toReplay: (r) => ({ type: 'config_updated', config: stripConfigMeta(r) }),
     });
-    wireRecord.register('tools.set_active_tools', (record) => {
-      this.applyActiveToolNames(record.names);
-      this.initializeBuiltinTools();
+    record.define('tools.set_active_tools', {
+      resume: (r) => {
+        this.applyActiveToolNames(r.names);
+        this.initializeBuiltinTools();
+      },
     });
   }
 

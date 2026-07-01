@@ -26,7 +26,7 @@ import {
 } from './task';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IConfigRegistry, IConfigService } from '#/app/config';
+import { IConfigService } from '#/app/config';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentPromptService } from '#/agent/prompt';
@@ -46,7 +46,7 @@ import {
   type ForegroundTaskReleaseReason,
   type RegisterBackgroundTaskOptions,
 } from './background';
-import { BACKGROUND_SECTION, type BackgroundConfig, BackgroundConfigSchema } from './configSection';
+import { BACKGROUND_SECTION, type BackgroundConfig } from './configSection';
 import { BackgroundTaskPersistence } from './persist';
 import { TaskListTool } from '#/agent/background/tools/task-list';
 import { TaskOutputTool } from '#/agent/background/tools/task-output';
@@ -140,14 +140,12 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
-    @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore atomicDocs: IAtomicDocumentStore,
     @IStorageService byteStore: IStorageService,
     @ISessionContext session: ISessionContext,
   ) {
     super();
-    configRegistry.registerSection(BACKGROUND_SECTION, BackgroundConfigSchema);
     this.persistence = new BackgroundTaskPersistence(
       session.sessionDir,
       session.metaScope.replace(/\/session-meta$/, ''),

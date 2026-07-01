@@ -18,7 +18,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IntervalTimer } from '#/_base/utils';
 
-import { IConfigRegistry, IConfigService } from '#/app/config';
+import { IConfigService } from '#/app/config';
 import { IAtomicDocumentStore } from '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';
 import type { ContextMessage } from '#/agent/contextMemory';
@@ -32,9 +32,7 @@ import { IAgentWireRecordService } from '#/agent/wireRecord';
 import {
   type CronConfig,
   CRON_SECTION,
-  cronEnvBindings,
   DEFAULT_CRON_CONFIG,
-  stripCronEnv,
 } from './configSection';
 import {
   IAgentCronService,
@@ -152,17 +150,11 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
-    @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
   ) {
     super();
     this.enabled = options.isSubagent !== true;
-    configRegistry.registerSection(CRON_SECTION, { parse: (v) => v as CronConfig }, {
-      defaultValue: DEFAULT_CRON_CONFIG,
-      env: cronEnvBindings,
-      stripEnv: stripCronEnv,
-    });
     this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
     this._register(
       this.config.onDidChangeConfiguration((e) => {

@@ -19,7 +19,7 @@ import {
   estimateTokensForMessages,
 } from "#/_base/utils/tokens";
 import type { TelemetryProperties } from '#/app/telemetry';
-import { IConfigRegistry, IConfigService } from '#/app/config';
+import { IConfigService } from '#/app/config';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IFlagService } from '#/app/flag';
@@ -35,7 +35,6 @@ import {
 } from './microCompaction';
 import {
   MICRO_COMPACTION_SECTION,
-  MicroCompactionConfigSchema,
   type MicroCompactionConfigPatch,
 } from './configSection';
 
@@ -72,11 +71,9 @@ export class AgentMicroCompactionService
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentTurnService turn: IAgentTurnService,
-    @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
   ) {
     super();
-    configRegistry.registerSection(MICRO_COMPACTION_SECTION, MicroCompactionConfigSchema);
     this.microConfig = this.readConfig();
     this._register(
       this.config.onDidSectionChange((event) => {

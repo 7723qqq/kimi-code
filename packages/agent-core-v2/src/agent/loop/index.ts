@@ -3,6 +3,8 @@
  * service contract/implementation.
  */
 
+import './configSection';
+
 export type {
   AfterStepHook,
   AfterStepResult,

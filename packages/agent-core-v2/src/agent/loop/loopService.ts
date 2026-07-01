@@ -45,7 +45,7 @@ import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester';
 import { ILogService } from '#/app/log';
 import { IAgentProfileService } from '#/agent/profile';
-import { IConfigRegistry, IConfigService } from '#/app/config';
+import { IConfigService } from '#/app/config';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
@@ -60,9 +60,6 @@ import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { IAgentLoopService, type LoopRunHooks } from './loop';
 import {
   LOOP_CONTROL_SECTION,
-  LoopControlSchema,
-  loopControlFromToml,
-  loopControlToToml,
   type LoopControl,
 } from './configSection';
 import { runTurn as runLoopTurn } from './run-turn';
@@ -103,15 +100,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
-    @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
     @ILogService private readonly log: ILogService,
   ) {
     super();
-    configRegistry.registerSection(LOOP_CONTROL_SECTION, LoopControlSchema, {
-      fromToml: loopControlFromToml,
-      toToml: loopControlToToml,
-    });
     this.context.hooks.onSpliced.register('loop-service-reconcile', async (_event, next) => {
       if (this.ownSpliceDepth === 0) {
         this.resetLiveStateFromHistory();
