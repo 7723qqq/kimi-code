@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { TokenUsage } from '@moonshot-ai/kosong';
 
 import { ErrorCodes } from '#/errors';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
@@ -52,6 +53,23 @@ async function runGoalStep(turnService: IAgentTurnService, turn: Turn): Promise<
   await turnService.hooks.beforeStep.run(step);
   await turnService.hooks.afterStep.run(step);
   return step.continueTurn;
+}
+
+async function recordStepUsage(
+  turnService: IAgentTurnService,
+  turn: Turn,
+  usage: TokenUsage,
+): Promise<boolean> {
+  const usageContext = {
+    turn,
+    usage,
+    stepNumber: 1,
+    stepUuid: 'step-1',
+    toolCallCount: 0,
+    stopTurn: false,
+  };
+  await turnService.hooks.onStepUsage.run(usageContext);
+  return usageContext.stopTurn;
 }
 
 async function endTurn(
@@ -546,40 +564,46 @@ describe('AgentGoalService core workflow hooks', () => {
     expect(turnService.launches).toEqual([]);
   });
 
-  it('accounts live usage status deltas for active goal turns', async () => {
+  it('accounts step usage through the turn usage hook for active goal turns', async () => {
     await goals.createGoal({ objective: 'finish the task' });
     await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 7 } }, 'model');
 
     const turn = turnService.launch({ kind: 'user' });
     await turnService.hooks.onLaunched.run({ turn });
 
-    eventSink.emit({
-      type: 'agent.status.updated',
-      usage: {
-        currentTurn: {
-          inputCacheRead: 0,
-          inputCacheCreation: 0,
-          inputOther: 4,
-          output: 0,
-        },
-      },
-    });
-    eventSink.emit({
-      type: 'agent.status.updated',
-      usage: {
-        currentTurn: {
-          inputCacheRead: 0,
-          inputCacheCreation: 0,
-          inputOther: 4,
-          output: 3,
-        },
-      },
-    });
+    expect(await recordStepUsage(turnService, turn, {
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+      inputOther: 4,
+      output: 0,
+    })).toBe(false);
+    expect(await recordStepUsage(turnService, turn, {
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+      inputOther: 0,
+      output: 3,
+    })).toBe(true);
 
     expect(goals.getGoal().goal).toMatchObject({
       status: 'blocked',
       tokensUsed: 7,
       terminalReason: 'Blocked after goal budget reached: token budget 7',
+    });
+  });
+
+  it('ignores step usage for non-goal turns', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+
+    const turn = makeTurn(99);
+    expect(await recordStepUsage(turnService, turn, {
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+      inputOther: 10,
+      output: 5,
+    })).toBe(false);
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'active',
+      tokensUsed: 0,
     });
   });
 

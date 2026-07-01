@@ -1,9 +1,16 @@
 import { createDecorator } from "#/_base/di";
 import type { HookSlot } from '#/hooks';
-import type { Turn, TurnContextOverflowContext, TurnResult, TurnStepContext } from '#/agent/turn';
+import type {
+  Turn,
+  TurnContextOverflowContext,
+  TurnResult,
+  TurnStepContext,
+  TurnStepUsageContext,
+} from '#/agent/turn';
 
 export interface LoopRunHooks {
   readonly beforeStep: HookSlot<TurnStepContext>;
+  readonly onStepUsage: HookSlot<TurnStepUsageContext>;
   readonly afterStep: HookSlot<TurnStepContext>;
   readonly onContextOverflow: HookSlot<TurnContextOverflowContext>;
 }

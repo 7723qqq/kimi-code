@@ -18,10 +18,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { abortError, abortable } from '#/_base/utils/abort';
 import { ISessionAgentFileSystem } from '#/session/agentFs';
 import type { ContextMessage } from '#/agent/contextMemory';
+import { IKaos } from '#/app/kaos';
 import { IOAuthService } from '#/app/auth';
 import { ErrorCodes, KimiError } from '#/errors';
 import { HookEngine } from '#/agent/externalHooks/engine';
-import { IHostEnvironment } from '#/app/hostEnvironment';
 import type { ILogger as Logger, LogPayload } from '#/app/log';
 import { IAgentMcpService } from '#/agent/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
@@ -1723,7 +1723,7 @@ describe('Agent turn flow', () => {
       });
     const registration = registerMediaTools(ctx.get(IAgentToolRegistryService), {
       fs: ctx.get(ISessionAgentFileSystem),
-      env: ctx.get(IHostEnvironment),
+      kaos: ctx.get(IKaos),
       workspace: { workspaceDir: '/workspace', additionalDirs: [] },
       capabilities: mediaCapabilities(),
       videoUploader,

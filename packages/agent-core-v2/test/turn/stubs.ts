@@ -44,6 +44,7 @@ function makeHooks(): IAgentTurnService['hooks'] {
     'onLaunched',
     'onEnded',
     'beforeStep',
+    'onStepUsage',
     'afterStep',
     'onContextOverflow',
   ]) as IAgentTurnService['hooks'];

@@ -16,6 +16,7 @@ import type {
   TurnEndedContext,
   TurnResult,
   TurnStepContext,
+  TurnStepUsageContext,
 } from './turn';
 import { IAgentTurnService } from './turn';
 
@@ -44,6 +45,7 @@ export class AgentTurnService implements IAgentTurnService {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
     onEnded: new OrderedHookSlot<TurnEndedContext>(),
     beforeStep: new OrderedHookSlot<TurnStepContext>(),
+    onStepUsage: new OrderedHookSlot<TurnStepUsageContext>(),
     afterStep: new OrderedHookSlot<TurnStepContext>(),
     onContextOverflow: new OrderedHookSlot<TurnContextOverflowContext>(),
   };
@@ -133,6 +135,7 @@ export class AgentTurnService implements IAgentTurnService {
       }
       result = await this.loop.runTurn(turn, {
         beforeStep: this.hooks.beforeStep,
+        onStepUsage: this.hooks.onStepUsage,
         afterStep: this.hooks.afterStep,
         onContextOverflow: this.hooks.onContextOverflow,
       });

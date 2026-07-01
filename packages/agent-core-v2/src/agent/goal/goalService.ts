@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import type { TokenUsage } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
@@ -36,6 +37,7 @@ import {
   type Turn,
   type TurnEndedContext,
   type TurnStepContext,
+  type TurnStepUsageContext,
 } from '#/agent/turn';
 import type { TelemetryProperties } from '#/app/telemetry';
 import { ITelemetryService } from '#/app/telemetry';
@@ -162,7 +164,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   private readonly countedGoalTurns = new Set<number>();
   private readonly goalOutcomeContinuationTurns = new Set<number>();
   private readonly promptHookBlockedTurns = new Set<number>();
-  private readonly observedUsageTotalsByTurn = new Map<number, number>();
 
   constructor(
     private readonly options: GoalServiceOptions = {},
@@ -226,6 +227,12 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       }),
     );
     this._register(
+      turnService.hooks.onStepUsage.register('goal-record-step-usage', async (ctx, next) => {
+        this.handleStepUsage(ctx);
+        await next();
+      }),
+    );
+    this._register(
       turnService.hooks.afterStep.register('goal-outcome-continuation', async (ctx, next) => {
         await next();
         this.handleAfterStep(ctx);
@@ -241,10 +248,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       events.on((event) => {
         if (event.type === 'hook.result' && event.blocked === true) {
           this.promptHookBlockedTurns.add(event.turnId);
-          return;
-        }
-        if (event.type === 'agent.status.updated' && event.usage?.currentTurn !== undefined) {
-          this.handleUsageStatusUpdated(event.usage.currentTurn);
         }
       }),
     );
@@ -487,7 +490,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     if (this.state?.status === 'active') this.goalDrivenTurns.add(turn.id);
     this.goalOutcomeContinuationTurns.delete(turn.id);
     this.promptHookBlockedTurns.delete(turn.id);
-    this.observedUsageTotalsByTurn.delete(turn.id);
   }
 
   private async handleBeforeStep(ctx: TurnStepContext): Promise<void> {
@@ -495,6 +497,14 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     if (this.countedGoalTurns.has(ctx.turn.id)) return;
     this.countedGoalTurns.add(ctx.turn.id);
     await this.incrementTurn();
+  }
+
+  private handleStepUsage(ctx: TurnStepUsageContext): void {
+    if (!this.goalDrivenTurns.has(ctx.turn.id)) return;
+    const snapshot = this.accountTokenUsage(tokenUsageTotal(ctx.usage));
+    if (snapshot?.budget.overBudget === true) {
+      ctx.stopTurn = true;
+    }
   }
 
   private handleAfterStep(ctx: TurnStepContext): void {
@@ -508,7 +518,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.goalDrivenTurns.delete(ctx.turn.id);
     this.countedGoalTurns.delete(ctx.turn.id);
     this.goalOutcomeContinuationTurns.delete(ctx.turn.id);
-    this.observedUsageTotalsByTurn.delete(ctx.turn.id);
 
     const blockedByPromptHook = this.promptHookBlockedTurns.delete(ctx.turn.id);
     if (blockedByPromptHook) {
@@ -533,17 +542,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     if (this.blockIfBudgetReached(this.state) !== null) return;
     if (this.turnService.getActiveTurn() !== undefined) return;
     this.launchContinuationTurn();
-  }
-
-  private handleUsageStatusUpdated(usage: TokenUsageLike): void {
-    const turn = this.turnService.getActiveTurn();
-    if (turn === undefined || !this.goalDrivenTurns.has(turn.id)) return;
-    const total = tokenUsageTotal(usage);
-    const previous = this.observedUsageTotalsByTurn.get(turn.id) ?? 0;
-    this.observedUsageTotalsByTurn.set(turn.id, total);
-    const delta = total - previous;
-    if (delta <= 0) return;
-    this.accountTokenUsage(delta);
   }
 
   private launchContinuationTurn(): void {
@@ -753,13 +751,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   }
 }
 
-interface TokenUsageLike {
-  readonly inputCacheRead: number;
-  readonly inputCacheCreation: number;
-  readonly inputOther: number;
-  readonly output: number;
-}
-
 function liveWallClockMs(state: GoalState, now: number = Date.now()): number {
   if (state.status === 'active' && state.wallClockResumedAt !== undefined) {
     return state.wallClockMs + Math.max(0, now - state.wallClockResumedAt);
@@ -818,7 +809,7 @@ function budgetTelemetryProperties(limits: GoalBudgetLimits): TelemetryPropertie
   };
 }
 
-function tokenUsageTotal(usage: TokenUsageLike): number {
+function tokenUsageTotal(usage: TokenUsage): number {
   return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
 }
 

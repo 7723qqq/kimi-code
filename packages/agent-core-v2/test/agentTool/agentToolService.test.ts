@@ -5,12 +5,12 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentBackgroundService } from '#/agent/background';
 import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IKaos } from '#/app/kaos';
 import { ILogService } from '#/app/log';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import { AgentToolService, IAgentToolService } from '#/agent/agentTool';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IExecContext, createExecContext } from '#/session/execContext';
 import { ISessionMetadata } from '#/session/session-metadata';
 import { ISessionProcessRunner } from '#/session/process';
 
@@ -35,7 +35,7 @@ describe('AgentToolService DI wiring', () => {
     ix.stub(IAgentToolRegistryService, { register });
     ix.stub(IAgentBackgroundService, {});
     ix.stub(IAgentProfileService, { isToolActive: vi.fn().mockReturnValue(false) });
-    ix.stub(IExecContext, createExecContext('/repo'));
+    ix.stub(IKaos, { cwd: '/repo' });
     ix.stub(ISessionProcessRunner, { exec: vi.fn() });
     ix.stub(ILogService, { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() });
     ix.set(IAgentToolService, new SyncDescriptor(AgentToolService, [undefined]));

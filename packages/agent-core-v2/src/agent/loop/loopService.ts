@@ -151,17 +151,28 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             toolExecutor: this.toolExecutor,
             maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
             maxRetryAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
-            recordStepUsage: (usage, context) => {
+            recordStepUsage: async (usage, context) => {
               const tokens = tokenUsageTotal(usage);
-              if (tokens <= 0) return;
-              if (context.toolCallCount > 0) {
-                this.pendingMeasurements.set(context.stepUuid, {
-                  tokens,
-                  remainingToolCalls: context.toolCallCount,
-                });
-              } else {
-                this.contextSize.measured(this.measurementLength(context.stepUuid), tokens);
+              if (tokens > 0) {
+                if (context.toolCallCount > 0) {
+                  this.pendingMeasurements.set(context.stepUuid, {
+                    tokens,
+                    remainingToolCalls: context.toolCallCount,
+                  });
+                } else {
+                  this.contextSize.measured(this.measurementLength(context.stepUuid), tokens);
+                }
               }
+              const usageContext = {
+                turn,
+                usage,
+                stepNumber: context.stepNumber,
+                stepUuid: context.stepUuid,
+                toolCallCount: context.toolCallCount,
+                stopTurn: false,
+              };
+              await hooks?.onStepUsage.run(usageContext);
+              return usageContext.stopTurn ? { stopTurn: true } : undefined;
             },
           });
           if (result.stopReason === 'aborted') {
