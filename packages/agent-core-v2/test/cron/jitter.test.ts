@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseCronExpression } from '#/agent/cron/tools/cron-expr';
+import { parseCronExpression } from '#/agent/cron/cron-expr';
 import {
   DEFAULT_CRON_JITTER_CONFIG,
   jitteredNextCronRunMs,
   oneShotJitteredNextCronRunMs,
-} from '#/agent/cron/tools/jitter';
+} from '#/agent/cron/jitter';
 
 function localDate(
   year: number,

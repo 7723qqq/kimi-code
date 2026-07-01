@@ -1,9 +1,8 @@
 /**
  * Session-level cron end-to-end smoke: exercises the full
- * `CronCreateTool → SessionCronStore → CronScheduler → CronManager →
- * agent.turn.steer` pipeline through the real `AgentTestContext`,
- * with Date.now controlled by the test so the
- * `coalescedCount = 3` calibration after a 15-minute advance is
+ * `CronCreateTool → AgentCronService → agent.turn.steer` pipeline
+ * through the real `AgentTestContext`, with Date.now controlled by
+ * the test so the `coalescedCount = 3` calibration after a 15-minute advance is
  * deterministic regardless of host TZ.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

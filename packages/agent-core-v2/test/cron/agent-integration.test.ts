@@ -1,6 +1,6 @@
 /**
  * Agent + cron wiring smoke: verifies `new Agent(...)` constructs and
- * starts a CronManager, registers the three cron tools, and that
+ * starts an AgentCronService, registers the three cron tools, and that
  * `KIMI_DISABLE_CRON=1` short-circuits `CronCreate`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,10 +36,10 @@ describe('Agent + Cron integration (P1.7)', () => {
       }
     });
 
-    it('exposes agent.cron with its session store on construction', () => {
+    it('exposes agent.cron with an empty task set on construction', () => {
       expect(cron).toBeDefined();
-      expect(cron.store).toBeDefined();
-      expect(cron.store.list()).toEqual([]);
+      expect(cron.isEnabled).toBe(true);
+      expect(cron.list()).toEqual([]);
     });
 
     it('registers CronCreate / CronList / CronDelete in the tool manager', () => {
@@ -101,7 +101,7 @@ describe('Agent + Cron integration (P1.7)', () => {
       );
 
       // And no task slipped into the store.
-      expect(cron.store.list()).toEqual([]);
+      expect(cron.list()).toEqual([]);
     });
   });
 });

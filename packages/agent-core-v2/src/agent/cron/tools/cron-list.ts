@@ -27,7 +27,7 @@
  *                       decimal places. Useful context for the `stale`
  *                       flag and for the LLM's "should I still be
  *                       running?" judgement.
- *   - `stale`         — mirrors `CronManager.isStale(task)`; see that
+ *   - `stale`         — mirrors `IAgentCronService.isStale(task)`; see that
  *                       method for the precise rules
  *                       (`recurring && age >= 7 days`, gated by
  *                       `KIMI_CRON_NO_STALE`).
@@ -44,12 +44,12 @@ import { z } from 'zod';
 
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
+import type { CronTask, IAgentCronService } from '#/agent/cron';
 import {
   cronToHuman,
   parseCronExpression,
-} from './cron-expr';
-import { formatLocalIsoWithOffset } from './time-format';
-import type { CronTask, CronToolManager } from './types';
+} from '#/agent/cron/cron-expr';
+import { formatLocalIsoWithOffset } from '#/agent/cron/format';
 import CRON_LIST_DESCRIPTION from './cron-list.md?raw';
 
 // ── Input schema ─────────────────────────────────────────────────────
@@ -90,20 +90,20 @@ export class CronListTool implements BuiltinTool<CronListInput> {
     CronListInputSchema,
   );
 
-  constructor(private readonly manager: CronToolManager) {}
+  constructor(private readonly cron: IAgentCronService) {}
 
   resolveExecution(_args: CronListInput): ToolExecution {
     return {
       description: 'Listing scheduled cron jobs',
       approvalRule: this.name,
       execute: async () => {
-        // Snapshot the store once and pin "now" from the manager's
+        // Snapshot the task set once and pin "now" from the service's
         // clock — keeping both reads inside the same execute() call
         // guarantees the `ageDays` and `nextFireAt` columns are
         // computed against the same instant even if the bench-injected
         // clock advances between the two.
-        const tasks = this.manager.store.list();
-        const nowMs = this.manager.clocks.wallNow();
+        const tasks = this.cron.list();
+        const nowMs = this.cron.now();
         const records = tasks.map((t) => this.renderRecord(t, nowMs));
         const header = `cron_jobs: ${String(tasks.length)}`;
         if (records.length === 0) {
@@ -132,17 +132,17 @@ export class CronListTool implements BuiltinTool<CronListInput> {
     const ageMs = nowMs - task.createdAt;
     const ageDays = Number.isFinite(ageMs) ? ageMs / MS_PER_DAY : 0;
 
-    const stale = this.manager.isStale(task);
+    const stale = this.cron.isStale(task);
 
     let humanSchedule = task.cron;
     let nextFireAtIso = 'null';
     try {
       const parsed = parseCronExpression(task.cron);
       humanSchedule = cronToHuman(parsed);
-      // Delegate to the scheduler so the rendered ISO matches what the
+      // Delegate to the service so the rendered ISO matches what the
       // scheduler will actually deliver — including a pending jittered
       // slot in the current period.
-      const nextFireMs = this.manager.getNextFireForTask(task.id);
+      const nextFireMs = this.cron.getNextFireForTask(task.id);
       if (nextFireMs !== null) {
         nextFireAtIso = formatLocalIsoWithOffset(nextFireMs);
       }

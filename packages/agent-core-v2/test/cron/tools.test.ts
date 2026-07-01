@@ -8,29 +8,37 @@ import type {
   RunnableToolExecution,
   ToolExecution,
 } from '#/agent/tool';
-import type { ClockSources } from '#/agent/cron/tools/clock';
+import type { CronTask, CronTaskInit, IAgentCronService } from '#/agent/cron';
+import {
+  computeNextCronRun,
+  parseCronExpression,
+} from '#/agent/cron/cron-expr';
+import { renderCronFireXml } from '#/agent/cron/format';
+import {
+  jitteredNextCronRunMs,
+  oneShotJitteredNextCronRunMs,
+} from '#/agent/cron/jitter';
 import {
   CronCreateTool,
   MAX_CRON_JOBS_PER_SESSION,
   type CronCreateInput,
 } from '#/agent/cron/tools/cron-create';
 import { CronDeleteTool, type CronDeleteInput } from '#/agent/cron/tools/cron-delete';
-import { renderCronFireXml } from '#/agent/cron/tools/cron-fire-xml';
 import { CronListTool, type CronListInput } from '#/agent/cron/tools/cron-list';
-import { createCronScheduler } from '#/agent/cron/tools/scheduler';
-import {
-  SessionCronStore,
-  type SessionCronTaskInit,
-} from '#/agent/cron/tools/session-store';
-import type { CronTask, CronToolManager } from '#/agent/cron/tools/types';
 
 const WALL_ANCHOR = 1_700_000_000_000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const TRUNCATED = '\u2026(truncated)';
 
+interface FakeStore {
+  add(init: CronTaskInit, nowMs: number): CronTask;
+  adopt(task: CronTask): void;
+  list(): readonly CronTask[];
+}
+
 interface ToolHarness {
-  readonly store: SessionCronStore;
-  readonly manager: CronToolManager;
+  readonly store: FakeStore;
+  readonly cron: IAgentCronService;
   readonly scheduled: CronTask[];
   readonly deleted: string[];
   setNow(value: number): void;
@@ -43,52 +51,72 @@ function createToolHarness(options: {
   readonly noJitter?: boolean;
 } = {}): ToolHarness {
   let now = options.now ?? WALL_ANCHOR;
-  const store = new SessionCronStore();
+  const noJitter = options.noJitter ?? true;
+  const tasks = new Map<string, CronTask>();
   const scheduled: CronTask[] = [];
   const deleted: string[] = [];
-  const clocks: ClockSources = {
-    wallNow: () => now,
-    monoNowMs: () => now,
+  let idCounter = 0;
+
+  const store: FakeStore = {
+    add(init, nowMs) {
+      idCounter += 1;
+      const id = idCounter.toString(16).padStart(8, '0');
+      const task: CronTask = { ...init, id, createdAt: nowMs };
+      tasks.set(id, task);
+      return task;
+    },
+    adopt(task) {
+      tasks.set(task.id, task);
+    },
+    list() {
+      return Array.from(tasks.values());
+    },
   };
-  const scheduler = createCronScheduler({
-    clocks,
-    source: () => store.list(),
-    onFire: () => {},
-    isIdle: () => true,
-    pollIntervalMs: null,
-    noJitter: options.noJitter ?? true,
-  });
-  const manager: CronToolManager = {
-    store: {
-      list: () => store.list(),
-    },
-    clocks: {
-      wallNow: () => now,
-    },
-    addTask(init: SessionCronTaskInit) {
-      return store.add(init, now);
-    },
-    removeTasks(ids: readonly string[]) {
-      return store.remove(ids);
-    },
-    isStale(task: CronTask) {
+
+  const cron: IAgentCronService = {
+    _serviceBrand: undefined,
+    isEnabled: true,
+    now: () => now,
+    list: () => store.list(),
+    getTask: (id) => tasks.get(id),
+    addTask: (init) => store.add(init, now),
+    removeTasks: (ids) => ids.filter((id) => tasks.delete(id)),
+    isStale(task) {
       const age = now - task.createdAt;
       return task.recurring !== false && Number.isFinite(age) && age >= 7 * MS_PER_DAY;
     },
-    getNextFireForTask(taskId: string) {
-      return scheduler.getNextFireForTask(taskId);
+    getNextFireForTask(taskId) {
+      const task = tasks.get(taskId);
+      if (task === undefined) return null;
+      try {
+        const parsed = parseCronExpression(task.cron);
+        const ideal = computeNextCronRun(parsed, task.createdAt);
+        if (ideal === null) return null;
+        return task.recurring === false
+          ? oneShotJitteredNextCronRunMs(task, ideal, undefined, noJitter)
+          : jitteredNextCronRunMs(task, parsed, ideal, undefined, noJitter);
+      } catch {
+        return null;
+      }
     },
-    emitScheduled(task: CronTask) {
+    getNextFireTime: () => null,
+    emitScheduled: (task) => {
       scheduled.push(task);
     },
-    emitDeleted(taskId: string) {
-      deleted.push(taskId);
+    emitDeleted: (id) => {
+      deleted.push(id);
     },
+    loadFromDisk: async () => {},
+    start: () => {},
+    stop: async () => {},
+    tick: () => {},
+    flushPersist: async () => {},
+    handleMissed: () => undefined,
   };
 
   return {
     store,
-    manager,
+    cron,
     scheduled,
     deleted,
     setNow(value: number) {
@@ -159,7 +187,7 @@ function pad(value: number): string {
 describe('CronCreateTool', () => {
   it('schedules a recurring task and emits scheduled telemetry through the manager', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager);
+    const tool = new CronCreateTool(harness.cron);
 
     const out = assertSuccess(
       await runTool<CronCreateInput>(tool, {
@@ -189,7 +217,7 @@ describe('CronCreateTool', () => {
 
   it('stores explicit one-shot tasks with recurring=false', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager);
+    const tool = new CronCreateTool(harness.cron);
 
     const out = assertSuccess(
       await runTool<CronCreateInput>(tool, {
@@ -209,7 +237,7 @@ describe('CronCreateTool', () => {
 
   it('returns an error when scheduling is disabled', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager, true);
+    const tool = new CronCreateTool(harness.cron, true);
 
     const output = assertError(
       await runTool<CronCreateInput>(tool, {
@@ -225,7 +253,7 @@ describe('CronCreateTool', () => {
 
   it('rejects an unparseable cron expression', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager);
+    const tool = new CronCreateTool(harness.cron);
 
     const output = assertError(
       await runTool<CronCreateInput>(tool, {
@@ -241,7 +269,7 @@ describe('CronCreateTool', () => {
 
   it('rejects a legal expression that has no fire inside the supported window', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager);
+    const tool = new CronCreateTool(harness.cron);
 
     const output = assertError(
       await runTool<CronCreateInput>(tool, {
@@ -256,7 +284,7 @@ describe('CronCreateTool', () => {
 
   it('refuses to schedule past the session cap', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager);
+    const tool = new CronCreateTool(harness.cron);
 
     for (let i = 0; i < MAX_CRON_JOBS_PER_SESSION; i++) {
       harness.store.add({ cron: '*/5 * * * *', prompt: `seed-${i}`, recurring: true }, harness.now());
@@ -275,7 +303,7 @@ describe('CronCreateTool', () => {
 
   it('rechecks the session cap inside execute', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager);
+    const tool = new CronCreateTool(harness.cron);
 
     for (let i = 0; i < MAX_CRON_JOBS_PER_SESSION - 1; i++) {
       harness.store.add({ cron: '*/5 * * * *', prompt: `seed-${i}`, recurring: true }, harness.now());
@@ -312,7 +340,7 @@ describe('CronCreateTool', () => {
 
   it('rejects prompts over the UTF-8 byte budget', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager);
+    const tool = new CronCreateTool(harness.cron);
     const prompt = '\u4f60'.repeat(3000);
 
     const output = assertError(
@@ -328,7 +356,7 @@ describe('CronCreateTool', () => {
 
   it('normalizes cron field whitespace before storing and rendering', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager);
+    const tool = new CronCreateTool(harness.cron);
 
     const out = assertSuccess(
       await runTool<CronCreateInput>(tool, {
@@ -345,7 +373,7 @@ describe('CronCreateTool', () => {
 
   it('uses the execution-time clock for createdAt', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager);
+    const tool = new CronCreateTool(harness.cron);
     const execution = await tool.resolveExecution({
       cron: '*/5 * * * *',
       prompt: 'delayed approval',
@@ -365,7 +393,7 @@ describe('CronCreateTool', () => {
 
   it('includes the normalized payload in the approval rule', async () => {
     const harness = createToolHarness();
-    const tool = new CronCreateTool(harness.manager);
+    const tool = new CronCreateTool(harness.cron);
 
     const a = await tool.resolveExecution({
       cron: '*/5\n* * * *',
@@ -397,7 +425,7 @@ describe('CronDeleteTool', () => {
   it('deletes an existing task and emits deletion through the manager', async () => {
     const harness = createToolHarness();
     const task = harness.store.add({ cron: '*/5 * * * *', prompt: 'ping', recurring: true }, harness.now());
-    const tool = new CronDeleteTool(harness.manager);
+    const tool = new CronDeleteTool(harness.cron);
 
     const output = assertSuccess(await runTool<CronDeleteInput>(tool, { id: task.id }));
 
@@ -408,7 +436,7 @@ describe('CronDeleteTool', () => {
 
   it('reports an error for a well-formed but absent id', async () => {
     const harness = createToolHarness();
-    const tool = new CronDeleteTool(harness.manager);
+    const tool = new CronDeleteTool(harness.cron);
 
     const output = assertError(await runTool<CronDeleteInput>(tool, { id: 'deadbeef' }));
 
@@ -421,7 +449,7 @@ describe('CronDeleteTool', () => {
     async (id) => {
       const harness = createToolHarness();
       harness.store.add({ cron: '*/5 * * * *', prompt: 'ping', recurring: true }, harness.now());
-      const tool = new CronDeleteTool(harness.manager);
+      const tool = new CronDeleteTool(harness.cron);
 
       const output = assertError(await runTool<CronDeleteInput>(tool, { id }));
 
@@ -435,7 +463,7 @@ describe('CronDeleteTool', () => {
 describe('CronListTool', () => {
   it('renders the empty case with a zero header and no separator', async () => {
     const harness = createToolHarness();
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
 
     expect(assertSuccess(await runTool<CronListInput>(tool, {}))).toMatchInlineSnapshot(`
       "cron_jobs: 0
@@ -445,7 +473,7 @@ describe('CronListTool', () => {
 
   it('renders a single recurring task with all expected columns', async () => {
     const harness = createToolHarness();
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
     harness.store.add({ cron: '*/5 * * * *', prompt: 'hi', recurring: true }, harness.now());
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
@@ -466,7 +494,7 @@ describe('CronListTool', () => {
   it('renders nextFireAt in local time with an explicit offset', async () => {
     const now = new Date(2026, 4, 29, 8, 35, 0, 0).getTime();
     const harness = createToolHarness({ now });
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
     harness.store.add({ cron: '0 9 * * *', prompt: 'morning', recurring: true }, now);
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
@@ -481,7 +509,7 @@ describe('CronListTool', () => {
 
   it('separates multiple records in insertion order', async () => {
     const harness = createToolHarness();
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
     harness.store.add({ cron: '*/5 * * * *', prompt: 'first', recurring: true }, harness.now());
     harness.store.add({ cron: '0 12 * * *', prompt: 'second', recurring: false }, harness.now());
 
@@ -511,7 +539,7 @@ describe('CronListTool', () => {
 
   it('flags recurring tasks older than seven days as stale', async () => {
     const harness = createToolHarness();
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
     harness.store.add({ cron: '*/5 * * * *', prompt: 'old', recurring: true }, harness.now() - 8 * MS_PER_DAY);
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
@@ -531,7 +559,7 @@ describe('CronListTool', () => {
 
   it('reports explicit one-shot tasks as recurring=false', async () => {
     const harness = createToolHarness();
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
     harness.store.add({ cron: '0 12 * * *', prompt: 'noon', recurring: false }, harness.now());
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
@@ -552,7 +580,7 @@ describe('CronListTool', () => {
 
   it('renders malformed cron records without throwing', async () => {
     const harness = createToolHarness();
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
     harness.store.add({ cron: 'garbage', prompt: 'x', recurring: true }, harness.now());
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
@@ -573,7 +601,7 @@ describe('CronListTool', () => {
   it('anchors one-shot nextFireAt at createdAt while the current slot is pending', async () => {
     const createdAt = new Date(2026, 4, 29, 11, 55, 0, 0).getTime();
     const harness = createToolHarness({ now: createdAt });
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
     harness.store.add({ cron: '0 12 * * *', prompt: 'noon-pending', recurring: false }, createdAt);
     harness.advance(10 * 60_000);
 
@@ -589,7 +617,7 @@ describe('CronListTool', () => {
   it('reports the current pending jitter window instead of skipping to the next period', async () => {
     const anchor = new Date(2026, 4, 29, 8, 35, 0, 0).getTime();
     const harness = createToolHarness({ now: anchor, noJitter: false });
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
     harness.store.adopt({
       id: 'ffffffff',
       cron: '*/5 * * * *',
@@ -610,7 +638,7 @@ describe('CronListTool', () => {
 
   it('truncates prompts over 200 UTF-8 bytes', async () => {
     const harness = createToolHarness();
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
     const longPrompt = 'x'.repeat(300);
     harness.store.add({ cron: '*/5 * * * *', prompt: longPrompt, recurring: true }, harness.now());
 
@@ -624,7 +652,7 @@ describe('CronListTool', () => {
 
   it('walks back to a UTF-8 character boundary when truncating prompts', async () => {
     const harness = createToolHarness();
-    const tool = new CronListTool(harness.manager);
+    const tool = new CronListTool(harness.cron);
     const cjkPrompt = '\u4f60'.repeat(100);
     harness.store.add({ cron: '*/5 * * * *', prompt: cjkPrompt, recurring: true }, harness.now());
 

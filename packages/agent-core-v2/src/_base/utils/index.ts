@@ -12,6 +12,7 @@ export * from './hero-slug';
 export * from './promise';
 export * from './proxy';
 export * from './render-prompt';
+export * from './timer';
 export * from './tokens';
 export * from './types';
 export * from './workdir-slug';

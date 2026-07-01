@@ -2,11 +2,10 @@
  * CronDeleteTool — cancel a scheduled cron job by id.
  *
  * The tool's job is intentionally narrow: validate the id shape, ask the
- * session store to drop the entry, and report whether anything was
- * actually removed. The scheduler picks up the deletion on its next
- * `tick()` automatically because `source: () => store.list()` is
- * re-read every pass — there is no separate "unsubscribe" handshake to
- * keep in sync.
+ * service to drop the entry, and report whether anything was actually
+ * removed. The scheduler picks up the deletion on its next `tick()`
+ * automatically because the task set is re-read every pass — there is no
+ * separate "unsubscribe" handshake to keep in sync.
  *
  * Why "not found" is reported as an error:
  *
@@ -18,7 +17,7 @@
  *     thought it deleted. Surfacing `isError: true` lets the model
  *     correct itself (typically by calling `CronList` again).
  *
- * Why the manager is not consulted for telemetry on the not-found
+ * Why the service is not consulted for telemetry on the not-found
  * branch:
  *
  *   - `cron_deleted` records an actual state change. Emitting it on a
@@ -40,14 +39,14 @@ import { z } from 'zod';
 
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import type { CronToolManager } from './types';
+import type { IAgentCronService } from '#/agent/cron';
 import CRON_DELETE_DESCRIPTION from './cron-delete.md?raw';
 
 // ── Constants ────────────────────────────────────────────────────────
 
 /**
- * Same id shape used by `SessionCronStore` and the on-disk persistence
- * layer. We re-check here so a malformed id never reaches the store —
+ * Same id shape used by the service and the on-disk persistence
+ * layer. We re-check here so a malformed id never reaches the service —
  * the regex is the single source of truth for the on-the-wire id
  * format and an early reject keeps the error message close to the
  * user's input.
@@ -72,7 +71,7 @@ export class CronDeleteTool implements BuiltinTool<CronDeleteInput> {
     CronDeleteInputSchema,
   );
 
-  constructor(private readonly manager: CronToolManager) {}
+  constructor(private readonly cron: IAgentCronService) {}
 
   resolveExecution(args: CronDeleteInput): ToolExecution {
     // Format check up front. The store would reject the lookup anyway,
@@ -91,7 +90,7 @@ export class CronDeleteTool implements BuiltinTool<CronDeleteInput> {
       description: `Deleting cron ${args.id}`,
       approvalRule: this.name,
       execute: async () => {
-        const removed = this.manager.removeTasks([args.id]);
+        const removed = this.cron.removeTasks([args.id]);
         if (removed.length === 0) {
           // Not found is reported as an error so the model can correct
           // itself — see the module header for the rationale. We
@@ -103,10 +102,10 @@ export class CronDeleteTool implements BuiltinTool<CronDeleteInput> {
           };
         }
 
-        // Telemetry goes through the manager so the tool stays out of
-        // `manager.agent.telemetry` — symmetric with `CronCreate`'s use
-        // of `emitScheduled`.
-        this.manager.emitDeleted(args.id);
+        // Telemetry goes through the service so the tool stays out of
+        // `ITelemetryService` — symmetric with `CronCreate`'s use of
+        // `emitScheduled`.
+        this.cron.emitDeleted(args.id);
 
         return {
           output: `Deleted cron job ${args.id}.`,
