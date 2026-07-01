@@ -170,6 +170,9 @@ describe('SkillTool', () => {
         });
         reg.defineInstance(IWireRecord, stubWireRecord());
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
+        reg.definePartialInstance(IToolRegistry, {
+          register: () => ({ dispose: () => {} }),
+        });
       },
     });
     skills = new InMemorySkillCatalog();

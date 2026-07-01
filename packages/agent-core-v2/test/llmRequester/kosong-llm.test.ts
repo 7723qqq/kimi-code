@@ -159,6 +159,7 @@ describe('LLMRequester service migration coverage', () => {
       });
       expect(events).toContainEqual({
         type: 'finish',
+        id: 'response-1',
         providerFinishReason: 'completed',
         rawFinishReason: 'stop',
       });

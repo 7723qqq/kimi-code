@@ -14,6 +14,9 @@ import { ISessionLifecycleService } from '#/session-lifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/session-lifecycle/sessionLifecycleService';
 import { ISessionMetadata } from '#/session-metadata';
 import { ISkillCatalog } from '#/skill';
+import { ISessionIndex } from '#/session-index';
+import { IAppendLogStore, IAtomicDocumentStore } from '#/storage';
+import { IWorkspaceRegistry, type Workspace } from '#/workspaceRegistry';
 
 function bootstrapStub(): IBootstrapService {
   return {
@@ -72,6 +75,57 @@ function skillCatalogStub(): ISkillCatalog {
   };
 }
 
+function workspaceRegistryStub(): IWorkspaceRegistry {
+  return {
+    _serviceBrand: undefined,
+    list: () => Promise.resolve([]),
+    get: () => Promise.resolve(undefined),
+    createOrTouch: (root, name) =>
+      Promise.resolve<Workspace>({
+        id: 'wd_stub',
+        root,
+        name: name ?? 'stub',
+        createdAt: 0,
+        lastOpenedAt: 0,
+      }),
+    update: () => Promise.resolve(undefined),
+    delete: () => Promise.resolve(),
+  };
+}
+
+function sessionIndexStub(): ISessionIndex {
+  return {
+    _serviceBrand: undefined,
+    list: () => Promise.resolve({ items: [], total: 0, hasMore: false }),
+    get: () => Promise.resolve(undefined),
+    countActive: () => Promise.resolve(0),
+  };
+}
+
+function appendLogStoreStub(): IAppendLogStore {
+  return {
+    _serviceBrand: undefined,
+    append: () => {},
+    read: async function* () {},
+    rewrite: () => Promise.resolve(),
+    flush: () => Promise.resolve(),
+    close: () => Promise.resolve(),
+    acquire: () => ({ dispose: () => {} }),
+  };
+}
+
+function atomicDocumentStoreStub(): IAtomicDocumentStore {
+  return {
+    _serviceBrand: undefined,
+    get: () => Promise.resolve(undefined),
+    set: () => Promise.resolve(),
+    delete: () => Promise.resolve(),
+    list: () => Promise.resolve([]),
+    watch: () => (_listener) => ({ dispose: () => {} }),
+    acquire: () => ({ dispose: () => {} }),
+  };
+}
+
 describe('SessionLifecycleService', () => {
   let host: ScopedTestHost | undefined;
 
@@ -97,6 +151,10 @@ describe('SessionLifecycleService', () => {
       stubPair(ISessionMetadata, metadataStub()),
       stubPair(IKaosFactory, kaosFactoryStub()),
       stubPair(ISkillCatalog, skillCatalogStub()),
+      stubPair(IWorkspaceRegistry, workspaceRegistryStub()),
+      stubPair(ISessionIndex, sessionIndexStub()),
+      stubPair(IAppendLogStore, appendLogStoreStub()),
+      stubPair(IAtomicDocumentStore, atomicDocumentStoreStub()),
       ...extra,
     ]);
     return host.core.accessor.get(ISessionLifecycleService);

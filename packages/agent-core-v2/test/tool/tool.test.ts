@@ -439,17 +439,17 @@ describe('Agent tools', () => {
         [wire] permission.set_mode        { "mode": "auto", "time": "<time>" }
         [emit] agent.status.updated       { "permission": "auto" }
         [wire] tools.register_user_tool   { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false }, "time": "<time>" }
-        [wire] context.splice             { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "toolCalls": [] } ], "time": "<time>" }
-        [wire] turn.launch                { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-        [emit] turn.started               { "turnId": 0, "origin": { "kind": "user" } }
-        [wire] context.splice             { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<auto-mode-enter-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "permission_mode" } } ], "time": "<time>" }
+        [wire] context.splice             { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
+        [wire] turn.launch                { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
+        [emit] turn.started               { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+        [wire] context.splice             { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<auto-mode-enter-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "permission_mode" }, "id": "<msg-2>" } ], "time": "<time>" }
         [emit] turn.step.started          { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
         [emit] assistant.delta            { "turnId": 0, "delta": "I will look it up." }
         [emit] tool.call.delta            { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"moon\\"}" }
         [wire] usage.record               { "model": "mock-model", "usage": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
         [emit] agent.status.updated       { "usage": { "byModel": { "mock-model": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] context.splice             { "start": 2, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will look it up." } ], "toolCalls": [] } ], "time": "<time>" }
-        [wire] context.splice             { "start": 2, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will look it up." } ], "toolCalls": [ { "type": "function", "id": "call_lookup", "name": "Lookup", "arguments": "{\\"query\\":\\"moon\\"}" } ] } ], "time": "<time>" }
+        [wire] context.splice             { "start": 2, "deleteCount": 0, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will look it up." } ], "toolCalls": [] } ], "time": "<time>" }
+        [wire] context.splice             { "start": 2, "deleteCount": 1, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will look it up." } ], "toolCalls": [ { "type": "function", "id": "call_lookup", "name": "Lookup", "arguments": "{\\"query\\":\\"moon\\"}" } ] } ], "time": "<time>" }
         [wire] context_size.measured      { "length": 3, "tokens": 104, "time": "<time>" }
         [emit] agent.status.updated       { "contextTokens": 104 }
         [emit] tool.call.started          { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "moon" } }
@@ -457,7 +457,7 @@ describe('Agent tools', () => {
       `);
       expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
         system: <system-prompt>
-        tools: Agent, AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Lookup, Read, Write
+        tools: Agent, AgentSwarm, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, GetGoal, Glob, Grep, Lookup, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, UpdateGoal, Write
         messages:
           user: text "Look up moon"
           user: text <auto-mode-enter-reminder>
@@ -465,16 +465,20 @@ describe('Agent tools', () => {
 
       ctx.mockNextResponse({ type: 'text', text: 'The lookup result is moon-result.' });
       expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-        [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "moon-result" } ], "toolCalls": [], "toolCallId": "call_lookup" } ], "time": "<time>" }
+        [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "moon-result" } ], "toolCalls": [], "toolCallId": "call_lookup", "id": "<msg-4>" } ], "time": "<time>" }
         [emit] tool.result             { "turnId": 0, "toolCallId": "call_lookup", "output": "moon-result" }
+        [wire] context.splice          { "start": 2, "deleteCount": 1, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will look it up." } ], "toolCalls": [ { "type": "function", "id": "call_lookup", "name": "Lookup", "arguments": "{\\"query\\":\\"moon\\"}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
+        [emit] agent.status.updated    { "contextTokens": 0 }
         [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 88, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
         [emit] turn.step.started       { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
         [emit] assistant.delta         { "turnId": 0, "delta": "The lookup result is moon-result." }
         [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
         [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 196, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 196, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 196, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is moon-result." } ], "toolCalls": [] } ], "time": "<time>" }
+        [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is moon-result." } ], "toolCalls": [] } ], "time": "<time>" }
         [wire] context_size.measured   { "length": 5, "tokens": 120, "time": "<time>" }
         [emit] agent.status.updated    { "contextTokens": 120 }
+        [wire] context.splice          { "start": 4, "deleteCount": 1, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is moon-result." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
+        [emit] agent.status.updated    { "contextTokens": 0 }
         [emit] turn.step.completed     { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
         [emit] turn.ended              { "turnId": 0, "reason": "completed" }
       `);
@@ -490,21 +494,23 @@ describe('Agent tools', () => {
 
       expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
         [wire] tools.unregister_user_tool   { "name": "Lookup", "time": "<time>" }
-        [wire] context.splice               { "start": 5, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Can you still use Lookup?" } ], "toolCalls": [] } ], "time": "<time>" }
-        [wire] turn.launch                  { "turnId": 1, "origin": { "kind": "user" }, "time": "<time>" }
-        [emit] turn.started                 { "turnId": 1, "origin": { "kind": "user" } }
+        [wire] context.splice               { "start": 5, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Can you still use Lookup?" } ], "toolCalls": [], "id": "<msg-6>" } ], "time": "<time>" }
+        [wire] turn.launch                  { "turnId": 1, "origin": { "kind": "user" }, "promptMessageId": "<msg-6>", "time": "<time>" }
+        [emit] turn.started                 { "turnId": 1, "origin": { "kind": "user" }, "promptMessageId": "<msg-6>" }
         [emit] turn.step.started            { "turnId": 1, "step": 1, "stepId": "<uuid-3>" }
         [emit] assistant.delta              { "turnId": 1, "delta": "No lookup tool is available." }
         [wire] usage.record                 { "model": "mock-model", "usage": { "inputOther": 128, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 1 }, "time": "<time>" }
         [emit] agent.status.updated         { "usage": { "byModel": { "mock-model": { "inputOther": 324, "output": 38, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 324, "output": 38, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 128, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] context.splice               { "start": 6, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "No lookup tool is available." } ], "toolCalls": [] } ], "time": "<time>" }
+        [wire] context.splice               { "start": 6, "deleteCount": 0, "messages": [ { "id": "<msg-7>", "role": "assistant", "content": [ { "type": "text", "text": "No lookup tool is available." } ], "toolCalls": [] } ], "time": "<time>" }
         [wire] context_size.measured        { "length": 7, "tokens": 138, "time": "<time>" }
         [emit] agent.status.updated         { "contextTokens": 138 }
+        [wire] context.splice               { "start": 6, "deleteCount": 1, "messages": [ { "id": "<msg-7>", "role": "assistant", "content": [ { "type": "text", "text": "No lookup tool is available." } ], "toolCalls": [], "providerMessageId": "mock-3" } ], "time": "<time>" }
+        [emit] agent.status.updated         { "contextTokens": 0 }
         [emit] turn.step.completed          { "turnId": 1, "step": 1, "stepId": "<uuid-3>", "usage": { "inputOther": 128, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
         [emit] turn.ended                   { "turnId": 1, "reason": "completed" }
       `);
       expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-        tools: Agent, AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, Write
+        tools: Agent, AgentSwarm, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, UpdateGoal, Write
         messages:
           <last>
           assistant: text "The lookup result is moon-result."
