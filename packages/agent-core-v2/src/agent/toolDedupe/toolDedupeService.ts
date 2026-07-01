@@ -1,7 +1,7 @@
 /**
  * `toolDedup` domain (L4) — `IAgentToolDedupeService` implementation.
  *
- * Self-wiring plugin: its constructor registers `turn` beforeStep/afterStep
+ * Self-wiring plugin: its constructor registers `loop` beforeStep/afterStep
  * hooks and `toolExecutor` onWillExecuteTool/onDidExecuteTool hooks to drive
  * same-step suppression and cross-step repeat reminders, and reports repeat
  * telemetry through `telemetry`. Constructed eagerly at Agent scope so the
@@ -13,8 +13,8 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentLoopService } from '#/agent/loop';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentTurnService } from '#/agent/turn';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { IAgentToolDedupeService, type ToolDedupResult } from './toolDedupe';
 
@@ -109,15 +109,15 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
 
   constructor(
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentTurnService turn: IAgentTurnService,
+    @IAgentLoopService loop: IAgentLoopService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
     super();
-    turn.hooks.beforeStep.register('toolDedup', async (_ctx, next) => {
+    loop.hooks.beforeStep.register('toolDedup', async (_ctx, next) => {
       this.beginStep();
       await next();
     });
-    turn.hooks.afterStep.register('toolDedup', async (_ctx, next) => {
+    loop.hooks.afterStep.register('toolDedup', async (_ctx, next) => {
       this.endStep();
       await next();
     });

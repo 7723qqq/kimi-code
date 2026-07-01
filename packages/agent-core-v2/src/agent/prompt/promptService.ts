@@ -9,6 +9,7 @@ import {
   type ContextMessage,
 } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentLoopService } from '#/agent/loop';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
 import { IAgentPromptService } from './prompt';
@@ -21,14 +22,15 @@ export class AgentPromptService implements IAgentPromptService {
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @IAgentLoopService loopService: IAgentLoopService,
     @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
     @IAgentEventSinkService private readonly events: IAgentEventSinkService,
   ) {
-    turnService.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
+    loopService.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
       this.flushSteerQueue();
       await next();
     });
-    turnService.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
+    loopService.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
       await next();
       if (this.flushSteerQueue()) {
         ctx.continueTurn = true;

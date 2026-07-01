@@ -63,10 +63,6 @@ export interface IAgentTurnService {
   readonly hooks: Hooks<{
     onLaunched: { turn: Turn };
     onEnded: TurnEndedContext;
-    beforeStep: TurnStepContext;
-    onStepUsage: TurnStepUsageContext;
-    afterStep: TurnStepContext;
-    onContextOverflow: TurnContextOverflowContext;
   }>;
 }
 

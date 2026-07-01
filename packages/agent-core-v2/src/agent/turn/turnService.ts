@@ -12,11 +12,8 @@ import { ITelemetryService } from '#/app/telemetry';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
 import type {
   Turn,
-  TurnContextOverflowContext,
   TurnEndedContext,
   TurnResult,
-  TurnStepContext,
-  TurnStepUsageContext,
 } from './turn';
 import { IAgentTurnService } from './turn';
 
@@ -44,10 +41,6 @@ export class AgentTurnService implements IAgentTurnService {
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
     onEnded: new OrderedHookSlot<TurnEndedContext>(),
-    beforeStep: new OrderedHookSlot<TurnStepContext>(),
-    onStepUsage: new OrderedHookSlot<TurnStepUsageContext>(),
-    afterStep: new OrderedHookSlot<TurnStepContext>(),
-    onContextOverflow: new OrderedHookSlot<TurnContextOverflowContext>(),
   };
 
   constructor(
@@ -61,10 +54,14 @@ export class AgentTurnService implements IAgentTurnService {
     wireRecord.register('turn.launch', (record) => {
       this.restoreLaunch(record.turnId);
     });
-    this.hooks.beforeStep.register('turn-before-step-event', async (ctx, next) => {
-      await next();
-      this.resolveReady(ctx.turn);
-    });
+    this.loop.hooks.beforeStep.register(
+      'turn-ready-before-step',
+      async (ctx, next) => {
+        await next();
+        this.resolveReady(ctx.turn);
+      },
+      { before: 'turn-before-step-event' },
+    );
     this.events.on((event) => {
       if (event.type === 'agent.status.updated' && event.planMode !== undefined) {
         this.planModeActive = event.planMode;
@@ -133,12 +130,7 @@ export class AgentTurnService implements IAgentTurnService {
         result = promptHookResult;
         return result;
       }
-      result = await this.loop.runTurn(turn, {
-        beforeStep: this.hooks.beforeStep,
-        onStepUsage: this.hooks.onStepUsage,
-        afterStep: this.hooks.afterStep,
-        onContextOverflow: this.hooks.onContextOverflow,
-      });
+      result = await this.loop.runTurn(turn);
       return result;
     } catch (error) {
       if (turn.abortController.signal.aborted) {

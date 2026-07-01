@@ -43,6 +43,7 @@ import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester';
+import { OrderedHookSlot } from '#/hooks';
 import { ILogService } from '#/app/log';
 import { IAgentProfileService } from '#/agent/profile';
 import { IConfigRegistry, IConfigService } from '#/app/config';
@@ -57,7 +58,7 @@ import type {
   LoopRecordedEvent,
 } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
-import { IAgentLoopService, type LoopRunHooks } from './loop';
+import { IAgentLoopService } from './loop';
 import {
   LOOP_CONTROL_SECTION,
   LoopControlSchema,
@@ -82,6 +83,13 @@ type TelemetryProperties = Record<string, unknown>;
 
 export class AgentLoopService extends Disposable implements IAgentLoopService {
   declare readonly _serviceBrand: undefined;
+  readonly hooks: IAgentLoopService['hooks'] = {
+    beforeStep: new OrderedHookSlot(),
+    onStepUsage: new OrderedHookSlot(),
+    afterStep: new OrderedHookSlot(),
+    onContextOverflow: new OrderedHookSlot(),
+  };
+
   private readonly openSteps = new Map<string, OpenStep>();
   private readonly toolCallStartedAt = new Map<string, ToolCallTelemetryStart>();
   private readonly toolCallDupType = new Map<string, 'normal' | 'cross_step'>();
@@ -108,6 +116,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @ILogService private readonly log: ILogService,
   ) {
     super();
+    this._register(
+      this.hooks.beforeStep.register('turn-before-step-event', async (_ctx, next) => {
+        await next();
+      }),
+    );
     configRegistry.registerSection(LOOP_CONTROL_SECTION, LoopControlSchema, {
       fromToml: loopControlFromToml,
       toToml: loopControlToToml,
@@ -127,11 +140,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     );
   }
 
-  async runTurn(turn: Turn, hooks: LoopRunHooks | undefined): Promise<TurnResult> {
+  async runTurn(turn: Turn): Promise<TurnResult> {
     const startedAt = Date.now();
     this.protocolTurnId = turn.id;
     const llm = this.createLLM(turn.id);
-    const loopHooks = this.loopHooks(turn, hooks);
+    const loopHooks = this.loopHooks(turn);
     try {
       // Preflight the model configuration before any step begins. Legacy reads
       // `config.model` at the top of its step loop, so a missing model fails the
@@ -171,7 +184,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
                 toolCallCount: context.toolCallCount,
                 stopTurn: false,
               };
-              await hooks?.onStepUsage.run(usageContext);
+              await this.hooks.onStepUsage.run(usageContext);
               return usageContext.stopTurn ? { stopTurn: true } : undefined;
             },
           });
@@ -185,7 +198,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         } catch (error) {
           if (isContextOverflowError(error)) {
             const context = { turn, error, handled: false };
-            await hooks?.onContextOverflow.run(context);
+            await this.hooks.onContextOverflow.run(context);
             if (context.handled) continue;
           }
           throw error;
@@ -579,17 +592,17 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       });
   }
 
-  private loopHooks(turn: Turn, hooks: LoopRunHooks | undefined): LoopHooks {
+  private loopHooks(turn: Turn): LoopHooks {
     let continueAfterStop = false;
     let stopHookContinuationUsed = false;
     return {
       beforeStep: async () => {
-        await hooks?.beforeStep.run({ turn, continueTurn: false });
+        await this.hooks.beforeStep.run({ turn, continueTurn: false });
         return undefined;
       },
       afterStep: async (context) => {
         const turnContext = { turn, continueTurn: false };
-        await hooks?.afterStep.run(turnContext);
+        await this.hooks.afterStep.run(turnContext);
         if (context.stopReason !== 'tool_use' && turnContext.continueTurn) {
           continueAfterStop = true;
         }

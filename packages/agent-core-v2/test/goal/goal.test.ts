@@ -5,6 +5,7 @@ import { ErrorCodes } from '#/errors';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentGoalService, type AgentGoalService } from '#/agent/goal';
+import { IAgentLoopService } from '#/agent/loop';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn';
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord';
@@ -17,7 +18,7 @@ import {
   wireRecordPersistenceServices,
   type TestAgentContext,
 } from '../harness';
-import { stubTurn, type StubTurn } from '../turn/stubs';
+import { stubLoopWithHooks, stubTurn, type StubTurn } from '../turn/stubs';
 
 type GoalServiceTestManager = IAgentGoalService & AgentGoalService;
 type GoalRecord = Extract<PersistedWireRecord, { type: `goal.${string}` }>;
@@ -48,15 +49,15 @@ function makeTurn(id: number): Turn {
   };
 }
 
-async function runGoalStep(turnService: IAgentTurnService, turn: Turn): Promise<boolean> {
+async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<boolean> {
   const step = { turn, continueTurn: false };
-  await turnService.hooks.beforeStep.run(step);
-  await turnService.hooks.afterStep.run(step);
+  await loopService.hooks.beforeStep.run(step);
+  await loopService.hooks.afterStep.run(step);
   return step.continueTurn;
 }
 
 async function recordStepUsage(
-  turnService: IAgentTurnService,
+  loopService: IAgentLoopService,
   turn: Turn,
   usage: TokenUsage,
 ): Promise<boolean> {
@@ -68,7 +69,7 @@ async function recordStepUsage(
     toolCallCount: 0,
     stopTurn: false,
   };
-  await turnService.hooks.onStepUsage.run(usageContext);
+  await loopService.hooks.onStepUsage.run(usageContext);
   return usageContext.stopTurn;
 }
 
@@ -510,12 +511,17 @@ describe('AgentGoalService core workflow hooks', () => {
   let context: IAgentContextMemoryService;
   let goals: IAgentGoalService;
   let turnService: StubTurn;
+  let loopService: IAgentLoopService;
   let eventSink: IAgentEventSinkService;
 
   beforeEach(() => {
     turnService = stubTurn({ hasActiveTurn: true });
-    turnService.hooks.beforeStep.register('turn-before-step-event', (_ctx, next) => next());
-    ctx = createTestAgent(agentService(IAgentTurnService, turnService));
+    loopService = stubLoopWithHooks();
+    loopService.hooks.beforeStep.register('turn-before-step-event', (_ctx, next) => next());
+    ctx = createTestAgent(
+      agentService(IAgentTurnService, turnService),
+      agentService(IAgentLoopService, loopService),
+    );
     context = ctx.get(IAgentContextMemoryService);
     goals = ctx.get(IAgentGoalService);
     eventSink = ctx.get(IAgentEventSinkService);
@@ -530,7 +536,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     const turn = makeTurn(1);
     await turnService.hooks.onLaunched.run({ turn });
-    await runGoalStep(turnService, turn);
+    await runGoalStep(loopService, turn);
     await endTurn(turnService, turn);
 
     expect(goals.getGoal().goal).toMatchObject({
@@ -553,7 +559,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     const turn = makeTurn(11);
     await turnService.hooks.onLaunched.run({ turn });
-    await runGoalStep(turnService, turn);
+    await runGoalStep(loopService, turn);
     await endTurn(turnService, turn);
 
     expect(goals.getGoal().goal).toMatchObject({
@@ -564,20 +570,20 @@ describe('AgentGoalService core workflow hooks', () => {
     expect(turnService.launches).toEqual([]);
   });
 
-  it('accounts step usage through the turn usage hook for active goal turns', async () => {
+  it('accounts step usage through the loop usage hook for active goal turns', async () => {
     await goals.createGoal({ objective: 'finish the task' });
     await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 7 } }, 'model');
 
     const turn = turnService.launch({ kind: 'user' });
     await turnService.hooks.onLaunched.run({ turn });
 
-    expect(await recordStepUsage(turnService, turn, {
+    expect(await recordStepUsage(loopService, turn, {
       inputCacheRead: 0,
       inputCacheCreation: 0,
       inputOther: 4,
       output: 0,
     })).toBe(false);
-    expect(await recordStepUsage(turnService, turn, {
+    expect(await recordStepUsage(loopService, turn, {
       inputCacheRead: 0,
       inputCacheCreation: 0,
       inputOther: 0,
@@ -595,7 +601,7 @@ describe('AgentGoalService core workflow hooks', () => {
     await goals.createGoal({ objective: 'finish the task' });
 
     const turn = makeTurn(99);
-    expect(await recordStepUsage(turnService, turn, {
+    expect(await recordStepUsage(loopService, turn, {
       inputCacheRead: 0,
       inputCacheCreation: 0,
       inputOther: 10,
@@ -610,7 +616,7 @@ describe('AgentGoalService core workflow hooks', () => {
   it('continues after creating a goal mid-turn without counting the starter turn', async () => {
     const turn = makeTurn(2);
     await turnService.hooks.onLaunched.run({ turn });
-    await runGoalStep(turnService, turn);
+    await runGoalStep(loopService, turn);
 
     await goals.createGoal({ objective: 'finish the task' }, 'model');
     await endTurn(turnService, turn);
@@ -630,10 +636,10 @@ describe('AgentGoalService core workflow hooks', () => {
     const turn = makeTurn(3);
     await turnService.hooks.onLaunched.run({ turn });
     const step = { turn, continueTurn: false };
-    await turnService.hooks.beforeStep.run(step);
+    await loopService.hooks.beforeStep.run(step);
 
     await goals.markComplete({}, 'model');
-    await turnService.hooks.afterStep.run(step);
+    await loopService.hooks.afterStep.run(step);
     await endTurn(turnService, turn);
 
     expect(step.continueTurn).toBe(true);

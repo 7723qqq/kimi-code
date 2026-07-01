@@ -3,9 +3,9 @@
  *
  * Owns the per-agent goal lifecycle; persists records through `wireRecord`,
  * broadcasts through `eventSink`, injects reminders through `contextInjector`,
- * drives continuation turns through `turn`, updates context through
- * `contextMemory`, writes system reminders through `systemReminder`, registers
- * model tools through `toolRegistry`, and reports telemetry through
+ * drives continuation turns through `turn`, participates in steps through
+ * `loop`, updates context through `contextMemory`, writes system reminders
+ * through `systemReminder`, registers model tools through `toolRegistry`, and reports telemetry through
  * `telemetry`. Bound at Agent scope.
  */
 
@@ -29,6 +29,7 @@ import {
   type PromptOrigin,
 } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentLoopService } from '#/agent/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
@@ -175,6 +176,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @IAgentLoopService loopService: IAgentLoopService,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
   ) {
@@ -221,19 +223,19 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       }),
     );
     this._register(
-      turnService.hooks.beforeStep.register('goal-count-turn', async (ctx, next) => {
+      loopService.hooks.beforeStep.register('goal-count-turn', async (ctx, next) => {
         await this.handleBeforeStep(ctx);
         await next();
       }),
     );
     this._register(
-      turnService.hooks.onStepUsage.register('goal-record-step-usage', async (ctx, next) => {
+      loopService.hooks.onStepUsage.register('goal-record-step-usage', async (ctx, next) => {
         this.handleStepUsage(ctx);
         await next();
       }),
     );
     this._register(
-      turnService.hooks.afterStep.register('goal-outcome-continuation', async (ctx, next) => {
+      loopService.hooks.afterStep.register('goal-outcome-continuation', async (ctx, next) => {
         await next();
         this.handleAfterStep(ctx);
       }),
