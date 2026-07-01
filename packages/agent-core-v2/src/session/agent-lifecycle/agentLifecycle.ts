@@ -3,8 +3,8 @@
  *
  * Defines the public contract of agent lifecycle: the `CreateAgentOptions` and
  * the `IAgentLifecycleService` used to create agents (`create` / `createMain`),
- * look them up (`getHandle` / `list`), and remove them. Session-scoped — one
- * instance per session.
+ * fork an existing agent (`fork`), look them up (`getHandle` / `list`), and
+ * remove them. Session-scoped — one instance per session.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -27,6 +27,8 @@ export interface IAgentLifecycleService {
   readonly onDidDispose: Event<string>;
   create(opts: CreateAgentOptions): Promise<IScopeHandle>;
   createMain(): Promise<IScopeHandle>;
+  /** Create a child agent that inherits the parent's profile and context history. */
+  fork(parentAgentId: string): Promise<IScopeHandle>;
   getHandle(agentId: string): IScopeHandle | undefined;
   list(): readonly IScopeHandle[];
   remove(agentId: string): Promise<void>;

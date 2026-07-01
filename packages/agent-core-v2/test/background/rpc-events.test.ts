@@ -21,7 +21,8 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import type { HookEngine } from '#/agent/externalHooks/engine';
 import { IAgentPromptService } from '#/agent/prompt';
-import type { SessionSubagentHost, SubagentHandle } from '#/session/subagentHost';
+import type { SubagentDetachHandle } from '#/agent/background';
+import type { SubagentHandle } from '#/agent/agentTool';
 import {
   configServices,
   createTestAgent,
@@ -82,7 +83,7 @@ function agentTask(
   options: {
     readonly agentId?: string;
     readonly subagentType?: string;
-    readonly subagentHost?: Pick<SessionSubagentHost, 'markActiveChildDetached'>;
+    readonly subagentHost?: Pick<SubagentDetachHandle, 'markActiveChildDetached'>;
     readonly abortController?: AbortController;
     readonly timeoutMs?: number;
   } = {},

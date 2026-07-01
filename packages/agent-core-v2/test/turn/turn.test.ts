@@ -4,7 +4,6 @@ import { Readable } from 'node:stream';
 import { join } from 'pathe';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import type { Kaos, KaosProcess } from '@moonshot-ai/kaos';
 import {
   APIConnectionError,
   APIEmptyResponseError,
@@ -22,7 +21,7 @@ import type { ContextMessage } from '#/agent/contextMemory';
 import { IOAuthService } from '#/app/auth';
 import { ErrorCodes, KimiError } from '#/errors';
 import { HookEngine } from '#/agent/externalHooks/engine';
-import { IKaos } from '#/app/kaos';
+import { IHostEnvironment } from '#/app/hostEnvironment';
 import type { ILogger as Logger, LogPayload } from '#/app/log';
 import { IAgentMcpService } from '#/agent/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
@@ -32,21 +31,21 @@ import { IAgentProfileService } from '#/agent/profile';
 import { IAgentSwarmService } from '#/agent/swarm';
 import { IAgentTurnService } from '#/agent/turn';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import type { IProcess, ISessionProcessRunner } from '#/session/process';
 import type {
   QueuedSubagentRunResult,
   QueuedSubagentTask,
-  SessionSubagentHost,
-} from '#/session/subagentHost';
+} from '#/agent/swarm';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { createFakeAgentFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import {
   configServices,
   appServices,
-  createCommandKaos,
-  kaosServices,
+  createCommandRunner,
+  execEnvServices,
   logServices,
   mcpServices,
-  subagentHostServices,
+  swarmServices,
   testAgent,
   type TestAgentOptions,
   type TestAgentServiceOverride,
@@ -89,8 +88,8 @@ describe('Agent turn flow', () => {
       .mockImplementation((signal?: AbortSignal) =>
         signal === undefined ? initialLoad : abortable(initialLoad, signal),
     );
-    const { kaos, execWithEnv } = createExecKaos('mcp-ready');
-    const ctx = testAgent(mcpServices({ manager: mcp }), kaosServices(kaos));
+    const { runner, exec: execWithEnv } = createExecRunner('mcp-ready');
+    const ctx = testAgent(mcpServices({ manager: mcp }), execEnvServices({ processRunner: runner }));
     ctx.get(IAgentMcpService);
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -121,8 +120,8 @@ describe('Agent turn flow', () => {
       .mockImplementation((signal?: AbortSignal) =>
         signal === undefined ? initialLoad : abortable(initialLoad, signal),
     );
-    const { kaos, execWithEnv } = createExecKaos('should-not-run');
-    const ctx = testAgent(mcpServices({ manager: mcp }), kaosServices(kaos));
+    const { runner, exec: execWithEnv } = createExecRunner('should-not-run');
+    const ctx = testAgent(mcpServices({ manager: mcp }), execEnvServices({ processRunner: runner }));
     ctx.get(IAgentMcpService);
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -168,7 +167,7 @@ describe('Agent turn flow', () => {
 
   it('tracks duplicate tool-call detection telemetry', async () => {
     const records: TelemetryRecord[] = [];
-    const ctx = testAgent(kaosServices(createCommandKaos('dup')), {
+    const ctx = testAgent(execEnvServices({ processRunner: createCommandRunner('dup') }), {
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -207,7 +206,7 @@ describe('Agent turn flow', () => {
 
   it('tracks cross-step duplicate tool-call detection telemetry', async () => {
     const records: TelemetryRecord[] = [];
-    const ctx = testAgent(kaosServices(createCommandKaos('dup')), {
+    const ctx = testAgent(execEnvServices({ processRunner: createCommandRunner('dup') }), {
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -270,7 +269,7 @@ describe('Agent turn flow', () => {
         },
       },
     );
-    const ctx = testAgent(kaosServices(createCommandKaos('dup')), { hookEngine });
+    const ctx = testAgent(execEnvServices({ processRunner: createCommandRunner('dup') }), { hookEngine });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
 
@@ -447,7 +446,7 @@ describe('Agent turn flow', () => {
 
   it('enters silent swarm mode when the agent calls AgentSwarm', async () => {
     const runQueued = vi.fn(async <T>(
-      tasks: readonly QueuedSubagentTask<T>[],
+      { tasks }: { tasks: readonly QueuedSubagentTask<T>[] },
     ): Promise<Array<QueuedSubagentRunResult<T>>> => {
       return tasks.map((task, index) => ({
         task,
@@ -456,10 +455,7 @@ describe('Agent turn flow', () => {
         result: `result ${String(index + 1)}`,
       }));
     });
-    const subagentHost = mockSubagentHost({
-      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
-    });
-    const ctx = testAgent(subagentHostServices(subagentHost));
+    const ctx = testAgent(swarmServices(runQueued as never));
     ctx.configure({ tools: ['AgentSwarm'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
 
@@ -951,7 +947,7 @@ describe('Agent turn flow', () => {
         timeout: 5,
       },
     ]);
-    const ctx = testAgent(kaosServices(createFakeKaos({ execWithEnv })), {
+    const ctx = testAgent(execEnvServices({ processRunner: createFakeProcessRunner({ exec: execWithEnv }) }), {
       hookEngine,
     });
     const authorize = vi.spyOn(ctx.get(IAgentPermissionGate), 'authorize');
@@ -1357,7 +1353,7 @@ describe('Agent turn flow', () => {
   });
 
   it('honors configured maxStepsPerTurn in agent turns', async () => {
-    const ctx = testAgent(kaosServices(createCommandKaos('loop-output')), {
+    const ctx = testAgent(execEnvServices({ processRunner: createCommandRunner('loop-output') }), {
       initialConfig: {
         providers: {},
         loopControl: { maxStepsPerTurn: 1 },
@@ -1706,7 +1702,7 @@ describe('Agent turn flow', () => {
         throw new APIStatusError(401, 'Unauthorized', 'req-upload-401');
       }),
     } as unknown as ChatProvider;
-    const ctx = testAgent(oauthOptions.services, kaosServices(createVideoKaos()), {
+    const ctx = testAgent(oauthOptions.services, execEnvServices({ agentFs: createVideoAgentFs() }), {
       initialConfig: oauthOptions.initialConfig,
       autoConfigure: false,
     });
@@ -1727,7 +1723,7 @@ describe('Agent turn flow', () => {
       });
     const registration = registerMediaTools(ctx.get(IAgentToolRegistryService), {
       fs: ctx.get(ISessionAgentFileSystem),
-      kaos: ctx.get(IKaos),
+      env: ctx.get(IHostEnvironment),
       workspace: { workspaceDir: '/workspace', additionalDirs: [] },
       capabilities: mediaCapabilities(),
       videoUploader,
@@ -1756,7 +1752,7 @@ describe('Agent turn flow', () => {
 
   it('cancels an active turn', async () => {
     const records: TelemetryRecord[] = [];
-    const ctx = testAgent(kaosServices(createCommandKaos('should-not-run')), {
+    const ctx = testAgent(execEnvServices({ processRunner: createCommandRunner('should-not-run') }), {
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -1804,7 +1800,7 @@ describe('Agent turn flow', () => {
       name: 'Bash',
       arguments: '{"command":"printf approved","timeout":60}',
     };
-    const ctx = testAgent(kaosServices(createCommandKaos('approved')));
+    const ctx = testAgent(execEnvServices({ processRunner: createCommandRunner('approved') }));
     ctx.configure({ tools: ['Bash'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will ask first.' }, bashCall);
@@ -1878,7 +1874,7 @@ describe('Agent turn flow', () => {
   });
 
   it('rejects a non-steer prompt while a turn is active', async () => {
-    const ctx = testAgent(kaosServices(createCommandKaos('should-not-run')));
+    const ctx = testAgent(execEnvServices({ processRunner: createCommandRunner('should-not-run') }));
     ctx.configure({ tools: ['Bash'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will wait for approval.' }, bashCall());
@@ -1995,13 +1991,6 @@ function agentSwarmCall(): ToolCall {
   };
 }
 
-function mockSubagentHost<T extends Partial<SessionSubagentHost>>(
-  host: T,
-): T & SessionSubagentHost {
-  return { spawn: vi.fn(), resume: vi.fn(), runQueued: vi.fn(), ...host } as unknown as T &
-    SessionSubagentHost;
-}
-
 interface ApiErrorTelemetryCase {
   readonly name: string;
   readonly createError: () => Error;
@@ -2039,27 +2028,31 @@ const DEFAULT_MEDIA_STAT = {
   stCtime: 0,
 };
 
-function createExecKaos(output: string): {
-  readonly kaos: Kaos;
-  readonly execWithEnv: NonNullable<Kaos['execWithEnv']>;
+function createExecRunner(output: string): {
+  readonly runner: ISessionProcessRunner;
+  readonly exec: ReturnType<typeof vi.fn>;
 } {
-  const execWithEnv = vi.fn<NonNullable<Kaos['execWithEnv']>>(async () => ({
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as KaosProcess['stdin'],
+  const exec = vi.fn(async (): Promise<IProcess> => ({
+    stdin: { write: vi.fn(), end: vi.fn() } as unknown as IProcess['stdin'],
     stdout: Readable.from([output]),
     stderr: Readable.from(['']),
     pid: 42,
     exitCode: 0,
-    wait: vi.fn().mockResolvedValue(0),
-    kill: vi.fn().mockResolvedValue(undefined),
-    dispose: vi.fn().mockResolvedValue(undefined),
+    wait: vi.fn().mockResolvedValue(0) as IProcess['wait'],
+    kill: vi.fn().mockResolvedValue(undefined) as IProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as IProcess['dispose'],
   }));
-  return { kaos: createFakeKaos({ execWithEnv }), execWithEnv };
+  return { runner: createFakeProcessRunner({ exec }), exec };
 }
 
-function createVideoKaos(): Kaos {
-  return createFakeKaos({
-    stat: vi.fn<Kaos['stat']>().mockResolvedValue(DEFAULT_MEDIA_STAT),
-    readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(MP4_HEADER),
+function createVideoAgentFs(): ISessionAgentFileSystem {
+  return createFakeAgentFs({
+    stat: vi.fn(async () => ({
+      isFile: true,
+      isDirectory: false,
+      size: MP4_HEADER.length,
+    })),
+    readBytes: vi.fn(async () => MP4_HEADER),
   });
 }
 

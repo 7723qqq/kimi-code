@@ -1,21 +1,21 @@
 import { Readable, type Writable } from 'node:stream';
 
-import type { Kaos, KaosProcess } from '@moonshot-ai/kaos';
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { HookEngine } from '#/agent/externalHooks/engine';
 import { IAgentProfileService } from '#/agent/profile';
-import type { SessionSubagentHost } from '#/session/subagentHost';
+import type { AgentToolRunOverride } from '#/agent/agentTool';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import type { IProcess, ISessionProcessRunner } from '#/session/process';
+import { createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import {
-  createCommandKaos,
+  agentToolServices,
+  createCommandRunner,
   createTestAgent,
+  execEnvServices,
   externalHookServices,
-  kaosServices,
-  subagentHostServices,
   type TestAgentContext,
 } from '../harness';
 import { executeTool } from '../tools/fixtures/execute-tool';
@@ -37,13 +37,11 @@ describe('Agent tools', () => {
   });
 
   describe('PreToolUse blocking', () => {
-    let execWithEnv: NonNullable<Kaos['execWithEnv']>;
+    let exec: ReturnType<typeof vi.fn>;
     let triggered: Array<[string, string, number]>;
 
     beforeEach(() => {
-      execWithEnv = vi
-        .fn<NonNullable<Kaos['execWithEnv']>>()
-        .mockRejectedValue(new Error('Bash should not execute'));
+      exec = vi.fn<ISessionProcessRunner['exec']>().mockRejectedValue(new Error('Bash should not execute'));
       triggered = [];
       const hookEngine = new HookEngine(
         [
@@ -65,7 +63,7 @@ describe('Agent tools', () => {
         },
       );
       ctx = createTestAgent(
-        kaosServices(createFakeKaos({ execWithEnv })),
+        execEnvServices({ processRunner: createFakeProcessRunner({ exec: exec as unknown as ISessionProcessRunner['exec'] }) }),
         externalHookServices(hookEngine),
       );
       context = ctx.get(IAgentContextMemoryService);
@@ -80,7 +78,7 @@ describe('Agent tools', () => {
 
       await ctx.untilTurnEnd();
 
-      expect(execWithEnv).not.toHaveBeenCalled();
+      expect(exec).not.toHaveBeenCalled();
       expect(triggered).toEqual([
         ['PreToolUse', 'Bash', 1],
         ['PostToolUseFailure', 'Bash', 1],
@@ -125,7 +123,7 @@ describe('Agent tools', () => {
         },
       );
       ctx = createTestAgent(
-        kaosServices(createCommandKaos('hook-output')),
+        execEnvServices({ processRunner: createCommandRunner('hook-output') }),
         externalHookServices(hookEngine),
       );
       profile = ctx.get(IAgentProfileService);
@@ -175,7 +173,7 @@ describe('Agent tools', () => {
         },
       );
       ctx = createTestAgent(
-        kaosServices(createFailingCommandKaos('hook-output')),
+        execEnvServices({ processRunner: createFailingCommandRunner('hook-output') }),
         externalHookServices(hookEngine),
       );
       profile = ctx.get(IAgentProfileService);
@@ -198,7 +196,7 @@ describe('Agent tools', () => {
 
   describe('Bash tool call start event', () => {
     beforeEach(async () => {
-      ctx = createTestAgent(kaosServices(createCommandKaos('ok')));
+      ctx = createTestAgent(execEnvServices({ processRunner: createCommandRunner('ok') }));
       profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Bash'] });
       await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -220,14 +218,14 @@ describe('Agent tools', () => {
   });
 
   describe('foreground Agent tool recovery', () => {
-    let subagentHost: SessionSubagentHost;
+    let runOverride: AgentToolRunOverride;
 
     beforeEach(() => {
       const completion = Promise.reject(
         new Error('Subagent turn failed before completing its final summary: reason=max_tokens.'),
       );
       void completion.catch(() => undefined);
-      subagentHost = {
+      runOverride = {
         spawn: vi.fn().mockResolvedValue({
           agentId: 'agent-child',
           profileName: 'coder',
@@ -235,8 +233,11 @@ describe('Agent tools', () => {
           completion,
         }),
         resume: vi.fn(),
-      } as unknown as SessionSubagentHost;
-      ctx = createTestAgent(subagentHostServices(subagentHost));
+        retry: vi.fn(),
+        getProfileName: vi.fn().mockResolvedValue(undefined),
+        markDetached: vi.fn(),
+      };
+      ctx = createTestAgent(agentToolServices(runOverride));
       profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Agent'] });
     });
@@ -250,7 +251,7 @@ describe('Agent tools', () => {
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Delegate and recover' }] });
       await ctx.untilTurnEnd();
 
-      expect(subagentHost.spawn).toHaveBeenCalledWith(
+      expect(runOverride.spawn).toHaveBeenCalledWith(
         expect.objectContaining({
           profileName: 'coder',
           parentToolCallId: 'call_agent',
@@ -529,24 +530,21 @@ function bashCall(): ToolCall {
   };
 }
 
-function createFailingCommandKaos(stdout: string): ReturnType<typeof createFakeKaos> {
-  function createProcess(): KaosProcess {
+function createFailingCommandRunner(stdout: string): ISessionProcessRunner {
+  function createProcess(): IProcess {
     return {
       stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
       stdout: Readable.from([stdout]),
       stderr: Readable.from(['']),
       pid: 42,
       exitCode: 2,
-      wait: vi.fn().mockResolvedValue(2),
-      kill: vi.fn().mockResolvedValue(undefined),
-      dispose: vi.fn().mockResolvedValue(undefined),
+      wait: vi.fn().mockResolvedValue(2) as IProcess['wait'],
+      kill: vi.fn().mockResolvedValue(undefined) as IProcess['kill'],
+      dispose: vi.fn().mockResolvedValue(undefined) as IProcess['dispose'],
     };
   }
-
-  return createFakeKaos({
-    execWithEnv: vi.fn().mockImplementation(async () => createProcess()),
-    mkdir: vi.fn().mockResolvedValue(undefined),
-    writeText: vi.fn(async (_path: string, content: string) => content.length),
+  return createFakeProcessRunner({
+    exec: vi.fn().mockImplementation(async () => createProcess()),
   });
 }
 

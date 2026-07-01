@@ -1,9 +1,9 @@
 /**
  * `agent-lifecycle` domain (L6) — `IAgentLifecycleService` implementation.
  *
- * Creates and tracks the session's agents as child scopes. Bound at Session
- * scope. Removing an agent disposes its scope; surviving agents are disposed
- * with the session.
+ * Creates and tracks the session's agents as child scopes. Seeds each agent's
+ * identity through `agent` scopeContext, wires per-agent wire records and MCP,
+ * and registers the agent in the session registry. Bound at Session scope.
  */
 
 import { join } from 'pathe';
@@ -29,6 +29,9 @@ import { IPluginService } from '#/app/plugin';
 import { ISessionContext } from '#/session/session-context';
 import { ISessionMetadata } from '#/session/session-metadata';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { IAgentScopeContext } from '#/agent/scopeContext';
+import { IAgentProfileService } from '#/agent/profile';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentWireRecordService, AgentWireRecordService } from '#/agent/wireRecord';
 import {
   IAgentReplayBuilderService,
@@ -80,6 +83,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       agentId,
       {
         extra: [
+          [IAgentScopeContext, { _serviceBrand: undefined, agentId } satisfies IAgentScopeContext],
           [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
           [IAgentMcpService, new SyncDescriptor(AgentMcpService, [{ manager: this.getMcpManager() }])],
           // These two carry a leading static `options` param; the scoped
@@ -117,6 +121,28 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     // v1's `pluginSessionStarts: type === 'main' ? ... : undefined`.
     handle.accessor.get(IPluginSessionStartInjectorService);
     return handle;
+  }
+
+  async fork(parentAgentId: string): Promise<IScopeHandle> {
+    const parent =
+      this.handles.get(parentAgentId) ??
+      (parentAgentId === 'main' ? await this.createMain() : undefined);
+    if (parent === undefined) throw new Error(`Parent agent "${parentAgentId}" does not exist`);
+    const child = await this.create({ parentAgentId: parent.id, type: 'sub' });
+
+    const parentData = parent.accessor.get(IAgentProfileService).data();
+    child.accessor.get(IAgentProfileService).update({
+      modelAlias: parentData.modelAlias,
+      thinkingLevel: parentData.thinkingLevel,
+      systemPrompt: parentData.systemPrompt,
+      activeToolNames: parentData.activeToolNames,
+    });
+
+    const parentMessages = parent.accessor.get(IAgentContextMemoryService)?.get();
+    if (parentMessages !== undefined && parentMessages.length > 0) {
+      child.accessor.get(IAgentContextMemoryService)?.splice(0, 0, parentMessages);
+    }
+    return child;
   }
 
   /**

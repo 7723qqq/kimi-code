@@ -8,20 +8,19 @@ import {
   AgentTool,
   AgentToolInputSchema,
   DEFAULT_SUBAGENT_TIMEOUT_MS,
-  type ISessionSubagentHost,
-  type SessionSubagentHost,
-} from '#/session/subagentHost';
-import type { AgentToolSubagentMap } from '#/session/subagentHost/agentTool';
+  type AgentToolRunOverride,
+} from '#/agent/agentTool';
 import { ToolAccesses } from '#/agent/tool';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { executeTool } from '../tools/fixtures/execute-tool';
 import {
+  agentToolServices,
   createTestAgent,
-  subagentHostServices,
   type TestAgentContext,
 } from '../harness';
 
 const signal = new AbortController().signal;
+const PARENT_AGENT_ID = 'main';
 
 interface CapturedLogEntry {
   readonly level: 'error' | 'warn' | 'info' | 'debug';
@@ -48,6 +47,35 @@ function createLogCapture(): {
   return { logger, entries };
 }
 
+function fakeProfile(isToolActive: (name: string) => boolean = () => true) {
+  return { isToolActive: vi.fn(isToolActive) } as unknown as IAgentProfileService;
+}
+
+function fakeLifecycle() {
+  return {} as never;
+}
+
+function fakeKaos() {
+  return { cwd: '/repo' } as never;
+}
+
+function fakeProcessRunner() {
+  return {} as never;
+}
+
+function createRunOverride(
+  overrides: Partial<AgentToolRunOverride> = {},
+): AgentToolRunOverride {
+  const run: AgentToolRunOverride = {
+    spawn: vi.fn(),
+    resume: vi.fn(),
+    retry: vi.fn(),
+    getProfileName: vi.fn().mockResolvedValue(undefined),
+    markDetached: vi.fn(),
+  };
+  return Object.assign(run, overrides);
+}
+
 describe('AgentTool direct contract', () => {
   let contexts: TestAgentContext[];
 
@@ -63,21 +91,19 @@ describe('AgentTool direct contract', () => {
   });
 
   function makeTool({
-    host = createSubagentHost(),
+    run = createRunOverride(),
     maxRunningTasks,
-    subagents,
-    canRunInBackground,
+    isToolActive,
     log,
   }: {
-    readonly host?: SessionSubagentHost;
+    readonly run?: AgentToolRunOverride;
     readonly maxRunningTasks?: number;
-    readonly subagents?: AgentToolSubagentMap;
-    readonly canRunInBackground?: () => boolean;
+    readonly isToolActive?: (name: string) => boolean;
     readonly log?: ILogger;
   } = {}): {
     readonly ctx: TestAgentContext;
     readonly background: IAgentBackgroundService;
-    readonly host: SessionSubagentHost;
+    readonly run: AgentToolRunOverride;
     readonly tool: AgentTool;
   } {
     const ctx =
@@ -91,10 +117,16 @@ describe('AgentTool direct contract', () => {
     return {
       ctx,
       background,
-      host,
-      tool: new AgentTool(host as unknown as ISessionSubagentHost, background, subagents, {
-        canRunInBackground,
+      run,
+      tool: new AgentTool({
+        lifecycle: fakeLifecycle(),
+        parentAgentId: PARENT_AGENT_ID,
+        background,
+        profile: fakeProfile(isToolActive),
+        cwd: '/repo',
+        processRunner: fakeProcessRunner(),
         log,
+        runOverride: run,
       }),
     };
   }
@@ -149,26 +181,13 @@ describe('AgentTool direct contract', () => {
     expect(tool.description).not.toContain('no time limit');
   });
 
-  it('renders configured subagent types and their tool sets', () => {
-    const { tool } = makeTool({
-      subagents: {
-        explore: {
-          description: 'Read-only exploration.',
-          whenToUse: 'Use for searches.',
-          tools: ['Read', 'Grep', 'Glob'],
-        },
-        coder: {
-          description: 'General coding.',
-          tools: ['Read', 'Write', 'Edit', 'Bash'],
-        },
-      },
-    });
+  it('renders the default agent types and their tool sets', () => {
+    const { tool } = makeTool();
 
     expect(tool.description).toContain('Available agent types');
-    expect(tool.description).toContain('- explore: Read-only exploration. Use for searches.');
-    expect(tool.description).toContain('Tools: Read, Grep, Glob');
-    expect(tool.description).toContain('- coder: General coding.');
-    expect(tool.description).toContain('Tools: Read, Write, Edit, Bash');
+    expect(tool.description).toContain('- explore:');
+    expect(tool.description).toContain('- coder:');
+    expect(tool.description).toContain('Tools:');
   });
 
   it('mentions resume preference and result visibility in the description', () => {
@@ -215,10 +234,10 @@ describe('AgentTool direct contract', () => {
   });
 
   it('uses the resumed agent profile in the activity description', async () => {
-    const host = createSubagentHost({
+    const run = createRunOverride({
       getProfileName: vi.fn().mockResolvedValue('explore'),
     });
-    const { tool } = makeTool({ host });
+    const { tool } = makeTool({ run });
     const execution = await tool.resolveExecution({
       prompt: 'Continue',
       description: 'Continue work',
@@ -227,11 +246,13 @@ describe('AgentTool direct contract', () => {
 
     if (execution.isError === true) throw new Error('expected runnable execution');
     expect(execution.description).toBe('Launching explore agent: Continue work');
-    expect(host.getProfileName).toHaveBeenCalledWith('agent-existing');
+    expect(run.getProfileName).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'agent-existing' }),
+    );
   });
 
   it('falls back to coder for an empty subagent type', async () => {
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi.fn().mockResolvedValue({
         agentId: 'agent-child',
         profileName: 'coder',
@@ -239,7 +260,7 @@ describe('AgentTool direct contract', () => {
         completion: Promise.resolve({ result: 'child result' }),
       }),
     });
-    const { tool } = makeTool({ host });
+    const { tool } = makeTool({ run });
 
     await executeTool(
       tool,
@@ -250,7 +271,7 @@ describe('AgentTool direct contract', () => {
       }),
     );
 
-    expect(host.spawn).toHaveBeenCalledWith(
+    expect(run.spawn).toHaveBeenCalledWith(
       expect.objectContaining({
         parentToolCallId: 'call_agent',
         profileName: 'coder',
@@ -259,7 +280,7 @@ describe('AgentTool direct contract', () => {
   });
 
   it('resumes a foreground subagent when resume is provided', async () => {
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi.fn(),
       resume: vi.fn().mockResolvedValue({
         agentId: 'agent-existing',
@@ -268,7 +289,7 @@ describe('AgentTool direct contract', () => {
         completion: Promise.resolve({ result: 'resumed result' }),
       }),
     });
-    const { tool } = makeTool({ host });
+    const { tool } = makeTool({ run });
 
     const result = await executeTool(
       tool,
@@ -279,10 +300,10 @@ describe('AgentTool direct contract', () => {
       }),
     );
 
-    expect(host.spawn).not.toHaveBeenCalled();
-    expect(host.resume).toHaveBeenCalledWith(
-      'agent-existing',
+    expect(run.spawn).not.toHaveBeenCalled();
+    expect(run.resume).toHaveBeenCalledWith(
       expect.objectContaining({
+        agentId: 'agent-existing',
         parentToolCallId: 'call_agent',
         prompt: 'Continue',
         description: 'Continue work',
@@ -296,7 +317,7 @@ describe('AgentTool direct contract', () => {
   });
 
   it('does not consume a background task slot when validation fails before launch', async () => {
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi.fn().mockResolvedValue({
         agentId: 'agent-child',
         profileName: 'coder',
@@ -305,7 +326,7 @@ describe('AgentTool direct contract', () => {
       }),
       resume: vi.fn(),
     });
-    const { tool } = makeTool({ host, maxRunningTasks: 1 });
+    const { tool } = makeTool({ run, maxRunningTasks: 1 });
 
     const invalid = await executeTool(
       tool,
@@ -331,8 +352,8 @@ describe('AgentTool direct contract', () => {
       output: 'Cannot set subagent_type when resuming an existing agent. Resume by agent id only.',
     });
     expect(valid.output).toContain('status: running');
-    expect(host.resume).not.toHaveBeenCalled();
-    expect(host.spawn).toHaveBeenCalledTimes(1);
+    expect(run.resume).not.toHaveBeenCalled();
+    expect(run.spawn).toHaveBeenCalledTimes(1);
   });
 
   it('can detach a foreground subagent through the background manager', async () => {
@@ -340,8 +361,8 @@ describe('AgentTool direct contract', () => {
     const completion = new Promise<{ result: string }>((resolve) => {
       resolveCompletion = resolve;
     });
-    const host = createSubagentHost({
-      markActiveChildDetached: vi.fn(),
+    const run = createRunOverride({
+      markDetached: vi.fn(),
       spawn: vi.fn().mockResolvedValue({
         agentId: 'agent-child',
         profileName: 'coder',
@@ -349,7 +370,7 @@ describe('AgentTool direct contract', () => {
         completion,
       }),
     });
-    const { background, tool } = makeTool({ host });
+    const { background, tool } = makeTool({ run });
 
     const running = executeTool(
       tool,
@@ -372,7 +393,9 @@ describe('AgentTool direct contract', () => {
     background.detach(task.taskId);
     const result = await running;
 
-    expect(host.markActiveChildDetached).toHaveBeenCalledWith('agent-child');
+    expect(run.markDetached).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'agent-child' }),
+    );
     expect(result.output).toContain(`task_id: ${task.taskId}`);
     expect(result.output).toContain('agent_id: agent-child');
     expect(result.output).toContain('automatic_notification: true');
@@ -389,7 +412,7 @@ describe('AgentTool direct contract', () => {
     const completion = new Promise<{ result: string }>((resolve) => {
       resolveCompletion = resolve;
     });
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi.fn().mockResolvedValue({
         agentId: 'agent-child',
         profileName: 'coder',
@@ -398,8 +421,8 @@ describe('AgentTool direct contract', () => {
       }),
     });
     const { background, tool } = makeTool({
-      host,
-      canRunInBackground: () => false,
+      run,
+      isToolActive: () => false,
     });
 
     const running = executeTool(
@@ -430,7 +453,7 @@ describe('AgentTool direct contract', () => {
   });
 
   it('guides the AI with a non-blocking query hint and a resume hint on background launch', async () => {
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi.fn().mockResolvedValue({
         agentId: 'agent-child',
         profileName: 'coder',
@@ -438,7 +461,7 @@ describe('AgentTool direct contract', () => {
         completion: new Promise(() => {}),
       }),
     });
-    const { tool } = makeTool({ host });
+    const { tool } = makeTool({ run });
 
     const result = await executeTool(
       tool,
@@ -461,7 +484,7 @@ describe('AgentTool direct contract', () => {
   });
 
   it('returns an error when background registration hits the task limit', async () => {
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi
         .fn()
         .mockResolvedValueOnce({
@@ -477,7 +500,7 @@ describe('AgentTool direct contract', () => {
           completion: new Promise(() => {}),
         }),
     });
-    const { tool } = makeTool({ host, maxRunningTasks: 1 });
+    const { tool } = makeTool({ run, maxRunningTasks: 1 });
 
     const existing = await executeTool(
       tool,
@@ -501,11 +524,11 @@ describe('AgentTool direct contract', () => {
       isError: true,
       output: 'Too many background tasks are already running.',
     });
-    expect(host.spawn).toHaveBeenCalledTimes(2);
+    expect(run.spawn).toHaveBeenCalledTimes(2);
   });
 
   it('rejects one of two concurrent background subagents when the task limit is reached', async () => {
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi
         .fn()
         .mockResolvedValueOnce({
@@ -521,7 +544,7 @@ describe('AgentTool direct contract', () => {
           completion: Promise.resolve({ result: 'second result' }),
         }),
     });
-    const { tool } = makeTool({ host, maxRunningTasks: 1 });
+    const { tool } = makeTool({ run, maxRunningTasks: 1 });
 
     const first = executeTool(
       tool,
@@ -542,7 +565,7 @@ describe('AgentTool direct contract', () => {
 
     const results = await Promise.all([first, second]);
 
-    expect(host.spawn).toHaveBeenCalledTimes(2);
+    expect(run.spawn).toHaveBeenCalledTimes(2);
     expect(results).toContainEqual(
       expect.objectContaining({ output: expect.stringContaining('status: running') }),
     );
@@ -557,10 +580,10 @@ describe('AgentTool direct contract', () => {
   it('returns tool errors when spawning fails', async () => {
     const error = new Error('missing subagent');
     const { logger, entries } = createLogCapture();
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi.fn().mockRejectedValue(error),
     });
-    const { tool } = makeTool({ host, log: logger });
+    const { tool } = makeTool({ run, log: logger });
 
     const result = await executeTool(
       tool,
@@ -589,7 +612,7 @@ describe('AgentTool direct contract', () => {
   it('logs background registration failures', async () => {
     const error = new Error('background unavailable');
     const { logger, entries } = createLogCapture();
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi.fn().mockResolvedValue({
         agentId: 'agent-child',
         profileName: 'coder',
@@ -597,7 +620,7 @@ describe('AgentTool direct contract', () => {
         completion: new Promise(() => {}),
       }),
     });
-    const { background, tool } = makeTool({ host, log: logger });
+    const { background, tool } = makeTool({ run, log: logger });
     vi.spyOn(background, 'registerTask').mockImplementation(() => {
       throw error;
     });
@@ -631,7 +654,7 @@ describe('AgentTool direct contract', () => {
 
   it('reports a deliberate user interruption when a foreground subagent is cancelled by the user', async () => {
     const controller = new AbortController();
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi.fn((options) =>
         Promise.resolve({
           agentId: 'agent-child',
@@ -647,7 +670,7 @@ describe('AgentTool direct contract', () => {
         }),
       ),
     });
-    const { tool } = makeTool({ host });
+    const { tool } = makeTool({ run });
 
     const resultPromise = executeTool(tool, {
       turnId: '0',
@@ -669,7 +692,7 @@ describe('AgentTool direct contract', () => {
 
   it('returns the spawned agent id when a foreground subagent times out', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const host = createSubagentHost({
+    const run = createRunOverride({
       spawn: vi.fn().mockResolvedValue({
         agentId: 'agent-timeout',
         profileName: 'coder',
@@ -677,7 +700,7 @@ describe('AgentTool direct contract', () => {
         completion: new Promise<{ result: string }>(() => {}),
       }),
     });
-    const { tool } = makeTool({ host });
+    const { tool } = makeTool({ run });
 
     const resultPromise = executeTool(
       tool,
@@ -700,13 +723,13 @@ describe('AgentTool direct contract', () => {
 });
 
 describe('Agent tool service runtime', () => {
-  describe('with a default subagent host', () => {
+  describe('with a default run override', () => {
     let ctx: TestAgentContext;
     let profile: IAgentProfileService;
 
     beforeEach(() => {
-      const subagentHost = createSubagentHost();
-      ctx = createTestAgent(subagentHostServices(subagentHost));
+      const run = createRunOverride();
+      ctx = createTestAgent(agentToolServices(run));
       profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['Agent'] });
     });
@@ -719,7 +742,7 @@ describe('Agent tool service runtime', () => {
       }
     });
 
-    it('exposes Agent when a subagent host is available', () => {
+    it('exposes Agent when a run override is available', () => {
       expect(ctx.toolsData()).toContainEqual(
         expect.objectContaining({
           name: 'Agent',
@@ -737,14 +760,14 @@ describe('Agent tool service runtime', () => {
     });
   });
 
-  describe('with a resolving subagent host', () => {
+  describe('with a resolving run override', () => {
     let ctx: TestAgentContext;
-    let subagentHost: SessionSubagentHost;
+    let run: AgentToolRunOverride;
     let profile: IAgentProfileService;
     let tools: IAgentToolRegistryService;
 
     beforeEach(() => {
-      subagentHost = createSubagentHost({
+      run = createRunOverride({
         spawn: vi.fn().mockResolvedValue({
           agentId: 'agent-child',
           profileName: 'coder',
@@ -752,7 +775,7 @@ describe('Agent tool service runtime', () => {
           completion: Promise.resolve({ result: 'child summary' }),
         }),
       });
-      ctx = createTestAgent(subagentHostServices(subagentHost));
+      ctx = createTestAgent(agentToolServices(run));
       profile = ctx.get(IAgentProfileService);
       tools = ctx.get(IAgentToolRegistryService);
       profile.update({ activeToolNames: ['Agent'] });
@@ -790,7 +813,7 @@ describe('Agent tool service runtime', () => {
           'child summary',
         ].join('\n'),
       });
-      expect(subagentHost.spawn).toHaveBeenCalledWith(
+      expect(run.spawn).toHaveBeenCalledWith(
         expect.objectContaining({
           profileName: 'coder',
           parentToolCallId: 'call_agent',
@@ -843,7 +866,7 @@ describe('Agent tool service runtime', () => {
       expect(result.output).toContain(
         'resume_hint: To continue or recover this same subagent later, call Agent(resume="agent-child", prompt="...").',
       );
-      expect(subagentHost.spawn).toHaveBeenLastCalledWith(
+      expect(run.spawn).toHaveBeenLastCalledWith(
         expect.objectContaining({
           profileName: 'coder',
           parentToolCallId: 'call_agent',
@@ -855,15 +878,15 @@ describe('Agent tool service runtime', () => {
     });
   });
 
-  describe('with a non-resuming subagent host', () => {
+  describe('with a non-resuming run override', () => {
     let ctx: TestAgentContext;
-    let subagentHost: SessionSubagentHost;
+    let run: AgentToolRunOverride;
     let profile: IAgentProfileService;
     let tools: IAgentToolRegistryService;
 
     beforeEach(() => {
-      subagentHost = createSubagentHost();
-      ctx = createTestAgent(subagentHostServices(subagentHost));
+      run = createRunOverride();
+      ctx = createTestAgent(agentToolServices(run));
       profile = ctx.get(IAgentProfileService);
       tools = ctx.get(IAgentToolRegistryService);
       profile.update({ activeToolNames: ['Agent'] });
@@ -896,25 +919,7 @@ describe('Agent tool service runtime', () => {
         isError: true,
         output: 'Cannot set subagent_type when resuming an existing agent. Resume by agent id only.',
       });
-      expect(subagentHost.resume).not.toHaveBeenCalled();
+      expect(run.resume).not.toHaveBeenCalled();
     });
   });
 });
-
-function createSubagentHost(
-  overrides: Partial<SessionSubagentHost> = {},
-): SessionSubagentHost {
-  const host: SessionSubagentHost = {
-    getSwarmItem: vi.fn(),
-    startBtw: vi.fn().mockResolvedValue('btw-url'),
-    spawn: vi.fn(),
-    resume: vi.fn(),
-    retry: vi.fn(),
-    getProfileName: vi.fn().mockResolvedValue(undefined),
-    markActiveChildDetached: vi.fn(),
-    runQueued: vi.fn().mockResolvedValue([]),
-    cancelAll: vi.fn(),
-    suspended: vi.fn(),
-  };
-  return Object.assign(host, overrides);
-}

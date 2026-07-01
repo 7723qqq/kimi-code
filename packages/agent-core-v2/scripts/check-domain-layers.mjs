@@ -35,18 +35,24 @@ const TEST_ROOT = join(PKG_ROOT, 'test');
 const DOMAIN_LAYER = new Map([
   // L0 — base infrastructure
   ['_base', 0],
+  // `_base/execEnv` (pure execution-env helpers such as
+  // `probeHostEnvironmentFromNode`, `decodeTextWithErrors`,
+  // `globPatternToRegex`, `BufferedReadable`) sits under `_base/*`, so the
+  // `_base` L0 entry already covers it — no separate entry needed.
   // `errors` is a top-level facade (src/errors.ts) that aggregates every
   // domain's error codes; any domain may import it, so it sits at L0.
   ['errors', 0],
-  // `kaos` is the execution-environment substrate (cwd/env/osEnv/backend);
-  // it wraps the `@moonshot-ai/kaos` package and depends on no business
-  // domain, so it sits at L0 where any domain may import it.
-  ['kaos', 0],
   // L1 — abstraction bridges & low-level capabilities
   ['log', 1],
   ['sessionLog', 1],
   ['telemetry', 1],
   ['bootstrap', 1],
+  // `hostEnvironment` is the App-scope OS/shell/path/home probe snapshot;
+  // low-level substrate that any Session/Agent domain may read synchronously.
+  ['hostEnvironment', 1],
+  // `execContext` is the Session-scope seeded immutable value (`cwd`,
+  // `envLayers`); same layer as the other low-level bridges.
+  ['execContext', 1],
   ['hostFs', 1],
   ['workspaceContext', 1],
   ['chatProvider', 1],
@@ -94,6 +100,7 @@ const DOMAIN_LAYER = new Map([
   ['plan', 4],
   ['goal', 4],
   ['swarm', 4],
+  ['scopeContext', 4],
   ['usage', 4],
   ['tooldedup', 4],
   ['contextMemory', 4],
@@ -119,7 +126,7 @@ const DOMAIN_LAYER = new Map([
   ['background', 5],
   ['mcp', 5],
   ['cron', 5],
-  ['subagentHost', 5],
+  ['agentTool', 5],
   // L6 — coordination
   ['agent-lifecycle', 6],
   ['session-lifecycle', 6],
@@ -205,6 +212,10 @@ function domainFromRel(rel, { exemptRootFile }) {
  */
 const ALLOWED_EXCEPTIONS = new Set([
   'bootstrap>globalSkillCatalog',
+  // path-access (base tool policy) needs the `IHostEnvironment` type to stay
+  // host-aware (path class, home dir). Structural type dependency only —
+  // path-access does not construct or resolve the service.
+  '_base>hostEnvironment',
   'permissionGate>approval',
   'userTool>interaction',
   'skill>turn',
@@ -237,7 +248,10 @@ const ALLOWED_EXCEPTIONS = new Set([
   'shellTools>background',
   'skill>contextMemory',
   'skill>prompt',
-  'swarm>subagentHost',
+  'swarm>agentTool',
+  'swarm>session-metadata',
+  'agentTool>agent-lifecycle',
+  'agentTool>session-metadata',
   'toolExecutor>loop',
   'userTool>profile',
   'wireRecord>contextMemory',

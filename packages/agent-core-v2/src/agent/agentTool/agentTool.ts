@@ -1,15 +1,10 @@
 /**
- * AgentTool — collaboration tool for spawning task subagents.
+ * `agentTool` domain (L5) — `Agent` collaboration tool.
  *
- * Unlike the built-in tools (Read/Write/Edit/Bash/Grep/Glob), this is a
- * "collaboration tool". It uses `ISessionSubagentHost` (injected via the constructor
- * rather than through the runtime) to create in-process subagent loop instances.
- *
- * Foreground and background subagents both run through the background service.
- * Foreground calls wait for the task to finish unless it is detached through
- * the background-task RPC.
- *
- * `ToolResult.content` is textual; the structured output exposed by
+ * Spawns a task subagent (an ordinary Agent scope) through the `runChildAgent`
+ * helpers and tracks its completion through the `background` service. Foreground
+ * calls wait for the task to finish unless it is detached through the
+ * background-task RPC. `ToolResult.content` is textual; the structured
  * `AgentToolOutputSchema` is only used for drift-guard and is not consumed at
  * runtime.
  */
@@ -27,16 +22,31 @@ import type {
   ExecutableToolResult,
   ToolExecution,
 } from '#/agent/tool';
+import { isUserCancellation } from '#/_base/utils/abort';
+import {
+  AgentBackgroundTask,
+  type IAgentBackgroundService,
+  type RegisterBackgroundTaskOptions,
+} from '#/agent/background';
+import type { IAgentProfileService } from '#/agent/profile';
+import type { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import type { ISessionMetadata } from '#/session/session-metadata';
+import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
+import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
+import {
+  getChildProfileName,
+  markChildDetached,
+  resumeChildAgent,
+  retryChildAgent,
+  spawnChildAgent,
+  type AgentToolRunOverride,
+} from './runChildAgent';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION,
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   type SubagentHandle,
-  type ISessionSubagentHost,
-} from './subagentHost';
-import { isUserCancellation } from '#/_base/utils/abort';
-import { AgentBackgroundTask, type IAgentBackgroundService, type RegisterBackgroundTaskOptions } from '#/agent/background';
-import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
+} from './types';
+import { DEFAULT_AGENT_SUBAGENT_PROFILES } from './profiles';
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
 import AGENT_BACKGROUND_DESCRIPTION from './agent-background-enabled.md?raw';
 import AGENT_DESCRIPTION_BASE from './agent.md?raw';
@@ -114,33 +124,64 @@ export interface AgentToolSubagentProfile {
 
 export type AgentToolSubagentMap = Readonly<Record<string, AgentToolSubagentProfile>>;
 
+export interface AgentToolOptions {
+  readonly lifecycle: IAgentLifecycleService;
+  readonly parentAgentId: string;
+  readonly metadata?: ISessionMetadata;
+  readonly background: IAgentBackgroundService;
+  readonly profile: IAgentProfileService;
+  readonly cwd: string;
+  readonly processRunner: ISessionProcessRunner;
+  readonly log?: ILogger;
+  readonly runOverride?: AgentToolRunOverride;
+}
+
 // ── AgentTool class ──────────────────────────────────────────────────
 
 export class AgentTool implements BuiltinTool<AgentToolInput> {
   readonly name: string = 'Agent';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentToolInputSchema);
 
-  constructor(
-    private readonly subagentHost: ISessionSubagentHost,
-    private readonly background: IAgentBackgroundService,
-    subagents?: AgentToolSubagentMap | undefined,
-    options?: {
-      log?: ILogger;
-      canRunInBackground?: (() => boolean) | undefined;
-      gitContext?: { cwd: string; runner: ISessionProcessRunner };
-    },
-  ) {
-    this.canRunInBackground = options?.canRunInBackground ?? (() => true);
-    this.gitContext = options?.gitContext;
-    const log = options?.log;
-    this.typeLines = buildSubagentDescriptions(subagents);
-    this.log = log;
+  private readonly lifecycle: IAgentLifecycleService;
+  private readonly parentAgentId: string;
+  private readonly metadata?: ISessionMetadata;
+  private readonly background: IAgentBackgroundService;
+  private readonly log?: ILogger;
+  private readonly runOverride?: AgentToolRunOverride;
+  private readonly typeLines: string;
+  private readonly gitContext: { cwd: string; runner: ISessionProcessRunner };
+
+  constructor(options: AgentToolOptions) {
+    this.lifecycle = options.lifecycle;
+    this.parentAgentId = options.parentAgentId;
+    this.metadata = options.metadata;
+    this.background = options.background;
+    this.log = options.log;
+    this.runOverride = options.runOverride;
+    this.gitContext = { cwd: options.cwd, runner: options.processRunner };
+    this.typeLines = buildSubagentDescriptions(DEFAULT_AGENT_SUBAGENT_PROFILES);
+    this.canRunInBackground = () => {
+      return (
+        options.profile.isToolActive('TaskList') &&
+        options.profile.isToolActive('TaskOutput') &&
+        options.profile.isToolActive('TaskStop')
+      );
+    };
   }
 
-  private readonly log?: ILogger;
   private readonly canRunInBackground: () => boolean;
-  private readonly typeLines: string;
-  private readonly gitContext?: { cwd: string; runner: ISessionProcessRunner };
+
+  private get run(): AgentToolRunOverride {
+    return (
+      this.runOverride ?? {
+        spawn: spawnChildAgent,
+        resume: resumeChildAgent,
+        retry: retryChildAgent,
+        getProfileName: getChildProfileName,
+        markDetached: markChildDetached,
+      }
+    );
+  }
 
   get description(): string {
     const backgroundDescription = this.canRunInBackground()
@@ -165,7 +206,13 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
 
     let profileName = requestedProfileName ?? 'coder';
     if (resumeAgentId !== undefined && resumeAgentId.length > 0) {
-      profileName = (await this.subagentHost.getProfileName(resumeAgentId)) ?? 'subagent';
+      profileName =
+        (await this.run.getProfileName({
+          lifecycle: this.lifecycle,
+          parentAgentId: this.parentAgentId,
+          metadata: this.metadata,
+          agentId: resumeAgentId,
+        })) ?? 'subagent';
     }
     const prefix = args.run_in_background === true ? 'Launching background' : 'Launching';
     return {
@@ -185,10 +232,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
 
   private async execution(
     args: AgentToolInput,
-    {
-      toolCallId,
-      signal,
-    }: ExecutableToolContext,
+    { toolCallId, signal }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
     try {
       signal.throwIfAborted();
@@ -238,8 +282,17 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
       try {
         handle =
           operation === 'resume'
-            ? await this.subagentHost.resume(resumeAgentId!, runOptions)
-            : await this.subagentHost.spawn({
+            ? await this.run.resume({
+                lifecycle: this.lifecycle,
+                parentAgentId: this.parentAgentId,
+                metadata: this.metadata,
+                agentId: resumeAgentId!,
+                ...runOptions,
+              })
+            : await this.run.spawn({
+                lifecycle: this.lifecycle,
+                parentAgentId: this.parentAgentId,
+                metadata: this.metadata,
                 profileName: requestedProfileName ?? 'coder',
                 ...runOptions,
               });
@@ -264,7 +317,15 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
           signal: runInBackground ? undefined : signal,
         };
         taskId = this.background.registerTask(
-          new AgentBackgroundTask(handle, args.description, this.subagentHost, controller),
+          new AgentBackgroundTask(
+            handle,
+            args.description,
+            {
+              markActiveChildDetached: (agentId) =>
+                this.run.markDetached({ parentAgentId: this.parentAgentId, agentId }),
+            },
+            controller,
+          ),
           registerOptions,
         );
         signal.removeEventListener('abort', abortBeforeRegister);
@@ -286,24 +347,14 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
 
       if (runInBackground) {
         return {
-          output: formatBackgroundAgentResult(
-            taskId,
-            handle,
-            args.description,
-            allowBackground,
-          ),
+          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
         };
       }
 
       const release = await this.background.waitForForegroundRelease(taskId);
       if (release === 'detached') {
         return {
-          output: formatBackgroundAgentResult(
-            taskId,
-            handle,
-            args.description,
-            allowBackground,
-          ),
+          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
         };
       }
       return await this.formatForegroundResult(taskId, handle);
@@ -313,13 +364,9 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
   }
 
   private async withGitContext(profileName: string, prompt: string): Promise<string> {
-    if (profileName !== 'explore' || this.gitContext === undefined) return prompt;
+    if (profileName !== 'explore') return prompt;
     try {
-      const context = await collectGitContext(
-        this.gitContext.runner,
-        this.gitContext.cwd,
-        this.log,
-      );
+      const context = await collectGitContext(this.gitContext.runner, this.gitContext.cwd, this.log);
       return context.length > 0 ? `${context}\n\n${prompt}` : prompt;
     } catch {
       return prompt;
@@ -333,10 +380,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     const info = this.background.getTask(taskId);
     if (info?.status === 'completed') {
       return {
-        output: formatForegroundAgentSuccess(
-          handle,
-          await this.background.readOutput(taskId),
-        ),
+        output: formatForegroundAgentSuccess(handle, await this.background.readOutput(taskId)),
       };
     }
     const timedOut = info?.status === 'timed_out';
@@ -416,8 +460,7 @@ function launchErrorMessage(error: unknown, signal: AbortSignal): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function buildSubagentDescriptions(subagents: AgentToolSubagentMap | undefined): string {
-  if (subagents === undefined) return '';
+function buildSubagentDescriptions(subagents: AgentToolSubagentMap): string {
   return Object.entries(subagents)
     .map(([name, subagent]) => {
       const details = [subagent.description, subagent.whenToUse].filter(
