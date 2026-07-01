@@ -5,7 +5,7 @@ import { join } from 'pathe';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes, KimiError } from '#/errors';
-import { loadMcpServers, resolveMcpJsonPaths } from '#/mcp/config-loader';
+import { loadMcpServers, resolveMcpJsonPaths } from '#/agent/mcp/config-loader';
 
 const tempDirs: string[] = [];
 

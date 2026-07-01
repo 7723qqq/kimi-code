@@ -2,9 +2,9 @@ import type { ContentPart } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
-import { IFlagService } from '#/flag';
-import { MASTER_ENV } from '#/flag/flagService';
-import { microCompactionFlag } from '#/microCompaction/flag';
+import { IFlagService } from '#/app/flag';
+import { MASTER_ENV } from '#/app/flag/flagService';
+import { microCompactionFlag } from '#/agent/microCompaction/flag';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import {
   InMemoryWireRecordPersistence,

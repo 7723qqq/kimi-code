@@ -10,13 +10,13 @@ import type { ContentPart } from '@moonshot-ai/kosong';
 import {
   CRON_FIRED,
   CRON_MISSED,
-} from '#/cron/tools/telemetry-events';
-import type { CronTask } from '#/cron/tools/types';
-import { IAgentCronService } from '#/cron';
-import { IAgentPromptService } from '#/prompt';
-import type { ContextMessage, PromptOrigin } from '#/contextMemory';
-import { ITelemetryService } from '#/telemetry';
-import { IAgentTurnService, type Turn } from '#/turn';
+} from '#/agent/cron/tools/telemetry-events';
+import type { CronTask } from '#/agent/cron/tools/types';
+import { IAgentCronService } from '#/agent/cron';
+import { IAgentPromptService } from '#/agent/prompt';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
+import { ITelemetryService } from '#/app/telemetry';
+import { IAgentTurnService, type Turn } from '#/agent/turn';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 import type { TelemetryRecord } from '../telemetry/stubs';
 

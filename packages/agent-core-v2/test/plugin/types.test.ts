@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizePluginId, PLUGIN_NAME_REGEX } from '#/plugin/types';
+import { normalizePluginId, PLUGIN_NAME_REGEX } from '#/app/plugin/types';
 
 describe('plugin/types', () => {
   describe('PLUGIN_NAME_REGEX', () => {

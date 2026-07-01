@@ -19,11 +19,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DefaultCompactionStrategy,
   type CompactionStrategy,
-} from '#/fullCompaction/strategy';
-import { HookEngine } from '#/externalHooks/engine';
-import type { HookEngineTriggerArgs } from '#/externalHooks/types';
-import { MASTER_ENV } from '#/flag/flagService';
-import { microCompactionFlag } from '#/microCompaction/flag';
+} from '#/agent/fullCompaction/strategy';
+import { HookEngine } from '#/agent/externalHooks/engine';
+import type { HookEngineTriggerArgs } from '#/agent/externalHooks/types';
+import { MASTER_ENV } from '#/app/flag/flagService';
+import { microCompactionFlag } from '#/agent/microCompaction/flag';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import type { TestAgentContext, TestAgentOptions, TestAgentServiceOverride } from '../harness';
@@ -35,7 +35,7 @@ import {
   IAgentProfileService,
   IAgentToolStoreService,
 } from '#/index';
-import { TODO_STORE_KEY } from '#/todoList/tools/todo-list';
+import { TODO_STORE_KEY } from '#/agent/todoList/tools/todo-list';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 

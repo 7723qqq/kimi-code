@@ -1,7 +1,7 @@
-import type { IOAuthService } from '#/auth';
-import type { IConfigService } from '#/config';
-import { SessionModelResolver, type ISessionModelResolver } from '#/modelRuntime';
-import type { ProviderConfig } from '#/provider';
+import type { IOAuthService } from '#/app/auth';
+import type { IConfigService } from '#/app/config';
+import { SessionModelResolver, type ISessionModelResolver } from '#/session/modelRuntime';
+import type { ProviderConfig } from '#/app/provider';
 
 export type TestOAuthAccessTokenProvider = (
   options?: { readonly force?: boolean },

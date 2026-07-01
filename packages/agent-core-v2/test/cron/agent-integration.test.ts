@@ -8,10 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CronCreateTool,
   type CronCreateInput,
-} from '#/cron/tools/cron-create';
-import { IAgentCronService } from '#/cron';
-import { IAgentProfileService } from '#/profile';
-import { IAgentToolRegistryService } from '#/toolRegistry';
+} from '#/agent/cron/tools/cron-create';
+import { IAgentCronService } from '#/agent/cron';
+import { IAgentProfileService } from '#/agent/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { createTestAgent, type TestAgentContext } from '../harness';
 
 describe('Agent + Cron integration (P1.7)', () => {

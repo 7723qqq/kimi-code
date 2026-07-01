@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ISessionAgentFileSystem, ISessionFsService } from '#/agentFs';
-import { AgentFileToolsService } from '#/fileTools';
-import type { IKaos } from '#/kaos';
-import { noopTelemetryService } from '#/telemetry';
+import type { ISessionAgentFileSystem, ISessionFsService } from '#/session/agentFs';
+import { AgentFileToolsService } from '#/agent/fileTools';
+import type { IKaos } from '#/app/kaos';
+import { noopTelemetryService } from '#/app/telemetry';
 import type { IDisposable } from '#/_base/di';
-import type { IAgentToolRegistryService } from '#/toolRegistry';
-import type { ISessionWorkspaceContext } from '#/workspaceContext';
+import type { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import type { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 function fakeToolRegistry(): { registry: IAgentToolRegistryService; names: () => string[] } {
   const tools = new Map<string, unknown>();

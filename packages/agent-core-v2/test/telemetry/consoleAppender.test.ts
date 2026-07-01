@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ConsoleAppender } from '#/telemetry/consoleAppender';
+import { ConsoleAppender } from '#/app/telemetry/consoleAppender';
 
 describe('ConsoleAppender', () => {
   it('logs event name and properties with the default prefix', () => {

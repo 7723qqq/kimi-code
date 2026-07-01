@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ToolCall } from '@moonshot-ai/kosong';
 
-import { IAgentContextInjectorService } from '#/contextInjector';
-import { IAgentContextMemoryService } from '#/contextMemory';
+import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import {
   IAgentGoalService,
   type AgentGoalService,
-} from '#/goal';
-import { IAgentProfileService } from '#/profile';
+} from '#/agent/goal';
+import { IAgentProfileService } from '#/agent/profile';
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,

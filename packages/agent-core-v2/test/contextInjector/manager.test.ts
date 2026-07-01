@@ -5,17 +5,17 @@ import {
   createServices,
   type TestInstantiationService,
 } from '#/_base/di/test';
-import { IAgentContextInjectorService } from '#/contextInjector';
-import { AgentContextInjectorService } from '#/contextInjector/contextInjectorService';
-import { IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
-import { IAgentProfileService } from '#/profile';
-import { IAgentSystemReminderService } from '#/systemReminder';
-import { AgentSystemReminderService } from '#/systemReminder/systemReminderService';
-import { IAgentTodoListService, TODO_LIST_REMINDER_VARIANT } from '#/todoList';
-import { AgentTodoListService } from '#/todoList/todoListService';
-import { IAgentToolRegistryService } from '#/toolRegistry';
-import { IAgentToolStoreService } from '#/toolStore';
-import { IAgentTurnService } from '#/turn';
+import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import { AgentContextInjectorService } from '#/agent/contextInjector/contextInjectorService';
+import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import { IAgentProfileService } from '#/agent/profile';
+import { IAgentSystemReminderService } from '#/agent/systemReminder';
+import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
+import { IAgentTodoListService, TODO_LIST_REMINDER_VARIANT } from '#/agent/todoList';
+import { AgentTodoListService } from '#/agent/todoList/todoListService';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { IAgentToolStoreService } from '#/agent/toolStore';
+import { IAgentTurnService } from '#/agent/turn';
 import { registerContextMemoryServices } from '../contextMemory/stubs';
 import { stubTurnWithHooks } from '../turn/stubs';
 

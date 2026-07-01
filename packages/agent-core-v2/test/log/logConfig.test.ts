@@ -11,7 +11,7 @@ import {
   resolveGlobalLogPath,
   resolveLoggingConfig,
   resolveSessionLogPath,
-} from '#/log/logConfig';
+} from '#/app/log/logConfig';
 import { createScopedTestHost } from '#/_base/di/test';
 
 describe('resolveLoggingConfig', () => {

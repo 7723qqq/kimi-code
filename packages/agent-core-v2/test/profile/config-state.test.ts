@@ -1,8 +1,8 @@
 import { emptyUsage } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IAgentLLMRequesterService } from '#/llmRequester';
-import { IAgentProfileService } from '#/profile';
+import { IAgentLLMRequesterService } from '#/agent/llmRequester';
+import { IAgentProfileService } from '#/agent/profile';
 import {
   configServices,
   createTestAgent,

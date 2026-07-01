@@ -35,7 +35,7 @@ describe('check-domain-layers', () => {
 
   it('flags a lower layer importing a higher layer', () => {
     const violations = checkSource(
-      `import { IAgentTurnService } from '#/turn';`,
+      `import { IAgentTurnService } from '#/agent/turn';`,
       at('log', 'log.ts'),
     );
     expect(violations).toHaveLength(1);

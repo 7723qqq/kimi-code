@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { HookEngine } from '#/externalHooks/engine';
+import { HookEngine } from '#/agent/externalHooks/engine';
 import {
   HookDefSchema,
   hooksFromToml,
   hooksToToml,
-} from '#/externalHooks/configSection';
+} from '#/agent/externalHooks/configSection';
 
 function nodeCommand(source: string): string {
   return `node -e ${JSON.stringify(source.replace(/\s*\n\s*/g, ' '))}`;

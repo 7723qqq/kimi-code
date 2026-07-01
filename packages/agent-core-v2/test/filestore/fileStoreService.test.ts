@@ -14,8 +14,8 @@ import {
   FileErrors,
   FileStoreService,
   IFileStore,
-} from '#/filestore';
-import { IBlobStorage, InMemoryStorageService, type IStorageService } from '#/storage';
+} from '#/app/filestore';
+import { IBlobStorage, InMemoryStorageService, type IStorageService } from '#/app/storage';
 
 function readable(data: string | Buffer): Readable {
   return Readable.from([typeof data === 'string' ? Buffer.from(data) : data]);

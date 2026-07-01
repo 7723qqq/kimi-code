@@ -14,7 +14,7 @@
 
 import * as pathe from 'pathe';
 
-import type { IKaos } from '#/kaos';
+import type { IKaos } from '#/app/kaos';
 
 import type { WorkspaceConfig } from '../support/workspace';
 import { isSensitiveFile } from './sensitive';

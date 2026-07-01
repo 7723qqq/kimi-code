@@ -4,9 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { IStorageService } from '#/storage';
-import { FileStorageService } from '#/storage/fileStorageService';
-import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
+import type { IStorageService } from '#/app/storage';
+import { FileStorageService } from '#/app/storage/fileStorageService';
+import { InMemoryStorageService } from '#/app/storage/inMemoryStorageService';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();

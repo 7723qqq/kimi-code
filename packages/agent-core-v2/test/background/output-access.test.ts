@@ -5,7 +5,7 @@ import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 import type { KaosProcess } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IAgentBackgroundService, ProcessBackgroundTask } from '#/background';
+import { IAgentBackgroundService, ProcessBackgroundTask } from '#/agent/background';
 import { createBackgroundTaskPersistence, type BackgroundServiceTestManager } from './stubs';
 import { backgroundServices, createTestAgent, homeDirServices, type TestAgentContext } from '../harness';
 

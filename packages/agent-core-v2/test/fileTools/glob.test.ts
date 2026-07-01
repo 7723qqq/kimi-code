@@ -20,28 +20,28 @@ import { Readable, type Writable } from 'node:stream';
 import { LocalKaos } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ensureRgPath } from '#/agentFs/rgLocator';
+import { ensureRgPath } from '#/session/agentFs/rgLocator';
 import { PathSecurityError, type PathClass } from '../../src/_base/tools/policies/path-access';
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
-import type { ISessionAgentFileSystem } from '../../src/agentFs';
-import { SessionAgentFileSystem } from '../../src/agentFs/agentFsService';
+import type { ISessionAgentFileSystem } from '#/session/agentFs';
+import { SessionAgentFileSystem } from '#/session/agentFs/agentFsService';
 import {
   type GlobInput,
   GlobInputSchema,
   GlobTool,
   MAX_MATCHES,
   splitCompletePaths,
-} from '../../src/fileTools/tools/glob';
-import type { IKaos, KaosProcess } from '../../src/kaos';
-import { KaosService } from '../../src/kaos/kaosService';
-import type { ITelemetryService } from '../../src/telemetry';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../src/tool';
+} from '#/agent/fileTools/tools/glob';
+import type { IKaos, KaosProcess } from '#/app/kaos';
+import { KaosService } from '#/app/kaos/kaosService';
+import type { ITelemetryService } from '#/app/telemetry';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 // The ripgrep binary locator is mocked out for the unit tests so they assert
 // on argument building and output parsing without probing a real `rg`. The
 // real locator is exercised end-to-end by the integration suite below (rg is
 // on PATH in that environment, so the resolved `rg` just runs).
-vi.mock('#/agentFs/rgLocator', () => ({
+vi.mock('#/session/agentFs/rgLocator', () => ({
   ensureRgPath: vi.fn(async (): Promise<{ path: string; source: string }> => ({
     path: 'rg',
     source: 'system-path',

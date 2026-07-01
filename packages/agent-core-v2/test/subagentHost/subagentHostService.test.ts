@@ -3,16 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentBackgroundService } from '#/background';
-import { IAgentLifecycleService } from '#/agent-lifecycle';
-import { ILogService } from '#/log';
-import { IAgentProfileService } from '#/profile';
-import { IAgentToolRegistryService } from '#/toolRegistry';
+import { IAgentBackgroundService } from '#/agent/background';
+import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { ILogService } from '#/app/log';
+import { IAgentProfileService } from '#/agent/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { IScopeHandle } from '#/_base/di/scope';
-import { IKaos } from '#/kaos';
-import { ISessionMetadata } from '#/session-metadata';
-import { ISessionProcessRunner } from '#/process';
-import { ISessionSubagentHost, SessionSubagentHostService } from '../../src/subagentHost';
+import { IKaos } from '#/app/kaos';
+import { ISessionMetadata } from '#/session/session-metadata';
+import { ISessionProcessRunner } from '#/session/process';
+import { ISessionSubagentHost, SessionSubagentHostService } from '#/session/subagentHost';
 
 function fakeProfileScope(id: string): IScopeHandle {
   const profile = {

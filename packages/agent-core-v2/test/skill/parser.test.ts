@@ -6,7 +6,7 @@ import {
   UnsupportedSkillTypeError,
   parseFrontmatter,
   parseSkillText,
-} from '#/skill/parser';
+} from '#/app/globalSkillCatalog/parser';
 
 describe('parseFrontmatter', () => {
   it('parses yaml frontmatter and body', () => {

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveThinkingEffort,
   resolveThinkingLevel,
-} from '#/config/thinking';
+} from '#/app/config/thinking';
 
 describe('config/thinking', () => {
   describe('resolveThinkingEffort', () => {

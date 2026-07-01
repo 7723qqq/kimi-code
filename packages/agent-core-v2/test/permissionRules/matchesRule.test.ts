@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PermissionRule } from '#/permissionRules/permissionRules';
+import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
 import {
   matchPermissionRule,
   parsePattern,
-} from '#/permissionRules/matchesRule';
-import type { PermissionRuleMatchExecution } from '#/permissionRules/matchesRule';
+} from '#/agent/permissionRules/matchesRule';
+import type { PermissionRuleMatchExecution } from '#/agent/permissionRules/matchesRule';
 import {
   matchesGlobRuleSubject,
   matchesPathRuleSubject,

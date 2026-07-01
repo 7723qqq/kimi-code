@@ -5,11 +5,11 @@ import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiati
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentLifecycleService } from '#/agent-lifecycle/agentLifecycle';
-import { ISessionInteractionService, type Interaction, type InteractionKind } from '#/interaction';
-import { ISessionActivity } from '#/session-activity/sessionActivity';
-import { SessionActivity } from '#/session-activity/sessionActivityService';
-import { IAgentTurnService, type Turn } from '#/turn';
+import { IAgentLifecycleService } from '#/session/agent-lifecycle/agentLifecycle';
+import { ISessionInteractionService, type Interaction, type InteractionKind } from '#/session/interaction';
+import { ISessionActivity } from '#/session/session-activity/sessionActivity';
+import { SessionActivity } from '#/session/session-activity/sessionActivityService';
+import { IAgentTurnService, type Turn } from '#/agent/turn';
 import { stubTurn } from '../turn/stubs';
 
 function makeTurn(id: number): Turn {

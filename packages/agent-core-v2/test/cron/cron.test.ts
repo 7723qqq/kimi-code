@@ -3,27 +3,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IBootstrapService } from '#/bootstrap';
-import { IConfigRegistry, IConfigService } from '#/config';
-import { ConfigRegistry, ConfigService } from '#/config/configService';
-import type { ContextMessage } from '#/contextMemory';
-import { IAgentCronService } from '#/cron';
-import { AgentCronService } from '#/cron/cronService';
-import { ILogService } from '#/log';
-import { IAgentPromptService } from '#/prompt';
+import { IBootstrapService } from '#/app/bootstrap';
+import { IConfigRegistry, IConfigService } from '#/app/config';
+import { ConfigRegistry, ConfigService } from '#/app/config/configService';
+import type { ContextMessage } from '#/agent/contextMemory';
+import { IAgentCronService } from '#/agent/cron';
+import { AgentCronService } from '#/agent/cron/cronService';
+import { ILogService } from '#/app/log';
+import { IAgentPromptService } from '#/agent/prompt';
 import {
   InMemoryStorageService,
   IStorageService,
   IAtomicDocumentStore,
   IAtomicTomlDocumentStore,
   TomlAtomicDocumentStore,
-} from '#/storage';
-import { ITelemetryService } from '#/telemetry';
-import { IAgentToolRegistryService } from '#/toolRegistry';
-import { IAgentTurnService, type Turn } from '#/turn';
-import { IAgentWireRecordService } from '#/wireRecord';
+} from '#/app/storage';
+import { ITelemetryService } from '#/app/telemetry';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { IAgentTurnService, type Turn } from '#/agent/turn';
+import { IAgentWireRecordService } from '#/agent/wireRecord';
 
-import { IAgentEventSinkService } from '../../src/eventSink';
+import { IAgentEventSinkService } from '#/agent/eventSink';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubWireRecord } from '../contextMemory/stubs';
 import { stubLog } from '../log/stubs';

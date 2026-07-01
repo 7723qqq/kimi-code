@@ -6,7 +6,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ErrorCodes } from '#/errors';
-import { ISessionContext } from '#/session-context';
+import { ISessionContext } from '#/session/session-context';
 import {
   type TerminalAttachSink,
   type TerminalFrame,
@@ -14,9 +14,9 @@ import {
   type TerminalSpawnOptions,
   ISessionTerminalBackend,
   ISessionTerminalService,
-} from '#/terminal';
-import { SessionTerminalService } from '#/terminal/terminalService';
-import { ISessionWorkspaceContext } from '#/workspaceContext';
+} from '#/session/terminal';
+import { SessionTerminalService } from '#/session/terminal/terminalService';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 class FakeTerminalProcess implements TerminalProcess {
   private readonly dataEmitter = new Emitter<string>();

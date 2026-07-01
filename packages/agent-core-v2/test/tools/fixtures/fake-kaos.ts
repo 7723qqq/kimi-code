@@ -12,7 +12,7 @@
  */
 
 import type { Environment, Kaos } from '@moonshot-ai/kaos';
-import type { ExecutableToolResult } from '#/tool';
+import type { ExecutableToolResult } from '#/agent/tool';
 
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 

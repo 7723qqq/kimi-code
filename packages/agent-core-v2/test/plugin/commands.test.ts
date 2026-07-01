@@ -8,7 +8,7 @@ import {
   expandCommandArguments,
   loadPluginCommand,
   parseCommandText,
-} from '../../src/plugin/commands';
+} from '#/app/plugin/commands';
 
 describe('plugin command parser', () => {
   let dir: string;

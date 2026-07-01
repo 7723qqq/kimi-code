@@ -4,8 +4,8 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { FileLogWriterService, PENDING_MAX, RotatingFileWriter } from '#/log/logWriter';
-import type { LogEntry } from '#/log/log';
+import { FileLogWriterService, PENDING_MAX, RotatingFileWriter } from '#/session/sessionLog/logWriter';
+import type { LogEntry } from '#/app/log/log';
 
 let workDir: string;
 

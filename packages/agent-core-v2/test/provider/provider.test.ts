@@ -7,21 +7,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IConfigRegistry, IConfigService } from '#/config/config';
-import { ConfigRegistry } from '#/config/configService';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
+import { ConfigRegistry } from '#/app/config/configService';
 import {
   providersEnvBindings,
   providersFromToml,
   providersToToml,
   stripProvidersEnv,
-} from '#/provider/configSection';
+} from '#/app/provider/configSection';
 import {
   ENV_MODEL_PROVIDER_KEY,
   IProviderService,
   type ProviderConfig,
   PROVIDERS_SECTION,
-} from '#/provider/provider';
-import { ProviderService } from '#/provider/providerService';
+} from '#/app/provider/provider';
+import { ProviderService } from '#/app/provider/providerService';
 
 describe('ProviderService', () => {
   let disposables: DisposableStore;

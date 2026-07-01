@@ -16,15 +16,16 @@ import { afterEach, beforeEach, describe, test } from 'vitest';
 
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { LifecycleScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
-import { bootstrap } from '#/bootstrap/bootstrap';
-import { ILogService, sessionLogSeed } from '#/log/log';
-import { logSeed, resolveLoggingConfig } from '#/log/logConfig';
-import { sessionContextSeed } from '#/session-context/sessionContext';
-import '#/log/index';
-import '#/session-metadata/index';
-import { ISessionMetadata } from '#/session-metadata/sessionMetadata';
-import { FileStorageService } from '#/storage/fileStorageService';
-import { IAtomicDocumentStorage } from '#/storage/storageService';
+import { bootstrap } from '#/app/bootstrap/bootstrap';
+import { ILogService, sessionLogSeed } from '#/app/log/log';
+import { logSeed, resolveLoggingConfig } from '#/app/log/logConfig';
+import { sessionContextSeed } from '#/session/session-context/sessionContext';
+import '#/app/log';
+import '#/session/sessionLog';
+import '#/session/session-metadata';
+import { ISessionMetadata } from '#/session/session-metadata/sessionMetadata';
+import { FileStorageService } from '#/app/storage/fileStorageService';
+import { IAtomicDocumentStorage } from '#/app/storage/storageService';
 
 /** Route the atomic-document access pattern to a file-backed store at `homeDir`. */
 function diskStorageSeed(homeDir: string): ScopeSeed {

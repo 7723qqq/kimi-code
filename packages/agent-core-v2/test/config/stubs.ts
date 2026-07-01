@@ -6,9 +6,9 @@
  */
 
 import type { ServiceRegistration } from '#/_base/di/test';
-import { IConfigRegistry, IConfigService } from '#/config/config';
-import { ConfigRegistry } from '#/config/configService';
-import { IAtomicTomlDocumentStore, TomlAtomicDocumentStore } from '#/storage';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
+import { ConfigRegistry } from '#/app/config/configService';
+import { IAtomicTomlDocumentStore, TomlAtomicDocumentStore } from '#/app/storage';
 
 /**
  * Register the default config collaborators: a real `ConfigRegistry` plus an

@@ -5,8 +5,8 @@ import { join } from 'pathe';
 import { LocalKaos, type Environment } from '@moonshot-ai/kaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IKaos } from '#/kaos';
-import { IAgentProfileService, type ResolvedAgentProfile } from '#/profile';
+import { IKaos } from '#/app/kaos';
+import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile';
 
 import { createTestAgent, kaosServices, type TestAgentContext } from '../harness';
 

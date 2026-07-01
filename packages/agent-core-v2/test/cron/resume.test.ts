@@ -16,12 +16,12 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
-import type { ContextMessage, PromptOrigin } from '#/contextMemory';
-import { IAgentPromptService } from '#/prompt';
-import { IAgentCronService } from '#/cron';
-import { createCronPersistStore } from '#/cron/tools/persist';
-import type { CronTask } from '#/cron/tools/types';
-import { IAtomicDocumentStore } from '#/storage';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
+import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentCronService } from '#/agent/cron';
+import { createCronPersistStore } from '#/agent/cron/tools/persist';
+import type { CronTask } from '#/agent/cron/tools/types';
+import { IAtomicDocumentStore } from '#/app/storage';
 import {
   createTestAgent,
   cronServices,

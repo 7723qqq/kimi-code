@@ -6,9 +6,9 @@
  */
 
 import { createHooks } from '#/hooks';
-import type { PromptOrigin } from '#/contextMemory';
-import type { IAgentTurnService, Turn } from '#/turn';
-import type { IAgentToolExecutorService } from '#/toolExecutor';
+import type { PromptOrigin } from '#/agent/contextMemory';
+import type { IAgentTurnService, Turn } from '#/agent/turn';
+import type { IAgentToolExecutorService } from '#/agent/toolExecutor';
 
 export interface StubTurnOptions {
   /** When set, `getActiveTurn()` returns a synthetic active turn. */

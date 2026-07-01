@@ -11,9 +11,9 @@ import { toDisposable } from '#/_base/di';
 import type { ServiceRegistration } from '#/_base/di/test';
 import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';
-import { ensureMessageId, IAgentContextMemoryService, type ContextMessage } from '#/contextMemory';
-import { IAgentReplayBuilderService } from '#/replayBuilder';
-import { IAgentWireRecordService } from '#/wireRecord';
+import { ensureMessageId, IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
+import { IAgentWireRecordService } from '#/agent/wireRecord';
 
 /**
  * A no-op `IAgentWireRecordService`. `register` returns a disposable so services that

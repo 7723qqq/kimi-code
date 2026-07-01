@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ContextMessage } from '#/contextMemory';
-import { todoListStaleReminder } from '#/todoList/todoListReminder';
-import type { TodoItem } from '#/todoList/tools/todo-list';
+import type { ContextMessage } from '#/agent/contextMemory';
+import { todoListStaleReminder } from '#/agent/todoList/todoListReminder';
+import type { TodoItem } from '#/agent/todoList/tools/todo-list';
 
 function assistantMessage(): ContextMessage {
   return {

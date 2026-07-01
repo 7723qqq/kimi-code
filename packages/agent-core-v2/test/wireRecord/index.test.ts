@@ -10,7 +10,7 @@ import {
   type ContextMessage,
   type PersistedWireRecord,
 } from '#/index';
-import type { ReplayRangeOptions } from '#/replayBuilder';
+import type { ReplayRangeOptions } from '#/agent/replayBuilder';
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,

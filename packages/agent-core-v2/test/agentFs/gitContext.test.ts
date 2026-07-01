@@ -6,9 +6,9 @@ import {
   collectGitContext,
   parseProjectName,
   sanitizeRemoteUrl,
-} from '../../src/agentFs/gitContext';
-import type { ILogger } from '../../src/log';
-import type { IProcess, ISessionProcessRunner } from '../../src/process';
+} from '#/session/agentFs/gitContext';
+import type { ILogger } from '#/app/log';
+import type { IProcess, ISessionProcessRunner } from '#/session/process';
 
 function processWith(stdout: string, exitCode: number, stderr = ''): IProcess {
   const stdoutStream = Readable.from([Buffer.from(stdout)]);

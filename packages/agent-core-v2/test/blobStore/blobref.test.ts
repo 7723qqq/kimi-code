@@ -13,9 +13,9 @@ import {
   BLOBREF_PROTOCOL,
   IAgentBlobStoreService,
   MISSING_MEDIA_PLACEHOLDER,
-} from '#/blobStore';
-import { AgentBlobStoreService } from '#/blobStore/blobStoreService';
-import { FileStorageService, IBlobStorage } from '#/storage';
+} from '#/agent/blobStore';
+import { AgentBlobStoreService } from '#/agent/blobStore/blobStoreService';
+import { FileStorageService, IBlobStorage } from '#/app/storage';
 
 const cleanups: string[] = [];
 const disposables: DisposableStore[] = [];

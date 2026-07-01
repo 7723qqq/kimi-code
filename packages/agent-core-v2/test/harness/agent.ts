@@ -88,57 +88,57 @@ import {
 import { Event } from '#/_base/event';
 import { toDisposable } from '#/_base/di';
 import type { PromisifyMethods } from '#/_base/utils/types';
-import type { ApprovalResponse } from '#/approval';
-import type { BackgroundTaskInfo } from '#/background';
-import { IAgentBlobStoreService, type IAgentBlobStoreService as AgentBlobStoreService } from '#/blobStore';
-import { IOAuthService } from '#/auth/auth';
-import { IChatProviderFactory } from '#/chatProvider';
-import type { ContextMessage } from '#/contextMemory';
-import { IAgentContextInjectorService } from '#/contextInjector';
-import type { EnabledPluginSessionStart } from '#/plugin/types';
+import type { ApprovalResponse } from '#/session/approval';
+import type { BackgroundTaskInfo } from '#/agent/background';
+import { IAgentBlobStoreService, type IAgentBlobStoreService as AgentBlobStoreService } from '#/agent/blobStore';
+import { IOAuthService } from '#/app/auth/auth';
+import { IChatProviderFactory } from '#/app/chatProvider';
+import type { ContextMessage } from '#/agent/contextMemory';
+import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
-import { IAgentCronService } from '#/cron/cron';
-import { AgentCronService } from '#/cron/cronService';
-import type { HookEngine } from '#/externalHooks/engine';
-import type { FullCompactionServiceOptions } from '#/fullCompaction';
-import type { ILogger, LogContext, LogLevel } from '#/log';
-import type { McpServiceOptions } from '#/mcp';
-import { MICRO_COMPACTION_SECTION, type MicroCompactionConfig } from '#/microCompaction';
-import { ISessionModelResolver, SessionModelResolver, type ResolvedModel } from '#/modelRuntime';
-import type { PermissionGateOptions } from '#/permissionGate';
-import type { PermissionMode } from '#/permissionPolicy';
-import type { PermissionRule } from '#/permissionRules';
-import { IAgentProfileService } from '#/profile/profile';
-import { IAgentPromptService } from '#/prompt/prompt';
-import { AgentGoalService, IAgentGoalService, type GoalServiceOptions } from '#/goal';
-import { IAgentPlanService } from '#/plan';
-import { ISessionQuestionService, type QuestionResult } from '#/question/question';
+import { IAgentCronService } from '#/agent/cron/cron';
+import { AgentCronService } from '#/agent/cron/cronService';
+import type { HookEngine } from '#/agent/externalHooks/engine';
+import type { FullCompactionServiceOptions } from '#/agent/fullCompaction';
+import type { ILogger, LogContext, LogLevel } from '#/app/log';
+import type { McpServiceOptions } from '#/agent/mcp';
+import { MICRO_COMPACTION_SECTION, type MicroCompactionConfig } from '#/agent/microCompaction';
+import { ISessionModelResolver, SessionModelResolver, type ResolvedModel } from '#/session/modelRuntime';
+import type { PermissionGateOptions } from '#/agent/permissionGate';
+import type { PermissionMode } from '#/agent/permissionPolicy';
+import type { PermissionRule } from '#/agent/permissionRules';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { AgentGoalService, IAgentGoalService, type GoalServiceOptions } from '#/agent/goal';
+import { IAgentPlanService } from '#/agent/plan';
+import { ISessionQuestionService, type QuestionResult } from '#/session/question/question';
 import {
   ISessionInteractionService,
   type Interaction,
   type InteractionRequest,
   type InteractionResolution,
-} from '#/interaction';
+} from '#/session/interaction';
 import {
   IAgentReplayBuilderService,
   AgentReplayBuilderService,
   type ReplayBuilderServiceOptions,
-} from '#/replayBuilder';
-import type { AgentAPI } from '#/rpc/core-api';
-import { IAgentSkillService } from '#/skill/skill';
-import { ISessionSkillCatalog } from '#/skill/skillCatalog';
-import { AgentSkillService } from '#/skill/skillService';
-import { ModelSkillTool } from '#/skill/tools/modelSkill';
-import type { SkillCatalog } from '#/skill/types';
-import { SessionSubagentHostService, type SessionSubagentHost } from '#/subagentHost';
-import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/tool';
+} from '#/agent/replayBuilder';
+import type { AgentAPI } from '#/agent/rpc/core-api';
+import { IAgentSkillService } from '#/agent/skill/skill';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { AgentSkillService } from '#/agent/skill/skillService';
+import { ModelSkillTool } from '#/agent/skill/tools/modelSkill';
+import type { SkillCatalog } from '#/app/globalSkillCatalog/types';
+import { SessionSubagentHostService, type SessionSubagentHost } from '#/session/subagentHost';
+import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/agent/tool';
 import type {
   PersistedWireRecord,
   WireRecord,
   WireRecordRestoreOptions,
   WireRecordRestoreResult,
-} from '#/wireRecord';
-import type { PathAccessOperation } from '#/workspaceContext';
+} from '#/agent/wireRecord';
+import type { PathAccessOperation } from '#/session/workspaceContext';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 
 import { createScriptedGenerate } from './scripted-generate';
@@ -767,7 +767,7 @@ class RecordingWireRecordService extends AgentWireRecordService {
     @IAgentBlobStoreService blobStore?: AgentBlobStoreService,
     @IAppendLogStore log?: IAppendLogStore,
   ) {
-    super(bootstrap, blobStore, log);
+    super({}, bootstrap, blobStore, log);
   }
 
   override append(record: WireRecord): void {

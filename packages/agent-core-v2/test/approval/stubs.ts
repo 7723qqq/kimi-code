@@ -6,7 +6,7 @@
  * `../approval/stubs`).
  */
 
-import type { ApprovalResponse, ISessionApprovalService } from '#/approval/approval';
+import type { ApprovalResponse, ISessionApprovalService } from '#/session/approval/approval';
 
 export function stubApprovalService(respond: () => ApprovalResponse): ISessionApprovalService {
   return {

@@ -9,8 +9,8 @@ import {
   type Scope,
 } from '#/_base/di/scope';
 import { createScopedTestHost, type ScopedTestHost } from '#/_base/di/test';
-import { ISessionInteractionService, SessionInteractionService } from '#/interaction';
-import { type QuestionRequest, ISessionQuestionService, SessionQuestionService } from '#/question';
+import { ISessionInteractionService, SessionInteractionService } from '#/session/interaction';
+import { type QuestionRequest, ISessionQuestionService, SessionQuestionService } from '#/session/question';
 
 function makeRequest(id: string): QuestionRequest {
   return {

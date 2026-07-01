@@ -21,6 +21,14 @@ const SRC_ROOT = join(__dirname, '..', 'src');
 
 const SCOPE_OF = ['App', 'Session', 'Agent'];
 
+const SCOPE_DIRS = new Set(['app', 'session', 'agent']);
+
+/** Resolve a `src/`-relative file path to its domain, skipping the scope tier. */
+function domainOf(rel) {
+  const segments = rel.split(/[\\/]/);
+  return SCOPE_DIRS.has(segments[0]) ? segments[1] : segments[0];
+}
+
 function walk(dir) {
   const out = [];
   for (const entry of readdirSync(dir)) {
@@ -82,7 +90,7 @@ function main() {
   /** @type {Map<string, Array<{impl:string,token:string,scope:string,deps:string[]}>>} */
   const byDomain = new Map();
   for (const f of files) {
-    const domain = relative(SRC_ROOT, f).split(/[\\/]/)[0];
+    const domain = domainOf(relative(SRC_ROOT, f));
     const services = extract(readFileSync(f, 'utf8'));
     if (!byDomain.has(domain)) byDomain.set(domain, []);
     byDomain.get(domain).push(...services);

@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { LifecycleScope } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IAgentBlobStoreService } from '#/blobStore';
-import { IBlobStorage, InMemoryStorageService } from '#/storage';
+import { IAgentBlobStoreService } from '#/agent/blobStore';
+import { IBlobStorage, InMemoryStorageService } from '#/app/storage';
 
 function makeLargeDataUri(mimeType = 'image/png'): { uri: string; payload: string } {
   // The default threshold is 4096 base64 characters.

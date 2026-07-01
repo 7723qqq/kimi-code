@@ -6,11 +6,11 @@ import type { ToolCall } from '@moonshot-ai/kosong';
 import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IAgentContextInjectorService } from '#/contextInjector';
-import { IAgentContextMemoryService } from '#/contextMemory';
-import { IAgentPlanService, type PlanData } from '#/plan';
-import { IAgentPermissionRulesService } from '#/permissionRules';
-import { IAgentProfileService } from '#/profile';
+import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentPlanService, type PlanData } from '#/agent/plan';
+import { IAgentPermissionRulesService } from '#/agent/permissionRules';
+import { IAgentProfileService } from '#/agent/profile';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import {
   createCommandKaos,

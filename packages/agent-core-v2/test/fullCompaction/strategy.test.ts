@@ -4,7 +4,7 @@ import {
 import { describe, expect, it } from 'vitest';
 
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
-import { DefaultCompactionStrategy } from '#/fullCompaction/strategy';
+import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
 
 describe('DefaultCompactionStrategy', () => {
   it('keeps an oversized trailing user message as recent', () => {

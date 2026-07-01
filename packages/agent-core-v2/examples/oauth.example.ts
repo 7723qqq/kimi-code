@@ -43,14 +43,14 @@ import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { Scope } from '#/_base/di/scope';
-import { IOAuthService } from '#/auth';
-import { bootstrap } from '#/bootstrap/bootstrap';
-import { IConfigService } from '#/config';
-import { logSeed, resolveLoggingConfig } from '#/log/logConfig';
-import { IModelService } from '#/model';
-import { IProviderService } from '#/provider';
-import '#/storage';
-import '#/telemetry';
+import { IOAuthService } from '#/app/auth';
+import { bootstrap } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config';
+import { logSeed, resolveLoggingConfig } from '#/app/log/logConfig';
+import { IModelService } from '#/app/model';
+import { IProviderService } from '#/app/provider';
+import '#/app/storage';
+import '#/app/telemetry';
 
 const STUB_ACCESS_TOKEN = 'stub-access-token';
 

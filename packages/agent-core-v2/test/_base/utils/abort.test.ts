@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isAbortError } from '#/loop/errors';
+import { isAbortError } from '#/agent/loop/errors';
 import {
   abortError,
   abortable,

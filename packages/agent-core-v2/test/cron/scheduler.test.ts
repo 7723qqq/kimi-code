@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ClockSources } from '#/cron/tools/clock';
-import { createCronScheduler, type CronScheduler } from '#/cron/tools/scheduler';
-import type { CronTask } from '#/cron/tools/types';
+import type { ClockSources } from '#/agent/cron/tools/clock';
+import { createCronScheduler, type CronScheduler } from '#/agent/cron/tools/scheduler';
+import type { CronTask } from '#/agent/cron/tools/types';
 
 interface HarnessOptions {
   readonly isIdle?: boolean;

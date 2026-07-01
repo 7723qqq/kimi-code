@@ -3,20 +3,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IBootstrapService } from '#/bootstrap/bootstrap';
-import { IConfigRegistry, IConfigService } from '#/config/config';
-import { ConfigRegistry, ConfigService } from '#/config/configService';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
+import { ConfigRegistry, ConfigService } from '#/app/config/configService';
 import {
   EXPERIMENTAL_SECTION,
   IFlagService,
-} from '#/flag/flag';
-import { IFlagRegistry, type FlagDefinitionInput } from '#/flag/flagRegistry';
-import { FlagRegistryService } from '#/flag/flagRegistryService';
-import { FlagService, MASTER_ENV } from '#/flag/flagService';
-import { ILogService } from '#/log/log';
-import { IAtomicTomlDocumentStore, TomlAtomicDocumentStore } from '#/storage/atomicDocumentStore';
-import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
-import { IStorageService } from '#/storage/storageService';
+} from '#/app/flag/flag';
+import { IFlagRegistry, type FlagDefinitionInput } from '#/app/flag/flagRegistry';
+import { FlagRegistryService } from '#/app/flag/flagRegistryService';
+import { FlagService, MASTER_ENV } from '#/app/flag/flagService';
+import { ILogService } from '#/app/log/log';
+import { IAtomicTomlDocumentStore, TomlAtomicDocumentStore } from '#/app/storage/atomicDocumentStore';
+import { InMemoryStorageService } from '#/app/storage/inMemoryStorageService';
+import { IStorageService } from '#/app/storage/storageService';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../log/stubs';

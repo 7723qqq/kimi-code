@@ -15,11 +15,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
-import type { AgentFileStat, ISessionAgentFileSystem } from '../../src/agentFs';
+import type { AgentFileStat, ISessionAgentFileSystem } from '#/session/agentFs';
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
-import { type WriteInput, WriteInputSchema, WriteTool } from '../../src/fileTools/tools/write';
-import type { IKaos } from '../../src/kaos';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../src/tool';
+import { type WriteInput, WriteInputSchema, WriteTool } from '#/agent/fileTools/tools/write';
+import type { IKaos } from '#/app/kaos';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE: WorkspaceConfig = { workspaceDir: '/', additionalDirs: [] };

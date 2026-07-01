@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
-import { HookEngine } from '#/externalHooks/engine';
+import { HookEngine } from '#/agent/externalHooks/engine';
 
 function nodeCommand(source: string): string {
   return `node -e ${JSON.stringify(source.replace(/\s*\n\s*/g, ' '))}`;

@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
 import { MEDIA_SNIFF_BYTES } from '../../src/_base/tools/support/file-type';
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
-import type { ISessionAgentFileSystem } from '../../src/agentFs';
+import type { ISessionAgentFileSystem } from '#/session/agentFs';
 import {
   MAX_BYTES,
   MAX_LINE_LENGTH,
@@ -25,9 +25,9 @@ import {
   type ReadInput,
   ReadInputSchema,
   ReadTool,
-} from '../../src/fileTools/tools/read';
-import type { IKaos } from '../../src/kaos';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../src/tool';
+} from '#/agent/fileTools/tools/read';
+import type { IKaos } from '#/app/kaos';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE: WorkspaceConfig = { workspaceDir: '/', additionalDirs: [] };

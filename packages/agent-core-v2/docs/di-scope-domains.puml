@@ -39,6 +39,7 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>chatProvider</b>\n<size:9><i>App</i></size>\n  IChatProviderFactory" as chatProvider #D6EAF8
   rectangle "<b>model</b>\n<size:9><i>App</i></size>\n  IModelService" as model #D6EAF8
   rectangle "<b>modelCatalog</b>\n<size:9><i>App</i></size>\n  IModelCatalogService" as modelCatalog #D6EAF8
+  rectangle "<b>globalSkillCatalog</b>\n<size:9><i>App</i></size>\n  IGlobalSkillCatalog\n  ISkillCatalogStore" as globalSkillCatalog #D6EAF8
 }
 
 package "Session scope (per session)" #EAFAF1 {
@@ -50,6 +51,7 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>interaction</b>\n<size:9><i>Session</i></size>\n  IInteractionService" as interaction #D5F5E3
   rectangle "<b>workspaceContext</b>\n<size:9><i>Session</i></size>\n  IWorkspaceContext" as workspaceContext #D5F5E3
   rectangle "<b>sessionLog</b>\n<size:9><i>Session</i></size>\n  ISessionLogService\n  ILogWriterService" as sessionLog #D5F5E3
+  rectangle "<b>sessionSkillCatalog</b>\n<size:9><i>Session</i></size>\n  ISessionSkillCatalog" as sessionSkillCatalog #D5F5E3
   rectangle "<b>kaos</b>\n<size:9><i>Session</i></size>\n  IKaos (seed)" as kaos #D5F5E3
   rectangle "<b>agentFs</b>\n<size:9><i>Session</i></size>\n  IAgentFileSystem\n  IFsService" as agentFs #D5F5E3
   rectangle "<b>approval</b>\n<size:9><i>Session</i></size>\n  IApprovalService" as approval #D5F5E3
@@ -87,6 +89,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>plan</b>\n<size:9><i>Agent</i></size>\n  IAgentPlanService" as plan #FDEBD0
   rectangle "<b>goal</b>\n<size:9><i>Agent</i></size>\n  IAgentGoalService" as goal #FDEBD0
   rectangle "<b>skill</b>\n<size:9><i>Agent</i></size>\n  IAgentSkillService" as skill #FDEBD0
+  rectangle "<b>questionTools</b>\n<size:9><i>Agent</i></size>\n  IAgentQuestionToolsService" as questionTools #FDEBD0
   rectangle "<b>userTool</b>\n<size:9><i>Agent</i></size>\n  IAgentUserToolService" as userTool #FDEBD0
   rectangle "<b>background</b>\n<size:9><i>Agent</i></size>\n  IAgentBackgroundService" as background #FDEBD0
   rectangle "<b>cron</b>\n<size:9><i>Agent</i></size>\n  IAgentCronService" as cron #FDEBD0
@@ -129,6 +132,9 @@ modelCatalog --> config #34495E
 modelCatalog --> auth #34495E
 workspaceContext --> kaos #34495E
 sessionLog --> session_context #34495E
+sessionSkillCatalog --> globalSkillCatalog #34495E
+sessionSkillCatalog --> workspaceContext #34495E
+globalSkillCatalog --> bootstrap #34495E
 agentFs --> workspaceContext #34495E
 agentFs --> kaos #34495E
 agentFs --> process #34495E
@@ -241,6 +247,11 @@ skill --> prompt #34495E
 skill --> eventSink #34495E
 skill --> wireRecord #34495E
 skill --> telemetry #34495E
+skill --> sessionSkillCatalog #34495E
+questionTools --> question #34495E
+questionTools --> toolRegistry #34495E
+questionTools --> background #34495E
+questionTools --> telemetry #34495E
 userTool --> toolRegistry #34495E
 userTool --> profile #34495E
 userTool --> wireRecord #34495E
@@ -309,6 +320,7 @@ rpc --> background #34495E
 rpc --> contextMemory #34495E
 rpc --> contextSize #34495E
 rpc --> skill #34495E
+rpc --> questionTools #34495E
 rpc --> subagentHost #34495E
 rpc --> usage #34495E
 rpc --> telemetry #34495E

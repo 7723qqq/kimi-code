@@ -1,7 +1,7 @@
 import { SseError } from '@modelcontextprotocol/sdk/client/sse.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { SseMcpClient, isTerminalSseTransportError } from '#/mcp/client-sse';
+import { SseMcpClient, isTerminalSseTransportError } from '#/agent/mcp/client-sse';
 
 import { startInProcessSseMcpServer } from './stubs';
 

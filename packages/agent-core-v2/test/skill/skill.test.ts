@@ -3,21 +3,23 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import type { ContextMessage } from '#/contextMemory';
-import { IAgentEventSinkService } from '#/eventSink';
-import { IAgentPromptService } from '#/prompt';
-import { IAgentSkillService, InMemorySkillCatalog, ISessionSkillCatalog } from '#/skill';
-import { AgentSkillService } from '#/skill/skillService';
+import type { ContextMessage } from '#/agent/contextMemory';
+import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentSkillService } from '#/agent/skill';
+import { InMemorySkillCatalog } from '#/app/globalSkillCatalog';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
+import { AgentSkillService } from '#/agent/skill/skillService';
 import {
   MAX_SKILL_QUERY_DEPTH,
   NestedSkillTooDeepError,
   SkillTool,
-} from '#/skill/tools/skill';
-import { ModelSkillTool } from '#/skill/tools/modelSkill';
-import { ITelemetryService } from '#/telemetry';
-import { IAgentToolRegistryService } from '#/toolRegistry';
-import type { Turn } from '#/turn';
-import { IAgentWireRecordService } from '#/wireRecord';
+} from '#/agent/skill/tools/skill';
+import { ModelSkillTool } from '#/agent/skill/tools/modelSkill';
+import { ITelemetryService } from '#/app/telemetry';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import type { Turn } from '#/agent/turn';
+import { IAgentWireRecordService } from '#/agent/wireRecord';
 import { stubWireRecord } from '../contextMemory/stubs';
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { stubSkill } from './stubs';

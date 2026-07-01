@@ -14,12 +14,12 @@ import { afterEach, beforeEach, describe, test } from 'vitest';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IBootstrapService } from '#/bootstrap/bootstrap';
-import { IConfigRegistry, IConfigService } from '#/config/config';
-import { FlagService } from '#/flag/flagService';
-import { type ExperimentalFlagConfig, IFlagService } from '#/flag/flag';
-import { IFlagRegistry, registerFlagDefinition } from '#/flag/flagRegistry';
-import { FlagRegistryService } from '#/flag/flagRegistryService';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
+import { FlagService } from '#/app/flag/flagService';
+import { type ExperimentalFlagConfig, IFlagService } from '#/app/flag/flag';
+import { IFlagRegistry, registerFlagDefinition } from '#/app/flag/flagRegistry';
+import { FlagRegistryService } from '#/app/flag/flagRegistryService';
 
 registerFlagDefinition({
   id: 'demo_flag',

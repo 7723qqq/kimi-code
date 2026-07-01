@@ -14,14 +14,14 @@ import { TestInstantiationService } from '#/_base/di/test';
 import {
   BackgroundTaskPersistence,
   type BackgroundTaskInfo,
-} from '#/background';
+} from '#/agent/background';
 import {
   AtomicDocumentStore,
   FileStorageService,
   IAtomicDocumentStore,
   IAtomicDocumentStorage,
   IStorageService,
-} from '#/storage';
+} from '#/app/storage';
 
 const SESSION_SCOPE = 'session';
 

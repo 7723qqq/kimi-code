@@ -2,21 +2,21 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { APIProviderRateLimitError } from '@moonshot-ai/kosong';
 
-import { IAgentLifecycleService } from '#/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agent-lifecycle';
 import type { IScopeHandle } from '#/_base/di/scope';
-import { IAgentContextMemoryService } from '#/contextMemory';
-import { IAgentEventSinkService } from '#/eventSink';
-import { IAgentExternalHooksService } from '#/externalHooks';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import {
   DenyAllPermissionPolicyService,
   IAgentPermissionPolicyService,
-} from '#/permissionPolicy';
-import { IAgentProfileService } from '#/profile';
-import { IAgentPromptService } from '#/prompt';
-import { IAgentSystemReminderService } from '#/systemReminder';
-import { ITelemetryService } from '#/telemetry';
-import { IAgentUsageService } from '#/usage';
-import { DefaultSessionSubagentHost } from '../../src/subagentHost/defaultSessionSubagentHost';
+} from '#/agent/permissionPolicy';
+import { IAgentProfileService } from '#/agent/profile';
+import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentSystemReminderService } from '#/agent/systemReminder';
+import { ITelemetryService } from '#/app/telemetry';
+import { IAgentUsageService } from '#/agent/usage';
+import { DefaultSessionSubagentHost } from '#/session/subagentHost/defaultSessionSubagentHost';
 
 const CHILD_SUMMARY = 'child summary '.repeat(20);
 

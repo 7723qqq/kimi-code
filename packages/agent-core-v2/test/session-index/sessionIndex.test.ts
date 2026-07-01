@@ -8,15 +8,15 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IBootstrapService } from '#/bootstrap';
-import { ISessionIndex } from '#/session-index/sessionIndex';
-import { FileSessionIndex } from '#/session-index/sessionIndexService';
+import { IBootstrapService } from '#/app/bootstrap';
+import { ISessionIndex } from '#/app/session-index/sessionIndex';
+import { FileSessionIndex } from '#/app/session-index/sessionIndexService';
 import {
   AtomicDocumentStore,
   FileStorageService,
   IAtomicDocumentStore,
   IStorageService,
-} from '#/storage';
+} from '#/app/storage';
 
 const WORK_DIR = '/home/user/repo';
 

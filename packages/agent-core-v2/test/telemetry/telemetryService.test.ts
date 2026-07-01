@@ -12,7 +12,7 @@ import {
   type TelemetryProperties,
   ITelemetryService,
   TelemetryService,
-} from '#/telemetry/index';
+} from '#/app/telemetry';
 
 class CapturingAppender implements ITelemetryAppender {
   readonly events: { event: string; properties?: TelemetryProperties }[] = [];

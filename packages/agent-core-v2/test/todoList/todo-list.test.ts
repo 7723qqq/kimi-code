@@ -6,8 +6,8 @@ import {
   TodoListInputSchema,
   TodoListTool,
   type TodoItem,
-} from '#/todoList/tools/todo-list';
-import type { ToolStore } from '#/toolStore';
+} from '#/agent/todoList/tools/todo-list';
+import type { ToolStore } from '#/agent/toolStore';
 import { executeTool } from '../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;

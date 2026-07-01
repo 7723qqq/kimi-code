@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { resolveGithubSource } from '../../src/plugin/github-resolver';
+import { resolveGithubSource } from '#/app/plugin/github-resolver';
 
 describe('resolveGithubSource', () => {
   afterEach(() => {

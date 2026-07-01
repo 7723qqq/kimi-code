@@ -1,0 +1,183 @@
+/**
+ * `workspaceRegistry` domain (L1) — `IWorkspaceRegistry` implementation.
+ *
+ * Process-wide catalog of known workspaces, now durable: an in-memory cache
+ * is loaded once from `IWorkspaceStore` (`<homeDir>/workspaces.json`, v1
+ * compatible) and every mutation writes back through it. When the catalog is
+ * absent or malformed, it is rebuilt once from the legacy
+ * `<homeDir>/session_index.jsonl` (one workspace per distinct absolute
+ * `workDir`) and then persisted. All access is serialized through a
+ * promise-chain mutex so load/rebuild/mutations never race. Bound at App
+ * scope.
+ */
+
+import { basename, isAbsolute } from 'pathe';
+
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { IStorageService } from '#/app/storage';
+
+import { IWorkspaceRegistry, type Workspace, type WorkspaceUpdate } from './workspaceRegistry';
+import { IWorkspaceStore } from './workspaceStore';
+
+// Legacy v1 session index, read only for the one-shot rebuild. Empty scope
+// resolves to `<homeDir>/<key>` (join skips empty segments).
+const SESSION_INDEX_SCOPE = '';
+const SESSION_INDEX_KEY = 'session_index.jsonl';
+
+const textDecoder = new TextDecoder();
+
+interface SessionIndexLine {
+  readonly sessionId: string;
+  readonly sessionDir: string;
+  readonly workDir: string;
+}
+
+export class WorkspaceRegistryService implements IWorkspaceRegistry {
+  declare readonly _serviceBrand: undefined;
+
+  /** `undefined` until the first access loads/rebuilds the catalog. */
+  private cache: Map<string, Workspace> | undefined;
+  private opQueue: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    @IWorkspaceStore private readonly store: IWorkspaceStore,
+    @IStorageService private readonly storage: IStorageService,
+  ) {}
+
+  list(): Promise<readonly Workspace[]> {
+    return this.runExclusive(async () => {
+      const cache = await this.ensureLoaded();
+      return [...cache.values()];
+    });
+  }
+
+  get(id: string): Promise<Workspace | undefined> {
+    return this.runExclusive(async () => {
+      const cache = await this.ensureLoaded();
+      return cache.get(id);
+    });
+  }
+
+  createOrTouch(root: string, name?: string): Promise<Workspace> {
+    return this.runExclusive(async () => {
+      const cache = await this.ensureLoaded();
+      const id = encodeWorkDirKey(root);
+      const existing = cache.get(id);
+      const now = Date.now();
+      const ws: Workspace =
+        existing !== undefined
+          ? { ...existing, lastOpenedAt: now }
+          : {
+              id,
+              root,
+              name: name ?? basename(root),
+              createdAt: now,
+              lastOpenedAt: now,
+            };
+      cache.set(id, ws);
+      await this.store.save([...cache.values()]);
+      return ws;
+    });
+  }
+
+  update(id: string, patch: WorkspaceUpdate): Promise<Workspace | undefined> {
+    return this.runExclusive(async () => {
+      const cache = await this.ensureLoaded();
+      const existing = cache.get(id);
+      if (existing === undefined) return undefined;
+      const updated: Workspace = {
+        ...existing,
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+      };
+      cache.set(id, updated);
+      await this.store.save([...cache.values()]);
+      return updated;
+    });
+  }
+
+  delete(id: string): Promise<void> {
+    return this.runExclusive(async () => {
+      const cache = await this.ensureLoaded();
+      cache.delete(id);
+      await this.store.save([...cache.values()]);
+    });
+  }
+
+  private async ensureLoaded(): Promise<Map<string, Workspace>> {
+    if (this.cache !== undefined) return this.cache;
+    const loaded = await this.store.load();
+    if (loaded !== undefined) {
+      this.cache = new Map(loaded.map((ws) => [ws.id, ws]));
+      return this.cache;
+    }
+    const rebuilt = await this.rebuildFromSessionIndex();
+    this.cache = rebuilt;
+    await this.store.save([...rebuilt.values()]);
+    return this.cache;
+  }
+
+  private async rebuildFromSessionIndex(): Promise<Map<string, Workspace>> {
+    const result = new Map<string, Workspace>();
+    const bytes = await this.storage.read(SESSION_INDEX_SCOPE, SESSION_INDEX_KEY);
+    if (bytes === undefined) return result;
+    const now = Date.now();
+    for (const line of textDecoder.decode(bytes).split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (trimmed === '') continue;
+      const entry = parseSessionIndexLine(trimmed);
+      if (entry === undefined) continue;
+      if (!isAbsolute(entry.workDir)) continue;
+      const id = encodeWorkDirKey(entry.workDir);
+      if (result.has(id)) continue;
+      result.set(id, {
+        id,
+        root: entry.workDir,
+        name: basename(entry.workDir),
+        createdAt: now,
+        lastOpenedAt: now,
+      });
+    }
+    return result;
+  }
+
+  private runExclusive<T>(op: () => Promise<T>): Promise<T> {
+    const next = this.opQueue.then(op, op);
+    this.opQueue = next.then(
+      () => {},
+      () => {},
+    );
+    return next;
+  }
+}
+
+function parseSessionIndexLine(line: string): SessionIndexLine | undefined {
+  try {
+    const parsed = JSON.parse(line) as unknown;
+    if (typeof parsed !== 'object' || parsed === null) return undefined;
+    const entry = parsed as Partial<SessionIndexLine>;
+    if (
+      typeof entry.sessionId !== 'string' ||
+      typeof entry.sessionDir !== 'string' ||
+      typeof entry.workDir !== 'string'
+    ) {
+      return undefined;
+    }
+    return {
+      sessionId: entry.sessionId,
+      sessionDir: entry.sessionDir,
+      workDir: entry.workDir,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+registerScopedService(
+  LifecycleScope.App,
+  IWorkspaceRegistry,
+  WorkspaceRegistryService,
+  InstantiationType.Delayed,
+  'workspaceRegistry',
+);

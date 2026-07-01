@@ -2,13 +2,13 @@ import { describe, expect, it, onTestFinished } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import { IAgentPermissionModeService } from '#/permissionMode/permissionMode';
-import { IAgentProfileService } from '#/profile/profile';
-import { IAgentPromptService } from '#/prompt/prompt';
-import { IAgentTurnService, type Turn, type TurnResult } from '#/turn/turn';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
 import type { PromptSubmission } from '@moonshot-ai/protocol';
 
-import { IAgentPromptLegacyService, AgentPromptLegacyService } from '#/promptLegacy';
+import { IAgentPromptLegacyService, AgentPromptLegacyService } from '#/agent/promptLegacy';
 
 interface ControlledTurn {
   readonly turn: Turn;

@@ -8,8 +8,8 @@ import {
   AgentBackgroundTask,
   IAgentBackgroundService,
   ProcessBackgroundTask,
-} from '#/background';
-import type { SessionSubagentHost, SubagentHandle } from '#/subagentHost';
+} from '#/agent/background';
+import type { SessionSubagentHost, SubagentHandle } from '#/session/subagentHost';
 import { createTestAgent, type TestAgentContext } from '../harness';
 import { createBackgroundTaskPersistence } from './stubs';
 

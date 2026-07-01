@@ -10,12 +10,12 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { ISessionAgentFileSystem } from '#/agentFs';
-import { ISessionFsService } from '#/agentFs/fs';
-import { SessionFsService } from '#/agentFs/fsService';
-import { ISessionProcessRunner, type IProcess } from '#/process';
-import { ITelemetryService } from '#/telemetry';
-import { ISessionWorkspaceContext } from '#/workspaceContext';
+import { ISessionAgentFileSystem } from '#/session/agentFs';
+import { ISessionFsService } from '#/session/agentFs/fs';
+import { SessionFsService } from '#/session/agentFs/fsService';
+import { ISessionProcessRunner, type IProcess } from '#/session/process';
+import { ITelemetryService } from '#/app/telemetry';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 const WORK_DIR = '/repo';
 

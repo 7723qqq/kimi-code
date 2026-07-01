@@ -2,8 +2,8 @@ import type { Environment } from '@moonshot-ai/kaos';
 import type { ModelCapability, ProviderConfig, ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IAgentProfileService, type ResolvedAgentProfile } from '#/profile';
-import { AGENT_WIRE_PROTOCOL_VERSION } from '#/wireRecord';
+import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile';
+import { AGENT_WIRE_PROTOCOL_VERSION } from '#/agent/wireRecord';
 import { createTestAgent, type TestAgentContext } from '../harness';
 import { DEFAULT_TEST_SYSTEM_PROMPT } from '../harness/snapshots';
 

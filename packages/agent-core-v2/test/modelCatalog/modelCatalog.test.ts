@@ -12,18 +12,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IOAuthService } from '#/auth/auth';
-import { IConfigRegistry, IConfigService } from '#/config/config';
-import { ConfigRegistry } from '#/config/configService';
+import { IOAuthService } from '#/app/auth/auth';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
+import { ConfigRegistry } from '#/app/config/configService';
 import { isKimiError } from '#/errors';
-import { IEventService } from '#/event/event';
-import { MODEL_CATALOG_SECTION } from '#/modelCatalog/configSection';
-import { IModelCatalogService } from '#/modelCatalog/modelCatalog';
-import { ModelCatalogService } from '#/modelCatalog/modelCatalogService';
-import { IModelService, type ModelAlias } from '#/model/model';
-import { ModelService } from '#/model/modelService';
-import { IProviderService, type ProviderConfig } from '#/provider/provider';
-import { ProviderService } from '#/provider/providerService';
+import { IEventService } from '#/app/event/event';
+import { MODEL_CATALOG_SECTION } from '#/app/modelCatalog/configSection';
+import { IModelCatalogService } from '#/app/modelCatalog/modelCatalog';
+import { ModelCatalogService } from '#/app/modelCatalog/modelCatalogService';
+import { IModelService, type ModelAlias } from '#/app/model/model';
+import { ModelService } from '#/app/model/modelService';
+import { IProviderService, type ProviderConfig } from '#/app/provider/provider';
+import { ProviderService } from '#/app/provider/providerService';
 
 interface Backing {
   providers: Record<string, ProviderConfig>;

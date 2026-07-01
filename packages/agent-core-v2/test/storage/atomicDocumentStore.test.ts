@@ -8,9 +8,9 @@ import {
   IAtomicDocumentStore,
   IAtomicTomlDocumentStore,
   IStorageService,
-} from '#/storage';
-import { AtomicDocumentStore, TomlAtomicDocumentStore } from '#/storage/atomicDocumentStore';
-import { InMemoryStorageService } from '#/storage/inMemoryStorageService';
+} from '#/app/storage';
+import { AtomicDocumentStore, TomlAtomicDocumentStore } from '#/app/storage/atomicDocumentStore';
+import { InMemoryStorageService } from '#/app/storage/inMemoryStorageService';
 
 interface State {
   readonly title?: string;

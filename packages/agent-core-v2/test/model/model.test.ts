@@ -7,18 +7,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IConfigRegistry, IConfigService } from '#/config/config';
-import { ConfigRegistry } from '#/config/configService';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
+import { ConfigRegistry } from '#/app/config/configService';
 import { ErrorCodes, KimiError } from '#/errors';
-import { kimiModelEnvOverlay, ENV_MODEL_ALIAS_KEY } from '#/model/envOverlay';
+import { kimiModelEnvOverlay, ENV_MODEL_ALIAS_KEY } from '#/app/model/envOverlay';
 import {
   IModelService,
   type ModelAlias,
   MODELS_SECTION,
   ModelsSectionSchema,
-} from '#/model/model';
-import { ModelService } from '#/model/modelService';
-import { ENV_MODEL_PROVIDER_KEY } from '#/provider/provider';
+} from '#/app/model/model';
+import { ModelService } from '#/app/model/modelService';
+import { ENV_MODEL_PROVIDER_KEY } from '#/app/provider/provider';
 
 describe('ModelService', () => {
   let disposables: DisposableStore;

@@ -6,8 +6,8 @@ import {
   isUserActivatableSkillType,
   normalizeSkillName,
   summarizeSkill,
-} from '#/skill/types';
-import type { SkillDefinition } from '#/skill/types';
+} from '#/app/globalSkillCatalog/types';
+import type { SkillDefinition } from '#/app/globalSkillCatalog/types';
 
 describe('skill/types', () => {
   it('normalizeSkillName lowercases', () => {
