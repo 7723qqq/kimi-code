@@ -1,6 +1,6 @@
 # Topic — Config
 
-How the `config` domain works and how a domain owns its configuration section. Covers the section-registry model, the Core vs Session split, the TOML on-disk format, and the recipe for adding or migrating a config section.
+How the `config` domain works and how a domain owns its configuration section. Covers the section-registry model, the App vs Session split, the TOML on-disk format, and the recipe for adding or migrating a config section.
 
 The `config` domain is a thin registry + loader: it does **not** know the shape of any individual section. Each domain owns the schema (and, where needed, the TOML transform) for the config it consumes, registers the section into `IConfigRegistry`, and reads it through `IConfigService`. There is no whole-config object passed around.
 
@@ -96,7 +96,7 @@ A domain that owns a section keeps the schema in its own `configSection.ts` (e.g
 
 ## Scope
 
-- `IConfigRegistry` / `IConfigService` — **Core** scope, process-global. One registry of sections; one loader reading `~/.kimi-code/config.toml` (path from `IBootstrapService.configPath`).
+- `IConfigRegistry` / `IConfigService` — **App** scope, process-global. One registry of sections; one loader reading `~/.kimi-code/config.toml` (path from `IBootstrapService.configPath`).
 
 All config reads go through `IConfigService` (global config). Per-session runtime state (active model, thinking level, etc.) lives in the owning Session-scoped service (e.g. `IProfileService`), not in `config`.
 
@@ -253,7 +253,7 @@ When `KIMI_MODEL_NAME` is set, the `provider` domain's `kimiModelEnvOverlay` (`s
 
 - `config` is **L2**. Domains that own sections import `config` (for `IConfigRegistry` / `IConfigService`) and must be at L2 or higher; lower layers need an entry in `ALLOWED_EXCEPTIONS` (e.g. `kosong>config`, `kosong>provider`).
 - Cross-domain type sharing for a config type may need an exception too (e.g. `plugin>mcp` for `McpServerConfig`). Prefer importing the type from the owning domain over re-declaring it.
-- `IConfigRegistry` / `IConfigService` are **Core**. Agent / Turn scope services may inject Core services via ancestor lookup.
+- `IConfigRegistry` / `IConfigService` are **App**. Agent scope services may inject App services via ancestor lookup.
 - `config` never imports a higher domain and holds no section schemas of its own; if a section needs a type from another domain, that schema lives in that domain.
 
 ## Red lines (this topic)

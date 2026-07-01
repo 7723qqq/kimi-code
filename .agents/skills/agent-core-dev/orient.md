@@ -12,7 +12,7 @@ When writing business code you declare three things; the container handles the r
 
 Classes talk only to interfaces and never care how an implementation is constructed.
 
-## The four `LifecycleScope` tiers
+## The three `LifecycleScope` tiers
 
 Lifetimes form a tree, from longest to shortest:
 
@@ -20,7 +20,6 @@ Lifetimes form a tree, from longest to shortest:
 App (0)         process-wide, single global instance
  └── Session (1)    one session
       └── Agent (2)    one agent
-           └── Turn (3)    one turn of conversation
 ```
 
 ```ts
@@ -28,7 +27,6 @@ export enum LifecycleScope {
   App = 0,
   Session = 1,
   Agent = 2,
-  Turn = 3,
 }
 ```
 
@@ -40,7 +38,7 @@ export enum LifecycleScope {
 
 A child scope sees its ancestors; a parent never sees its children. Resolution walks *up* the tree:
 
-- ✅ A `Turn` service injects a `Session` or `App` service (found upward).
+- ✅ An `Agent` service injects a `Session` or `App` service (found upward).
 - ❌ An `App` service injects a `Session` service (the parent does not look down, and the child may not exist yet).
 
 > **Short-lived may inject long-lived; never the reverse.** The tree structure enforces this — it is not a matter of discipline.

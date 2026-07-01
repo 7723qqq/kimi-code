@@ -12,10 +12,8 @@ A Service registered at `LifecycleScope.Session` or `LifecycleScope.Agent` is **
 
 | Term | Meaning |
 |---|---|
-| **Scope** | Lifetime / visibility tier. Current code registers Services at `Core`, `Session`, or `Agent`. |
+| **Scope** | Lifetime / visibility tier. Current code registers Services at `App`, `Session`, or `Agent`. |
 | **Domain** | A cohesive business responsibility with its own model, invariants, and write authority. |
-
-> If a future branch adds a shorter-lived scope such as `Turn`, treat it as another lifetime tier, not as a data owner. The ownership rules below do not change.
 | **Entity** | Data with identity and lifecycle, usually suitable for `get/list/create/update/delete` semantics. |
 | **Aggregate** | A consistency boundary: the owner that enforces invariants over a cluster of data. |
 | **Read model / projection** | Derived data built for queries; it may be shaped like a domain, but it is not the write authority. |

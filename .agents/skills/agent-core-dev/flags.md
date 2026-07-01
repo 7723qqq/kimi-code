@@ -1,6 +1,6 @@
 # Topic — Flags
 
-Experimental feature-flag gating for agent-core-v2 — a App-scope `IFlagService` resolver plus a writable `IFlagRegistry` catalog that domains contribute their flags to, backed by the `[experimental]` config section.
+Experimental feature-flag gating for agent-core-v2 — an App-scope `IFlagService` resolver plus a writable `IFlagRegistry` catalog that domains contribute their flags to, backed by the `[experimental]` config section.
 
 Gate not-yet-public features behind `IFlagService.enabled(id)`, per the repository hard rule that unreleased behavior must be flag-gated. v1 was a process-global `FlagResolver` singleton over a central `FLAG_DEFINITIONS` array; v2 is a scoped DI service whose flag definitions are registered **decentrally** by each owning domain — there is no central catalog to edit.
 
@@ -85,7 +85,7 @@ export * from './flag';
 
 ## Consume a flag
 
-Inject `IFlagService` and gate on it. It is resolvable from any scope (Core ancestor):
+Inject `IFlagService` and gate on it. It is resolvable from any scope (App ancestor):
 
 ```ts
 constructor(@IFlagService private readonly flags: IFlagService) {}
@@ -97,7 +97,7 @@ if (!this.flags.enabled('micro_compaction')) return;
 
 - Domain `flag` is registered at **L3**. It imports only `config` (L2) downward.
 - It cannot live in `_base` (L0): registering/reading the config section requires importing `config`, and L0 must not import L2.
-- Scope: `IFlagRegistry` and `IFlagService` are both `Core`. Env + config are process-global inputs, so there is no per-session/agent state. Flag definitions are contributed at **import time** (top-level `registerFlagDefinition` calls), so they are queued before any scope is created and drained when `FlagRegistryService` is first instantiated — before `IFlagService` is first resolved.
+- Scope: `IFlagRegistry` and `IFlagService` are both `App`. Env + config are process-global inputs, so there is no per-session/agent state. Flag definitions are contributed at **import time** (top-level `registerFlagDefinition` calls), so they are queued before any scope is created and drained when `FlagRegistryService` is first instantiated — before `IFlagService` is first resolved.
 - Tests build `FlagService` + `FlagRegistryService` directly with a real `ConfigRegistry`/`ConfigService` and an injected env map, then `register` the flags they exercise.
 
 ## Red lines (this topic)
@@ -106,4 +106,4 @@ if (!this.flags.enabled('micro_compaction')) return;
 - Contribute each flag from the **owning domain's** `flag.ts` (`src/<domain>/flag.ts`) via a top-level `registerFlagDefinition` call; there is no central catalog to edit. The directory names the domain, so the file is just `flag.ts`.
 - `env` must start with `KIMI_CODE_EXPERIMENTAL_`, be unique, and not equal `KIMI_CODE_EXPERIMENTAL_FLAG`; `id` must not be `flag`.
 - `FlagId` is `string` (decentralized registration) — do not reintroduce a central `FLAG_DEFINITIONS` array or a derived literal union.
-- `flag` lives at L3 and `Core` scope — never in `_base`, never per-session.
+- `flag` lives at L3 and `App` scope — never in `_base`, never per-session.

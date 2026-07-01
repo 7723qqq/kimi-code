@@ -39,7 +39,7 @@ End-to-end procedures that span the stages. Reach for these before reading the s
   - Topic: [Edge exposure — `resource:action` + WS events](edge-exposure.md) — which Services are exposed over `/api/v2` (per-scope action map) and which events stream over WS; what to wrap in a facade.
 - [Stage 3 — Implement](implement.md): the standard Service recipe and the DI building blocks — interface + identity, constructor injection, scoped registration, `Disposable`, eager vs delayed, `invokeFunction`, `createInstance`, child scopes, and the cycle-refactor playbook.
   - Topic: [Service authoring](service-authoring.md) — file layout, naming, contract vs impl contents, interface style, constructor/field conventions, events, multi-Service domains, comment rules.
-  - Topic: [Config](config.md) — the section-registry model, Core vs Session split, owning a config section, the TOML format, and the env overlay.
+  - Topic: [Config](config.md) — the section-registry model, App vs Session split, owning a config section, the TOML format, and the env overlay.
   - Topic: [Errors](errors.md) — co-located `XxxError`, the central code registry, wire serialization, boundary translation.
   - Topic: [Flags](flags.md) — `FLAG_DEFINITIONS`, `IFlagService.enabled(id)`, the `[experimental]` config section, resolution precedence.
   - Topic: [Permission](permission.md) — composable chain-of-responsibility kernel, policy registry + composer, `modes`/`agentTypes` metadata, `resolveExecution`/`accesses`.
@@ -61,7 +61,7 @@ Invariants that hold across every stage. Each is expanded in the stage file note
 4. Parent scope never depends on child scope — short-lived may inject long-lived, never the reverse. (orient.md)
 5. No cyclic dependencies — refactor (extract a third Service / use an event / re-scope); do not break the cycle with `Delayed`. (design.md, implement.md)
 6. `ServicesAccessor` is valid only during `invokeFunction` — never stash it for async use. (implement.md)
-7. Scope follows state identity — no `Map<sessionId, …>` at `Core` to fake per-session state. (design.md)
+7. Scope follows state identity — no `Map<sessionId, …>` at `App` to fake per-session state. (design.md)
 8. Foundational layers never know upstream ones; business code never depends on the edge layer (`gateway`/`rpc`). (design.md)
 9. Throw coded errors; register codes centrally; branch on `code` across the wire, never `instanceof`. (errors.md)
 10. Gate unreleased behavior behind a `FLAG_DEFINITIONS` flag; no ad-hoc env toggles. (flags.md)

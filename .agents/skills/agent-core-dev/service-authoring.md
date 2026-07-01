@@ -36,7 +36,7 @@ The package entry `src/index.ts` re-exports each domain barrel so that importing
 
 The scope prefix makes a service's lifetime readable from its name. App services carry **no** prefix (App is the default, longest-lived tier); Session and Agent services always carry `Session` / `Agent`. The prefix applies to the interface, the class, and therefore the file names.
 
-> Do **not** use the scope prefix to re-merge domains by lifetime. `IAgentEntityService`, `IAgentDataService`, `ISessionEntityService`, and `ITurnEntityService` are still banned — the prefix marks lifetime, the rest of the name must still be the real owning domain (`IBackgroundTaskEntityService`, `ISessionMetadata`, `IPermissionRulesService`). See [domain-boundaries.md](domain-boundaries.md).
+> Do **not** use the scope prefix to re-merge domains by lifetime. `IAgentEntityService`, `IAgentDataService`, and `ISessionEntityService` are still banned — the prefix marks lifetime, the rest of the name must still be the real owning domain (`IBackgroundTaskEntityService`, `ISessionMetadata`, `IPermissionRulesService`). See [domain-boundaries.md](domain-boundaries.md).
 
 ### File names
 
@@ -256,7 +256,7 @@ Inject `@IEventService` and `publish(...)`; `subscribe(...)` returns an `IDispos
 A domain may define several Services. How to organize them:
 
 - **Same scope, tightly coupled** → one contract file, possibly one impl file with several classes and several `registerScopedService(...)` calls (e.g. `logService.ts` registers both `ILogWriterService` and `ILogService`).
-- **Different scopes** → separate impl files named after the Service (`logService.ts` for Core `ILogService`, `sessionLogService.ts` for Session `ISessionLogService`); one shared contract file (`log.ts`).
+- **Different scopes** → separate impl files named after the Service (`logService.ts` for App `ILogService`, `sessionLogService.ts` for Session `ISessionLogService`); one shared contract file (`log.ts`).
 - **Split by responsibility** — even within one scope, prefer a separate impl file when a class is large or independently testable.
 
 The contract file still holds **all** of the domain's interfaces and decorators in one place so consumers import the domain's surface from `./<domain>`.
@@ -332,7 +332,7 @@ export * from './greet/index';
 
 - One folder per domain, kebab-case; contract `<domain>.ts`, impl `<domain>Service.ts`, barrel `index.ts`.
 - `IXxxService` / `XxxService` naming; decorator string is lowerCamelCase, globally unique, and stable.
-- Name Services by owning domain, never by scope (`IAgentEntityService`, `ISessionEntityService`, `ITurnEntityService`).
+- Name Services by owning domain, never by scope (`IAgentEntityService`, `ISessionEntityService`).
 - `_serviceBrand` only on interfaces used as a DI token — never on base interfaces or plain models.
 - Sync methods return concrete types, async return `Promise<T>`; do not `Promise`-wrap sync work.
 - `createInstance` objects put static parameters before service parameters; scoped services put `@IX` parameters first (static params need defaults).

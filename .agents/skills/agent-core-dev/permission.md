@@ -94,7 +94,7 @@ this.policies = registry.list()
 Key points:
 
 - `modes` / `agentTypes` are **declarations** — they lift the `if (mode !== 'yolo') return` out of `YoloModeApprove` into metadata.
-- `factory`, not `instance`: a node may depend on agent-scoped services (mode, rules) and must be instantiated in the Agent scope — symmetric to `IToolDefinitionRegistry` (Core) storing factories and `IToolService` (Agent) instantiating tools.
+- `factory`, not `instance`: a node may depend on agent-scoped services (mode, rules) and must be instantiated in the Agent scope — symmetric to `IToolDefinitionRegistry` (App) storing factories and `IToolService` (Agent) instantiating tools.
 - **Different `(agent, mode)` produce differently-shaped chains** — under yolo the ask/fallback phases are physically filtered out.
 
 ### 5.3 Two contribution paths

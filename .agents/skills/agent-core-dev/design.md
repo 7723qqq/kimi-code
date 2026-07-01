@@ -22,7 +22,6 @@ A Service = a bundle of **state** + a set of **behaviors**, bound to a **lifetim
 | `App` | none (single global instance) | the process |
 | `Session` | `sessionId` | one session |
 | `Agent` | `agentId` | one agent |
-| `Turn` | `turnId` | one turn |
 
 ### Decision tree
 
@@ -36,7 +35,6 @@ A Service = a bundle of **state** + a set of **behaviors**, bound to a **lifetim
 - one global instance → **`App`**
 - one per session → **`Session`**
 - one per agent → **`Agent`**
-- one per turn → **`Turn`**
 - a mix (a global registry *and* per-instance state) → **split it** (see §3).
 
 **Q3 (stateless). What is the shortest-lived dependency it must inject?**
@@ -45,7 +43,7 @@ A stateless Service is pulled *down* by its shortest-lived dependency: if it inj
 
 ### The core anti-pattern (a litmus test)
 
-> **Do not store per-session state in a `Map<sessionId, …>` inside a `App` Service.**
+> **Do not store per-session state in a `Map<sessionId, …>` inside an `App` Service.**
 
 This is the tell-tale sign of "should have been `Session`-scoped but was parked at `App`". Consequences: nobody cleans the entry up when the session ends (leak); every consumer threads `sessionId` around (loss of type safety); it cannot inject `Session`/`Agent`-scoped collaborators.
 
@@ -187,8 +185,7 @@ domain: `<name>`   (owning scope: <Scope>)
 ├─ exposes (interfaces I provide, by scope)
 │   ├─ App       : <IXxxRegistry>   — <role>
 │   ├─ Session  : <ISessionXxx>    — <role>
-│   ├─ Agent    : <IAgentXxx>      — <role>
-│   └─ Turn     : —                — (none)
+│   └─ Agent    : <IAgentXxx>      — <role>
 └─ depends (what I inject)           tag = calling style
     └─ <DepDomain>  @<Scope>   direct/event/hook  — <what for>
 ```
@@ -235,8 +232,7 @@ domain: `session`   (owning scope: Session)
 ├─ exposes (interfaces I provide, by scope)
 │   ├─ App       : —                    — (no global session state here)
 │   ├─ Session  : ISessionService      — this session's operations + child-agent set
-│   ├─ Agent    : —                    — (per-agent state lives in agent-lifecycle)
-│   └─ Turn     : —                    — (no per-turn session state)
+│   └─ Agent    : —                    — (per-agent state lives in agent-lifecycle)
 └─ depends (what I inject)
     ├─ session-context    @Session  direct  — reads its own identity
     ├─ agent-lifecycle    @Session  direct  — drives child-agent lifecycle
@@ -270,7 +266,7 @@ For a multi-scope split, the `exposes` block fills more than one scope — see t
 ## Red lines (this stage)
 
 - Scope is not a domain; ownership follows write authority and invariants, not read consumption.
-- Do not create `I{Scope}EntityService` bundles (`IAgentEntityService`, `ISessionEntityService`, `ITurnEntityService`) that re-merge multiple domains.
+- Do not create `I{Scope}EntityService` bundles (`IAgentEntityService`, `ISessionEntityService`) that re-merge multiple domains.
 - No `Map<sessionId, …>` at `App` to fake per-session state.
 - Scope follows state identity; stateless Services are pulled down by their shortest-lived dependency, otherwise default to `App`.
 - Do not pre-split a domain that has state at only one lifetime.

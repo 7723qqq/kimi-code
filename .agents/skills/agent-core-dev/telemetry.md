@@ -2,7 +2,7 @@
 
 Telemetry infrastructure for agent-core-v2: how business services emit events, how context propagates, and how events reach a destination through appenders.
 
-Telemetry is a **layer-1 root** domain (alongside `log`): pure `Core` scope, stateless, no business-domain dependencies. It is a thin facade — enrichment, batching, and transport belong to the appenders, not to this layer.
+Telemetry is a **layer-1 root** domain (alongside `log`): pure `App` scope, stateless, no business-domain dependencies. It is a thin facade — enrichment, batching, and transport belong to the appenders, not to this layer.
 
 ## Where things live
 
@@ -62,8 +62,8 @@ Built-in appenders:
 Appenders are added after the App scope exists, by resolving the service and calling `addAppender`:
 
 ```ts
-const core = createCoreScope();
-const telemetry = core.accessor.get(ITelemetryService);
+const app = createAppScope();
+const telemetry = app.accessor.get(ITelemetryService);
 
 telemetry.addAppender(new ConsoleAppender({ prefix: '[dev]' }));   // dev echo
 telemetry.addAppender(new CloudAppender({                          // production
@@ -85,7 +85,7 @@ telemetry.addAppender(new CloudAppender({                          // production
 ## Red lines (this topic)
 
 - Business services depend only on `ITelemetryService` — never import an appender class.
-- Telemetry is layer-1 root: do not inject any business-domain service into it, and do not move it off `Core`.
+- Telemetry is layer-1 root: do not inject any business-domain service into it, and do not move it off `App`.
 - Appenders are plain `ITelemetryAppender` objects, not DI Services — register them with `addAppender`, never via `registerScopedService`.
 - `track` is fire-and-forget and must not throw; appender `track` must be synchronous — buffer and send asynchronously via `flush` / `shutdown`.
 - Await `telemetry.shutdown()` before process exit when a buffering appender is registered.

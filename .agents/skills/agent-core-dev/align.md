@@ -6,7 +6,7 @@ Use this when the task is "move feature X from v1 to v2", "port `IXxxService` to
 
 ## The one-paragraph mental model
 
-v1 is a **VSCode-style singleton container**: services self-register with `registerSingleton`, resolve as singleton-per-container, and have no explicit lifetime tier — so a single `ISessionService` / `IToolService` tends to accumulate global, per-session, and per-agent state in one class. v2 is a **DI × Scope tree**: every service binds to one of `Core` / `Session` / `Agent` / `Turn`, and a domain with state at several lifetimes is split into several Services. Porting is therefore **not** a file copy — it is "find each lifetime of state hiding in the v1 class, give each its own v2 Service at the right scope, then re-wire the dependencies".
+v1 is a **VSCode-style singleton container**: services self-register with `registerSingleton`, resolve as singleton-per-container, and have no explicit lifetime tier — so a single `ISessionService` / `IToolService` tends to accumulate global, per-session, and per-agent state in one class. v2 is a **DI × Scope tree**: every service binds to one of `App` / `Session` / `Agent`, and a domain with state at several lifetimes is split into several Services. Porting is therefore **not** a file copy — it is "find each lifetime of state hiding in the v1 class, give each its own v2 Service at the right scope, then re-wire the dependencies".
 
 ## v1 → v2 at a glance
 
@@ -14,7 +14,7 @@ v1 is a **VSCode-style singleton container**: services self-register with `regis
 |---|---|---|
 | Registration | `registerSingleton(IX, X, InstantiationType.Delayed)` | `registerScopedService(LifecycleScope.X, IX, X, InstantiationType.Delayed, 'domain')` |
 | DI import | `from '../../di'` | `from '#/_base/di/scope'` / `'#/_base/di/instantiation'` / `'#/_base/di/extensions'` / `'#/_base/di/lifecycle'` |
-| Lifetime | implicit singleton-per-container | explicit `LifecycleScope` (Core/Session/Agent/Turn) — see orient.md |
+| Lifetime | implicit singleton-per-container | explicit `LifecycleScope` (App/Session/Agent) — see orient.md |
 | Domain granularity | coarse (`session`, `tool`, `loop`) | fine, split by scope + responsibility |
 | Test import | `from '@moonshot-ai/agent-core/di/test'` | `from '#/_base/di/test'` |
 | Resolve SUT in tests | `ix.createInstance(Impl)` (common) | `ix.get(IX)` by interface — see test.md |
@@ -40,7 +40,7 @@ Actions:
 
 - Locate the v1 entry: contract (`<domain>/<domain>.ts`) + impl (`<domain>/<domain>Service.ts`), plus any helpers under the same folder.
 - Inventory three things from the impl:
-  - **State** — every field / `Map` / cache the class holds. For each, note its *identity* (global? keyed by `sessionId`? by `agentId`? by `turnId`?).
+  - **State** — every field / `Map` / cache the class holds. For each, note its *identity* (global? keyed by `sessionId`? by `agentId`?).
   - **Behavior** — every public method; group them by which state they touch.
   - **Dependencies** — every `@IFoo` constructor injection and every cross-domain relative import (`from '../<other>/...'`).
 - Note the v1 registration line (`registerSingleton(...)`) and any `services.set(IX, ...)` overrides at bootstrap (these reveal runtime static args or prebuilt instances the port must preserve).
@@ -53,13 +53,13 @@ Do not start splitting yet — an accurate inventory prevents the common mistake
 
 Method — for each piece of state from the inventory, ask:
 
-1. **What is it keyed by?** nothing → a global unit; `sessionId` → a per-session unit; `agentId` → a per-agent unit; `turnId` → a per-turn unit.
-2. **When should it die?** with the process / the session / the agent / the turn. State that must outlive its neighbors is a different unit.
+1. **What is it keyed by?** nothing → a global unit; `sessionId` → a per-session unit; `agentId` → a per-agent unit.
+2. **When should it die?** with the process / the session / the agent. State that must outlive its neighbors is a different unit.
 3. **Which methods touch only this state?** they travel with the unit.
 
 Worked example — v1 `ISessionService` (one class, ~600 lines) holds:
 
-- a global index of all sessions → **global** unit → v2 `sessionStore` (`ISessionStore`, Core);
+- a global index of all sessions → **global** unit → v2 `sessionStore` (`ISessionStore`, App);
 - this session's metadata → **per-session** unit → v2 `sessionMetaStore` (`ISessionMetaStore`, Session);
 - this session's activity / status → **per-session** unit → v2 `session-activity`;
 - this session's context projection → **per-session** unit → v2 `session-context`;
@@ -118,8 +118,8 @@ When the table says "verify", or when v1 and v2 have diverged, **read the v2 `sr
 
 For each semantic unit, fix its `LifecycleScope` from the identity you found in step 2. Follow design.md §2 verbatim:
 
-- global → `Core`; per `sessionId` → `Session`; per `agentId` → `Agent`; per `turnId` → `Turn`.
-- Stateless unit → default to `Core`, pulled down only by a shorter-lived dependency.
+- global → `App`; per `sessionId` → `Session`; per `agentId` → `Agent`.
+- Stateless unit → default to `App`, pulled down only by a shorter-lived dependency.
 - Self-check: "when this scope is disposed, should this state disappear with it?"
 
 This is the decision v1 never had to make — get it right before writing any v2 code, because the scope is fixed at registration and changing it later ripples through every consumer.
@@ -129,17 +129,17 @@ This is the decision v1 never had to make — get it right before writing any v2
 Decide the Service shape per unit, following design.md §3:
 
 - A unit that owns **one instance's** state → a single per-instance Service (`ISessionXxx` / `IAgentXxx`).
-- A unit that owns a **global view plus per-instance** state → split into a `Core` registry/factory (`XxxStore` / `XxxRegistry` / `XxxCatalog`) **and** a per-instance Service. The `Core` half creates or locates the per-instance half.
+- A unit that owns a **global view plus per-instance** state → split into an `App` registry/factory (`XxxStore` / `XxxRegistry` / `XxxCatalog`) **and** a per-instance Service. The `App` half creates or locates the per-instance half.
 - Do not pre-split a unit that has state at only one lifetime.
 
-Most consumers inject the per-instance Service; inject the `Core` factory only for genuine cross-instance management.
+Most consumers inject the per-instance Service; inject the `App` factory only for genuine cross-instance management.
 
 ### 6. Direct dependencies
 
 Re-wire the dependencies you inventoried in step 1, now across the new v2 Services. Follow design.md §4–§5:
 
 - **Calling style** — need a result / I orchestrate → direct call (`@IX` injection); stating a fact → event; ordered participation that may veto → hook.
-- **Scope direction** — a Service may inject only its own scope or an ancestor. If a `Core` Service needs something from a `Session` Service, the dependency is backwards: re-scope or invert into an event.
+- **Scope direction** — a Service may inject only its own scope or an ancestor. If an `App` Service needs something from a `Session` Service, the dependency is backwards: re-scope or invert into an event.
 - **Domain direction** — foundational layers must not know upstream ones. A cycle means a v1 relative import is now pointing the wrong way; extract a third Service or invert the notification into an event.
 - **Durable facts** — state changes that must be recorded / replayed / projected across agents go on the wire (`wireRecord`), not a direct call alone.
 
@@ -188,7 +188,7 @@ import { KimiError, type ErrorCode } from '#/_base/errors';
 
 Red lines:
 
-- Do not copy a v1 file and "fix imports". Re-split first (steps 2–6); a straight copy carries v1's implicit-singleton assumptions into v2 and creates the `Map<sessionId, …>`-at-`Core` anti-pattern.
+- Do not copy a v1 file and "fix imports". Re-split first (steps 2–6); a straight copy carries v1's implicit-singleton assumptions into v2 and creates the `Map<sessionId, …>`-at-`App` anti-pattern.
 - Do not leave v1 relative imports (`from '../x/...'`) in v2 — use the `#/...` alias and respect the domain layers.
 - Do not preserve a v1 behavior just because it exists; if the split reveals it was a workaround for the missing scope tree, drop it.
 
@@ -218,7 +218,7 @@ const svc = ix.get(IXxxService);
 
 Before submitting a port:
 
-- [ ] Every piece of v1 state landed in a v2 Service whose scope matches its identity (no `Map<sessionId, …>` at `Core`).
+- [ ] Every piece of v1 state landed in a v2 Service whose scope matches its identity (no `Map<sessionId, …>` at `App`).
 - [ ] Each v1 dependency now points in the right scope and domain direction; `lint:domain` passes.
 - [ ] Registrations use `registerScopedService` with an explicit scope and domain name; no `registerSingleton` remains.
 - [ ] Imports use the `#/...` alias; no v1 relative (`../../di`, `../../errors`) imports remain.

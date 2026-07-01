@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC_ROOT = join(__dirname, '..', 'src');
 
-const SCOPE_OF = ['Core', 'Session', 'Agent', 'Turn'];
+const SCOPE_OF = ['App', 'Session', 'Agent'];
 
 function walk(dir) {
   const out = [];

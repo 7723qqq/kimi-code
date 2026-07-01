@@ -74,7 +74,7 @@ Reach for a LegacyService when **any** hold:
 
 - The v1 endpoint carries state the v2 domain deliberately dropped (e.g. a FIFO queue, a `prompt_id`, idempotent `abort`/`steer`, auto-start-next).
 - The v1 method returns a handle/stream that v2 wraps differently, and the v1 clients expect the old envelope shape.
-- Matching v1 would force a `Map<sessionId, …>`-at-`Core` anti-pattern or a scope/domain-direction violation into the native Service (see [align.md](align.md) red lines).
+- Matching v1 would force a `Map<sessionId, …>`-at-`App` anti-pattern or a scope/domain-direction violation into the native Service (see [align.md](align.md) red lines).
 - The native Service's error set / return type would have to grow v1-only branches.
 
 Do **not** put v1 quirks into the native v2 Service "to keep the route simple". That is the conflict this rule exists to prevent: the native Service serves the v2 architecture; the LegacyService serves the wire contract.
