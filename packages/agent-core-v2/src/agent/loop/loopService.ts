@@ -40,7 +40,7 @@ import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
 import { IAgentContextMemoryService, newMessageId, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
-import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentRecordService } from '#/agent/record';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester';
 import { ILogService } from '#/app/log';
@@ -50,7 +50,6 @@ import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn, TurnResult } from '#/agent/turn';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
 import type {
   LoopEvent,
   LoopEventDispatcher,
@@ -93,12 +92,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
-    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IConfigService private readonly config: IConfigService,
     @ILogService private readonly log: ILogService,
@@ -110,7 +108,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       }
       await next();
     });
-    this.wireRecord.hooks.onResumeEnded.register(
+    this.record.hooks.onResumeEnded.register(
       'loop-service-finish-resume',
       async (_event, next) => {
         this.finishResume();
@@ -248,7 +246,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     switch (event.type) {
       case 'step.begin':
         this.beginTrackedStep(event.step);
-        this.events.emit({
+        this.record.signal({
           type: 'turn.step.started',
           turnId: Number(event.turnId),
           step: event.step,
@@ -256,7 +254,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         });
         return;
       case 'step.end':
-        this.events.emit({
+        this.record.signal({
           type: 'turn.step.completed',
           turnId: Number(event.turnId),
           step: event.step,
@@ -274,7 +272,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         });
         return;
       case 'step.retrying':
-        this.events.emit({
+        this.record.signal({
           type: 'turn.step.retrying',
           turnId: Number(event.turnId),
           step: event.step,
@@ -295,7 +293,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           }
         }
         if (this.protocolTurnId === undefined || event.activeStep === undefined) return;
-        this.events.emit({
+        this.record.signal({
           type: 'turn.step.interrupted',
           turnId: this.protocolTurnId,
           step: event.activeStep,
@@ -305,7 +303,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         return;
       case 'text.delta':
         if (this.protocolTurnId === undefined) return;
-        this.events.emit({
+        this.record.signal({
           type: 'assistant.delta',
           turnId: this.protocolTurnId,
           delta: event.delta,
@@ -313,7 +311,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         return;
       case 'thinking.delta':
         if (this.protocolTurnId === undefined) return;
-        this.events.emit({
+        this.record.signal({
           type: 'thinking.delta',
           turnId: this.protocolTurnId,
           delta: event.delta,
@@ -321,7 +319,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         return;
       case 'tool.call.delta':
         if (this.protocolTurnId === undefined) return;
-        this.events.emit({
+        this.record.signal({
           type: 'tool.call.delta',
           turnId: this.protocolTurnId,
           toolCallId: event.toolCallId,
@@ -331,7 +329,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         return;
       case 'tool.call':
         this.trackToolCallStarted(event);
-        this.events.emit({
+        this.record.signal({
           type: 'tool.call.started',
           turnId: Number(event.turnId),
           toolCallId: event.toolCallId,
@@ -343,7 +341,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         return;
       case 'tool.progress':
         if (this.protocolTurnId === undefined) return;
-        this.events.emit({
+        this.record.signal({
           type: 'tool.progress',
           turnId: this.protocolTurnId,
           toolCallId: event.toolCallId,
@@ -353,7 +351,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       case 'tool.result':
         if (this.protocolTurnId === undefined) return;
         this.trackToolCallResult(event);
-        this.events.emit({
+        this.record.signal({
           type: 'tool.result',
           turnId: this.protocolTurnId,
           toolCallId: event.toolCallId,

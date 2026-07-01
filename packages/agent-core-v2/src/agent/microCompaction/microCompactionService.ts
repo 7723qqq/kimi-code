@@ -27,7 +27,7 @@ import { IAgentProfileService } from '#/agent/profile';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentTurnService } from '#/agent/turn';
 import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
+import { IAgentRecordService } from '#/agent/record';
 import {
   IAgentMicroCompactionService,
   type MicroCompactionConfig,
@@ -66,7 +66,7 @@ export class AgentMicroCompactionService
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
-    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentRecordService private readonly record: IAgentRecordService,
     @IFlagService private readonly flags: IFlagService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -93,13 +93,17 @@ export class AgentMicroCompactionService
       ),
     );
     this._register(
-      this.wireRecord.register('micro_compaction.apply', (record) => {
-        this.apply(record.cutoff);
+      this.record.define('micro_compaction.apply', {
+        resume: (r) => {
+          this.apply(r.cutoff);
+        },
       }),
     );
     this._register(
-      this.wireRecord.register('full_compaction.complete', () => {
-        this.reset();
+      this.record.define('full_compaction.complete', {
+        resume: () => {
+          this.reset();
+        },
       }),
     );
     this._register(
@@ -119,7 +123,7 @@ export class AgentMicroCompactionService
   }
 
   private apply(cutoff: number): void {
-    this.wireRecord.append({
+    this.record.append({
       type: 'micro_compaction.apply',
       cutoff,
     });
@@ -210,7 +214,7 @@ export class AgentMicroCompactionService
     }
 
     if (context.messages.some(isAssistantCacheAnchor)) {
-      this._lastAssistantAt = this.wireRecord.restoring?.time ?? Date.now();
+      this._lastAssistantAt = this.record.restoring?.time ?? Date.now();
     }
   }
 

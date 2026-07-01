@@ -8,9 +8,8 @@ import {
   USER_PROMPT_ORIGIN,
   type ContextMessage,
 } from '#/agent/contextMemory';
-import { IAgentEventSinkService } from '#/agent/eventSink';
+import { IAgentRecordService } from '#/agent/record';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
 import { IAgentPromptService } from './prompt';
 
 export class AgentPromptService implements IAgentPromptService {
@@ -21,8 +20,7 @@ export class AgentPromptService implements IAgentPromptService {
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
-    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
-    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentRecordService private readonly record: IAgentRecordService,
   ) {
     turnService.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
       this.flushSteerQueue();
@@ -89,7 +87,7 @@ export class AgentPromptService implements IAgentPromptService {
       }
     }
 
-    if (!this.wireRecord.restoring && (removedUserCount < count || stoppedAtCompaction)) {
+    if (!this.record.restoring && (removedUserCount < count || stoppedAtCompaction)) {
       throw new KimiError(
         ErrorCodes.REQUEST_INVALID,
         formatUndoUnavailableMessage(count, removedUserCount, stoppedAtCompaction),
@@ -142,7 +140,7 @@ export class AgentPromptService implements IAgentPromptService {
   private emitBusyIfActive(): boolean {
     const activeTurn = this.turnService.getActiveTurn();
     if (activeTurn === undefined) return false;
-    this.events.emit({
+    this.record.signal({
       type: 'error',
       ...makeErrorPayload(
         ErrorCodes.TURN_AGENT_BUSY,

@@ -22,12 +22,11 @@ import { IConfigService } from '#/app/config';
 import { IAtomicDocumentStore } from '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';
 import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentRecordService } from '#/agent/record';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn } from '#/agent/turn';
 import { IAgentTurnService } from '#/agent/turn';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
 
 import {
   type CronConfig,
@@ -145,8 +144,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
   constructor(
     options: CronOptions = {},
     @IAgentPromptService private readonly prompt: IAgentPromptService,
-    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
-    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
+    @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
@@ -167,22 +165,28 @@ export class AgentCronService extends Disposable implements IAgentCronService {
       resolveClockSources(this.cronConfig.clock, this.cronConfig.debug) ?? SYSTEM_CLOCKS;
 
     this._register(
-      wireRecord.register('cron.add', (record) => {
-        if (this.enabled) this.adopt(record.task);
+      record.define('cron.add', {
+        resume: (r) => {
+          if (this.enabled) this.adopt(r.task);
+        },
       }),
     );
     this._register(
-      wireRecord.register('cron.delete', (record) => {
-        if (this.enabled) this.removeByIds(record.ids);
+      record.define('cron.delete', {
+        resume: (r) => {
+          if (this.enabled) this.removeByIds(r.ids);
+        },
       }),
     );
     this._register(
-      wireRecord.register('cron.cursor', (record) => {
-        if (this.enabled) this.markFired(record.id, record.lastFiredAt);
+      record.define('cron.cursor', {
+        resume: (r) => {
+          if (this.enabled) this.markFired(r.id, r.lastFiredAt);
+        },
       }),
     );
     this._register(
-      wireRecord.hooks.onResumeEnded.register('cron-lifecycle-resume', async (_ctx, next) => {
+      record.hooks.onResumeEnded.register('cron-lifecycle-resume', async (_ctx, next) => {
         await this.loadFromDisk({ replace: false });
         this.start();
         await next();
@@ -221,7 +225,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
       createdAt: this.clocks.wallNow(),
     };
     this.tasks.set(task.id, task);
-    this.wireRecord.append({ type: 'cron.add', task });
+    this.record.append({ type: 'cron.add', task });
     this.persistEnqueue(task.id, () => this.atomicDocs.set(CRON_SCOPE, cronKey(task.id), task));
     return task;
   }
@@ -230,7 +234,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     const removed = this.removeByIds(ids);
     if (removed.length === 0) return removed;
 
-    this.wireRecord.append({ type: 'cron.delete', ids: removed });
+    this.record.append({ type: 'cron.delete', ids: removed });
     for (const id of removed) {
       this.persistEnqueue(id, () => this.atomicDocs.delete(CRON_SCOPE, cronKey(id)));
     }
@@ -457,7 +461,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
       toolCalls: [],
       origin,
     };
-    this.events.emit({ type: 'cron.fired', origin, prompt: task.prompt });
+    this.record.signal({ type: 'cron.fired', origin, prompt: task.prompt });
     const turn = this.prompt.steer(message);
     this.telemetry.track(CRON_FIRED, {
       recurring: task.recurring !== false,
@@ -472,7 +476,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     const updated = this.markFired(id, lastFiredAt);
     if (updated === undefined) return;
 
-    this.wireRecord.append({ type: 'cron.cursor', id, lastFiredAt });
+    this.record.append({ type: 'cron.cursor', id, lastFiredAt });
     this.persistEnqueue(id, () => this.atomicDocs.set(CRON_SCOPE, cronKey(id), updated));
   }
 

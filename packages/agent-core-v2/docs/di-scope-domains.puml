@@ -63,7 +63,7 @@ package "Session scope (per session)" #EAFAF1 {
 
 package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>wireRecord</b>\n<size:9><i>Agent</i></size>\n  IAgentWireRecordService (event hub)" as wireRecord #FDEBD0
-  rectangle "<b>eventSink</b>\n<size:9><i>Agent</i></size>\n  IAgentEventSinkService" as eventSink #FDEBD0
+  rectangle "<b>record</b>\n<size:9><i>Agent</i></size>\n  IAgentRecordService" as record #FDEBD0
   rectangle "<b>blobStore</b>\n<size:9><i>Agent</i></size>\n  IAgentBlobStoreService" as blobStore #FDEBD0
   rectangle "<b>contextMemory</b>\n<size:9><i>Agent</i></size>\n  IAgentContextMemoryService" as contextMemory #FDEBD0
   rectangle "<b>contextProjector</b>\n<size:9><i>Agent</i></size>\n  IAgentContextProjectorService" as contextProjector #FDEBD0
@@ -109,7 +109,7 @@ package "Agent scope (per agent)" #FDF5E6 {
 ' ---- DI injection (solid) ----
 gateway --> session_lifecycle #34495E
 gateway --> log #34495E
-gateway --> eventSink #34495E
+gateway --> record #34495E
 sessionIndex --> bootstrap #34495E
 sessionIndex --> storage #34495E
 session_lifecycle --> bootstrap #34495E
@@ -165,19 +165,19 @@ wireRecord --> bootstrap #34495E
 wireRecord --> storage #34495E
 blobStore --> storage #34495E
 filestore --> storage #34495E
-eventSink --> wireRecord #34495E
+record --> wireRecord #34495E
 contextMemory --> wireRecord #34495E
 contextMemory --> replayBuilder #34495E
 contextInjector --> contextMemory #34495E
 contextInjector --> turn #34495E
 contextInjector --> systemReminder #34495E
 contextSize --> contextMemory #34495E
-contextSize --> eventSink #34495E
+contextSize --> record #34495E
 contextSize --> wireRecord #34495E
 systemReminder --> contextMemory #34495E
 replayBuilder --> wireRecord #34495E
 profile --> wireRecord #34495E
-profile --> eventSink #34495E
+profile --> record #34495E
 profile --> replayBuilder #34495E
 profile --> telemetry #34495E
 profile --> config #34495E
@@ -186,9 +186,9 @@ profile --> chatProvider #34495E
 prompt --> contextMemory #34495E
 prompt --> turn #34495E
 prompt --> wireRecord #34495E
-prompt --> eventSink #34495E
+prompt --> record #34495E
 turn --> loop #34495E
-turn --> eventSink #34495E
+turn --> record #34495E
 turn --> wireRecord #34495E
 turn --> contextMemory #34495E
 turn --> externalHooks #34495E
@@ -197,7 +197,7 @@ loop --> contextMemory #34495E
 loop --> contextProjector #34495E
 loop --> contextSize #34495E
 loop --> llmRequester #34495E
-loop --> eventSink #34495E
+loop --> record #34495E
 loop --> toolRegistry #34495E
 loop --> toolExecutor #34495E
 loop --> profile #34495E
@@ -226,7 +226,7 @@ permissionGate --> externalHooks #34495E
 permissionGate --> telemetry #34495E
 permissionGate --> toolExecutor #34495E
 permissionMode --> wireRecord #34495E
-permissionMode --> eventSink #34495E
+permissionMode --> record #34495E
 permissionMode --> replayBuilder #34495E
 permissionMode --> contextInjector #34495E
 permissionRules --> wireRecord #34495E
@@ -234,7 +234,7 @@ permissionRules --> replayBuilder #34495E
 permissionRules --> config #34495E
 plan --> contextMemory #34495E
 plan --> wireRecord #34495E
-plan --> eventSink #34495E
+plan --> record #34495E
 plan --> agentFs #34495E
 plan --> profile #34495E
 plan --> replayBuilder #34495E
@@ -242,13 +242,13 @@ plan --> toolRegistry #34495E
 plan --> contextInjector #34495E
 plan --> telemetry #34495E
 goal --> wireRecord #34495E
-goal --> eventSink #34495E
+goal --> record #34495E
 goal --> systemReminder #34495E
 goal --> replayBuilder #34495E
 goal --> telemetry #34495E
 goal --> contextInjector #34495E
 skill --> prompt #34495E
-skill --> eventSink #34495E
+skill --> record #34495E
 skill --> wireRecord #34495E
 skill --> telemetry #34495E
 skill --> sessionSkillCatalog #34495E
@@ -259,7 +259,7 @@ questionTools --> telemetry #34495E
 userTool --> toolRegistry #34495E
 userTool --> profile #34495E
 userTool --> wireRecord #34495E
-background --> eventSink #34495E
+background --> record #34495E
 background --> wireRecord #34495E
 background --> telemetry #34495E
 background --> prompt #34495E
@@ -269,7 +269,7 @@ background --> config #34495E
 background --> storage #34495E
 background --> session_context #34495E
 cron --> prompt #34495E
-cron --> eventSink #34495E
+cron --> record #34495E
 cron --> wireRecord #34495E
 cron --> turn #34495E
 cron --> telemetry #34495E
@@ -277,11 +277,11 @@ cron --> toolRegistry #34495E
 cron --> config #34495E
 cron --> storage #34495E
 swarm --> wireRecord #34495E
-swarm --> eventSink #34495E
+swarm --> record #34495E
 swarm --> systemReminder #34495E
 swarm --> agentTool #34495E
 mcp --> toolRegistry #34495E
-mcp --> eventSink #34495E
+mcp --> record #34495E
 mcp --> toolExecutor #34495E
 fullCompaction --> contextMemory #34495E
 fullCompaction --> contextProjector #34495E
@@ -291,7 +291,7 @@ fullCompaction --> profile #34495E
 fullCompaction --> toolStore #34495E
 fullCompaction --> telemetry #34495E
 fullCompaction --> wireRecord #34495E
-fullCompaction --> eventSink #34495E
+fullCompaction --> record #34495E
 fullCompaction --> replayBuilder #34495E
 fullCompaction --> externalHooks #34495E
 fullCompaction --> turn #34495E
@@ -310,7 +310,7 @@ todoList --> toolStore #34495E
 todoList --> toolRegistry #34495E
 todoList --> contextInjector #34495E
 usage --> wireRecord #34495E
-usage --> eventSink #34495E
+usage --> record #34495E
 rpc --> prompt #34495E
 rpc --> turn #34495E
 rpc --> profile #34495E

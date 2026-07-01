@@ -81,7 +81,6 @@ const DOMAIN_LAYER = new Map([
   ['model', 2],
   ['session-index', 2],
   ['sessionStore', 2],
-  ['eventSink', 2],
   // L3 — registries & capabilities
   ['tool', 3],
   ['skill', 3],
@@ -136,6 +135,9 @@ const DOMAIN_LAYER = new Map([
   ['mcp', 5],
   ['cron', 5],
   ['agentTool', 5],
+  // `btw` forks a single side-question sub-agent via `agent-lifecycle`, mirroring
+  // the `agentTool` shape (Agent-scope, spawns one child) — same layer.
+  ['btw', 5],
   // L6 — coordination
   ['agent-lifecycle', 6],
   ['session-lifecycle', 6],
@@ -251,6 +253,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'skill>prompt',
   'swarm>agentTool',
   'swarm>session-metadata',
+  'btw>agent-lifecycle',
   'agentTool>agent-lifecycle',
   'agentTool>session-metadata',
   'toolExecutor>loop',

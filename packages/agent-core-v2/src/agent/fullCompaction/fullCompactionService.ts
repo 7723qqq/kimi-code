@@ -18,7 +18,6 @@ import { estimateTokens, estimateTokensForMessages } from "#/_base/utils/tokens"
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
-import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentLLMRequesterService, type LLMEvent } from '#/agent/llmRequester';
 import { isAbortError } from '#/agent/loop/errors';
@@ -29,7 +28,7 @@ import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolStoreService } from '#/agent/toolStore';
 import { IAgentTurnService, type TurnContextOverflowContext } from '#/agent/turn';
 import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
+import { IAgentRecordService } from '#/agent/record';
 import {
   TODO_STORE_KEY,
   renderTodoList,
@@ -104,8 +103,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolStoreService private readonly toolStore: IAgentToolStoreService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
-    @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IAgentTurnService turnService: IAgentTurnService,
@@ -138,32 +136,38 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       }),
     );
     this._register(
-      wireRecord.register('full_compaction.begin', (record) => {
-        this.replayBuilder.push({
-          type: 'compaction',
-          instruction: record.instruction,
-        });
+      record.define('full_compaction.begin', {
+        resume: (r) => {
+          this.replayBuilder.push({
+            type: 'compaction',
+            instruction: r.instruction,
+          });
+        },
       }),
     );
     this._register(
-      wireRecord.register('full_compaction.cancel', () => {
-        this.replayBuilder.patchLast('compaction', { result: 'cancelled' });
+      record.define('full_compaction.cancel', {
+        resume: () => {
+          this.replayBuilder.patchLast('compaction', { result: 'cancelled' });
+        },
       }),
     );
     this._register(
-      wireRecord.register('full_compaction.complete', (record) => {
-        const message = compactionSummaryMessage(this.context.get());
-        if (message === undefined) return;
-        const summary = contextMessageText(message);
-        this.replayBuilder.removeLastMessages(new Set([message]));
-        this.replayBuilder.patchLast('compaction', {
-          result: {
-            summary,
-            compactedCount: record.compactedCount,
-            tokensBefore: record.tokensBefore,
-            tokensAfter: record.tokensAfter,
-          },
-        });
+      record.define('full_compaction.complete', {
+        resume: (r) => {
+          const message = compactionSummaryMessage(this.context.get());
+          if (message === undefined) return;
+          const summary = contextMessageText(message);
+          this.replayBuilder.removeLastMessages(new Set([message]));
+          this.replayBuilder.patchLast('compaction', {
+            result: {
+              summary,
+              compactedCount: r.compactedCount,
+              tokensBefore: r.tokensBefore,
+              tokensAfter: r.tokensAfter,
+            },
+          });
+        },
       }),
     );
   }
@@ -188,8 +192,8 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'No prefix that can be compacted in current history.');
     }
 
-    this.wireRecord.append({ type: 'full_compaction.begin', ...data });
-    this.events.emit({
+    this.record.append({ type: 'full_compaction.begin', ...data });
+    this.record.signal({
       type: 'compaction.started',
       trigger: data.source,
       instruction: data.instruction,
@@ -208,15 +212,15 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   cancel(): void {
     const active = this.compacting;
     if (active === null) return;
-    this.wireRecord.append({ type: 'full_compaction.cancel' });
+    this.record.append({ type: 'full_compaction.cancel' });
     active.abortController.abort();
     this.compacting = null;
-    this.events.emit({ type: 'compaction.cancelled' });
+    this.record.signal({ type: 'compaction.cancelled' });
   }
 
   private markCompleted(result: FullCompactionCompleteData): void {
     if (this.compacting === null) return;
-    this.wireRecord.append({ type: 'full_compaction.complete', ...result });
+    this.record.append({ type: 'full_compaction.complete', ...result });
     this.compacting = null;
   }
 
@@ -281,7 +285,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         }
       }, { once: true });
     }
-    this.events.emit({ type: 'compaction.blocked', turnId });
+    this.record.signal({ type: 'compaction.blocked', turnId });
     await active.promise;
   }
 
@@ -318,7 +322,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
 
       if (this.compacting !== active) return;
       this.markCompleted(completeData(finalResult));
-      this.events.emit({ type: 'compaction.completed', result: finalResult });
+      this.record.signal({ type: 'compaction.completed', result: finalResult });
       this.externalHooks.triggerPostCompact({
         trigger: data.source,
         estimatedTokenCount: finalResult.tokensAfter,
@@ -332,7 +336,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       if (blockedByTurn) {
         throw error;
       }
-      this.events.emit({
+      this.record.signal({
         type: 'error',
         ...toKimiErrorPayload(error),
       });

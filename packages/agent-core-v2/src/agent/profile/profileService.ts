@@ -34,7 +34,7 @@ import { ISessionModelResolver, type ResolvedModel } from '#/session/modelRuntim
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile';
 
-import { IAgentRecordService } from '#/agent/record';
+import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 import { ITelemetryService } from '#/app/telemetry';
 import type { ToolSource } from '#/agent/tool';
 import { prepareSystemPromptContext } from './context';
@@ -119,7 +119,7 @@ export class AgentProfileService implements IAgentProfileService {
   update(changed: ProfileUpdateData): void {
     const { activeToolNames, ...configChanged } = changed;
     if (Object.keys(configChanged).length > 0) {
-      this.wireRecord.append({ type: 'config.update', ...configChanged });
+      this.record.append({ type: 'config.update', ...configChanged });
       this.apply(configChanged);
     }
     if (activeToolNames !== undefined) {
@@ -173,7 +173,7 @@ export class AgentProfileService implements IAgentProfileService {
     const { agentsMdWarning } = context;
     this.agentsMdWarning = agentsMdWarning;
     if (agentsMdWarning !== undefined) {
-      this.events.emit({
+      this.record.signal({
         type: 'warning',
         message: agentsMdWarning,
         code: 'agents-md-oversized',
@@ -274,7 +274,6 @@ export class AgentProfileService implements IAgentProfileService {
   }
 
   private apply(changed: ProfileUpdateData): void {
-    this.replayBuilder.push({ type: 'config_updated', config: changed });
     if (changed.cwd !== undefined) {
       this.cwdValue = changed.cwd;
       void this.optionsValue.chdir?.(changed.cwd);
@@ -298,7 +297,7 @@ export class AgentProfileService implements IAgentProfileService {
   }
 
   private setActiveTools(names: readonly string[]): void {
-    this.wireRecord.append({ type: 'tools.set_active_tools', names: [...names] });
+    this.record.append({ type: 'tools.set_active_tools', names: [...names] });
     this.applyActiveToolNames(names);
     this.initializeBuiltinTools();
   }
@@ -319,7 +318,7 @@ export class AgentProfileService implements IAgentProfileService {
       return;
     }
     if (!this.hasModel()) return;
-    this.events.emit({
+    this.record.signal({
       type: 'agent.status.updated',
       model: this.modelAlias,
       maxContextTokens: this.getModelCapabilities().max_context_tokens,
@@ -379,6 +378,11 @@ export class AgentProfileService implements IAgentProfileService {
     const cwd = this.optionsValue.cwd;
     return typeof cwd === 'function' ? cwd() : cwd;
   }
+}
+
+function stripConfigMeta(record: AgentRecord<'config.update'>): ProfileUpdateData {
+  const { type: _type, time: _time, ...changed } = record;
+  return changed;
 }
 
 registerScopedService(
