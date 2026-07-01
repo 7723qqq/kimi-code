@@ -47,12 +47,20 @@ const DOMAIN_LAYER = new Map([
   ['sessionLog', 1],
   ['telemetry', 1],
   ['bootstrap', 1],
+  // `event` is the App-scope pub/sub bus, a thin wrapper over the
+  // `_base/event` `Emitter`. Foundational substrate that any domain may
+  // publish/subscribe through, so it sits in L1 (not the edge boundary).
+  ['event', 1],
   // `hostEnvironment` is the App-scope OS/shell/path/home probe snapshot;
   // low-level substrate that any Session/Agent domain may read synchronously.
   ['hostEnvironment', 1],
   // `execContext` is the Session-scope seeded immutable value (`cwd`,
   // `envLayers`); same layer as the other low-level bridges.
   ['execContext', 1],
+  // `session-context` is the Session-scope seeded immutable facts value
+  // (`sessionId`/`workspaceId`/`sessionDir`/`metaScope`); like `execContext`
+  // it is a pure seed with no IO, so it sits in L1.
+  ['session-context', 1],
   ['hostFs', 1],
   ['workspaceContext', 1],
   ['chatProvider', 1],
@@ -132,13 +140,11 @@ const DOMAIN_LAYER = new Map([
   ['agent-lifecycle', 6],
   ['session-lifecycle', 6],
   ['interaction', 6],
-  ['session-context', 6],
   ['session-metadata', 6],
   ['session-activity', 6],
   ['session', 6],
   ['terminal', 6],
   // L7 — boundary
-  ['event', 7],
   ['approval', 7],
   ['question', 7],
   ['questionTools', 7],
@@ -197,11 +203,7 @@ function domainFromRel(rel, { exemptRootFile }) {
  *  - `swarm>agent-lifecycle`: swarm spawns/manages sub-agents.
  *  - `background>agent-lifecycle`: background agent-tasks spawn sub-agents.
  *  - `cron>agent-lifecycle` : cron coordinator steers the main agent.
- *  - `cron>session-context` : cron needs sessionId.
- *  - `background>session-context`: background derives the session storage namespace for task persistence.
  *  - `cron>session-activity`: cron scheduler gates on session idle.
- *  - `session>event`        : session facade publishes status events.
- *  - `workspace>event`      : workspace registry publishes workspace lifecycle events.
  *
  * Post-rebase-v2 restructuring introduced cross-domain type sharing between
  * L3 (registries/capabilities) and L4 (agent behaviour). The tool contract
@@ -224,10 +226,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'swarm>agent-lifecycle',
   'background>agent-lifecycle',
   'cron>agent-lifecycle',
-  'cron>session-context',
-  'background>session-context',
   'cron>session-activity',
-  'session>event',
   'wireRecord>hooks',
   // L3/L4 type-sharing: tool contract + execution hook contexts now live in
   // `tool`; the remaining upward import is a `loop` error/event helper.
