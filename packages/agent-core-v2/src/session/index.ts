@@ -6,3 +6,5 @@
 
 export * from './session';
 export * from './sessionService';
+export * from './sessionWarning';
+export * from './sessionWarningService';

@@ -33,6 +33,17 @@ export type AgentConfigUpdateData = Partial<{
 
 export interface SystemPromptContext {
   readonly cwd?: string;
+  /** 2-level tree listing of the working directory, for LLM orientation. */
+  readonly cwdListing?: string;
+  /** Concatenated AGENTS.md instruction hierarchy (user-level + project-level). */
+  readonly agentsMd?: string;
+  /** Rendered listings of additional workspace directories. */
+  readonly additionalDirsInfo?: string;
+  /**
+   * Present when the combined AGENTS.md content exceeds the recommended soft
+   * budget. Surfaced through `getSessionWarnings` instead of truncating.
+   */
+  readonly agentsMdWarning?: string;
   readonly [key: string]: unknown;
 }
 
@@ -62,6 +73,14 @@ export interface ProfileServiceOptions {
   readonly emitStatusUpdated?: () => void;
 }
 
+export interface ApplyProfileOptions {
+  /**
+   * Additional workspace directories whose listings are appended to the system
+   * prompt context. Defaults to the session workspace's additional dirs.
+   */
+  readonly additionalDirs?: readonly string[];
+}
+
 export interface ProfileModelContext {
   readonly provider: ProviderConfig;
   readonly modelAlias: string;
@@ -86,6 +105,20 @@ export interface IAgentProfileService {
   setThinking(level: string): void;
   getModel(): string;
   useProfile(profile: ResolvedAgentProfile, context: SystemPromptContext): void;
+  /**
+   * Production entry point for applying a profile: assembles the
+   * {@link SystemPromptContext} (loading the AGENTS.md hierarchy, cwd listing,
+   * and additional-dir listings), renders the profile's system prompt via
+   * {@link useProfile}, and caches any AGENTS.md size warning for
+   * {@link getAgentsMdWarning} / `getSessionWarnings`.
+   */
+  applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<void>;
+  /**
+   * The AGENTS.md size warning produced by the most recent {@link applyProfile},
+   * if the combined AGENTS.md content exceeded the recommended soft budget.
+   * `undefined` when no oversized content has been observed.
+   */
+  getAgentsMdWarning(): string | undefined;
   data(): ProfileData;
   resolveModelContext(): ProfileModelContext;
   getProvider(): ChatProvider;

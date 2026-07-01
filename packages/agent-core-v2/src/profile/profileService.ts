@@ -20,12 +20,15 @@ import {
 import picomatch from 'picomatch';
 
 import { ErrorCodes, KimiError } from "#/errors";
+import { IBootstrapService } from '#/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/config';
 import { resolveThinkingEffort, type ThinkingEffort } from '#/config/thinking';
 import { applyKimiModelOverrides, IChatProviderFactory, type KimiModelOverrides } from '#/chatProvider';
 import type { LoopControl } from '#/loop/configSection';
+import { IKaos } from '#/kaos';
 import { isMcpToolName } from '#/tool';
 import { ISessionModelResolver, type ResolvedModel } from '#/modelRuntime';
+import { ISessionWorkspaceContext } from '#/workspaceContext';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/profile';
 
 import { IAgentEventSinkService } from '../eventSink';
@@ -33,7 +36,9 @@ import { IAgentReplayBuilderService } from '#/replayBuilder';
 import { ITelemetryService } from '#/telemetry';
 import type { ToolSource } from '#/tool';
 import { IAgentWireRecordService } from '#/wireRecord';
+import { prepareSystemPromptContext } from './context';
 import type {
+  ApplyProfileOptions,
   ProfileData,
   ProfileModelContext,
   ProfileServiceOptions,
@@ -69,6 +74,7 @@ export class AgentProfileService implements IAgentProfileService {
   private thinkingLevelValue: ThinkingEffort = 'off';
   private systemPrompt = '';
   private activeToolNames: readonly string[] | undefined;
+  private agentsMdWarning: string | undefined;
 
   constructor(
     @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
@@ -79,6 +85,9 @@ export class AgentProfileService implements IAgentProfileService {
     @IConfigService private readonly config: IConfigService,
     @ISessionModelResolver private readonly modelResolver: ISessionModelResolver,
     @IChatProviderFactory private readonly chatProviders: IChatProviderFactory,
+    @IKaos private readonly kaos: IKaos,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
   ) {
     configRegistry.registerSection(THINKING_SECTION, ThinkingConfigSchema, {
       env: thinkingEnvBindings,
@@ -155,6 +164,26 @@ export class AgentProfileService implements IAgentProfileService {
       systemPrompt: profile.systemPrompt(context),
     });
     this.setActiveTools(profile.tools);
+  }
+
+  async applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<void> {
+    const context = await prepareSystemPromptContext(this.kaos, this.bootstrap.homeDir, {
+      additionalDirs: options?.additionalDirs ?? this.workspace.additionalDirs,
+    });
+    this.useProfile(profile, context);
+    const { agentsMdWarning } = context;
+    this.agentsMdWarning = agentsMdWarning;
+    if (agentsMdWarning !== undefined) {
+      this.events.emit({
+        type: 'warning',
+        message: agentsMdWarning,
+        code: 'agents-md-oversized',
+      });
+    }
+  }
+
+  getAgentsMdWarning(): string | undefined {
+    return this.agentsMdWarning;
   }
 
   data(): ProfileData {
