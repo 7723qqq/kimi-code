@@ -15,6 +15,7 @@ import {
   InMemoryWireRecordPersistence,
   createTestAgent,
   replayServices,
+  testAgent,
   type TestAgentContext,
 } from '../harness';
 
@@ -366,10 +367,14 @@ describe('IWireRecord.records()', () => {
     records.append({ type: 'turn.launch', turnId: 0, origin: { kind: 'user' } });
 
     const snapshot = records.getRecords();
-    expect(snapshot.map((record) => record.type)).toEqual(['context.splice', 'turn.launch']);
+    const types = snapshot
+      .map((record) => record.type)
+      .filter((type) => type !== 'config.update');
+    expect(types).toEqual(['context.splice', 'turn.launch']);
     // A copy is returned, so mutating it must not affect the service.
+    const lengthBefore = records.getRecords().length;
     (snapshot as unknown as PersistedWireRecord[]).pop();
-    expect(records.getRecords()).toHaveLength(2);
+    expect(records.getRecords()).toHaveLength(lengthBefore);
   });
 });
 
@@ -385,8 +390,8 @@ describe('agent replay range build', () => {
     ];
 
     await expect(buildReplay(records)).resolves.toEqual([
-      expect.objectContaining({ type: 'message', message: firstMessage }),
-      expect.objectContaining({ type: 'message', message: afterClearMessage }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(firstMessage) }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(afterClearMessage) }),
     ]);
   });
 
@@ -417,7 +422,7 @@ describe('agent replay range build', () => {
 
     expect(replay).toEqual([
       expect.objectContaining({ type: 'permission_updated', mode: 'yolo' }),
-      expect.objectContaining({ type: 'message', message }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(message) }),
     ]);
     expect(persistence.rewrites).toEqual([]);
   });
@@ -435,14 +440,14 @@ describe('agent replay range build', () => {
     ];
 
     await expect(buildReplay(records, { count: 2 })).resolves.toEqual([
-      expect.objectContaining({ type: 'message', message: secondMessage }),
-      expect.objectContaining({ type: 'message', message: thirdMessage }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(secondMessage) }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(thirdMessage) }),
     ]);
     await expect(buildReplay(records, { count: 10 })).resolves.toEqual([
-      expect.objectContaining({ type: 'message', message: firstMessage }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(firstMessage) }),
       expect.objectContaining({ type: 'permission_updated', mode: 'auto' }),
-      expect.objectContaining({ type: 'message', message: secondMessage }),
-      expect.objectContaining({ type: 'message', message: thirdMessage }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(secondMessage) }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(thirdMessage) }),
     ]);
   });
 
@@ -475,7 +480,7 @@ describe('agent replay range build', () => {
     expect(replay).toHaveLength(10);
     expect(replay).toEqual(
       afterClearMessages.slice(-10).map((message) =>
-        expect.objectContaining({ type: 'message', message }),
+        expect.objectContaining({ type: 'message', message: expect.objectContaining(message) }),
       ),
     );
   });
@@ -534,7 +539,7 @@ describe('agent replay range build', () => {
     ]);
 
     expect(replay).toEqual([
-      expect.objectContaining({ type: 'message', message: before }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(before) }),
       expect.objectContaining({
         type: 'compaction',
         instruction: 'keep facts',
@@ -593,7 +598,7 @@ describe('agent replay range build', () => {
     ];
 
     await expect(buildReplay(records, { start: 2, count: 1 })).resolves.toEqual([
-      expect.objectContaining({ type: 'message', message: expectedMessage }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(expectedMessage) }),
     ]);
   });
 
@@ -610,11 +615,11 @@ describe('agent replay range build', () => {
     ];
 
     await expect(buildReplay(records, { start: 0, count: 10 })).resolves.toEqual([
-      expect.objectContaining({ type: 'message', message: firstMessage }),
-      expect.objectContaining({ type: 'message', message: secondMessage }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(firstMessage) }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(secondMessage) }),
     ]);
     await expect(buildReplay(records, { start: 2, count: 10 })).resolves.toEqual([
-      expect.objectContaining({ type: 'message', message: afterClearMessage }),
+      expect.objectContaining({ type: 'message', message: expect.objectContaining(afterClearMessage) }),
     ]);
   });
 });

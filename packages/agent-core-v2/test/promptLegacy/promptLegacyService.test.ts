@@ -122,7 +122,7 @@ describe('PromptLegacyService', () => {
     const { service, turns } = createHarness();
     const result = await service.submit(textBody('hi'));
     expect(result.status).toBe('running');
-    expect(result.prompt_id).toMatch(/^prompt_/);
+    expect(result.prompt_id).toMatch(/^msg_/);
     expect(turns).toHaveLength(1);
     expect(service.list().active?.prompt_id).toBe(result.prompt_id);
   });

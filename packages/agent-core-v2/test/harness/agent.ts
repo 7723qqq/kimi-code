@@ -211,7 +211,7 @@ class TestAgentSkillService extends AgentSkillService {
     @ITelemetryService telemetry: ITelemetryService,
     @IToolRegistry toolRegistry: IToolRegistry,
   ) {
-    super(skillCatalog, prompt, events, wireRecord, telemetry);
+    super(skillCatalog, prompt, events, wireRecord, telemetry, toolRegistry);
     if (skillCatalog.catalog.listInvocableSkills().length > 0) {
       this._register(toolRegistry.register(new ModelSkillTool(this)));
     }
@@ -1794,17 +1794,33 @@ function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
 function normalizeBackgroundSnapshot(
   background: readonly BackgroundTaskInfo[],
 ): readonly BackgroundTaskInfo[] {
-  return background.toSorted(
-    (left, right) => left.startedAt - right.startedAt || left.taskId.localeCompare(right.taskId),
-  );
+  return background
+    .map((task) => stripUndefinedFields(task) as BackgroundTaskInfo)
+    .toSorted(
+      (left, right) => left.startedAt - right.startedAt || left.taskId.localeCompare(right.taskId),
+    );
+}
+
+function stripUndefinedFields<T extends object>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, nested]) => nested !== undefined),
+  ) as T;
 }
 
 function resumeContextSnapshot(ctx: AgentTestContext) {
   const context = ctx.contextData();
   return {
     ...context,
-    history: context.history.filter((message) => !isSystemReminderMessage(message)),
+    history: context.history
+      .filter((message) => !isSystemReminderMessage(message))
+      .map(stripMessageId),
   };
+}
+
+function stripMessageId(message: ContextMessage): ContextMessage {
+  if (message.id === undefined) return message;
+  const { id: _id, ...rest } = message;
+  return rest as ContextMessage;
 }
 
 function isSystemReminderMessage(message: ContextMessage): boolean {

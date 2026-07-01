@@ -65,6 +65,9 @@ export function stubTurn(options: StubTurnOptions = {}): StubTurn {
     getActiveTurn() {
       return options.hasActiveTurn ? activeTurn : undefined;
     },
+    lastEndedReason() {
+      return undefined;
+    },
     prompts: [],
     steered: [],
     launches,
@@ -84,6 +87,7 @@ export function stubTurnWithHooks(): ITurnService {
     hooks: makeHooks(),
     launch: () => turn,
     getActiveTurn: () => undefined,
+    lastEndedReason: () => undefined,
   };
 }
 

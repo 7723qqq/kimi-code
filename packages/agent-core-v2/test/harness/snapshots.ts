@@ -45,18 +45,25 @@ export interface GenerateInputsSnapshot {
 
 export function eventSnapshot(
   events: readonly EventSnapshotEntry[],
-  uuidLabels: Map<string, string>,
+  labels: SnapshotLabels,
 ) {
-  const normalized = events.map((event) => normalizeValue(event, uuidLabels));
+  const normalized = events.map((event) => normalizeValue(event, labels));
   (normalized as unknown as Record<symbol, true>)[IS_EVENT_ARRAY] = true;
   return normalized;
 }
 
-export function createEventSnapshotter() {
-  const uuidLabels = new Map<string, string>();
+interface SnapshotLabels {
+  readonly uuidLabels: Map<string, string>;
+  readonly msgLabels: Map<string, string>;
+}
 
-  return (events: readonly EventSnapshotEntry[]): EventSnapshot =>
-    eventSnapshot(events, uuidLabels);
+export function createEventSnapshotter() {
+  const labels: SnapshotLabels = {
+    uuidLabels: new Map<string, string>(),
+    msgLabels: new Map<string, string>(),
+  };
+
+  return (events: readonly EventSnapshotEntry[]): EventSnapshot => eventSnapshot(events, labels);
 }
 
 export function generateInputSnapshot(
@@ -248,49 +255,38 @@ function isDeepEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function normalizeValue(value: unknown, uuidLabels: Map<string, string>): unknown {
+function normalizeValue(value: unknown, labels: SnapshotLabels): unknown {
   if (typeof value === 'string') {
     if (isAutoModeEnterReminder(value)) return '<auto-mode-enter-reminder>';
     if (isAutoModeExitReminder(value)) return '<auto-mode-exit-reminder>';
     if (isPlanModeReminder(value)) return '<plan-mode-reminder>';
-    if (!isUuid(value)) return value;
-    let label = uuidLabels.get(value);
-    if (label === undefined) {
-      label = `<uuid-${String(uuidLabels.size + 1)}>`;
-      uuidLabels.set(value, label);
-    }
-    return label;
+    if (isUuid(value)) return labelFor(value, labels.uuidLabels, 'uuid');
+    if (isMessageId(value)) return labelFor(value, labels.msgLabels, 'msg');
+    return value;
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => normalizeValue(item, uuidLabels));
+    return value.map((item) => normalizeValue(item, labels));
   }
 
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
         .filter(([key]) => !isVolatileDurationKey(key))
-        .map(([key, nested]) => [
-          key,
-          normalizeObjectField(key, nested, uuidLabels),
-        ]),
+        .map(([key, nested]) => [key, normalizeObjectField(key, nested, labels)]),
     );
   }
 
   return value;
 }
 
-function normalizeObjectField(
-  key: string,
-  value: unknown,
-  uuidLabels: Map<string, string>,
-): unknown {
+function normalizeObjectField(key: string, value: unknown, labels: SnapshotLabels): unknown {
   if ((key === 'time' || key === 'created_at') && typeof value === 'number') return '<time>';
   if (key === 'protocol_version' && value === AGENT_WIRE_PROTOCOL_VERSION) {
     return '<protocol-version>';
   }
   if (key === 'cwd' && typeof value === 'string') return '<cwd>';
-  return normalizeValue(value, uuidLabels);
+  return normalizeValue(value, labels);
 }
 
 function stripUndefined(value: unknown): unknown {
@@ -311,6 +307,19 @@ function stripUndefined(value: unknown): unknown {
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isMessageId(value: string): boolean {
+  return /^msg_[0-9A-Z]{26}$/.test(value);
+}
+
+function labelFor(value: string, labels: Map<string, string>, kind: string): string {
+  let label = labels.get(value);
+  if (label === undefined) {
+    label = `<${kind}-${String(labels.size + 1)}>`;
+    labels.set(value, label);
+  }
+  return label;
 }
 
 function isVolatileDurationKey(key: string): boolean {

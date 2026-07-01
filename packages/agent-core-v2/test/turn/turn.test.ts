@@ -327,9 +327,9 @@ describe('Agent turn flow', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger generate failure' }] });
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Trigger generate failure" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
+      [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Trigger generate failure" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
+      [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
+      [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
       [emit] turn.step.started       { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] turn.step.interrupted   { "turnId": 0, "step": 1, "reason": "error", "message": "Unexpected generate call #1" }
       [emit] turn.ended              { "turnId": 0, "reason": "failed", "error": { "code": "internal", "message": "Unexpected generate call #1", "name": "Error", "details": { "turnId": 0 }, "retryable": false } }
@@ -366,7 +366,7 @@ describe('Agent turn flow', () => {
     ]);
 
     expect(ctx.get(ISwarmService).isActive).toBe(false);
-    expect(ctx.contextData().history).toEqual([]);
+    expect(ctx.contextData().history).toMatchObject([]);
     expect(ctx.newEvents()).toMatchInlineSnapshot(`
       [wire] swarm_mode.enter   { "trigger": "manual" }
       [wire] context.splice     { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<system-reminder>\\nlegacy swarm enter reminder\\n</system-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "swarm_mode" } } ] }
@@ -598,9 +598,9 @@ describe('Agent turn flow', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello without login' }] });
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] context.splice   { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello without login" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] turn.launch      { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started     { "turnId": 0, "origin": { "kind": "user" } }
+      [wire] context.splice   { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello without login" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
+      [wire] turn.launch      { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
+      [emit] turn.started     { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
       [emit] turn.ended       { "turnId": 0, "reason": "failed", "error": { "code": "model.not_configured", "message": "LLM not set, send \\"/login\\" to login", "name": "KimiError", "details": { "turnId": 0 }, "retryable": false } }
     `);
     expect(ctx.newEvents()).toMatchInlineSnapshot(
@@ -634,7 +634,7 @@ describe('Agent turn flow', () => {
     expect(ctx.llmCalls).toHaveLength(1);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: Agent, AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, Write
+      tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, UpdateGoal, Write
       messages:
         user: text "hooked input"
         user: text "<hook_result hook_event=\\"UserPromptSubmit\\">\\nhook response 1\\n</hook_result>\\n<hook_result hook_event=\\"UserPromptSubmit\\">\\nhook response 2\\n</hook_result>"
@@ -654,7 +654,7 @@ describe('Agent turn flow', () => {
         args: expect.objectContaining({ delta: 'model saw original prompt only' }),
       }),
     );
-    expect(ctx.contextData().history).toEqual([
+    expect(ctx.contextData().history).toMatchObject([
       {
         role: 'user',
         content: [{ type: 'text', text: 'hooked input' }],
@@ -697,7 +697,7 @@ describe('Agent turn flow', () => {
     expect(ctx.llmCalls).toHaveLength(1);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: Agent, AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, Write
+      tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, UpdateGoal, Write
       messages:
         user: text "hooked input"
         user: text "<hook_result hook_event=\\"UserPromptSubmit\\">\\n{}\\n</hook_result>\\n<hook_result hook_event=\\"UserPromptSubmit\\">\\n{\\"hookSpecificOutput\\":{}}\\n</hook_result>"
@@ -711,7 +711,7 @@ describe('Agent turn flow', () => {
         }),
       }),
     );
-    expect(ctx.contextData().history).toEqual([
+    expect(ctx.contextData().history).toMatchObject([
       {
         role: 'user',
         content: [{ type: 'text', text: 'hooked input' }],
@@ -762,7 +762,7 @@ describe('Agent turn flow', () => {
         }),
       }),
     );
-    expect(ctx.contextData().history).toEqual([
+    expect(ctx.contextData().history).toMatchObject([
       {
         role: 'user',
         content: [{ type: 'text', text: 'bad words here' }],
@@ -783,7 +783,7 @@ describe('Agent turn flow', () => {
     expect(ctx.llmCalls).toHaveLength(1);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: Agent, AgentSwarm, Bash, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, Glob, Grep, Read, Write
+      tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, UpdateGoal, Write
       messages:
         user: text "bad words here"
         assistant: text "<hook_result hook_event=\\"UserPromptSubmit\\">\\nno profanity\\n</hook_result>"
@@ -818,7 +818,7 @@ describe('Agent turn flow', () => {
         args: expect.objectContaining({ delta: expect.stringContaining('late hook') }),
       }),
     );
-    expect(ctx.contextData().history).toEqual([
+    expect(ctx.contextData().history).toMatchObject([
       {
         role: 'user',
         content: [{ type: 'text', text: 'hook will sleep' }],
@@ -865,8 +865,8 @@ describe('Agent turn flow', () => {
       toolCalls: [],
     };
     expect(JSON.stringify(ctx.contextData().history)).toContain('continue from hook');
-    expect(ctx.contextData().history).toContainEqual(stopHookMessage);
-    expect(ctx.llmCalls[1]?.history).toContainEqual(llmStopHookMessage);
+    expect(ctx.contextData().history).toContainEqual(expect.objectContaining(stopHookMessage));
+    expect(ctx.llmCalls[1]?.history).toContainEqual(expect.objectContaining(llmStopHookMessage));
     expect(JSON.stringify(ctx.contextData().history)).toContain('Second answer.');
   });
 
@@ -1160,7 +1160,7 @@ describe('Agent turn flow', () => {
       provider: 'kimi',
       model: 'mock-model',
       modelAlias: 'mock-model',
-      toolCount: 13,
+      toolCount: 21,
     });
     expect(configPayload['systemPromptChars']).toEqual(expect.any(Number));
 
@@ -1731,15 +1731,15 @@ describe('Agent turn flow', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run a command' }] });
 
     expect(await ctx.untilApprovalRequest()).toMatchInlineSnapshot(`
-      [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Run a command" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" } }
+      [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Run a command" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
+      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
+      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
       [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta        { "turnId": 0, "delta": "I will run Bash." }
       [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" }
       [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will run Bash." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will run Bash." } ], "toolCalls": [] } ], "time": "<time>" }
       [emit] requestApproval        { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf should-not-run", "display": { "kind": "command", "command": "printf should-not-run", "cwd": "<cwd>", "language": "bash" } }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
@@ -1778,15 +1778,15 @@ describe('Agent turn flow', () => {
 
     const approval = await ctx.takeApprovalRequest();
     expect(approval.events).toMatchInlineSnapshot(`
-      [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Run Bash, then listen" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" } }
+      [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Run Bash, then listen" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
+      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
+      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
       [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta        { "turnId": 0, "delta": "I will ask first." }
       [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf approved\\",\\"timeout\\":60}" }
       [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will ask first." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will ask first." } ], "toolCalls": [] } ], "time": "<time>" }
       [emit] requestApproval        { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf approved", "display": { "kind": "command", "command": "printf approved", "cwd": "<cwd>", "language": "bash" } }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
@@ -1809,22 +1809,26 @@ describe('Agent turn flow', () => {
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] permission.record_approval_result   { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf approved", "result": { "decision": "approved", "selectedLabel": "approve" }, "time": "<time>" }
-      [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will ask first." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf approved\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
+      [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will ask first." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf approved\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
       [wire] context_size.measured               { "length": 2, "tokens": 29, "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 29 }
       [emit] tool.call.started                   { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf approved", "timeout": 60 }, "description": "Running: printf approved", "display": { "kind": "command", "command": "printf approved", "cwd": "<cwd>", "language": "bash" } }
       [emit] tool.progress                       { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "approved" } }
-      [wire] context.splice                      { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "approved" } ], "toolCalls": [], "toolCallId": "call_bash" } ], "time": "<time>" }
+      [wire] context.splice                      { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "approved" } ], "toolCalls": [], "toolCallId": "call_bash", "id": "<msg-3>" } ], "time": "<time>" }
       [emit] tool.result                         { "turnId": 0, "toolCallId": "call_bash", "output": "approved" }
+      [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will ask first." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf approved\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
+      [emit] agent.status.updated                { "contextTokens": 0 }
       [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
-      [wire] context.splice                      { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Also mention the steer." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] context.splice                      { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Also mention the steer." } ], "toolCalls": [], "id": "<msg-4>" } ], "time": "<time>" }
       [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
       [emit] assistant.delta                     { "turnId": 0, "delta": "Approved, and I saw the steer." }
       [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 39, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated                { "usage": { "byModel": { "mock-model": { "inputOther": 46, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 46, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 46, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.splice                      { "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "Approved, and I saw the steer." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] context.splice                      { "start": 4, "deleteCount": 0, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "Approved, and I saw the steer." } ], "toolCalls": [] } ], "time": "<time>" }
       [wire] context_size.measured               { "length": 5, "tokens": 50, "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 50 }
+      [wire] context.splice                      { "start": 4, "deleteCount": 1, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "Approved, and I saw the steer." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
+      [emit] agent.status.updated                { "contextTokens": 0 }
       [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 39, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
       [emit] turn.ended                          { "turnId": 0, "reason": "completed" }
     `);
@@ -1848,15 +1852,15 @@ describe('Agent turn flow', () => {
 
     const approval = await ctx.takeApprovalRequest();
     expect(approval.events).toMatchInlineSnapshot(`
-      [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Start the active turn" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" } }
+      [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Start the active turn" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
+      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
+      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
       [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta        { "turnId": 0, "delta": "I will wait for approval." }
       [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" }
       [wire] usage.record           { "model": "mock-model", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated   { "usage": { "byModel": { "mock-model": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will wait for approval." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] context.splice         { "start": 1, "deleteCount": 0, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will wait for approval." } ], "toolCalls": [] } ], "time": "<time>" }
       [emit] requestApproval        { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf should-not-run", "display": { "kind": "command", "command": "printf should-not-run", "cwd": "<cwd>", "language": "bash" } }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
@@ -1875,20 +1879,24 @@ describe('Agent turn flow', () => {
     });
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] permission.record_approval_result   { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf should-not-run", "result": { "decision": "rejected", "selectedLabel": "reject" }, "time": "<time>" }
-      [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will wait for approval." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
+      [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will wait for approval." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" } ] } ], "time": "<time>" }
       [wire] context_size.measured               { "length": 2, "tokens": 32, "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 32 }
       [emit] tool.call.started                   { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf should-not-run", "timeout": 60 }, "description": "Running: printf should-not-run", "display": { "kind": "command", "command": "printf should-not-run", "cwd": "<cwd>", "language": "bash" } }
-      [wire] context.splice                      { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "<system>ERROR: Tool execution failed.</system>\\nTool \\"Bash\\" was not run because the user rejected the approval request." } ], "toolCalls": [], "toolCallId": "call_bash", "isError": true } ], "time": "<time>" }
+      [wire] context.splice                      { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "<system>ERROR: Tool execution failed.</system>\\nTool \\"Bash\\" was not run because the user rejected the approval request." } ], "toolCalls": [], "toolCallId": "call_bash", "isError": true, "id": "<msg-3>" } ], "time": "<time>" }
       [emit] tool.result                         { "turnId": 0, "toolCallId": "call_bash", "output": "Tool \\"Bash\\" was not run because the user rejected the approval request.", "isError": true }
+      [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will wait for approval." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
+      [emit] agent.status.updated                { "contextTokens": 0 }
       [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
       [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
       [emit] assistant.delta                     { "turnId": 0, "delta": "I will not run it." }
       [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 63, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated                { "usage": { "byModel": { "mock-model": { "inputOther": 70, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 70, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 70, "output": 33, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.splice                      { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will not run it." } ], "toolCalls": [] } ], "time": "<time>" }
+      [wire] context.splice                      { "start": 3, "deleteCount": 0, "messages": [ { "id": "<msg-4>", "role": "assistant", "content": [ { "type": "text", "text": "I will not run it." } ], "toolCalls": [] } ], "time": "<time>" }
       [wire] context_size.measured               { "length": 4, "tokens": 71, "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 71 }
+      [wire] context.splice                      { "start": 3, "deleteCount": 1, "messages": [ { "id": "<msg-4>", "role": "assistant", "content": [ { "type": "text", "text": "I will not run it." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
+      [emit] agent.status.updated                { "contextTokens": 0 }
       [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 63, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
       [emit] turn.ended                          { "turnId": 0, "reason": "completed" }
     `);
