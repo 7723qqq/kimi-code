@@ -1,3 +1,12 @@
+/**
+ * `swarm` domain (L4) — concurrency / rate-limit scheduler for subagent runs.
+ *
+ * Owns the burst-then-throttle launch ramp and the provider-rate-limit recovery
+ * loop shared by the `AgentSwarm` tool; drives each attempt through a
+ * `SubagentBatchLauncher` (backed by the `agentTool` run helpers) and surfaces
+ * requeues via `suspended`. Pure scheduling logic — owns no scoped state.
+ */
+
 import { isProviderRateLimitError, type TokenUsage } from '@moonshot-ai/kosong';
 import * as retry from 'retry';
 
@@ -5,7 +14,15 @@ import type {
   RunSubagentOptions,
   SpawnSubagentOptions,
   SubagentHandle,
-} from './subagentHost';
+} from '#/agent/agentTool';
+import {
+  resumeChildAgent,
+  retryChildAgent,
+  spawnChildAgent,
+} from '#/agent/agentTool';
+import type { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import type { ISessionMetadata } from '#/session/session-metadata';
+import { IAgentEventSinkService } from '#/agent/eventSink';
 import { isUserCancellation } from '#/_base/utils/abort';
 
 /*
@@ -76,6 +93,8 @@ export type SubagentResult<T = unknown> = {
   readonly usage?: TokenUsage;
   readonly error?: string;
 };
+
+export type QueuedSubagentRunResult<T = unknown> = SubagentResult<T>;
 
 export type SubagentSuspendedEvent = {
   readonly task: QueuedSubagentTask;
@@ -677,4 +696,36 @@ export function resolveSwarmMaxConcurrency(
     );
   }
   return value;
+}
+
+export interface RunQueuedArgs<T> {
+  readonly lifecycle: IAgentLifecycleService;
+  readonly parentAgentId: string;
+  readonly metadata?: ISessionMetadata;
+  readonly tasks: readonly QueuedSubagentTask<T>[];
+}
+
+export function runChildAgentQueued<T>({
+  lifecycle,
+  parentAgentId,
+  metadata,
+  tasks,
+}: RunQueuedArgs<T>): Promise<Array<SubagentResult<T>>> {
+  const launcher: SubagentBatchLauncher = {
+    spawn: (options) => spawnChildAgent({ lifecycle, parentAgentId, metadata, ...options }),
+    resume: (agentId, options) =>
+      resumeChildAgent({ lifecycle, parentAgentId, metadata, agentId, ...options }),
+    retry: (agentId, options) =>
+      retryChildAgent({ lifecycle, parentAgentId, metadata, agentId, ...options }),
+    suspended: (event) => {
+      const parent = lifecycle.getHandle(parentAgentId);
+      parent?.accessor.get(IAgentEventSinkService)?.emit({
+        type: 'subagent.suspended',
+        subagentId: event.agentId,
+        reason: event.reason,
+      });
+    },
+  };
+  const maxConcurrency = resolveSwarmMaxConcurrency();
+  return new SubagentBatch(launcher, tasks, { maxConcurrency }).run();
 }

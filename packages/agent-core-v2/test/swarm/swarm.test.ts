@@ -7,10 +7,13 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
-  ISessionSubagentHost,
+} from '#/agent/agentTool';
+import {
   type QueuedSubagentRunResult,
   type QueuedSubagentTask,
-} from '#/session/subagentHost';
+} from '#/agent/swarm';
+import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
 import { IAgentSwarmService } from '#/agent/swarm';
@@ -34,7 +37,7 @@ function context<Input>(
   return { turnId: '0', toolCallId, args, signal };
 }
 
-function mockSubagentHost({
+function mockSwarmHost({
   getSwarmItem = () => undefined,
   runQueued = vi.fn().mockResolvedValue([]),
 }: {
@@ -43,10 +46,11 @@ function mockSubagentHost({
   readonly runQueued?: (...args: any[]) => any;
 } = {}) {
   return {
+    lifecycle: {} as never,
+    parentAgentId: 'main',
     getSwarmItem: vi.fn(getSwarmItem),
     runQueued,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any;
+  };
 }
 
 function mockSwarmMode() {
@@ -65,7 +69,8 @@ describe('AgentSwarmService', () => {
     ix.stub(IAgentEventSinkService, { emit: () => {}, on: () => toDisposable(() => {}) });
     ix.stub(IAgentTurnService, stubTurnWithHooks());
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
-    ix.stub(ISessionSubagentHost, {});
+    ix.stub(IAgentLifecycleService, {});
+    ix.stub(IAgentScopeContext, { _serviceBrand: undefined, agentId: 'main' });
     ix.set(IAgentSystemReminderService, new SyncDescriptor(AgentSystemReminderService));
     ix.set(IAgentSwarmService, new SyncDescriptor(AgentSwarmService));
   });
@@ -83,7 +88,7 @@ describe('AgentSwarmService', () => {
 
 describe('AgentSwarmTool', () => {
   it('applies one subagent_type across templated subagents', async () => {
-    const host = mockSubagentHost({
+    const host = mockSwarmHost({
       runQueued: vi.fn().mockResolvedValue([
         {
           task: {
@@ -161,7 +166,7 @@ describe('AgentSwarmTool', () => {
 
     expect(swarmMode.enter).toHaveBeenCalledWith('tool');
     expect(host.runQueued).toHaveBeenCalledTimes(1);
-    expect(host.runQueued).toHaveBeenCalledWith([
+    expect(host.runQueued).toHaveBeenCalledWith(expect.objectContaining({ tasks: [
       {
         kind: 'spawn',
         data: {
@@ -198,7 +203,7 @@ describe('AgentSwarmTool', () => {
         signal,
         timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
       },
-    ]);
+    ] }));
     expect(result.output).toBe(
       [
         '<agent_swarm_result>',
@@ -212,7 +217,7 @@ describe('AgentSwarmTool', () => {
   });
 
   it('does not expose permission rule argument matching', () => {
-    const tool = new AgentSwarmTool(mockSubagentHost(), mockSwarmMode());
+    const tool = new AgentSwarmTool(mockSwarmHost(), mockSwarmMode());
     const execution = tool.resolveExecution({
       description: 'Review files',
       prompt_template: 'Review {{item}}',
@@ -270,7 +275,7 @@ describe('AgentSwarmTool', () => {
     ];
 
     for (const testCase of cases) {
-      const host = mockSubagentHost();
+      const host = mockSwarmHost();
       const tool = new AgentSwarmTool(host, mockSwarmMode());
 
       const result = await executeTool(tool, context(testCase.input));
@@ -283,9 +288,11 @@ describe('AgentSwarmTool', () => {
 
   it('resumes mapped agents before spawning item subagents', async () => {
     const runQueued = vi.fn(
-      async <T>(
-        tasks: readonly QueuedSubagentTask<T>[],
-      ): Promise<Array<QueuedSubagentRunResult<T>>> =>
+      async <T>({
+        tasks,
+      }: {
+        tasks: readonly QueuedSubagentTask<T>[];
+      }): Promise<Array<QueuedSubagentRunResult<T>>> =>
         tasks.map((task, index) => ({
           task,
           agentId: task.kind === 'resume' ? task.resumeAgentId : `agent-new-${String(index + 1)}`,
@@ -293,7 +300,7 @@ describe('AgentSwarmTool', () => {
           result: `result ${String(index + 1)}`,
         })),
     );
-    const host = mockSubagentHost({
+    const host = mockSwarmHost({
       getSwarmItem: (agentId) =>
         ({ 'agent-old-1': 'src/old-a.ts', 'agent-old-2': 'src/old-b.ts' })[agentId],
       runQueued,
@@ -320,7 +327,7 @@ describe('AgentSwarmTool', () => {
 
     const result = await executeTool(tool, context(input));
 
-    expect(host.runQueued).toHaveBeenCalledWith([
+    expect(host.runQueued).toHaveBeenCalledWith(expect.objectContaining({ tasks: [
       {
         kind: 'resume',
         data: {
@@ -379,7 +386,7 @@ describe('AgentSwarmTool', () => {
         signal,
         timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
       },
-    ]);
+    ] }));
     expect(result.output).toBe(
       [
         '<agent_swarm_result>',
@@ -395,9 +402,11 @@ describe('AgentSwarmTool', () => {
 
   it('allows a single resumed subagent without item subagents', async () => {
     const runQueued = vi.fn(
-      async <T>(
-        tasks: readonly QueuedSubagentTask<T>[],
-      ): Promise<Array<QueuedSubagentRunResult<T>>> =>
+      async <T>({
+        tasks,
+      }: {
+        tasks: readonly QueuedSubagentTask<T>[];
+      }): Promise<Array<QueuedSubagentRunResult<T>>> =>
         tasks.map((task) => ({
           task,
           agentId: task.kind === 'resume' ? task.resumeAgentId : 'agent-new',
@@ -405,7 +414,7 @@ describe('AgentSwarmTool', () => {
           result: 'resumed result',
         })),
     );
-    const host = mockSubagentHost({
+    const host = mockSwarmHost({
       getSwarmItem: (agentId) => (agentId === 'agent-old-1' ? 'src/old-a.ts' : undefined),
       runQueued,
     });
@@ -419,7 +428,7 @@ describe('AgentSwarmTool', () => {
 
     const result = await executeTool(tool, context(input));
 
-    expect(host.runQueued).toHaveBeenCalledWith([
+    expect(host.runQueued).toHaveBeenCalledWith(expect.objectContaining({ tasks: [
       {
         kind: 'resume',
         data: {
@@ -440,7 +449,7 @@ describe('AgentSwarmTool', () => {
         signal,
         timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
       },
-    ]);
+    ] }));
     expect(result.output).toBe(
       [
         '<agent_swarm_result>',
@@ -452,8 +461,8 @@ describe('AgentSwarmTool', () => {
   });
 
   it('reports failed subagents inside the XML result without failing the tool', async () => {
-    const host = mockSubagentHost({
-      runQueued: vi.fn().mockImplementation(async (tasks) => [
+    const host = mockSwarmHost({
+      runQueued: vi.fn().mockImplementation(async ({ tasks }) => [
         {
           task: tasks[0],
           agentId: 'agent-coder-1',
@@ -493,8 +502,8 @@ describe('AgentSwarmTool', () => {
   });
 
   it('omits resume hint when incomplete subagents have no agent ids', async () => {
-    const host = mockSubagentHost({
-      runQueued: vi.fn().mockImplementation(async (tasks) => [
+    const host = mockSwarmHost({
+      runQueued: vi.fn().mockImplementation(async ({ tasks }) => [
         {
           task: tasks[0],
           status: 'failed',
@@ -530,8 +539,8 @@ describe('AgentSwarmTool', () => {
   });
 
   it('reports partial aborted subagents inside the XML result', async () => {
-    const host = mockSubagentHost({
-      runQueued: vi.fn().mockImplementation(async (tasks) => [
+    const host = mockSwarmHost({
+      runQueued: vi.fn().mockImplementation(async ({ tasks }) => [
         {
           task: tasks[0],
           agentId: 'agent-coder-1',

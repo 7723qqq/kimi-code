@@ -74,6 +74,7 @@ describe('RestGateway', () => {
       onDidDispose: () => ({ dispose: () => {} }),
       create: () => Promise.resolve(agentHandle),
       createMain: () => Promise.resolve(agentHandle),
+      fork: () => Promise.resolve(agentHandle),
       getHandle: (id) => (id === 'main' ? agentHandle : undefined),
       list: () => [agentHandle],
       remove: () => Promise.resolve(),

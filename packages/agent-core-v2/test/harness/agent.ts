@@ -3,7 +3,6 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
-import { type Environment, type Kaos, type KaosProcess } from '@moonshot-ai/kaos';
 import {
   isToolCall,
   isToolCallPart,
@@ -27,6 +26,7 @@ import {
   AgentBackgroundService,
   AgentExternalHooksService,
   FileStorageService,
+  InMemoryStorageService,
   AgentFullCompactionService,
   IAgentRPCService,
   IAppendLogStore,
@@ -45,7 +45,7 @@ import {
   IAgentExternalHooksService,
   IAgentFileToolsService,
   IAgentFullCompactionService,
-  IKaos,
+  IHostEnvironment,
   IAgentLLMRequesterService,
   ILogService,
   IAgentMcpService,
@@ -53,13 +53,18 @@ import {
   IAgentPermissionGate,
   IAgentPermissionModeService,
   IAgentPermissionRulesService,
+  ISessionAgentFileSystem,
   ISessionContext,
   IAgentShellToolsService,
+  ISessionProcessRunner,
   IStorageService,
-  ISessionSubagentHost,
+  IAgentScopeContext,
   IAgentSwarmService,
+  AgentSwarmService,
   ITelemetryService,
   ISessionTerminalBackend,
+  IAgentToolService,
+  AgentToolService,
   IAgentToolRegistryService,
   IAgentToolStoreService,
   IAgentUserToolService,
@@ -84,7 +89,11 @@ import {
   type Scope,
   type ScopeSeed,
   type ServiceIdentifier,
+  type AgentToolRunOverride,
 } from '#/index';
+import { IExecContext, createExecContext, execContextSeed } from '#/session/execContext';
+import type { IProcess } from '#/session/process';
+import type { AgentSwarmToolHost } from '#/agent/swarm/tools/agent-swarm';
 import { Event } from '#/_base/event';
 import { toDisposable } from '#/_base/di';
 import type { PromisifyMethods } from '#/_base/utils/types';
@@ -131,7 +140,6 @@ import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog
 import { AgentSkillService } from '#/agent/skill/skillService';
 import { ModelSkillTool } from '#/agent/skill/tools/modelSkill';
 import type { SkillCatalog } from '#/app/globalSkillCatalog/types';
-import { SessionSubagentHostService, type SessionSubagentHost } from '#/session/subagentHost';
 import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/agent/tool';
 import type {
   PersistedWireRecord,
@@ -140,7 +148,7 @@ import type {
   WireRecordRestoreResult,
 } from '#/agent/wireRecord';
 import type { PathAccessOperation } from '#/session/workspaceContext';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { createFakeAgentFs, createFakeHostEnvironment, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 
 import { createScriptedGenerate } from './scripted-generate';
 import {
@@ -151,13 +159,8 @@ import {
 } from './snapshots';
 import { recordAgentEvents, type RecordedEventEntry } from '../snapshot/events';
 
-const TEST_OS_ENV: Environment = {
-  osKind: 'Linux',
-  osArch: 'x86_64',
-  osVersion: 'test',
-  shellName: 'bash',
-  shellPath: '/bin/bash',
-};
+const TEST_HOST_ENVIRONMENT: IHostEnvironment = createFakeHostEnvironment();
+const TEST_HOME_DIR: string = TEST_HOST_ENVIRONMENT.homeDir;
 
 const MOCK_PROVIDER = {
   type: 'kimi',
@@ -398,11 +401,113 @@ function defineServiceValue<T>(
   }
 }
 
-export function kaosServices(kaos: Kaos): TestAgentServiceOverride {
-  return sessionServices((reg) => {
-    reg.defineInstance(IKaos, createIKaos(kaos));
-    reg.defineDescriptor(ISessionWorkspaceContext, new SyncDescriptor(SessionWorkspaceContextService));
-  });
+/**
+ * Session-scope override for the execution-environment atoms
+ * (`IHostEnvironment` / `IExecContext` / `ISessionAgentFileSystem` /
+ * `ISessionProcessRunner`). Replaces the v1 `kaosServices(kaos)` helper —
+ * tests now pass just the atoms they care about.
+ */
+export interface ExecEnvOverride {
+  readonly hostEnvironment?: IHostEnvironment | Partial<IHostEnvironment>;
+  readonly execContext?: IExecContext | { readonly cwd?: string; readonly envLayers?: readonly Record<string, string>[] };
+  readonly agentFs?: ISessionAgentFileSystem | Partial<ISessionAgentFileSystem>;
+  readonly processRunner?: ISessionProcessRunner | Partial<ISessionProcessRunner>;
+}
+
+/**
+ * Register a fake execution-environment atom set for a test session. Any
+ * unspecified atom keeps the harness default (fake host env, `/workspace`
+ * exec ctx, throwing fs/runner).
+ */
+export function execEnvServices(override: ExecEnvOverride = {}): TestAgentServiceOverride {
+  return [
+    override.hostEnvironment !== undefined
+      ? appService(IHostEnvironment, resolveHostEnvironmentOverride(override.hostEnvironment))
+      : appServices(() => {}),
+    sessionServices((reg) => {
+      if (override.execContext !== undefined) {
+        const ctx = resolveExecContextOverride(override.execContext);
+        for (const [id, value] of execContextSeed(ctx)) {
+          reg.defineInstance(id as ServiceIdentifier<unknown>, value);
+        }
+      }
+      if (override.agentFs !== undefined) {
+        reg.defineInstance(ISessionAgentFileSystem, resolveAgentFsOverride(override.agentFs));
+      }
+      if (override.processRunner !== undefined) {
+        reg.defineInstance(ISessionProcessRunner, resolveProcessRunnerOverride(override.processRunner));
+      }
+      reg.defineDescriptor(ISessionWorkspaceContext, new SyncDescriptor(SessionWorkspaceContextService));
+    }),
+  ];
+}
+
+function resolveHostEnvironmentOverride(
+  input: IHostEnvironment | Partial<IHostEnvironment>,
+): IHostEnvironment {
+  // A full `IHostEnvironment` is an object literal (constructed via
+  // `createFakeHostEnvironment` or the real service). Anything that is not a
+  // plain-object literal (no prototype tricks) is treated as a full instance
+  // and passed through. Plain object literals with partial fields fall
+  // through to the fake factory. Since both `createFakeHostEnvironment` and
+  // real services produce plain-shape objects, we discriminate on the
+  // presence of `osKind` — a full env always has it.
+  if (typeof (input as IHostEnvironment).osKind === 'string') {
+    return input as IHostEnvironment;
+  }
+  return createFakeHostEnvironment(input as Partial<IHostEnvironment>);
+}
+
+function resolveExecContextOverride(
+  input: IExecContext | { readonly cwd?: string; readonly envLayers?: readonly Record<string, string>[] },
+): IExecContext {
+  if ('withCwd' in input && 'withEnv' in input) return input as IExecContext;
+  const partial = input as { readonly cwd?: string; readonly envLayers?: readonly Record<string, string>[] };
+  return createExecContext(partial.cwd ?? '/workspace', partial.envLayers ?? []);
+}
+
+function resolveAgentFsOverride(
+  input: ISessionAgentFileSystem | Partial<ISessionAgentFileSystem>,
+): ISessionAgentFileSystem {
+  // A full impl (class instance or `Proxy` over one) exposes every core
+  // method. A partial override typically covers only a few of them. If every
+  // core method is a function, pass the input through unchanged; otherwise
+  // treat it as a partial override and spread it over the fake defaults.
+  if (isFullAgentFs(input)) return input as ISessionAgentFileSystem;
+  return createFakeAgentFs(input as Partial<ISessionAgentFileSystem>);
+}
+
+function isFullAgentFs(input: unknown): boolean {
+  if (typeof input !== 'object' || input === null) return false;
+  const keys: readonly (keyof ISessionAgentFileSystem)[] = [
+    'readText',
+    'writeText',
+    'readBytes',
+    'readLines',
+    'writeBytes',
+    'stat',
+    'readdir',
+    'glob',
+    'mkdir',
+    'withCwd',
+  ];
+  return keys.every((k) => typeof (input as Record<string, unknown>)[k] === 'function');
+}
+
+function resolveProcessRunnerOverride(
+  input: ISessionProcessRunner | Partial<ISessionProcessRunner>,
+): ISessionProcessRunner {
+  // `ISessionProcessRunner` has only one method (`exec`), so a full impl is
+  // any object with `exec` as a function. Both `SessionProcessRunner`
+  // instances and `createFakeProcessRunner()` results satisfy this.
+  if (
+    typeof input === 'object' &&
+    input !== null &&
+    typeof (input as ISessionProcessRunner).exec === 'function'
+  ) {
+    return input as ISessionProcessRunner;
+  }
+  return createFakeProcessRunner(input as Partial<ISessionProcessRunner>);
 }
 
 export function homeDirServices(homeDir: string | undefined): TestAgentServiceOverride {
@@ -541,8 +646,17 @@ function createSessionSkillCatalog(catalog: SkillCatalog): ISessionSkillCatalog 
   };
 }
 
-export function subagentHostServices(host: SessionSubagentHost): TestAgentServiceOverride {
-  return agentService(ISessionSubagentHost, new SyncDescriptor(SessionSubagentHostService, [host]));
+export function agentToolServices(runOverride: AgentToolRunOverride): TestAgentServiceOverride {
+  return agentService(
+    IAgentToolService,
+    new SyncDescriptor(AgentToolService, [runOverride]),
+  );
+}
+
+export function swarmServices(
+  runQueued: AgentSwarmToolHost['runQueued'],
+): TestAgentServiceOverride {
+  return agentService(IAgentSwarmService, new SyncDescriptor(AgentSwarmService, [runQueued]));
 }
 
 export function goalServices(options: GoalServiceOptions): TestAgentServiceOverride {
@@ -553,24 +667,26 @@ export function replayServices(options: ReplayBuilderServiceOptions = {}): TestA
   return agentService(IAgentReplayBuilderService, new SyncDescriptor(AgentReplayBuilderService, [options]));
 }
 
-export function createCommandKaos(stdout: string): Kaos {
-  function createProcess(): KaosProcess {
+/**
+ * Build a fake `ISessionProcessRunner` whose `exec` returns a scripted
+ * `IProcess` emitting `stdout` on stdout and exiting with `exitCode`.
+ * Replaces the v1 `createCommandKaos(stdout)` helper.
+ */
+export function createCommandRunner(stdout: string, exitCode = 0): ISessionProcessRunner {
+  function createProcess(): IProcess {
     return {
       stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
       stdout: Readable.from([stdout]),
       stderr: Readable.from(['']),
       pid: 42,
-      exitCode: 0,
-      wait: vi.fn().mockResolvedValue(0),
-      kill: vi.fn().mockResolvedValue(undefined),
-      dispose: vi.fn().mockResolvedValue(undefined),
+      exitCode,
+      wait: vi.fn().mockResolvedValue(exitCode) as IProcess['wait'],
+      kill: vi.fn().mockResolvedValue(undefined) as IProcess['kill'],
+      dispose: vi.fn().mockResolvedValue(undefined) as IProcess['dispose'],
     };
   }
-
-  return createFakeKaos({
-    execWithEnv: vi.fn().mockImplementation(async () => createProcess()),
-    mkdir: vi.fn().mockResolvedValue(undefined),
-    writeText: vi.fn(async (_path: string, content: string) => content.length),
+  return createFakeProcessRunner({
+    exec: vi.fn().mockImplementation(async () => createProcess()),
   });
 }
 
@@ -837,7 +953,6 @@ export class AgentTestContext {
     this.emitter.on('error', () => {});
     this.kimiConfig = applyTestAgentOptionsToConfig(emptyConfig(), options);
 
-    const kaos = createFakeKaos();
     const sessionId = 'test-session';
     const agentId = 'main';
     const persistence = options.persistence ?? new InMemoryWireRecordPersistence();
@@ -847,11 +962,28 @@ export class AgentTestContext {
         for (const [id, value] of bootstrapSeed({
           homeDir: '/tmp/kimi-code-agent-app-v2-test',
           cwd: this.cwd,
-          osHomeDir: kaos.gethome(),
+          osHomeDir: TEST_HOME_DIR,
           env: process.env,
         })) {
           reg.defineInstance(id, value);
         }
+        // Fake `IHostEnvironment` — a real `HostEnvironmentService` would kick
+        // off an async probe (spawn `sh --version` on Windows, `os.homedir()`,
+        // etc.) at App-scope construction; the harness stubs it with a
+        // deterministic Linux/bash snapshot instead. Tests can override with
+        // `execEnvServices({ hostEnvironment: … })`.
+        reg.defineInstance(IHostEnvironment, TEST_HOST_ENVIRONMENT);
+        // In-memory Storage-layer backend. The `InMemoryStorageService` is no
+        // longer auto-registered, so the harness seeds it here to keep a
+        // workable default for storage-backed services. Tests that need durable
+        // (file) storage override this via `homeDirServices(dir)` — overrides
+        // win over this base seed (see `collectScopeSeed`).
+        const memoryStorage = (): SyncDescriptor<IStorageService> =>
+          new SyncDescriptor(InMemoryStorageService, [], true);
+        reg.defineDescriptor(IStorageService, memoryStorage());
+        reg.defineDescriptor(IAppendLogStorage, memoryStorage());
+        reg.defineDescriptor(IAtomicDocumentStorage, memoryStorage());
+        reg.defineDescriptor(IBlobStorage, memoryStorage());
         reg.defineInstance(IConfigService, configService(() => this.kimiConfig));
         reg.defineInstance(
           IAppendLogStore,
@@ -891,7 +1023,14 @@ export class AgentTestContext {
           reg.defineInstance(ISessionInteractionService, this.createInteractionService());
           reg.defineInstance(ISessionApprovalService, this.createApprovalService());
           reg.defineInstance(ISessionQuestionService, this.createQuestionService());
-          reg.defineInstance(IKaos, createIKaos(kaos));
+          // Seed the session `IExecContext` (was `IKaos` in the old harness).
+          for (const [id, value] of execContextSeed(createExecContext(this.cwd))) {
+            reg.defineInstance(id as ServiceIdentifier<unknown>, value);
+          }
+          // Note: `ISessionAgentFileSystem` and `ISessionProcessRunner` are
+          // auto-registered by their service files (backed by `IExecContext`
+          // and Node fs/spawn). Tests that need a fake override them via
+          // `execEnvServices({ agentFs: … })` / `execEnvServices({ processRunner: … })`.
           reg.defineInstance(ISessionTerminalBackend, createTerminalBackend());
           reg.defineDescriptor(ISessionWorkspaceContext, new SyncDescriptor(SessionWorkspaceContextService));
           reg.defineDescriptor(ISessionModelResolver, new SyncDescriptor(ConfigBackedModelResolver, [{}]));
@@ -937,9 +1076,10 @@ export class AgentTestContext {
           reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService, [{}]));
           reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
           reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
+          reg.defineInstance(IAgentScopeContext, { _serviceBrand: undefined, agentId });
           reg.defineDescriptor(
-            ISessionSubagentHost,
-            new SyncDescriptor(SessionSubagentHostService, [unavailableSubagentHost()]),
+            IAgentToolService,
+            new SyncDescriptor(AgentToolService, [unavailableAgentToolRun()]),
           );
         },
       ], this.serviceOverrides, 'agent'),
@@ -1368,7 +1508,7 @@ export class AgentTestContext {
     const resumed = createTestAgent(
       { autoConfigure: false },
       ...this.serviceOverrides,
-      kaosServices(createResumeNoSideEffectKaos(profile.data().cwd)),
+      createResumeNoSideEffectExecEnv(profile.data().cwd),
       configServices(() => configSnapshot),
       llmGenerateServices(failOnResumeGenerate),
       wireRecordPersistenceServices(new InMemoryWireRecordPersistence(
@@ -1644,28 +1784,6 @@ export class AgentTestContext {
   }
 }
 
-function createIKaos(kaos: Kaos): IKaos {
-  return {
-    _serviceBrand: undefined,
-    get name() {
-      return kaos.name;
-    },
-    get cwd() {
-      return kaos.getcwd();
-    },
-    get osEnv() {
-      return kaos.osEnv;
-    },
-    backend: kaos,
-    pathClass: () => kaos.pathClass(),
-    normpath: (path) => kaos.normpath(path),
-    gethome: () => kaos.gethome(),
-    getcwd: () => kaos.getcwd(),
-    withCwd: (cwd) => createIKaos(kaos.withCwd(cwd)),
-    withEnv: (env) => createIKaos(kaos.withEnv(env)),
-  };
-}
-
 function createWorkspaceContextStub(
   initialWorkDir: string,
   initialAdditionalDirs: readonly string[],
@@ -1773,21 +1891,16 @@ function createTerminalBackend(): ISessionTerminalBackend {
   };
 }
 
-function unavailableSubagentHost(): SessionSubagentHost {
+function unavailableAgentToolRun(): AgentToolRunOverride {
   const fail = async (): Promise<never> => {
-    throw new Error('Subagent host is not configured in this test.');
+    throw new Error('Agent tool run is not configured in this test.');
   };
   return {
-    getSwarmItem: () => undefined,
-    startBtw: fail,
     spawn: fail,
     resume: fail,
     retry: fail,
     getProfileName: async () => undefined,
-    markActiveChildDetached: () => {},
-    runQueued: async () => [],
-    cancelAll: () => {},
-    suspended: () => {},
+    markDetached: () => {},
   };
 }
 
@@ -1795,36 +1908,12 @@ const failOnResumeGenerate: GenerateFn = async () => {
   throw new Error('Resume replay unexpectedly called the LLM');
 };
 
-function createResumeNoSideEffectKaos(initialCwd: string): Kaos {
-  const fail = (method: string): never => {
-    throw new Error(`Resume replay unexpectedly called kaos.${method}`);
-  };
-
-  let cwd = initialCwd;
-  return {
-    name: 'resume-no-side-effects',
-    osEnv: TEST_OS_ENV,
-    pathClass: () => 'posix',
-    normpath: (p: string) => p,
-    gethome: () => '/home/test',
-    getcwd: () => cwd,
-    withCwd: (next: string) => createResumeNoSideEffectKaos(next),
-    withEnv: () => createResumeNoSideEffectKaos(cwd),
-    chdir: async (next: string) => {
-      cwd = next;
-    },
-    stat: () => fail('stat'),
-    iterdir: () => fail('iterdir'),
-    glob: () => fail('glob'),
-    readBytes: () => fail('readBytes'),
-    readText: () => fail('readText'),
-    readLines: () => fail('readLines'),
-    writeBytes: () => fail('writeBytes'),
-    writeText: () => fail('writeText'),
-    mkdir: () => fail('mkdir'),
-    exec: () => fail('exec'),
-    execWithEnv: () => fail('execWithEnv'),
-  };
+function createResumeNoSideEffectExecEnv(initialCwd: string): TestAgentServiceOverride {
+  return execEnvServices({
+    execContext: { cwd: initialCwd },
+    // Any fs/process interaction during a resume replay is a bug — surface it
+    // loudly instead of silently no-oping.
+  });
 }
 
 function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
