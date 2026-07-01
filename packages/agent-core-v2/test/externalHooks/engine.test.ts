@@ -1,3 +1,6 @@
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -195,6 +198,25 @@ describe('HookEngine', () => {
     const results = await engine.trigger('SessionStart');
 
     expect(results[0]?.stdout?.trim()).toBe('SessionStart ses_123 /tmp');
+  });
+
+  it('runs hooks with per-hook cwd and env overrides', async () => {
+    const engine = new HookEngine(
+      [
+        {
+          event: 'PreToolUse',
+          command: nodeCommand('process.stdout.write(process.cwd() + " " + String(process.env.PLUGIN_HOOK_TEST));'),
+          timeout: 5,
+          cwd: realpathSync(tmpdir()),
+          env: { PLUGIN_HOOK_TEST: 'plugin-env' },
+        },
+      ],
+      { cwd: '/var/tmp' },
+    );
+
+    const results = await engine.trigger('PreToolUse', { matcherValue: '', inputData: {} });
+
+    expect(results[0]?.stdout?.trim()).toBe(`${realpathSync(tmpdir())} plugin-env`);
   });
 
   it('treats an empty matcher string as a catch-all for any matcher value', async () => {

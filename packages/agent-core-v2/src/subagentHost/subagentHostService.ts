@@ -6,25 +6,34 @@ import type {
   RunSubagentOptions,
   SubagentHandle,
 } from './subagentHost';
+import type { SubagentSuspendedEvent } from './subagent-batch';
 import {
   ISessionSubagentHost,
 } from './subagentHost';
 import { Disposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IAgentLifecycleService } from '#/agent-lifecycle';
 import { IAgentBackgroundService } from '#/background';
 import { ILogService } from '#/log';
 import { IAgentProfileService } from '#/profile';
 import { IKaos } from '#/kaos';
 import { ISessionProcessRunner } from '#/process';
+import { ISessionMetadata } from '#/session-metadata';
 import { IAgentToolRegistryService } from '#/toolRegistry';
 import { AgentTool } from './agentTool';
+import { DefaultSessionSubagentHost } from './defaultSessionSubagentHost';
+import { DEFAULT_AGENT_SUBAGENT_PROFILES } from './profiles';
 
 export class SessionSubagentHostService extends Disposable implements ISessionSubagentHost {
   declare readonly _serviceBrand: undefined;
 
+  private readonly host: SessionSubagentHost;
+
   constructor(
-    private readonly subagentHost: SessionSubagentHost,
+    subagentHost: SessionSubagentHost | undefined,
+    @IAgentLifecycleService agents: IAgentLifecycleService,
+    @ISessionMetadata metadata: ISessionMetadata,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
     @IAgentBackgroundService background: IAgentBackgroundService,
     @IAgentProfileService profile: IAgentProfileService,
@@ -33,10 +42,11 @@ export class SessionSubagentHostService extends Disposable implements ISessionSu
     @ILogService log?: ILogService,
   ) {
     super();
+    this.host = subagentHost ?? new DefaultSessionSubagentHost(agents, 'main', metadata);
 
     this._register(
       toolRegistry.register(
-        new AgentTool(this, background, undefined, {
+        new AgentTool(this, background, DEFAULT_AGENT_SUBAGENT_PROFILES, {
           log,
           gitContext: { cwd: kaos.cwd, runner },
           canRunInBackground: () => {
@@ -50,15 +60,15 @@ export class SessionSubagentHostService extends Disposable implements ISessionSu
   }
 
   getSwarmItem(agentId: string): string | undefined {
-    return this.subagentHost?.getSwarmItem(agentId);
+    return this.host?.getSwarmItem(agentId);
   }
 
   startBtw(): Promise<string> {
-    return this.subagentHost.startBtw();
+    return this.host.startBtw();
   }
 
   async generateAgentsMd(): Promise<void> {
-    const handle = await this.subagentHost.spawn({
+    const handle = await this.host.spawn({
       profileName: 'coder',
       parentToolCallId: 'generate-agents-md',
       prompt: 'Initialize AGENTS.md for this workspace.',
@@ -70,25 +80,33 @@ export class SessionSubagentHostService extends Disposable implements ISessionSu
   }
 
   spawn(options: SpawnSubagentOptions): Promise<SubagentHandle> {
-    return this.subagentHost.spawn(options);
+    return this.host.spawn(options);
   }
 
   resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle> {
-    return this.subagentHost.resume(agentId, options);
+    return this.host.resume(agentId, options);
   }
 
   getProfileName(agentId: string): Promise<string | undefined> {
-    return this.subagentHost.getProfileName(agentId);
+    return this.host.getProfileName(agentId);
   }
 
   markActiveChildDetached(agentId: string): void {
-    this.subagentHost.markActiveChildDetached(agentId);
+    this.host.markActiveChildDetached(agentId);
+  }
+
+  cancelAll(reason?: unknown): void {
+    this.host.cancelAll(reason);
+  }
+
+  suspended(event: SubagentSuspendedEvent): void {
+    this.host.suspended(event);
   }
 
   runQueued<T>(
     tasks: readonly QueuedSubagentTask<T>[],
   ): Promise<Array<QueuedSubagentRunResult<T>>> {
-    const subagentHost = this.subagentHost;
+    const subagentHost = this.host;
     if (subagentHost === undefined) {
       throw new Error('Subagent host is not configured.');
     }

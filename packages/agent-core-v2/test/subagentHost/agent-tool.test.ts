@@ -41,6 +41,13 @@ describe('Agent tool service runtime', () => {
         }),
       );
     });
+
+    it('lists available subagent types in the Agent tool description', () => {
+      const tool = ctx.get(IAgentToolRegistryService).resolve('Agent');
+      expect(tool?.description).toContain('Available agent types');
+      expect(tool?.description).toContain('explore');
+      expect(tool?.description).toContain('coder');
+    });
   });
 
   describe('with a resolving subagent host', () => {
@@ -219,6 +226,8 @@ function createSubagentHost(
     getProfileName: vi.fn().mockResolvedValue(undefined),
     markActiveChildDetached: vi.fn(),
     runQueued: vi.fn().mockResolvedValue([]),
+    cancelAll: vi.fn(),
+    suspended: vi.fn(),
   };
   return Object.assign(host, overrides);
 }

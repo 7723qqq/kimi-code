@@ -1,6 +1,10 @@
 import { createDecorator } from "#/_base/di";
 import type { TokenUsage } from '@moonshot-ai/kosong';
-import type { QueuedSubagentTask, SubagentResult } from './subagent-batch';
+import type {
+  QueuedSubagentTask,
+  SubagentResult,
+  SubagentSuspendedEvent,
+} from './subagent-batch';
 
 export const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION = '30 minutes';
@@ -41,6 +45,10 @@ export interface SessionSubagentHost {
   getProfileName(agentId: string): Promise<string | undefined>;
   markActiveChildDetached(agentId: string): void;
   runQueued<T>(tasks: readonly QueuedSubagentTask<T>[]): Promise<Array<SubagentResult<T>>>;
+  /** Abort every foreground active child (and its descendants) with the given reason. */
+  cancelAll(reason?: unknown): void;
+  /** Surface a queued subagent being requeued after a provider rate limit. */
+  suspended(event: SubagentSuspendedEvent): void;
 }
 
 export type QueuedSubagentRunResult<T = unknown> = SubagentResult<T>;
@@ -56,6 +64,8 @@ export interface ISessionSubagentHost {
   getProfileName(agentId: string): Promise<string | undefined>;
   markActiveChildDetached(agentId: string): void;
   runQueued<T>(tasks: readonly QueuedSubagentTask<T>[]): Promise<Array<SubagentResult<T>>>;
+  cancelAll(reason?: unknown): void;
+  suspended(event: SubagentSuspendedEvent): void;
 }
 
 

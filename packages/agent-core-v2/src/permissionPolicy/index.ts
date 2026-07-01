@@ -5,3 +5,4 @@
 export * from './permissionPolicy';
 export * from './permissionPolicyService';
 export * from './types';
+export * from './policies/deny-all';

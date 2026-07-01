@@ -1,8 +1,8 @@
-import { createDecorator } from "#/_base/di";
+import { createDecorator, type IDisposable } from "#/_base/di";
 import type {
   ResolvedToolExecutionHookContext
 } from '#/tool';
-import type { PermissionPolicyResult } from './types';
+import type { PermissionPolicy, PermissionPolicyResult } from './types';
 
 
 export interface PermissionPolicyEvaluation {
@@ -15,6 +15,13 @@ export interface IAgentPermissionPolicyService {
   evaluate(
     context: ResolvedToolExecutionHookContext,
   ): Promise<PermissionPolicyEvaluation | undefined>;
+  /**
+   * Register an additional policy that takes precedence over the built-in
+   * policies. Returns a disposable that removes it. Used by callers that need
+   * to tighten an agent's posture at runtime (e.g. side-question agents that
+   * must deny every tool call).
+   */
+  registerPolicy(policy: PermissionPolicy): IDisposable;
 }
 
 export const IAgentPermissionPolicyService =

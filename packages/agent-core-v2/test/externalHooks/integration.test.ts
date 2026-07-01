@@ -346,4 +346,39 @@ describe('HookEngine integration', () => {
     expect(triggered).toEqual([['PreToolUse', 'Bash', 1]]);
     expect(resolved).toEqual([['PreToolUse', 'Bash', 'allow']]);
   });
+
+  it('dispatches SubagentStart and SubagentStop hooks with the agent matcher and payload', async () => {
+    const engine = new HookEngine([
+      {
+        event: 'SubagentStart',
+        matcher: 'explore',
+        command: stdinScript(
+          "process.stdout.write('start:' + parsed.agent_name + ':' + parsed.prompt);",
+        ),
+        timeout: 5,
+      },
+      {
+        event: 'SubagentStop',
+        matcher: 'explore',
+        command: stdinScript(
+          "process.stdout.write('stop:' + parsed.agent_name + ':' + parsed.response);",
+        ),
+        timeout: 5,
+      },
+    ]);
+
+    const start = await engine.trigger('SubagentStart', {
+      matcherValue: 'explore',
+      inputData: { agentName: 'explore', prompt: 'find files' },
+    });
+    expect(start).toHaveLength(1);
+    expect(start[0]?.stdout).toContain('start:explore:find files');
+
+    const stop = await engine.trigger('SubagentStop', {
+      matcherValue: 'explore',
+      inputData: { agentName: 'explore', response: 'done' },
+    });
+    expect(stop).toHaveLength(1);
+    expect(stop[0]?.stdout).toContain('stop:explore:done');
+  });
 });

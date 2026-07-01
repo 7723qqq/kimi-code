@@ -93,6 +93,9 @@ import { IAgentBlobStoreService, type IAgentBlobStoreService as AgentBlobStoreSe
 import { IOAuthService } from '#/auth/auth';
 import { IChatProviderFactory } from '#/chatProvider';
 import type { ContextMessage } from '#/contextMemory';
+import { IAgentContextInjectorService } from '#/contextInjector';
+import type { EnabledPluginSessionStart } from '#/plugin/types';
+import { escapeXmlAttr } from '#/_base/utils/xml-escape';
 import { IAgentCronService } from '#/cron/cron';
 import { AgentCronService } from '#/cron/cronService';
 import type { HookEngine } from '#/externalHooks/engine';
@@ -122,7 +125,6 @@ import { ModelSkillTool } from '#/skill/tools/modelSkill';
 import type { SkillCatalog } from '#/skill/types';
 import { SessionSubagentHostService, type SessionSubagentHost } from '#/subagentHost';
 import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/tool';
-import type { UserToolExecutionHandler } from '#/userTool';
 import type {
   PersistedWireRecord,
   WireRecord,
@@ -205,7 +207,7 @@ class TestAgentSkillService extends AgentSkillService {
     @ITelemetryService telemetry: ITelemetryService,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
   ) {
-    super(skillCatalog, prompt, events, wireRecord, telemetry);
+    super(skillCatalog, prompt, events, wireRecord, telemetry, toolRegistry);
     if (skillCatalog.catalog.listInvocableSkills().length > 0) {
       this._register(toolRegistry.register(new ModelSkillTool(this)));
     }
@@ -255,6 +257,15 @@ type RpcPromise<T> = Promise<T> & {
   resolve(value: T): void;
   reject(reason?: unknown): void;
 };
+
+interface UserToolExecutionRequest {
+  readonly turnId?: string | number;
+  readonly signal: AbortSignal;
+  readonly toolCallId: string;
+  readonly args: unknown;
+}
+
+type UserToolExecutionHandler = (request: UserToolExecutionRequest) => Promise<ToolResult>;
 
 type PromiseAgentAPI = PromisifyMethods<AgentAPI>;
 type GenerateFn = typeof kosongGenerate;
@@ -763,6 +774,30 @@ class RecordingWireRecordService extends AgentWireRecordService {
   }
 }
 
+function renderPluginSessionStartReminder(
+  sessionStarts: readonly EnabledPluginSessionStart[],
+  catalog: SkillCatalog,
+  log?: { warn(message: string, payload?: unknown): void },
+): string | undefined {
+  if (sessionStarts.length === 0) return undefined;
+  const blocks: string[] = [];
+  for (const sessionStart of sessionStarts) {
+    const skill = catalog.getPluginSkill(sessionStart.pluginId, sessionStart.skillName);
+    if (skill === undefined) {
+      log?.warn('plugin sessionStart skill not found', {
+        pluginId: sessionStart.pluginId,
+        skillName: sessionStart.skillName,
+      });
+      continue;
+    }
+    blocks.push(
+      `<plugin_session_start plugin="${escapeXmlAttr(sessionStart.pluginId)}" ` +
+        `skill="${escapeXmlAttr(skill.name)}">\n${catalog.renderSkillPrompt(skill, '')}\n</plugin_session_start>`,
+    );
+  }
+  return blocks.length > 0 ? blocks.join('\n') : undefined;
+}
+
 export class AgentTestContext {
   private readonly serviceOverrides: readonly TestAgentScopedServiceOverride[];
   private readonly options: TestAgentOptions;
@@ -773,6 +808,7 @@ export class AgentTestContext {
   private readonly agent: Scope;
   private readonly disposables: IDisposable[] = [];
   private suppressWireSnapshot = false;
+  private pluginSessionStartRegistered = false;
   kimiConfig: KimiConfig;
   private cwd = process.cwd();
   private closed = false;
@@ -1021,6 +1057,28 @@ export class AgentTestContext {
 
     if (tools.length > 0) {
       profile.update({ activeToolNames: [...tools] });
+    }
+
+    const sessionStarts = this.options['pluginSessionStarts'] as
+      | readonly EnabledPluginSessionStart[]
+      | undefined;
+    const skillCatalog = this.options['skills'] as SkillCatalog | undefined;
+    if (
+      !this.pluginSessionStartRegistered &&
+      sessionStarts !== undefined &&
+      skillCatalog !== undefined
+    ) {
+      this.pluginSessionStartRegistered = true;
+      this.get(IAgentContextInjectorService).register(
+        'plugin_session_start',
+        async () =>
+          renderPluginSessionStartReminder(
+            sessionStarts,
+            skillCatalog,
+            this.options['log'] as { warn(message: string, payload?: unknown): void } | undefined,
+          ),
+        { cadence: 'turn' },
+      );
     }
 
     this.snapshots.drain();
@@ -1676,6 +1734,8 @@ function unavailableSubagentHost(): SessionSubagentHost {
     getProfileName: async () => undefined,
     markActiveChildDetached: () => {},
     runQueued: async () => [],
+    cancelAll: () => {},
+    suspended: () => {},
   };
 }
 

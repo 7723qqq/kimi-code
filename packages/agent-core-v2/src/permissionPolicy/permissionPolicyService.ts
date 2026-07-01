@@ -1,6 +1,7 @@
 import {
   Disposable,
   IInstantiationService,
+  type IDisposable,
 } from "#/_base/di";
 import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { AgentSwarmExclusiveDenyPermissionPolicyService } from './policies/agent-swarm-exclusive-deny';
@@ -36,6 +37,7 @@ export class AgentPermissionPolicyService
   declare readonly _serviceBrand: undefined;
 
   private readonly policies: readonly PermissionPolicy[];
+  private readonly dynamicPolicies: PermissionPolicy[] = [];
 
   constructor(
     @IInstantiationService private readonly instantiation: IInstantiationService,
@@ -66,11 +68,27 @@ export class AgentPermissionPolicyService
   async evaluate(
     context: ResolvedToolExecutionHookContext,
   ): Promise<PermissionPolicyEvaluation | undefined> {
+    for (const policy of this.dynamicPolicies) {
+      const result = await policy.evaluate(context);
+      if (result !== undefined) return { policyName: policy.name, result };
+    }
     for (const policy of this.policies) {
       const result = await policy.evaluate(context);
       if (result !== undefined) return { policyName: policy.name, result };
     }
     return undefined;
+  }
+
+  registerPolicy(policy: PermissionPolicy): IDisposable {
+    this.dynamicPolicies.unshift(policy);
+    const disposable = {
+      dispose: (): void => {
+        const index = this.dynamicPolicies.indexOf(policy);
+        if (index >= 0) this.dynamicPolicies.splice(index, 1);
+      },
+    };
+    this._register(disposable);
+    return disposable;
   }
 }
 

@@ -19,6 +19,7 @@ import type { ResolvedToolExecutionHookContext } from '#/tool';
 import { IKaos, type IKaos as KaosService } from '#/kaos';
 import { IAgentPermissionModeService } from '#/permissionMode';
 import {
+  DenyAllPermissionPolicyService,
   IAgentPermissionPolicyService,
   type PermissionMode,
   type PermissionPolicyEvaluation,
@@ -93,6 +94,23 @@ describe('AgentPermissionPolicyService chain', () => {
     const svc = service();
     return svc.evaluate(policyContext(input));
   }
+
+  it('lets a registered deny-all policy take precedence over approvals', async () => {
+    const svc = service();
+    const registration = svc.registerPolicy(new DenyAllPermissionPolicyService('tools disabled'));
+
+    await expect(evaluate({ toolName: 'Read', args: { path: 'src/a.ts' } })).resolves.toMatchObject({
+      policyName: 'deny-all',
+      result: { kind: 'deny', message: 'tools disabled' },
+    });
+
+    registration.dispose();
+    // After disposal the built-in chain no longer sees the deny-all policy, so
+    // a benign builtin tool is no longer rejected by it.
+    await expect(evaluate({ toolName: 'Read', args: { path: 'src/a.ts' } })).resolves.not.toMatchObject({
+      policyName: 'deny-all',
+    });
+  });
 
   it('keeps auto-mode AskUserQuestion deny above default approval', async () => {
     mode = 'auto';

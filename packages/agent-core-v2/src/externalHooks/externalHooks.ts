@@ -96,6 +96,11 @@ export interface IAgentExternalHooksService {
     readonly trigger: 'manual' | 'auto';
     readonly estimatedTokenCount: number;
   }): void;
+  triggerSubagentStart(
+    payload: { readonly agentName: string; readonly prompt: string },
+    signal: AbortSignal,
+  ): Promise<void>;
+  triggerSubagentStop(payload: { readonly agentName: string; readonly response: string }): void;
 }
 
 export const IAgentExternalHooksService =

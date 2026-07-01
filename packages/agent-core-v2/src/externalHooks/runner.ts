@@ -7,6 +7,7 @@ import type { HookResult } from './types';
 export interface RunHookOptions {
   readonly timeout: number;
   readonly cwd?: string;
+  readonly env?: Record<string, string>;
   readonly signal?: AbortSignal;
 }
 
@@ -48,6 +49,7 @@ export async function runHook(
     child = spawn(command, {
       shell: true,
       cwd: options.cwd,
+      env: options.env === undefined ? undefined : { ...process.env, ...options.env },
       stdio: 'pipe',
       detached: process.platform !== 'win32',
     });

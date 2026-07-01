@@ -1,5 +1,9 @@
 import { toKimiErrorPayload } from "#/errors";
-import { IConfigRegistry } from '#/config';
+import { IBootstrapService } from '#/bootstrap';
+import { IConfigRegistry, IConfigService } from '#/config';
+import { IPluginService } from '#/plugin';
+import { Disposable } from '#/_base/di';
+import { HookEngine } from './engine';
 import {
   IAgentExternalHooksService,
   type ExternalHooksServiceOptions,
@@ -8,7 +12,13 @@ import {
   type PermissionResultHookPayload,
   type UserPromptHookDecision,
 } from './externalHooks';
-import { HOOKS_SECTION, HooksConfigSchema, hooksFromToml, hooksToToml } from './configSection';
+import {
+  HOOKS_SECTION,
+  HooksConfigSchema,
+  hooksFromToml,
+  hooksToToml,
+  type HookDefConfig,
+} from './configSection';
 import {
   renderUserPromptHookBlockResult,
   renderUserPromptHookResult,
@@ -32,18 +42,35 @@ function fireAndForget(
   void engine?.fireAndForgetTrigger(event, { matcherValue, signal, inputData });
 }
 
-export class AgentExternalHooksService implements IAgentExternalHooksService {
+export class AgentExternalHooksService extends Disposable implements IAgentExternalHooksService {
   declare readonly _serviceBrand: undefined;
+
+  private dynamicEngine: HookEngine | undefined;
 
   constructor(
     private readonly options: ExternalHooksServiceOptions = {},
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IConfigRegistry configRegistry: IConfigRegistry,
+    @IConfigService private readonly config: IConfigService,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IPluginService private readonly plugins: IPluginService,
   ) {
+    super();
     configRegistry.registerSection(HOOKS_SECTION, HooksConfigSchema, {
       fromToml: hooksFromToml,
       toToml: hooksToToml,
     });
+    if (options.hookEngine === undefined) {
+      this.dynamicEngine = new HookEngine([], { cwd: this.bootstrap.cwd });
+      void this.loadDynamicHooks();
+      // Rebuild the dynamic engine when plugins are reloaded so hook
+      // additions/removals take effect without restarting the session.
+      this._register(
+        this.plugins.onDidReload(() => {
+          void this.loadDynamicHooks();
+        }),
+      );
+    }
     toolExecutor.hooks.onWillExecuteTool.register('externalHooks', async (ctx, next) => {
       const reason = await this.triggerPreToolUse(
         {
@@ -73,12 +100,25 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
     });
   }
 
+  private engine(): ExternalHooksServiceOptions['hookEngine'] {
+    return this.options.hookEngine ?? this.dynamicEngine;
+  }
+
+  private async loadDynamicHooks(): Promise<void> {
+    await this.config.ready;
+    const configured = this.config.get(HOOKS_SECTION) as readonly HookDefConfig[] | undefined;
+    const pluginHooks = await this.plugins.enabledHooks();
+    this.dynamicEngine = new HookEngine([...(configured ?? []), ...pluginHooks], {
+      cwd: this.bootstrap.cwd,
+    });
+  }
+
   async triggerPreToolUse(
     payload: Parameters<IAgentExternalHooksService['triggerPreToolUse']>[0],
     signal: AbortSignal,
   ): Promise<string | undefined> {
     signal.throwIfAborted();
-    const block = await this.options.hookEngine?.triggerBlock('PreToolUse', {
+    const block = await this.engine()?.triggerBlock('PreToolUse', {
       matcherValue: payload.toolName,
       signal,
       inputData: {
@@ -96,7 +136,7 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
     signal: AbortSignal,
   ): Promise<UserPromptHookDecision | undefined> {
     signal.throwIfAborted();
-    const results = await this.options.hookEngine?.trigger('UserPromptSubmit', {
+    const results = await this.engine()?.trigger('UserPromptSubmit', {
       matcherValue: input,
       signal,
       inputData: { prompt: input },
@@ -112,7 +152,7 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
 
   async triggerStop(signal: AbortSignal, stopHookActive: boolean): Promise<string | undefined> {
     signal.throwIfAborted();
-    const block = await this.options.hookEngine?.triggerBlock('Stop', {
+    const block = await this.engine()?.triggerBlock('Stop', {
       signal,
       inputData: { stopHookActive },
     });
@@ -127,7 +167,7 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
     const output = toolOutputText(payload.result.output);
     const isError = payload.result.isError === true;
     fireAndForget(
-      this.options.hookEngine,
+      this.engine(),
       isError ? 'PostToolUseFailure' : 'PostToolUse',
       {
         toolName: payload.toolName,
@@ -142,7 +182,7 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
   }
 
   triggerPermissionRequest(payload: PermissionRequestHookPayload): void {
-    void this.options.hookEngine?.fireAndForgetTrigger('PermissionRequest', {
+    void this.engine()?.fireAndForgetTrigger('PermissionRequest', {
       matcherValue: payload.toolName,
       inputData: {
         turnId: payload.turnId,
@@ -156,7 +196,7 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
   }
 
   triggerPermissionResult(payload: PermissionResultHookPayload): void {
-    void this.options.hookEngine?.fireAndForgetTrigger('PermissionResult', {
+    void this.engine()?.fireAndForgetTrigger('PermissionResult', {
       matcherValue: payload.toolName,
       inputData: permissionResultInputData(payload),
     });
@@ -165,7 +205,7 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
   triggerStopFailure(error: unknown, signal: AbortSignal): void {
     const payload = toKimiErrorPayload(error);
     fireAndForget(
-      this.options.hookEngine,
+      this.engine(),
       'StopFailure',
       {
         errorType: payload.name,
@@ -177,7 +217,7 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
   }
 
   triggerInterrupt(payload: Parameters<IAgentExternalHooksService['triggerInterrupt']>[0]): void {
-    void this.options.hookEngine?.fireAndForgetTrigger('Interrupt', {
+    void this.engine()?.fireAndForgetTrigger('Interrupt', {
       inputData: payload,
     });
   }
@@ -187,7 +227,7 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
     signal: AbortSignal,
   ): Promise<void> {
     signal.throwIfAborted();
-    await this.options.hookEngine?.trigger('PreCompact', {
+    await this.engine()?.trigger('PreCompact', {
       matcherValue: payload.trigger,
       signal,
       inputData: {
@@ -199,7 +239,7 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
   }
 
   triggerPostCompact(payload: Parameters<IAgentExternalHooksService['triggerPostCompact']>[0]): void {
-    void this.options.hookEngine?.fireAndForgetTrigger('PostCompact', {
+    void this.engine()?.fireAndForgetTrigger('PostCompact', {
       matcherValue: payload.trigger,
       inputData: {
         trigger: payload.trigger,
@@ -211,12 +251,40 @@ export class AgentExternalHooksService implements IAgentExternalHooksService {
   triggerNotification(payload: NotificationHookPayload): void {
     const signal = new AbortController().signal;
     fireAndForget(
-      this.options.hookEngine,
+      this.engine(),
       'Notification',
       { sink: 'context', ...payload },
       signal,
       payload.notificationType,
     );
+  }
+
+  async triggerSubagentStart(
+    payload: Parameters<IAgentExternalHooksService['triggerSubagentStart']>[0],
+    signal: AbortSignal,
+  ): Promise<void> {
+    signal.throwIfAborted();
+    await this.engine()?.trigger('SubagentStart', {
+      matcherValue: payload.agentName,
+      signal,
+      inputData: {
+        agentName: payload.agentName,
+        prompt: payload.prompt,
+      },
+    });
+    signal.throwIfAborted();
+  }
+
+  triggerSubagentStop(
+    payload: Parameters<IAgentExternalHooksService['triggerSubagentStop']>[0],
+  ): void {
+    void this.engine()?.fireAndForgetTrigger('SubagentStop', {
+      matcherValue: payload.agentName,
+      inputData: {
+        agentName: payload.agentName,
+        response: payload.response,
+      },
+    });
   }
 }
 

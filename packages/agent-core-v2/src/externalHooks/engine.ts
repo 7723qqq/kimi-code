@@ -85,7 +85,8 @@ export class HookEngine {
       matched.map((hook) =>
         runHook(hook.command, inputData, {
           timeout: hook.timeout ?? DEFAULT_HOOK_TIMEOUT_SECONDS,
-          cwd: this.options.cwd === '' ? undefined : this.options.cwd,
+          cwd: hook.cwd ?? (this.options.cwd === '' ? undefined : this.options.cwd),
+          env: hook.env,
           signal: args.signal,
         }),
       ),
