@@ -41,6 +41,7 @@ import {
 } from '#/tui/commands/prompts';
 import type { QueuedMessage } from '#/tui/types';
 import type { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
+import { TRANSCRIPT_HYSTERESIS, TRANSCRIPT_MAX_TURNS } from '#/tui/utils/transcript-window';
 
 vi.mock('#/tui/commands/prompts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
@@ -1152,6 +1153,54 @@ command = "vim"
         content: 'hello',
       }),
     ]);
+  });
+
+  it('trims logical transcript entries without destroying rendered children', async () => {
+    const { driver } = await makeDriver();
+    const tui = driver as unknown as KimiTUI;
+
+    const childrenBefore = driver.state.transcriptContainer.children.length;
+
+    // Capture the oldest turn's components so we can assert they survive even
+    // after their logical entries are trimmed out of the LLM context.
+    let firstUserComponent: unknown;
+    let firstAssistantComponent: unknown;
+
+    // Push enough turns to exceed the sliding window (maxTurns + hysteresis).
+    const turnCount = TRANSCRIPT_MAX_TURNS + TRANSCRIPT_HYSTERESIS + 2;
+    let seq = 0;
+    for (let i = 0; i < turnCount; i++) {
+      tui.appendTranscriptEntry({
+        id: `win-u-${++seq}`,
+        kind: 'user',
+        renderMode: 'markdown',
+        content: `user ${i}`,
+      });
+      if (i === 0) firstUserComponent = driver.state.transcriptContainer.children.at(-1);
+      tui.appendTranscriptEntry({
+        id: `win-a-${++seq}`,
+        kind: 'assistant',
+        turnId: `win-turn-${i}`,
+        renderMode: 'markdown',
+        content: `assistant ${i}`,
+      });
+      if (i === 0) firstAssistantComponent = driver.state.transcriptContainer.children.at(-1);
+    }
+
+    const entriesPushed = seq;
+
+    // The logical entry list (LLM context) was trimmed down.
+    expect(driver.state.transcriptEntries.length).toBeLessThan(entriesPushed);
+    expect(driver.state.transcriptEntries.length).toBeGreaterThan(0);
+
+    // Rendered children are append-only: every pushed entry's component remains.
+    expect(driver.state.transcriptContainer.children.length).toBe(childrenBefore + entriesPushed);
+
+    // The oldest turn's components, whose logical entries were trimmed, are still present.
+    expect(firstUserComponent).toBeDefined();
+    expect(firstAssistantComponent).toBeDefined();
+    expect(driver.state.transcriptContainer.children).toContain(firstUserComponent);
+    expect(driver.state.transcriptContainer.children).toContain(firstAssistantComponent);
   });
 
   it('keeps the transcript intact when undo RPC fails', async () => {

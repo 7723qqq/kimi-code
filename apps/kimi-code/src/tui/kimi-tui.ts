@@ -1824,55 +1824,14 @@ export class KimiTUI {
     // replay would shrink it further and fight that limit.
     if (this.state.appState.isReplaying) return false;
 
-    const children = this.state.transcriptContainer.children;
-
-    // Trim whole turns by *position* in the child list rather than by entry
-    // lookup — otherwise only the (registered) user message would be removed and
-    // the rest of the turn would be left behind.
-    const boundaries: number[] = [];
-    for (let i = 0; i < children.length; i++) {
-      if (isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
-    }
-
     const turns = groupTurns(this.state.transcriptEntries);
-
     const toRemove = turnsToTrim(turns, TRANSCRIPT_MAX_TURNS, TRANSCRIPT_HYSTERESIS);
     if (toRemove.size === 0) return false;
 
-    let boundariesToRemove = 0;
-    for (const entry of toRemove) {
-      if (entry.kind === 'user' && entry.turnId === undefined) boundariesToRemove++;
-    }
-    if (boundariesToRemove === 0) {
-      this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !toRemove.has(e));
-      return true;
-    }
-
-    let boundariesSeen = 0;
-    let cutoff = 0;
-    for (let i = 0; i < children.length; i++) {
-      if (isTurnBoundaryComponent(children[i]!)) {
-        if (boundariesSeen === boundariesToRemove) {
-          cutoff = i;
-          break;
-        }
-        boundariesSeen++;
-      }
-    }
-
-    const componentsToRemove: Component[] = [];
-    for (let i = 0; i < cutoff; i++) {
-      const child = children[i]!;
-      if (child instanceof WelcomeComponent) continue;
-      componentsToRemove.push(child);
-    }
-    for (const child of componentsToRemove) {
-      // pi-tui Container.removeChild (not a DOM node); `child.remove()` does not exist.
-      // oxlint-disable-next-line unicorn/prefer-dom-node-remove
-      this.state.transcriptContainer.removeChild(child);
-      if (hasDispose(child)) child.dispose();
-    }
-
+    // Only trim the logical entries (LLM context). Rendered children are NOT
+    // destroyed — they commit into native scrollback, and the engine releases
+    // them once they scroll off-screen. Old components whose entry was trimmed
+    // stay in the tree; their metadata entry simply returns undefined.
     this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !toRemove.has(e));
     return true;
   }

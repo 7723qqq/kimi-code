@@ -1,10 +1,14 @@
 /**
- * Sliding window for the TUI transcript.
+ * Sliding window for the TUI transcript's logical entries.
  *
- * The transcript grows unbounded as the conversation goes on. To keep the TUI
- * responsive and bounded, we only keep the most recent N *turns* (a turn = a
- * user prompt plus everything the assistant does in response, identified by a
- * shared `turnId`), and destroy older turns wholesale (component + entry).
+ * The transcript grows unbounded as the conversation goes on. To keep the LLM
+ * context bounded, we only keep the most recent N *turns* (a turn = a user
+ * prompt plus everything the assistant does in response, identified by a shared
+ * `turnId`) in the logical entry list and drop older turns.
+ *
+ * This only trims the logical entries used for LLM context. Rendered components
+ * are NOT destroyed here — they commit into native scrollback, and the engine
+ * releases them once they scroll off-screen.
  *
  * All threshold logic here is pure so it can be unit-tested in isolation; the
  * constants are the production defaults passed in by the TUI.
@@ -84,10 +88,10 @@ export function groupTurns(entries: readonly TranscriptEntry[]): TranscriptTurn[
 }
 
 /**
- * Decide which entries to destroy so the remaining turns fit within
+ * Decide which logical entries to drop so the remaining turns fit within
  * `maxTurns`. Returns an empty set when the turn count is within
- * `maxTurns + hysteresis`. Oldest turns are removed first; the most recent
- * turn is never removed (it is the active / just-finished turn).
+ * `maxTurns + hysteresis`. Oldest turns are dropped first; the most recent
+ * turn is never dropped (it is the active / just-finished turn).
  */
 export function turnsToTrim(
   turns: readonly TranscriptTurn[],
