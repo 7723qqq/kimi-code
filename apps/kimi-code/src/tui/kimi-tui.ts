@@ -1879,11 +1879,15 @@ export class KimiTUI {
     }
     if (thinkingCount === 0 && toolCount === 0) return false;
 
+    // Recompute from the current overflow region and SET (not accumulate) the
+    // counts. This merge runs on every append, and the original steps stay in
+    // the tree, so accumulating would double-count steps that were already
+    // folded on a previous pass.
     if (existingSummary) {
-      existingSummary.addCounts(thinkingCount, toolCount);
+      existingSummary.setCounts(thinkingCount, toolCount);
     } else {
       const summary = new StepSummaryComponent();
-      summary.addCounts(thinkingCount, toolCount);
+      summary.setCounts(thinkingCount, toolCount);
       this.state.transcriptContainer.addChild(summary);
     }
     return true;

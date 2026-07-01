@@ -455,7 +455,7 @@ describe('KimiTUI message flow', () => {
     expect(stripSgr(summaries[0]!.render(120).join('\n'))).toContain('thinking 2 times');
   });
 
-  it('mergeCurrentTurnSteps does not append a duplicate summary on repeat calls', async () => {
+  it('mergeCurrentTurnSteps recomputes the summary instead of accumulating on repeat calls', async () => {
     const { driver } = await makeDriver();
     const container = driver.state.transcriptContainer;
 
@@ -470,15 +470,32 @@ describe('KimiTUI message flow', () => {
       container.addChild(step);
     }
 
-    expect(driver.mergeCurrentTurnSteps()).toBe(true);
-    // Second call without new steps accumulates into the existing summary
-    // instead of appending a second one, and leaves the steps untouched.
-    expect(driver.mergeCurrentTurnSteps()).toBe(true);
+    const summaries = () =>
+      container.children.filter(
+        (child): child is StepSummaryComponent => child instanceof StepSummaryComponent,
+      );
+    const summaryText = () => stripSgr(summaries()[0]!.render(120).join('\n'));
 
-    const summaries = container.children.filter(
-      (child): child is StepSummaryComponent => child instanceof StepSummaryComponent,
-    );
-    expect(summaries).toHaveLength(1);
+    // First call folds the 2-step overflow into a fresh summary.
+    expect(driver.mergeCurrentTurnSteps()).toBe(true);
+    expect(summaries()).toHaveLength(1);
+    expect(summaryText()).toContain('thinking 2 times');
+
+    // Second call without new steps must NOT accumulate: the overflow is still
+    // 2, so the summary stays at "thinking 2 times" (not 2 + 2 = 4).
+    expect(driver.mergeCurrentTurnSteps()).toBe(true);
+    expect(summaries()).toHaveLength(1);
+    expect(summaryText()).toContain('thinking 2 times');
+
+    // Append another step and re-run: the overflow grows to 3, so the summary
+    // reflects the new total (not 2 + 3 = 5 accumulated across passes).
+    const extra = new ThinkingComponent('step extra');
+    steps.push(extra);
+    container.addChild(extra);
+    expect(driver.mergeCurrentTurnSteps()).toBe(true);
+    expect(summaries()).toHaveLength(1);
+    expect(summaryText()).toContain('thinking 3 times');
+
     for (const step of steps) {
       expect(container.children).toContain(step);
     }

@@ -3,9 +3,11 @@ import type { Component } from '@moonshot-ai/pi-tui';
 import { currentTheme } from '#/tui/theme';
 
 /**
- * A collapsed summary of older steps within a turn. Accumulates counts of
- * merged steps (thinking blocks and tool calls) and renders them as a single
- * muted line, e.g. `… thinking 5 times, call 50 tools`.
+ * A collapsed summary of older steps within a turn. Holds counts of merged
+ * steps (thinking blocks and tool calls) and renders them as a single muted
+ * line, e.g. `… thinking 5 times, call 50 tools`. The counts are recomputed
+ * from the current overflow on every merge pass rather than accumulated, so
+ * repeated passes stay idempotent.
  */
 export class StepSummaryComponent implements Component {
   private thinking = 0;
@@ -18,6 +20,11 @@ export class StepSummaryComponent implements Component {
   addCounts(thinking: number, tool: number): void {
     this.thinking += thinking;
     this.tool += tool;
+  }
+
+  setCounts(thinking: number, tool: number): void {
+    this.thinking = thinking;
+    this.tool = tool;
   }
 
   invalidate(): void {}
