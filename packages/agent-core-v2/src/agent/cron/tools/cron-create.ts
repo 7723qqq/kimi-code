@@ -4,7 +4,8 @@
  * cron cadence (`recurring: true`, the default).
  *
  * Tasks live in `AgentCronService` and are mirrored to
- * `<sessionDir>/cron/<id>.json` via `IAgentCronService.addTask`, so a
+ * `<sessionDir>/agents/<agentId>/cron/<id>.json` via
+ * `IAgentCronService.addTask`, so a
  * `kimi resume` of the same session reloads them and the scheduler
  * picks up where it left off (fires that fell during downtime are
  * collapsed into a single delivery with `coalescedCount`). Tasks do

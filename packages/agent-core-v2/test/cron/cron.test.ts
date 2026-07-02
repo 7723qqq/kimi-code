@@ -11,6 +11,7 @@ import { IAgentCronService } from '#/agent/cron';
 import { AgentCronService } from '#/agent/cron/cronService';
 import { ILogService } from '#/app/log';
 import { IAgentPromptService } from '#/agent/prompt';
+import { ISessionContext } from '#/session/sessionContext';
 import {
   InMemoryStorageService,
   IStorageService,
@@ -87,6 +88,13 @@ describe('AgentCronService', () => {
     ix.stub(ITelemetryService, { track: () => {} });
     ix.stub(IAgentToolRegistryService, { register: () => ({ dispose: () => {} }) });
     ix.stub(IBootstrapService, stubBootstrap());
+    ix.stub(ISessionContext, {
+      _serviceBrand: undefined,
+      sessionId: 'test-session',
+      workspaceId: 'test-workspace',
+      sessionDir: '/tmp/kimi-cron-test/session',
+      metaScope: 'session',
+    });
     ix.stub(ILogService, stubLog());
     ix.stub(IStorageService, new InMemoryStorageService());
     ix.stub(IAtomicDocumentStore, {
