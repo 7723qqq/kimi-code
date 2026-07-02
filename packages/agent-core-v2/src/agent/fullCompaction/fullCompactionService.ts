@@ -20,7 +20,6 @@ import { IAgentLoopService, type TurnContextOverflowContext } from '#/agent/loop
 import { isAbortError } from '#/agent/loop/errors';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentRecordService } from '#/agent/record';
-import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import {
   TODO_STORE_KEY,
   renderTodoList,
@@ -106,7 +105,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IAgentToolStoreService private readonly toolStore: IAgentToolStoreService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentRecordService private readonly record: IAgentRecordService,
-    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IAgentTurnService turnService: IAgentTurnService,
     @IAgentLoopService loopService: IAgentLoopService,
@@ -141,7 +139,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     this._register(
       record.define('full_compaction.begin', {
         resume: (r) => {
-          this.replayBuilder.push({
+          this.record.push({
             type: 'compaction',
             instruction: r.instruction,
           });
@@ -151,7 +149,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     this._register(
       record.define('full_compaction.cancel', {
         resume: () => {
-          this.replayBuilder.patchLast('compaction', { result: 'cancelled' });
+          this.record.patchLast('compaction', { result: 'cancelled' });
         },
       }),
     );
@@ -161,8 +159,8 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
           const message = compactionSummaryMessage(this.context.get());
           if (message === undefined) return;
           const summary = contextMessageText(message);
-          this.replayBuilder.removeLastMessages(new Set([message]));
-          this.replayBuilder.patchLast('compaction', {
+          this.record.removeLastMessages(new Set([message]));
+          this.record.patchLast('compaction', {
             result: {
               summary,
               compactedCount: r.compactedCount,

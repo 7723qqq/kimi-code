@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore, toDisposable } from '#/_base/di';
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createServices } from '#/_base/di/test';
 import { OrderedHookSlot } from '#/hooks';
-import { IAgentEventSinkService } from '#/agent/eventSink';
-import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
 import type { WireRecord, WireRecordRestoredContext } from '#/agent/wireRecord';
 import {
@@ -13,7 +12,7 @@ import {
   type AgentRecord,
 } from '#/agent/record';
 import type { AgentEvent } from '@moonshot-ai/protocol';
-import type { AgentReplayRecord, AgentReplayRecordPayload } from '#/agent/replayBuilder/types';
+import type { AgentReplayRecordPayload } from '#/agent/replayBuilder/types';
 
 declare module '#/agent/record' {
   interface AgentRecordMap {
@@ -24,8 +23,6 @@ declare module '#/agent/record' {
 interface StubHost {
   readonly record: IAgentRecordService;
   readonly wire: ReturnType<typeof createWireStub>;
-  readonly eventSink: ReturnType<typeof createEventSinkStub>;
-  readonly replay: ReturnType<typeof createReplayStub>;
   readonly dispose: () => void;
 }
 
@@ -49,6 +46,7 @@ function createWireStub() {
     restore: vi.fn(async () => ({}) as { warning?: string }),
     flush: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
+    getRecords: vi.fn(() => []),
     get restoring() {
       return restoring;
     },
@@ -59,53 +57,31 @@ function createWireStub() {
   };
 }
 
-function createEventSinkStub() {
-  const emitted: AgentEvent[] = [];
-  return {
-    emitted,
-    emit: vi.fn((event: AgentEvent) => emitted.push(event)),
-    on: vi.fn(() => toDisposable(() => {})),
-  };
-}
-
-function createReplayStub() {
-  const records: AgentReplayRecord[] = [];
-  return {
-    records,
-    push: vi.fn((record: AgentReplayRecordPayload) =>
-      records.push(record as unknown as AgentReplayRecord),
-    ),
-    buildResult: vi.fn(() => records),
-    captureLiveRecords: false,
-    postRestoring: false,
-  };
-}
-
-function createHost(): StubHost {
+function createHost(captureLiveRecords = false): StubHost {
   const wire = createWireStub();
-  const eventSink = createEventSinkStub();
-  const replay = createReplayStub();
   const disposables = new DisposableStore();
-  const services = createServices(disposables, {
+  const ix = createServices(disposables, {
     additionalServices: (reg) => {
       reg.definePartialInstance(IAgentWireRecordService, wire);
-      reg.definePartialInstance(IAgentEventSinkService, eventSink);
-      reg.definePartialInstance(IAgentReplayBuilderService, replay);
-      reg.define(IAgentRecordService, AgentRecordService);
     },
   });
+  // Seed the leading static `options` argument (range) so createInstance does
+  // not warn about a static/service-dependency conflict.
+  ix.set(IAgentRecordService, new SyncDescriptor(AgentRecordService, [{}]));
+  const record = ix.get(IAgentRecordService);
+  record.captureLiveRecords = captureLiveRecords;
   return {
-    record: services.get(IAgentRecordService),
+    record,
     wire,
-    eventSink,
-    replay,
     dispose: () => disposables.dispose(),
   };
 }
 
 describe('AgentRecordService facade', () => {
   it('append fans out to durable + live + replay facets', () => {
-    const host = createHost();
+    const host = createHost(true);
+    const live: AgentEvent[] = [];
+    host.record.on((event) => live.push(event));
     host.record.define('test.fact', {
       toLive: (r) => ({ type: 'test.live', value: r.value }) as unknown as AgentEvent,
       toReplay: (r) =>
@@ -117,36 +93,51 @@ describe('AgentRecordService facade', () => {
     expect(host.wire.append).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'test.fact', value: 42 }),
     );
-    expect(host.eventSink.emitted).toContainEqual(
-      expect.objectContaining({ type: 'test.live', value: 42 }),
-    );
-    expect(host.replay.records).toContainEqual(
+    expect(live).toContainEqual(expect.objectContaining({ type: 'test.live', value: 42 }));
+    expect(host.record.buildReplay()).toContainEqual(
       expect.objectContaining({ type: 'message', value: 42 }),
     );
     host.dispose();
   });
 
   it('append omits facets that are not declared', () => {
-    const host = createHost();
+    const host = createHost(true);
+    const live: AgentEvent[] = [];
+    host.record.on((event) => live.push(event));
     host.record.define('test.fact', {});
 
     host.record.append({ type: 'test.fact', value: 1 });
 
     expect(host.wire.append).toHaveBeenCalledTimes(1);
-    expect(host.eventSink.emit).not.toHaveBeenCalled();
-    expect(host.replay.push).not.toHaveBeenCalled();
+    expect(live).toHaveLength(0);
+    expect(host.record.buildReplay()).toHaveLength(0);
+    host.dispose();
+  });
+
+  it('live append does not feed the replay buffer unless captureLiveRecords is set', () => {
+    const host = createHost(false);
+    host.record.define('test.fact', {
+      toReplay: (r) =>
+        ({ type: 'message', value: r.value }) as unknown as AgentReplayRecordPayload,
+    });
+
+    host.record.append({ type: 'test.fact', value: 7 });
+
+    expect(host.wire.append).toHaveBeenCalledTimes(1);
+    expect(host.record.buildReplay()).toHaveLength(0);
     host.dispose();
   });
 
   it('signal emits live only and never persists or captures replay', () => {
-    const host = createHost();
+    const host = createHost(true);
+    const live: AgentEvent[] = [];
+    host.record.on((event) => live.push(event));
+
     host.record.signal({ type: 'test.delta', delta: 'x' } as unknown as AgentEvent);
 
-    expect(host.eventSink.emitted).toContainEqual(
-      expect.objectContaining({ type: 'test.delta', delta: 'x' }),
-    );
+    expect(live).toContainEqual(expect.objectContaining({ type: 'test.delta', delta: 'x' }));
     expect(host.wire.append).not.toHaveBeenCalled();
-    expect(host.replay.push).not.toHaveBeenCalled();
+    expect(host.record.buildReplay()).toHaveLength(0);
     host.dispose();
   });
 
@@ -155,7 +146,7 @@ describe('AgentRecordService facade', () => {
     const resume = vi.fn();
     host.record.define('test.fact', { resume });
 
-    expect(host.wire.register).toHaveBeenCalledWith('test.fact', expect.any(Function));
+    expect(host.wire.register).toHaveBeenCalledWith('test.fact', expect.any(Function), undefined);
     const registered = host.wire.resumers.get('test.fact');
     expect(registered).toBeDefined();
     await registered?.({ type: 'test.fact', value: 7 });
@@ -177,22 +168,30 @@ describe('AgentRecordService facade', () => {
       stop: false,
     });
 
-    expect(host.replay.records).toContainEqual(
-      expect.objectContaining({ type: 'message', value: 5 }),
+    expect(host.record.buildReplay()).toContainEqual(
+      expect.objectContaining({ type: 'message', value: 5, time: 123 }),
     );
     host.dispose();
   });
 
-  it('on() delegates to the live event sink', () => {
+  it('suppresses live emission while restoring', () => {
     const host = createHost();
-    const handler = vi.fn();
-    host.record.on(handler);
-    expect(host.eventSink.on).toHaveBeenCalledWith(handler);
+    const live: AgentEvent[] = [];
+    host.record.on((event) => live.push(event));
+    host.record.define('test.fact', {
+      toLive: (r) => ({ type: 'test.live', value: r.value }) as unknown as AgentEvent,
+    });
+    host.wire.setRestoring({ time: 1 });
+
+    host.record.append({ type: 'test.fact', value: 3 });
+
+    expect(host.wire.append).toHaveBeenCalledTimes(1);
+    expect(live).toHaveLength(0);
     host.dispose();
   });
 
   it('dispose returned by define unregisters the resumer and facets', () => {
-    const host = createHost();
+    const host = createHost(true);
     const subscription = host.record.define('test.fact', { resume: vi.fn() });
     expect(host.wire.resumers.has('test.fact')).toBe(true);
 

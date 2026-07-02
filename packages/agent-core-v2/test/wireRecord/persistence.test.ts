@@ -14,7 +14,7 @@ import { IBootstrapService } from '#/app/bootstrap';
 import { IHostFileSystem, HostFileSystem } from '#/app/hostFs';
 import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
-import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
+import { IAgentRecordService } from '#/agent/record';
 import {
   AppendLogStore,
   AGENT_WIRE_PROTOCOL_VERSION,
@@ -29,7 +29,7 @@ import { FileStorageService } from '#/app/storage/fileStorageService';
 import { InMemoryStorageService } from '#/app/storage/inMemoryStorageService';
 import type { IStorageService } from '#/app/storage';
 import { stubBootstrap } from '../bootstrap/stubs';
-import { stubReplayBuilder } from '../contextMemory/stubs';
+import { stubRecord } from '../contextMemory/stubs';
 
 const cleanups: string[] = [];
 const disposables: DisposableStore[] = [];
@@ -101,7 +101,7 @@ async function createWireHarness(): Promise<{
   ix.stub(IBlobStorage, storage);
   ix.stub(IBootstrapService, stubBootstrap(dir));
   ix.stub(IHostFileSystem, new HostFileSystem());
-  ix.stub(IAgentReplayBuilderService, stubReplayBuilder());
+  ix.stub(IAgentRecordService, stubRecord());
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   ix.set(IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService));
   ix.set(IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{}]));

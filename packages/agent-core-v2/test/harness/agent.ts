@@ -129,10 +129,10 @@ import {
   type InteractionResolution,
 } from '#/session/interaction';
 import {
-  IAgentReplayBuilderService,
-  AgentReplayBuilderService,
-  type ReplayBuilderServiceOptions,
-} from '#/agent/replayBuilder';
+  AgentRecordService,
+  IAgentRecordService,
+  type RecordServiceOptions,
+} from '#/agent/record';
 import type { AgentAPI } from '#/agent/rpc/core-api';
 import { IAgentSkillService } from '#/agent/skill/skill';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
@@ -145,7 +145,6 @@ import type {
   WireRecordRestoreOptions,
   WireRecordRestoreResult,
 } from '#/agent/wireRecord';
-import { IAgentRecordService } from '#/agent/record';
 import type { PathAccessOperation } from '#/session/workspaceContext';
 import { createFakeAgentFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 
@@ -623,8 +622,8 @@ export function goalServices(options: GoalServiceOptions): TestAgentServiceOverr
   return agentService(IAgentGoalService, new SyncDescriptor(AgentGoalService, [options]));
 }
 
-export function replayServices(options: ReplayBuilderServiceOptions = {}): TestAgentServiceOverride {
-  return agentService(IAgentReplayBuilderService, new SyncDescriptor(AgentReplayBuilderService, [options]));
+export function replayServices(options: RecordServiceOptions = {}): TestAgentServiceOverride {
+  return agentService(IAgentRecordService, new SyncDescriptor(AgentRecordService, [options]));
 }
 
 /**
@@ -1024,7 +1023,6 @@ export class AgentTestContext {
           reg.defineDescriptor(IAgentCronService, new SyncDescriptor(AgentCronService, [{}]));
           reg.defineDescriptor(IAgentBackgroundService, new SyncDescriptor(AgentBackgroundService));
           reg.defineDescriptor(IAgentMcpService, new SyncDescriptor(AgentMcpService, [{}]));
-          reg.defineDescriptor(IAgentReplayBuilderService, new SyncDescriptor(AgentReplayBuilderService, [{}]));
           reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService, [{}]));
           reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
           reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));

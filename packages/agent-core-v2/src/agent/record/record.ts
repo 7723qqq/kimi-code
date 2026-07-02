@@ -4,22 +4,21 @@
  * Single entry point for recording facts that happen inside an agent. One
  * `append(record)` call fans out to every facet declared for the record type:
  * durable persistence (for resume), live broadcast (`AgentEvent` to the edge),
- * and replay capture. `signal(event)` emits a live-only event that is never
- * recorded (deltas / progress). Bound at Agent scope.
+ * and the replay read model. `signal(event)` emits a live-only event that is
+ * never recorded (deltas / progress). The replay read model (`buildReplay`,
+ * `push`/`patchLast`/`removeLastMessages`) is owned here too — it is just one
+ * more projection of the same record stream. Bound at Agent scope.
  */
 
 import type { AgentEvent } from '@moonshot-ai/protocol';
 
 import type { IDisposable } from '#/_base/di';
 import { createDecorator } from '#/_base/di';
+import type { ContextMessage } from '#/agent/contextMemory';
 import type {
   IAgentWireRecordService,
-  WireRecord,
   WireRecordBlobSelector,
   WireRecordMap,
-  WireRecordRestoreOptions,
-  WireRecordRestoreResult,
-  PersistedWireRecord,
   WireRecordRestoringContext,
 } from '#/agent/wireRecord';
 import type { AgentReplayRecord, AgentReplayRecordPayload } from '#/agent/replayBuilder/types';
@@ -67,6 +66,20 @@ export interface RecordFacets<K extends keyof AgentRecordMap> {
   readonly blobs?: WireRecordBlobSelector<AgentRecord<K>>;
 }
 
+export interface ReplayRangeOptions {
+  readonly start?: number;
+  readonly count?: number;
+}
+
+/**
+ * Static construction options for `AgentRecordService`, supplied through a
+ * `SyncDescriptor` when the service is seeded into a scope. `range` limits the
+ * replay read model to a slice of the restored stream (used by partial-resume).
+ */
+export interface RecordServiceOptions {
+  readonly range?: ReplayRangeOptions;
+}
+
 export interface IAgentRecordService {
   readonly _serviceBrand: undefined;
 
@@ -86,16 +99,24 @@ export interface IAgentRecordService {
    */
   define<K extends keyof AgentRecordMap>(type: K, facets: RecordFacets<K>): IDisposable;
 
-  restore(
-    records?: readonly PersistedWireRecord[],
-    options?: WireRecordRestoreOptions,
-  ): Promise<WireRecordRestoreResult>;
-  flush(): Promise<void>;
-  close(): Promise<void>;
-
-  /** Replay result built from restored (and optionally live) records. */
+  /**
+   * Append a record to the replay read model directly. Used when the projected
+   * data is computed inside a domain handler rather than derived from a single
+   * record via `toReplay` (e.g. `contextMemory` projecting spliced messages).
+   * Gated by phase: captured while restoring/post-restoring, or always when
+   * `captureLiveRecords` is set.
+   */
+  push(record: AgentReplayRecordPayload): void;
+  /** Patch the most recent replay record of `type` (restore-time only). */
+  patchLast<T extends AgentReplayRecord['type']>(
+    type: T,
+    patch: Partial<Extract<AgentReplayRecord, { type: T }>>,
+  ): void;
+  /** Drop replay `message` records whose message is in `removedMessages`. */
+  removeLastMessages(removedMessages: ReadonlySet<ContextMessage>): void;
+  /** Replay read model built from restored (and optionally live) records. */
   buildReplay(): readonly AgentReplayRecord[];
-  /** When true, live `append` calls also feed the replay buffer. */
+  /** When true, live `append` calls also feed the replay read model. */
   captureLiveRecords: boolean;
 
   readonly restoring: WireRecordRestoringContext | null;

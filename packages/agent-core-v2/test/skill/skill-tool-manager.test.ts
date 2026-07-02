@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentProfileService } from '#/agent/profile';
-import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
+import { IAgentRecordService } from '#/agent/record';
 import { InMemorySkillCatalog, type SkillCatalog, type SkillDefinition } from '#/app/globalSkillCatalog';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import {
@@ -282,7 +282,7 @@ describe('ToolManager SkillTool wire behavior', () => {
 describe('ToolManager SkillTool restore behavior', () => {
   let ctx: TestAgentContext;
   let context: IAgentContextMemoryService;
-  let replay: IAgentReplayBuilderService;
+  let replay: IAgentRecordService;
   let skills: InMemorySkillCatalog;
   let emit: ReturnType<typeof vi.spyOn>;
   let track: ReturnType<typeof vi.spyOn>;
@@ -298,7 +298,7 @@ describe('ToolManager SkillTool restore behavior', () => {
     );
     context = ctx.get(IAgentContextMemoryService);
     const events = ctx.get(IAgentEventSinkService);
-    replay = ctx.get(IAgentReplayBuilderService);
+    replay = ctx.get(IAgentRecordService);
     emit = vi.spyOn(events, 'emit');
   });
 
@@ -351,7 +351,7 @@ describe('ToolManager SkillTool restore behavior', () => {
     );
     expect(track).not.toHaveBeenCalledWith('skill_invoked', expect.anything());
     expect(context.get()).toMatchObject([message]);
-    expect(replay.buildResult()).toContainEqual(
+    expect(replay.buildReplay()).toContainEqual(
       expect.objectContaining({
         type: 'message',
         message: expect.objectContaining({

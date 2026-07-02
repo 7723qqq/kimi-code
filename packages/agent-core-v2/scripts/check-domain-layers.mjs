@@ -257,6 +257,10 @@ const ALLOWED_EXCEPTIONS = new Set([
   'permissionPolicy>profile',
   'permissionRules>replayBuilder',
   'record>replayBuilder',
+  // `record` owns the replay read model, whose `message` records carry
+  // `ContextMessage` (L4). `removeLastMessages` takes a set of them, so the
+  // projection side references the context message type by structure only.
+  'record>contextMemory',
   'plugin>externalHooks',
   'plugin>mcp',
   'profile>session',
