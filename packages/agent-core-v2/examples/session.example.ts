@@ -6,66 +6,40 @@
  * seeding each with its identity and storage and materializing its metadata —
  * and tracks the live set, while each session's `ISessionMetadata` (Session)
  * reads and updates the persisted document through the App `storage` service.
- * The host is the production `bootstrap` composition root (real file-backed
- * storage rooted under `.vitest-results/kimi-code-{timestamp}/`); only the
- * slice's barrels are imported, so nothing outside it is loaded.
+ *
+ * Wiring: the real composition root (`_harness`) provides every collaborator
+ * (storage, skill catalog, log, …) so the slice runs for real against a temp
+ * `KIMI_CODE_HOME`. Sessions are created through the lifecycle service itself.
+ *
+ * Run:
+ *   pnpm --filter @moonshot-ai/agent-core-v2 example -- examples/session.example.ts
  */
 
-import { mkdirSync } from 'node:fs';
+import { afterEach, describe, expect, test } from 'vitest';
 
-import { afterEach, beforeEach, describe, test } from 'vitest';
-
-import type { ServiceIdentifier } from '#/_base/di/instantiation';
-import type { Scope, ScopeSeed } from '#/_base/di/scope';
-import { bootstrap } from '#/app/bootstrap/bootstrap';
-import { logSeed, resolveLoggingConfig } from '#/app/log/logConfig';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
-import '#/app/sessionLifecycle';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import '#/session/sessionMetadata';
-import { FileStorageService } from '#/app/storage/fileStorageService';
-import { IAtomicDocumentStorage } from '#/app/storage/storageService';
 
-/** Route the atomic-document access pattern to a file-backed store at `homeDir`. */
-function diskStorageSeed(homeDir: string): ScopeSeed {
-  return [[IAtomicDocumentStorage as ServiceIdentifier<unknown>, new FileStorageService(homeDir)]];
-}
+import { createSliceHost, type SliceHost } from './_harness';
 
 describe('session slice (sessionLifecycle + sessionMetadata)', () => {
-  let homeDir: string;
-  let app: Scope;
-
-  beforeEach(() => {
-    const resolved = process.env['KIMI_CODE_HOME'];
-    if (resolved === undefined) {
-      throw new Error('KIMI_CODE_HOME is not set; globalSetup should have initialized it');
-    }
-    homeDir = resolved;
-    mkdirSync(homeDir, { recursive: true });
-    app = bootstrap({}, [
-      ...logSeed(resolveLoggingConfig({ homeDir, env: process.env })),
-      ...diskStorageSeed(homeDir),
-    ]).app;
-  });
-  afterEach(() => {
-    app.dispose();
-  });
+  let host: SliceHost;
+  afterEach(() => host?.dispose());
 
   test('creates, tracks, persists, and closes sessions', async () => {
-    console.log('KIMI_CODE_HOME =', homeDir);
-    const lifecycle = app.accessor.get(ISessionLifecycleService);
+    host = createSliceHost({ homeDir: process.env['KIMI_CODE_HOME']! });
+    const lifecycle = host.app.accessor.get(ISessionLifecycleService);
 
-    const first = await lifecycle.create({ sessionId: 's1', workDir: homeDir });
-    await lifecycle.create({ sessionId: 's2', workDir: homeDir });
-    console.log('live after create:', lifecycle.list().map((h) => h.id));
+    const first = await lifecycle.create({ sessionId: 'demo-a', workDir: process.env['KIMI_CODE_HOME']! });
+    await lifecycle.create({ sessionId: 'demo-b', workDir: process.env['KIMI_CODE_HOME']! });
+    expect(lifecycle.list().map((h) => h.id)).toEqual(expect.arrayContaining(['demo-a', 'demo-b']));
 
     const meta = first.accessor.get(ISessionMetadata);
     await meta.ready;
-    console.log('s1 initial:', await meta.read());
     await meta.setTitle('first session');
-    console.log('s1 after setTitle:', await meta.read());
+    expect((await meta.read()).title).toBe('first session');
 
-    await lifecycle.close('s2');
-    console.log('live after close(s2):', lifecycle.list().map((h) => h.id));
+    await lifecycle.close('demo-b');
+    expect(lifecycle.list().map((h) => h.id)).not.toContain('demo-b');
   });
 });

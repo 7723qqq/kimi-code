@@ -21,20 +21,29 @@ which sets up a shared `KIMI_CODE_HOME` via `_globalSetup.ts`. Each file gets an
 isolated module registry, so examples that clear and re-populate the scoped
 registry do not leak into those that rely on import-time registrations.
 
-## Two styles, both legitimate
+## Three styles, all legitimate
 
+- **`_harness` composition root (preferred for real slices)** —
+  `createSliceHost({ homeDir })` boots the **real** composition root (every
+  domain barrel + `bootstrap` + the seeded `IExecContext` / `ISessionContext` /
+  `IAgentScopeContext` values) and returns `{ app, session, agent }`. You resolve
+  the subject by interface and spy on real collaborators, so the example does
+  not hard-code a stub list and does not rot when a service gains a dependency
+  (`agentLifecycle`, `goals-plans-todos`, `async-tasks`, `usage-replay`,
+  `context`, `turn-loop`, `shell-web-tools`, `model-provider`, `extensions`,
+  `edge-gateway-rpc`, `config`, `session`, `oauth`, `scope`, `session-skill`).
 - **`bootstrap` + real services + `console.log`** — boots the production
   composition root and shows real behaviour against real files under
   `KIMI_CODE_HOME`. Best for slices where the on-disk result is the point
-  (`persistence`, `wire-record`, `session`, `config`, `oauth`, `scope`,
-  `observability`).
+  (`persistence`, `wire-record`, `observability`).
 - **`createScopedTestHost` + explicit re-registration + stubs** — builds a
   minimal scope tree, registers only the slice's services, and stubs the
   collaborators outside it (`stubPair`). Best for isolating one wiring concept
-  with no I/O (`di-container`, `file-tools`, `interaction`, `feature-flags`).
+  with no I/O (`di-container`, `file-tools`, `interaction`, `feature-flags`,
+  `events`, `host`, `tool-framework`, `permission`, `compaction`).
 
-Both styles resolve the subject under test **by interface** through the scope
-tree — never `new`.
+All three styles resolve the subject under test **by interface** through the
+scope tree — never `new`.
 
 ## Learning path
 
@@ -67,8 +76,8 @@ Status: ✅ exists · ⬜ planned.
 | `config` | ✅ | A | every `registerSection` owner populating one shared `IConfigService` |
 | `feature-flags` | ✅ | A | `flag` real, `config` stubbed; env → config → default resolution |
 | `persistence` | ✅ | A | Store → Storage → backend; atomic doc / append-log / blob against real `~/.kimi-code` files |
-| `events` | ⬜ | A/Ag | soft coupling via `publish`/`subscribe`/`emit`/`on` edges |
-| `host` | ⬜ | A/S | host abstraction, the kaos `IExecContext` boundary |
+| `events` | ✅ | A/Ag | soft coupling via `publish`/`subscribe`/`emit`/`on` edges |
+| `host` | ✅ | A/S | host abstraction, the kaos `IExecContext` boundary |
 
 ### L2 — business foundations (patterns)
 
@@ -78,27 +87,27 @@ Status: ✅ exists · ⬜ planned.
 | `session` | ✅ | A/S | `sessionLifecycle` + `sessionMetadata`; session as a durable, tracked entity |
 | `sessionIndex` | ✅ | A | business-specific Store building a query read-model |
 | `session-skill` | ✅ | A/S | session skill catalog: load skills from the current `workDir` and inspect each skill's `source` provenance |
-| `agentLifecycle` | ⬜ | S | Agent-scope creation, parent/child |
-| `tool-framework` | ⬜ | Ag | registry pattern, runtime state |
-| `context` | ⬜ | Ag | event-sourced context, projection |
-| `turn-loop` | ⬜ | Ag | turn lifecycle, hooks, step loop |
+| `agentLifecycle` | ✅ | S | Agent-scope creation, parent/child |
+| `tool-framework` | ✅ | Ag | registry pattern, runtime state |
+| `context` | ✅ | Ag | event-sourced context, projection |
+| `turn-loop` | ✅ | Ag | turn lifecycle, hooks, step loop |
 
 ### L3 — complete features (slices)
 
 | file | status | scope | concept |
 |---|---|---|---|
 | `file-tools` | ✅ | A/S/Ag | the smallest real 3-tier slice: Agent service injecting Session + App ancestors + an Agent peer; marker-interface service registered `Eager` |
-| `shell-web-tools` | ⬜ | Ag | tool implementations (bash / web / ask) |
-| `permission` | ⬜ | Ag | chain-of-responsibility, policy registry |
-| `goals-plans-todos` | ⬜ | Ag | append-log CRUD domains |
-| `async-tasks` | ⬜ | Ag | long-running tasks, child scopes (background / cron / swarm) |
-| `model-provider` | ⬜ | A/S/Ag | provider abstraction, the kosong boundary |
-| `compaction` | ⬜ | Ag | context-management strategy |
-| `extensions` | ⬜ | A/S/Ag | plugin / mcp / skill extension points |
+| `shell-web-tools` | ✅ | Ag | tool implementations (bash / web / ask) |
+| `permission` | ✅ | Ag | chain-of-responsibility, policy registry |
+| `goals-plans-todos` | ✅ | Ag | append-log CRUD domains |
+| `async-tasks` | ✅ | Ag | long-running tasks, child scopes (background / cron / swarm) |
+| `model-provider` | ✅ | A/S/Ag | provider abstraction, the kosong boundary |
+| `compaction` | ✅ | Ag | context-management strategy |
+| `extensions` | ✅ | A/S/Ag | plugin / mcp / skill extension points |
 | `oauth` | ✅ | A | device-code login + managed `/models` refresh, config-driven |
 | `interaction` | ✅ | S | `interaction` kernel + `approval` / `question` facades through the Session scope |
-| `edge-gateway-rpc` | ⬜ | A/Ag | `resource:action`, WS events, edge exposure |
-| `usage-replay` | ⬜ | Ag | usage metering, replay, system reminder, external hooks |
+| `edge-gateway-rpc` | ✅ | A/Ag | `resource:action`, WS events, edge exposure |
+| `usage-replay` | ✅ | Ag | usage metering, replay, system reminder, external hooks |
 
 ## Coverage
 
