@@ -308,14 +308,18 @@ export class ContextMemory {
     };
     // Wire backward-compat: a pre-rework `context.apply_compaction` record (which
     // has no `keptUserMessageCount`) used `[summary, ...history.slice(compactedCount)]`
-    // semantics and kept a verbatim recent tail. Reproduce that exact shape on
-    // restore so resuming a session compacted by an older version does not
-    // silently drop the recent assistant/tool tail beyond `compactedCount`. Gated
-    // on `records.restoring`, so the live/forward path — which always sets
-    // `contextSummary` and `keptUserMessageCount` — is unaffected. The projector's
-    // tool-adjacency repair keeps the restored tail well-formed for strict
-    // providers; compaction only runs at a clean step boundary, so the tail has no
-    // open tool exchange to track.
+    // semantics and kept a verbatim recent tail. Reproduce that shape on restore
+    // so resuming a session compacted by an older version does not silently drop
+    // the recent assistant/tool tail beyond `compactedCount`. Gated on
+    // `records.restoring`, so the live/forward path — which always sets
+    // `contextSummary` and `keptUserMessageCount` — is unaffected.
+    //
+    // The cut can land inside a tool exchange, leaving the tail starting with an
+    // orphan `tool` result whose assistant is now in the summarized prefix. The
+    // history is kept faithful to the wire records (so the transcript reducer's
+    // fold length stays in sync); the projector drops the orphan at the wire
+    // boundary — see `dropOrphanToolResults` — so a strict provider still gets a
+    // valid request without mutating the stored history here.
     const isLegacyRestore =
       this.agent.records.restoring !== null &&
       input.keptUserMessageCount === undefined &&
@@ -429,14 +433,21 @@ export class ContextMemory {
   }
 
   get messages(): Message[] {
-    return this.project(this.history);
+    // The normal wire projection. `dropOrphanResults` is on for every
+    // request-building projection (here, `strictMessages`, and the compaction
+    // summarizer): a stray result with no matching call anywhere is wire-invalid
+    // on strict providers and useless to the model, so it never reaches the
+    // provider — while fragment projections (e.g. token estimation of a history
+    // slice) leave it alone.
+    return this.project(this.history, { dropOrphanResults: true });
   }
 
   // Last-resort projection for the post-400 strict resend: close every open tool
-  // call (including a trailing in-flight one) and drop any stray tool result with
-  // no matching call, so the request is wire-compliant for strict providers no
-  // matter how the history was mangled. Only used when the provider has already
-  // rejected the normal projection — see the adjacency fallback in `turn-step`.
+  // call (including a trailing in-flight one), drop stray tool results, drop a
+  // leading non-user message, and merge consecutive assistant turns, so the
+  // request is wire-compliant for strict providers no matter how the history was
+  // mangled. Only used when the provider has already rejected the normal
+  // projection — see the adjacency fallback in `turn-step`.
   get strictMessages(): Message[] {
     return this.project(this.history, {
       synthesizeMissing: true,
