@@ -54,7 +54,7 @@ describe('Agent loop', () => {
       [emit] agent.status.updated     { "contextTokens": 11 }
       [wire] context.splice           { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "think", "think": "<think-1>" }, { "type": "text", "text": "<text-1>" } ], "toolCalls": [], "providerMessageId": "mock-1" } ], "time": "<time>" }
       [emit] agent.status.updated     { "contextTokens": 0 }
-      [emit] turn.step.completed      { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [emit] turn.step.completed      { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "completed" }
       [emit] turn.ended               { "turnId": 0, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
@@ -86,7 +86,7 @@ describe('Agent loop', () => {
       [emit] agent.status.updated    { "contextTokens": 8 }
       [wire] context.splice          { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "blocked" } ], "toolCalls": [], "providerMessageId": "mock-1" } ], "time": "<time>" }
       [emit] agent.status.updated    { "contextTokens": 0 }
-      [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "filtered", "providerFinishReason": "filtered", "rawFinishReason": "content_filter" }
+      [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "filtered" }
       [emit] turn.ended              { "turnId": 0, "reason": "filtered" }
     `);
 
@@ -96,8 +96,6 @@ describe('Agent loop', () => {
 
     expect(rpcStepEnd?.args).toMatchObject({
       finishReason: 'filtered',
-      providerFinishReason: 'filtered',
-      rawFinishReason: 'content_filter',
     });
   });
 
@@ -163,7 +161,7 @@ describe('Agent loop', () => {
       [emit] tool.result                         { "turnId": 0, "toolCallId": "call_lookup", "output": "lookup-result" }
       [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will look it up." } ], "toolCalls": [ { "type": "function", "id": "call_lookup", "name": "Lookup", "arguments": "{\\"query\\":\\"moon\\"}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 0 }
-      [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
+      [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_calls" }
       [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
       [emit] assistant.delta                     { "turnId": 0, "delta": "The lookup result is lookup-result." }
       [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
@@ -173,7 +171,7 @@ describe('Agent loop', () => {
       [emit] agent.status.updated                { "contextTokens": 37 }
       [wire] context.splice                      { "start": 3, "deleteCount": 1, "messages": [ { "id": "<msg-4>", "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is lookup-result." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 0 }
-      [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "completed" }
       [emit] turn.ended                          { "turnId": 0, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`

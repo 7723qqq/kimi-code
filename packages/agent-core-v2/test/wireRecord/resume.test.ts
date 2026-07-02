@@ -994,7 +994,7 @@ function resumeHistory(): PersistedWireRecord[] {
           inputCacheRead: 0,
           inputCacheCreation: 0,
         },
-        finishReason: 'tool_use',
+        finishReason: 'tool_calls',
       },
     },
     {
@@ -1217,7 +1217,7 @@ function loopEventsForTurn(turnId: string, responseText: string): PersistedWireR
         turnId,
         step: 1,
         usage: { inputOther: 5, output: 2, inputCacheRead: 0, inputCacheCreation: 0 },
-        finishReason: 'end_turn',
+        finishReason: 'completed',
       },
     },
     {
