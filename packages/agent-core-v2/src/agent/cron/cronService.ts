@@ -12,7 +12,7 @@
 
 import { randomBytes } from 'node:crypto';
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol';
 import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';
 
 import { Disposable, toDisposable } from '#/_base/di';

@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { TokenUsage } from '@moonshot-ai/kosong';
+import type { TokenUsage } from '#/app/llmProtocol';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
