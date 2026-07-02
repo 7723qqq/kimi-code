@@ -83,7 +83,7 @@ Read = `GET`, write = `POST`. `sid` = `session_id`, `aid` = `agent_id`.
 | `session` | `setArchived` | ISessionMetadata.setArchived | POST |
 | `session` | `status` | ISessionActivity.status | GET |
 | `session` | `isIdle` | ISessionActivity.isIdle | GET |
-| `session` | `archive` | ISessionService.archive | POST |
+| `session` | `archive` | ISessionLifecycleService.archive | POST |
 | `approvals` | `listPending` | IApprovalService.listPending | GET |
 | `approvals` | `decide` | IApprovalService.decide | POST |
 | `questions` | `listPending` | IQuestionService.listPending | GET |

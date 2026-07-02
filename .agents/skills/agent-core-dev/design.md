@@ -225,46 +225,47 @@ Read it as:
 - `──holds──►` = the ancestor owns a handle to the child scope (it stores the key, not the service). DI allows this.
 - `accessor.get(...)` = a **runtime borrow**, not a dependency edge. It must cross an `IScopeHandle`, run on demand, never be cached, and finish before the child scope is disposed.
 
-Worked example — `session`:
+Worked example — `sessionLifecycle`:
 
 ```text
-domain: `session`   (owning scope: Session)
+domain: `sessionLifecycle`   (owning scope: App)
 ├─ serves (who uses me)
 │   ├─ (inject)   — (none yet)
 │   └─ (accessor)
-│       ├─ sessionLifecycle  @App        — archive() before disposing the child scope
-│       └─ gateway / rpc      @App(edge)  — session-level commands (archive, rename…)
+│       ├─ sessionLegacy     @App(edge)  — v1-compatible create/fork/archive/…
+│       └─ gateway / rpc     @App(edge)  — native v2 session lifecycle actions
 ├─ exposes (interfaces I provide, by scope)
-│   ├─ App       : —                    — (no global session state here)
-│   ├─ Session  : ISessionService      — this session's operations + child-agent set
-│   └─ Agent    : —                    — (per-agent state lives in agentLifecycle)
+│   ├─ App       : ISessionLifecycleService — owns the live session scope tree
+│   ├─ Session   : —                    — (per-session state lives in sessionMetadata / agentLifecycle / …)
+│   └─ Agent     : —                    — (per-agent state lives in agentLifecycle)
 └─ depends (what I inject)
-    ├─ sessionContext    @Session  direct  — reads its own identity
-    ├─ agentLifecycle    @Session  direct  — drives child-agent lifecycle
-    ├─ sessionMetaStore   @Session  direct  — persists session metadata
-    ├─ sessionActivity   @Session  direct  — records activity
-    └─ event              @App     direct  — broadcasts session-level facts
+    ├─ bootstrap         @App  direct  — addresses session storage
+    ├─ hostEnvironment   @App  direct  — gates scope creation on the probe
+    ├─ sessionIndex      @App  direct  — persisted read model for cold resumes
+    ├─ storage           @App  direct  — atomic docs + append logs
+    ├─ workspaceRegistry @App  direct  — resolves a session's workspace
+    └─ event             @App  direct  — broadcasts session-level facts (e.g. archived)
 ```
 
-Cross-scope borrow for `session`:
+Cross-scope borrow for `sessionLifecycle`:
 
 ```text
 App scope
   SessionLifecycleService ──holds──┐
   GatewayService ───────────holds──┼──► IScopeHandle(sessionId)
                                         │
-                                        │  accessor.get(ISessionService)
+                                        │  accessor.get(ISessionMetadata) …
                                         │   └── resolve runs inside the Session scope
                                         ▼
                                   Session scope (sessionId)
-                                    SessionService  ← ISessionService lives here
+                                    sessionMetadata / agentLifecycle / …  ← per-session services live here
 ```
 
 How the three lenses shaped it:
 
-- **Scope (§2)** → state is keyed by `sessionId`, so it is Session-scoped; it orchestrates `agentLifecycle` (direct) and announces on `event`.
-- **Dependency direction (§5)** → `session` is consumed by `sessionLifecycle` and projected by the edge, both via `accessor` borrows; it never imports them. Every downward arrow lands on a peer or a more foundational Service.
-- **Extension points (§4)** → new per-session behavior plugs in via `sessionActivity` or `agentLifecycle` hooks; new transports stay at the edge. Neither edits `session`.
+- **Scope (§2)** → the live registry of session scopes is process-wide, so it is App-scoped; per-session data stays in Session-scoped services, reached through the handle's `accessor`.
+- **Dependency direction (§5)** → `sessionLifecycle` is consumed by the edge via `accessor` borrows; it never imports the edge. Every downward arrow lands on a peer or a more foundational Service.
+- **Extension points (§4)** → new per-session behavior plugs into the Session-scoped services (`sessionMetadata`, `agentLifecycle`, `sessionActivity`); new transports stay at the edge. Neither edits `sessionLifecycle`.
 
 For a multi-scope split, the `exposes` block fills more than one scope — see the `records` pattern in §3.
 

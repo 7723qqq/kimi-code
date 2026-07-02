@@ -47,8 +47,8 @@ import {
   ISessionQuestionService,
   ISessionActivity,
   ISessionIndex,
+  ISessionLifecycleService,
   ISessionMetadata,
-  ISessionService,
   IAgentSwarmService,
   IAgentToolRegistryService,
   IAgentToolStoreService,
@@ -132,7 +132,7 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'session:setArchived': { service: ISessionMetadata, method: 'setArchived' },
     'session:status': { service: ISessionActivity, method: 'status', readonly: true },
     'session:isIdle': { service: ISessionActivity, method: 'isIdle', readonly: true },
-    'session:archive': { service: ISessionService, method: 'archive' },
+    'session:archive': { service: ISessionLifecycleService, method: 'archive' },
 
     'approvals:listPending': { service: ISessionApprovalService, method: 'listPending', readonly: true },
     'approvals:request': { service: ISessionApprovalService, method: 'enqueue' },

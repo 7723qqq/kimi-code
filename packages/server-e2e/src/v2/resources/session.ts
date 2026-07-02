@@ -84,7 +84,7 @@ export class SessionScope {
     return this.sessionResource.isIdle(arg);
   }
   archive(arg?: unknown): Promise<null> {
-    return this.sessionResource.archive(arg);
+    return this.sessionResource.archive(arg ?? this.sessionId);
   }
 
   /** Enter the agent scope for `agentId`. */

@@ -43,7 +43,6 @@ package "App scope (process-wide)" #EAF3FB {
 }
 
 package "Session scope (per session)" #EAFAF1 {
-  rectangle "<b>session</b>\n<size:9><i>Session</i></size>\n  ISessionService" as session #D5F5E3
   rectangle "<b>sessionContext</b>\n<size:9><i>Session</i></size>\n  ISessionContext (seed)" as session_context #D5F5E3
   rectangle "<b>sessionMetadata</b>\n<size:9><i>Session</i></size>\n  ISessionMetadata" as session_metadata #D5F5E3
   rectangle "<b>sessionActivity</b>\n<size:9><i>Session</i></size>\n  ISessionActivity" as session_activity #D5F5E3
@@ -112,6 +111,7 @@ sessionIndex --> bootstrap #34495E
 sessionIndex --> storage #34495E
 session_lifecycle --> bootstrap #34495E
 session_lifecycle --> hostEnvironment #34495E
+session_lifecycle --> event #34495E
 hostFolderBrowser --> hostFs #34495E
 auth --> provider #34495E
 auth --> config #34495E
@@ -149,10 +149,6 @@ agentTool --> toolRegistry #34495E
 agentTool --> background #34495E
 agentTool --> profile #34495E
 modelProvider --> config #34495E
-session --> session_context #34495E
-session --> session_metadata #34495E
-session --> agent_lifecycle #34495E
-session --> event #34495E
 session_metadata --> session_context #34495E
 session_metadata --> storage #34495E
 session_metadata --> log #34495E
