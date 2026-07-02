@@ -33,6 +33,7 @@ import {
 } from '#/agent/background';
 import type { BackgroundTaskSettlement } from '#/agent/background/task';
 import type { IHostEnvironment } from '#/app/hostEnvironment';
+import type { IAgentProfileService } from '#/agent/profile';
 import { createExecContext, type IExecContext } from '#/session/execContext';
 import type { IProcess, ISessionProcessRunner } from '#/session/process';
 import { type BashInput, BashInputSchema, BashTool } from '#/agent/shellTools/tools/bash';
@@ -673,14 +674,21 @@ async function executeTool(
   return execution.execute(executionContext as ExecutableToolContext);
 }
 
+function stubProfile(isToolActive: (name: string) => boolean = () => true): IAgentProfileService {
+  return {
+    _serviceBrand: undefined,
+    isToolActive,
+  } as unknown as IAgentProfileService;
+}
+
 function bashTool(
   runner: ISessionProcessRunner,
   env: IHostEnvironment = createTestEnv(),
   ctx: IExecContext = createTestCtx(),
   background: IAgentBackgroundService = createFakeBackgroundService().service,
-  options?: ConstructorParameters<typeof BashTool>[4],
+  profile: IAgentProfileService = stubProfile(),
 ): BashTool {
-  return new BashTool(runner, env, ctx, background, options);
+  return new BashTool(runner, env, ctx, background, profile);
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -1243,7 +1251,7 @@ describe('BashTool background mode', () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
     const { service } = createFakeBackgroundService();
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service, { allowBackground: () => false });
+    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service, stubProfile(() => false));
 
     const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
     await vi.waitFor(() => {
@@ -1314,7 +1322,7 @@ describe('BashTool background mode', () => {
       runner,
       createTestEnv(), createTestCtx(),
       createFakeBackgroundService().service,
-      { allowBackground: () => false },
+      stubProfile(() => false),
     );
 
     const unavailable = await executeTool(
@@ -1589,9 +1597,7 @@ describe('BashTool prompt / runtime consistency', () => {
       [...enabledTool.description.matchAll(/`(Task[A-Za-z]+)`/g)].map((match) => match[1]),
     );
 
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), createFakeBackgroundService().service, {
-      allowBackground: () => false,
-    });
+    const tool = bashTool(runner, createTestEnv(), createTestCtx(), createFakeBackgroundService().service, stubProfile(() => false));
     const result = await executeTool(
       tool,
       context({ command: 'sleep 10', run_in_background: true, description: 'watch' }),

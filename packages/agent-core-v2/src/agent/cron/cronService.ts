@@ -29,7 +29,6 @@ import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentScopeContext } from '#/agent/scopeContext';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn } from '#/agent/turn';
 import { IAgentTurnService } from '#/agent/turn';
 import { ISessionContext } from '#/session/sessionContext';
@@ -160,7 +159,6 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
     @ISessionContext private readonly session: ISessionContext,
@@ -222,10 +220,6 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     );
 
     if (this.enabled) {
-      this._register(this.toolRegistry.register(new CronCreateTool(this, this.cronConfig.disabled)));
-      this._register(this.toolRegistry.register(new CronListTool(this)));
-      this._register(this.toolRegistry.register(new CronDeleteTool(this)));
-
       this.start();
     }
 

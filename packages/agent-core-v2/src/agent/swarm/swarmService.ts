@@ -2,24 +2,18 @@
  * `swarm` domain (L4) — `IAgentSwarmService` implementation.
  *
  * Tracks swarm-mode enter/exit (mirroring it into `wireRecord` and
- * `systemReminder`), auto-exits on turn end, and registers the `AgentSwarm`
- * tool bound to this agent as the caller. Bound at Agent scope; reads its
- * identity through `scopeContext`, registers the tool through `toolRegistry`,
- * and delegates batch runs to the Session-scoped `sessionSwarm` service.
+ * `systemReminder`) and auto-exits on turn end. Bound at Agent scope. The
+ * `AgentSwarm` tool is registered separately by `AgentSwarmToolsService`.
  */
 
 import { Disposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentRecordService } from '#/agent/record';
-import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentTurnService } from '#/agent/turn';
-import { ISessionSwarmService } from '#/session/swarm';
 import SWARM_MODE_ENTER_REMINDER from './enter-reminder.md?raw';
 import SWARM_MODE_EXIT_REMINDER from './exit-reminder.md?raw';
-import { AgentSwarmTool } from '#/agent/swarm/tools/agent-swarm';
 import {
   IAgentSwarmService,
   type SwarmModeTrigger,
@@ -43,9 +37,6 @@ export class AgentSwarmService extends Disposable implements IAgentSwarmService 
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @IAgentTurnService turnService: IAgentTurnService,
-    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
-    @IAgentScopeContext ctx: IAgentScopeContext,
-    @ISessionSwarmService swarmService: ISessionSwarmService,
   ) {
     super();
     this._register(
@@ -70,11 +61,6 @@ export class AgentSwarmService extends Disposable implements IAgentSwarmService 
         }
         return done;
       }),
-    );
-    this._register(
-      toolRegistry.register(
-        new AgentSwarmTool({ swarmService, callerAgentId: ctx.agentId }, this),
-      ),
     );
   }
 

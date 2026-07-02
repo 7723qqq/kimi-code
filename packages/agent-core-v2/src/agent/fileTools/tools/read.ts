@@ -26,6 +26,7 @@ import { z } from 'zod';
 
 import { ISessionAgentFileSystem } from '#/session/agentFs';
 import { IHostEnvironment } from '#/app/hostEnvironment';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { resolvePathAccessPath } from '#/_base/tools/policies/path-access';
@@ -224,15 +225,22 @@ export class ReadTool implements BuiltinTool<ReadInput> {
   readonly description = READ_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ReadInputSchema);
   constructor(
-    private readonly fs: ISessionAgentFileSystem,
-    private readonly env: IHostEnvironment,
-    private readonly workspace: WorkspaceConfig,
+    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @IHostEnvironment private readonly env: IHostEnvironment,
+    @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
   ) {}
+
+  private get workspaceConfig(): WorkspaceConfig {
+    return {
+      workspaceDir: this.workspaceCtx.workDir,
+      additionalDirs: this.workspaceCtx.additionalDirs,
+    };
+  }
 
   resolveExecution(args: ReadInput): ToolExecution {
     const path = resolvePathAccessPath(args.path, {
       env: this.env,
-      workspace: this.workspace,
+      workspace: this.workspaceConfig,
       operation: 'read',
     });
     return {
@@ -242,7 +250,7 @@ export class ReadTool implements BuiltinTool<ReadInput> {
       approvalRule: literalRulePattern(this.name, path),
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
-          cwd: this.workspace.workspaceDir,
+          cwd: this.workspaceConfig.workspaceDir,
           pathClass: this.env.pathClass,
           homeDir: this.env.homeDir,
         }),

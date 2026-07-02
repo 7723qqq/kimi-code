@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { IAgentBackgroundService } from '#/agent/background';
+import { IAgentBackgroundService } from '#/agent/background';
+import { TestInstantiationService } from '#/_base/di/test';
 import type { IDisposable } from '#/_base/di';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
-import { createExecContext, type IExecContext } from '#/session/execContext';
-import type { ISessionProcessRunner } from '#/session/process';
-import type { IAgentProfileService } from '#/agent/profile';
+import { IHostEnvironment } from '#/app/hostEnvironment';
+import { createExecContext, IExecContext } from '#/session/execContext';
+import { ISessionProcessRunner } from '#/session/process';
+import { IAgentProfileService } from '#/agent/profile';
 import { AgentShellToolsService } from '#/agent/shellTools';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry';
 
@@ -43,7 +44,13 @@ const fakeProfile = {
 describe('AgentShellToolsService', () => {
   it('registers Bash into the tool registry', () => {
     const { registry, names } = fakeToolRegistry();
-    new AgentShellToolsService(registry, fakeRunner, fakeEnv, fakeCtx, fakeBackground, fakeProfile);
+    const ix = new TestInstantiationService();
+    ix.set(ISessionProcessRunner, fakeRunner);
+    ix.set(IHostEnvironment, fakeEnv);
+    ix.set(IExecContext, fakeCtx);
+    ix.set(IAgentBackgroundService, fakeBackground);
+    ix.set(IAgentProfileService, fakeProfile);
+    new AgentShellToolsService(ix, registry);
     expect(names()).toEqual(['Bash']);
   });
 });

@@ -9,10 +9,10 @@ import { z } from 'zod';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import type { IAgentPermissionModeService } from '#/agent/permissionMode';
+import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
 
-import type { IAgentGoalService } from '#/agent/goal/goal';
+import { IAgentGoalService } from '#/agent/goal/goal';
 import DESCRIPTION from './create-goal.md?raw';
 import { goalForModel } from './serialize';
 
@@ -38,8 +38,8 @@ export class CreateGoalTool implements BuiltinTool<CreateGoalToolInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(CreateGoalToolInputSchema);
 
   constructor(
-    private readonly goal: IAgentGoalService,
-    private readonly permissionMode: IAgentPermissionModeService,
+    @IAgentGoalService private readonly goal: IAgentGoalService,
+    @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
   ) {}
 
   resolveExecution(args: CreateGoalToolInput): ToolExecution {

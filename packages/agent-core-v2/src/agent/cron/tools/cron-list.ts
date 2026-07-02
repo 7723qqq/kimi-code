@@ -44,7 +44,8 @@ import { z } from 'zod';
 
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import type { CronTask, IAgentCronService } from '#/agent/cron';
+import { IAgentCronService } from '#/agent/cron';
+import type { CronTask } from '#/agent/cron';
 import {
   cronToHuman,
   parseCronExpression,
@@ -90,7 +91,7 @@ export class CronListTool implements BuiltinTool<CronListInput> {
     CronListInputSchema,
   );
 
-  constructor(private readonly cron: IAgentCronService) {}
+  constructor(@IAgentCronService private readonly cron: IAgentCronService) {}
 
   resolveExecution(_args: CronListInput): ToolExecution {
     return {

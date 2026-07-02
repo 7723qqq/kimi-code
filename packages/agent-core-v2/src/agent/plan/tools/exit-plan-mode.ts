@@ -12,8 +12,9 @@ import { z } from 'zod';
 import type { BuiltinTool } from '#/agent/tool';
 import type { ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import type { ITelemetryService } from '#/app/telemetry';
-import type { IAgentPlanService, PlanData } from '#/agent/plan/plan';
+import { ITelemetryService } from '#/app/telemetry';
+import { IAgentPlanService } from '#/agent/plan/plan';
+import type { PlanData } from '#/agent/plan/plan';
 import DESCRIPTION from './exit-plan-mode.md?raw';
 
 // ── Input schema ─────────────────────────────────────────────────────
@@ -85,8 +86,8 @@ export class ExitPlanModeTool implements BuiltinTool<ExitPlanModeInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ExitPlanModeInputSchema);
 
   constructor(
-    private readonly planMode: IAgentPlanService,
-    private readonly telemetry: ITelemetryService,
+    @IAgentPlanService private readonly planMode: IAgentPlanService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
   async resolveExecution(args: ExitPlanModeInput): Promise<ToolExecution> {

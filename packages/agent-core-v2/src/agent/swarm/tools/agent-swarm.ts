@@ -17,7 +17,10 @@ import {
 import { ToolAccesses } from '#/agent/tool';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import type { ISessionSwarmService, SessionSwarmTask } from '#/session/swarm';
+import { ISessionSwarmService } from '#/session/swarm';
+import type { SessionSwarmTask } from '#/session/swarm';
+import { IAgentScopeContext } from '#/agent/scopeContext';
+import { IAgentSwarmService } from '#/agent/swarm/swarm';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
@@ -93,24 +96,20 @@ interface SwarmRunResult {
   readonly error?: string;
 }
 
-interface AgentSwarmMode {
-  enter(trigger: 'tool'): void;
-}
-
-export interface AgentSwarmToolHost {
-  readonly swarmService: ISessionSwarmService;
-  readonly callerAgentId: string;
-}
-
 export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
   readonly name = 'AgentSwarm' as const;
   readonly description = AGENT_SWARM_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentSwarmToolInputSchema);
 
+  private readonly callerAgentId: string;
+
   constructor(
-    private readonly host: AgentSwarmToolHost,
-    private readonly swarmMode: AgentSwarmMode,
-  ) {}
+    @ISessionSwarmService private readonly swarmService: ISessionSwarmService,
+    @IAgentScopeContext scopeContext: IAgentScopeContext,
+    @IAgentSwarmService private readonly swarmMode: IAgentSwarmService,
+  ) {
+    this.callerAgentId = scopeContext.agentId;
+  }
 
   resolveExecution(args: AgentSwarmToolInput): ToolExecution {
     const agentCount = (args.items?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
@@ -178,8 +177,8 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
         kind: 'spawn' as const,
       };
     });
-    const results = await this.host.swarmService.run({
-      callerAgentId: this.host.callerAgentId,
+    const results = await this.swarmService.run({
+      callerAgentId: this.callerAgentId,
       tasks,
     });
     for (const result of results) {

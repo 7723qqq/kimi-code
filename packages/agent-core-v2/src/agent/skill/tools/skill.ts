@@ -23,12 +23,13 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 import type { ContextMessage, SkillActivationOrigin } from '#/agent/contextMemory';
-import type { IAgentPromptService } from '#/agent/prompt';
+import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentSkillService } from '#/agent/skill/skill';
 import { renderModelToolSkillPrompt } from '#/agent/skill/prompt';
 import type { BuiltinTool } from '#/agent/tool';
 import type { ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { isInlineSkillType } from '#/app/globalSkillCatalog/types';
-import type { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
@@ -61,24 +62,6 @@ export const SkillToolInputSchema: z.ZodType<SkillToolInput> = z.object({
   args: z.string().optional(),
 });
 
-export interface SkillToolOptions {
-  /**
-   * Current inline skill recursion depth.
-   */
-  readonly queryDepth?: number;
-  /**
-   * Alias for `queryDepth`. Kept so older call sites can seed the
-   * inline recursion depth without knowing the internal field name.
-   */
-  readonly initialQueryDepth?: number;
-}
-
-export interface SkillToolDeps {
-  readonly catalog: ISessionSkillCatalog;
-  readonly prompt: IAgentPromptService;
-  readonly recordActivation: (origin: SkillActivationOrigin) => void;
-}
-
 export class SkillTool implements BuiltinTool<SkillToolInput> {
   readonly name = 'Skill';
   readonly description: string = renderPrompt(skillDescriptionTemplate, {
@@ -86,9 +69,17 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
   });
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SkillToolInputSchema);
 
+  /**
+   * Current inline-skill recursion depth. Zero for the root tool; set on clones
+   * produced by `withInitialQueryDepth` so a Skill→Skill chain cannot recurse
+   * past `MAX_SKILL_QUERY_DEPTH`.
+   */
+  private queryDepth: number = 0;
+
   constructor(
-    private readonly deps: SkillToolDeps,
-    private readonly options: SkillToolOptions = {},
+    @ISessionSkillCatalog private readonly catalog: ISessionSkillCatalog,
+    @IAgentPromptService private readonly prompt: IAgentPromptService,
+    @IAgentSkillService private readonly skill: IAgentSkillService,
   ) {}
 
   resolveExecution(args: SkillToolInput): ToolExecution {
@@ -102,34 +93,35 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
   }
 
   withInitialQueryDepth(initialQueryDepth: number): SkillTool {
-    return new SkillTool(this.deps, {
-      ...this.options,
-      initialQueryDepth,
-    });
+    const clone = new SkillTool(this.catalog, this.prompt, this.skill);
+    clone.queryDepth = initialQueryDepth;
+    return clone;
   }
 
   private async execution(args: SkillToolInput): Promise<ExecutableToolResult> {
-    return executeModelSkill(this.deps, args, this.options);
+    return executeModelSkill(this.catalog, this.prompt, this.skill, args, this.queryDepth);
   }
 }
 
 export async function executeModelSkill(
-  deps: SkillToolDeps,
+  catalog: ISessionSkillCatalog,
+  prompt: IAgentPromptService,
+  skillService: IAgentSkillService,
   args: SkillToolInput,
-  options: SkillToolOptions,
+  queryDepth: number,
 ): Promise<ExecutableToolResult> {
   // Recursion hard cap. Once `currentDepth` has reached
   // MAX_SKILL_QUERY_DEPTH, firing another Skill call would push the
   // child to depth+1 which violates the invariant. Throw a structured
   // error (rather than a soft tool-error) so Runtime can distinguish
   // "LLM mis-dispatched" from "safety net fired".
-  const currentDepth = options.initialQueryDepth ?? options.queryDepth ?? 0;
+  const currentDepth = queryDepth;
   if (currentDepth >= MAX_SKILL_QUERY_DEPTH) {
     throw new NestedSkillTooDeepError(MAX_SKILL_QUERY_DEPTH, args.skill);
   }
 
-  await deps.catalog.ready;
-  const skill = deps.catalog.catalog.getSkill(args.skill);
+  await catalog.ready;
+  const skill = catalog.catalog.getSkill(args.skill);
   if (skill === undefined) {
     return errorResult(`Skill "${args.skill}" not found in the current skill listing.`);
   }
@@ -158,7 +150,7 @@ export async function executeModelSkill(
     skillPath: skill.path,
     skillSource: skill.source,
   };
-  const skillContent = deps.catalog.catalog.renderSkillPrompt(skill, skillArgs);
+  const skillContent = catalog.catalog.renderSkillPrompt(skill, skillArgs);
   const message: ContextMessage = {
     role: 'user',
     content: [
@@ -177,8 +169,8 @@ export async function executeModelSkill(
     toolCalls: [],
     origin,
   };
-  deps.recordActivation(origin);
-  deps.prompt.steer(message);
+  skillService.recordModelToolActivation(origin);
+  prompt.steer(message);
   return {
     output: `Skill "${skill.name}" loaded inline. Follow its instructions.`,
   };

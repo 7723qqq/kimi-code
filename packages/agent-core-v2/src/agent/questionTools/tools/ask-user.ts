@@ -11,8 +11,9 @@
 import { z } from 'zod';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { QuestionBackgroundTask, type IAgentBackgroundService } from '#/agent/background';
-import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry';
+import { QuestionBackgroundTask, IAgentBackgroundService } from '#/agent/background';
+import { ITelemetryService } from '#/app/telemetry';
+import type { TelemetryProperties } from '#/app/telemetry';
 import type {
   BuiltinTool,
   ExecutableToolContext,
@@ -20,8 +21,8 @@ import type {
   ToolExecution,
 } from '#/agent/tool';
 
+import { ISessionQuestionService } from '#/session/question/question';
 import type {
-  ISessionQuestionService,
   QuestionAnswers,
   QuestionAnswerMethod,
   QuestionResponse,
@@ -99,9 +100,9 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
   );
 
   constructor(
-    private readonly question: ISessionQuestionService,
-    private readonly background: IAgentBackgroundService,
-    private readonly telemetry: ITelemetryService,
+    @ISessionQuestionService private readonly question: ISessionQuestionService,
+    @IAgentBackgroundService private readonly background: IAgentBackgroundService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
   resolveExecution(args: AskUserQuestionInput): ToolExecution {

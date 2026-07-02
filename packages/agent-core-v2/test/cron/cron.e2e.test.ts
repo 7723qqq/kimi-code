@@ -96,7 +96,7 @@ describe('Cron — session E2E (P1.9)', () => {
     // bypass `emitScheduled` telemetry and skip the byte-length /
     // expression checks; that would not be the production code path
     // this commit is meant to smoke.
-    const createTool = new CronCreateTool(cron);
+    const createTool = new CronCreateTool(false, cron);
     const execution = createTool.resolveExecution({
       cron: '*/5 * * * *',
       prompt: 'cron-fired prompt',
@@ -149,7 +149,7 @@ describe('Cron — session E2E (P1.9)', () => {
     // Optional second case from the P1.9 plan: prove the three-tool
     // surface composes correctly end-to-end on the real manager. No
     // clock manipulation needed — list/delete are time-invariant.
-    const createTool = new CronCreateTool(cron);
+    const createTool = new CronCreateTool(false, cron);
     const listTool = new CronListTool(cron);
     const deleteTool = new CronDeleteTool(cron);
     const ctxArgs = {

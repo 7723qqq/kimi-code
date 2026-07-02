@@ -29,7 +29,7 @@ import { z } from 'zod';
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern } from '#/_base/tools/support/rule-match';
-import type { IAgentCronService } from '#/agent/cron';
+import { IAgentCronService } from '#/agent/cron';
 import {
   computeNextCronRun,
   cronToHuman,
@@ -121,8 +121,8 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
   );
 
   constructor(
-    private readonly cron: IAgentCronService,
     private readonly disabled: boolean = false,
+    @IAgentCronService private readonly cron: IAgentCronService,
   ) {}
 
   resolveExecution(args: CronCreateInput): ToolExecution {

@@ -29,7 +29,6 @@ import {
   type PromptOrigin,
 } from '#/agent/contextMemory';
 import { IAgentLoopService } from '#/agent/loop';
-import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import {
@@ -41,7 +40,6 @@ import {
 } from '#/agent/turn';
 import type { TelemetryProperties } from '#/app/telemetry';
 import { ITelemetryService } from '#/app/telemetry';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 import {
   IAgentGoalService,
@@ -174,8 +172,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentLoopService loopService: IAgentLoopService,
-    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
-    @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
   ) {
     super();
     this._register(
@@ -258,11 +254,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
         }
       }),
     );
-
-    this._register(toolRegistry.register(new CreateGoalTool(this, this.permissionMode)));
-    this._register(toolRegistry.register(new GetGoalTool(this)));
-    this._register(toolRegistry.register(new SetGoalBudgetTool(this)));
-    this._register(toolRegistry.register(new UpdateGoalTool(this)));
   }
 
   get enabled(): boolean {

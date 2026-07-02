@@ -19,8 +19,10 @@
 import { dirname } from 'pathe';
 import { z } from 'zod';
 
-import type { AgentFileStat, ISessionAgentFileSystem } from '#/session/agentFs';
+import { ISessionAgentFileSystem } from '#/session/agentFs';
+import type { AgentFileStat } from '#/session/agentFs';
 import { IHostEnvironment } from '#/app/hostEnvironment';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { resolvePathAccessPath } from '#/_base/tools/policies/path-access';
@@ -62,15 +64,22 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WriteInputSchema);
 
   constructor(
-    private readonly fs: ISessionAgentFileSystem,
-    private readonly env: IHostEnvironment,
-    private readonly workspace: WorkspaceConfig,
+    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @IHostEnvironment private readonly env: IHostEnvironment,
+    @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
   ) {}
+
+  private get workspaceConfig(): WorkspaceConfig {
+    return {
+      workspaceDir: this.workspaceCtx.workDir,
+      additionalDirs: this.workspaceCtx.additionalDirs,
+    };
+  }
 
   resolveExecution(args: WriteInput): ToolExecution {
     const path = resolvePathAccessPath(args.path, {
       env: this.env,
-      workspace: this.workspace,
+      workspace: this.workspaceConfig,
       operation: 'write',
     });
     return {
@@ -80,7 +89,7 @@ export class WriteTool implements BuiltinTool<WriteInput> {
       approvalRule: literalRulePattern(this.name, path),
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
-          cwd: this.workspace.workspaceDir,
+          cwd: this.workspaceConfig.workspaceDir,
           pathClass: this.env.pathClass,
           homeDir: this.env.homeDir,
         }),

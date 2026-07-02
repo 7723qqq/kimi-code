@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
 
-import type { IAgentGoalService } from '#/agent/goal/goal';
+import { IAgentGoalService } from '#/agent/goal/goal';
 import DESCRIPTION from './update-goal.md?raw';
 
 export const UpdateGoalToolInputSchema = z
@@ -32,7 +32,7 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(UpdateGoalToolInputSchema);
 
-  constructor(private readonly goal: IAgentGoalService) {}
+  constructor(@IAgentGoalService private readonly goal: IAgentGoalService) {}
 
   resolveExecution(args: UpdateGoalToolInput): ToolExecution {
     return {

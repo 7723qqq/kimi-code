@@ -11,12 +11,10 @@ import { ErrorCodes, KimiError } from "#/errors";
 import { isUserActivatableSkillType, type SkillDefinition } from '#/app/globalSkillCatalog/types';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ITelemetryService } from '#/app/telemetry';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn } from '#/agent/turn';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentSkillService, type SkillActivationInput } from './skill';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { SkillTool, type SkillToolDeps } from '#/agent/skill/tools/skill';
 
 declare module '#/agent/wireRecord' {
   interface WireRecordMap {
@@ -34,7 +32,6 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
     @IAgentPromptService private readonly prompt: IAgentPromptService,
     @IAgentRecordService private readonly records: IAgentRecordService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
   ) {
     super();
     this._register(
@@ -44,7 +41,6 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
         },
       }),
     );
-    this._register(toolRegistry.register(new SkillTool(this.skillToolDeps())));
   }
 
   async activate(input: SkillActivationInput): Promise<Turn> {
@@ -90,12 +86,8 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
     )!;
   }
 
-  protected skillToolDeps(): SkillToolDeps {
-    return {
-      catalog: this.skillCatalog,
-      prompt: this.prompt,
-      recordActivation: (origin) => this.recordActivation(origin),
-    };
+  recordModelToolActivation(origin: SkillActivationOrigin): void {
+    this.recordActivation(origin);
   }
 
   private recordActivation(

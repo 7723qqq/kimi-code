@@ -18,7 +18,6 @@ export {
 } from './agentTool';
 export type {
   AgentToolInput,
-  AgentToolOptions,
   AgentToolOutput,
   AgentToolSubagentMap,
   AgentToolSubagentProfile,

@@ -11,14 +11,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
-import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
+import { stubWorkspaceContext } from './stub-workspace-context';
 import type { ISessionAgentFileSystem } from '#/session/agentFs';
 import { type EditInput, EditInputSchema, EditTool } from '#/agent/fileTools/tools/edit';
 import type { IHostEnvironment } from '#/app/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;
-const PERMISSIVE_WORKSPACE: WorkspaceConfig = { workspaceDir: '/', additionalDirs: [] };
+const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
 
 function createTestEnv(home = '/home'): IHostEnvironment {
   return {
@@ -391,10 +391,7 @@ describe('EditTool', () => {
   it('rejects relative traversal edits before reading', async () => {
     const readText = vi.fn().mockResolvedValue('secret');
     const { fs } = createSpiedEditFs({ readText });
-    const tool = new EditTool(fs, createTestEnv(), {
-      workspaceDir: '/workspace/project',
-      additionalDirs: [],
-    });
+    const tool = new EditTool(fs, createTestEnv(), stubWorkspaceContext('/workspace/project'));
 
     const result = await execute(tool, {
       path: '../outside.txt',
@@ -491,10 +488,7 @@ describe('EditTool', () => {
       readText: vi.fn().mockResolvedValue('old content'),
       writeText,
     });
-    const tool = new EditTool(fs, createTestEnv(), {
-      workspaceDir: '/workspace',
-      additionalDirs: [],
-    });
+    const tool = new EditTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, {
       path: '/tmp/outside.txt',
@@ -514,10 +508,7 @@ describe('EditTool', () => {
       readText: vi.fn().mockResolvedValue('content'),
       writeText,
     });
-    const tool = new EditTool(fs, createTestEnv(), {
-      workspaceDir: '/workspace',
-      additionalDirs: [],
-    });
+    const tool = new EditTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, {
       path: '/workspace-sneaky/test.txt',

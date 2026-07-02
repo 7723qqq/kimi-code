@@ -11,24 +11,16 @@ import {
 import {
   Disposable,
 } from "#/_base/di";
-import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { generateHeroSlug } from "#/_base/utils/hero-slug";
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { ISessionAgentFileSystem } from '#/session/agentFs';
 import { IAgentProfileService } from '#/agent/profile';
 import { ITelemetryService } from '#/app/telemetry';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentRecordService } from '#/agent/record';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import type { ExecutableToolResult } from '#/agent/tool';
-import { EnterPlanModeInputSchema } from '#/agent/plan/tools/enter-plan-mode';
-import ENTER_PLAN_MODE_DESCRIPTION from './tools/enter-plan-mode.md?raw';
-import {
-  ExitPlanModeInputSchema,
-  type ExitPlanModeInput,
-} from '#/agent/plan/tools/exit-plan-mode';
-import EXIT_PLAN_MODE_DESCRIPTION from './tools/exit-plan-mode.md?raw';
+import { type ExitPlanModeInput } from '#/agent/plan/tools/exit-plan-mode';
 import {
   IAgentPlanService,
   type PlanData,
@@ -66,7 +58,6 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
     @IAgentRecordService private readonly record: IAgentRecordService,
     @ISessionAgentFileSystem private readonly agentFs: ISessionAgentFileSystem,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
@@ -93,37 +84,6 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
           this.applyInactive();
         },
         toReplay: () => ({ type: 'plan_updated', enabled: false }),
-      }),
-    );
-
-    this._register(
-      toolRegistry.register({
-        name: 'EnterPlanMode',
-        description: ENTER_PLAN_MODE_DESCRIPTION,
-        parameters: toInputJsonSchema(EnterPlanModeInputSchema),
-        resolveExecution: () => {
-          return {
-            description: 'Requesting to enter plan mode',
-            approvalRule: 'EnterPlanMode',
-            execute: async () => this.enterPlanModeToolResult(),
-          };
-        },
-      }),
-    );
-    this._register(
-      toolRegistry.register({
-        name: 'ExitPlanMode',
-        description: EXIT_PLAN_MODE_DESCRIPTION,
-        parameters: toInputJsonSchema(ExitPlanModeInputSchema),
-        resolveExecution: async (args: unknown) => {
-          const input = args as ExitPlanModeInput;
-          return {
-            description: 'Presenting plan and exiting plan mode',
-            display: await this.resolvePlanReviewDisplay(input),
-            approvalRule: 'ExitPlanMode',
-            execute: async () => this.exitPlanModeToolResult(input),
-          };
-        },
       }),
     );
 

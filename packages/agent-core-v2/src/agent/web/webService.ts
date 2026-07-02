@@ -1,14 +1,18 @@
 /**
  * `web` domain (L4) — `IAgentWebService` implementation.
  *
- * Registers the built-in web tools into the agent `IAgentToolRegistryService` on
- * construction: `FetchURL` is always registered (using the injected
- * `UrlFetcher` or the built-in `LocalFetchURLProvider` fallback); `WebSearch`
- * is registered only when a `WebSearchProvider` is supplied via options, since
- * there is no local search backend. Bound at Agent scope.
+ * Eager Agent-scope registration service for the built-in web tools: `FetchURL`
+ * is always registered (using the host-injected `UrlFetcher` or the built-in
+ * `LocalFetchURLProvider` fallback); `WebSearch` is registered only when a
+ * `WebSearchProvider` is supplied via options. Each tool is created via
+ * `IInstantiationService.createInstance` (the provider is passed as a leading
+ * static argument) and registered into the agent `IAgentToolRegistryService`.
+ * Eager so the tools are registered when the Agent scope is created.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
+import { IInstantiationService } from '#/_base/di/instantiation';
+import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 
@@ -17,17 +21,25 @@ import { FetchURLTool } from '#/agent/web/tools/fetch-url';
 import { WebSearchTool } from '#/agent/web/tools/web-search';
 import { IAgentWebService, type WebServiceOptions } from './web';
 
-export class AgentWebService implements IAgentWebService {
+export class AgentWebService extends Disposable implements IAgentWebService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
     private readonly options: WebServiceOptions = {},
+    @IInstantiationService private readonly instantiationService: IInstantiationService,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
   ) {
+    super();
     const fetcher = options.urlFetcher ?? new LocalFetchURLProvider();
-    toolRegistry.register(new FetchURLTool(fetcher));
+    this._register(
+      toolRegistry.register(instantiationService.createInstance(FetchURLTool, fetcher)),
+    );
     if (options.webSearcher !== undefined) {
-      toolRegistry.register(new WebSearchTool(options.webSearcher));
+      this._register(
+        toolRegistry.register(
+          instantiationService.createInstance(WebSearchTool, options.webSearcher),
+        ),
+      );
     }
   }
 }
@@ -36,6 +48,6 @@ registerScopedService(
   LifecycleScope.Agent,
   IAgentWebService,
   AgentWebService,
-  InstantiationType.Delayed,
+  InstantiationType.Eager,
   'web',
 );

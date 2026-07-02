@@ -29,6 +29,7 @@ import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { ISessionAgentFileSystem } from '#/session/agentFs';
 import { IHostEnvironment } from '#/app/hostEnvironment';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
@@ -77,15 +78,22 @@ export class EditTool implements BuiltinTool<EditInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EditInputSchema);
 
   constructor(
-    private readonly fs: ISessionAgentFileSystem,
-    private readonly env: IHostEnvironment,
-    private readonly workspace: WorkspaceConfig,
+    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @IHostEnvironment private readonly env: IHostEnvironment,
+    @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
   ) {}
+
+  private get workspaceConfig(): WorkspaceConfig {
+    return {
+      workspaceDir: this.workspaceCtx.workDir,
+      additionalDirs: this.workspaceCtx.additionalDirs,
+    };
+  }
 
   resolveExecution(args: EditInput): ToolExecution {
     const path = resolvePathAccessPath(args.path, {
       env: this.env,
-      workspace: this.workspace,
+      workspace: this.workspaceConfig,
       operation: 'write',
     });
     return {
@@ -101,7 +109,7 @@ export class EditTool implements BuiltinTool<EditInput> {
       approvalRule: literalRulePattern(this.name, path),
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
-          cwd: this.workspace.workspaceDir,
+          cwd: this.workspaceConfig.workspaceDir,
           pathClass: this.env.pathClass,
           homeDir: this.env.homeDir,
         }),

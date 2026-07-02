@@ -18,7 +18,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ensureRgPath } from '#/session/agentFs/rgLocator';
 import { PathSecurityError, type PathClass } from '../../src/_base/tools/policies/path-access';
-import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
+import { noopTelemetryService } from '#/app/telemetry';
+import type { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { stubWorkspaceContext } from './stub-workspace-context';
 import type { ISessionAgentFileSystem } from '#/session/agentFs';
 import { SessionAgentFileSystem } from '#/session/agentFs/agentFsService';
 import {
@@ -54,7 +56,7 @@ vi.mock('#/session/agentFs/rgLocator', () => ({
 const RG_AVAILABLE = spawnSync('rg', ['--version'], { stdio: 'ignore' }).status === 0;
 
 const signal = new AbortController().signal;
-const workspace: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: ['/extra'] };
+const workspace = stubWorkspaceContext('/workspace', ['/extra']);
 
 /** Fake fs with a spied `readdir` for the directory pre-check. */
 function createTestFs(opts: { readdir?: ReturnType<typeof vi.fn> } = {}) {
@@ -184,16 +186,20 @@ function toolContentString(result: ExecutableToolResult): string {
 
 /** Build a `GlobTool` with the given exec spy, using a fake env + runner. */
 function makeTool(
-  workspaceConfig: WorkspaceConfig,
+  workspaceConfig: ISessionWorkspaceContext,
   opts: { home?: string; pathClass?: PathClass; exec?: ReturnType<typeof vi.fn>; readdir?: ReturnType<typeof vi.fn>; telemetry?: ITelemetryService } = {},
 ): { tool: GlobTool; exec: ReturnType<typeof vi.fn>; withCwd: ReturnType<typeof withCwdOf> } {
   const exec = opts.exec ?? execReturning('');
   const { fs } = createTestFs({ readdir: opts.readdir });
   const runner = createTestRunner(exec);
   const env = createTestEnv({ home: opts.home, pathClass: opts.pathClass });
-  const tool = opts.telemetry !== undefined
-    ? new GlobTool(fs, env, runner, workspaceConfig, opts.telemetry)
-    : new GlobTool(fs, env, runner, workspaceConfig);
+  const tool = new GlobTool(
+    fs,
+    env,
+    runner,
+    workspaceConfig,
+    opts.telemetry ?? noopTelemetryService,
+  );
   return { tool, exec, withCwd: withCwdOf(exec) };
 }
 
@@ -254,7 +260,7 @@ describe('GlobTool', () => {
   it('uses the backend path class when displaying paths relative to a windows root', async () => {
     const exec = execReturning('C:\\workspace\\src\\old.ts\n');
     const { tool, withCwd } = makeTool(
-      { workspaceDir: 'C:\\workspace', additionalDirs: [] },
+      stubWorkspaceContext('C:\\workspace'),
       { pathClass: 'win32', exec },
     );
 
@@ -353,7 +359,7 @@ describe('GlobTool', () => {
       Array.from({ length: MAX_MATCHES + 1 }, (_, i) => `/workspace/${String(i)}.ts`).join('\n') +
       '\n';
     const exec = execReturning(stdout);
-    const { tool } = makeTool({ workspaceDir: '/workspace', additionalDirs: [] }, { exec });
+    const { tool } = makeTool(stubWorkspaceContext('/workspace'), { exec });
 
     const result = await execute(tool, { pattern: '*.ts' });
 
@@ -368,7 +374,7 @@ describe('GlobTool', () => {
         '\n',
       ) + '\n';
     const exec = execReturning(stdout);
-    const { tool } = makeTool({ workspaceDir: '/workspace', additionalDirs: [] }, { exec });
+    const { tool } = makeTool(stubWorkspaceContext('/workspace'), { exec });
 
     const result = await execute(tool, { pattern: '*.txt' });
 
@@ -380,7 +386,7 @@ describe('GlobTool', () => {
       Array.from({ length: MAX_MATCHES }, (_, i) => `/workspace/test_${String(i)}.py`).join('\n') +
       '\n';
     const exec = execReturning(stdout);
-    const { tool } = makeTool({ workspaceDir: '/workspace', additionalDirs: [] }, { exec });
+    const { tool } = makeTool(stubWorkspaceContext('/workspace'), { exec });
 
     const result = await execute(tool, { pattern: '*.py' });
 
@@ -468,10 +474,7 @@ describe('GlobTool', () => {
   });
 
   describe('skills / additional dirs', () => {
-    const skillsWorkspace: WorkspaceConfig = {
-      workspaceDir: '/workspace',
-      additionalDirs: ['/skills'],
-    };
+    const skillsWorkspace = stubWorkspaceContext('/workspace', ['/skills']);
 
     it('searches inside a registered additionalDir entry', async () => {
       const exec = execReturning('/skills/read_content.py\n/skills/utils.py\n');
@@ -501,7 +504,7 @@ describe('GlobTool', () => {
     it('rejects a relative path that escapes both workspace and additionalDirs', async () => {
       const exec = vi.fn();
       const { tool, withCwd } = makeTool(
-        { workspaceDir: '/workspace/project', additionalDirs: ['/skills'] },
+        stubWorkspaceContext('/workspace/project', ['/skills']),
         { exec },
       );
 
@@ -673,7 +676,7 @@ describe('GlobTool', () => {
   it('shows absolute paths when explicit search root is outside all workspace roots', async () => {
     const exec = execReturning('/extra/test.py\n');
     const { tool, withCwd } = makeTool(
-      { workspaceDir: '/workspace', additionalDirs: [] },
+      stubWorkspaceContext('/workspace'),
       { exec },
     );
 
@@ -684,7 +687,7 @@ describe('GlobTool', () => {
   });
 
   it('keeps absolute paths when explicit search root is an additionalDir', async () => {
-    const registered: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: ['/extra'] };
+    const registered = stubWorkspaceContext('/workspace', ['/extra']);
     const exec = execReturning('/extra/test.py\n');
     const { tool } = makeTool(registered, { exec });
 
@@ -708,7 +711,7 @@ describe('GlobTool', () => {
   it('expands a leading "~/" path before searching outside the workspace', async () => {
     const exec = execReturning('');
     const { tool, withCwd } = makeTool(
-      { workspaceDir: '/workspace', additionalDirs: [] },
+      stubWorkspaceContext('/workspace'),
       { home: '/home/test', exec },
     );
 
@@ -723,7 +726,7 @@ describe('GlobTool', () => {
   it('allows a path sharing the workspace prefix when it is absolute', async () => {
     const exec = execReturning('');
     const { tool, withCwd } = makeTool(
-      { workspaceDir: '/parent/workdir', additionalDirs: [] },
+      stubWorkspaceContext('/parent/workdir'),
       { exec },
     );
 
@@ -747,7 +750,7 @@ describe('GlobTool', () => {
 
   it('mentions Windows path forms in the description on win32 backends', () => {
     const { tool } = makeTool(
-      { workspaceDir: 'C:\\workspace', additionalDirs: [] },
+      stubWorkspaceContext('C:\\workspace'),
       { pathClass: 'win32' },
     );
 
@@ -825,13 +828,13 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
     await fs.utimes(full, mtime, mtime);
   }
 
-  const ws = (): WorkspaceConfig => ({ workspaceDir: tmpDir!, additionalDirs: [] });
+  const ws = () => stubWorkspaceContext(tmpDir!);
 
   it('returns files newest-first by modification time (--sortr=modified)', async () => {
     await touch('old.ts', new Date('2020-01-01T00:00:00Z'));
     await touch('mid.ts', new Date('2022-01-01T00:00:00Z'));
     await touch('new.ts', new Date('2024-01-01T00:00:00Z'));
-    const tool = new GlobTool(realFs, realEnv, realRunner, ws());
+    const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
 
     const result = await execute(tool, { pattern: '*.ts', path: tmpDir! });
 
@@ -842,7 +845,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
     await touch('root.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('src/a.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('src/sub/b.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(realFs, realEnv, realRunner, ws());
+    const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
 
     const result = await execute(tool, { pattern: '*.ts', path: tmpDir! });
 
@@ -855,7 +858,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
     await touch('src/a.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('test/a.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('other/a.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(realFs, realEnv, realRunner, ws());
+    const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
 
     const result = await execute(tool, { pattern: '{src,test}/*.ts', path: tmpDir! });
 
@@ -868,7 +871,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
     await touch('src/a.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('src/sub/b.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('other/c.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(realFs, realEnv, realRunner, ws());
+    const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
 
     const result = await execute(tool, { pattern: 'src/**/*.ts', path: tmpDir! });
 
@@ -879,7 +882,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
 
   it('treats an escaped brace as a literal filename', async () => {
     await touch('{a,b}.ts', new Date('2024-01-01T00:00:00Z'));
-    const tool = new GlobTool(realFs, realEnv, realRunner, ws());
+    const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
 
     const result = await execute(tool, { pattern: '\\{a,b\\}.ts', path: tmpDir! });
 
@@ -891,7 +894,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
     try {
       const extFile = path.join(externalDir, 'pkg.ts');
       await fs.writeFile(extFile, '');
-      const tool = new GlobTool(realFs, realEnv, realRunner, ws());
+      const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
 
       const result = await execute(tool, { pattern: '*.ts', path: externalDir });
 

@@ -38,7 +38,6 @@ import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentUsageService } from '#/agent/usage';
 import type { Turn } from '#/agent/turn';
 
-import { IAgentToolService } from './agentToolServiceToken';
 import { DEFAULT_AGENT_SUBAGENT_PROFILES, EXPLORE_ROLE_ADDITIONAL } from './profiles';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
@@ -82,7 +81,6 @@ export async function spawnChildAgent(args: SpawnChildAgentArgs): Promise<Subage
     swarmItem: options.swarmItem,
   });
   configureChild(caller, child, options.profileName);
-  ensureAgentTool(child);
   emitSpawned(caller, callerAgentId, child.id, options.profileName, options);
   const completion = runWithActiveChild(
     child,
@@ -143,14 +141,7 @@ async function requireAgent(
 ): Promise<IAgentScopeHandle> {
   const handle = lifecycle.getHandle(agentId);
   if (handle === undefined) throw new Error(`Agent instance "${agentId}" does not exist`);
-  ensureAgentTool(handle);
   return handle;
-}
-
-function ensureAgentTool(child: IAgentScopeHandle): void {
-  // Force-instantiate the child agent's `Agent` tool registrar so its `Agent`
-  // tool is registered before the child's first turn builds its tool list.
-  child.accessor.get(IAgentToolService);
 }
 
 function configureChild(source: IAgentScopeHandle, child: IAgentScopeHandle, profileName: string): void {
