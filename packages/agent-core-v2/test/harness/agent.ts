@@ -36,8 +36,8 @@ import {
   IAtomicDocumentStorage,
   IAgentBackgroundService,
   IBlobStorage,
-  IBootstrapOptions,
-  IBootstrapService,
+  IEnvironmentEnv,
+  IEnvironmentService,
   IConfigService,
   IAgentContextMemoryService,
   IAgentContextProjectorService,
@@ -82,9 +82,9 @@ import {
   AgentUserToolService,
   AgentWireRecordService,
   SessionWorkspaceContextService,
-  bootstrapSeed,
+  environmentSeed,
   createAppScope,
-  resolveBootstrapOptions,
+  resolveEnvironment,
   type IDisposable,
   type Scope,
   type ScopeSeed,
@@ -138,7 +138,6 @@ import type { AgentAPI } from '#/agent/rpc/core-api';
 import { IAgentSkillService } from '#/agent/skill/skill';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { AgentSkillService } from '#/agent/skill/skillService';
-import { ModelSkillTool } from '#/agent/skill/tools/modelSkill';
 import type { SkillCatalog } from '#/app/globalSkillCatalog/types';
 import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/agent/tool';
 import type {
@@ -207,21 +206,6 @@ interface Logger {
   debug(message: string, payload?: unknown): void;
   createChild?(bindings: LogContext): Logger;
   child?(bindings: LogContext): Logger;
-}
-
-class TestAgentSkillService extends AgentSkillService {
-  constructor(
-    @ISessionSkillCatalog skillCatalog: ISessionSkillCatalog,
-    @IAgentPromptService prompt: IAgentPromptService,
-    @IAgentRecordService records: IAgentRecordService,
-    @ITelemetryService telemetry: ITelemetryService,
-    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
-  ) {
-    super(skillCatalog, prompt, records, telemetry, toolRegistry);
-    if (skillCatalog.catalog.listInvocableSkills().length > 0) {
-      this._register(toolRegistry.register(new ModelSkillTool(this)));
-    }
-  }
 }
 
 export interface WireRecordPersistence {
@@ -484,10 +468,13 @@ function resolveProcessRunnerOverride(
 export function homeDirServices(homeDir: string | undefined): TestAgentServiceOverride {
   return appServices((reg) => {
     if (homeDir !== undefined) {
-      reg.defineInstance(
-        IBootstrapOptions,
-        resolveBootstrapOptions({ homeDir, cwd: process.cwd(), env: process.env }),
-      );
+      const { service, env } = resolveEnvironment({
+        homeDir,
+        cwd: process.cwd(),
+        env: process.env,
+      });
+      reg.defineInstance(IEnvironmentService, service);
+      reg.defineInstance(IEnvironmentEnv, env);
       const file = (): SyncDescriptor<IStorageService> =>
         new SyncDescriptor(FileStorageService, [homeDir], true);
       reg.defineDescriptor(IStorageService, file());
@@ -599,7 +586,7 @@ export function skillServices(input: ISessionSkillCatalog | SkillCatalog): TestA
     : createSessionSkillCatalog(input);
   return [
     sessionService(ISessionSkillCatalog, catalogService),
-    agentService(IAgentSkillService, new SyncDescriptor(TestAgentSkillService)),
+    agentService(IAgentSkillService, new SyncDescriptor(AgentSkillService)),
   ];
 }
 
@@ -853,11 +840,11 @@ class ConfigBackedModelResolver extends SessionModelResolver {
 class RecordingWireRecordService extends AgentWireRecordService {
   constructor(
     private readonly onAppend: (record: PersistedWireRecord) => void,
-    @IBootstrapService bootstrap: IBootstrapService,
+    @IEnvironmentService environment: IEnvironmentService,
     @IAgentBlobStoreService blobStore?: AgentBlobStoreService,
     @IAppendLogStore log?: IAppendLogStore,
   ) {
-    super({}, bootstrap, blobStore, log);
+    super({}, environment, blobStore, log);
   }
 
   override append(record: WireRecord): void {
@@ -932,7 +919,7 @@ export class AgentTestContext {
 
     const appSeeds = collectScopeSeed([
       (reg) => {
-        for (const [id, value] of bootstrapSeed({
+        for (const [id, value] of environmentSeed({
           homeDir: '/tmp/kimi-code-agent-app-v2-test',
           cwd: this.cwd,
           osHomeDir: TEST_HOME_DIR,
@@ -976,7 +963,7 @@ export class AgentTestContext {
     ], this.serviceOverrides, 'app');
     this.root = createAppScope({ extra: appSeeds });
 
-    const bootstrap = this.root.accessor.get(IBootstrapService);
+    const environment = this.root.accessor.get(IEnvironmentService);
     this.session = this.root.createChild(LifecycleScope.Session, sessionId, {
       extra: collectScopeSeed([
         (reg) => {
@@ -984,7 +971,7 @@ export class AgentTestContext {
             _serviceBrand: undefined,
             sessionId,
             workspaceId: 'test-workspace',
-            sessionDir: `${bootstrap.sessionsDir}/test-workspace/${sessionId}`,
+            sessionDir: `${environment.sessionsDir}/test-workspace/${sessionId}`,
             metaScope: `sessions/test-workspace/${sessionId}/session-meta`,
           });
           reg.defineInstance(ISessionInteractionService, this.createInteractionService());

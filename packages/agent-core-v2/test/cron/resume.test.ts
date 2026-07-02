@@ -2,8 +2,8 @@
  * Resume / cross-restart persistence for AgentCronService.
  *
  * The manager's `addTask` / `removeTasks` wrappers mirror every mutation
- * to `<sessionDir>/cron/<id>.json`, and `loadFromDisk()` re-populates
- * the in-memory store on `kimi resume`. The scheduler's
+ * to `<sessionDir>/agents/<agentId>/cron/<id>.json`, and `loadFromDisk()`
+ * re-populates the in-memory store on `kimi resume`. The scheduler's
  * `createdAt`-based baseline is what makes a reloaded task fire
  * correctly even when ideal fire times landed during downtime — these
  * tests pin down both sides of the contract.
@@ -11,7 +11,7 @@
 
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
+import { join, relative } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,7 +20,9 @@ import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
 import type { CronTask } from '#/agent/cron';
 import { IAgentCronService } from '#/agent/cron';
+import { IEnvironmentService } from '#/app/environment';
 import { IAtomicDocumentStore } from '#/app/storage';
+import { ISessionContext } from '#/session/sessionContext';
 import {
   createTestAgent,
   cronServices,
@@ -67,9 +69,19 @@ function captureSteer(prompt: IAgentPromptService): SteerCall[] {
   return calls;
 }
 
-async function readDiskIds(sessionDir: string): Promise<readonly string[]> {
+function cronDir(ctx: TestAgentContext): string {
+  const session = ctx.get(ISessionContext);
+  return join(session.sessionDir, 'agents', 'main', 'cron');
+}
+
+function cronScope(ctx: TestAgentContext): string {
+  const environment = ctx.get(IEnvironmentService);
+  return relative(environment.homeDir, cronDir(ctx));
+}
+
+async function readDiskIds(ctx: TestAgentContext): Promise<readonly string[]> {
   try {
-    const entries = await readdir(join(sessionDir, 'cron'));
+    const entries = await readdir(cronDir(ctx));
     return entries
       .filter((e) => e.endsWith('.json'))
       .map((e) => e.slice(0, -'.json'.length))
@@ -94,7 +106,7 @@ async function readPersistedTask(
   ctx: TestAgentContext,
   id: string,
 ): Promise<CronTask | undefined> {
-  return cronDocuments(ctx).get<CronTask>('cron', `${id}.json`);
+  return cronDocuments(ctx).get<CronTask>(cronScope(ctx), `${id}.json`);
 }
 
 describe('AgentCronService — persistence and resume', () => {
@@ -142,7 +154,7 @@ describe('AgentCronService — persistence and resume', () => {
       cron = ctx.get(IAgentCronService);
     });
 
-    it('addTask writes a JSON record to <sessionDir>/cron/<id>.json', async () => {
+    it('addTask writes a JSON record to <sessionDir>/agents/<agentId>/cron/<id>.json', async () => {
       const task = cron.addTask({
         cron: '*/5 * * * *',
         prompt: 'ping',
@@ -157,17 +169,17 @@ describe('AgentCronService — persistence and resume', () => {
         createdAt: harness.now(),
         recurring: undefined,
       });
-      expect(await readDiskIds(sessionDir)).toEqual([task.id]);
+      expect(await readDiskIds(ctx)).toEqual([task.id]);
     });
 
     it('removeTasks deletes the JSON record', async () => {
       const task = cron.addTask({ cron: '*/5 * * * *', prompt: 'a' });
       await cron.flushPersist();
-      expect((await readDiskIds(sessionDir)).length).toBe(1);
+      expect((await readDiskIds(ctx)).length).toBe(1);
 
       cron.removeTasks([task.id]);
       await cron.flushPersist();
-      expect(await readDiskIds(sessionDir)).toEqual([]);
+      expect(await readDiskIds(ctx)).toEqual([]);
     });
   });
 
@@ -290,7 +302,7 @@ describe('AgentCronService — persistence and resume', () => {
         recurring: false,
       });
       await cron.flushPersist();
-      expect(await readDiskIds(sessionDir)).toEqual([oneShot.id]);
+      expect(await readDiskIds(ctx)).toEqual([oneShot.id]);
       clockB.install();
       await resumedCron!.loadFromDisk();
 
@@ -305,7 +317,7 @@ describe('AgentCronService — persistence and resume', () => {
 
       await resumedCron!.flushPersist();
       expect(resumedCron!.list()).toEqual([]);
-      expect(await readDiskIds(sessionDir)).toEqual([]);
+      expect(await readDiskIds(ctx)).toEqual([]);
     });
   });
 
@@ -391,7 +403,7 @@ describe('AgentCronService — persistence and resume', () => {
 
       const original = await readPersistedTask(ctx, task.id);
       if (original === undefined) throw new Error('expected persisted task');
-      await cronDocuments(ctx).set('cron', `${task.id}.json`, {
+      await cronDocuments(ctx).set(cronScope(ctx), `${task.id}.json`, {
         ...original,
         lastFiredAt: clockA.now() + 365 * 24 * 60 * 60 * 1000,
       });
@@ -422,7 +434,7 @@ describe('AgentCronService — persistence and resume', () => {
     it('no sessionDir = pure in-memory: no FS side effects, loadFromDisk is a no-op', async () => {
       cron.addTask({ cron: '*/5 * * * *', prompt: 'a' });
       await cron.flushPersist();
-      expect(await readDiskIds(sessionDir)).toEqual([]);
+      expect(await readDiskIds(ctx)).toEqual([]);
 
       expect(cron.list().length).toBe(1);
       await cron.loadFromDisk();

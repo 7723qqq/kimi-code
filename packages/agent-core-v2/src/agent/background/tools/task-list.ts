@@ -8,7 +8,8 @@ import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
 
-import type { BackgroundTaskInfo, IAgentBackgroundService } from '#/agent/background/background';
+import { IAgentBackgroundService } from '#/agent/background/background';
+import type { BackgroundTaskInfo } from '#/agent/background/background';
 import { formatPlainObject } from './format';
 import TASK_LIST_DESCRIPTION from './task-list.md?raw';
 
@@ -48,7 +49,7 @@ export class TaskListTool implements BuiltinTool<TaskListInput> {
   readonly description = TASK_LIST_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskListInputSchema);
 
-  constructor(private readonly background: IAgentBackgroundService) {}
+  constructor(@IAgentBackgroundService private readonly background: IAgentBackgroundService) {}
 
   resolveExecution(args: TaskListInput): ToolExecution {
     const listScope = (args.active_only ?? true) ? 'active' : 'all';

@@ -5,7 +5,6 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentBackgroundService } from '#/agent/background';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
-import { IAgentFileToolsService } from '#/agent/fileTools';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction';
 import { IAgentGoalService } from '#/agent/goal';
 import { IAgentRecordService } from '#/agent/record';
@@ -19,12 +18,8 @@ import { IHostEnvironment } from '#/app/hostEnvironment';
 import { expandCommandArguments, IPluginService } from '#/app/plugin';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
-import { IAgentQuestionToolsService } from '#/agent/questionTools';
-import { ISessionMetadata, type SessionMetaPatch } from '#/session/session-metadata';
-import { BashTool, IAgentShellToolsService } from '#/agent/shellTools';
+import { ISessionMetadata, type SessionMetaPatch } from '#/session/sessionMetadata';
 import { IAgentSkillService } from '#/agent/skill';
-import { ISessionProcessRunner } from '#/session/process';
-import { IAgentToolService } from '#/agent/agentTool';
 import { IAgentSwarmService } from '#/agent/swarm';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
@@ -32,7 +27,6 @@ import type { ToolUpdate } from '#/agent/tool';
 import { IAgentTurnService } from '#/agent/turn';
 import { IAgentUsageService } from '#/agent/usage';
 import { IAgentUserToolService } from '#/agent/userTool';
-import { IAgentWebService } from '#/agent/web';
 import type {
   ActivatePluginCommandPayload,
   ActivateSkillPayload,
@@ -83,22 +77,16 @@ export class AgentRPCService implements IAgentRPCService {
     @IAgentFullCompactionService private readonly fullCompaction: IAgentFullCompactionService,
     @IAgentUserToolService private readonly userTools: IAgentUserToolService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
-    @IAgentFileToolsService private readonly fileTools: IAgentFileToolsService,
-    @IAgentShellToolsService private readonly shellTools: IAgentShellToolsService,
-    @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
     @IExecContext private readonly execContext: IExecContext,
     @IHostEnvironment private readonly hostEnv: IHostEnvironment,
     @IAgentBackgroundService private readonly background: IAgentBackgroundService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentSkillService private readonly skills: IAgentSkillService,
-    @IAgentToolService private readonly agentTool: IAgentToolService,
     @IAgentUsageService private readonly usage: IAgentUsageService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentGoalService private readonly goal: IAgentGoalService,
     @IAgentRecordService private readonly record: IAgentRecordService,
-    @IAgentQuestionToolsService private readonly questionTools: IAgentQuestionToolsService,
-    @IAgentWebService private readonly web: IAgentWebService,
     @IPluginService private readonly plugins: IPluginService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
   ) { }
@@ -113,10 +101,10 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   private ensureBashTool() {
-    const existing = this.toolRegistry.resolve('Bash');
-    if (existing !== undefined) return existing;
-    const bash = new BashTool(this.processRunner, this.hostEnv, this.execContext, this.background);
-    this.toolRegistry.register(bash);
+    const bash = this.toolRegistry.resolve('Bash');
+    if (bash === undefined) {
+      throw new Error('Bash tool is not registered.');
+    }
     return bash;
   }
 

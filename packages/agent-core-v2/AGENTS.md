@@ -22,9 +22,9 @@ Impl (`src/session/sessionService.ts`):
 /**
  * `session` domain (L6) — `ISessionService` implementation.
  *
- * Runs session-level commands; reads its identity through `session-context`,
- * mutates metadata through `session-metadata`, drives agent teardown through
- * `agent-lifecycle`, and broadcasts through `event`. Bound at Session scope.
+ * Runs session-level commands; reads its identity through `sessionContext`,
+ * mutates metadata through `sessionMetadata`, drives agent teardown through
+ * `agentLifecycle`, and broadcasts through `event`. Bound at Session scope.
  */
 ```
 

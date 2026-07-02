@@ -14,8 +14,8 @@ export * from '#/app/hostFs';
 export { IEventService, type DomainEvent } from '#/app/event';
 export * from '#/app/chatProvider';
 
-export * from '#/app/session-index';
-export * from '#/session/session-metadata';
+export * from '#/app/sessionIndex';
+export * from '#/session/sessionMetadata';
 export * from '#/app/config';
 export * from '#/app/provider';
 export * from '#/app/model';
@@ -41,12 +41,12 @@ export * from '#/agent/toolDedupe';
 export * from '#/agent/background';
 import '#/agent/cron';
 
-export * from '#/session/agent-lifecycle';
-export * from '#/app/session-lifecycle';
+export * from '#/session/agentLifecycle';
+export * from '#/app/sessionLifecycle';
 export * from '#/app/sessionLegacy';
 export * from '#/session/interaction';
-export * from '#/session/session-context';
-export * from '#/session/session-activity';
+export * from '#/session/sessionContext';
+export * from '#/session/sessionActivity';
 export * from '#/session/session';
 
 import '#/session/approval';

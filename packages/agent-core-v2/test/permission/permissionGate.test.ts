@@ -26,7 +26,7 @@ import type { PermissionRule } from '#/agent/permissionRules';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules';
 import { IAgentPlanService } from '#/agent/plan';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile';
-import { ISessionContext } from '#/session/session-context';
+import { ISessionContext } from '#/session/sessionContext';
 import { IAgentSwarmService } from '#/agent/swarm';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';

@@ -15,7 +15,7 @@ import type { Message, PageResponse } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import {
   IAgentContextMemoryService,
   toProtocolMessage,
@@ -23,8 +23,8 @@ import {
 } from '#/agent/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
-import { ISessionIndex } from '#/app/session-index';
-import { ISessionLifecycleService } from '#/app/session-lifecycle';
+import { ISessionIndex } from '#/app/sessionIndex';
+import { ISessionLifecycleService } from '#/app/sessionLifecycle';
 
 import { IMessageLegacyService, type MessageListQuery } from './messageLegacy';
 

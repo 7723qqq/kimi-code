@@ -1,6 +1,7 @@
 import {
   Disposable,
 } from "#/_base/di";
+import { IInstantiationService } from "#/_base/di/instantiation";
 import {
   TODO_LIST_TOOL_NAME,
   TODO_STORE_KEY,
@@ -30,9 +31,10 @@ export class AgentTodoListService extends Disposable implements IAgentTodoListSe
     @IAgentToolStoreService private readonly toolStore: IAgentToolStoreService,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
+    @IInstantiationService private readonly instantiationService: IInstantiationService,
   ) {
     super();
-    this._register(toolRegistry.register(new TodoListTool(toolStore)));
+    this._register(toolRegistry.register(instantiationService.createInstance(TodoListTool)));
     this._register(
       dynamicInjector.register(TODO_LIST_REMINDER_VARIANT, () => this.staleReminder()),
     );

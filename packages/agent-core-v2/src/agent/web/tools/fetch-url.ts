@@ -41,7 +41,10 @@ export interface UrlFetchResult {
 }
 
 export interface UrlFetcher {
-  fetch(url: string, options?: { toolCallId?: string }): Promise<UrlFetchResult>;
+  fetch(
+    url: string,
+    options?: { toolCallId?: string; signal?: AbortSignal },
+  ): Promise<UrlFetchResult>;
 }
 
 /**
@@ -90,10 +93,10 @@ export class FetchURLTool implements BuiltinTool<FetchURLInput> {
 
   private async execution(
     args: FetchURLInput,
-    { toolCallId }: ExecutableToolContext,
+    { toolCallId, signal }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
     try {
-      const { content, kind } = await this.fetcher.fetch(args.url, { toolCallId });
+      const { content, kind } = await this.fetcher.fetch(args.url, { toolCallId, signal });
 
       if (!content) {
         return {
@@ -113,6 +116,11 @@ export class FetchURLTool implements BuiltinTool<FetchURLInput> {
           : 'The returned content is the main text extracted from the page.';
       return builder.ok(message);
     } catch (error) {
+      // An in-flight abort rejects the signal-aware fetch promptly. Re-throw
+      // so the executor can classify it (including user cancellation) and
+      // produce the right message, rather than surfacing it as a generic
+      // network error that the model may retry.
+      if (signal.aborted) throw error;
       const msg = error instanceof Error ? error.message : String(error);
       if (error instanceof HttpFetchError) {
         return {

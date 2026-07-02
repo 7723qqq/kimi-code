@@ -61,9 +61,9 @@ Worked example — v1 `ISessionService` (one class, ~600 lines) holds:
 
 - a global index of all sessions → **global** unit → v2 `sessionStore` (`ISessionStore`, App);
 - this session's metadata → **per-session** unit → v2 `sessionMetaStore` (`ISessionMetaStore`, Session);
-- this session's activity / status → **per-session** unit → v2 `session-activity`;
-- this session's context projection → **per-session** unit → v2 `session-context`;
-- child-agent lifecycle driven by a session → **per-session orchestration** → v2 `session` (`ISessionService`, Session) + `agent-lifecycle`.
+- this session's activity / status → **per-session** unit → v2 `sessionActivity`;
+- this session's context projection → **per-session** unit → v2 `sessionContext`;
+- child-agent lifecycle driven by a session → **per-session orchestration** → v2 `session` (`ISessionService`, Session) + `agentLifecycle`.
 
 A v1 class that maps cleanly to one v1 decorator often becomes **three to five** v2 Services. That is expected and correct — do not try to keep the v1 class shape.
 
@@ -80,14 +80,14 @@ Red lines:
 Actions:
 
 - Search v2 `src/` for an existing domain that owns the same responsibility. Prefer joining an existing domain over creating a new one.
-- If creating a domain, name it after the responsibility (kebab-case folder, e.g. `session-activity`), not after the v1 file.
+- If creating a domain, name it after the responsibility (kebab-case folder, e.g. `sessionActivity`), not after the v1 file.
 - Keep a domain's public surface to one contract file (`<domain>.ts`) plus its impl(s).
 
 Reference mapping (a **starting point**, not gospel — verify against the current v2 `src/`, which is the source of truth):
 
 | v1 location | v2 domain(s) |
 |---|---|
-| `services/session/`, `session/` | `session`, `sessionStore`, `sessionMetaStore`, `session-activity`, `session-context`, `agent-lifecycle` |
+| `services/session/`, `session/` | `session`, `sessionStore`, `sessionMetaStore`, `sessionActivity`, `sessionContext`, `agentLifecycle` |
 | `services/tool/`, `tools/`, `agent/tool/` | `toolRegistry`, `toolStore`, `toolExecutor`, `tooldedup`, `userTool` |
 | `loop/`, `agent/` (turn loop) | `loop`, `llmRequester`, `llmRequestLog`, `turn` |
 | `agent/context/`, `agent/compaction/` | `contextMemory`, `contextProjector`, `contextSize`, `microCompaction`, `fullCompaction`, `dynamicInjector` |

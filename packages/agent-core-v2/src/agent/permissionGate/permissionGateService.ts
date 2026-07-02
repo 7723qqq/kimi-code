@@ -21,7 +21,7 @@ import {
   type PermissionPolicyResult,
 } from '#/agent/permissionPolicy';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules';
-import { ISessionContext } from '#/session/session-context';
+import { ISessionContext } from '#/session/sessionContext';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import {

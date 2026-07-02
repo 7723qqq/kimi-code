@@ -99,7 +99,7 @@ Three mechanisms answer three different questions:
 
 **Q2. Is B's reaction part of A's responsibility, or B's own concern?**
 
-- A's responsibility *includes* B's behavior (A orchestrates B) → **direct call**. E.g. `session` drives `agent-lifecycle`; `loop` drives `llmRequester` / `toolExecutor`.
+- A's responsibility *includes* B's behavior (A orchestrates B) → **direct call**. E.g. `session` drives `agentLifecycle`; `loop` drives `llmRequester` / `toolExecutor`.
 - B's reaction is B's own concern, A merely states a fact → **event**. E.g. `flag` reacts to `config.onDidChange`.
 
 **Q3. How many consumers?**
@@ -152,7 +152,7 @@ Lower is depended on by higher, never the reverse:
 1. **Root** (depend on no business domain): `_base`, `log`, `environment`, `event`, `telemetry`, `kaos`.
 2. **Data / state**: `records`, `filestore`, `workspace`, `blobStore`, `config`.
 3. **Capabilities**: `tool`, `permission`, `prompt`, `contextMemory`, `kosong`, `skill`, …
-4. **Orchestrators**: `session`, `agent-lifecycle`, `loop`, `turn`, `swarm`.
+4. **Orchestrators**: `session`, `agentLifecycle`, `loop`, `turn`, `swarm`.
 5. **Edge**: `gateway`, `rpc`.
 
 Red lines:
@@ -227,17 +227,17 @@ domain: `session`   (owning scope: Session)
 ├─ serves (who uses me)
 │   ├─ (inject)   — (none yet)
 │   └─ (accessor)
-│       ├─ session-lifecycle  @App        — archive() before disposing the child scope
+│       ├─ sessionLifecycle  @App        — archive() before disposing the child scope
 │       └─ gateway / rpc      @App(edge)  — session-level commands (archive, rename…)
 ├─ exposes (interfaces I provide, by scope)
 │   ├─ App       : —                    — (no global session state here)
 │   ├─ Session  : ISessionService      — this session's operations + child-agent set
-│   └─ Agent    : —                    — (per-agent state lives in agent-lifecycle)
+│   └─ Agent    : —                    — (per-agent state lives in agentLifecycle)
 └─ depends (what I inject)
-    ├─ session-context    @Session  direct  — reads its own identity
-    ├─ agent-lifecycle    @Session  direct  — drives child-agent lifecycle
+    ├─ sessionContext    @Session  direct  — reads its own identity
+    ├─ agentLifecycle    @Session  direct  — drives child-agent lifecycle
     ├─ sessionMetaStore   @Session  direct  — persists session metadata
-    ├─ session-activity   @Session  direct  — records activity
+    ├─ sessionActivity   @Session  direct  — records activity
     └─ event              @App     direct  — broadcasts session-level facts
 ```
 
@@ -257,9 +257,9 @@ App scope
 
 How the three lenses shaped it:
 
-- **Scope (§2)** → state is keyed by `sessionId`, so it is Session-scoped; it orchestrates `agent-lifecycle` (direct) and announces on `event`.
-- **Dependency direction (§5)** → `session` is consumed by `session-lifecycle` and projected by the edge, both via `accessor` borrows; it never imports them. Every downward arrow lands on a peer or a more foundational Service.
-- **Extension points (§4)** → new per-session behavior plugs in via `session-activity` or `agent-lifecycle` hooks; new transports stay at the edge. Neither edits `session`.
+- **Scope (§2)** → state is keyed by `sessionId`, so it is Session-scoped; it orchestrates `agentLifecycle` (direct) and announces on `event`.
+- **Dependency direction (§5)** → `session` is consumed by `sessionLifecycle` and projected by the edge, both via `accessor` borrows; it never imports them. Every downward arrow lands on a peer or a more foundational Service.
+- **Extension points (§4)** → new per-session behavior plugs in via `sessionActivity` or `agentLifecycle` hooks; new transports stay at the edge. Neither edits `session`.
 
 For a multi-scope split, the `exposes` block fills more than one scope — see the `records` pattern in §3.
 

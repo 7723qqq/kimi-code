@@ -57,11 +57,15 @@ const DOMAIN_LAYER = new Map([
   // `execContext` is the Session-scope seeded immutable value (`cwd`,
   // `envLayers`); same layer as the other low-level bridges.
   ['execContext', 1],
-  // `session-context` is the Session-scope seeded immutable facts value
+  // `sessionContext` is the Session-scope seeded immutable facts value
   // (`sessionId`/`workspaceId`/`sessionDir`/`metaScope`); like `execContext`
   // it is a pure seed with no IO, so it sits in L1.
-  ['session-context', 1],
+  ['sessionContext', 1],
   ['hostFs', 1],
+  // `git` is the App-scope `IGitService` that runs `git status` / `git diff`
+  // against a local repo via `node:child_process`; it depends only on `_base`
+  // and the `errors` facade, so it sits in L1 beside the other host bridges.
+  ['git', 1],
   ['workspaceContext', 1],
   ['chatProvider', 1],
   ['hooks', 1],
@@ -79,7 +83,7 @@ const DOMAIN_LAYER = new Map([
   ['auth', 2],
   ['provider', 2],
   ['model', 2],
-  ['session-index', 2],
+  ['sessionIndex', 2],
   ['sessionStore', 2],
   // L3 — registries & capabilities
   ['tool', 3],
@@ -135,15 +139,15 @@ const DOMAIN_LAYER = new Map([
   ['mcp', 5],
   ['cron', 5],
   ['agentTool', 5],
-  // `btw` forks a single side-question sub-agent via `agent-lifecycle`, mirroring
+  // `btw` forks a single side-question sub-agent via `agentLifecycle`, mirroring
   // the `agentTool` shape (Agent-scope, spawns one child) — same layer.
   ['btw', 5],
   // L6 — coordination
-  ['agent-lifecycle', 6],
-  ['session-lifecycle', 6],
+  ['agentLifecycle', 6],
+  ['sessionLifecycle', 6],
   ['interaction', 6],
-  ['session-metadata', 6],
-  ['session-activity', 6],
+  ['sessionMetadata', 6],
+  ['sessionActivity', 6],
   ['session', 6],
   ['terminal', 6],
   // L7 — boundary
@@ -201,11 +205,11 @@ function domainFromRel(rel, { exemptRootFile }) {
  *  - `userTool>interaction`     : userTool(Agent) requests host-side execution
  *                                 through the Session interaction broker.
  *  - `skill>turn`           : skill activate starts a turn (same Agent scope intent).
- *  - `turn>agent-lifecycle` : turn cancels sub-agents via lifecycle handle.
- *  - `swarm>agent-lifecycle`: swarm spawns/manages sub-agents.
- *  - `background>agent-lifecycle`: background agent-tasks spawn sub-agents.
- *  - `cron>agent-lifecycle` : cron coordinator steers the main agent.
- *  - `cron>session-activity`: cron scheduler gates on session idle.
+ *  - `turn>agentLifecycle` : turn cancels sub-agents via lifecycle handle.
+ *  - `swarm>agentLifecycle`: swarm spawns/manages sub-agents.
+ *  - `background>agentLifecycle`: background agent-tasks spawn sub-agents.
+ *  - `cron>agentLifecycle` : cron coordinator steers the main agent.
+ *  - `cron>sessionActivity`: cron scheduler gates on session idle.
  *
  * Post-rebase-v2 restructuring introduced cross-domain type sharing between
  * L3 (registries/capabilities) and L4 (agent behaviour). The tool contract
@@ -224,11 +228,11 @@ const ALLOWED_EXCEPTIONS = new Set([
   'permissionGate>approval',
   'userTool>interaction',
   'skill>turn',
-  'turn>agent-lifecycle',
-  'swarm>agent-lifecycle',
-  'background>agent-lifecycle',
-  'cron>agent-lifecycle',
-  'cron>session-activity',
+  'turn>agentLifecycle',
+  'swarm>agentLifecycle',
+  'background>agentLifecycle',
+  'cron>agentLifecycle',
+  'cron>sessionActivity',
   'wireRecord>hooks',
   // L3/L4 type-sharing: tool contract + execution hook contexts now live in
   // `tool`; the remaining upward import is a `loop` error/event helper.
@@ -247,15 +251,15 @@ const ALLOWED_EXCEPTIONS = new Set([
   'profile>session',
   'replayBuilder>background',
   'replayBuilder>rpc',
-  'replayBuilder>session-metadata',
+  'replayBuilder>sessionMetadata',
   'shellTools>background',
   'skill>contextMemory',
   'skill>prompt',
   'swarm>agentTool',
-  'swarm>session-metadata',
-  'btw>agent-lifecycle',
-  'agentTool>agent-lifecycle',
-  'agentTool>session-metadata',
+  'swarm>sessionMetadata',
+  'btw>agentLifecycle',
+  'agentTool>agentLifecycle',
+  'agentTool>sessionMetadata',
   'toolExecutor>loop',
   'userTool>profile',
   'wireRecord>contextMemory',

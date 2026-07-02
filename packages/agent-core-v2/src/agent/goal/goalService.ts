@@ -9,18 +9,12 @@
  * `telemetry`. Bound at Agent scope.
  */
 
-import { randomUUID } from 'node:crypto';
-import type { TokenUsage } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import type { TokenUsage } from '@moonshot-ai/kosong';
+import { randomUUID } from 'node:crypto';
 
 import { Disposable } from "#/_base/di";
-import {
-  ErrorCodes,
-  KimiError,
-  toKimiErrorPayload,
-  type KimiErrorPayload,
-} from "#/errors";
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import {
   ensureMessageId,
@@ -29,12 +23,20 @@ import {
   type PromptOrigin,
 } from '#/agent/contextMemory';
 import {
+  GoalInjection,
+  type GoalInjectionOptions,
+} from '#/agent/goal/injection/goalInjection';
+import {
+  buildGoalBlockedReasonPrompt,
+  buildGoalCompletionSummaryPrompt,
+} from '#/agent/goal/tools/outcome-prompts';
+import {
   IAgentLoopService,
   type TurnAfterStepContext,
   type TurnBeforeStepContext,
   type TurnStepUsageContext,
 } from '#/agent/loop';
-import { IAgentPermissionModeService } from '#/agent/permissionMode';
+import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import {
@@ -44,16 +46,16 @@ import {
 } from '#/agent/turn';
 import type { TelemetryProperties } from '#/app/telemetry';
 import { ITelemetryService } from '#/app/telemetry';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IAgentRecordService, type AgentRecord } from '#/agent/record';
+import {
+  ErrorCodes,
+  KimiError,
+  toKimiErrorPayload,
+  type KimiErrorPayload,
+} from "#/errors";
 import {
   IAgentGoalService,
   type GoalReasonInput,
 } from './goal';
-import {
-  GoalInjection,
-  type GoalInjectionOptions,
-} from '#/agent/goal/injection/goalInjection';
 import type {
   CreateGoalInput,
   GoalActor,
@@ -65,14 +67,6 @@ import type {
   GoalStatus,
   GoalToolResult,
 } from './types';
-import { CreateGoalTool } from '#/agent/goal/tools/create-goal';
-import { GetGoalTool } from '#/agent/goal/tools/get-goal';
-import {
-  buildGoalBlockedReasonPrompt,
-  buildGoalCompletionSummaryPrompt,
-} from '#/agent/goal/tools/outcome-prompts';
-import { SetGoalBudgetTool } from '#/agent/goal/tools/set-goal-budget';
-import { UpdateGoalTool } from '#/agent/goal/tools/update-goal';
 
 declare module '#/agent/wireRecord' {
   interface WireRecordMap {
@@ -177,8 +171,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentLoopService loopService: IAgentLoopService,
-    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
-    @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
   ) {
     super();
     this._register(
@@ -261,11 +253,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
         }
       }),
     );
-
-    this._register(toolRegistry.register(new CreateGoalTool(this, this.permissionMode)));
-    this._register(toolRegistry.register(new GetGoalTool(this)));
-    this._register(toolRegistry.register(new SetGoalBudgetTool(this)));
-    this._register(toolRegistry.register(new UpdateGoalTool(this)));
   }
 
   get enabled(): boolean {

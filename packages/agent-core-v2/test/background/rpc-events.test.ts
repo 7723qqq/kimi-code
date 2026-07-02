@@ -22,7 +22,7 @@ import { IAgentEventSinkService } from '#/agent/eventSink';
 import type { HookEngine } from '#/agent/externalHooks/engine';
 import { IAgentPromptService } from '#/agent/prompt';
 import type { SubagentHandle } from '#/agent/agentTool';
-import { ISessionMetadata } from '#/session/session-metadata';
+import { ISessionMetadata } from '#/session/sessionMetadata';
 import {
   configServices,
   createTestAgent,

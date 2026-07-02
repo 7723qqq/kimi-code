@@ -57,8 +57,9 @@ import {
   shouldRetryRipgrepEagain,
 } from '#/session/agentFs/runRg';
 import { IHostEnvironment } from '#/app/hostEnvironment';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ISessionProcessRunner } from '#/session/process';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import {
@@ -144,17 +145,22 @@ export class GlobTool implements BuiltinTool<GlobInput> {
   readonly name = 'Glob' as const;
   readonly description: string;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GlobInputSchema);
-  private readonly telemetry: ITelemetryService;
   constructor(
-    private readonly fs: ISessionAgentFileSystem,
-    private readonly env: IHostEnvironment,
-    private readonly runner: ISessionProcessRunner,
-    private readonly workspace: WorkspaceConfig,
-    telemetry: ITelemetryService = noopTelemetryService,
+    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @IHostEnvironment private readonly env: IHostEnvironment,
+    @ISessionProcessRunner private readonly runner: ISessionProcessRunner,
+    @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
-    this.telemetry = telemetry;
     this.description =
       this.env.pathClass === 'win32' ? globDescription + WINDOWS_PATH_HINT : globDescription;
+  }
+
+  private get workspaceConfig(): WorkspaceConfig {
+    return {
+      workspaceDir: this.workspaceCtx.workDir,
+      additionalDirs: this.workspaceCtx.additionalDirs,
+    };
   }
 
   resolveExecution(args: GlobInput): ToolExecution {
@@ -162,12 +168,12 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     if (args.path !== undefined) {
       path = resolvePathAccessPath(args.path, {
         env: this.env,
-        workspace: this.workspace,
+        workspace: this.workspaceConfig,
         operation: 'search',
         policy: { guardMode: 'absolute-outside-allowed', checkSensitive: false },
       });
     }
-    const searchRoots = [path ?? this.workspace.workspaceDir];
+    const searchRoots = [path ?? this.workspaceConfig.workspaceDir];
 
     const detailParts: string[] = [`pattern: ${args.pattern}`];
     if (args.path !== undefined) {
@@ -197,7 +203,7 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     signal: AbortSignal,
     searchRoots: readonly string[],
   ): Promise<ExecutableToolResult> {
-    const searchRoot = searchRoots[0] ?? this.workspace.workspaceDir;
+    const searchRoot = searchRoots[0] ?? this.workspaceConfig.workspaceDir;
 
     // `rg --files <file>` exits 0 and lists the file itself, so without this
     // check a file root would be returned as its own match instead of
@@ -340,7 +346,7 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     // later resolved against workspaceDir, so additionalDir matches stay
     // absolute to keep follow-up Read/Edit calls on the same file.
     const pathClass = this.env.pathClass;
-    const shouldRelativize = isWithinDirectory(searchRoot, this.workspace.workspaceDir, pathClass);
+    const shouldRelativize = isWithinDirectory(searchRoot, this.workspaceConfig.workspaceDir, pathClass);
     const displayLines = limited.map((p) =>
       shouldRelativize ? relativizeIfUnder(p, searchRoot, pathClass) : p,
     );

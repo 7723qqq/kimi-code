@@ -1,39 +1,30 @@
 /**
  * `shellTools` domain (L4) — `IAgentShellToolsService` implementation.
  *
- * Registers the built-in Bash tool into the agent `IAgentToolRegistryService` on
- * construction, wiring it to the session `ISessionProcessRunner` (process spawn),
- * `IHostEnvironment` (OS / shell probe), `IExecContext` (session cwd) and
- * `IAgentBackgroundService` (background-task lifecycle). Bound at Agent scope.
+ * Eager Agent-scope registration service for the built-in Bash tool. The tool is
+ * a DI class created via `IInstantiationService.createInstance` and registered
+ * into the agent `IAgentToolRegistryService`. Eager so Bash is registered when
+ * the Agent scope is created, before the first turn.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
+import { IInstantiationService } from '#/_base/di/instantiation';
+import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentBackgroundService } from '#/agent/background';
-import { IHostEnvironment } from '#/app/hostEnvironment';
-import { IExecContext } from '#/session/execContext';
-import { ISessionProcessRunner } from '#/session/process';
-import { IAgentProfileService } from '#/agent/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 
 import { IAgentShellToolsService } from './shellTools';
 import { BashTool } from '#/agent/shellTools/tools/bash';
 
-export class AgentShellToolsService implements IAgentShellToolsService {
+export class AgentShellToolsService extends Disposable implements IAgentShellToolsService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
+    @IInstantiationService private readonly instantiationService: IInstantiationService,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
-    @ISessionProcessRunner runner: ISessionProcessRunner,
-    @IHostEnvironment env: IHostEnvironment,
-    @IExecContext ctx: IExecContext,
-    @IAgentBackgroundService background: IAgentBackgroundService,
-    @IAgentProfileService profile: IAgentProfileService,
   ) {
-    toolRegistry.register(new BashTool(runner, env, ctx, background, {
-      allowBackground: () =>
-        profile.isToolActive('TaskOutput') && profile.isToolActive('TaskStop'),
-    }));
+    super();
+    this._register(toolRegistry.register(instantiationService.createInstance(BashTool)));
   }
 }
 
@@ -41,6 +32,6 @@ registerScopedService(
   LifecycleScope.Agent,
   IAgentShellToolsService,
   AgentShellToolsService,
-  InstantiationType.Delayed,
+  InstantiationType.Eager,
   'shellTools',
 );

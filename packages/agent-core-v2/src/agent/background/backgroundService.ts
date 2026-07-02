@@ -29,10 +29,9 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IConfigService } from '#/app/config';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentPromptService } from '#/agent/prompt';
-import { ISessionContext } from '#/session/session-context';
+import { ISessionContext } from '#/session/sessionContext';
 import { IAtomicDocumentStore, IStorageService } from '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 import {
   IAgentBackgroundService,
@@ -136,7 +135,6 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     @IAgentPromptService private readonly prompt: IAgentPromptService,
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore atomicDocs: IAtomicDocumentStore,
     @IStorageService byteStore: IStorageService,
@@ -183,10 +181,6 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
         }
       }),
     );
-
-    this._register(toolRegistry.register(new TaskListTool(this)));
-    this._register(toolRegistry.register(new TaskOutputTool(this)));
-    this._register(toolRegistry.register(new TaskStopTool(this)));
   }
 
   registerTask(task: BackgroundTask, options: RegisterBackgroundTaskOptions = {}): string {

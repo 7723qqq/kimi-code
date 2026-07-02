@@ -4,7 +4,7 @@
  * Defines the public contract for session-level commands: `ISessionService`
  * runs operations that mutate session-level state and coordinate across the
  * session's sub-services (e.g. `archive`). Read views live on their own
- * services (`session-activity`, `agent-lifecycle`, `session-metadata`); this
+ * services (`sessionActivity`, `agentLifecycle`, `sessionMetadata`); this
  * facade owns only commands. Session-scoped — one instance per session.
  */
 

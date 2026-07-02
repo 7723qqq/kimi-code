@@ -3,7 +3,7 @@
  *
  * Defines the public contracts of the gateway layer: the `IRestGateway` /
  * `IWSGateway` entry points. Session scope creation is owned by
- * `session-lifecycle`; the gateway resolves sessions through it.
+ * `sessionLifecycle`; the gateway resolves sessions through it.
  * App-scoped — shared across the application.
  */
 

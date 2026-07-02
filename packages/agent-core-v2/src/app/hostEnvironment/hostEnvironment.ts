@@ -11,7 +11,7 @@
  *
  * Async initialization: probing (`ready`) discovers the shell path — on
  * Windows this may run `git.exe --exec-path`. The composition root
- * (`session-lifecycle`) `await`s `ready` before creating any Session scope, so
+ * (`sessionLifecycle`) `await`s `ready` before creating any Session scope, so
  * every Session/Agent-scope consumer reads the sync fields safely.
  *
  * App-scoped — one shared instance for the whole process.

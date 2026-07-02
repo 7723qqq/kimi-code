@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ISessionAgentFileSystem, ISessionFsService } from '#/session/agentFs';
+import { TestInstantiationService } from '#/_base/di/test';
+import { ISessionAgentFileSystem, ISessionFsService } from '#/session/agentFs';
 import { AgentFileToolsService } from '#/agent/fileTools';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
-import type { ISessionProcessRunner } from '#/session/process';
-import { noopTelemetryService } from '#/app/telemetry';
+import { IHostEnvironment } from '#/app/hostEnvironment';
+import { ISessionProcessRunner } from '#/session/process';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry';
 import type { IDisposable } from '#/_base/di';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import type { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 function fakeToolRegistry(): { registry: IAgentToolRegistryService; names: () => string[] } {
   const tools = new Map<string, unknown>();
@@ -44,15 +45,14 @@ const fakeWorkspace = {
 describe('AgentFileToolsService', () => {
   it('registers Read/Write/Edit/Grep/Glob into the tool registry', () => {
     const { registry, names } = fakeToolRegistry();
-    new AgentFileToolsService(
-      registry,
-      fakeFs,
-      fakeEnv,
-      fakeWorkspace,
-      fakeFsService,
-      fakeRunner,
-      noopTelemetryService,
-    );
+    const ix = new TestInstantiationService();
+    ix.set(ISessionAgentFileSystem, fakeFs);
+    ix.set(ISessionFsService, fakeFsService);
+    ix.set(IHostEnvironment, fakeEnv);
+    ix.set(ISessionProcessRunner, fakeRunner);
+    ix.set(ITelemetryService, noopTelemetryService);
+    ix.set(ISessionWorkspaceContext, fakeWorkspace);
+    new AgentFileToolsService(ix, registry);
     expect(names()).toEqual(['Edit', 'Glob', 'Grep', 'Read', 'Write']);
   });
 });

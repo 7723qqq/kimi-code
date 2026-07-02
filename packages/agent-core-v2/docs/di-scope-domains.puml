@@ -26,8 +26,8 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>storage</b>\n<size:9><i>App</i></size>\n  IStorageService\n  IAppendLogStore\n  IAtomicDocumentStore\n  IAtomicTomlDocumentStore" as storage #D6EAF8
   rectangle "<b>filestore</b>\n<size:9><i>App</i></size>\n  IFileStore" as filestore #D6EAF8
   rectangle "<b>gateway</b>\n<size:9><i>App</i></size>\n  IRestGateway\n  IWSGateway" as gateway #D6EAF8
-  rectangle "<b>session-lifecycle</b>\n<size:9><i>App</i></size>\n  ISessionLifecycleService" as session_lifecycle #D6EAF8
-  rectangle "<b>session-index</b>\n<size:9><i>App</i></size>\n  ISessionIndex" as sessionIndex #D6EAF8
+  rectangle "<b>sessionLifecycle</b>\n<size:9><i>App</i></size>\n  ISessionLifecycleService" as session_lifecycle #D6EAF8
+  rectangle "<b>sessionIndex</b>\n<size:9><i>App</i></size>\n  ISessionIndex" as sessionIndex #D6EAF8
   rectangle "<b>hostFs</b>\n<size:9><i>App</i></size>\n  IHostFileSystem" as hostFs #D6EAF8
   rectangle "<b>workspaceRegistry</b>\n<size:9><i>App</i></size>\n  IWorkspaceRegistry" as workspaceRegistry #D6EAF8
   rectangle "<b>hostFolderBrowser</b>\n<size:9><i>App</i></size>\n  IHostFolderBrowser" as hostFolderBrowser #D6EAF8
@@ -44,10 +44,10 @@ package "App scope (process-wide)" #EAF3FB {
 
 package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>session</b>\n<size:9><i>Session</i></size>\n  ISessionService" as session #D5F5E3
-  rectangle "<b>session-context</b>\n<size:9><i>Session</i></size>\n  ISessionContext (seed)" as session_context #D5F5E3
-  rectangle "<b>session-metadata</b>\n<size:9><i>Session</i></size>\n  ISessionMetadata" as session_metadata #D5F5E3
-  rectangle "<b>session-activity</b>\n<size:9><i>Session</i></size>\n  ISessionActivity" as session_activity #D5F5E3
-  rectangle "<b>agent-lifecycle</b>\n<size:9><i>Session</i></size>\n  IAgentLifecycleService" as agent_lifecycle #D5F5E3
+  rectangle "<b>sessionContext</b>\n<size:9><i>Session</i></size>\n  ISessionContext (seed)" as session_context #D5F5E3
+  rectangle "<b>sessionMetadata</b>\n<size:9><i>Session</i></size>\n  ISessionMetadata" as session_metadata #D5F5E3
+  rectangle "<b>sessionActivity</b>\n<size:9><i>Session</i></size>\n  ISessionActivity" as session_activity #D5F5E3
+  rectangle "<b>agentLifecycle</b>\n<size:9><i>Session</i></size>\n  IAgentLifecycleService" as agent_lifecycle #D5F5E3
   rectangle "<b>interaction</b>\n<size:9><i>Session</i></size>\n  IInteractionService" as interaction #D5F5E3
   rectangle "<b>workspaceContext</b>\n<size:9><i>Session</i></size>\n  IWorkspaceContext" as workspaceContext #D5F5E3
   rectangle "<b>sessionLog</b>\n<size:9><i>Session</i></size>\n  ISessionLogService\n  ILogWriterService" as sessionLog #D5F5E3
@@ -164,6 +164,7 @@ wireRecord --> blobStore #34495E
 wireRecord --> bootstrap #34495E
 wireRecord --> storage #34495E
 blobStore --> storage #34495E
+blobStore --> environment #34495E
 filestore --> storage #34495E
 record --> wireRecord #34495E
 contextMemory --> wireRecord #34495E

@@ -10,8 +10,8 @@ import { z } from 'zod';
 import type { BuiltinTool } from '#/agent/tool';
 import type { ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import type { ITelemetryService } from '#/app/telemetry';
-import type { IAgentPlanService } from '#/agent/plan/plan';
+import { ITelemetryService } from '#/app/telemetry';
+import { IAgentPlanService } from '#/agent/plan/plan';
 import DESCRIPTION from './enter-plan-mode.md?raw';
 
 // ── Input schema ─────────────────────────────────────────────────────
@@ -25,8 +25,8 @@ export class EnterPlanModeTool implements BuiltinTool<EnterPlanModeInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EnterPlanModeInputSchema);
 
   constructor(
-    private readonly planMode: IAgentPlanService,
-    private readonly telemetry: ITelemetryService,
+    @IAgentPlanService private readonly planMode: IAgentPlanService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
   resolveExecution(_args: EnterPlanModeInput): ToolExecution {

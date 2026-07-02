@@ -8,7 +8,7 @@ import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
 
-import type { IAgentBackgroundService } from '#/agent/background/background';
+import { IAgentBackgroundService } from '#/agent/background/background';
 import { TERMINAL_STATUSES } from '#/agent/background/task';
 import TASK_STOP_DESCRIPTION from './task-stop.md?raw';
 
@@ -32,7 +32,7 @@ export class TaskStopTool implements BuiltinTool<TaskStopInput> {
   readonly description = TASK_STOP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskStopInputSchema);
 
-  constructor(private readonly background: IAgentBackgroundService) {}
+  constructor(@IAgentBackgroundService private readonly background: IAgentBackgroundService) {}
 
   resolveExecution(args: TaskStopInput): ToolExecution {
     return {

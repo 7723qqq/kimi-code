@@ -32,11 +32,12 @@
 
 import { z } from 'zod';
 
-import { ProcessBackgroundTask } from '#/agent/background';
-import type { IAgentBackgroundService } from '#/agent/background';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
-import type { IExecContext } from '#/session/execContext';
-import type { IProcess, ISessionProcessRunner } from '#/session/process';
+import { ProcessBackgroundTask, IAgentBackgroundService } from '#/agent/background';
+import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IExecContext } from '#/session/execContext';
+import { ISessionProcessRunner } from '#/session/process';
+import type { IProcess } from '#/session/process';
+import { IAgentProfileService } from '#/agent/profile';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution, ToolUpdate } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
@@ -164,20 +165,20 @@ export class BashTool implements BuiltinTool<BashInput> {
   private readonly isWindowsBash: boolean;
 
   private readonly renderedDescription: string;
-  private readonly allowBackground: () => boolean;
 
   constructor(
-    private readonly runner: ISessionProcessRunner,
-    private readonly env: IHostEnvironment,
-    private readonly ctx: IExecContext,
-    private readonly background: IAgentBackgroundService,
-    options?: {
-      allowBackground?: () => boolean;
-    },
+    @ISessionProcessRunner private readonly runner: ISessionProcessRunner,
+    @IHostEnvironment private readonly env: IHostEnvironment,
+    @IExecContext private readonly ctx: IExecContext,
+    @IAgentBackgroundService private readonly background: IAgentBackgroundService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
   ) {
     this.isWindowsBash = this.env.osKind === 'Windows';
-    this.allowBackground = options?.allowBackground ?? (() => true);
     this.renderedDescription = renderBashDescription(this.env.shellName);
+  }
+
+  private allowBackground(): boolean {
+    return this.profile.isToolActive('TaskOutput') && this.profile.isToolActive('TaskStop');
   }
 
   get description(): string {

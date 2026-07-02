@@ -12,9 +12,9 @@
 import { z } from 'zod';
 
 import type { BuiltinTool } from '#/agent/tool';
-import type { ILogger } from '#/app/log';
+import { ILogService } from '#/app/log';
 import { collectGitContext } from '#/session/agentFs';
-import type { ISessionProcessRunner } from '#/session/process';
+import { ISessionProcessRunner } from '#/session/process';
 import { ToolAccesses } from '#/agent/tool';
 import { isAbortError } from '#/agent/loop/errors';
 import type {
@@ -25,12 +25,14 @@ import type {
 import { isUserCancellation } from '#/_base/utils/abort';
 import {
   AgentBackgroundTask,
-  type IAgentBackgroundService,
+  IAgentBackgroundService,
   type RegisterBackgroundTaskOptions,
 } from '#/agent/background';
-import type { IAgentProfileService } from '#/agent/profile';
-import type { IAgentLifecycleService } from '#/session/agent-lifecycle';
-import type { ISessionMetadata } from '#/session/session-metadata';
+import { IAgentProfileService } from '#/agent/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext';
+import { IExecContext } from '#/session/execContext';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
+import { ISessionMetadata } from '#/session/sessionMetadata';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import {
@@ -123,52 +125,39 @@ export interface AgentToolSubagentProfile {
 
 export type AgentToolSubagentMap = Readonly<Record<string, AgentToolSubagentProfile>>;
 
-export interface AgentToolOptions {
-  readonly lifecycle: IAgentLifecycleService;
-  readonly callerAgentId: string;
-  readonly metadata?: ISessionMetadata;
-  readonly background: IAgentBackgroundService;
-  readonly profile: IAgentProfileService;
-  readonly cwd: string;
-  readonly processRunner: ISessionProcessRunner;
-  readonly log?: ILogger;
-  readonly runOverride?: AgentToolRunOverride;
-}
-
 // ── AgentTool class ──────────────────────────────────────────────────
 
 export class AgentTool implements BuiltinTool<AgentToolInput> {
   readonly name: string = 'Agent';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentToolInputSchema);
 
-  private readonly lifecycle: IAgentLifecycleService;
   private readonly callerAgentId: string;
-  private readonly metadata?: ISessionMetadata;
-  private readonly background: IAgentBackgroundService;
-  private readonly log?: ILogger;
-  private readonly runOverride?: AgentToolRunOverride;
-  private readonly typeLines: string;
   private readonly gitContext: { cwd: string; runner: ISessionProcessRunner };
+  private readonly typeLines: string;
+  private readonly canRunInBackground: () => boolean;
 
-  constructor(options: AgentToolOptions) {
-    this.lifecycle = options.lifecycle;
-    this.callerAgentId = options.callerAgentId;
-    this.metadata = options.metadata;
-    this.background = options.background;
-    this.log = options.log;
-    this.runOverride = options.runOverride;
-    this.gitContext = { cwd: options.cwd, runner: options.processRunner };
+  constructor(
+    private readonly runOverride: AgentToolRunOverride | undefined,
+    @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
+    @IAgentScopeContext scopeContext: IAgentScopeContext,
+    @ISessionMetadata private readonly metadata: ISessionMetadata,
+    @IAgentBackgroundService private readonly background: IAgentBackgroundService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IExecContext execContext: IExecContext,
+    @ISessionProcessRunner processRunner: ISessionProcessRunner,
+    @ILogService private readonly log: ILogService,
+  ) {
+    this.callerAgentId = scopeContext.agentId;
+    this.gitContext = { cwd: execContext.cwd, runner: processRunner };
     this.typeLines = buildSubagentDescriptions(DEFAULT_AGENT_SUBAGENT_PROFILES);
     this.canRunInBackground = () => {
       return (
-        options.profile.isToolActive('TaskList') &&
-        options.profile.isToolActive('TaskOutput') &&
-        options.profile.isToolActive('TaskStop')
+        this.profile.isToolActive('TaskList') &&
+        this.profile.isToolActive('TaskOutput') &&
+        this.profile.isToolActive('TaskStop')
       );
     };
   }
-
-  private readonly canRunInBackground: () => boolean;
 
   private get run(): AgentToolRunOverride {
     return (

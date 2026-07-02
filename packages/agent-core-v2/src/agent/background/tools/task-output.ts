@@ -18,10 +18,10 @@ import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
+import { IAgentBackgroundService } from '#/agent/background/background';
 import type {
   BackgroundTaskInfo,
   BackgroundTaskOutputSnapshot,
-  IAgentBackgroundService,
 } from '#/agent/background/background';
 import { type BackgroundTaskStatus, TERMINAL_STATUSES } from '#/agent/background/task';
 import { formatPlainObject } from './format';
@@ -98,7 +98,7 @@ export class TaskOutputTool implements BuiltinTool<TaskOutputInput> {
   readonly description: string = TASK_OUTPUT_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskOutputInputSchema);
 
-  constructor(private readonly background: IAgentBackgroundService) {}
+  constructor(@IAgentBackgroundService private readonly background: IAgentBackgroundService) {}
 
   resolveExecution(args: TaskOutputInput): ToolExecution {
     return {

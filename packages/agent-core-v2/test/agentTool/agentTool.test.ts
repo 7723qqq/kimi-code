@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentBackgroundService } from '#/agent/background';
-import type { ILogger, LogPayload } from '#/app/log';
+import { ILogService } from '#/app/log';
+import type { LogPayload } from '#/app/log';
 import { IAgentProfileService } from '#/agent/profile';
+import { createExecContext } from '#/session/execContext';
 import {
   AgentTool,
   AgentToolInputSchema,
@@ -12,6 +14,7 @@ import {
 } from '#/agent/agentTool';
 import { ToolAccesses } from '#/agent/tool';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { ISessionMetadata } from '#/session/sessionMetadata';
 import { executeTool } from '../tools/fixtures/execute-tool';
 import {
   agentToolServices,
@@ -33,16 +36,20 @@ function context<Input>(args: Input, toolCallId = 'call_agent') {
 }
 
 function createLogCapture(): {
-  readonly logger: ILogger;
+  readonly logger: ILogService;
   readonly entries: CapturedLogEntry[];
 } {
   const entries: CapturedLogEntry[] = [];
-  const logger: ILogger = {
+  const logger: ILogService = {
+    _serviceBrand: undefined,
+    level: 'info',
     error: (message, payload) => entries.push({ level: 'error', message, payload }),
     warn: (message, payload) => entries.push({ level: 'warn', message, payload }),
     info: (message, payload) => entries.push({ level: 'info', message, payload }),
     debug: (message, payload) => entries.push({ level: 'debug', message, payload }),
     child: () => logger,
+    setLevel: () => {},
+    flush: () => Promise.resolve(),
   };
   return { logger, entries };
 }
@@ -98,7 +105,7 @@ describe('AgentTool direct contract', () => {
     readonly run?: AgentToolRunOverride;
     readonly maxRunningTasks?: number;
     readonly isToolActive?: (name: string) => boolean;
-    readonly log?: ILogger;
+    readonly log?: ILogService;
   } = {}): {
     readonly ctx: TestAgentContext;
     readonly background: IAgentBackgroundService;
@@ -113,20 +120,22 @@ describe('AgentTool direct contract', () => {
           });
     contexts.push(ctx);
     const background = ctx.get(IAgentBackgroundService);
+    const logService = log ?? ctx.get(ILogService);
     return {
       ctx,
       background,
       run,
-      tool: new AgentTool({
-        lifecycle: fakeLifecycle(),
-        callerAgentId: PARENT_AGENT_ID,
+      tool: new AgentTool(
+        run,
+        fakeLifecycle(),
+        { _serviceBrand: undefined, agentId: PARENT_AGENT_ID },
+        ctx.get(ISessionMetadata),
         background,
-        profile: fakeProfile(isToolActive),
-        cwd: '/repo',
-        processRunner: fakeProcessRunner(),
-        log,
-        runOverride: run,
-      }),
+        fakeProfile(isToolActive),
+        createExecContext('/repo'),
+        fakeProcessRunner(),
+        logService,
+      ),
     };
   }
 

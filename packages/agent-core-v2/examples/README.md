@@ -41,7 +41,7 @@ tree — never `new`.
 ```text
 L0  di-container · scope
  └─ L1  observability · config · feature-flags · persistence · events · host
-     └─ L2  wire-record · session · session-index · agent-lifecycle
+     └─ L2  wire-record · session · sessionIndex · agentLifecycle
             · tool-framework · context · turn-loop
          └─ L3  file-tools · shell-web · permission · goals · async
                 · model · compaction · extensions · oauth · interaction
@@ -75,9 +75,10 @@ Status: ✅ exists · ⬜ planned.
 | file | status | scope | concept |
 |---|---|---|---|
 | `wire-record` | ✅ | Ag | append-log primitive; `append` + `restore` replay chain |
-| `session` | ✅ | A/S | `session-lifecycle` + `session-metadata`; session as a durable, tracked entity |
-| `session-index` | ✅ | A | business-specific Store building a query read-model |
-| `agent-lifecycle` | ⬜ | S | Agent-scope creation, parent/child |
+| `session` | ✅ | A/S | `sessionLifecycle` + `sessionMetadata`; session as a durable, tracked entity |
+| `sessionIndex` | ✅ | A | business-specific Store building a query read-model |
+| `session-skill` | ✅ | A/S | session skill catalog: load skills from the current `workDir` and inspect each skill's `source` provenance |
+| `agentLifecycle` | ⬜ | S | Agent-scope creation, parent/child |
 | `tool-framework` | ⬜ | Ag | registry pattern, runtime state |
 | `context` | ⬜ | Ag | event-sourced context, projection |
 | `turn-loop` | ⬜ | Ag | turn lifecycle, hooks, step loop |

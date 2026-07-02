@@ -3,15 +3,18 @@
  *
  * Owns the agent's cron task set end to end: holds the in-memory task map,
  * runs the scheduling loop (tick / coalesce / jitter / cursor), persists each
- * task as an atomic document through `storage`, mirrors mutations onto
- * `wireRecord` for replay, registers the cron tools into `toolRegistry`, and
- * steers the agent through `prompt` when a task fires. Bound at Agent scope.
+ * task as an atomic document under the agent's home directory
+ * (`<sessionDir>/agents/<agentId>/cron/<id>.json`, matching the v1 layout so a
+ * session written by either side is readable by the other), mirrors mutations
+ * onto `wireRecord` for replay, registers the cron tools into `toolRegistry`,
+ * and steers the agent through `prompt` when a task fires. Bound at Agent scope.
  */
 
 import { randomBytes } from 'node:crypto';
 
 import type { ContentPart } from '@moonshot-ai/kosong';
 import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';
+import { join, relative } from 'pathe';
 
 import { Disposable, toDisposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
@@ -19,15 +22,16 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IntervalTimer } from '#/_base/utils';
 
 import { IConfigService } from '#/app/config';
+import { IEnvironmentService } from '#/app/environment';
 import { IAtomicDocumentStore } from '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentScopeContext } from '#/agent/scopeContext';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn } from '#/agent/turn';
 import { IAgentTurnService } from '#/agent/turn';
+import { ISessionContext } from '#/session/sessionContext';
 
 import {
   type CronConfig,
@@ -90,7 +94,6 @@ const MAX_COALESCE_ITERATIONS = 10_000;
 /** Canonical cron task id shape (8 lower-hex chars) — doubles as the path-traversal guard. */
 export const CRON_ID_REGEX: RegExp = /^[0-9a-f]{8}$/;
 
-const CRON_SCOPE = 'cron';
 const JSON_SUFFIX = '.json';
 const MAX_ID_ATTEMPTS = 8;
 
@@ -137,6 +140,15 @@ export class AgentCronService extends Disposable implements IAgentCronService {
   readonly clocks: ClockSources;
 
   private readonly enabled: boolean;
+  /**
+   * HomeDir-relative atomic-document scope for this agent's cron tasks,
+   * e.g. `sessions/<workspaceId>/<sessionId>/agents/<agentId>/cron`. Co-locates
+   * the tasks with the agent's home directory (`<agentHomedir>/cron/<id>.json`),
+   * matching the v1 layout. `undefined` when the agent has no id (ephemeral /
+   * test seam) — persistence is then skipped, matching v1's "no homedir, no
+   * persistence" behaviour.
+   */
+  private readonly cronScope: string | undefined;
   private cronConfig: CronConfig;
   private started = false;
   private sigusr1Handler: NodeJS.SignalsListener | null = null;
@@ -147,12 +159,26 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
+    @ISessionContext private readonly session: ISessionContext,
+    @IEnvironmentService private readonly environment: IEnvironmentService,
   ) {
     super();
     this.enabled = this.ctx.agentId === 'main';
+    // Co-locate cron tasks with the agent's home directory
+    // (`<sessionDir>/agents/<agentId>/cron/<id>.json`), matching the v1 layout
+    // so a session written by the CLI / v1 server is readable here and
+    // vice-versa. `session.sessionDir` is always under `environment.homeDir`;
+    // the atomic-document store is rooted at `homeDir`, so the homeDir-relative
+    // path is the store scope.
+    this.cronScope =
+      typeof this.ctx.agentId === 'string'
+        ? relative(
+            this.environment.homeDir,
+            join(this.session.sessionDir, 'agents', this.ctx.agentId, 'cron'),
+          )
+        : undefined;
     this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
     this._register(
       this.config.onDidChangeConfiguration((e) => {
@@ -194,10 +220,6 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     );
 
     if (this.enabled) {
-      this._register(this.toolRegistry.register(new CronCreateTool(this, this.cronConfig.disabled)));
-      this._register(this.toolRegistry.register(new CronListTool(this)));
-      this._register(this.toolRegistry.register(new CronDeleteTool(this)));
-
       this.start();
     }
 
@@ -226,7 +248,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     };
     this.tasks.set(task.id, task);
     this.record.append({ type: 'cron.add', task });
-    this.persistEnqueue(task.id, () => this.atomicDocs.set(CRON_SCOPE, cronKey(task.id), task));
+    this.persistEnqueue(task.id, (scope) => this.atomicDocs.set(scope, cronKey(task.id), task));
     return task;
   }
 
@@ -236,7 +258,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
 
     this.record.append({ type: 'cron.delete', ids: removed });
     for (const id of removed) {
-      this.persistEnqueue(id, () => this.atomicDocs.delete(CRON_SCOPE, cronKey(id)));
+      this.persistEnqueue(id, (scope) => this.atomicDocs.delete(scope, cronKey(id)));
     }
     return removed;
   }
@@ -276,15 +298,17 @@ export class AgentCronService extends Disposable implements IAgentCronService {
 
   async loadFromDisk(options: CronLoadOptions = {}): Promise<void> {
     if (!this.enabled) return;
+    if (this.cronScope === undefined) return;
+    const scope = this.cronScope;
     if (options.replace !== false) {
       this.tasks.clear();
     }
-    const keys = await this.atomicDocs.list(CRON_SCOPE);
+    const keys = await this.atomicDocs.list(scope);
     for (const key of keys) {
       if (!key.endsWith(JSON_SUFFIX)) continue;
       const id = key.slice(0, -JSON_SUFFIX.length);
       if (!CRON_ID_REGEX.test(id)) continue;
-      const value = await this.atomicDocs.get<CronTask>(CRON_SCOPE, key);
+      const value = await this.atomicDocs.get<CronTask>(scope, key);
       if (value === undefined || !isValidCronTask(value)) continue;
       this.adopt(value);
     }
@@ -477,7 +501,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     if (updated === undefined) return;
 
     this.record.append({ type: 'cron.cursor', id, lastFiredAt });
-    this.persistEnqueue(id, () => this.atomicDocs.set(CRON_SCOPE, cronKey(id), updated));
+    this.persistEnqueue(id, (scope) => this.atomicDocs.set(scope, cronKey(id), updated));
   }
 
   // —— scheduler helpers ——
@@ -607,11 +631,13 @@ export class AgentCronService extends Disposable implements IAgentCronService {
 
   // —— persistence write serialization ——
 
-  private persistEnqueue(id: string, work: () => Promise<void>): void {
+  private persistEnqueue(id: string, work: (scope: string) => Promise<void>): void {
+    if (this.cronScope === undefined) return;
+    const scope = this.cronScope;
     const prev = this.persistQueues.get(id) ?? Promise.resolve();
     const next = prev
       .catch(() => {})
-      .then(() => work())
+      .then(() => work(scope))
       .catch(() => {})
       .finally(() => {
         if (this.persistQueues.get(id) === next) {

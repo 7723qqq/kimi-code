@@ -5,13 +5,13 @@
  * its main agent) per call, delegates to the native v2 services, and projects
  * the result into the v1 wire shape. Child sessions are implemented as forks
  * tagged in `custom` (`parent_session_id` + `child_session_kind`); listing reads
- * those markers from the `session-index` summaries. No business logic is
+ * those markers from the `sessionIndex` summaries. No business logic is
  * duplicated here; the real work stays in the native services.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { IAgentContextMemoryService, toProtocolMessage, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
@@ -21,11 +21,11 @@ import { IAgentPlanService } from '#/agent/plan';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentRPCService } from '#/agent/rpc';
-import { ISessionActivity } from '#/session/session-activity';
-import { ISessionContext } from '#/session/session-context';
-import { ISessionIndex, type SessionSummary } from '#/app/session-index';
-import { ISessionLifecycleService } from '#/app/session-lifecycle';
-import { ISessionMetadata } from '#/session/session-metadata';
+import { ISessionActivity } from '#/session/sessionActivity';
+import { ISessionContext } from '#/session/sessionContext';
+import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex';
+import { ISessionLifecycleService } from '#/app/sessionLifecycle';
+import { ISessionMetadata } from '#/session/sessionMetadata';
 import { IAgentSwarmService } from '#/agent/swarm';
 import { IWorkspaceRegistry } from '#/app/workspaceRegistry';
 import type {

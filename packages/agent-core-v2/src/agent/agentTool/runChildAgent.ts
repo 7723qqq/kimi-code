@@ -2,8 +2,8 @@
  * `agentTool` domain (L5) — runs a sub agent (an ordinary Agent scope) to completion.
  *
  * Stateless helper module (plain functions, not a class, not a DI service).
- * Each function takes the `agent-lifecycle`, the `callerAgentId`, and optional
- * `session-metadata` explicitly, creates or resumes a sub agent, mirrors the
+ * Each function takes the `agentLifecycle`, the `callerAgentId`, and optional
+ * `sessionMetadata` explicitly, creates or resumes a sub agent, mirrors the
  * way the main agent runs a turn (`prompt` → await the turn result → collect the
  * summary + usage), and emits `subagent.*` facts on the caller's event sink.
  * Owns no scoped state itself — all durable state lives in the sub agent scope,
@@ -20,7 +20,7 @@ import {
 } from '@moonshot-ai/kosong';
 
 import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import {
   IAgentContextMemoryService,
@@ -32,13 +32,12 @@ import { IAgentRecordService } from '#/agent/record';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { isAbortError } from '#/agent/loop/errors';
 import { IAgentProfileService } from '#/agent/profile';
-import { ISessionMetadata } from '#/session/session-metadata';
+import { ISessionMetadata } from '#/session/sessionMetadata';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentUsageService } from '#/agent/usage';
 import type { Turn } from '#/agent/turn';
 
-import { IAgentToolService } from './agentToolServiceToken';
 import { DEFAULT_AGENT_SUBAGENT_PROFILES, EXPLORE_ROLE_ADDITIONAL } from './profiles';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
@@ -82,7 +81,6 @@ export async function spawnChildAgent(args: SpawnChildAgentArgs): Promise<Subage
     swarmItem: options.swarmItem,
   });
   configureChild(caller, child, options.profileName);
-  ensureAgentTool(child);
   emitSpawned(caller, callerAgentId, child.id, options.profileName, options);
   const completion = runWithActiveChild(
     child,
@@ -143,14 +141,7 @@ async function requireAgent(
 ): Promise<IAgentScopeHandle> {
   const handle = lifecycle.getHandle(agentId);
   if (handle === undefined) throw new Error(`Agent instance "${agentId}" does not exist`);
-  ensureAgentTool(handle);
   return handle;
-}
-
-function ensureAgentTool(child: IAgentScopeHandle): void {
-  // Force-instantiate the child agent's `Agent` tool registrar so its `Agent`
-  // tool is registered before the child's first turn builds its tool list.
-  child.accessor.get(IAgentToolService);
 }
 
 function configureChild(source: IAgentScopeHandle, child: IAgentScopeHandle, profileName: string): void {

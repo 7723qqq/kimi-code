@@ -9,7 +9,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ISessionContext } from '#/session/session-context';
+import { ISessionContext } from '#/session/sessionContext';
 
 import { ILogWriterService, ISessionLogService } from '#/app/log/log';
 import { ILogOptions } from '#/app/log/logConfig';

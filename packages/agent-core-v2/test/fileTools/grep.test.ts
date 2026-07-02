@@ -13,7 +13,7 @@
 import type { FsGrepFileHit, FsGrepRequest, FsGrepResponse } from '@moonshot-ai/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
+import { stubWorkspaceContext } from './stub-workspace-context';
 import type { ISessionFsService } from '#/session/agentFs';
 import {
   type GrepInput,
@@ -24,7 +24,7 @@ import type { IHostEnvironment } from '#/app/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;
-const workspace: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: ['/extra'] };
+const workspace = stubWorkspaceContext('/workspace', ['/extra']);
 
 function fileHit(path: string, lines: number[] = [1], text = 'hit'): FsGrepFileHit {
   return {

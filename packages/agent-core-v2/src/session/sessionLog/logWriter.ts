@@ -14,7 +14,7 @@ import { dirname } from 'pathe';
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ISessionContext } from '#/session/session-context';
+import { ISessionContext } from '#/session/sessionContext';
 
 import { formatEntry, type FormatOptions } from '#/app/log/formatter';
 import { ILogWriterService, type LogEntry } from '#/app/log/log';

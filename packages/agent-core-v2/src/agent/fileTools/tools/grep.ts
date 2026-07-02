@@ -30,6 +30,7 @@ import { z } from 'zod';
 import { ISessionFsService } from '#/session/agentFs';
 import { ErrorCodes, isKimiError } from '#/errors';
 import { IHostEnvironment } from '#/app/hostEnvironment';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { resolvePathAccessPath } from '#/_base/tools/policies/path-access';
@@ -147,23 +148,30 @@ export class GrepTool implements BuiltinTool<GrepInput> {
   readonly description = GREP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GrepInputSchema);
   constructor(
-    private readonly fs: ISessionFsService,
-    private readonly env: IHostEnvironment,
-    private readonly workspace: WorkspaceConfig,
+    @ISessionFsService private readonly fs: ISessionFsService,
+    @IHostEnvironment private readonly env: IHostEnvironment,
+    @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
   ) {}
+
+  private get workspaceConfig(): WorkspaceConfig {
+    return {
+      workspaceDir: this.workspaceCtx.workDir,
+      additionalDirs: this.workspaceCtx.additionalDirs,
+    };
+  }
 
   resolveExecution(args: GrepInput): ToolExecution {
     let searchPath: string | undefined;
     if (args.path !== undefined) {
       searchPath = resolvePathAccessPath(args.path, {
         env: this.env,
-        workspace: this.workspace,
+        workspace: this.workspaceConfig,
         operation: 'search',
         policy: { guardMode: 'absolute-outside-allowed', checkSensitive: false },
       });
     }
-    const accessPath = searchPath ?? this.workspace.workspaceDir;
-    const displayPath = args.path ?? this.workspace.workspaceDir;
+    const accessPath = searchPath ?? this.workspaceConfig.workspaceDir;
+    const displayPath = args.path ?? this.workspaceConfig.workspaceDir;
     return {
       accesses: ToolAccesses.searchTree(accessPath),
       description: `Searching for '${args.pattern}' in ${displayPath}`,

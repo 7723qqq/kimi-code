@@ -20,7 +20,7 @@ import {
 import { logSeed } from '#/app/log/logConfig';
 import { SessionFileLogWriterService } from '#/session/sessionLog/logWriter';
 import { SessionLogService } from '#/session/sessionLog/sessionLogService';
-import { sessionContextSeed } from '#/session/session-context';
+import { sessionContextSeed } from '#/session/sessionContext';
 
 let homeDir: string;
 let sessionDir: string;

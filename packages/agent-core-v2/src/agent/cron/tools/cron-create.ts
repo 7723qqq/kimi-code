@@ -4,7 +4,8 @@
  * cron cadence (`recurring: true`, the default).
  *
  * Tasks live in `AgentCronService` and are mirrored to
- * `<sessionDir>/cron/<id>.json` via `IAgentCronService.addTask`, so a
+ * `<sessionDir>/agents/<agentId>/cron/<id>.json` via
+ * `IAgentCronService.addTask`, so a
  * `kimi resume` of the same session reloads them and the scheduler
  * picks up where it left off (fires that fell during downtime are
  * collapsed into a single delivery with `coalescedCount`). Tasks do
@@ -28,7 +29,7 @@ import { z } from 'zod';
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern } from '#/_base/tools/support/rule-match';
-import type { IAgentCronService } from '#/agent/cron';
+import { IAgentCronService } from '#/agent/cron';
 import {
   computeNextCronRun,
   cronToHuman,
@@ -120,8 +121,8 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
   );
 
   constructor(
-    private readonly cron: IAgentCronService,
     private readonly disabled: boolean = false,
+    @IAgentCronService private readonly cron: IAgentCronService,
   ) {}
 
   resolveExecution(args: CronCreateInput): ToolExecution {

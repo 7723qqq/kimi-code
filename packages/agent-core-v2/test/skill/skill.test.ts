@@ -4,7 +4,6 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentSkillService } from '#/agent/skill';
 import { InMemorySkillCatalog } from '#/app/globalSkillCatalog';
@@ -15,7 +14,6 @@ import {
   NestedSkillTooDeepError,
   SkillTool,
 } from '#/agent/skill/tools/skill';
-import { ModelSkillTool } from '#/agent/skill/tools/modelSkill';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn } from '#/agent/turn';
@@ -67,10 +65,6 @@ describe('AgentSkillService', () => {
           retry: () => undefined,
           undo: () => 0,
           clear: () => {},
-        });
-        reg.definePartialInstance(IAgentEventSinkService, {
-          emit: () => {},
-          on: () => ({ dispose: () => {} }),
         });
         reg.defineInstance(IAgentWireRecordService, stubWireRecord());
         reg.definePartialInstance(IAgentReplayBuilderService, {
@@ -175,10 +169,6 @@ describe('SkillTool', () => {
           undo: () => 0,
           clear: () => {},
         });
-        reg.definePartialInstance(IAgentEventSinkService, {
-          emit: () => {},
-          on: () => ({ dispose: () => {} }),
-        });
         reg.defineInstance(IAgentWireRecordService, stubWireRecord());
         reg.definePartialInstance(IAgentReplayBuilderService, {
           push: () => {},
@@ -215,8 +205,25 @@ describe('SkillTool', () => {
     };
   }
 
+  function stubSkillService(): IAgentSkillService {
+    return {
+      _serviceBrand: undefined,
+      activate: () => Promise.reject(new Error('not implemented')),
+      recordModelToolActivation: () => {},
+    };
+  }
+
+  function makeTool(ix: TestInstantiationService, depth?: number): SkillTool {
+    const tool = new SkillTool(
+      ix.get(ISessionSkillCatalog),
+      ix.get(IAgentPromptService),
+      stubSkillService(),
+    );
+    return depth === undefined ? tool : tool.withInitialQueryDepth(depth);
+  }
+
   it('exposes metadata and schema for model-invoked skills', () => {
-    const tool = new SkillTool(ix.get(IAgentSkillService));
+    const tool = makeTool(ix);
 
     expect(tool.name).toBe('Skill');
     expect(tool.description).toContain('Invoke a registered skill');
@@ -234,7 +241,7 @@ describe('SkillTool', () => {
 
   it('returns a tool error when the skill is unknown', async () => {
     const result = await executeTool(
-      new SkillTool(ix.get(IAgentSkillService)),
+      makeTool(ix),
       toolContext({ skill: 'missing' }),
     );
 
@@ -248,7 +255,7 @@ describe('SkillTool', () => {
     skills.register(stubSkill('private', { metadata: { disableModelInvocation: true } }));
 
     const result = await executeTool(
-      new SkillTool(ix.get(IAgentSkillService)),
+      makeTool(ix),
       toolContext({ skill: 'private' }),
     );
 
@@ -262,7 +269,7 @@ describe('SkillTool', () => {
     skills.register(stubSkill('flow-only', { metadata: { type: 'flow' } }));
 
     const result = await executeTool(
-      new SkillTool(ix.get(IAgentSkillService)),
+      makeTool(ix),
       toolContext({ skill: 'flow-only' }),
     );
 
@@ -274,7 +281,7 @@ describe('SkillTool', () => {
 
   it('loads inline skills through the model-tool wrapper without exposing the body in output', async () => {
     const result = await executeTool(
-      new SkillTool(ix.get(IAgentSkillService)),
+      makeTool(ix),
       toolContext({ skill: 'commit', args: 'src/app.ts' }),
     );
 
@@ -301,43 +308,33 @@ describe('SkillTool', () => {
   });
 
   it('honors initialQueryDepth as an alias for queryDepth', async () => {
-    const calls: Array<{ readonly name: string; readonly queryDepth?: number }> = [];
-    const service: IAgentSkillService = {
-      _serviceBrand: undefined,
-      activate: async () => fakeTurn(),
-      activateFromModel: async (input) => {
-        calls.push({ name: input.name, queryDepth: input.queryDepth });
-        return { output: 'loaded' };
-      },
-    };
-
     await executeTool(
-      new SkillTool(service, { initialQueryDepth: 2 }),
+      makeTool(ix, 2),
       toolContext({ skill: 'commit' }),
     );
     await executeTool(
-      new ModelSkillTool(service, { initialQueryDepth: 1 }),
+      makeTool(ix, 0),
       toolContext({ skill: 'commit' }),
     );
 
-    expect(calls).toEqual([
-      { name: 'commit', queryDepth: 2 },
-      { name: 'commit', queryDepth: 1 },
-    ]);
+    expect(prompted).toHaveLength(2);
+    expect(prompted[0]!.origin).toMatchObject({
+      kind: 'skill_activation',
+      trigger: 'nested-skill',
+    });
+    expect(prompted[1]!.origin).toMatchObject({
+      kind: 'skill_activation',
+      trigger: 'model-tool',
+    });
   });
 
   it('throws a structured recursion error when nested skill invocation is too deep', async () => {
-    const service: IAgentSkillService = {
-      _serviceBrand: undefined,
-      activate: async () => fakeTurn(),
-      activateFromModel: async () => ({ output: 'should not run' }),
-    };
-
     await expect(
       executeTool(
-        new SkillTool(service, { initialQueryDepth: MAX_SKILL_QUERY_DEPTH }),
+        makeTool(ix, MAX_SKILL_QUERY_DEPTH),
         toolContext({ skill: 'commit' }),
       ),
     ).rejects.toBeInstanceOf(NestedSkillTooDeepError);
+    expect(prompted).toHaveLength(0);
   });
 });

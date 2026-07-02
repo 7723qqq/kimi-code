@@ -16,13 +16,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
 import type { AgentFileStat, ISessionAgentFileSystem } from '#/session/agentFs';
-import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
+import { stubWorkspaceContext } from './stub-workspace-context';
 import { type WriteInput, WriteInputSchema, WriteTool } from '#/agent/fileTools/tools/write';
 import type { IHostEnvironment } from '#/app/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;
-const PERMISSIVE_WORKSPACE: WorkspaceConfig = { workspaceDir: '/', additionalDirs: [] };
+const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
 
 function toolContentString(result: ExecutableToolResult): string {
   const c = result.output;
@@ -80,7 +80,7 @@ function createWriteFs(options: WriteFsOptions = {}) {
   return { fs, readText, writeText, stat, mkdir };
 }
 
-function makeTool(options: WriteFsOptions = {}, workspace: WorkspaceConfig = PERMISSIVE_WORKSPACE) {
+function makeTool(options: WriteFsOptions = {}, workspace = PERMISSIVE_WORKSPACE) {
   const fakes = createWriteFs(options);
   const tool = new WriteTool(fakes.fs, createTestEnv(), workspace);
   return { tool, ...fakes };
@@ -178,7 +178,7 @@ describe('WriteTool', () => {
   });
 
   it('matches permission args with negated glob path semantics', () => {
-    const { tool } = makeTool({}, { workspaceDir: '/workspace', additionalDirs: [] });
+    const { tool } = makeTool({}, stubWorkspaceContext('/workspace'));
     const insideSrc = tool.resolveExecution({ path: './src/a.ts', content: 'x' });
     const outsideSrc = tool.resolveExecution({ path: './README.md', content: 'x' });
     if (insideSrc.isError === true || outsideSrc.isError === true) {
@@ -343,7 +343,7 @@ describe('WriteTool', () => {
   });
 
   it('allows explicit absolute writes outside the workspace', async () => {
-    const { tool, writeText } = makeTool({}, { workspaceDir: '/workspace', additionalDirs: [] });
+    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, { path: '/tmp/pwned.txt', content: 'x' });
 
@@ -354,7 +354,7 @@ describe('WriteTool', () => {
   it('rejects relative traversal writes before fs I/O', async () => {
     const { tool, writeText } = makeTool(
       {},
-      { workspaceDir: '/workspace/project', additionalDirs: [] },
+      stubWorkspaceContext('/workspace/project'),
     );
 
     const result = await execute(tool, { path: '../outside.txt', content: 'x' });
@@ -365,7 +365,7 @@ describe('WriteTool', () => {
   });
 
   it('blocks sensitive file writes', async () => {
-    const { tool, writeText } = makeTool({}, { workspaceDir: '/workspace', additionalDirs: [] });
+    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace/id_rsa', content: 'key' });
 
@@ -433,7 +433,7 @@ describe('WriteTool', () => {
   it('allows absolute writes to a sibling dir that merely shares the work-dir prefix', async () => {
     // Path policy must distinguish "shares a prefix with workspaceDir" from
     // "is inside workspaceDir". /workspace-sneaky/* is outside /workspace.
-    const { tool, writeText } = makeTool({}, { workspaceDir: '/workspace', additionalDirs: [] });
+    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace-sneaky/file.txt', content: 'content' });
 
