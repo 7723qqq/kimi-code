@@ -56,12 +56,16 @@ export class LocalFetchURLProvider implements UrlFetcher {
     this.allowPrivateAddresses = options.allowPrivateAddresses ?? false;
   }
 
-  async fetch(url: string, _options?: { toolCallId?: string }): Promise<UrlFetchResult> {
+  async fetch(
+    url: string,
+    options?: { toolCallId?: string; signal?: AbortSignal },
+  ): Promise<UrlFetchResult> {
     assertSafeFetchTarget(url, this.allowPrivateAddresses);
 
     const response = await this.fetchImpl(url, {
       method: 'GET',
       headers: { 'User-Agent': this.userAgent },
+      signal: options?.signal,
     });
 
     if (response.status >= 400) {

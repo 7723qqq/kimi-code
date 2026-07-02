@@ -34,7 +34,12 @@ export interface WebSearchResult {
 export interface WebSearchProvider {
   search(
     query: string,
-    options?: { limit?: number; includeContent?: boolean; toolCallId?: string },
+    options?: {
+      limit?: number;
+      includeContent?: boolean;
+      toolCallId?: string;
+      signal?: AbortSignal;
+    },
   ): Promise<WebSearchResult[]>;
 }
 
@@ -86,11 +91,17 @@ export class WebSearchTool implements BuiltinTool<WebSearchInput> {
 
   private async execution(
     args: WebSearchInput,
-    { toolCallId }: ExecutableToolContext,
+    { toolCallId, signal }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
     try {
-      const opts: { limit?: number; includeContent?: boolean; toolCallId?: string } = {
+      const opts: {
+        limit?: number;
+        includeContent?: boolean;
+        toolCallId?: string;
+        signal?: AbortSignal;
+      } = {
         toolCallId,
+        signal,
       };
       if (args.limit !== undefined) opts.limit = args.limit;
       if (args.include_content !== undefined) opts.includeContent = args.include_content;
@@ -116,6 +127,10 @@ export class WebSearchTool implements BuiltinTool<WebSearchInput> {
 
       return builder.ok();
     } catch (error) {
+      // Propagate in-flight cancellation so the executor can classify it
+      // (including user cancellation) instead of surfacing it as a generic
+      // search error that the model may retry.
+      if (signal.aborted) throw error;
       return {
         isError: true,
         output: classifySearchError(error),
