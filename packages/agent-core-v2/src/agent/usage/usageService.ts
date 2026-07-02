@@ -1,6 +1,6 @@
 import {
   addUsage,
-  type TokenUsage } from '@moonshot-ai/kosong';
+  type TokenUsage } from '#/app/llmProtocol';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Disposable } from '#/_base/di/lifecycle';

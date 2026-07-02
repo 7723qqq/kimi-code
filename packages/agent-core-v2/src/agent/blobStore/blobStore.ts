@@ -5,7 +5,7 @@
  * rehydrates them on read. Bound at Agent scope.
  */
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol';
 
 import { createDecorator } from "#/_base/di";
 
@@ -13,8 +13,8 @@ export const BLOBREF_PROTOCOL = 'blobref:';
 export const MISSING_MEDIA_PLACEHOLDER = '[media missing]';
 
 export interface BlobStoreServiceOptions {
-  /** Per-agent home directory used to derive the blob storage scope. */
-  readonly homedir?: string;
+  // Reserved for future overrides (threshold / cache size). The persistence
+  // root is derived from `IAgentScopeContext.scope('blobs')`.
 }
 
 export interface IAgentBlobStoreService {

@@ -20,6 +20,7 @@ import type {
   ExecutableToolResult,
   ToolExecution,
 } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 
 import { ISessionQuestionService } from '#/session/question/question';
 import type {
@@ -209,6 +210,8 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
     };
   }
 }
+
+registerTool(AskUserQuestionTool);
 
 function dismissedQuestionResult(): ExecutableToolResult {
   return {

@@ -12,7 +12,7 @@
 import { ErrorCodes, KimiError } from '#/errors';
 import type { McpServerConfig } from './config-schema';
 import type { ILogger as Logger } from '#/app/log';
-import type { Tool } from '@moonshot-ai/kosong';
+import type { Tool } from '#/app/llmProtocol';
 
 import { abortable } from '#/_base/utils/abort';
 import { HttpMcpClient } from './client-http';

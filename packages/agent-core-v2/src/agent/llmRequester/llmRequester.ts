@@ -1,12 +1,12 @@
 import { createDecorator } from '#/_base/di';
+import type { UsageRecordContext } from '#/agent/usage';
 import type {
   FinishReason,
   Message,
   StreamedMessagePart,
   TokenUsage,
   Tool,
-} from '@moonshot-ai/kosong';
-import type { UsageRecordContext } from '#/agent/usage';
+} from '#/app/llmProtocol';
 
 export interface LLMRequestLogFields {
   readonly turnStep: string;

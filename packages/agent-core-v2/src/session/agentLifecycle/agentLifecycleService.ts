@@ -7,8 +7,6 @@
  * Session scope.
  */
 
-import { join } from 'pathe';
-
 import { InstantiationType } from '#/_base/di/extensions';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
@@ -33,6 +31,7 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry';
 import { IAgentWireRecordService, AgentWireRecordService } from '#/agent/wireRecord';
 import { IAgentBlobStoreService, AgentBlobStoreService } from '#/agent/blobStore';
 import {
@@ -77,17 +76,35 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   async create(opts: CreateAgentOptions): Promise<IAgentScopeHandle> {
     const agentId = opts.agentId ?? `agent-${nextAgentId++}`;
     // Per-agent homedir → the wire-record persistence key (`hashKey(homedir)`).
-    // Co-located under the session dir, mirroring v1's `<sessionDir>/agents/<id>`.
-    const agentHomedir = join(this.ctx.sessionDir, 'agents', agentId);
+    // Bootstrap computes it under the session dir, mirroring v1's
+    // `<sessionDir>/agents/<id>`; business code never assembles the path itself.
+    const agentHomedir = this.bootstrap.agentHomedir(
+      this.ctx.workspaceId,
+      this.ctx.sessionId,
+      agentId,
+    );
+    const agentScope = this.bootstrap.agentScope(
+      this.ctx.workspaceId,
+      this.ctx.sessionId,
+      agentId,
+    );
     const handle = createScopedChildHandle(
       this.instantiation,
       LifecycleScope.Agent,
       agentId,
       {
         extra: [
-          [IAgentScopeContext, { _serviceBrand: undefined, agentId } satisfies IAgentScopeContext],
+          [
+            IAgentScopeContext,
+            {
+              _serviceBrand: undefined,
+              agentId,
+              scope: (subKey?: string): string =>
+                subKey === undefined || subKey === '' ? agentScope : `${agentScope}/${subKey}`,
+            } satisfies IAgentScopeContext,
+          ],
           [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
-          [IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService, [{ homedir: agentHomedir }])],
+          [IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService, [{}])],
           [IAgentMcpService, new SyncDescriptor(AgentMcpService, [{ manager: this.getMcpManager() }])],
           // These two carry a leading static `options` param; the scoped
           // registry supplies none, so seed an empty one to satisfy the DI
@@ -108,6 +125,14 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       swarmItem: opts.swarmItem,
     });
     this.onDidCreateEmitter.fire(handle);
+    // Force-instantiate the Eager builtin-tools registrar: its constructor
+    // consumes every module-level `registerTool(...)` contribution and
+    // registers each built-in tool (with `@IX` dependencies resolved against
+    // this scope) into the per-agent `IAgentToolRegistryService`. Must happen
+    // before the first turn — otherwise the LLM sees an empty tool list. The
+    // registrar is separate from the registry itself to avoid a construction
+    // cycle where tool ctors transitively depend on the registry.
+    handle.accessor.get(IAgentBuiltinToolsRegistrar);
     // Force-instantiate the agent's MCP service so it attaches the (shared)
     // manager's tools and registers the `wait-for-initial-load` hook before the
     // first turn — otherwise plugin/session MCP servers would connect but their

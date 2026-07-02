@@ -2,10 +2,8 @@
  * `profile` domain (L3) — `IAgentProfileService` implementation.
  *
  * Owns the active agent's model alias, thinking level, system prompt, and
- * active-tool set; resolves the runtime provider through `modelRuntime`
- * `ISessionModelResolver`, builds the protocol adapter through `chatProvider`
- * `IChatProviderFactory`, applies completion budget through
- * `completion-budget`, persists profile changes through `wireRecord`, and
+ * active-tool set; resolves the runnable god-object Model through the App-
+ * scope `IModelResolver`, persists profile changes through `wireRecord`, and
  * emits status through `eventBus`. Bound at Agent scope.
  */
 
@@ -13,24 +11,22 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import {
   UNKNOWN_CAPABILITY,
-  type ChatProvider,
+  type GenerationKwargs,
   type ModelCapability,
-  type ProviderConfig,
   type ThinkingEffort,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol';
+import { IModelResolver, type KimiModelOverrides, type Model } from '#/app/model';
 import picomatch from 'picomatch';
 
 import { ErrorCodes, KimiError } from "#/errors";
 import { IBootstrapService } from '#/app/bootstrap';
 import { IConfigService } from '#/app/config';
 import { resolveThinkingEffort } from './thinking';
-import { applyKimiModelOverrides, IChatProviderFactory, type KimiModelOverrides } from '#/app/chatProvider';
 import type { LoopControl } from '#/agent/loop/configSection';
 import { IHostEnvironment } from '#/app/hostEnvironment';
 import { ISessionAgentFileSystem } from '#/session/agentFs';
 import { IExecContext } from '#/session/execContext';
 import { isMcpToolName } from '#/agent/tool';
-import { ISessionModelResolver, type ResolvedModel } from '#/session/modelRuntime';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile';
 
@@ -77,8 +73,7 @@ export class AgentProfileService implements IAgentProfileService {
     @IAgentRecordService private readonly record: IAgentRecordService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IConfigService private readonly config: IConfigService,
-    @ISessionModelResolver private readonly modelResolver: ISessionModelResolver,
-    @IChatProviderFactory private readonly chatProviders: IChatProviderFactory,
+    @IModelResolver private readonly modelFactory: IModelResolver,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
     @IExecContext private readonly execCtx: IExecContext,
@@ -95,7 +90,6 @@ export class AgentProfileService implements IAgentProfileService {
     record.define('tools.set_active_tools', {
       resume: (r) => {
         this.applyActiveToolNames(r.names);
-        this.initializeBuiltinTools();
       },
     });
   }
@@ -104,15 +98,10 @@ export class AgentProfileService implements IAgentProfileService {
     this.optionsValue = {
       cwd: options.cwd ?? this.optionsValue.cwd,
       chdir: options.chdir ?? this.optionsValue.chdir,
-      initializeBuiltinTools:
-        options.initializeBuiltinTools ?? this.optionsValue.initializeBuiltinTools,
       emitStatusUpdated: options.emitStatusUpdated ?? this.optionsValue.emitStatusUpdated,
     };
     if (this.cwdValue === undefined) {
       this.cwdValue = this.readConfiguredCwd();
-    }
-    if (this.modelAliasValue === undefined) {
-      this.modelAliasValue = this.modelResolver.defaultModel;
     }
   }
 
@@ -127,15 +116,15 @@ export class AgentProfileService implements IAgentProfileService {
     }
   }
 
-  setModel(model: string): ProfileSetModelResult {
-    const resolved = this.modelResolver.resolve(model);
-    if (this.modelAlias !== model) {
-      this.update({ modelAlias: model });
-      this.telemetry.track('model_switch', { model });
+  setModel(alias: string): ProfileSetModelResult {
+    const model = this.modelFactory.resolve(alias);
+    if (this.modelAlias !== alias) {
+      this.update({ modelAlias: alias });
+      this.telemetry.track('model_switch', { model: alias });
     }
     return {
-      model,
-      providerName: resolved.providerName,
+      model: alias,
+      providerName: model.providerName,
     };
   }
 
@@ -186,12 +175,11 @@ export class AgentProfileService implements IAgentProfileService {
   }
 
   data(): ProfileData {
-    const resolved = this.tryResolvedProviderConfig();
+    const model = this.tryResolveRawModel();
     return {
       cwd: this.cwd,
-      provider: resolved?.provider,
       modelAlias: this.modelAlias,
-      modelCapabilities: resolved?.modelCapabilities ?? UNKNOWN_CAPABILITY,
+      modelCapabilities: model?.capabilities ?? UNKNOWN_CAPABILITY,
       profileName: this.profileName,
       thinkingLevel: this.thinkingLevel,
       systemPrompt: this.systemPrompt,
@@ -201,39 +189,51 @@ export class AgentProfileService implements IAgentProfileService {
 
   resolveModelContext(): ProfileModelContext {
     const modelAlias = this.model;
-    const resolved = this.modelResolver.resolve(modelAlias);
-    if (resolved === undefined) {
-      throw new KimiError(ErrorCodes.MODEL_NOT_CONFIGURED, 'Provider not set');
-    }
+    const model = this.modelFactory.resolve(modelAlias);
     const loopControl = this.config.get<LoopControl>('loopControl');
     return {
-      provider: resolved.provider,
       modelAlias,
-      modelCapabilities: resolved.modelCapabilities,
-      maxOutputSize: resolved.maxOutputSize,
-      alwaysThinking: resolved.alwaysThinking,
+      modelCapabilities: model.capabilities,
+      maxOutputSize: model.maxOutputSize,
+      alwaysThinking: model.alwaysThinking || undefined,
       thinkingLevel: this.thinkingLevel,
       reservedContextSize: loopControl?.reservedContextSize,
       compactionTriggerRatio: loopControl?.compactionTriggerRatio,
     };
   }
 
-  getProvider(): ChatProvider {
-    const provider = this.chatProviders.create(this.providerConfig).withThinking(this.thinkingLevel);
-    const overrides = this.config.get<KimiModelOverrides>('modelOverrides');
-    return applyKimiModelOverrides(provider, overrides, this.thinkingLevel);
+  getProvider(): Model {
+    const model = this.resolveModel();
+    if (model === undefined) {
+      throw new KimiError(ErrorCodes.MODEL_NOT_CONFIGURED, 'Model not set');
+    }
+    return model;
   }
 
-  get provider(): ChatProvider {
+  get provider(): Model {
     return this.getProvider();
   }
 
+  resolveModel(): Model | undefined {
+    if (this.modelAlias === undefined) return undefined;
+    let model: Model = this.modelFactory.resolve(this.modelAlias);
+    model = model.withThinking(this.thinkingLevel);
+    const overrides = this.config.get<KimiModelOverrides>('modelOverrides');
+    if (overrides !== undefined) {
+      const kwargs: GenerationKwargs = {};
+      if (overrides.temperature !== undefined) kwargs.temperature = overrides.temperature;
+      if (overrides.topP !== undefined) kwargs.top_p = overrides.topP;
+      if (Object.keys(kwargs).length > 0) model = model.withGenerationKwargs(kwargs);
+    }
+    return model;
+  }
+
   getModelCapabilities(): ModelCapability {
-    return this.tryResolvedProviderConfig()?.modelCapabilities ?? UNKNOWN_CAPABILITY;
+    return this.tryResolveRawModel()?.capabilities ?? UNKNOWN_CAPABILITY;
   }
 
   getMaxOutputSize(): number | undefined {
-    return this.tryResolvedProviderConfig()?.maxOutputSize;
+    return this.tryResolveRawModel()?.maxOutputSize;
   }
 
   hasModel(): boolean {
@@ -241,7 +241,7 @@ export class AgentProfileService implements IAgentProfileService {
   }
 
   hasProvider(): boolean {
-    return this.tryResolvedProviderConfig() !== undefined;
+    return this.tryResolveRawModel() !== undefined;
   }
 
   getSystemPrompt(): string {
@@ -290,25 +290,16 @@ export class AgentProfileService implements IAgentProfileService {
     if (changed.activeToolNames !== undefined) {
       this.applyActiveToolNames(changed.activeToolNames);
     }
-    if (this.hasProvider() && (changed.cwd !== undefined || changed.modelAlias !== undefined)) {
-      this.optionsValue.initializeBuiltinTools?.();
-    }
     this.emitStatusUpdated();
   }
 
   private setActiveTools(names: readonly string[]): void {
     this.record.append({ type: 'tools.set_active_tools', names: [...names] });
     this.applyActiveToolNames(names);
-    this.initializeBuiltinTools();
   }
 
   private applyActiveToolNames(names: readonly string[]): void {
     this.activeToolNames = [...names];
-  }
-
-  private initializeBuiltinTools(): void {
-    if (!this.hasProvider()) return;
-    this.optionsValue.initializeBuiltinTools?.();
   }
 
   private emitStatusUpdated(): void {
@@ -338,15 +329,7 @@ export class AgentProfileService implements IAgentProfileService {
   }
 
   private get modelAlias(): string | undefined {
-    return this.modelAliasValue ?? this.modelResolver.defaultModel;
-  }
-
-  private get providerConfig(): ProviderConfig {
-    const provider = this.resolvedProviderConfig?.provider;
-    if (provider === undefined) {
-      throw new KimiError(ErrorCodes.MODEL_NOT_CONFIGURED, 'Provider not set');
-    }
-    return provider;
+    return this.modelAliasValue;
   }
 
   private get thinkingLevel(): ThinkingEffort {
@@ -357,18 +340,14 @@ export class AgentProfileService implements IAgentProfileService {
   }
 
   private get alwaysThinkingModel(): boolean {
-    return this.tryResolvedProviderConfig()?.alwaysThinking === true;
+    return this.tryResolveRawModel()?.alwaysThinking === true;
   }
 
-  private get resolvedProviderConfig(): ResolvedModel | undefined {
-    const modelAlias = this.modelAlias;
-    if (modelAlias === undefined) return undefined;
-    return this.modelResolver.resolve(modelAlias);
-  }
-
-  private tryResolvedProviderConfig(): ResolvedModel | undefined {
+  private tryResolveRawModel(): Model | undefined {
+    const alias = this.modelAlias;
+    if (alias === undefined) return undefined;
     try {
-      return this.resolvedProviderConfig;
+      return this.modelFactory.resolve(alias);
     } catch {
       return undefined;
     }

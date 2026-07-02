@@ -8,7 +8,7 @@
  * `SessionSwarmService` imports it.
  */
 
-import { isProviderRateLimitError, type TokenUsage } from '@moonshot-ai/kosong';
+import { isProviderRateLimitError, type TokenUsage } from '#/app/llmProtocol';
 import * as retry from 'retry';
 
 import type {

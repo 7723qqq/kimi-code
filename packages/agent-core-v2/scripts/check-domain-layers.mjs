@@ -42,11 +42,23 @@ const DOMAIN_LAYER = new Map([
   // `errors` is a top-level facade (src/errors.ts) that aggregates every
   // domain's error codes; any domain may import it, so it sits at L0.
   ['errors', 0],
+  // `llmProtocol` is v2's public wire-type namespace (`Message`,
+  // `ContentPart`, `Tool`, `TokenUsage`, `FinishReason`, error classes,
+  // etc.). It has no v2 dependencies of its own (currently re-exports from
+  // `@moonshot-ai/kosong`); every domain — including `_base/utils/tokens`
+  // and `_base/errors/serialize` — may import wire types through it, so it
+  // sits at L0.
+  ['llmProtocol', 0],
   // L1 — abstraction bridges & low-level capabilities
   ['log', 1],
   ['sessionLog', 1],
   ['telemetry', 1],
   ['bootstrap', 1],
+  // `environment` is the App-scope resolved startup snapshot: host facts, the
+  // app path layout, and the env bag; low-level substrate that any domain may
+  // read for paths/facts, so it sits in L1 beside `bootstrap` and
+  // `hostEnvironment`.
+  ['environment', 1],
   // `event` is the App-scope pub/sub bus, a thin wrapper over the
   // `_base/event` `Emitter`. Foundational substrate that any domain may
   // publish/subscribe through, so it sits in L1 (not the edge boundary).
@@ -67,7 +79,7 @@ const DOMAIN_LAYER = new Map([
   // and the `errors` facade, so it sits in L1 beside the other host bridges.
   ['git', 1],
   ['workspaceContext', 1],
-  ['chatProvider', 1],
+  ['protocol', 1],
   ['hooks', 1],
   ['storage', 1],
   // L2 — data & cross-cutting capabilities
@@ -82,6 +94,7 @@ const DOMAIN_LAYER = new Map([
   ['hostFolderBrowser', 2],
   ['auth', 2],
   ['provider', 2],
+  ['platform', 2],
   ['model', 2],
   ['sessionIndex', 2],
   ['sessionStore', 2],
@@ -101,7 +114,6 @@ const DOMAIN_LAYER = new Map([
   ['permissionRules', 3],
   ['plugin', 3],
   ['record', 3],
-  ['modelRuntime', 3],
   ['modelCatalog', 3],
   // L4 — agent behaviour
   ['context', 4],
@@ -127,7 +139,6 @@ const DOMAIN_LAYER = new Map([
   ['fileTools', 4],
   ['shellTools', 4],
   ['llmRequester', 4],
-  ['llmRequestLog', 4],
   ['externalHooks', 4],
   ['profile', 4],
   ['prompt', 4],

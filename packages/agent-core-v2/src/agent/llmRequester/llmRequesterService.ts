@@ -1,42 +1,47 @@
 /**
  * `llmRequester` domain (L3) — `IAgentLLMRequesterService` implementation.
  *
- * Assembles one LLM request from `profile` (provider / system prompt),
- * `contextMemory` + `contextProjector` (history), and `toolRegistry` (tools),
- * resolves request authorization through `modelRuntime` `ISessionModelResolver`, drives
- * `@moonshot-ai/kosong` `generate()`, and logs each request through
- * `llmRequestLog`. Bound at Agent scope.
+ * Thin shell over the god-object `Model` (App scope). Assembles per-turn
+ * `LLMRequestInput` from `profile` (system prompt), `contextMemory` +
+ * `contextProjector` (history), and `toolRegistry` (tools), applies the
+ * completion-token budget, then drives `model.request(input, signal)` with
+ * bounded retry. Forwards streamed `part` events to the caller's `onPart`
+ * handler, records `usage` through `IAgentUsageService`, resolves to an
+ * `LLMRequestFinish` on the `finish` event, and logs the outbound request
+ * (config deduplicated by content, plus per-request fields) through `log`.
+ * Bound at Agent scope.
  */
 
-import {
-  emptyUsage,
-  generate,
-  isRetryableGenerateError,
-  type ChatProvider,
-  type GenerateCallbacks,
-  type Message,
-  type ProviderRequestAuth,
-  type StreamDecodeStats,
-  type Tool as KosongTool,
-} from '@moonshot-ai/kosong';
+import { createHash } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-
-import { ISessionModelResolver } from '#/session/modelRuntime';
 import {
   applyCompletionBudget,
   resolveCompletionBudget,
-} from '#/_base/utils/completion-budget';
+} from '#/app/model/completionBudget';
+import {
+  emptyUsage,
+  isRetryableGenerateError,
+  type Message,
+  type ThinkingEffort,
+  type Tool,
+} from '#/app/llmProtocol';
+import type { Protocol } from '#/app/protocol';
 import { IConfigService } from '#/app/config';
-import type { KimiModelOverrides } from '#/app/chatProvider';
+import type { KimiModelOverrides, Model, ModelRequestEvent } from '#/app/model';
 import { ILogService } from '#/app/log';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import type { LLMRequestFinish, LLMRequestOverrides, LLMRequestPartHandler } from './index';
-import { IAgentLLMRequestLogService } from '#/agent/llmRequestLog';
+import type {
+  LLMRequestFinish,
+  LLMRequestLogFields,
+  LLMRequestOverrides,
+  LLMRequestPartHandler,
+  LLMStreamTiming,
+} from './index';
 import { IAgentUsageService } from '#/agent/usage';
 import { IAgentLLMRequesterService } from './llmRequester';
 import {
@@ -54,8 +59,31 @@ const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
 
 const noopOnPart: LLMRequestPartHandler = () => {};
 
+interface ResolvedLLMRequest {
+  readonly model: Model;
+  readonly modelAlias: string;
+  readonly systemPrompt: string;
+  readonly tools: readonly Tool[];
+  readonly messages: Message[];
+  readonly requestLogFields: LLMRequestOverrides['requestLogFields'];
+  readonly usageContext: LLMRequestOverrides['usageContext'];
+}
+
+interface LLMRequestLogInput {
+  readonly protocol: Protocol;
+  readonly modelName: string;
+  readonly modelAlias?: string;
+  readonly thinkingEffort?: ThinkingEffort | null;
+  readonly systemPrompt: string;
+  readonly tools: readonly Tool[];
+  readonly messages: readonly Message[];
+  readonly fields?: LLMRequestLogFields;
+}
+
 export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   declare readonly _serviceBrand: undefined;
+
+  private lastConfigLogSignature: string | undefined;
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -63,9 +91,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentToolRegistryService private readonly tools: IAgentToolRegistryService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IAgentLLMRequestLogService private readonly requestLog: IAgentLLMRequestLogService,
     @IAgentUsageService private readonly usage: IAgentUsageService,
-    @ISessionModelResolver private readonly modelResolver: ISessionModelResolver,
     @IConfigService private readonly config: IConfigService,
     @ILogService private readonly log: ILogService,
   ) {}
@@ -162,130 +188,125 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     onPart: LLMRequestPartHandler,
     signal: AbortSignal | undefined,
   ): Promise<LLMRequestFinish> {
-    let requestStartedAt = Date.now();
-    let requestSentAt: number | undefined;
-    let firstChunkAt: number | undefined;
-    let streamEndedAt: number | undefined;
-    let decodeStats: StreamDecodeStats | undefined;
-    let streamedAnyPart = false;
-    const callbacks: GenerateCallbacks = {
-      onMessagePart: async (part) => {
-        firstChunkAt ??= Date.now();
-        streamedAnyPart = true;
-        await onPart(part);
-      },
+    this.logRequest({
+      protocol: request.model.protocol,
+      modelName: request.model.name,
+      modelAlias: request.modelAlias,
+      thinkingEffort: request.model.thinkingEffort,
+      systemPrompt: request.systemPrompt,
+      tools: request.tools,
+      messages: request.messages,
+      fields: request.requestLogFields,
+    });
+
+    const input = {
+      systemPrompt: request.systemPrompt,
+      tools: request.tools,
+      messages: request.messages,
     };
-    const run = async (auth: ProviderRequestAuth | undefined): Promise<LLMRequestFinish> => {
-      requestStartedAt = Date.now();
-      requestSentAt = undefined;
-      firstChunkAt = undefined;
-      streamEndedAt = undefined;
-      decodeStats = undefined;
-      streamedAnyPart = false;
-      this.requestLog.logRequest({
-        provider: request.provider,
-        modelAlias: request.modelAlias,
-        systemPrompt: request.systemPrompt,
-        tools: request.tools,
-        messages: request.messages,
-        fields: request.requestLogFields,
-      });
-      const result = await request.generate(
-        request.provider,
-        request.systemPrompt,
-        [...request.tools],
-        request.messages,
-        callbacks,
-        {
-          signal,
-          auth,
-          onRequestStart: () => {
-            requestStartedAt = Date.now();
-          },
-          onRequestSent: () => {
-            requestSentAt = Date.now();
-          },
-          onStreamEnd: (stats) => {
-            streamEndedAt = Date.now();
-            decodeStats = stats;
-          },
-        },
-      );
-      // Providers that resolve the whole response at once (rather than
-      // streaming through `onMessagePart`) still carry their content on
-      // `result.message`. Surface it as parts so downstream consumers (e.g.
-      // compaction summary collection) observe the content, matching the
-      // legacy path that read `response.message.content` directly.
-      if (!streamedAnyPart) {
-        for (const part of result.message.content) {
-          firstChunkAt ??= Date.now();
-          await onPart(part);
-        }
-        for (const toolCall of result.message.toolCalls) {
-          firstChunkAt ??= Date.now();
-          await onPart(toolCall);
+
+    let message: Message | undefined;
+    let usage = emptyUsage();
+    let timing: LLMStreamTiming | undefined;
+    let finish: Extract<ModelRequestEvent, { type: 'finish' }> | undefined;
+
+    for await (const event of request.model.request(input, signal)) {
+      switch (event.type) {
+        case 'part':
+          await onPart(event.part);
+          break;
+        case 'usage':
+          usage = event.usage;
+          break;
+        case 'finish':
+          finish = event;
+          message = event.message;
+          break;
+        case 'timing': {
+          const { type: _type, ...streamTiming } = event;
+          timing = streamTiming;
+          break;
         }
       }
-      const usage = result.usage ?? emptyUsage();
-      const usageModel = request.modelAlias ?? request.provider.modelName;
-      this.usage.record(usageModel, usage, request.usageContext);
-      return {
-        message: result.message,
-        usage,
-        model: usageModel,
-        providerFinishReason: result.finishReason ?? undefined,
-        rawFinishReason: result.rawFinishReason ?? undefined,
-        providerMessageId: result.id ?? undefined,
-        timing:
-          firstChunkAt === undefined
-            ? undefined
-            : buildStreamTiming(
-                requestStartedAt,
-                requestSentAt,
-                firstChunkAt,
-                streamEndedAt,
-                decodeStats,
-              ),
-      };
-    };
-    const withAuth = this.resolveAuth(request.modelAlias);
-    if (withAuth === undefined) {
-      return await run(undefined);
     }
-    return await withAuth((auth) => run(auth));
+
+    if (message === undefined || finish === undefined) {
+      throw new Error('LLM request stream ended without a finish event.');
+    }
+
+    const usageModel = request.modelAlias;
+    this.usage.record(usageModel, usage, request.usageContext);
+
+    return {
+      message,
+      usage,
+      model: usageModel,
+      providerFinishReason: finish.providerFinishReason,
+      rawFinishReason: finish.rawFinishReason,
+      providerMessageId: finish.id,
+      timing,
+    };
   }
 
   private resolveRequest(overrides: LLMRequestOverrides): ResolvedLLMRequest {
     const resolved = this.profile.resolveModelContext();
-    const providerWithEnv = this.profile.getProvider();
-    const provider = applyCompletionBudget({
-      provider: providerWithEnv,
+    let model = this.profile.getProvider();
+    model = applyCompletionBudget({
+      model,
       budget: resolveCompletionBudget({
         maxOutputSize: overrides.maxOutputSize ?? resolved.maxOutputSize,
         reservedContextSize: resolved.reservedContextSize,
-        maxCompletionTokensCap: this.config.get<KimiModelOverrides>('modelOverrides')?.maxCompletionTokens,
+        maxCompletionTokensCap:
+          this.config.get<KimiModelOverrides>('modelOverrides')?.maxCompletionTokens,
       }),
       capability: resolved.modelCapabilities,
       usedContextTokens: this.contextSize.getStatus().contextTokens,
     });
 
     return {
-      provider,
+      model,
       modelAlias: resolved.modelAlias,
       systemPrompt: overrides.systemPrompt ?? this.profile.getSystemPrompt(),
       tools: [...(overrides.tools ?? this.defaultTools())],
       messages: [...(overrides.messages ?? this.projector.project(this.context.get()))],
       requestLogFields: overrides.requestLogFields,
       usageContext: overrides.usageContext,
-      generate,
     };
   }
 
-  private resolveAuth(modelAlias: string) {
-    return this.modelResolver.resolveAuth?.(modelAlias);
+  private logRequest(input: LLMRequestLogInput): void {
+    const requestLogFields = input.fields ?? {};
+    const config = {
+      provider: input.protocol,
+      model: input.modelName,
+      modelAlias: input.modelAlias,
+      thinkingEffort: input.thinkingEffort ?? undefined,
+      systemPromptChars: input.systemPrompt.length,
+      toolCount: input.tools.length,
+    };
+    const signature = JSON.stringify({
+      ...config,
+      systemPromptHash: fingerprint(input.systemPrompt),
+      toolsHash: fingerprint(JSON.stringify(toolSignature(input.tools))),
+    });
+    if (signature !== this.lastConfigLogSignature) {
+      this.lastConfigLogSignature = signature;
+      this.log.info('llm config', { ...requestLogFields, ...config });
+    }
+
+    const partialMessageCount = input.messages.filter(
+      (message) => message.partial === true,
+    ).length;
+    const requestFields: {
+      turnStep?: string;
+      attempt?: string;
+      partialMessageCount?: number;
+    } = { ...requestLogFields };
+    if (partialMessageCount > 0) requestFields.partialMessageCount = partialMessageCount;
+    this.log.info('llm request', requestFields);
   }
 
-  private defaultTools(): readonly KosongTool[] {
+  private defaultTools(): readonly Tool[] {
     return this.tools
       .list()
       .filter((tool) => this.profile.isToolActive(tool.name, tool.source))
@@ -314,53 +335,12 @@ function requestOverridesForAttempt(
   };
 }
 
-export function buildStreamTiming(
-  requestStartedAt: number,
-  requestSentAt: number | undefined,
-  firstChunkAt: number,
-  streamEndedAt: number | undefined,
-  decodeStats: StreamDecodeStats | undefined,
-): {
-  firstTokenLatencyMs: number;
-  streamDurationMs: number;
-  requestBuildMs?: number;
-  serverFirstTokenMs?: number;
-  serverDecodeMs?: number;
-  clientConsumeMs?: number;
-} {
-  const outputEndedAt = streamEndedAt ?? Date.now();
-  const timing: {
-    firstTokenLatencyMs: number;
-    streamDurationMs: number;
-    requestBuildMs?: number;
-    serverFirstTokenMs?: number;
-    serverDecodeMs?: number;
-    clientConsumeMs?: number;
-  } = {
-    firstTokenLatencyMs: Math.max(0, firstChunkAt - requestStartedAt),
-    streamDurationMs: Math.max(0, outputEndedAt - firstChunkAt),
-  };
-  if (requestSentAt !== undefined) {
-    const sentAt = Math.min(Math.max(requestSentAt, requestStartedAt), firstChunkAt);
-    timing.requestBuildMs = sentAt - requestStartedAt;
-    timing.serverFirstTokenMs = firstChunkAt - sentAt;
-  }
-  if (decodeStats !== undefined) {
-    timing.serverDecodeMs = Math.max(0, decodeStats.serverDecodeMs);
-    timing.clientConsumeMs = Math.max(0, decodeStats.clientConsumeMs);
-  }
-  return timing;
+function toolSignature(tools: readonly Tool[]) {
+  return tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
 }
 
-interface ResolvedLLMRequest {
-  readonly provider: ChatProvider;
-  readonly modelAlias: string;
-  readonly systemPrompt: string;
-  readonly tools: readonly KosongTool[];
-  readonly messages: Message[];
-  readonly requestLogFields: LLMRequestOverrides['requestLogFields'];
-  readonly usageContext: LLMRequestOverrides['usageContext'];
-  readonly generate: typeof generate;
+function fingerprint(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
 }
 
 registerScopedService(

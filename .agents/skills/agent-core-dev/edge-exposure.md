@@ -127,7 +127,7 @@ These fail §2 and must be wrapped in a facade that takes ids and returns data:
 | Service | Why not direct | Facade shape |
 |---|---|---|
 | ISessionLifecycleService | returns `IScopeHandle` | `sessions.create` / `fork` / `close` / `archive` → wire Session |
-| IPromptService / ITurnService | returns `Turn` handle | `prompts.submit` / `steer` / `abort` / `undo` |
+| IAgentPromptService / IAgentTurnService | returns `Turn` handle | `prompts.submit` / `steer` / `abort` / `undo` |
 | ILLMRequester | `AsyncIterable` stream | stream over WS, not RPC |
 | ISubagentHost | `SubagentHandle` | `subagents.spawn` / `resume` → info |
 | IProcessRunner | `IProcess` streams | terminal (separate WS protocol) |

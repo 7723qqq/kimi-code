@@ -1,5 +1,5 @@
 import { createDecorator } from "#/_base/di";
-import type { Message } from '@moonshot-ai/kosong';
+import type { Message } from '#/app/llmProtocol';
 
 import type { ContextMessage } from '#/agent/contextMemory';
 

@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 
 import { IAgentBackgroundService } from '#/agent/background/background';
 import type {
@@ -169,3 +170,5 @@ export class TaskOutputTool implements BuiltinTool<TaskOutputInput> {
     };
   }
 }
+
+registerTool(TaskOutputTool);

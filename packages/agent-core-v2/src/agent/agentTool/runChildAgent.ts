@@ -17,7 +17,7 @@ import {
   APIProviderRateLimitError,
   isProviderRateLimitError,
   type TokenUsage,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol';
 
 import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';

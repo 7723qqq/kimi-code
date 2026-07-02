@@ -1,4 +1,4 @@
-import type { ContentPart, Message } from '@moonshot-ai/kosong';
+import type { ContentPart, Message } from '#/app/llmProtocol';
 
 import type { BackgroundTaskStatus } from '#/agent/background';
 import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';

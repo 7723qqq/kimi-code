@@ -11,7 +11,7 @@ Use this when the task is "expose the new v2 Service on the server", "port the v
 - **`/api/v2/:sa`** — the native v2 RPC surface, driven by the `actionMap` allowlist (`packages/server-v2/src/transport/actionMap.ts`). One `resource:action` segment maps to one `Service.method`. New v2-native capabilities land here. See [edge-exposure.md](edge-exposure.md).
 - **`/api/v1/...`** — the v1-compatible surface, hand-written routes in `packages/server-v2/src/routes/*.ts` that **mirror `packages/server/src/routes/*.ts` path-for-path and schema-for-schema**, mounted by `registerApiV1Routes.ts`. This exists so existing v1 clients keep working against server-v2 unchanged.
 
-The two surfaces can point at **different Services** for the same feature. v2's native `IPromptService` serves `/api/v2`; a v1-shaped `IPromptLegacyService` serves `/api/v1`. Keeping them separate is what lets v2's domain design stay clean while the wire stays compatible.
+The two surfaces can point at **different Services** for the same feature. v2's native `IAgentPromptService` serves `/api/v2`; a v1-shaped `IAgentPromptLegacyService` serves `/api/v1`. Keeping them separate is what lets v2's domain design stay clean while the wire stays compatible.
 
 ## Decision: which surface?
 
@@ -98,25 +98,25 @@ Skeleton (matches `promptLegacy/`):
 import type { PromptSubmitResult, PromptSubmission } from '@moonshot-ai/protocol';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-export interface IPromptLegacyService {
+export interface IAgentPromptLegacyService {
   readonly _serviceBrand: undefined;
   submit(body: PromptSubmission): Promise<PromptSubmitResult>;
   // ...the rest of the v1 contract, typed by protocol
 }
-export const IPromptLegacyService: ServiceIdentifier<IPromptLegacyService> =
-  createDecorator<IPromptLegacyService>('promptLegacyService.agent');
+export const IAgentPromptLegacyService: ServiceIdentifier<IAgentPromptLegacyService> =
+  createDecorator<IAgentPromptLegacyService>('agentPromptLegacyService');
 ```
 
 ```ts
 // promptLegacyService.ts — impl delegates to the native v2 Service
-constructor(@IPromptService private readonly prompt: IPromptService /*, ... */) {}
+constructor(@IAgentPromptService private readonly prompt: IAgentPromptService /*, ... */) {}
 // submit() builds v2-native input, calls the native Service, projects the result
 // back into the protocol PromptSubmitResult.
 
 registerScopedService(
   LifecycleScope.Agent,            // scope = the lifetime of the legacy state
-  IPromptLegacyService,
-  PromptLegacyService,
+  IAgentPromptLegacyService,
+  AgentPromptLegacyService,
   InstantiationType.Delayed,
   'promptLegacy',
 );
@@ -124,7 +124,7 @@ registerScopedService(
 
 Conventions:
 
-- **Name** the domain `<domain>Legacy` and the interface `I<Domain>LegacyService` (e.g. `promptLegacy` / `IPromptLegacyService`).
+- **Name** the domain `<domain>Legacy` and the interface with the scope prefix, `I<Scope><Domain>LegacyService` (e.g. `promptLegacy` / `IAgentPromptLegacyService`), per service-authoring.md.
 - **Header comment** must say it is an `L7 edge adapter` and name both the v1 contract it implements and the native v2 Service it leaves untouched (see `promptLegacy.ts`).
 - **Scope** = the lifetime of the *legacy* state it holds (the `promptLegacy` queue is per-agent → `LifecycleScope.Agent`). Apply [orient.md](orient.md) / [design.md](design.md) normally — a LegacyService is not exempt from scope rules.
 - **Delegate, do not duplicate** business logic. The LegacyService translates the v1 contract into native-Service calls and translates results back; the real work stays in the native Service.
@@ -211,12 +211,12 @@ Where the route mirrors v1, the test is the regression guard for the schema-fide
 
 This is the reference alignment (commits `feat(server-v2): port v1 /sessions/:sid/prompts routes`, `feat(server-v2): return turn ids for prompt actions`). It shows all three decisions at once.
 
-**The mismatch.** v1 `IPromptService` is a per-agent *scheduler*: it owns a FIFO queue, assigns `prompt_id`s, supports `steer`/`abort`, and auto-starts the next queued prompt when a turn settles. v2's native `IPromptService` is a *turn driver*: a submission *is* a turn, there is no queue and no `prompt_id`. Forcing the queue into the v2 native Service would distort the v2 domain.
+**The mismatch.** v1 `IPromptService` is a per-agent *scheduler*: it owns a FIFO queue, assigns `prompt_id`s, supports `steer`/`abort`, and auto-starts the next queued prompt when a turn settles. v2's native `IAgentPromptService` is a *turn driver*: a submission *is* a turn, there is no queue and no `prompt_id`. Forcing the queue into the v2 native Service would distort the v2 domain.
 
 **The split.**
 
-- `/api/v2` keeps the native shape — `prompts:submit` / `steer` / `undo` / `clear` / `cancel` map to `IAgentRPCService` (a wire facade over the v2 turn driver) in `actionMap`. The native `IPromptService` is untouched.
-- `/api/v1` gets a `PromptLegacyService` (`promptLegacy/`, `LifecycleScope.Agent`) that re-implements the v1 scheduler — queue, `prompt_id`, steer/abort, auto-start-next — **on top of** the native `IPromptService`. The `/api/v1` routes consume the LegacyService.
+- `/api/v2` keeps the native shape — `prompts:submit` / `steer` / `undo` / `clear` / `cancel` map to `IAgentRPCService` (a wire facade over the v2 turn driver) in `actionMap`. The native `IAgentPromptService` is untouched.
+- `/api/v1` gets an `AgentPromptLegacyService` (`promptLegacy/`, `LifecycleScope.Agent`) that re-implements the v1 scheduler — queue, `prompt_id`, steer/abort, auto-start-next — **on top of** the native `IAgentPromptService`. The `/api/v1` routes consume the LegacyService.
 
 **The schema.** Both servers import `promptSubmissionSchema` / `promptSubmitResultSchema` / `promptListResponseSchema` / `promptSteerRequestSchema` / `promptSteerResultSchema` / `promptAbortResponseSchema` from `@moonshot-ai/protocol`. The v1 and v2 route files are therefore byte-compatible by construction; the LegacyService projects v2 turn results back into those protocol shapes.
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildStreamTiming } from '#/agent/llmRequester/llmRequesterService';
+import { buildStreamTiming } from '#/app/model/modelImpl';
 
 describe('buildStreamTiming', () => {
   it('returns base TTFT and stream duration only', () => {

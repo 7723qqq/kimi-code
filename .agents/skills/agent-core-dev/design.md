@@ -147,18 +147,23 @@ Once a foundational component knows about an upstream scenario, it can no longer
 
 ### The natural layers of this repo
 
-Lower is depended on by higher, never the reverse:
+`agent-core-v2` is stratified into eight dependency layers, **L0–L7** (the `Ln` number in file headers — see orient.md for the full table and the representative domains). A domain at layer `L` may import only domains at layer `<= L`; lower layers never reach upward. `lint:domain` enforces this from the `DOMAIN_LAYER` map in `scripts/check-domain-layers.mjs`.
 
-1. **Root** (depend on no business domain): `_base`, `log`, `environment`, `event`, `telemetry`, `kaos`.
-2. **Data / state**: `records`, `filestore`, `workspace`, `blobStore`, `config`.
-3. **Capabilities**: `tool`, `permission`, `prompt`, `contextMemory`, `kosong`, `skill`, …
-4. **Orchestrators**: `session`, `agentLifecycle`, `loop`, `turn`, `swarm`.
-5. **Edge**: `gateway`, `rpc`.
+The tiers, from lowest to highest:
+
+- **L0 — base infrastructure** (`_base`, errors, wire types).
+- **L1 — bridges & low-level capabilities** (logging, telemetry, event bus, environment, storage).
+- **L2 — data & cross-cutting capabilities** (records, config, providers, auth, workspace registry).
+- **L3 — registries & capabilities** (tools, permissions, flags, skills, plugins).
+- **L4 — agent behaviour** (turn, loop, prompt, profile, context, goal, plan, swarm).
+- **L5 — async lifecycle** (background, MCP, cron, sub-agent tools).
+- **L6 — coordination** (session, agent/session lifecycle, interactions, terminal).
+- **L7 — boundary / edge** (`gateway`, `rpc`, approval/question, the `*Legacy` v1 adapters).
 
 Red lines:
 
-- Layer 1 (root) **never** depends on any business domain.
-- Business logic does **not** depend on layer 5 (edge) — business code should not know REST / WebSocket exist.
+- The **L0/L1 substrate** never imports a higher business layer.
+- Business logic never depends on the **L7 edge** layer — business code should not know REST / WebSocket exist.
 - A cycle means knowledge was placed backwards: extract a third, more foundational Service, or invert the "notification" half into an event.
 
 > Capability → orchestrator (e.g. `prompt → turn`) is allowed and present in this repo; the real red line is *inverted reuse* — a foundational / lower Service depending on a specific / upper one.

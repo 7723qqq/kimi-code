@@ -12,15 +12,16 @@ export * from '#/app/telemetry';
 export * from '#/app/bootstrap';
 export * from '#/app/hostFs';
 export { IEventService, type DomainEvent } from '#/app/event';
-export * from '#/app/chatProvider';
+export * from '#/app/llmProtocol';
 
 export * from '#/app/sessionIndex';
 export * from '#/session/sessionMetadata';
 export * from '#/app/config';
 export * from '#/app/provider';
+export * from '#/app/platform';
+export * from '#/app/protocol';
 export * from '#/app/model';
 export * from '#/app/modelCatalog';
-export * from '#/session/modelRuntime';
 export * from '#/app/plugin';
 
 export type { SkillSource } from '#/app/globalSkillCatalog';
@@ -75,7 +76,6 @@ export * from '#/agent/contextSize';
 export * from '#/agent/contextInjector';
 export * from '#/agent/externalHooks';
 export * from '#/agent/fullCompaction';
-export * from '#/agent/llmRequestLog';
 export * from '#/agent/llmRequester';
 export * from '#/agent/loop';
 export * from '#/agent/mcp';
@@ -98,7 +98,12 @@ export * from '#/agent/todoList';
 export * from '#/agent/tool';
 export * from '#/agent/toolExecutor';
 import '#/agent/toolRegistry';
-export { IAgentToolRegistryService } from '#/agent/toolRegistry';
+export {
+  IAgentBuiltinToolsRegistrar,
+  IAgentToolRegistryService,
+  registerTool,
+} from '#/agent/toolRegistry';
+export type { ToolContribution, ToolContributionOptions } from '#/agent/toolRegistry';
 export * from '#/agent/toolStore';
 export * from '#/agent/userTool';
 export * from '#/agent/wireRecord';

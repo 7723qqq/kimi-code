@@ -11,6 +11,7 @@ import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
 import DESCRIPTION from './create-goal.md?raw';
@@ -78,3 +79,5 @@ export class CreateGoalTool implements BuiltinTool<CreateGoalToolInput> {
     };
   }
 }
+
+registerTool(CreateGoalTool);

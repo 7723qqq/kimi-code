@@ -28,6 +28,7 @@ import { IAgentSkillService } from '#/agent/skill/skill';
 import { renderModelToolSkillPrompt } from '#/agent/skill/prompt';
 import type { BuiltinTool } from '#/agent/tool';
 import type { ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 import { isInlineSkillType } from '#/app/globalSkillCatalog/types';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
 import { renderPrompt } from '#/_base/utils/render-prompt';
@@ -102,6 +103,8 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
     return executeModelSkill(this.catalog, this.prompt, this.skill, args, this.queryDepth);
   }
 }
+
+registerTool(SkillTool);
 
 export async function executeModelSkill(
   catalog: ISessionSkillCatalog,

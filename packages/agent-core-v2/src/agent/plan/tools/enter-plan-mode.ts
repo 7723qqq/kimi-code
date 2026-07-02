@@ -9,6 +9,7 @@ import { z } from 'zod';
 
 import type { BuiltinTool } from '#/agent/tool';
 import type { ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentPlanService } from '#/agent/plan/plan';
@@ -57,6 +58,8 @@ export class EnterPlanModeTool implements BuiltinTool<EnterPlanModeInput> {
     };
   }
 }
+
+registerTool(EnterPlanModeTool);
 
 function enteredPlanModeMessage(planPath: string | null): string {
   if (planPath === null) {

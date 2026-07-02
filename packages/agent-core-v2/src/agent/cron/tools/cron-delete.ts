@@ -38,8 +38,9 @@
 import { z } from 'zod';
 
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { IAgentCronService } from '#/agent/cron';
+import { IAgentCronService } from '#/agent/cron/cron';
 import CRON_DELETE_DESCRIPTION from './cron-delete.md?raw';
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -115,3 +116,7 @@ export class CronDeleteTool implements BuiltinTool<CronDeleteInput> {
     };
   }
 }
+
+registerTool(CronDeleteTool, {
+  when: (accessor) => accessor.get(IAgentCronService).isEnabled,
+});

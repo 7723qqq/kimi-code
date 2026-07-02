@@ -39,6 +39,7 @@ import { ISessionProcessRunner } from '#/session/process';
 import type { IProcess } from '#/session/process';
 import { IAgentProfileService } from '#/agent/profile';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution, ToolUpdate } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import { renderPrompt } from '#/_base/utils/render-prompt';
@@ -444,6 +445,8 @@ export class BashTool implements BuiltinTool<BashInput> {
     );
   }
 }
+
+registerTool(BashTool);
 
 function backgroundResultMessage(title: string, suffix: string): string {
   const normalized = title.endsWith('.') ? title : `${title}.`;

@@ -41,7 +41,7 @@ End-to-end procedures that span the stages. Reach for these before reading the s
   - Topic: [Service authoring](service-authoring.md) — file layout, naming, contract vs impl contents, interface style, constructor/field conventions, events, multi-Service domains, comment rules.
   - Topic: [Config](config.md) — the section-registry model, App vs Session split, owning a config section, the TOML format, and the env overlay.
   - Topic: [Errors](errors.md) — co-located `XxxError`, the central code registry, wire serialization, boundary translation.
-  - Topic: [Flags](flags.md) — `FLAG_DEFINITIONS`, `IFlagService.enabled(id)`, the `[experimental]` config section, resolution precedence.
+  - Topic: [Flags](flags.md) — `registerFlagDefinition`, `IFlagService.enabled(id)`, the `[experimental]` config section, resolution precedence.
   - Topic: [Permission](permission.md) — composable chain-of-responsibility kernel, policy registry + composer, `modes`/`agentTypes` metadata, `resolveExecution`/`accesses`.
   - Topic: [Telemetry](telemetry.md) — emitting events via `ITelemetryService`, context propagation, and appender destinations (`ConsoleAppender` / `CloudAppender`).
 - [Stage 4 — Test](test.md): resolve the system under test by interface, pick `TestInstantiationService` vs `createScopedTestHost`, shared stubs, service groups, teardown.
@@ -64,6 +64,6 @@ Invariants that hold across every stage. Each is expanded in the stage file note
 7. Scope follows state identity — no `Map<sessionId, …>` at `App` to fake per-session state. (design.md)
 8. Foundational layers never know upstream ones; business code never depends on the edge layer (`gateway`/`rpc`). (design.md)
 9. Throw coded errors; register codes centrally; branch on `code` across the wire, never `instanceof`. (errors.md)
-10. Gate unreleased behavior behind a `FLAG_DEFINITIONS` flag; no ad-hoc env toggles. (flags.md)
+10. Gate unreleased behavior behind a flag contributed via `registerFlagDefinition` and resolved through `IFlagService.enabled(id)`; no ad-hoc env toggles. (flags.md)
 11. Tests resolve the SUT by interface; shared stubs live under `test/`, never `src/`. (test.md)
 12. Config is the preference registry: only preferences that are persistable, schema'd, and user/operator-facing go in `IConfigService`. Domain-specific config (including env-only operational toggles) goes through `registerSection` + `envOverlay`. Facts → `IBootstrapService` (kept domain-agnostic — never add cron/flags/model state); session state → Session scope; constants → code. Business domains never call `IBootstrapService.getEnv()` directly. (config.md)

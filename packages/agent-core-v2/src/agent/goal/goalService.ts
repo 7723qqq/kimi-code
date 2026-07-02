@@ -9,12 +9,9 @@
  * `telemetry`. Bound at Agent scope.
  */
 
+import { Disposable } from "#/_base/di";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import type { TokenUsage } from '@moonshot-ai/kosong';
-import { randomUUID } from 'node:crypto';
-
-import { Disposable } from "#/_base/di";
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import {
   ensureMessageId,
@@ -44,6 +41,7 @@ import {
   type Turn,
   type TurnEndedContext,
 } from '#/agent/turn';
+import type { TokenUsage } from '#/app/llmProtocol';
 import type { TelemetryProperties } from '#/app/telemetry';
 import { ITelemetryService } from '#/app/telemetry';
 import {
@@ -52,6 +50,7 @@ import {
   toKimiErrorPayload,
   type KimiErrorPayload,
 } from "#/errors";
+import { randomUUID } from 'node:crypto';
 import {
   IAgentGoalService,
   type GoalReasonInput,

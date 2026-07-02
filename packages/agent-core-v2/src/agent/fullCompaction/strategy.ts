@@ -1,4 +1,4 @@
-import type { Message } from '@moonshot-ai/kosong';
+import type { Message } from '#/app/llmProtocol';
 import type { ProfileModelContext } from '#/agent/profile';
 import type { CompactionSource } from './types';
 import { estimateTokensForMessage } from '#/_base/utils';

@@ -1,22 +1,20 @@
 /**
  * Example 13 — the `fileTools` slice across all three scope tiers.
  *
- * Concept taught: a real feature is a *vertical slice* — one Agent-scope
- * service (`IAgentFileToolsService`) injecting a same-tier peer
- * (`IAgentToolRegistryService`), four Session-scope ancestors
- * (`ISessionAgentFileSystem`, `ISessionFsService`, `ISessionProcessRunner`,
- * `ISessionWorkspaceContext`), and two App-scope ancestors (`IHostEnvironment`,
- * `ITelemetryService`). This is the "short-lived injects long-lived" rule made
+ * Concept taught: a real feature is a *vertical slice*. Each built-in tool is
+ * a DI class (constructor injects its dependencies with `@IX`) that
+ * self-registers via `registerTool(ReadTool)` at module load. The Agent-scope
+ * `IAgentToolRegistryService` consumes every module-level contribution when it
+ * is constructed and stores the resulting tool instances in the per-agent
+ * runtime table. The tool ctors themselves inject Session-scope peers
+ * (`ISessionAgentFileSystem`, `ISessionFsService`,
+ * `ISessionWorkspaceContext`) and App-scope peers (`IHostEnvironment`,
+ * `ITelemetryService`) — the same "short-lived injects long-lived" rule made
  * concrete.
  *
- * This is the smallest real 3-tier slice in the dep-graph: 8 registered
- * services and a single external boundary token (`IExecContext`, from kaos).
- * We stub the five leaf dependencies with minimal fakes instead of
- * constructing their real implementations, so the example needs no kaos and
- * stays focused on the wiring. `IAgentFileToolsService` is registered
- * `Eager` because it is a marker interface — a delayed proxy would never be
- * woken by a method call, so its constructor (which registers the tools) must
- * run eagerly.
+ * We stub the leaf dependencies with minimal fakes instead of constructing
+ * their real implementations, so the example needs no kaos and stays focused
+ * on the wiring.
  *
  * Prerequisites: example 01 (container & scope tree).
  *
@@ -24,22 +22,17 @@
  *   pnpm --filter @moonshot-ai/agent-core-v2 example -- examples/file-tools.example.ts
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { InstantiationType } from '#/_base/di/extensions';
-import {
-  LifecycleScope,
-  _clearScopedRegistryForTests,
-  registerScopedService,
-} from '#/_base/di/scope';
+import { LifecycleScope } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 
+// Side-effect import: each tool file calls `registerTool(SomeTool)` at module
+// load; the barrel re-exports them so this one import is enough to add
+// Read/Write/Edit/Grep/Glob to the contribution list.
+import '#/agent/fileTools';
 import {
-  AgentFileToolsService,
-  IAgentFileToolsService,
-} from '#/agent/fileTools';
-import {
-  AgentToolRegistryService,
+  IAgentBuiltinToolsRegistrar,
   IAgentToolRegistryService,
 } from '#/agent/toolRegistry';
 
@@ -52,8 +45,8 @@ import {
 import { ISessionProcessRunner } from '#/session/process';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
-// Minimal leaf fakes — mirror test/fileTools/fileToolsService.test.ts. The
-// real tool constructors only read these surfaces during construction.
+// Minimal leaf fakes. The real tool constructors only read these surfaces
+// during construction.
 const fakeEnv: IHostEnvironment = {
   _serviceBrand: undefined,
   osKind: 'Linux',
@@ -77,27 +70,6 @@ const fakeWorkspace = {
 } as unknown as ISessionWorkspaceContext;
 
 describe('example 13 — file-tools slice (App + Session + Agent)', () => {
-  beforeEach(() => {
-    _clearScopedRegistryForTests();
-    // Register only the two real Agent-scope services of the slice. Their
-    // Session/App ancestors are supplied as stubs below.
-    registerScopedService(
-      LifecycleScope.Agent,
-      IAgentToolRegistryService,
-      AgentToolRegistryService,
-    );
-    // Eager: `IAgentFileToolsService` is a marker interface (no methods), so a
-    // delayed proxy would never be "woken" by a method call. Eager makes
-    // `accessor.get(...)` run the constructor — which registers the tools —
-    // immediately.
-    registerScopedService(
-      LifecycleScope.Agent,
-      IAgentFileToolsService,
-      AgentFileToolsService,
-      InstantiationType.Eager,
-    );
-  });
-
   it('registers the five built-in file tools through the scope tree', () => {
     const host = createScopedTestHost([
       stubPair(IHostEnvironment, fakeEnv),
@@ -111,23 +83,18 @@ describe('example 13 — file-tools slice (App + Session + Agent)', () => {
     ]);
     const agent = host.childOf(session, LifecycleScope.Agent, 'main');
 
-    // Constructing the Agent-scope service wires Read/Write/Edit/Grep/Glob
-    // into the same Agent-scope tool registry.
-    agent.accessor.get(IAgentFileToolsService);
-
+    // Force-instantiate the Eager builtin-tools registrar: its constructor
+    // consumes every registered tool contribution and builds each tool
+    // instance against this Agent scope.
+    agent.accessor.get(IAgentBuiltinToolsRegistrar);
     const tools = agent.accessor.get(IAgentToolRegistryService).list();
-    expect(tools.map((t) => t.name)).toEqual([
-      'Edit',
-      'Glob',
-      'Grep',
-      'Read',
-      'Write',
-    ]);
+    const names = tools.map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['Edit', 'Glob', 'Grep', 'Read', 'Write']));
 
     host.dispose();
   });
 
-  it('resolves the same Agent-scope instance on repeated access (singleton per scope)', () => {
+  it('resolves the same Agent-scope registry on repeated access (singleton per scope)', () => {
     const host = createScopedTestHost([
       stubPair(IHostEnvironment, fakeEnv),
       stubPair(ITelemetryService, noopTelemetryService),
@@ -140,8 +107,8 @@ describe('example 13 — file-tools slice (App + Session + Agent)', () => {
     ]);
     const agent = host.childOf(session, LifecycleScope.Agent, 'main');
 
-    const a = agent.accessor.get(IAgentFileToolsService);
-    const b = agent.accessor.get(IAgentFileToolsService);
+    const a = agent.accessor.get(IAgentToolRegistryService);
+    const b = agent.accessor.get(IAgentToolRegistryService);
     expect(a).toBe(b);
 
     host.dispose();

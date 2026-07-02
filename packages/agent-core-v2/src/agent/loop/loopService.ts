@@ -1,24 +1,6 @@
 import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import {
-  IAgentContextMemoryService,
-  newMessageId,
-  type ContextMessage,
-} from '#/agent/contextMemory';
-import { IAgentContextSizeService } from '#/agent/contextSize';
-import { IAgentRecordService } from '#/agent/record';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
-import {
-  IAgentLLMRequesterService,
-  type LLMRequestFinish,
-} from '#/agent/llmRequester';
-import { IAgentProfileService } from '#/agent/profile';
-import type { ToolResult } from '#/agent/tool';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IConfigService } from '#/app/config';
-import { ILogService } from '#/app/log';
-import { ErrorCodes, isKimiError } from '#/errors';
-import { OrderedHookSlot } from '#/hooks';
+import {  LifecycleScope, registerScopedService } from '#/_base/di/scope';
+
 import {
   APIContextOverflowError,
   createToolMessage,
@@ -26,8 +8,26 @@ import {
   isToolCallPart,
   type ContentPart,
   type StreamedMessagePart,
-  type TokenUsage,
-} from '@moonshot-ai/kosong';
+  type TokenUsage
+} from '#/app/llmProtocol';
+
+import { IAgentContextSizeService } from '#/agent/contextSize';
+import { IAgentExternalHooksService } from '#/agent/externalHooks';
+import {
+  IAgentLLMRequesterService,
+  type LLMRequestFinish,
+} from '#/agent/llmRequester';
+import { IAgentProfileService } from '#/agent/profile';
+import { IAgentRecordService } from '#/agent/record';
+import type { ToolResult } from '#/agent/tool';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor';
+import { IConfigService } from '#/app/config';
+import { ILogService } from '#/app/log';
+import {
+  ErrorCodes,
+  isKimiError
+} from "#/errors";
+import { OrderedHookSlot } from '#/hooks';
 import type { AgentEvent } from '@moonshot-ai/protocol';
 import { randomUUID } from 'node:crypto';
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
@@ -44,6 +44,7 @@ import type {
   LoopTurnStopReason,
   TurnResult,
 } from './types';
+import { IAgentContextMemoryService, newMessageId, type ContextMessage } from '../contextMemory';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';

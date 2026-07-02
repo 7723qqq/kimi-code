@@ -80,7 +80,7 @@ Red lines:
 Actions:
 
 - Search v2 `src/` for an existing domain that owns the same responsibility. Prefer joining an existing domain over creating a new one.
-- If creating a domain, name it after the responsibility (kebab-case folder, e.g. `sessionActivity`), not after the v1 file.
+- If creating a domain, name it after the responsibility (camelCase folder, e.g. `sessionActivity`), not after the v1 file.
 - Keep a domain's public surface to one contract file (`<domain>.ts`) plus its impl(s).
 
 Reference mapping (a **starting point**, not gospel — verify against the current v2 `src/`, which is the source of truth):
@@ -180,7 +180,7 @@ import { KimiError, type ErrorCode } from '#/_base/errors';
 
 **Errors** — move any shared error into a co-located `XxxError extends KimiError` with a registered `code` (errors.md). Do not keep throwing v1's central error codes from a v2 domain.
 
-**Flags** — replace any `FlagResolver` / env check with `IFlagService.enabled(id)`; register new flags in `FLAG_DEFINITIONS` (flags.md).
+**Flags** — replace any `FlagResolver` / env check with `IFlagService.enabled(id)`; contribute new flags from the owning domain's `flag.ts` via `registerFlagDefinition` (flags.md).
 
 **Events** — v1's `Emitter` / `Event` from `base/common/event` maps to v2's `event` / `eventBus` domains. Read existing v2 usage in neighboring domains and match it; do not import v1's `Emitter`.
 

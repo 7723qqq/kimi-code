@@ -6,6 +6,10 @@
  * archival limits, and UI concerns stay outside these contracts.
  */
 
+import type { Message } from '#/app/llmProtocol';
+
+export type LoopMessageBuilder = () => Message[] | Promise<Message[]>;
+
 /**
  * Stop reason for one completed model step.
  *

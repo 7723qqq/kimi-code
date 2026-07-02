@@ -13,7 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol';
 
 import { Disposable } from '#/_base/di';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';

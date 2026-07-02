@@ -9,7 +9,7 @@
  * `loop` / `turn`. Pure contract (types only); no scoped service.
  */
 
-import type { ToolCall } from '@moonshot-ai/kosong';
+import type { ToolCall } from '#/app/llmProtocol';
 
 import type { ExecutableTool, ExecutableToolResult, RunnableToolExecution } from './toolContract';
 

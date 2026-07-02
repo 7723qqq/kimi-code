@@ -76,7 +76,6 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>turn</b>\n<size:9><i>Agent</i></size>\n  IAgentTurnService" as turn #FDEBD0
   rectangle "<b>loop</b>\n<size:9><i>Agent</i></size>\n  IAgentLoopService" as loop #FDEBD0
   rectangle "<b>llmRequester</b>\n<size:9><i>Agent</i></size>\n  IAgentLLMRequesterService" as llmRequester #FDEBD0
-  rectangle "<b>llmRequestLog</b>\n<size:9><i>Agent</i></size>\n  IAgentLLMRequestLogService" as llmRequestLog #FDEBD0
   rectangle "<b>toolRegistry</b>\n<size:9><i>Agent</i></size>\n  IAgentToolRegistryService" as toolRegistry #FDEBD0
   rectangle "<b>toolExecutor</b>\n<size:9><i>Agent</i></size>\n  IAgentToolExecutorService" as toolExecutor #FDEBD0
   rectangle "<b>toolStore</b>\n<size:9><i>Agent</i></size>\n  IAgentToolStoreService" as toolStore #FDEBD0
@@ -208,11 +207,10 @@ llmRequester --> contextMemory #34495E
 llmRequester --> contextProjector #34495E
 llmRequester --> toolRegistry #34495E
 llmRequester --> profile #34495E
-llmRequester --> llmRequestLog #34495E
+llmRequester --> log #34495E
 llmRequester --> usage #34495E
 llmRequester --> modelProvider #34495E
 llmRequester --> config #34495E
-llmRequestLog --> log #34495E
 toolExecutor --> toolRegistry #34495E
 toolStore --> wireRecord #34495E
 toolDedup --> telemetry #34495E

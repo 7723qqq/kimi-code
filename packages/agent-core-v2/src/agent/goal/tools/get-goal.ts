@@ -8,6 +8,7 @@ import { z } from 'zod';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
 import DESCRIPTION from './get-goal.md?raw';
@@ -34,3 +35,5 @@ export class GetGoalTool implements BuiltinTool<GetGoalToolInput> {
     };
   }
 }
+
+registerTool(GetGoalTool);

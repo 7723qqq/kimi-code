@@ -12,9 +12,8 @@
 
 import { randomBytes } from 'node:crypto';
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol';
 import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';
-import { join, relative } from 'pathe';
 
 import { Disposable, toDisposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
@@ -22,7 +21,6 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IntervalTimer } from '#/_base/utils';
 
 import { IConfigService } from '#/app/config';
-import { IEnvironmentService } from '#/app/environment';
 import { IAtomicDocumentStore } from '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';
 import type { ContextMessage } from '#/agent/contextMemory';
@@ -31,7 +29,6 @@ import { IAgentRecordService } from '#/agent/record';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import type { Turn } from '#/agent/turn';
 import { IAgentTurnService } from '#/agent/turn';
-import { ISessionContext } from '#/session/sessionContext';
 
 import {
   type CronConfig,
@@ -56,9 +53,6 @@ import {
   SYSTEM_CLOCKS,
   type ClockSources,
 } from './clock';
-import { CronCreateTool } from './tools/cron-create';
-import { CronDeleteTool } from './tools/cron-delete';
-import { CronListTool } from './tools/cron-list';
 
 /** Telemetry event names emitted by the cron subsystem. Centralised so a typo can't drift a metric. */
 export const CRON_SCHEDULED = 'cron_scheduled' as const;
@@ -161,24 +155,16 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
-    @ISessionContext private readonly session: ISessionContext,
-    @IEnvironmentService private readonly environment: IEnvironmentService,
   ) {
     super();
     this.enabled = this.ctx.agentId === 'main';
     // Co-locate cron tasks with the agent's home directory
-    // (`<sessionDir>/agents/<agentId>/cron/<id>.json`), matching the v1 layout
-    // so a session written by the CLI / v1 server is readable here and
-    // vice-versa. `session.sessionDir` is always under `environment.homeDir`;
-    // the atomic-document store is rooted at `homeDir`, so the homeDir-relative
-    // path is the store scope.
+    // (`sessions/<wsId>/<sId>/agents/<agentId>/cron/<id>.json`), matching the v1
+    // layout so a session written by the CLI / v1 server is readable here and
+    // vice-versa. `ctx.scope('cron')` is the agent-scoped persistence root's
+    // `cron` sub-scope, addressed straight into `IAtomicDocumentStore`.
     this.cronScope =
-      typeof this.ctx.agentId === 'string'
-        ? relative(
-            this.environment.homeDir,
-            join(this.session.sessionDir, 'agents', this.ctx.agentId, 'cron'),
-          )
-        : undefined;
+      typeof this.ctx.agentId === 'string' ? this.ctx.scope('cron') : undefined;
     this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
     this._register(
       this.config.onDidChangeConfiguration((e) => {

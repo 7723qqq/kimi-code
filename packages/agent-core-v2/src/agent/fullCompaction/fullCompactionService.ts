@@ -19,8 +19,8 @@ import {
 import { IAgentLoopService, type TurnContextOverflowContext } from '#/agent/loop';
 import { isAbortError } from '#/agent/loop/errors';
 import { IAgentProfileService } from '#/agent/profile';
-import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { IAgentRecordService } from '#/agent/record';
+import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import {
   TODO_STORE_KEY,
   renderTodoList,
@@ -28,14 +28,14 @@ import {
 } from '#/agent/todoList/tools/todo-list';
 import { IAgentToolStoreService } from '#/agent/toolStore';
 import { IAgentTurnService } from '#/agent/turn';
-import { ITelemetryService } from '#/app/telemetry';
-import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/errors";
 import {
   APIContextOverflowError,
   APIEmptyResponseError,
   createUserMessage,
-  type TokenUsage,
-} from '@moonshot-ai/kosong';
+  type TokenUsage
+} from '#/app/llmProtocol';
+import { ITelemetryService } from '#/app/telemetry';
+import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/errors";
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
 import {
   IAgentFullCompactionService,

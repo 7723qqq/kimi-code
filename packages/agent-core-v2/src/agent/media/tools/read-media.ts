@@ -24,7 +24,7 @@ import type {
   ModelCapability,
   VideoUploadInput as ProviderVideoUploadInput,
   VideoURLPart,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol';
 import { z } from 'zod';
 
 import { ISessionAgentFileSystem } from '#/session/agentFs';
