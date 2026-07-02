@@ -48,11 +48,6 @@ export { createLoopEventDispatcher } from './events';
 
 export type {
   LLM,
-  LLMChatParams,
-  LLMChatResponse,
-  LLMRequestLogFields,
-  LLMStreamTiming,
-  ToolCallDelta,
 } from './llm';
 
 export { runTurn } from './run-turn';

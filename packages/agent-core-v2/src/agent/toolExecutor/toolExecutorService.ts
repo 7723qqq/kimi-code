@@ -256,7 +256,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     let rawResult: ExecutableToolResult;
     try {
       const executePromise = execution.execute({
-        turnId: options.turnId ?? '',
+        turnId: options.turnId ?? -1,
         toolCallId: call.toolCall.id,
         metadata,
         signal,
@@ -305,7 +305,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     }
 
     const didCtx: ToolDidExecuteContext = {
-      turnId: turnId ?? '',
+      turnId: turnId ?? -1,
       signal: signal ?? NEVER_ABORTS,
       toolCall: call.toolCall,
       toolCalls: [call.toolCall],
@@ -377,7 +377,7 @@ function buildWillExecuteContext(
   options: ToolExecutorExecuteOptions,
 ): ToolWillExecuteContext {
   return {
-    turnId: options.turnId ?? '',
+    turnId: options.turnId ?? -1,
     signal: options.signal ?? NEVER_ABORTS,
     toolCall: call.toolCall,
     toolCalls: allCalls,
@@ -478,7 +478,7 @@ async function dispatchToolCall(
   await options.dispatchEvent({
     type: 'tool.call',
     uuid: call.toolCall.id,
-    turnId: options.turnId ?? '',
+    turnId: options.turnId ?? -1,
     step: options.stepNumber ?? 0,
     stepUuid: options.stepUuid ?? '',
     toolCallId: call.toolCall.id,

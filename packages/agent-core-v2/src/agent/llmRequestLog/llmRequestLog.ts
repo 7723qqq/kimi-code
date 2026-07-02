@@ -1,7 +1,7 @@
 import type { ChatProvider, Message, Tool } from '@moonshot-ai/kosong';
 
 import { createDecorator } from "#/_base/di";
-import type { LLMRequestLogFields } from '#/agent/loop';
+import type { LLMRequestLogFields } from '#/agent/llmRequester';
 
 export interface LLMRequestLogInput {
   readonly provider: ChatProvider;

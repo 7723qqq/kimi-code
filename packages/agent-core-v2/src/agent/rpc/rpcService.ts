@@ -163,7 +163,7 @@ export class AgentRPCService implements IAgentRPCService {
       }
 
       const result = await execution.execute({
-        turnId: '',
+        turnId: -1,
         toolCallId: 'shell-command',
         signal: controller.signal,
         onUpdate: (update: ToolUpdate) => {

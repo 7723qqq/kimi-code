@@ -32,7 +32,7 @@ import type {
 } from './types';
 
 export interface RunTurnInput {
-  readonly turnId: string;
+  readonly turnId: number;
   readonly signal: AbortSignal;
   readonly llm: LLM;
   readonly buildMessages: LoopMessageBuilder;

@@ -99,7 +99,7 @@ async function execute(tool: WriteTool, args: WriteInput): Promise<ExecutableToo
   }
   if (execution.isError === true) return execution;
   const ctx: ExecutableToolContext = {
-    turnId: '0',
+    turnId: 0,
     toolCallId: 'call_write',
     signal,
   };

@@ -45,7 +45,7 @@ export interface ToolUpdate {
 }
 
 export interface ExecutableToolContext {
-  readonly turnId: string;
+  readonly turnId: number;
   readonly toolCallId: string;
   readonly metadata?: unknown;
   readonly signal: AbortSignal;

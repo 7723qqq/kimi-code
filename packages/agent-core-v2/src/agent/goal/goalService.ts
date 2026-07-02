@@ -29,7 +29,12 @@ import {
   type PromptOrigin,
 } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
-import { IAgentLoopService } from '#/agent/loop';
+import {
+  IAgentLoopService,
+  type TurnAfterStepContext,
+  type TurnBeforeStepContext,
+  type TurnStepUsageContext,
+} from '#/agent/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
@@ -37,8 +42,6 @@ import {
   IAgentTurnService,
   type Turn,
   type TurnEndedContext,
-  type TurnStepContext,
-  type TurnStepUsageContext,
 } from '#/agent/turn';
 import type { TelemetryProperties } from '#/app/telemetry';
 import { ITelemetryService } from '#/app/telemetry';
@@ -489,39 +492,41 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   }
 
   private handleTurnLaunched(turn: Turn): void {
-    if (this.state?.status === 'active') this.goalDrivenTurns.add(turn.id);
-    this.goalOutcomeContinuationTurns.delete(turn.id);
-    this.promptHookBlockedTurns.delete(turn.id);
+    const turnId = turn.id;
+    if (this.state?.status === 'active') this.goalDrivenTurns.add(turnId);
+    this.goalOutcomeContinuationTurns.delete(turnId);
+    this.promptHookBlockedTurns.delete(turnId);
   }
 
-  private async handleBeforeStep(ctx: TurnStepContext): Promise<void> {
-    if (!this.goalDrivenTurns.has(ctx.turn.id)) return;
-    if (this.countedGoalTurns.has(ctx.turn.id)) return;
-    this.countedGoalTurns.add(ctx.turn.id);
+  private async handleBeforeStep(ctx: TurnBeforeStepContext): Promise<void> {
+    if (!this.goalDrivenTurns.has(ctx.turnId)) return;
+    if (this.countedGoalTurns.has(ctx.turnId)) return;
+    this.countedGoalTurns.add(ctx.turnId);
     await this.incrementTurn();
   }
 
   private handleStepUsage(ctx: TurnStepUsageContext): void {
-    if (!this.goalDrivenTurns.has(ctx.turn.id)) return;
+    if (!this.goalDrivenTurns.has(ctx.turnId)) return;
     const snapshot = this.accountTokenUsage(tokenUsageTotal(ctx.usage));
     if (snapshot?.budget.overBudget === true) {
       ctx.stopTurn = true;
     }
   }
 
-  private handleAfterStep(ctx: TurnStepContext): void {
-    if (this.goalOutcomeContinuationTurns.has(ctx.turn.id)) return;
+  private handleAfterStep(ctx: TurnAfterStepContext): void {
+    if (this.goalOutcomeContinuationTurns.has(ctx.turnId)) return;
     if (!isGoalOutcomeReminder(this.context.get().at(-1))) return;
-    this.goalOutcomeContinuationTurns.add(ctx.turn.id);
+    this.goalOutcomeContinuationTurns.add(ctx.turnId);
     ctx.continueTurn = true;
   }
 
   private async handleTurnEnded(ctx: TurnEndedContext): Promise<void> {
-    this.goalDrivenTurns.delete(ctx.turn.id);
-    this.countedGoalTurns.delete(ctx.turn.id);
-    this.goalOutcomeContinuationTurns.delete(ctx.turn.id);
+    const turnId = ctx.turn.id;
+    this.goalDrivenTurns.delete(turnId);
+    this.countedGoalTurns.delete(turnId);
+    this.goalOutcomeContinuationTurns.delete(turnId);
 
-    const blockedByPromptHook = this.promptHookBlockedTurns.delete(ctx.turn.id);
+    const blockedByPromptHook = this.promptHookBlockedTurns.delete(turnId);
     if (blockedByPromptHook) {
       await this.markBlocked({ reason: 'Blocked by UserPromptSubmit hook' });
       return;

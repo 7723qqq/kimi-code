@@ -11,7 +11,7 @@ import type { OrderedHookSlot } from '#/hooks';
 
 export interface ToolExecutorExecuteOptions {
   readonly signal?: AbortSignal;
-  readonly turnId?: string;
+  readonly turnId?: number;
   readonly stepNumber?: number;
   readonly stepUuid?: string;
   readonly dispatchEvent?: LoopEventDispatcher | undefined;

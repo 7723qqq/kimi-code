@@ -14,7 +14,7 @@ import type { ToolCall } from '@moonshot-ai/kosong';
 import type { ExecutableTool, ExecutableToolResult, RunnableToolExecution } from './toolContract';
 
 export interface ToolExecutionHookContext {
-  readonly turnId: string;
+  readonly turnId: number;
   readonly signal: AbortSignal;
   readonly toolCall: ToolCall;
   readonly toolCalls: readonly ToolCall[];

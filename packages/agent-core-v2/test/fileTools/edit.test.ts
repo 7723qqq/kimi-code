@@ -67,7 +67,7 @@ async function execute(tool: EditTool, args: EditInput): Promise<ExecutableToolR
   }
   if (execution.isError === true) return execution;
   const ctx: ExecutableToolContext = {
-    turnId: '0',
+    turnId: 0,
     toolCallId: 'call_edit',
     signal,
   };

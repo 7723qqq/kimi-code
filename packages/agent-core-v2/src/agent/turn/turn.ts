@@ -1,5 +1,4 @@
 import { createDecorator } from "#/_base/di";
-import type { TokenUsage } from '@moonshot-ai/kosong';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import type { Hooks } from '#/hooks';
 
@@ -15,26 +14,6 @@ export interface Turn {
   readonly abortController: AbortController;
   readonly ready: Promise<void>;
   readonly result: Promise<TurnResult>;
-}
-
-export interface TurnStepContext {
-  readonly turn: Turn;
-  continueTurn: boolean;
-}
-
-export interface TurnStepUsageContext {
-  readonly turn: Turn;
-  readonly usage: TokenUsage;
-  readonly stepNumber: number;
-  readonly stepUuid: string;
-  readonly toolCallCount: number;
-  stopTurn: boolean;
-}
-
-export interface TurnContextOverflowContext {
-  readonly turn: Turn;
-  readonly error: unknown;
-  handled: boolean;
 }
 
 export interface TurnRunContext {

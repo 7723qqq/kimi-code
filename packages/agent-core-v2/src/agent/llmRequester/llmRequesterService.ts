@@ -11,6 +11,7 @@
 import {
   emptyUsage,
   generate,
+  isRetryableGenerateError,
   type ChatProvider,
   type GenerateCallbacks,
   type Message,
@@ -25,24 +26,33 @@ import { ISessionModelResolver } from '#/session/modelRuntime';
 import {
   applyCompletionBudget,
   resolveCompletionBudget,
-} from "#/_base/utils/completion-budget";
+} from '#/_base/utils/completion-budget';
 import { IConfigService } from '#/app/config';
 import type { KimiModelOverrides } from '#/app/chatProvider';
+import { ILogService } from '#/app/log';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import type { LLMEvent, LLMRequestOverrides } from './index';
+import type { LLMRequestFinish, LLMRequestOverrides, LLMRequestPartHandler } from './index';
 import { IAgentLLMRequestLogService } from '#/agent/llmRequestLog';
 import { IAgentUsageService } from '#/agent/usage';
-import { AsyncEventQueue } from './asyncEventQueue';
 import { IAgentLLMRequesterService } from './llmRequester';
+import {
+  DEFAULT_MAX_RETRY_ATTEMPTS,
+  isAbortError,
+  retryBackoffDelays,
+  retryErrorFields,
+  sleepForRetry,
+} from './retry';
 
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {},
 };
+
+const noopOnPart: LLMRequestPartHandler = () => {};
 
 export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   declare readonly _serviceBrand: undefined;
@@ -57,34 +67,101 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IAgentUsageService private readonly usage: IAgentUsageService,
     @ISessionModelResolver private readonly modelResolver: ISessionModelResolver,
     @IConfigService private readonly config: IConfigService,
+    @ILogService private readonly log: ILogService,
   ) {}
 
-  request(
+  async request(
     overrides: LLMRequestOverrides = {},
+    onPart: LLMRequestPartHandler = noopOnPart,
     signal?: AbortSignal,
-  ): AsyncIterable<LLMEvent> {
-    return this.requestStream(overrides, signal);
+  ): Promise<LLMRequestFinish> {
+    signal?.throwIfAborted();
+    return await this.requestWithRetry(overrides, onPart, signal);
   }
 
-  private async *requestStream(
+  private async requestWithRetry(
+    overrides: LLMRequestOverrides,
+    onPart: LLMRequestPartHandler,
+    signal: AbortSignal | undefined,
+  ): Promise<LLMRequestFinish> {
+    const maxAttempts = Math.max(overrides.retry?.maxAttempts ?? DEFAULT_MAX_RETRY_ATTEMPTS, 1);
+
+    if (maxAttempts <= 1) {
+      try {
+        return await this.executeRequestAttempt(overrides, onPart, signal, 1, maxAttempts);
+      } catch (error) {
+        this.logRequestFailure(error, overrides, signal, 1, maxAttempts);
+        throw error;
+      }
+    }
+
+    const delays = retryBackoffDelays(maxAttempts);
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.executeRequestAttempt(overrides, onPart, signal, attempt, maxAttempts);
+      } catch (error) {
+        if (attempt >= maxAttempts || !isRetryableGenerateError(error)) {
+          this.logRequestFailure(error, overrides, signal, attempt, maxAttempts);
+          throw error;
+        }
+
+        signal?.throwIfAborted();
+        const delayMs = delays[attempt - 1] ?? 0;
+        await overrides.retry?.onRetry?.({
+          failedAttempt: attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts,
+          delayMs,
+          ...retryErrorFields(error),
+        });
+        await sleepForRetry(delayMs, signal);
+      }
+    }
+  }
+
+  private async executeRequestAttempt(
+    overrides: LLMRequestOverrides,
+    onPart: LLMRequestPartHandler,
+    signal: AbortSignal | undefined,
+    attempt: number,
+    maxAttempts: number,
+  ): Promise<LLMRequestFinish> {
+    signal?.throwIfAborted();
+    const request = this.resolveRequest(requestOverridesForAttempt(overrides, attempt, maxAttempts));
+    return await this.runRequest(request, onPart, signal);
+  }
+
+  private logRequestFailure(
+    error: unknown,
     overrides: LLMRequestOverrides,
     signal: AbortSignal | undefined,
-  ): AsyncIterable<LLMEvent> {
-    signal?.throwIfAborted();
-    const request = this.resolveRequest(overrides);
-    const queue = new AsyncEventQueue<LLMEvent>();
-    void this.runRequest(request, signal, queue).then(
-      () => queue.end(),
-      (error: unknown) => queue.fail(error),
-    );
-    yield* queue;
+    attempt: number,
+    maxAttempts: number,
+  ): void {
+    if (isAbortError(error) || signal?.aborted === true) return;
+    const payload: {
+      turnStep?: string;
+      attempt: string;
+      model: string;
+      errorName: string;
+      errorMessage: string;
+      statusCode?: number;
+    } = {
+      attempt: `${String(attempt)}/${String(maxAttempts)}`,
+      model: this.profile.data().modelAlias ?? 'unknown',
+      ...retryErrorFields(error),
+    };
+    if (overrides.requestLogFields?.turnStep !== undefined) {
+      payload.turnStep = overrides.requestLogFields.turnStep;
+    }
+    this.log.warn('llm request failed', payload);
   }
 
   private async runRequest(
     request: ResolvedLLMRequest,
+    onPart: LLMRequestPartHandler,
     signal: AbortSignal | undefined,
-    queue: AsyncEventQueue<LLMEvent>,
-  ): Promise<void> {
+  ): Promise<LLMRequestFinish> {
     let requestStartedAt = Date.now();
     let requestSentAt: number | undefined;
     let firstChunkAt: number | undefined;
@@ -92,13 +169,13 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     let decodeStats: StreamDecodeStats | undefined;
     let streamedAnyPart = false;
     const callbacks: GenerateCallbacks = {
-      onMessagePart: (part) => {
+      onMessagePart: async (part) => {
         firstChunkAt ??= Date.now();
         streamedAnyPart = true;
-        queue.push({ type: 'part', part });
+        await onPart(part);
       },
     };
-    const run = async (auth: ProviderRequestAuth | undefined): Promise<void> => {
+    const run = async (auth: ProviderRequestAuth | undefined): Promise<LLMRequestFinish> => {
       requestStartedAt = Date.now();
       requestSentAt = undefined;
       firstChunkAt = undefined;
@@ -142,36 +219,40 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       if (!streamedAnyPart) {
         for (const part of result.message.content) {
           firstChunkAt ??= Date.now();
-          queue.push({ type: 'part', part });
+          await onPart(part);
+        }
+        for (const toolCall of result.message.toolCalls) {
+          firstChunkAt ??= Date.now();
+          await onPart(toolCall);
         }
       }
       const usage = result.usage ?? emptyUsage();
       const usageModel = request.modelAlias ?? request.provider.modelName;
-      queue.push({
-        type: 'usage',
+      this.usage.record(usageModel, usage, request.usageContext);
+      return {
+        message: result.message,
         usage,
         model: usageModel,
-      });
-      this.usage.record(usageModel, usage, request.usageContext);
-      queue.push({
-        type: 'finish',
         providerFinishReason: result.finishReason ?? undefined,
         rawFinishReason: result.rawFinishReason ?? undefined,
-        id: result.id ?? undefined,
-      });
-      if (firstChunkAt !== undefined) {
-        queue.push({
-          type: 'timing',
-          ...buildStreamTiming(requestStartedAt, requestSentAt, firstChunkAt, streamEndedAt, decodeStats),
-        });
-      }
+        providerMessageId: result.id ?? undefined,
+        timing:
+          firstChunkAt === undefined
+            ? undefined
+            : buildStreamTiming(
+                requestStartedAt,
+                requestSentAt,
+                firstChunkAt,
+                streamEndedAt,
+                decodeStats,
+              ),
+      };
     };
     const withAuth = this.resolveAuth(request.modelAlias);
     if (withAuth === undefined) {
-      await run(undefined);
-      return;
+      return await run(undefined);
     }
-    await withAuth((auth) => run(auth));
+    return await withAuth((auth) => run(auth));
   }
 
   private resolveRequest(overrides: LLMRequestOverrides): ResolvedLLMRequest {
@@ -214,6 +295,23 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
       }));
   }
+}
+
+function requestOverridesForAttempt(
+  overrides: LLMRequestOverrides,
+  attempt: number,
+  maxAttempts: number,
+): LLMRequestOverrides {
+  if (attempt === 1 || overrides.requestLogFields === undefined) {
+    return overrides;
+  }
+  return {
+    ...overrides,
+    requestLogFields: {
+      ...overrides.requestLogFields,
+      attempt: `${String(attempt)}/${String(maxAttempts)}`,
+    },
+  };
 }
 
 export function buildStreamTiming(

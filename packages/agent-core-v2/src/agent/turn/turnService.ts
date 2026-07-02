@@ -7,7 +7,7 @@ import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextM
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { OrderedHookSlot } from '#/hooks';
-import { IAgentLoopService } from '#/agent/loop';
+import { IAgentLoopService, type TurnResult as LoopTurnResult } from '#/agent/loop';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
 import type {
@@ -58,9 +58,11 @@ export class AgentTurnService implements IAgentTurnService {
       'turn-ready-before-step',
       async (ctx, next) => {
         await next();
-        this.resolveReady(ctx.turn);
+        const turn = this.activeTurn;
+        if (turn !== undefined && turn.id === ctx.turnId) {
+          this.resolveReady(turn);
+        }
       },
-      { before: 'turn-before-step-event' },
     );
     this.events.on((event) => {
       if (event.type === 'agent.status.updated' && event.planMode !== undefined) {
@@ -130,7 +132,10 @@ export class AgentTurnService implements IAgentTurnService {
         result = promptHookResult;
         return result;
       }
-      result = await this.loop.runTurn(turn);
+      result = toAgentTurnResult(
+        await this.loop.runTurn(turn.id, turn.abortController.signal),
+        turn.abortController.signal,
+      );
       return result;
     } catch (error) {
       if (turn.abortController.signal.aborted) {
@@ -283,6 +288,16 @@ function toTurnEndedEvent(
     error: summarizeTurnError(result.error, turn.id),
     durationMs,
   };
+}
+
+function toAgentTurnResult(result: LoopTurnResult, signal: AbortSignal): TurnResult {
+  if (result.stopReason === 'aborted') {
+    return { reason: 'cancelled', error: signal.reason };
+  }
+  if (result.stopReason === 'filtered') {
+    return { reason: 'filtered' };
+  }
+  return { reason: 'completed' };
 }
 
 const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';

@@ -153,7 +153,7 @@ async function execute(tool: ReadTool, args: ReadInput): Promise<ExecutableToolR
   }
   if (execution.isError === true) return execution;
   const ctx: ExecutableToolContext = {
-    turnId: '0',
+    turnId: 0,
     toolCallId: 'call_read',
     signal,
   };

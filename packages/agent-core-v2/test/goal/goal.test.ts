@@ -50,10 +50,18 @@ function makeTurn(id: number): Turn {
 }
 
 async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<boolean> {
-  const step = { turn, continueTurn: false };
+  const step = {
+    turnId: String(turn.id),
+    signal: turn.abortController.signal,
+  };
+  const afterStep = {
+    turnId: String(turn.id),
+    signal: turn.abortController.signal,
+    continueTurn: false,
+  };
   await loopService.hooks.beforeStep.run(step);
-  await loopService.hooks.afterStep.run(step);
-  return step.continueTurn;
+  await loopService.hooks.afterStep.run(afterStep);
+  return afterStep.continueTurn;
 }
 
 async function recordStepUsage(
@@ -62,7 +70,8 @@ async function recordStepUsage(
   usage: TokenUsage,
 ): Promise<boolean> {
   const usageContext = {
-    turn,
+    turnId: String(turn.id),
+    signal: turn.abortController.signal,
     usage,
     stepNumber: 1,
     stepUuid: 'step-1',
@@ -517,7 +526,6 @@ describe('AgentGoalService core workflow hooks', () => {
   beforeEach(() => {
     turnService = stubTurn({ hasActiveTurn: true });
     loopService = stubLoopWithHooks();
-    loopService.hooks.beforeStep.register('turn-before-step-event', (_ctx, next) => next());
     ctx = createTestAgent(
       agentService(IAgentTurnService, turnService),
       agentService(IAgentLoopService, loopService),
@@ -635,14 +643,22 @@ describe('AgentGoalService core workflow hooks', () => {
 
     const turn = makeTurn(3);
     await turnService.hooks.onLaunched.run({ turn });
-    const step = { turn, continueTurn: false };
+    const step = {
+      turnId: String(turn.id),
+      signal: turn.abortController.signal,
+    };
+    const afterStep = {
+      turnId: String(turn.id),
+      signal: turn.abortController.signal,
+      continueTurn: false,
+    };
     await loopService.hooks.beforeStep.run(step);
 
     await goals.markComplete({}, 'model');
-    await loopService.hooks.afterStep.run(step);
+    await loopService.hooks.afterStep.run(afterStep);
     await endTurn(turnService, turn);
 
-    expect(step.continueTurn).toBe(true);
+    expect(afterStep.continueTurn).toBe(true);
     expect(goals.getGoal().goal).toBeNull();
     expect(turnService.launches).toEqual([]);
     expect(context.get().at(-1)?.origin).toEqual({

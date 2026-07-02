@@ -131,7 +131,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
       response = { decision: 'approved' };
     } else {
       this.externalHooks.triggerPermissionRequest({
-        turnId: numericTurnId(context.turnId),
+        turnId: context.turnId,
         toolCallId: context.toolCall.id,
         toolName: name,
         action,
@@ -143,7 +143,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
           approvalService.request({
             sessionId: this.session.sessionId,
             agentId: this.options.agentId ?? 'main',
-            turnId: numericTurnId(context.turnId),
+            turnId: context.turnId,
             toolCallId: context.toolCall.id,
             toolName: name,
             action,
@@ -165,7 +165,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
           has_feedback: false,
         });
         this.externalHooks.triggerPermissionResult({
-          turnId: numericTurnId(context.turnId),
+          turnId: context.turnId,
           toolCallId: context.toolCall.id,
           toolName: name,
           action,
@@ -186,7 +186,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
         : undefined;
     if (approvalService !== undefined) {
       this.externalHooks.triggerPermissionResult({
-        turnId: numericTurnId(context.turnId),
+        turnId: context.turnId,
         toolCallId: context.toolCall.id,
         toolName: name,
         action,
@@ -197,7 +197,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
       });
     }
     this.rulesService.recordApprovalResult({
-      turnId: numericTurnId(context.turnId),
+      turnId: context.turnId,
       toolCallId: context.toolCall.id,
       toolName: name,
       action,
@@ -268,11 +268,6 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
   private isSubagent(): boolean {
     return this.options.agentType === 'sub';
   }
-}
-
-function numericTurnId(turnId: string): number {
-  const numeric = Number(turnId);
-  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 registerScopedService(

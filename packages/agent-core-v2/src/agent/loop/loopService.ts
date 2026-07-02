@@ -1,64 +1,38 @@
 import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import {
-  LifecycleScope,
-  registerScopedService,
-} from '#/_base/di/scope';
-import {
-  createHash
-} from 'node:crypto';
-
-import {
-  APIConnectionError,
-  APIContextOverflowError,
-  APIEmptyResponseError,
-  APIStatusError,
-  APITimeoutError,
-  createToolMessage,
-  emptyUsage,
-  isContentPart,
-  isContextOverflowStatusError,
-  isRetryableGenerateError,
-  isToolCall,
-  isToolCallPart,
-  mergeInPlace,
-  type ContentPart,
-  type ToolCall as KosongToolCall,
-  type StreamedMessagePart,
-  type TokenUsage,
-} from '@moonshot-ai/kosong';
-
-import {
-  Disposable,
-} from "#/_base/di";
-import {
-  ErrorCodes,
-  isKimiError,
-  toKimiErrorPayload,
-  type KimiErrorPayload,
-} from "#/errors";
-import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
-import { IAgentContextMemoryService, newMessageId, type ContextMessage } from '#/agent/contextMemory';
+  IAgentContextMemoryService,
+  newMessageId,
+  type ContextMessage,
+} from '#/agent/contextMemory';
 import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester';
-import { OrderedHookSlot } from '#/hooks';
-import { ILogService } from '#/app/log';
+import {
+  IAgentLLMRequesterService,
+  type LLMRequestFinish,
+} from '#/agent/llmRequester';
 import { IAgentProfileService } from '#/agent/profile';
-import { IConfigRegistry, IConfigService } from '#/app/config';
-import { ITelemetryService } from '#/app/telemetry';
+import type { ExecutableTool, ToolResult } from '#/agent/tool';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import type { Turn, TurnResult } from '#/agent/turn';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
-import type {
-  LoopEvent,
-  LoopEventDispatcher,
-  LoopRecordedEvent,
-} from './events';
-import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
-import { IAgentLoopService } from './loop';
+import { IConfigRegistry, IConfigService } from '#/app/config';
+import { ILogService } from '#/app/log';
+import { ErrorCodes, isKimiError } from '#/errors';
+import { OrderedHookSlot } from '#/hooks';
+import {
+  APIContextOverflowError,
+  createToolMessage,
+  isToolCall,
+  isToolCallPart,
+  type ContentPart,
+  type StreamedMessagePart,
+  type TokenUsage,
+  type ToolCall,
+} from '@moonshot-ai/kosong';
+import type { AgentEvent } from '@moonshot-ai/protocol';
+import { randomUUID } from 'node:crypto';
 import {
   LOOP_CONTROL_SECTION,
   LoopControlSchema,
@@ -66,23 +40,29 @@ import {
   loopControlToToml,
   type LoopControl,
 } from './configSection';
-import { runTurn as runLoopTurn } from './run-turn';
+import {
+  createMaxStepsExceededError,
+  errorMessage,
+  isAbortError,
+  isMaxStepsExceededError,
+} from './errors';
+import type { LoopInterruptReason } from './events';
+import { IAgentLoopService } from './loop';
 import type {
-  ExecutableTool,
-  ExecutableToolResult,
-} from '#/agent/tool';
-import type { LoopHooks } from './types';
+  LoopStepStopReason,
+  LoopTurnStopReason,
+  TurnResult,
+} from './types';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
 const TOOL_EMPTY_ERROR_STATUS =
   '<system>ERROR: Tool execution failed. Tool output is empty.</system>';
 const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
-type ToolTelemetryEvent = 'tool_call' | 'tool_call_dedup_detected' | 'tool_call_repeat';
-type TelemetryProperties = Record<string, unknown>;
 
-export class AgentLoopService extends Disposable implements IAgentLoopService {
+export class AgentLoopService implements IAgentLoopService {
   declare readonly _serviceBrand: undefined;
+
   readonly hooks: IAgentLoopService['hooks'] = {
     beforeStep: new OrderedHookSlot(),
     onStepUsage: new OrderedHookSlot(),
@@ -90,614 +70,239 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     onContextOverflow: new OrderedHookSlot(),
   };
 
-  private readonly openSteps = new Map<string, OpenStep>();
-  private readonly toolCallStartedAt = new Map<string, ToolCallTelemetryStart>();
-  private readonly toolCallDupType = new Map<string, 'normal' | 'cross_step'>();
-  private readonly stepToolCallKeys = new Map<number, Set<string>>();
-  private readonly stepFailureByTurn = new Map<number, Extract<LoopEvent, { type: 'turn.interrupted' }>>();
-  private readonly pendingMeasurements = new Map<string, PendingContextMeasurement>();
-  private ownSpliceDepth = 0;
-  private protocolTurnId: number | undefined;
-
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentEventSinkService private readonly events: IAgentEventSinkService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
-    @IAgentProfileService private readonly profile: IAgentProfileService,
-    @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentWireRecordService private readonly wireRecord: IAgentWireRecordService,
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IConfigRegistry configRegistry: IConfigRegistry,
     @IConfigService private readonly config: IConfigService,
     @ILogService private readonly log: ILogService,
   ) {
-    super();
-    this._register(
-      this.hooks.beforeStep.register('turn-before-step-event', async (_ctx, next) => {
-        await next();
-      }),
-    );
     configRegistry.registerSection(LOOP_CONTROL_SECTION, LoopControlSchema, {
       fromToml: loopControlFromToml,
       toToml: loopControlToToml,
     });
-    this.context.hooks.onSpliced.register('loop-service-reconcile', async (_event, next) => {
-      if (this.ownSpliceDepth === 0) {
-        this.resetLiveStateFromHistory();
-      }
-      await next();
-    });
-    this.wireRecord.hooks.onResumeEnded.register(
-      'loop-service-finish-resume',
-      async (_event, next) => {
-        this.finishResume();
-        await next();
-      },
-    );
   }
 
-  async runTurn(turn: Turn): Promise<TurnResult> {
-    const startedAt = Date.now();
-    this.protocolTurnId = turn.id;
-    const llm = this.createLLM(turn.id);
-    const loopHooks = this.loopHooks(turn);
-    try {
-      // Preflight the model configuration before any step begins. Legacy reads
-      // `config.model` at the top of its step loop, so a missing model fails the
-      // turn before `step.begin` ever fires (no step.interrupted, no api_error).
-      this.profile.resolveModelContext();
-      while (true) {
-        try {
-          const result = await runLoopTurn({
-            turnId: String(turn.id),
-            signal: turn.abortController.signal,
-            llm,
-            buildMessages: () => [...this.projector.project(this.context.get())],
-            dispatchEvent: this.dispatchEvent,
-            tools: this.executableTools(),
-            hooks: loopHooks,
-            log: this.log,
-            toolExecutor: this.toolExecutor,
-            maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
-            maxRetryAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
-            recordStepUsage: async (usage, context) => {
-              const tokens = tokenUsageTotal(usage);
-              if (tokens > 0) {
-                if (context.toolCallCount > 0) {
-                  this.pendingMeasurements.set(context.stepUuid, {
-                    tokens,
-                    remainingToolCalls: context.toolCallCount,
-                  });
-                } else {
-                  this.contextSize.measured(this.measurementLength(context.stepUuid), tokens);
-                }
+  async runTurn(
+    turnId: number,
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<TurnResult> {
+    this.profile.resolveModelContext();
+
+    while (true) {
+      let steps = 0;
+      let stopReason: LoopTurnStopReason = 'end_turn';
+      let activeStep: number | undefined;
+      const loopControl = this.config.get<LoopControl>(LOOP_CONTROL_SECTION);
+      let stopHookContinuationUsed = false;
+
+      try {
+        while (true) {
+          signal.throwIfAborted();
+
+          const maxSteps = loopControl?.maxStepsPerTurn;
+          if (maxSteps !== undefined && maxSteps > 0 && steps >= maxSteps) {
+            throw createMaxStepsExceededError(maxSteps);
+          }
+
+          steps += 1;
+          activeStep = steps;
+          const stepResult = await this.executeLoopStep(turnId, signal, steps);
+          activeStep = undefined;
+
+          if (stepResult.stopReason === 'tool_use') {
+            continue;
+          }
+
+          stopReason = stepResult.stopReason;
+
+          if (stepResult.continueTurn) {
+            continue;
+          }
+
+          if (!stopHookContinuationUsed) {
+            const reason = await this.externalHooks.triggerStop(signal, stopHookContinuationUsed);
+            if (reason !== undefined) {
+              stopHookContinuationUsed = true;
+              this.appendImmediately({
+                role: 'user',
+                content: [{ type: 'text', text: reason }],
+                toolCalls: [],
+                origin: { kind: 'system_trigger', name: 'stop_hook' },
+              });
+              if (!hasStepBudgetRemaining(loopControl?.maxStepsPerTurn, steps)) {
+                this.removeMatchedTailMessage(isStopHookMessage);
+                break;
               }
-              const usageContext = {
-                turn,
-                usage,
-                stepNumber: context.stepNumber,
-                stepUuid: context.stepUuid,
-                toolCallCount: context.toolCallCount,
-                stopTurn: false,
-              };
-              await this.hooks.onStepUsage.run(usageContext);
-              return usageContext.stopTurn ? { stopTurn: true } : undefined;
-            },
-          });
-          if (result.stopReason === 'aborted') {
-            return { reason: 'cancelled', error: turn.abortController.signal.reason };
+              continue;
+            }
           }
-          if (result.stopReason === 'filtered') {
-            return { reason: 'filtered' };
-          }
-          return { reason: 'completed' };
-        } catch (error) {
-          if (isContextOverflowError(error)) {
-            const context = { turn, error, handled: false };
-            await this.hooks.onContextOverflow.run(context);
-            if (context.handled) continue;
-          }
-          throw error;
+
+          break;
         }
-      }
-    } catch (error) {
-      this.trackApiError(turn.id, error, startedAt);
-      throw error;
-    } finally {
-      if (this.protocolTurnId === turn.id) {
-        this.protocolTurnId = undefined;
-      }
-      this.toolCallStartedAt.clear();
-      this.toolCallDupType.clear();
-      this.stepToolCallKeys.clear();
-      this.stepFailureByTurn.delete(turn.id);
-      this.pendingMeasurements.clear();
-    }
-  }
-
-  private handleEvent(event: LoopRecordedEvent): void {
-    switch (event.type) {
-      case 'step.begin': {
-        const message: ContextMessage = {
-          id: newMessageId(),
-          role: 'assistant',
-          content: [],
-          toolCalls: [],
-        };
-        this.openSteps.set(event.uuid, { message, inserted: false });
-        return;
-      }
-      case 'step.end': {
-        if (event.providerMessageId !== undefined) {
-          this.stampProviderMessageId(event.uuid, event.providerMessageId);
+      } catch (error) {
+        if (isAbortError(error) || signal.aborted) {
+          this.emitStepInterrupted(turnId, activeStep, 'aborted');
+          return { stopReason: 'aborted', steps };
         }
-        this.openSteps.delete(event.uuid);
-        this.pendingMeasurements.delete(event.uuid);
-        return;
-      }
-      case 'content.part':
-        this.replaceOpenStep(event.stepUuid, (message) => ({
-          ...message,
-          content: [...message.content, cloneContentPart(event.part)],
-        }));
-        return;
-      case 'tool.call':
-        this.replaceOpenStep(event.stepUuid, (message) => ({
-          ...message,
-          toolCalls: [
-            ...message.toolCalls,
-            {
-              type: 'function',
-              id: event.toolCallId,
-              name: event.name,
-              arguments: stringifyToolArguments(event.args),
-            },
-          ],
-        }));
-        this.applyPendingMeasurementAfterToolCall(event.stepUuid);
-        return;
-      case 'tool.result':
-        this.appendToolResult(event.toolCallId, event.result);
-        return;
-    }
-  }
 
-  private readonly dispatchEvent = ((event: LoopEvent) => {
-    if (isRecordedLoopEvent(event)) {
-      this.handleEvent(event);
-      this.emitProtocolEvent(event);
-      return Promise.resolve();
-    }
-    this.emitProtocolEvent(event);
-    return undefined;
-  }) as LoopEventDispatcher;
+        const reason: LoopInterruptReason = isMaxStepsExceededError(error)
+          ? 'max_steps'
+          : 'error';
+        this.emitStepInterrupted(turnId, activeStep, reason, errorMessage(error));
 
-  private emitProtocolEvent(event: LoopEvent): void {
-    switch (event.type) {
-      case 'step.begin':
-        this.beginTrackedStep(event.step);
-        this.events.emit({
-          type: 'turn.step.started',
-          turnId: Number(event.turnId),
-          step: event.step,
-          stepId: event.uuid,
-        });
-        return;
-      case 'step.end':
-        this.events.emit({
-          type: 'turn.step.completed',
-          turnId: Number(event.turnId),
-          step: event.step,
-          stepId: event.uuid,
-          usage: event.usage,
-          finishReason: event.finishReason,
-          llmFirstTokenLatencyMs: event.llmFirstTokenLatencyMs,
-          llmStreamDurationMs: event.llmStreamDurationMs,
-          llmRequestBuildMs: event.llmRequestBuildMs,
-          llmServerFirstTokenMs: event.llmServerFirstTokenMs,
-          llmServerDecodeMs: event.llmServerDecodeMs,
-          llmClientConsumeMs: event.llmClientConsumeMs,
-          providerFinishReason: event.providerFinishReason,
-          rawFinishReason: event.rawFinishReason,
-        });
-        return;
-      case 'step.retrying':
-        this.events.emit({
-          type: 'turn.step.retrying',
-          turnId: Number(event.turnId),
-          step: event.step,
-          stepId: event.stepUuid,
-          failedAttempt: event.failedAttempt,
-          nextAttempt: event.nextAttempt,
-          maxAttempts: event.maxAttempts,
-          delayMs: event.delayMs,
-          errorName: event.errorName,
-          errorMessage: event.errorMessage,
-          statusCode: event.statusCode,
-        });
-        return;
-      case 'turn.interrupted':
-        if (this.protocolTurnId !== undefined) {
-          if (event.reason === 'error' && event.activeStep !== undefined) {
-            this.stepFailureByTurn.set(this.protocolTurnId, event);
-          }
+        if (isContextOverflowError(error)) {
+          const context = { turnId, signal, error, handled: false };
+          await this.hooks.onContextOverflow.run(context);
+          if (context.handled) continue;
         }
-        if (this.protocolTurnId === undefined || event.activeStep === undefined) return;
-        this.events.emit({
-          type: 'turn.step.interrupted',
-          turnId: this.protocolTurnId,
-          step: event.activeStep,
-          reason: event.reason,
-          message: event.message,
-        });
-        return;
-      case 'text.delta':
-        if (this.protocolTurnId === undefined) return;
-        this.events.emit({
-          type: 'assistant.delta',
-          turnId: this.protocolTurnId,
-          delta: event.delta,
-        });
-        return;
-      case 'thinking.delta':
-        if (this.protocolTurnId === undefined) return;
-        this.events.emit({
-          type: 'thinking.delta',
-          turnId: this.protocolTurnId,
-          delta: event.delta,
-        });
-        return;
-      case 'tool.call.delta':
-        if (this.protocolTurnId === undefined) return;
-        this.events.emit({
-          type: 'tool.call.delta',
-          turnId: this.protocolTurnId,
-          toolCallId: event.toolCallId,
-          name: event.name,
-          argumentsPart: event.argumentsPart,
-        });
-        return;
-      case 'tool.call':
-        this.trackToolCallStarted(event);
-        this.events.emit({
-          type: 'tool.call.started',
-          turnId: Number(event.turnId),
-          toolCallId: event.toolCallId,
-          name: event.name,
-          args: event.args,
-          description: event.description,
-          display: event.display,
-        });
-        return;
-      case 'tool.progress':
-        if (this.protocolTurnId === undefined) return;
-        this.events.emit({
-          type: 'tool.progress',
-          turnId: this.protocolTurnId,
-          toolCallId: event.toolCallId,
-          update: event.update,
-        });
-        return;
-      case 'tool.result':
-        if (this.protocolTurnId === undefined) return;
-        this.trackToolCallResult(event);
-        this.events.emit({
-          type: 'tool.result',
-          turnId: this.protocolTurnId,
-          toolCallId: event.toolCallId,
-          output: event.result.output,
-          isError: event.result.isError,
-        });
-        return;
-      default:
-        return;
+        throw error;
+      }
+
+      return { stopReason, steps };
     }
   }
 
-  private beginTrackedStep(step: number): void {
-    if (!this.stepToolCallKeys.has(step)) {
-      this.stepToolCallKeys.set(step, new Set());
-    }
-  }
-
-  private trackToolCallStarted(event: Extract<LoopEvent, { type: 'tool.call' }>): void {
-    const dupType = this.trackDuplicateToolCall(
-      Number(event.turnId),
-      event.step,
-      event.name,
-      event.args,
-    );
-    this.toolCallDupType.set(
-      event.toolCallId,
-      dupType === 'cross_step' ? 'cross_step' : 'normal',
-    );
-    this.toolCallStartedAt.set(event.toolCallId, {
-      name: event.name,
-      startedAt: Date.now(),
-    });
-  }
-
-  private trackToolCallResult(event: Extract<LoopEvent, { type: 'tool.result' }>): void {
-    const started = this.toolCallStartedAt.get(event.toolCallId);
-    if (started === undefined) return;
-    this.toolCallStartedAt.delete(event.toolCallId);
-    const dupType = this.toolCallDupType.get(event.toolCallId) ?? 'normal';
-    this.toolCallDupType.delete(event.toolCallId);
-
-    const outcome = telemetryToolOutcome(event.result);
-    const properties: Record<string, string | number | boolean | undefined> = {
-      tool_name: started.name,
-      outcome,
-      duration_ms: Date.now() - started.startedAt,
-      dup_type: dupType,
-    };
-    const errorType = outcome === 'error' ? telemetryToolErrorType(event.result) : undefined;
-    if (errorType !== undefined) {
-      properties['error_type'] = errorType;
-    }
-    this.emitToolTelemetry('tool_call', properties);
-  }
-
-  private trackDuplicateToolCall(
+  private async executeLoopStep(
     turnId: number,
-    step: number,
-    toolName: string,
-    args: unknown,
-  ): 'normal' | 'same_step' | 'cross_step' {
-    const argsText = canonicalTelemetryArgs(args);
-    const key = `${toolName}\u0000${argsText}`;
-    const stepKeys = this.stepToolCallKeys.get(step) ?? new Set<string>();
-    this.stepToolCallKeys.set(step, stepKeys);
+    signal: AbortSignal,
+    currentStep: number,
+  ): Promise<{
+    readonly stopReason: LoopStepStopReason;
+    readonly continueTurn: boolean;
+  }> {
+    await this.hooks.beforeStep.run({ turnId, signal });
 
-    let dupType: 'same_step' | 'cross_step' | undefined;
-    if (stepKeys.has(key)) {
-      dupType = 'same_step';
-    } else if (this.hasPriorStepToolCallKey(step, key)) {
-      dupType = 'cross_step';
-    }
+    signal.throwIfAborted();
 
-    stepKeys.add(key);
-    if (dupType === undefined) return 'normal';
+    const messages = [...this.projector.project(this.context.get())];
+    signal.throwIfAborted();
 
-    this.emitToolTelemetry(
-      'tool_call_dedup_detected',
-      {
-        turn_id: turnId,
-        step_no: step,
-        tool_name: toolName,
-        dup_type: dupType,
-        args_hash: createHash('sha256').update(argsText).digest('hex').slice(0, 8),
-      },
-    );
-    return dupType;
-  }
-
-  private emitToolTelemetry(event: ToolTelemetryEvent, properties: TelemetryProperties = {}): void {
-    this.telemetry.track(event, properties);
-  }
-
-  private trackApiError(turnId: number, error: unknown, startedAt: number): void {
-    if (!this.shouldTrackApiError(turnId)) return;
-    const summary = toKimiErrorPayload(error);
-    const classification = classifyApiError(error, summary);
-    const properties: Record<string, string | number | boolean | undefined> = {
-      error_type: classification.errorType,
-      model: this.profile.data().modelAlias ?? 'unknown',
-      retryable: summary.retryable,
-      duration_ms: Date.now() - startedAt,
+    const stepUuid = randomUUID();
+    const loopControl = this.config.get<LoopControl>(LOOP_CONTROL_SECTION);
+    const emit = (event: AgentEvent): void => {
+      this.events.emit(event);
     };
-    if (classification.statusCode !== undefined) {
-      properties['status_code'] = classification.statusCode;
-    }
-    this.telemetry.track('api_error', properties);
-  }
 
-  private shouldTrackApiError(turnId: number): boolean {
-    const failure = this.stepFailureByTurn.get(turnId);
-    return failure?.reason === 'error' && failure.activeStep !== undefined;
-  }
+    emit({ type: 'turn.step.started', turnId, step: currentStep, stepId: stepUuid });
 
-  private hasPriorStepToolCallKey(step: number, key: string): boolean {
-    for (const [seenStep, keys] of this.stepToolCallKeys) {
-      if (seenStep !== step && keys.has(key)) return true;
-    }
-    return false;
-  }
-
-  private createLLM(turnId: number): LLM {
-    return {
-      systemPrompt: this.profile.getSystemPrompt(),
-      modelName: this.profile.data().modelAlias ?? 'unknown',
-      isRetryableError: (error: unknown) => isRetryableGenerateError(error),
-      chat: async (params) => this.chat(params, turnId),
-    };
-  }
-
-  private async chat(
-    params: LLMChatParams,
-    turnId: number,
-  ): Promise<LLMChatResponse> {
-    const collector = new LLMEventCollector();
-    const toolCallDeltas = new ToolCallDeltaEmitter(params);
-    let usage = emptyUsage();
-    let providerFinishReason: LLMChatResponse['providerFinishReason'];
-    let rawFinishReason: string | undefined;
-    let providerMessageId: string | undefined;
-    let streamTiming: LLMChatResponse['streamTiming'];
-    const stream = this.llmRequester.request(
-      {
-        messages: params.messages,
-        tools: params.tools,
-        systemPrompt: this.profile.getSystemPrompt(),
-        requestLogFields: params.requestLogFields,
-        usageContext: { type: 'turn', turnId },
-      },
-      params.signal,
-    );
-
-    for await (const event of stream) {
-      params.signal.throwIfAborted();
-      switch (event.type) {
-        case 'part':
-          emitStreamDelta(params, event.part);
-          toolCallDeltas.accept(event.part);
-          collector.accept(event.part);
-          continue;
-        case 'usage':
-          usage = event.usage;
-          continue;
-        case 'finish':
-          providerFinishReason = event.providerFinishReason;
-          rawFinishReason = event.rawFinishReason;
-          providerMessageId = event.id;
-          continue;
-        case 'timing':
-          streamTiming = {
-            firstTokenLatencyMs: event.firstTokenLatencyMs,
-            streamDurationMs: event.streamDurationMs,
-            requestBuildMs: event.requestBuildMs,
-            serverFirstTokenMs: event.serverFirstTokenMs,
-            serverDecodeMs: event.serverDecodeMs,
-            clientConsumeMs: event.clientConsumeMs,
-          };
-          continue;
-      }
-    }
-
-    const assistant = collector.toAssistantMessage();
-    for (const part of assistant.content) {
-      await emitCompletedContentPart(params, part);
-    }
-    return {
-      toolCalls: assistant.toolCalls,
-      usage,
-      providerFinishReason,
-      rawFinishReason,
-      providerMessageId,
-      streamTiming,
-    };
-  }
-
-  private executableTools(): readonly ExecutableTool[] {
-    return this.toolRegistry
+    const tools = this.toolRegistry
       .list()
       .filter((tool) => this.profile.isToolActive(tool.name, tool.source))
-      .flatMap((toolInfo) => {
+      .flatMap((toolInfo): ExecutableTool[] => {
         const tool = this.toolRegistry.resolve(toolInfo.name);
         return tool === undefined ? [] : [tool];
       });
-  }
-
-  private loopHooks(turn: Turn): LoopHooks {
-    let continueAfterStop = false;
-    let stopHookContinuationUsed = false;
-    return {
-      beforeStep: async () => {
-        await this.hooks.beforeStep.run({ turn, continueTurn: false });
-        return undefined;
-      },
-      afterStep: async (context) => {
-        const turnContext = { turn, continueTurn: false };
-        await this.hooks.afterStep.run(turnContext);
-        if (context.stopReason !== 'tool_use' && turnContext.continueTurn) {
-          continueAfterStop = true;
-        }
-        return undefined;
-      },
-      shouldContinueAfterStop: async (context) => {
-        const shouldContinue = continueAfterStop;
-        continueAfterStop = false;
-        if (shouldContinue) return { continue: true };
-
-        if (!stopHookContinuationUsed) {
-          const reason = await this.externalHooks.triggerStop(
-            context.signal,
-            stopHookContinuationUsed,
-          );
-          if (reason !== undefined) {
-            stopHookContinuationUsed = true;
-            this.appendImmediately({
-              role: 'user',
-              content: [{ type: 'text', text: reason }],
-              toolCalls: [],
-              origin: { kind: 'system_trigger', name: 'stop_hook' },
+    const emitToolCallDelta = createToolCallDeltaHandler(emit, turnId);
+    const response = await this.llmRequester.request(
+      {
+        messages,
+        tools,
+        requestLogFields: { turnStep: `${turnId}.${String(currentStep)}` },
+        retry: {
+          maxAttempts: loopControl?.maxRetriesPerStep,
+          onRetry: (retry) => {
+            emit({
+              type: 'turn.step.retrying',
+              turnId,
+              step: currentStep,
+              stepId: stepUuid,
+              failedAttempt: retry.failedAttempt,
+              nextAttempt: retry.nextAttempt,
+              maxAttempts: retry.maxAttempts,
+              delayMs: retry.delayMs,
+              errorName: retry.errorName,
+              errorMessage: retry.errorMessage,
+              ...(retry.statusCode !== undefined ? { statusCode: retry.statusCode } : {}),
             });
-            if (
-              !hasStepBudgetRemaining(
-                this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
-                context.stepNumber,
-              )
-            ) {
-              this.removeMatchedTailMessage(isStopHookMessage);
-              return { continue: false };
-            }
-            return { continue: true };
-          }
-        }
-
-        return { continue: false };
+          },
+        },
+        usageContext: { type: 'turn', turnId },
       },
+      (part) => this.emitStreamPart(turnId, emitToolCallDelta, part),
+      signal,
+    );
+
+    if (hasAssistantMessage(response)) {
+      this.appendImmediately({
+        id: newMessageId(),
+        role: 'assistant',
+        content: response.message.content.map(cloneContentPart),
+        toolCalls: response.message.toolCalls.map(cloneToolCall),
+        ...(response.providerMessageId !== undefined
+          ? { providerMessageId: response.providerMessageId }
+          : {}),
+      });
+    }
+
+    const usage = response.usage;
+    const usageContext = {
+      turnId,
+      signal,
+      usage,
+      stepNumber: currentStep,
+      stepUuid,
+      toolCallCount: response.message.toolCalls.length,
+      stopTurn: false,
     };
-  }
+    await this.hooks.onStepUsage.run(usageContext);
+    this.recordContextSize(usage);
+    const stopReason = deriveStepStopReason(response);
 
-  private finishResume(): void {
-    // Interrupted (unanswered) tool calls are closed by the projector on every
-    // projection, so resume does not persist any synthetic results — it only
-    // needs to drop the live in-progress step state from before the restart.
-    this.openSteps.clear();
-  }
-
-  private replaceOpenStep(
-    stepUuid: string,
-    update: (message: ContextMessage) => ContextMessage,
-  ): void {
-    const message = this.openSteps.get(stepUuid);
-    if (message === undefined) {
-      throw new Error(
-        `Received loop event for unknown step_uuid '${stepUuid}' (no open step_begin)`,
-      );
+    let effectiveStopReason: LoopStepStopReason =
+      usageContext.stopTurn && stopReason === 'tool_use' ? 'end_turn' : stopReason;
+    if (effectiveStopReason === 'tool_use') {
+      const toolResults = await this.toolExecutor.execute(response.message.toolCalls, {
+        signal,
+        turnId,
+        stepNumber: currentStep,
+        stepUuid,
+        dispatchProtocolEvent: emit,
+        onToolResult: (toolCallId, result) => {
+          const message = createToolMessage(toolCallId, toolResultOutputForModel(result));
+          this.appendImmediately({
+            ...message,
+            role: 'tool',
+            ...(result.isError !== undefined ? { isError: result.isError } : {}),
+          });
+        },
+        onProgress: (toolCallId, update) => {
+          emit({ type: 'tool.progress', turnId, toolCallId, update });
+        },
+      });
+      if (toolResults.some((r) => r.stopTurn === true)) {
+        effectiveStopReason = 'end_turn';
+      }
     }
 
-    const next = update(message.message);
-    if (!message.inserted) {
-      this.appendImmediately(next);
-      this.openSteps.set(stepUuid, { message: next, inserted: true });
-      return;
+    signal.throwIfAborted();
+
+    this.emitStepCompleted(turnId, currentStep, stepUuid, usage, effectiveStopReason, response);
+    logStepTiming(this.log, turnId, currentStep, response);
+
+    const afterStepContext = { turnId, signal, continueTurn: false };
+    try {
+      await this.hooks.afterStep.run(afterStepContext);
+    } catch (error) {
+      void error;
     }
 
-    const history = this.context.get();
-    const index = history.indexOf(message.message);
-    if (index < 0) {
-      throw new Error(`Open loop step '${stepUuid}' is no longer present in context history`);
-    }
-      this.spliceHistory(index, 1, [next]);
-    this.openSteps.set(stepUuid, { message: next, inserted: true });
-  }
-
-  private stampProviderMessageId(stepUuid: string, providerMessageId: string): void {
-    const openStep = this.openSteps.get(stepUuid);
-    if (openStep === undefined || !openStep.inserted) return;
-    const index = this.context.get().indexOf(openStep.message);
-    if (index < 0) return;
-    this.spliceHistory(index, 1, [{ ...openStep.message, providerMessageId }]);
-  }
-
-  private appendToolResult(toolCallId: string, result: ExecutableToolResult): void {
-    const message = createToolMessage(toolCallId, toolResultOutputForModel(result));
-    this.appendImmediately({
-      ...message,
-      role: 'tool',
-      isError: result.isError,
-    });
+    return {
+      stopReason: effectiveStopReason,
+      continueTurn: effectiveStopReason !== 'tool_use' && afterStepContext.continueTurn,
+    };
   }
 
   private appendImmediately(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
-    this.spliceHistory(this.context.get().length, 0, messages);
+    this.context.splice(this.context.get().length, 0, messages);
   }
 
   private removeMatchedTailMessage(matcher: (message: ContextMessage) => boolean): boolean {
@@ -705,80 +310,89 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const index = history.length - 1;
     const message = history[index];
     if (message === undefined || !matcher(message)) return false;
-    this.spliceHistory(index, 1, []);
+    this.context.splice(index, 1, []);
     return true;
   }
 
-  private spliceHistory(
-    start: number,
-    deleteCount: number,
-    messages: readonly ContextMessage[],
+  private recordContextSize(usage: TokenUsage): void {
+    const tokens = tokenUsageTotal(usage);
+    if (tokens <= 0) return;
+    this.contextSize.measured(this.context.get().length, tokens);
+  }
+
+  private emitStreamPart(
+    turnId: number,
+    emitToolCallDelta: (part: StreamedMessagePart) => void,
+    part: StreamedMessagePart,
   ): void {
-    this.ownSpliceDepth++;
-    try {
-      this.context.splice(start, deleteCount, messages);
-    } finally {
-      this.ownSpliceDepth--;
+    switch (part.type) {
+      case 'text':
+        this.events.emit({ type: 'assistant.delta', turnId, delta: part.text });
+        return;
+      case 'think':
+        this.events.emit({ type: 'thinking.delta', turnId, delta: part.think });
+        return;
+      case 'image_url':
+      case 'audio_url':
+      case 'video_url':
+        return;
+      case 'function':
+      case 'tool_call_part':
+        emitToolCallDelta(part);
+        return;
+      default: {
+        const _exhaustive: never = part;
+        return _exhaustive;
+      }
     }
   }
 
-  private resetLiveStateFromHistory(): void {
-    this.openSteps.clear();
+  private emitStepCompleted(
+    turnId: number,
+    step: number,
+    stepId: string,
+    usage: TokenUsage,
+    finishReason: LoopStepStopReason,
+    response: LLMRequestFinish,
+  ): void {
+    // Provider diagnostics are omitted when the normalized finish reason already
+    // matches the provider's, and surfaced only when they diverge.
+    const normalFinish =
+      (response.providerFinishReason === 'completed' && finishReason === 'end_turn') ||
+      (response.providerFinishReason === 'tool_calls' && finishReason === 'tool_use');
+    this.events.emit({
+      type: 'turn.step.completed',
+      turnId,
+      step,
+      stepId,
+      usage,
+      finishReason,
+      llmFirstTokenLatencyMs: response.timing?.firstTokenLatencyMs,
+      llmStreamDurationMs: response.timing?.streamDurationMs,
+      llmRequestBuildMs: response.timing?.requestBuildMs,
+      llmServerFirstTokenMs: response.timing?.serverFirstTokenMs,
+      llmServerDecodeMs: response.timing?.serverDecodeMs,
+      llmClientConsumeMs: response.timing?.clientConsumeMs,
+      providerFinishReason: normalFinish ? undefined : response.providerFinishReason,
+      rawFinishReason: normalFinish ? undefined : response.rawFinishReason,
+    });
   }
 
-  private measurementLength(stepUuid: string): number {
-    const openStep = this.openSteps.get(stepUuid);
-    const history = this.context.get();
-    if (openStep === undefined) return history.length;
-    const index = history.indexOf(openStep.message);
-    return index === -1 ? history.length : index + 1;
+  private emitStepInterrupted(
+    turnId: number,
+    activeStep: number | undefined,
+    reason: LoopInterruptReason,
+    message?: string,
+  ): void {
+    if (activeStep === undefined) return;
+    this.events.emit({
+      type: 'turn.step.interrupted',
+      turnId,
+      step: activeStep,
+      reason,
+      ...(message !== undefined ? { message } : {}),
+    });
   }
-
-  private applyPendingMeasurementAfterToolCall(stepUuid: string): void {
-    const pending = this.pendingMeasurements.get(stepUuid);
-    if (pending === undefined) return;
-
-    const remainingToolCalls = pending.remainingToolCalls - 1;
-    if (remainingToolCalls > 0) {
-      this.pendingMeasurements.set(stepUuid, {
-        ...pending,
-        remainingToolCalls,
-      });
-      return;
-    }
-
-    this.pendingMeasurements.delete(stepUuid);
-    this.contextSize.measured(this.measurementLength(stepUuid), pending.tokens);
-  }
-}
-
-interface OpenStep {
-  readonly message: ContextMessage;
-  readonly inserted: boolean;
-}
-
-interface PendingContextMeasurement {
-  readonly tokens: number;
-  readonly remainingToolCalls: number;
-}
-
-interface ToolCallTelemetryStart {
-  readonly name: string;
-  readonly startedAt: number;
-}
-
-
-function stringifyToolArguments(args: unknown): string | null {
-  if (args === undefined) return null;
-  return JSON.stringify(args) ?? null;
-}
-
-function isStopHookMessage(message: ContextMessage): boolean {
-  return message.origin?.kind === 'system_trigger' && message.origin.name === 'stop_hook';
-}
-
-function hasStepBudgetRemaining(maxSteps: number | undefined, currentStep: number): boolean {
-  return maxSteps === undefined || maxSteps <= 0 || currentStep < maxSteps;
 }
 
 function isContextOverflowError(error: unknown): boolean {
@@ -788,64 +402,19 @@ function isContextOverflowError(error: unknown): boolean {
   );
 }
 
-interface ApiErrorClassification {
-  readonly errorType: string;
-  readonly statusCode?: number;
+function tokenUsageTotal(usage: TokenUsage): number {
+  return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
 }
 
-function classifyApiError(error: unknown, summary: KimiErrorPayload): ApiErrorClassification {
-  const statusCode = apiStatusCode(error) ?? summaryStatusCode(summary);
-  if (statusCode !== undefined) {
-    if (statusCode === 429) return { errorType: 'rate_limit', statusCode };
-    if (statusCode === 401 || statusCode === 403) return { errorType: 'auth', statusCode };
-    if (statusCode >= 500) return { errorType: '5xx_server', statusCode };
-    if (isContextOverflowStatusError(statusCode, summary.message)) {
-      return { errorType: 'context_overflow', statusCode };
-    }
-    if (statusCode >= 400) return { errorType: '4xx_client', statusCode };
-    return { errorType: 'api', statusCode };
-  }
-
-  if (summary.code === ErrorCodes.PROVIDER_RATE_LIMIT) return { errorType: 'rate_limit' };
-  if (summary.code === ErrorCodes.PROVIDER_AUTH_ERROR) return { errorType: 'auth' };
-  if (summary.code === ErrorCodes.CONTEXT_OVERFLOW) return { errorType: 'context_overflow' };
-  if (isApiConnectionError(error, summary)) return { errorType: 'network' };
-  if (isApiTimeoutError(error, summary)) return { errorType: 'timeout' };
-  if (isApiEmptyResponseError(error, summary)) return { errorType: 'empty_response' };
-  return { errorType: 'other' };
+function cloneContentPart<T extends ContentPart>(part: T): T {
+  return { ...part };
 }
 
-function apiStatusCode(error: unknown): number | undefined {
-  if (error instanceof APIStatusError) return error.statusCode;
-  if (typeof error !== 'object' || error === null) return undefined;
-  const statusCode = (error as { readonly statusCode?: unknown }).statusCode;
-  if (typeof statusCode === 'number') return statusCode;
-  const status = (error as { readonly status?: unknown }).status;
-  return typeof status === 'number' ? status : undefined;
+function cloneToolCall<T extends ToolCall>(toolCall: T): T {
+  return { ...toolCall };
 }
 
-function summaryStatusCode(summary: KimiErrorPayload): number | undefined {
-  const statusCode = summary.details?.['statusCode'];
-  return typeof statusCode === 'number' ? statusCode : undefined;
-}
-
-function isApiConnectionError(error: unknown, summary: KimiErrorPayload): boolean {
-  return error instanceof APIConnectionError || summary.name === 'APIConnectionError';
-}
-
-function isApiTimeoutError(error: unknown, summary: KimiErrorPayload): boolean {
-  return (
-    error instanceof APITimeoutError ||
-    summary.name === 'APITimeoutError' ||
-    summary.name === 'TimeoutError'
-  );
-}
-
-function isApiEmptyResponseError(error: unknown, summary: KimiErrorPayload): boolean {
-  return error instanceof APIEmptyResponseError || summary.name === 'APIEmptyResponseError';
-}
-
-function toolResultOutputForModel(result: ExecutableToolResult): string | ContentPart[] {
+function toolResultOutputForModel(result: ToolResult): string | ContentPart[] {
   const output = result.output;
   if (typeof output === 'string') {
     if (result.isError === true) {
@@ -874,222 +443,141 @@ function isEmptyOutputText(output: string): boolean {
   return output.length === 0 || output.trim() === TOOL_OUTPUT_EMPTY_TEXT;
 }
 
-function cloneContentPart<T extends ContentPart>(part: T): T {
-  return { ...part };
+function isStopHookMessage(message: ContextMessage): boolean {
+  return message.origin?.kind === 'system_trigger' && message.origin.name === 'stop_hook';
 }
 
-function isRecordedLoopEvent(event: LoopEvent): event is LoopRecordedEvent {
-  return (
-    event.type === 'step.begin' ||
-    event.type === 'step.end' ||
-    event.type === 'content.part' ||
-    event.type === 'tool.call' ||
-    event.type === 'tool.result'
-  );
+function hasStepBudgetRemaining(maxSteps: number | undefined, currentStep: number): boolean {
+  return maxSteps === undefined || maxSteps <= 0 || currentStep < maxSteps;
 }
 
-function tokenUsageTotal(usage: TokenUsage): number {
-  return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
+function hasAssistantMessage(response: LLMRequestFinish): boolean {
+  return response.message.content.length > 0 || response.message.toolCalls.length > 0;
 }
 
-function emitStreamDelta(params: LLMChatParams, part: StreamedMessagePart): void {
-  if (part.type === 'text') {
-    params.onTextDelta?.(part.text);
-    return;
-  }
-  if (part.type === 'think') {
-    params.onThinkDelta?.(part.think);
-  }
-}
-
-async function emitCompletedContentPart(
-  params: LLMChatParams,
-  part: ContentPart,
-): Promise<void> {
-  if (part.type === 'text') {
-    await params.onTextPart?.(part);
-    return;
-  }
-  if (part.type === 'think') {
-    await params.onThinkPart?.(part);
-  }
-}
-
-function telemetryToolOutcome(result: ExecutableToolResult): 'success' | 'error' | 'cancelled' {
-  if (result.isError !== true) return 'success';
-  const text = toolResultText(result).toLowerCase();
-  return text.includes('aborted') ||
-    text.includes('cancelled') ||
-    text.includes('manually interrupted')
-    ? 'cancelled'
-    : 'error';
-}
-
-function telemetryToolErrorType(result: ExecutableToolResult): string {
-  const text = toolResultText(result);
-  if (text.startsWith('Tool "') && text.includes('" not found')) return 'ToolNotFound';
-  if (text.startsWith('Invalid args for tool "')) return 'ToolInputError';
-  if (text.includes('prepareToolExecution hook failed')) return 'HookError';
-  if (text.includes('finalizeToolResult hook failed')) return 'HookError';
-  if (text.includes('blocked')) return 'ToolBlocked';
-  return 'ToolError';
-}
-
-function toolResultText(result: ExecutableToolResult): string {
-  return toolOutputText(result.output);
-}
-
-function toolOutputText(output: ExecutableToolResult['output']): string {
-  if (typeof output === 'string') return output;
-  return output
-    .filter((part): part is Extract<(typeof output)[number], { type: 'text' }> => {
-      return typeof part === 'object' && part !== null && part.type === 'text';
-    })
-    .map((part) => part.text)
-    .join('');
-}
-
-class LLMEventCollector {
-  private readonly parts: StreamedMessagePart[] = [];
-  private readonly indexedToolCalls = new Map<number | string, KosongToolCall>();
-  private readonly pendingIndexedToolCallDeltas = new Map<
-    number | string,
-    StreamedMessagePart[]
-  >();
-  private lastToolCall: KosongToolCall | undefined;
-
-  accept(part: StreamedMessagePart): void {
-    if (isToolCallPart(part)) {
-      if (part.index !== undefined) {
-        const toolCall = this.indexedToolCalls.get(part.index);
-        if (toolCall !== undefined) {
-          mergeInPlace(toolCall, part);
-          return;
-        }
-        const pending = this.pendingIndexedToolCallDeltas.get(part.index) ?? [];
-        pending.push(cloneStreamedPart(part));
-        this.pendingIndexedToolCallDeltas.set(part.index, pending);
-        return;
-      }
-      if (this.lastToolCall !== undefined) {
-        mergeInPlace(this.lastToolCall, part);
-      }
-      return;
-    }
-
-    const previous = this.parts.at(-1);
-    if (previous !== undefined && mergeInPlace(previous, part)) {
-      return;
-    }
-
-    if (isToolCall(part)) {
-      const cloned = cloneStreamedPart(part) as KosongToolCall;
-      this.parts.push(cloned);
-      this.lastToolCall = cloned;
-      if (part._streamIndex !== undefined) {
-        this.indexedToolCalls.set(part._streamIndex, cloned);
-        const pending = this.pendingIndexedToolCallDeltas.get(part._streamIndex);
-        if (pending !== undefined) {
-          this.pendingIndexedToolCallDeltas.delete(part._streamIndex);
-          for (const delta of pending) {
-            mergeInPlace(cloned, delta);
-          }
-        }
-      }
-      return;
-    }
-
-    this.parts.push(cloneStreamedPart(part));
-  }
-
-  toAssistantMessage(): Pick<ContextMessage, 'content' | 'toolCalls'> {
-    const content: ContentPart[] = [];
-    const toolCalls: KosongToolCall[] = [];
-    for (const part of this.parts) {
-      if (isContentPart(part)) {
-        content.push(part);
-      } else if (isToolCall(part)) {
-        toolCalls.push(stripStreamIndex(part));
-      }
-    }
-
-    return { content, toolCalls };
-  }
-}
-
-function cloneStreamedPart(part: StreamedMessagePart): StreamedMessagePart {
-  return { ...part } as StreamedMessagePart;
-}
-
-function stripStreamIndex(toolCall: KosongToolCall): KosongToolCall {
-  const { _streamIndex, ...rest } = toolCall;
-  void _streamIndex;
-  return rest;
-}
-
-class ToolCallDeltaEmitter {
-  private readonly toolCallIdentities = new Map<number | string, ToolCallIdentity>();
-  private readonly pendingIndexedDeltas = new Map<number | string, ToolCallDelta[]>();
-  private lastToolCallIdentity: ToolCallIdentity | undefined;
-
-  constructor(private readonly params: LLMChatParams) {}
-
-  accept(part: StreamedMessagePart): void {
-    if (isToolCall(part)) {
-      const identity = { toolCallId: part.id, name: part.name };
-      this.lastToolCallIdentity = identity;
-      if (part._streamIndex !== undefined) {
-        this.toolCallIdentities.set(part._streamIndex, identity);
-      }
-      this.emit(identity, part.arguments === null ? {} : { argumentsPart: part.arguments });
-      if (part._streamIndex !== undefined) {
-        const pending = this.pendingIndexedDeltas.get(part._streamIndex);
-        if (pending !== undefined) {
-          this.pendingIndexedDeltas.delete(part._streamIndex);
-          for (const delta of pending) {
-            this.emit(identity, delta);
-          }
-        }
-      }
-      return;
-    }
-
-    if (!isToolCallPart(part)) return;
-
-    const delta = part.argumentsPart === null ? {} : { argumentsPart: part.argumentsPart };
-    if (part.index !== undefined) {
-      const identity = this.toolCallIdentities.get(part.index);
-      if (identity !== undefined) {
-        this.emit(identity, delta);
-        return;
-      }
-      const pending = this.pendingIndexedDeltas.get(part.index) ?? [];
-      pending.push(delta);
-      this.pendingIndexedDeltas.set(part.index, pending);
-      return;
-    }
-
-    if (this.lastToolCallIdentity !== undefined) {
-      this.emit(this.lastToolCallIdentity, delta);
+function deriveStepStopReason(response: LLMRequestFinish): LoopStepStopReason {
+  switch (response.providerFinishReason) {
+    case 'truncated':
+      return 'max_tokens';
+    case 'filtered':
+      return 'filtered';
+    case 'paused':
+      return 'paused';
+    case 'other':
+      return 'unknown';
+    case 'completed':
+    case undefined:
+      return response.message.toolCalls.length > 0 ? 'tool_use' : 'end_turn';
+    case 'tool_calls':
+      return response.message.toolCalls.length > 0 ? 'tool_use' : 'unknown';
+    default: {
+      const _exhaustive: never = response.providerFinishReason;
+      return _exhaustive;
     }
   }
+}
 
-  private emit(identity: ToolCallIdentity, delta: ToolCallDelta): void {
-    this.params.onToolCallDelta?.({
-      toolCallId: identity.toolCallId,
-      name: identity.name,
-      ...delta,
+function createToolCallDeltaHandler(
+  emitEvent: (event: AgentEvent) => void,
+  turnId: number,
+): (part: StreamedMessagePart) => void {
+  const callsByIndex = new Map<number | string, ToolCallDeltaIdentity>();
+  const pendingByIndex = new Map<number | string, string[]>();
+  let lastToolCall: ToolCallDeltaIdentity | undefined;
+
+  const emit = (
+    toolCallId: string,
+    name: string | undefined,
+    argumentsPart: string | undefined,
+  ): void => {
+    emitEvent({
+      type: 'tool.call.delta',
+      turnId,
+      toolCallId,
+      name,
+      argumentsPart,
     });
-  }
+  };
+
+  const toolCallIdFor = (
+    part: Extract<StreamedMessagePart, { type: 'tool_call_part' }>,
+  ): ToolCallDeltaIdentity | undefined => {
+    if (part.index !== undefined) {
+      return callsByIndex.get(part.index);
+    }
+    return lastToolCall;
+  };
+
+  return (part) => {
+    if (isToolCall(part)) {
+      const toolCall = { id: part.id, name: part.name };
+      lastToolCall = toolCall;
+      const index = part._streamIndex;
+      if (index !== undefined) {
+        callsByIndex.set(index, toolCall);
+      }
+      emit(toolCall.id, toolCall.name, undefined);
+      if (index !== undefined) {
+        const pending = pendingByIndex.get(index);
+        if (pending !== undefined) {
+          pendingByIndex.delete(index);
+          for (const argumentsPart of pending) {
+            emit(toolCall.id, toolCall.name, argumentsPart);
+          }
+        }
+      }
+      return;
+    }
+    if (!isToolCallPart(part)) return;
+    if (part.argumentsPart === null) return;
+    const toolCall = toolCallIdFor(part);
+    if (toolCall === undefined) {
+      if (part.index !== undefined) {
+        const pending = pendingByIndex.get(part.index) ?? [];
+        pending.push(part.argumentsPart);
+        pendingByIndex.set(part.index, pending);
+      }
+      return;
+    }
+    emit(toolCall.id, toolCall.name, part.argumentsPart);
+  };
 }
 
-interface ToolCallIdentity {
-  readonly toolCallId: string;
+interface ToolCallDeltaIdentity {
+  readonly id: string;
   readonly name: string;
 }
 
-interface ToolCallDelta {
-  readonly argumentsPart?: string;
+function logStepTiming(
+  log: ILogService,
+  turnId: number,
+  currentStep: number,
+  response: LLMRequestFinish,
+): void {
+  const timing = response.timing;
+  if (timing === undefined) return;
+  const payload: {
+    turnStep: string;
+    ttftMs: number;
+    requestBuildMs?: number;
+    serverFirstTokenMs?: number;
+    streamDurationMs: number;
+    serverDecodeMs?: number;
+    clientConsumeMs?: number;
+    outputTokens: number;
+  } = {
+    turnStep: `${turnId}.${String(currentStep)}`,
+    ttftMs: timing.firstTokenLatencyMs,
+    streamDurationMs: timing.streamDurationMs,
+    outputTokens: response.usage.output,
+  };
+  if (timing.requestBuildMs !== undefined) payload.requestBuildMs = timing.requestBuildMs;
+  if (timing.serverFirstTokenMs !== undefined) {
+    payload.serverFirstTokenMs = timing.serverFirstTokenMs;
+  }
+  if (timing.serverDecodeMs !== undefined) payload.serverDecodeMs = timing.serverDecodeMs;
+  if (timing.clientConsumeMs !== undefined) payload.clientConsumeMs = timing.clientConsumeMs;
+  log.info('llm response', payload);
 }
 
 registerScopedService(

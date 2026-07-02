@@ -104,13 +104,13 @@ export class AgentUserToolService extends Disposable implements IAgentUserToolSe
       id: context.toolCallId,
       kind: 'user_tool',
       payload: {
-        turnId: numericTurnId(context.turnId),
+        turnId: context.turnId,
         toolCallId: context.toolCallId,
         name,
         args,
       },
       origin: {
-        turnId: numericTurnId(context.turnId),
+        turnId: context.turnId,
       },
     });
     try {
@@ -125,11 +125,6 @@ export class AgentUserToolService extends Disposable implements IAgentUserToolSe
       throw error;
     }
   }
-}
-
-function numericTurnId(turnId: string): number | undefined {
-  const parsed = Number(turnId);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function toExecutableToolResult(result: ToolResult): ExecutableToolResult {

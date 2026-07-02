@@ -31,7 +31,7 @@ type ChatStreamingCallbacks = Pick<
 >;
 
 export interface ExecuteLoopStepDeps {
-  readonly turnId: string;
+  readonly turnId: number;
   readonly signal: AbortSignal;
   readonly buildMessages: LoopMessageBuilder;
   readonly dispatchEvent: LoopEventDispatcher;
@@ -115,12 +115,13 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     log,
   });
   const usage = response.usage;
-  const usageResult = await recordUsage(usage, {
+  const usageContext = {
     turnId,
     stepNumber: currentStep,
     stepUuid,
     toolCallCount: response.toolCalls.length,
-  });
+  };
+  const usageResult = await recordUsage(usage, usageContext);
   const stopTurnAfterUsage = usageResult?.stopTurn === true;
   const stopReason = deriveStepStopReason(response);
 
@@ -203,7 +204,7 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
  */
 function logStepTiming(
   log: Logger | undefined,
-  turnId: string,
+  turnId: number,
   currentStep: number,
   response: LLMChatResponse,
 ): void {
@@ -278,7 +279,7 @@ function stepEndProviderDiagnostics(
 
 function createChatStreamingCallbacks(deps: {
   readonly dispatchEvent: LoopEventDispatcher;
-  readonly turnId: string;
+  readonly turnId: number;
   readonly currentStep: number;
   readonly stepUuid: string;
 }): ChatStreamingCallbacks {

@@ -61,7 +61,7 @@ export interface TurnResult {
  */
 
 export interface LoopStepHookContext {
-  readonly turnId: string;
+  readonly turnId: number;
   readonly stepNumber: number;
   readonly signal: AbortSignal;
   readonly llm: LLM;
@@ -95,7 +95,7 @@ export interface RecordStepUsageResult {
 }
 
 export interface RecordStepUsageContext {
-  readonly turnId: string;
+  readonly turnId: number;
   readonly stepNumber: number;
   readonly stepUuid: string;
   readonly toolCallCount: number;

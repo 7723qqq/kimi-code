@@ -1,4 +1,4 @@
-import type { FinishReason, TextPart, ThinkPart, TokenUsage } from '@moonshot-ai/kosong';
+import type { ContentPart, FinishReason, TokenUsage } from '@moonshot-ai/kosong';
 
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import type { ExecutableToolResult, ToolUpdate } from '#/agent/tool';
@@ -9,14 +9,14 @@ export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error';
 export interface LoopStepBeginEvent {
   readonly type: 'step.begin';
   readonly uuid: string;
-  readonly turnId: string;
+  readonly turnId: number;
   readonly step: number;
 }
 
 export interface LoopStepEndEvent {
   readonly type: 'step.end';
   readonly uuid: string;
-  readonly turnId: string;
+  readonly turnId: number;
   readonly step: number;
   readonly usage?: TokenUsage | undefined;
   readonly finishReason?: LoopStepStopReason | undefined;
@@ -48,7 +48,7 @@ export interface LoopStepEndEvent {
 
 export interface LoopStepRetryingEvent {
   readonly type: 'step.retrying';
-  readonly turnId: string;
+  readonly turnId: number;
   readonly step: number;
   readonly stepUuid: string;
   readonly failedAttempt: number;
@@ -63,16 +63,16 @@ export interface LoopStepRetryingEvent {
 export interface LoopContentPartEvent {
   readonly type: 'content.part';
   readonly uuid: string;
-  readonly turnId: string;
+  readonly turnId: number;
   readonly step: number;
   readonly stepUuid: string;
-  readonly part: TextPart | ThinkPart;
+  readonly part: ContentPart;
 }
 
 export interface LoopToolCallEvent {
   readonly type: 'tool.call';
   readonly uuid: string;
-  readonly turnId: string;
+  readonly turnId: number;
   readonly step: number;
   readonly stepUuid: string;
   readonly toolCallId: string;

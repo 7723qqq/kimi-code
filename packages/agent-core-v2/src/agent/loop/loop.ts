@@ -1,22 +1,43 @@
 import { createDecorator } from "#/_base/di";
+import type { TokenUsage } from '@moonshot-ai/kosong';
 import type { Hooks } from '#/hooks';
-import type {
-  Turn,
-  TurnContextOverflowContext,
-  TurnResult,
-  TurnStepContext,
-  TurnStepUsageContext,
-} from '#/agent/turn';
+import type { TurnResult } from './types';
+
+export interface TurnBeforeStepContext {
+  readonly turnId: number;
+  readonly signal: AbortSignal;
+}
+
+export interface TurnAfterStepContext extends TurnBeforeStepContext {
+  continueTurn: boolean;
+}
+
+export interface TurnStepUsageContext {
+  readonly turnId: number;
+  readonly signal: AbortSignal;
+  readonly usage: TokenUsage;
+  readonly stepNumber: number;
+  readonly stepUuid: string;
+  readonly toolCallCount: number;
+  stopTurn: boolean;
+}
+
+export interface TurnContextOverflowContext {
+  readonly turnId: number;
+  readonly signal: AbortSignal;
+  readonly error: unknown;
+  handled: boolean;
+}
 
 export interface IAgentLoopService {
   readonly _serviceBrand: undefined;
   readonly hooks: Hooks<{
-    beforeStep: TurnStepContext;
+    beforeStep: TurnBeforeStepContext;
     onStepUsage: TurnStepUsageContext;
-    afterStep: TurnStepContext;
+    afterStep: TurnAfterStepContext;
     onContextOverflow: TurnContextOverflowContext;
   }>;
-  runTurn(turn: Turn): Promise<TurnResult>;
+  runTurn(turnId: number, signal?: AbortSignal): Promise<TurnResult>;
 }
 
 export const IAgentLoopService = createDecorator<IAgentLoopService>('agentLoopService');

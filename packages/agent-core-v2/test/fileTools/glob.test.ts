@@ -158,7 +158,7 @@ async function execute(tool: GlobTool, args: GlobInput): Promise<ExecutableToolR
   }
   if (execution.isError === true) return execution;
   const ctx: ExecutableToolContext = {
-    turnId: '0',
+    turnId: 0,
     toolCallId: 'call_glob',
     signal,
   };

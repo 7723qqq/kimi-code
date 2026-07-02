@@ -1,41 +1,42 @@
 import {
-  APIContextOverflowError,
-  APIEmptyResponseError,
-  createUserMessage,
-  isContentPart,
-  isRetryableGenerateError,
-  type TokenUsage,
-  } from '@moonshot-ai/kosong';
-import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-
-import {
   Disposable,
 } from "#/_base/di";
-import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/errors";
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { renderPrompt } from "#/_base/utils/render-prompt";
 import { estimateTokens, estimateTokensForMessages } from "#/_base/utils/tokens";
+import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
-import { IAgentLLMRequesterService, type LLMEvent } from '#/agent/llmRequester';
-import { IAgentLoopService } from '#/agent/loop';
+import {
+  IAgentLLMRequesterService,
+  type LLMRequestFinish,
+} from '#/agent/llmRequester';
+import { IAgentLoopService, type TurnContextOverflowContext } from '#/agent/loop';
 import { isAbortError } from '#/agent/loop/errors';
 import { retryBackoffDelays, sleepForRetry } from '#/agent/loop/retry';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
-import { ITelemetryService } from '#/app/telemetry';
-import { IAgentToolStoreService } from '#/agent/toolStore';
-import { IAgentTurnService, type TurnContextOverflowContext } from '#/agent/turn';
-import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
 import {
   TODO_STORE_KEY,
   renderTodoList,
   type TodoItem,
 } from '#/agent/todoList/tools/todo-list';
+import { IAgentToolStoreService } from '#/agent/toolStore';
+import { IAgentTurnService } from '#/agent/turn';
+import { IAgentWireRecordService } from '#/agent/wireRecord';
+import { ITelemetryService } from '#/app/telemetry';
+import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/errors";
+import {
+  APIContextOverflowError,
+  APIEmptyResponseError,
+  createUserMessage,
+  isRetryableGenerateError,
+  type TokenUsage,
+} from '@moonshot-ai/kosong';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
 import {
   IAgentFullCompactionService,
@@ -124,7 +125,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     );
     this._register(
       loopService.hooks.beforeStep.register('full-compaction', async (ctx, next) => {
-        await this.beforeStep(ctx.turn.abortController.signal, ctx.turn.id);
+        await this.beforeStep(ctx.signal, ctx.turnId);
         await next();
       }),
     );
@@ -236,7 +237,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       return;
     }
     context.handled = true;
-    await this.block(context.turn.abortController.signal, context.turn.id);
+    await this.block(context.signal, context.turnId);
   }
 
   private async beforeStep(signal: AbortSignal, turnId?: number): Promise<void> {
@@ -381,8 +382,12 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         ];
 
         try {
-          attempt = await collectSummary(
-            this.llmRequester.request({ messages, maxOutputSize: compactionMaxOutputSize }, signal),
+          attempt = collectSummary(
+            await this.llmRequester.request(
+              { messages, maxOutputSize: compactionMaxOutputSize },
+              undefined,
+              signal,
+            ),
           );
           break;
         } catch (error) {
@@ -488,43 +493,23 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   }
 }
 
-async function collectSummary(events: AsyncIterable<LLMEvent>): Promise<CompactionAttemptResult> {
-  const parts: string[] = [];
-  let usage: TokenUsage | null = null;
-  let model: string | undefined;
-  let truncated = false;
-
-  for await (const event of events) {
-    switch (event.type) {
-      case 'part':
-        if (isContentPart(event.part) && event.part.type === 'text') {
-          parts.push(event.part.text);
-        }
-        break;
-      case 'usage':
-        usage = event.usage;
-        model = event.model;
-        break;
-      case 'finish':
-        truncated = event.providerFinishReason === 'truncated';
-        break;
-      case 'timing':
-        break;
-    }
-  }
-
-  if (truncated) {
+function collectSummary(finish: LLMRequestFinish): CompactionAttemptResult {
+  if (finish.providerFinishReason === 'truncated') {
     throw new CompactionTruncatedError();
   }
 
-  const summary = parts.join('').trim();
+  const summary = finish.message.content
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('')
+    .trim();
   if (summary.length === 0) {
     throw new APIEmptyResponseError(
       'The compaction response did not contain a non-empty summary.',
     );
   }
 
-  return { summary, usage, model };
+  return { summary, usage: finish.usage, model: finish.model };
 }
 
 function createCompactionSummaryMessage(summary: string): ContextMessage {
@@ -542,11 +527,6 @@ function completeData(result: CompactionResult): FullCompactionCompleteData {
     tokensBefore: result.tokensBefore,
     tokensAfter: result.tokensAfter,
   };
-}
-
-function compactionSummaryText(history: readonly ContextMessage[]): string | undefined {
-  const message = compactionSummaryMessage(history);
-  return message === undefined ? undefined : contextMessageText(message);
 }
 
 function compactionSummaryMessage(history: readonly ContextMessage[]): ContextMessage | undefined {

@@ -63,7 +63,7 @@ async function execute(tool: GrepTool, args: GrepInput): Promise<ExecutableToolR
   const execution = isPromiseLike(resolved) ? await resolved : resolved;
   if (execution.isError === true) return execution;
   const ctx: ExecutableToolContext = {
-    turnId: '0',
+    turnId: 0,
     toolCallId: 'call_grep',
     signal,
   };
@@ -367,7 +367,7 @@ describe('GrepTool', () => {
     const execution = isPromiseLike(resolved) ? await resolved : resolved;
     if (execution.isError === true) throw new TypeError('expected runnable execution');
     const result = await execution.execute({
-      turnId: '0',
+      turnId: 0,
       toolCallId: 'call_grep',
       signal: controller.signal,
     });
