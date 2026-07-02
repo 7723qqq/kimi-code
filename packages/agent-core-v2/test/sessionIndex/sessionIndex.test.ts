@@ -11,6 +11,7 @@ import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { FileSessionIndex } from '#/app/sessionIndex/sessionIndexService';
+import { stubBootstrap } from '../bootstrap/stubs';
 import {
   AtomicDocumentStore,
   FileStorageService,
@@ -45,7 +46,7 @@ describe('FileSessionIndex', () => {
     const host = createScopedTestHost([
       stubPair(IStorageService, fileStorage),
       stubPair(IAtomicDocumentStore, new AtomicDocumentStore(fileStorage)),
-      stubPair(IBootstrapService, { homeDir, sessionsDir } as IBootstrapService),
+      stubPair(IBootstrapService, stubBootstrap(homeDir)),
     ]);
     disposeHost = () => host.dispose();
     return host.app.accessor.get(ISessionIndex);

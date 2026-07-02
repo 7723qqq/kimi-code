@@ -6,7 +6,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ErrorCodes } from '#/errors';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
 import {
   type TerminalAttachSink,
   type TerminalFrame,
@@ -76,13 +76,13 @@ function stubWorkspace(workDir = '/ws'): ISessionWorkspaceContext {
 }
 
 function stubSessionContext(sessionId = 's1'): ISessionContext {
-  return {
-    _serviceBrand: undefined,
+  return makeSessionContext({
     sessionId,
     workspaceId: 'w1',
     sessionDir: '/ws/.session',
+    sessionScope: `session:${sessionId}`,
     metaScope: `session:${sessionId}`,
-  };
+  });
 }
 
 function collectSink(id = 'sink-1'): { sink: TerminalAttachSink; frames: TerminalFrame[] } {

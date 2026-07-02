@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { TokenUsage } from '@moonshot-ai/kosong';
+import type { TokenUsage } from '#/app/llmProtocol/kosong';
 
 import { ErrorCodes } from '#/errors';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';

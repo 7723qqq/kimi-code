@@ -57,7 +57,28 @@ If business code contains any "how to persist" detail, it has punched through th
 | `JSON.parse` / `JSON.stringify` | Store (serialization) | `IAtomicDocumentStore` |
 | append offsets / sequential cursors | Store (log semantics) | `IAppendLogStore` |
 | `hash(data)` used as a key | Store (blob semantics) | `IBlobStore` |
+| `pathe.join / relative / basename` on `homeDir` etc. | Bootstrap (path layout) | `IBootstrapService.scope(...)` / scope contexts |
 | only `read/write/list/delete` on bytes | nothing — this is the byte layer | `IStorageService` directly ✅ |
+
+## Where scopes come from — `IBootstrapService` and scope contexts
+
+Business code **never assembles scope strings from paths**. Scope strings come from three places:
+
+1. **`IBootstrapService.scope(name)`** — well-known top-level scopes (`'config' | 'sessions' | 'blobs' | 'store' | 'logs' | 'cache' | 'credentials'`). App-scope, deployment-agnostic contract.
+2. **`ISessionContext.scope(subKey?)`** — persistence scope rooted at the current session; `scope('agents/main')` etc.
+3. **`IAgentScopeContext.scope(subKey?)`** — persistence scope rooted at the current agent; `scope('cron')`, `scope('blobs')` etc.
+
+The bootstrap layer decides how each semantic scope maps to concrete addressing. In the file deployment, `FileBootstrapService` reads a `ResolvedEnvironment` (the paths bag) and returns homeDir-relative scopes; a server deployment could bind a different `IBootstrapService` implementation that maps `'sessions'` to a DB table without any business change.
+
+```ts
+// ❌ Wrong — path arithmetic on homeDir/sessionDir leaks the file layout
+const scope = relative(bootstrap.homeDir, join(session.sessionDir, 'agents', agentId, 'cron'));
+
+// ✅ Right — the agent already knows its own scope root
+const scope = agentCtx.scope('cron');
+```
+
+Absolute paths (`sessionDir`, `agentHomedir`) are still available on `IBootstrapService` for the very small number of legacy APIs that expose on-disk paths (session log rotation, background task tail file). Prefer scope strings; ask before adding a new absolute-path caller.
 
 ## Which layer to depend on — decision tree
 
@@ -168,8 +189,10 @@ Keep `IStorageService` unified for byte storage. Diverge only when the semantics
 ## Red lines (this topic)
 
 - Business code never contains "how to persist" details (serialization / paths / SQL / append offsets) — if it does, drop a layer.
+- Business code never assembles scope strings from paths (`pathe.join / relative / basename` on `homeDir` / `sessionDir` / …). Use `IBootstrapService.scope(name)` for well-known scopes, `ISessionContext.scope(subKey?)` for session-rooted scopes, and `IAgentScopeContext.scope(subKey?)` for agent-rooted scopes.
 - Name generic Stores by access pattern (`IAppendLogStore` / `IAtomicDocumentStore` / `IBlobStore`), never by business concept (`IRecordStore` / `IConfigStore`).
 - Business-specific Stores (unique query semantics) are named after the domain (`ISessionIndex`).
 - `IStorageService` is the single byte-layer interface; route backends with **distinct tokens of the same type** (`IAppendLogStorage` / `IAtomicDocumentStorage`), not by overloading `scope`.
 - `hostFs` is a local-only platform primitive; L2/L3 domains must not import `node:fs` or `hostFs` directly.
+- Only the file-backed bootstrap (`FileBootstrapService`) and file backends import `pathe`; business domains do not.
 - Do not create a pass-through `Store` that only forwards `read/write` — a Store must hide a real access-pattern concern, or it is noise; use `IStorageService` directly instead.

@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol/kosong';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -15,7 +15,8 @@ import {
   MISSING_MEDIA_PLACEHOLDER,
 } from '#/agent/blobStore';
 import { AgentBlobStoreService } from '#/agent/blobStore/blobStoreService';
-import { IEnvironmentService } from '#/app/environment';
+import { IBootstrapService } from '#/app/bootstrap';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
 import { FileStorageService, IBlobStorage } from '#/app/storage';
 
 const cleanups: string[] = [];
@@ -66,7 +67,11 @@ function createStore(
 
   const ix = disposable.add(new TestInstantiationService());
   ix.set(IBlobStorage, new FileStorageService(homeDir));
-  ix.set(IEnvironmentService, { homeDir } as unknown as IEnvironmentService);
+  ix.set(IBootstrapService, { homeDir } as unknown as IBootstrapService);
+  ix.set(
+    IAgentScopeContext,
+    makeAgentScopeContext({ agentId: 'test', agentScope: '' }),
+  );
   ix.set(IAgentBlobStoreService, new SyncDescriptor(ctor, [{}]));
   return ix.get(IAgentBlobStoreService);
 }

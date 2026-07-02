@@ -26,13 +26,13 @@ import type { PermissionRule } from '#/agent/permissionRules';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules';
 import { IAgentPlanService } from '#/agent/plan';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
 import { IAgentSwarmService } from '#/agent/swarm';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentTurnService } from '#/agent/turn';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
-import type { ToolCall } from '@moonshot-ai/kosong';
+import type { ToolCall } from '#/app/llmProtocol/kosong';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
 import { stubApprovalService } from '../approval/stubs';
@@ -104,13 +104,13 @@ describe('AgentPermissionGate', () => {
         });
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
         reg.defineInstance(ISessionApprovalService, stubApprovalService(() => approvalResponse));
-        reg.defineInstance(ISessionContext, {
-          _serviceBrand: undefined,
+        reg.defineInstance(ISessionContext, makeSessionContext({
           sessionId: 'test-session',
           workspaceId: 'test-workspace',
           sessionDir: '/tmp/test-session',
+          sessionScope: 'sessions/test-workspace/test-session',
           metaScope: 'sessions/test-workspace/test-session/session-meta',
-        });
+        }));
         reg.definePartialInstance(IAgentPlanService, {
           status: async () => null,
           exit: () => {},

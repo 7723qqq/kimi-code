@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol/kosong';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { type ServiceIdentifier } from '#/_base/di/instantiation';
 import { LifecycleScope } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { AgentBlobStoreService, IAgentBlobStoreService } from '#/agent/blobStore';
-import { IEnvironmentService } from '#/app/environment';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
+import { IBootstrapService } from '#/app/bootstrap';
 import { IBlobStorage, InMemoryStorageService } from '#/app/storage';
 
 function makeLargeDataUri(mimeType = 'image/png'): { uri: string; payload: string } {
@@ -26,7 +27,7 @@ describe('AgentBlobStoreService', () => {
   beforeEach(() => {
     host = createScopedTestHost([
       stubPair(IBlobStorage, new InMemoryStorageService()),
-      stubPair(IEnvironmentService, { homeDir: '/home' } as unknown as IEnvironmentService),
+      stubPair(IBootstrapService, { homeDir: '/home' } as unknown as IBootstrapService),
     ]);
   });
 
@@ -36,6 +37,10 @@ describe('AgentBlobStoreService', () => {
 
   function getBlobStore(): IAgentBlobStoreService {
     const agent = host.child(LifecycleScope.Agent, 'test-agent', [
+      [
+        IAgentScopeContext as ServiceIdentifier<unknown>,
+        makeAgentScopeContext({ agentId: 'test-agent', agentScope: '' }),
+      ],
       [
         IAgentBlobStoreService as ServiceIdentifier<unknown>,
         new SyncDescriptor(AgentBlobStoreService, [{}]),
@@ -129,8 +134,15 @@ describe('AgentBlobStoreService', () => {
   it('persists blobs under the per-agent scope when homedir is seeded', async () => {
     const agent = host.child(LifecycleScope.Agent, 'a1', [
       [
+        IAgentScopeContext as ServiceIdentifier<unknown>,
+        makeAgentScopeContext({
+          agentId: 'a1',
+          agentScope: 'sessions/s1/agents/a1',
+        }),
+      ],
+      [
         IAgentBlobStoreService as ServiceIdentifier<unknown>,
-        new SyncDescriptor(AgentBlobStoreService, [{ homedir: '/home/sessions/s1/agents/a1' }]),
+        new SyncDescriptor(AgentBlobStoreService, [{}]),
       ],
     ]);
     const store = agent.accessor.get(IAgentBlobStoreService);

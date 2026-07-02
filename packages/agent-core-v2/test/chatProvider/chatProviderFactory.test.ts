@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { ChatProvider, Message, StreamedMessage, Tool } from '@moonshot-ai/kosong';
+import type { ChatProvider, Message, StreamedMessage, Tool } from '#/app/llmProtocol/kosong';
 
 import { createScopedTestHost } from '#/_base/di/test';
 import { IChatProviderFactory } from '#/app/chatProvider';

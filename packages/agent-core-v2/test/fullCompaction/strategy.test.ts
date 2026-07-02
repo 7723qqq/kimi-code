@@ -1,6 +1,6 @@
 import {
   type Message
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { estimateTokensForMessages } from '#/_base/utils/tokens';

@@ -6,6 +6,7 @@
  * deterministic regardless of host TZ.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeAgentScopeContext } from '#/agent/scopeContext';
 
 import { CronCreateTool } from '#/agent/cron/tools/cron-create';
 import { CronDeleteTool } from '#/agent/cron/tools/cron-delete';
@@ -57,7 +58,7 @@ describe('Cron — session E2E (P1.9)', () => {
     vi.stubEnv('KIMI_CRON_NO_JITTER', '1');
     vi.stubEnv('KIMI_CRON_POLL_INTERVAL_MS', '0');
     harness = createClocks();
-    ctx = createTestAgent(cronServices({ _serviceBrand: undefined, agentId: 'main' }));
+    ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
     cron = ctx.get(IAgentCronService);
     prompt = ctx.get(IAgentPromptService);
     cron.start();

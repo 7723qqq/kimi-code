@@ -44,10 +44,10 @@ const DOMAIN_LAYER = new Map([
   ['errors', 0],
   // `llmProtocol` is v2's public wire-type namespace (`Message`,
   // `ContentPart`, `Tool`, `TokenUsage`, `FinishReason`, error classes,
-  // etc.). It has no v2 dependencies of its own (currently re-exports from
-  // `@moonshot-ai/kosong`); every domain — including `_base/utils/tokens`
-  // and `_base/errors/serialize` — may import wire types through it, so it
-  // sits at L0.
+  // etc.). It has no v2 dependencies of its own (it vendors the kosong wire
+  // implementation under `llmProtocol/kosong`); every domain — including
+  // `_base/utils/tokens` and `_base/errors/serialize` — may import wire types
+  // through it, so it sits at L0.
   ['llmProtocol', 0],
   // L1 — abstraction bridges & low-level capabilities
   ['log', 1],

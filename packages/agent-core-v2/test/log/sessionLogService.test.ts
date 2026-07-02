@@ -20,7 +20,7 @@ import {
 import { logSeed } from '#/app/log/logConfig';
 import { SessionFileLogWriterService } from '#/session/sessionLog/logWriter';
 import { SessionLogService } from '#/session/sessionLog/sessionLogService';
-import { sessionContextSeed } from '#/session/sessionContext';
+import { makeSessionContext, sessionContextSeed } from '#/session/sessionContext';
 
 let homeDir: string;
 let sessionDir: string;
@@ -58,13 +58,13 @@ function buildHost() {
 }
 
 function testSessionSeed() {
-  return sessionContextSeed({
-    _serviceBrand: undefined,
+  return sessionContextSeed(makeSessionContext({
     sessionId: 's1',
     workspaceId: 'test-workspace',
     sessionDir,
+    sessionScope: 'sessions/test-workspace/s1',
     metaScope: 'sessions/test-workspace/s1/session-meta',
-  });
+  }));
 }
 
 async function readSessionLog(): Promise<string> {

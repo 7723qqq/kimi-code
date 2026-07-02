@@ -1,4 +1,4 @@
-import type { ModelCapability, ProviderConfig, ToolCall } from '@moonshot-ai/kosong';
+import type { ModelCapability, ProviderConfig, ToolCall } from '#/app/llmProtocol/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile';

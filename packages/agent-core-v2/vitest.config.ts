@@ -15,12 +15,13 @@ function findPackageRoot(importer: string | undefined): string | undefined {
 
 /**
  * Resolve `#/` subpath imports the way Node's package.json `imports` field does,
- * but scoped to the importer's owning package so cross-package resolution works
- * in a monorepo (e.g. agent-core-v2 tests inlining kosong src: kosong's
- * `#/errors` resolves to `packages/kosong/src/errors.ts`, not agent-core-v2's).
+ * scoped to the importer's owning package. agent-core-v2 sources and tests
+ * import each other through the `#/*` alias (e.g. `#/agent/loop`); resolving
+ * against the importer's package root keeps those aliases pointing at
+ * agent-core-v2 even when a test inlines a dependency's src.
  *
  * Tries `src/<sub>.ts` then `src/<sub>/index.ts`, mirroring the
- * `"#/*"` → `["./src/*.ts", "./src/<x>/index.ts"]` fallback used by the packages.
+ * `"#/*"` → `["./src/*.ts", "./src/<x>/index.ts"]` fallback used by the package.
  */
 function hashImportsPlugin(): Plugin {
   return {

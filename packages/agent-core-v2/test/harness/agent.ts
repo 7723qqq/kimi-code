@@ -18,7 +18,7 @@ import {
   type ThinkingEffort,
   type Tool as KosongTool,
   type generate as kosongGenerate,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol/kosong';
 import { expect, vi } from 'vitest';
 
 import {

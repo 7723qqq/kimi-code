@@ -17,7 +17,7 @@ One folder per domain, **camelCase**: `session/`, `sessionActivity/`, `contextMe
 └── index.ts             ← barrel: re-exports everything; importing it runs the domain's registrations
 ```
 
-- **One service per file, by default.** An interface file holds exactly one injectable interface; an impl file holds one class and one `registerScopedService(...)`. A multi-service domain normally splits into one interface-file + one impl-file per service — with one exception: a tightly-coupled same-scope group may share one impl file with several classes and registrations (see [Multi-Service domains](#multi-service-domains)).
+- **Strictly one service per file.** An interface file holds exactly one injectable interface and exactly one `createDecorator(...)`; an impl file holds exactly one service implementation class and exactly one `registerScopedService(...)`. No exceptions for "tightly-coupled" groups: even same-scope collaborators each get their own `<name>.ts` + `<name>Service.ts` pair.
 - **Scope is in the filename.** `session*.ts` = Session, `agent*.ts` = Agent, no scope prefix = App (see [Naming](#naming)). The header comment restates the same scope.
 - A domain therefore has as many impl files as it has services (e.g. `logService.ts` for the App `ILogService`, `sessionLogService.ts` for the Session `ISessionLogService`). See [Multi-Service domains](#multi-service-domains).
 
@@ -253,13 +253,13 @@ Inject `@IEventService` and `publish(...)`; `subscribe(...)` returns an `IDispos
 
 ## Multi-Service domains
 
-A domain may define several Services. How to organize them:
+A domain may define several Services. Each Service gets its own pair of files regardless of scope or coupling:
 
-- **Same scope, tightly coupled** → one contract file, possibly one impl file with several classes and several `registerScopedService(...)` calls (e.g. `logService.ts` registers both `ILogWriterService` and `ILogService`).
-- **Different scopes** → separate impl files named after the Service (`logService.ts` for App `ILogService`, `sessionLogService.ts` for Session `ISessionLogService`); one shared contract file (`log.ts`).
-- **Split by responsibility** — even within one scope, prefer a separate impl file when a class is large or independently testable.
+- **One pair per Service** → `<name>.ts` for the contract + `<name>Service.ts` for the implementation.
+- **Different scopes** → the scope prefix in the Service name makes this obvious (`logService.ts` for App `ILogService`, `sessionLogService.ts` for Session `ISessionLogService`).
+- **Same interface, multiple role tokens** (e.g. `IStorageService`, `IAppendLogStorage`, `IAtomicDocumentStorage`, `IBlobStorage`) → each token is its own Service identity and must live in its own `<name>.ts` + `<name>Service.ts` pair.
 
-The contract file still holds **all** of the domain's interfaces and decorators in one place so consumers import the domain's surface from `./<domain>`.
+The barrel (`index.ts`) re-exports every contract/impl pair so consumers still import the domain's surface from `./<domain>`.
 
 ## The barrel (`index.ts`)
 
@@ -330,7 +330,9 @@ export * from './greet/index';
 
 ## Red lines (this topic)
 
-- One folder per domain, camelCase; contract `<domain>.ts`, impl `<domain>Service.ts`, barrel `index.ts`.
+- One folder per domain, camelCase; one service per file pair: contract `<name>.ts` + impl `<name>Service.ts`; barrel `index.ts`.
+- Exactly one injectable interface and one `createDecorator(...)` per contract file.
+- Exactly one service implementation class and one `registerScopedService(...)` per impl file.
 - `IXxxService` / `XxxService` naming; decorator string is lowerCamelCase, globally unique, and stable.
 - Name Services by owning domain, never by scope (`IAgentEntityService`, `ISessionEntityService`).
 - `_serviceBrand` only on interfaces used as a DI token — never on base interfaces or plain models.

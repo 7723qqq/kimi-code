@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import { HookEngine } from '#/agent/externalHooks/engine';
