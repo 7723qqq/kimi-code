@@ -25,4 +25,4 @@ export {
   isContextOverflowStatusError,
   isProviderRateLimitError,
   isRetryableGenerateError,
-} from '@moonshot-ai/kosong';
+} from './kosong';
