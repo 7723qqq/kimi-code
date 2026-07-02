@@ -14,8 +14,8 @@ import {
   MAX_SKILL_QUERY_DEPTH,
   NestedSkillTooDeepError,
   SkillTool,
+  type SkillToolDeps,
 } from '#/agent/skill/tools/skill';
-import { ModelSkillTool } from '#/agent/skill/tools/modelSkill';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn } from '#/agent/turn';
@@ -215,8 +215,16 @@ describe('SkillTool', () => {
     };
   }
 
+  function skillToolDeps(ix: TestInstantiationService): SkillToolDeps {
+    return {
+      catalog: ix.get(ISessionSkillCatalog),
+      prompt: ix.get(IAgentPromptService),
+      recordActivation: () => {},
+    };
+  }
+
   it('exposes metadata and schema for model-invoked skills', () => {
-    const tool = new SkillTool(ix.get(IAgentSkillService));
+    const tool = new SkillTool(skillToolDeps(ix));
 
     expect(tool.name).toBe('Skill');
     expect(tool.description).toContain('Invoke a registered skill');
@@ -234,7 +242,7 @@ describe('SkillTool', () => {
 
   it('returns a tool error when the skill is unknown', async () => {
     const result = await executeTool(
-      new SkillTool(ix.get(IAgentSkillService)),
+      new SkillTool(skillToolDeps(ix)),
       toolContext({ skill: 'missing' }),
     );
 
@@ -248,7 +256,7 @@ describe('SkillTool', () => {
     skills.register(stubSkill('private', { metadata: { disableModelInvocation: true } }));
 
     const result = await executeTool(
-      new SkillTool(ix.get(IAgentSkillService)),
+      new SkillTool(skillToolDeps(ix)),
       toolContext({ skill: 'private' }),
     );
 
@@ -262,7 +270,7 @@ describe('SkillTool', () => {
     skills.register(stubSkill('flow-only', { metadata: { type: 'flow' } }));
 
     const result = await executeTool(
-      new SkillTool(ix.get(IAgentSkillService)),
+      new SkillTool(skillToolDeps(ix)),
       toolContext({ skill: 'flow-only' }),
     );
 
@@ -274,7 +282,7 @@ describe('SkillTool', () => {
 
   it('loads inline skills through the model-tool wrapper without exposing the body in output', async () => {
     const result = await executeTool(
-      new SkillTool(ix.get(IAgentSkillService)),
+      new SkillTool(skillToolDeps(ix)),
       toolContext({ skill: 'commit', args: 'src/app.ts' }),
     );
 
@@ -301,43 +309,33 @@ describe('SkillTool', () => {
   });
 
   it('honors initialQueryDepth as an alias for queryDepth', async () => {
-    const calls: Array<{ readonly name: string; readonly queryDepth?: number }> = [];
-    const service: IAgentSkillService = {
-      _serviceBrand: undefined,
-      activate: async () => fakeTurn(),
-      activateFromModel: async (input) => {
-        calls.push({ name: input.name, queryDepth: input.queryDepth });
-        return { output: 'loaded' };
-      },
-    };
-
     await executeTool(
-      new SkillTool(service, { initialQueryDepth: 2 }),
+      new SkillTool(skillToolDeps(ix), { initialQueryDepth: 2 }),
       toolContext({ skill: 'commit' }),
     );
     await executeTool(
-      new ModelSkillTool(service, { initialQueryDepth: 1 }),
+      new SkillTool(skillToolDeps(ix), { initialQueryDepth: 0 }),
       toolContext({ skill: 'commit' }),
     );
 
-    expect(calls).toEqual([
-      { name: 'commit', queryDepth: 2 },
-      { name: 'commit', queryDepth: 1 },
-    ]);
+    expect(prompted).toHaveLength(2);
+    expect(prompted[0]!.origin).toMatchObject({
+      kind: 'skill_activation',
+      trigger: 'nested-skill',
+    });
+    expect(prompted[1]!.origin).toMatchObject({
+      kind: 'skill_activation',
+      trigger: 'model-tool',
+    });
   });
 
   it('throws a structured recursion error when nested skill invocation is too deep', async () => {
-    const service: IAgentSkillService = {
-      _serviceBrand: undefined,
-      activate: async () => fakeTurn(),
-      activateFromModel: async () => ({ output: 'should not run' }),
-    };
-
     await expect(
       executeTool(
-        new SkillTool(service, { initialQueryDepth: MAX_SKILL_QUERY_DEPTH }),
+        new SkillTool(skillToolDeps(ix), { initialQueryDepth: MAX_SKILL_QUERY_DEPTH }),
         toolContext({ skill: 'commit' }),
       ),
     ).rejects.toBeInstanceOf(NestedSkillTooDeepError);
+    expect(prompted).toHaveLength(0);
   });
 });
