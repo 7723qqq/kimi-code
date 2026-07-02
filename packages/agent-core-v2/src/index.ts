@@ -76,7 +76,6 @@ export * from '#/agent/contextSize';
 export * from '#/agent/contextInjector';
 export * from '#/agent/externalHooks';
 export * from '#/agent/fullCompaction';
-export * from '#/agent/llmRequestLog';
 export * from '#/agent/llmRequester';
 export * from '#/agent/loop';
 export * from '#/agent/mcp';

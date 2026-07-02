@@ -7,25 +7,29 @@
  * completion-token budget through `.withMaxCompletionTokens`, then drives
  * `model.request(input, signal)`. Emits `LLMEvent`s straight through while
  * intercepting `usage` for `IAgentUsageService` accounting and logging the
- * outbound request through `llmRequestLog`. Bound at Agent scope.
+ * outbound request (config, deduplicated by content, plus per-request fields)
+ * through `log`. Bound at Agent scope.
  */
 
+import { createHash } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import {
   applyCompletionBudget,
   resolveCompletionBudget,
 } from '#/app/model/completionBudget';
-import type { Tool } from '#/app/llmProtocol';
+import type { Message, ThinkingEffort, Tool } from '#/app/llmProtocol';
+import type { Protocol } from '#/app/protocol';
 import { IConfigService } from '#/app/config';
 import { type KimiModelOverrides } from '#/app/model';
+import { ILogService } from '#/app/log';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import type { LLMRequestLogFields } from '#/agent/loop';
 import type { LLMEvent, LLMRequestOverrides } from './index';
-import { IAgentLLMRequestLogService } from '#/agent/llmRequestLog';
 import { IAgentUsageService } from '#/agent/usage';
 import { IAgentLLMRequesterService } from './llmRequester';
 
@@ -34,8 +38,21 @@ const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   properties: {},
 };
 
+interface LLMRequestLogInput {
+  readonly protocol: Protocol;
+  readonly modelName: string;
+  readonly modelAlias?: string;
+  readonly thinkingEffort?: ThinkingEffort | null;
+  readonly systemPrompt: string;
+  readonly tools: readonly Tool[];
+  readonly messages: readonly Message[];
+  readonly fields?: LLMRequestLogFields;
+}
+
 export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   declare readonly _serviceBrand: undefined;
+
+  private lastConfigLogSignature: string | undefined;
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -43,8 +60,8 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentToolRegistryService private readonly tools: IAgentToolRegistryService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IAgentLLMRequestLogService private readonly requestLog: IAgentLLMRequestLogService,
     @IAgentUsageService private readonly usage: IAgentUsageService,
+    @ILogService private readonly log: ILogService,
     @IConfigService private readonly config: IConfigService,
   ) {}
 
@@ -79,7 +96,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const tools = [...(overrides.tools ?? this.defaultTools())];
     const messages = [...(overrides.messages ?? this.projector.project(this.context.get()))];
 
-    this.requestLog.logRequest({
+    this.logRequest({
       protocol: model.protocol,
       modelName: model.name,
       modelAlias: resolvedCtx.modelAlias,
@@ -101,6 +118,38 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
   }
 
+  private logRequest(input: LLMRequestLogInput): void {
+    const requestLogFields = input.fields ?? {};
+    const config = {
+      provider: input.protocol,
+      model: input.modelName,
+      modelAlias: input.modelAlias,
+      thinkingEffort: input.thinkingEffort ?? undefined,
+      systemPromptChars: input.systemPrompt.length,
+      toolCount: input.tools.length,
+    };
+    const signature = JSON.stringify({
+      ...config,
+      systemPromptHash: fingerprint(input.systemPrompt),
+      toolsHash: fingerprint(JSON.stringify(toolSignature(input.tools))),
+    });
+    if (signature !== this.lastConfigLogSignature) {
+      this.lastConfigLogSignature = signature;
+      this.log.info('llm config', { ...requestLogFields, ...config });
+    }
+
+    const partialMessageCount = input.messages.filter(
+      (message) => message.partial === true,
+    ).length;
+    const requestFields: {
+      turnStep?: string;
+      attempt?: string;
+      partialMessageCount?: number;
+    } = { ...requestLogFields };
+    if (partialMessageCount > 0) requestFields.partialMessageCount = partialMessageCount;
+    this.log.info('llm request', requestFields);
+  }
+
   private defaultTools(): readonly Tool[] {
     return this.tools
       .list()
@@ -111,6 +160,14 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
       }));
   }
+}
+
+function toolSignature(tools: readonly Tool[]) {
+  return tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
+}
+
+function fingerprint(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
 }
 
 registerScopedService(
