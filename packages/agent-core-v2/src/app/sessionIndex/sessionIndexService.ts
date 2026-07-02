@@ -18,8 +18,6 @@
  * would substitute a database-backed `DbSessionIndex`. Bound at App scope.
  */
 
-import { relative } from 'pathe';
-
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap';
@@ -93,7 +91,7 @@ export class FileSessionIndex implements ISessionIndex {
   }
 
   private get sessionsScope(): string {
-    return relative(this.bootstrap.homeDir, this.bootstrap.sessionsDir);
+    return this.bootstrap.scope('sessions');
   }
 
   private async listWorkspaceIds(): Promise<readonly string[]> {

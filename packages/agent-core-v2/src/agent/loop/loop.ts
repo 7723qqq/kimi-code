@@ -1,5 +1,5 @@
 import { createDecorator } from '#/_base/di';
-import type { TokenUsage } from '@moonshot-ai/kosong';
+import type { TokenUsage } from '#/app/llmProtocol';
 import type { Hooks } from '#/hooks';
 import type { TurnResult } from './types';
 
