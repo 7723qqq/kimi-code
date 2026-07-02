@@ -6,7 +6,6 @@
  */
 
 import { createHooks } from '#/hooks';
-import { emptyUsage } from '@moonshot-ai/kosong';
 import type { PromptOrigin } from '#/agent/contextMemory';
 import type { IAgentLoopService } from '#/agent/loop';
 import type { IAgentTurnService, Turn } from '#/agent/turn';
@@ -48,7 +47,7 @@ function makeHooks(): IAgentTurnService['hooks'] {
   ]) as IAgentTurnService['hooks'];
 }
 
-function makeLoopHooks(): IAgentLoopService['hooks'] {
+function makeAgentLoopHookSlots(): IAgentLoopService['hooks'] {
   return createHooks([
     'beforeStep',
     'onStepUsage',
@@ -99,11 +98,11 @@ export function stubTurnWithHooks(): IAgentTurnService {
 
 /** An `IAgentLoopService` stub backed by real loop lifecycle hook slots. */
 export function stubLoopWithHooks(): IAgentLoopService {
-  const hooks = makeLoopHooks();
+  const hooks = makeAgentLoopHookSlots();
   return {
     _serviceBrand: undefined,
     hooks,
-    runTurn: async () => ({ stopReason: 'end_turn', steps: 0, usage: emptyUsage() }),
+    runTurn: async () => ({ stopReason: 'end_turn', steps: 0 }),
   };
 }
 

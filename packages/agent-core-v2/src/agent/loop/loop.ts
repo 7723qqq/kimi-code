@@ -1,4 +1,4 @@
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from '#/_base/di';
 import type { TokenUsage } from '@moonshot-ai/kosong';
 import type { Hooks } from '#/hooks';
 import type { TurnResult } from './types';

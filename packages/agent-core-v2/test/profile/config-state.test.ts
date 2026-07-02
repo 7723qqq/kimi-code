@@ -142,9 +142,7 @@ describe('ConfigState model capabilities', () => {
       systemPrompt: 'system',
       thinkingLevel: 'off',
     });
-    for await (const _ of requester.request({}, new AbortController().signal)) {
-      // consume to trigger generate
-    }
+    await requester.request({}, undefined, new AbortController().signal);
 
     expect(requestMaxTokens).toBe(384000);
   });

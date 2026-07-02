@@ -196,11 +196,9 @@ turn --> contextMemory #34495E
 turn --> externalHooks #34495E
 turn --> telemetry #34495E
 loop --> contextMemory #34495E
-loop --> contextProjector #34495E
 loop --> contextSize #34495E
 loop --> llmRequester #34495E
 loop --> eventSink #34495E
-loop --> toolRegistry #34495E
 loop --> toolExecutor #34495E
 loop --> profile #34495E
 loop --> telemetry #34495E

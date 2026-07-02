@@ -1734,7 +1734,7 @@ describe('Agent turn flow', () => {
       const tool = ctx.get(IAgentToolRegistryService).resolve('ReadMediaFile');
       if (tool === undefined) throw new Error('ReadMediaFile tool was not initialized');
       const result = await executeTool(tool, {
-        turnId: 't1',
+        turnId: 1,
         toolCallId: 'call_media',
         args: { path: '/workspace/sample.mp4' },
         signal: new AbortController().signal,

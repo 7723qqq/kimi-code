@@ -1,24 +1,29 @@
 import type { ToolCall } from '@moonshot-ai/kosong';
-import type { ToolInputDisplay } from '@moonshot-ai/protocol';
+import type { AgentEvent, ToolInputDisplay } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import type { LoopEvent } from '#/agent/loop';
 import { ToolAccesses, type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolResult, type ToolUpdate } from '#/agent/tool';
 import { IAgentToolExecutorService, AgentToolExecutorService, parseToolCallArguments } from '#/agent/toolExecutor';
 import { IAgentToolRegistryService, AgentToolRegistryService } from '#/agent/toolRegistry';
 import { registerLogServices } from '../log/stubs';
 
+type ToolExecutorEvent =
+  | { readonly type: 'tool.result'; readonly toolCallId: string; readonly result: ToolResult }
+  | { readonly type: 'tool.progress'; readonly toolCallId: string; readonly update: ToolUpdate };
+
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
 let executor: IAgentToolExecutorService;
 let registry: IAgentToolRegistryService;
-let events: LoopEvent[];
+let events: ToolExecutorEvent[];
+let protocolEvents: AgentEvent[];
 
 beforeEach(() => {
   disposables = new DisposableStore();
   events = [];
+  protocolEvents = [];
   ix = createServices(disposables, {
     additionalServices: (reg) => {
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
@@ -51,11 +56,12 @@ describe('AgentToolExecutorService', () => {
     expect(tool.calls).toEqual([
       expect.objectContaining({
         toolCallId: 'call_echo',
-        turnId: 'turn-1',
+        turnId: 0,
         args: { text: 'hi' },
       }),
     ]);
-    expect(eventTypes()).toEqual(['tool.call', 'tool.result']);
+    expect(eventTypes()).toEqual(['tool.result']);
+    expect(protocolEventTypes()).toEqual(['tool.call.started', 'tool.result']);
   });
 
   it('records an error tool.result when the tool name is unknown', async () => {
@@ -167,7 +173,7 @@ describe('AgentToolExecutorService', () => {
     });
   });
 
-  it('preserves an unknown tool\'s valid args in the tool.call transcript', async () => {
+  it('preserves an unknown tool\'s valid args in the tool.call.started event', async () => {
     const results = await execute([toolCall('call_unknown', 'missing', { x: 1 })]);
 
     expect(results).toEqual([
@@ -176,8 +182,9 @@ describe('AgentToolExecutorService', () => {
         isError: true,
       }),
     ]);
-    const toolCallEvent = events.find(
-      (event): event is Extract<LoopEvent, { type: 'tool.call' }> => event.type === 'tool.call',
+    const toolCallEvent = protocolEvents.find(
+      (event): event is Extract<AgentEvent, { type: 'tool.call.started' }> =>
+        event.type === 'tool.call.started',
     );
     expect(toolCallEvent?.args).toEqual({ x: 1 });
   });
@@ -249,7 +256,7 @@ describe('AgentToolExecutorService', () => {
     expect(second.calls).toEqual([]);
   });
 
-  it('writes resolveExecution description and display onto tool.call events', async () => {
+  it('writes resolveExecution description and display onto tool.call.started events', async () => {
     const tool = new TestTool('display', {
       description: 'Prepared display description',
       display: {
@@ -262,8 +269,8 @@ describe('AgentToolExecutorService', () => {
 
     await execute([toolCall('call_display', 'display', {})]);
 
-    expect(events.find((event) => event.type === 'tool.call')).toMatchObject({
-      type: 'tool.call',
+    expect(protocolEvents.find((event) => event.type === 'tool.call.started')).toMatchObject({
+      type: 'tool.call.started',
       description: 'Prepared display description',
       display: {
         kind: 'generic',
@@ -355,7 +362,7 @@ describe('AgentToolExecutorService', () => {
     ]);
   });
 
-  it('every tool.call still has a matching tool.result when aborted mid-batch', async () => {
+  it('every tool.call.started still has a matching tool.result when aborted mid-batch', async () => {
     const controller = new AbortController();
     const first = new ControlledTool('first', ToolAccesses.writeFile('/repo/a.ts'));
     const second = new ControlledTool('second', ToolAccesses.writeFile('/repo/a.ts'));
@@ -471,12 +478,15 @@ describe('parseToolCallArguments', () => {
 
 function execute(calls: ToolCall[], signal?: AbortSignal): Promise<ToolResult[]> {
   return executor.execute(calls, {
-    turnId: 'turn-1',
+    turnId: 0,
     stepNumber: 1,
     stepUuid: 'step-1',
     signal,
-    dispatchEvent: async (event) => {
-      events.push(event);
+    onToolResult: (toolCallId, result) => {
+      events.push({ type: 'tool.result', toolCallId, result });
+    },
+    dispatchProtocolEvent: (event) => {
+      protocolEvents.push(event);
     },
     onProgress: (toolCallId, update) => {
       events.push({ type: 'tool.progress', toolCallId, update });
@@ -493,17 +503,27 @@ function toolCall(id: string, name: string, args: unknown): ToolCall {
   };
 }
 
-function eventTypes(): LoopEvent['type'][] {
+function eventTypes(): ToolExecutorEvent['type'][] {
   return events.map((event) => event.type);
+}
+
+function protocolEventTypes(): AgentEvent['type'][] {
+  return protocolEvents.map((event) => event.type);
 }
 
 function pairedToolCallIds(): { readonly calls: string[]; readonly results: string[] } {
   return {
-    calls: events
-      .filter((event): event is Extract<LoopEvent, { type: 'tool.call' }> => event.type === 'tool.call')
+    calls: protocolEvents
+      .filter(
+        (event): event is Extract<AgentEvent, { type: 'tool.call.started' }> =>
+          event.type === 'tool.call.started',
+      )
       .map((event) => event.toolCallId),
     results: events
-      .filter((event): event is Extract<LoopEvent, { type: 'tool.result' }> => event.type === 'tool.result')
+      .filter(
+        (event): event is Extract<ToolExecutorEvent, { type: 'tool.result' }> =>
+          event.type === 'tool.result',
+      )
       .map((event) => event.toolCallId),
   };
 }

@@ -57,7 +57,7 @@ function policyContext(display: ToolInputDisplay): ResolvedToolExecutionHookCont
     arguments: '{}',
   };
   return {
-    turnId: '7',
+    turnId: 7,
     signal: new AbortController().signal,
     toolCall,
     toolCalls: [toolCall],

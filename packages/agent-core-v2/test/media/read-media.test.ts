@@ -107,7 +107,7 @@ async function execute(
     return execution;
   }
   const ctx: ExecutableToolContext = {
-    turnId: 't1',
+    turnId: 1,
     toolCallId: 'call_media',
     signal: new AbortController().signal,
   };

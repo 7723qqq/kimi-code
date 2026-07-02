@@ -51,11 +51,11 @@ function makeTurn(id: number): Turn {
 
 async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<boolean> {
   const step = {
-    turnId: String(turn.id),
+    turnId: turn.id,
     signal: turn.abortController.signal,
   };
   const afterStep = {
-    turnId: String(turn.id),
+    turnId: turn.id,
     signal: turn.abortController.signal,
     continueTurn: false,
   };
@@ -64,13 +64,13 @@ async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<
   return afterStep.continueTurn;
 }
 
-async function recordStepUsage(
+async function runStepUsageHooks(
   loopService: IAgentLoopService,
   turn: Turn,
   usage: TokenUsage,
 ): Promise<boolean> {
   const usageContext = {
-    turnId: String(turn.id),
+    turnId: turn.id,
     signal: turn.abortController.signal,
     usage,
     stepNumber: 1,
@@ -585,13 +585,13 @@ describe('AgentGoalService core workflow hooks', () => {
     const turn = turnService.launch({ kind: 'user' });
     await turnService.hooks.onLaunched.run({ turn });
 
-    expect(await recordStepUsage(loopService, turn, {
+    expect(await runStepUsageHooks(loopService, turn, {
       inputCacheRead: 0,
       inputCacheCreation: 0,
       inputOther: 4,
       output: 0,
     })).toBe(false);
-    expect(await recordStepUsage(loopService, turn, {
+    expect(await runStepUsageHooks(loopService, turn, {
       inputCacheRead: 0,
       inputCacheCreation: 0,
       inputOther: 0,
@@ -609,7 +609,7 @@ describe('AgentGoalService core workflow hooks', () => {
     await goals.createGoal({ objective: 'finish the task' });
 
     const turn = makeTurn(99);
-    expect(await recordStepUsage(loopService, turn, {
+    expect(await runStepUsageHooks(loopService, turn, {
       inputCacheRead: 0,
       inputCacheCreation: 0,
       inputOther: 10,
@@ -644,11 +644,11 @@ describe('AgentGoalService core workflow hooks', () => {
     const turn = makeTurn(3);
     await turnService.hooks.onLaunched.run({ turn });
     const step = {
-      turnId: String(turn.id),
+      turnId: turn.id,
       signal: turn.abortController.signal,
     };
     const afterStep = {
-      turnId: String(turn.id),
+      turnId: turn.id,
       signal: turn.abortController.signal,
       continueTurn: false,
     };

@@ -1,13 +1,19 @@
-import { emptyUsage } from '@moonshot-ai/kosong';
+import { APIConnectionError, emptyUsage } from '@moonshot-ai/kosong';
 import type { StreamedMessagePart } from '@moonshot-ai/kosong';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IAgentLLMRequesterService } from '#/agent/llmRequester';
+import {
+  IAgentLLMRequesterService,
+  type LLMRequestFinish,
+  type LLMRequestRetryContext,
+} from '#/agent/llmRequester';
 import { IAgentProfileService } from '#/agent/profile';
+import type { ILogger as Logger, LogPayload } from '#/app/log';
 import {
   configServices,
   createTestAgent,
   llmGenerateServices,
+  logServices,
   type TestAgentContext,
 } from '../harness';
 
@@ -82,6 +88,122 @@ describe('LLMRequester service migration coverage', () => {
     });
   });
 
+  describe('retry', () => {
+    let ctx: TestAgentContext | undefined;
+
+    afterEach(async () => {
+      vi.useRealTimers();
+      if (ctx === undefined) return;
+      try {
+        await ctx.expectResumeMatches();
+      } finally {
+        await ctx.dispose();
+        ctx = undefined;
+      }
+    });
+
+    it('retries an APIConnectionError("terminated") and succeeds on a later attempt', async () => {
+      vi.useFakeTimers();
+      let calls = 0;
+      const retryEvents: LLMRequestRetryContext[] = [];
+      ctx = createTestAgent(
+        llmGenerateServices(async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new APIConnectionError('terminated');
+          }
+          return {
+            message: { role: 'assistant', content: [], toolCalls: [] },
+            usage: emptyUsage(),
+            finishReason: 'completed',
+          };
+        }),
+      );
+      const llmRequester = ctx.get(IAgentLLMRequesterService);
+
+      const responsePromise = llmRequester.request({
+        retry: {
+          onRetry: (event) => {
+            retryEvents.push(event);
+          },
+        },
+      });
+      await vi.runAllTimersAsync();
+
+      await expect(responsePromise).resolves.toMatchObject({
+        message: { role: 'assistant', content: [], toolCalls: [] },
+        usage: emptyUsage(),
+      });
+      expect(calls).toBe(2);
+      expect(retryEvents).toEqual([
+        expect.objectContaining({
+          failedAttempt: 1,
+          nextAttempt: 2,
+          maxAttempts: 3,
+          errorName: 'APIConnectionError',
+          errorMessage: 'terminated',
+        }),
+      ]);
+    });
+
+    it('does not retry once the signal is aborted', async () => {
+      let calls = 0;
+      const controller = new AbortController();
+      ctx = createTestAgent(
+        llmGenerateServices(async () => {
+          calls += 1;
+          controller.abort();
+          throw new APIConnectionError('terminated');
+        }),
+      );
+      const llmRequester = ctx.get(IAgentLLMRequesterService);
+
+      await expect(
+        llmRequester.request(undefined, undefined, controller.signal),
+      ).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+      expect(calls).toBe(1);
+    });
+
+    it('logs final request failures without request payloads or stacks', async () => {
+      const entries: unknown[] = [];
+      const logger: Logger = {
+        warn: (_message: string, payload?: LogPayload) => entries.push(payload),
+        error: () => undefined,
+        info: () => undefined,
+        debug: () => undefined,
+        child: () => logger,
+      };
+      ctx = createTestAgent(
+        llmGenerateServices(async () => {
+          throw new Error('temporary provider failure');
+        }),
+        logServices(logger),
+      );
+      const llmRequester = ctx.get(IAgentLLMRequesterService);
+
+      await expect(
+        llmRequester.request({
+          requestLogFields: { turnStep: '0.1' },
+          retry: { maxAttempts: 1 },
+        }),
+      ).rejects.toMatchObject({ message: 'temporary provider failure' });
+
+      expect(entries).toEqual([
+        expect.objectContaining({
+          turnStep: '0.1',
+          attempt: '1/1',
+          model: expect.any(String),
+          errorName: 'Error',
+          errorMessage: 'temporary provider failure',
+        }),
+      ]);
+      expect(JSON.stringify(entries)).not.toContain('messages');
+      expect(JSON.stringify(entries)).not.toContain('stack');
+    });
+  });
+
   describe('request timing and budget', () => {
     let ctx: TestAgentContext;
     let llmRequester: IAgentLLMRequesterService;
@@ -148,24 +270,21 @@ describe('LLMRequester service migration coverage', () => {
     });
 
     it('emits stream timing and applies the model output budget through IAgentLLMRequesterService', async () => {
-      const events = await collectLLMEvents(llmRequester.request());
+      const { parts, finish } = await collectLLMRequest((onPart) =>
+        llmRequester.request(undefined, onPart),
+      );
 
       expect(requestMaxTokens).toBe(384_000);
-      expect(events).toContainEqual({ type: 'part', part: { type: 'text', text: 'timed' } });
-      expect(events).toContainEqual({
-        type: 'usage',
+      expect(parts).toContainEqual({ type: 'text', text: 'timed' });
+      expect(finish).toMatchObject({
         usage: emptyUsage(),
         model: 'deepseek/deepseek-v4-flash',
-      });
-      expect(events).toContainEqual({
-        type: 'finish',
-        id: 'response-1',
+        providerMessageId: 'response-1',
         providerFinishReason: 'completed',
         rawFinishReason: 'stop',
       });
-      expect(events).toContainEqual(
+      expect(finish.timing).toEqual(
         expect.objectContaining({
-          type: 'timing',
           firstTokenLatencyMs: expect.any(Number),
           streamDurationMs: expect.any(Number),
         }),
@@ -173,14 +292,16 @@ describe('LLMRequester service migration coverage', () => {
     });
 
     it('applies a per-request output budget override', async () => {
-      await collectLLMEvents(llmRequester.request({ maxOutputSize: 123_000 }));
+      await llmRequester.request({ maxOutputSize: 123_000 });
 
       expect(requestMaxTokens).toBe(123_000);
     });
 
     it('carries kosong decode accounting and leaves the TTFT split undefined without a dispatch boundary', async () => {
-      const events = await collectLLMEvents(llmRequester.request());
-      const timing = events.find(isTimingEvent);
+      const { finish } = await collectLLMRequest((onPart) =>
+        llmRequester.request(undefined, onPart),
+      );
+      const timing = finish.timing;
 
       expect(timing?.firstTokenLatencyMs).toBeGreaterThanOrEqual(0);
       // kosong accounts the decode window (server wait vs. client consume) and
@@ -196,22 +317,6 @@ describe('LLMRequester service migration coverage', () => {
 
 });
 
-interface TimingEvent {
-  readonly type: 'timing';
-  readonly firstTokenLatencyMs: number;
-  readonly streamDurationMs: number;
-  readonly requestBuildMs?: number;
-  readonly serverFirstTokenMs?: number;
-  readonly serverDecodeMs?: number;
-  readonly clientConsumeMs?: number;
-}
-
-function isTimingEvent(event: unknown): event is TimingEvent {
-  return (
-    typeof event === 'object' && event !== null && (event as { type?: unknown }).type === 'timing'
-  );
-}
-
 type ProtocolEvent = Extract<
   TestAgentContext['allEvents'][number],
   { readonly type: '[rpc]' }
@@ -226,25 +331,12 @@ function protocolEvents(
   );
 }
 
-async function collectLLMEvents(
-  stream: AsyncIterable<
-    | { readonly type: 'part'; readonly part: StreamedMessagePart }
-    | { readonly type: 'usage'; readonly usage: ReturnType<typeof emptyUsage>; readonly model?: string }
-    | {
-      readonly type: 'finish';
-      readonly providerFinishReason?: string;
-      readonly rawFinishReason?: string;
-    }
-    | {
-      readonly type: 'timing';
-      readonly firstTokenLatencyMs: number;
-      readonly streamDurationMs: number;
-    }
-  >,
-) {
-  const events: unknown[] = [];
-  for await (const event of stream) {
-    events.push(event);
-  }
-  return events;
+async function collectLLMRequest(
+  request: (onPart: (part: StreamedMessagePart) => void) => Promise<LLMRequestFinish>,
+): Promise<{ parts: StreamedMessagePart[]; finish: LLMRequestFinish }> {
+  const parts: StreamedMessagePart[] = [];
+  const finish = await request((part) => {
+    parts.push(part);
+  });
+  return { parts, finish };
 }

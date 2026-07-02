@@ -13,11 +13,12 @@ import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import {
   IAgentLLMRequesterService,
+  retryBackoffDelays,
+  sleepForRetry,
   type LLMRequestFinish,
 } from '#/agent/llmRequester';
 import { IAgentLoopService, type TurnContextOverflowContext } from '#/agent/loop';
 import { isAbortError } from '#/agent/loop/errors';
-import { retryBackoffDelays, sleepForRetry } from '#/agent/loop/retry';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import {
@@ -34,7 +35,6 @@ import {
   APIContextOverflowError,
   APIEmptyResponseError,
   createUserMessage,
-  isRetryableGenerateError,
   type TokenUsage,
 } from '@moonshot-ai/kosong';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
@@ -384,7 +384,10 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         try {
           attempt = collectSummary(
             await this.llmRequester.request(
-              { messages, maxOutputSize: compactionMaxOutputSize },
+              {
+                messages,
+                maxOutputSize: compactionMaxOutputSize,
+              },
               undefined,
               signal,
             ),
@@ -397,7 +400,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
             error instanceof APIEmptyResponseError
           ) {
             compactedCount = this.strategy.reduceCompactOnOverflow(messagesToCompact);
-          } else if (!isRetryableGenerateError(error)) {
+          } else {
             throw error;
           }
           if (retryCount + 1 >= MAX_COMPACTION_RETRY_ATTEMPTS) {

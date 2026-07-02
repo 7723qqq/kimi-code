@@ -604,7 +604,7 @@ function policyContext(input: PolicyContextInput): ResolvedToolExecutionHookCont
     toolCallFor(input.id ?? `call_${input.toolName}`, input.toolName, input.args);
   const subject = ruleSubject(input.toolName, input.args);
   return {
-    turnId: '0',
+    turnId: 0,
     signal,
     toolCall,
     toolCalls: input.toolCalls ?? [toolCall],

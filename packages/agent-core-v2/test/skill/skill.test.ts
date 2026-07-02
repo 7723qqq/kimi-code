@@ -192,7 +192,7 @@ describe('SkillTool', () => {
 
   function toolContext(args: { readonly skill: string; readonly args?: string }) {
     return {
-      turnId: '0',
+      turnId: 0,
       toolCallId: 'call_skill',
       args,
       signal: new AbortController().signal,

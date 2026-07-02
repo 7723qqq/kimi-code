@@ -29,7 +29,7 @@ interface CapturedLogEntry {
 }
 
 function context<Input>(args: Input, toolCallId = 'call_agent') {
-  return { turnId: '0', toolCallId, args, signal };
+  return { turnId: 0, toolCallId, args, signal };
 }
 
 function createLogCapture(): {
@@ -673,7 +673,7 @@ describe('AgentTool direct contract', () => {
     const { tool } = makeTool({ run });
 
     const resultPromise = executeTool(tool, {
-      turnId: '0',
+      turnId: 0,
       toolCallId: 'call_agent',
       args: { prompt: 'Investigate', description: 'Find cause' },
       signal: controller.signal,
@@ -794,7 +794,7 @@ describe('Agent tool service runtime', () => {
       expect(tool).toBeDefined();
       await expect(
         executeTool(tool!, {
-          turnId: '0',
+          turnId: 0,
           toolCallId: 'call_agent',
           args: {
             prompt: 'Investigate deeply',
@@ -829,7 +829,7 @@ describe('Agent tool service runtime', () => {
       expect(agentOnlyTool).toBeDefined();
       await expect(
         executeTool(agentOnlyTool!, {
-          turnId: '0',
+          turnId: 0,
           toolCallId: 'call_agent',
           args: {
             prompt: 'Investigate deeply',
@@ -849,7 +849,7 @@ describe('Agent tool service runtime', () => {
       const managedTool = tools.resolve('Agent');
       expect(managedTool).toBeDefined();
       const result = await executeTool(managedTool!, {
-        turnId: '0',
+        turnId: 0,
         toolCallId: 'call_agent',
         args: {
           prompt: 'Investigate deeply',
@@ -905,7 +905,7 @@ describe('Agent tool service runtime', () => {
       expect(tool).toBeDefined();
       await expect(
         executeTool(tool!, {
-          turnId: '0',
+          turnId: 0,
           toolCallId: 'call_agent',
           args: {
             prompt: 'Continue',

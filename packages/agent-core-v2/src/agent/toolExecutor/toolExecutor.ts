@@ -1,4 +1,4 @@
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from '#/_base/di';
 import type {
   ToolResult,
   ToolUpdate,
@@ -6,22 +6,21 @@ import type {
   ToolWillExecuteContext,
 } from '#/agent/tool';
 import type { ToolCall } from '@moonshot-ai/kosong';
-import type { LoopEventDispatcher } from '#/agent/loop/events';
+import type { AgentEvent } from '@moonshot-ai/protocol';
 import type { OrderedHookSlot } from '#/hooks';
 
 export interface ToolExecutorExecuteOptions {
-  readonly signal?: AbortSignal;
-  readonly turnId?: number;
-  readonly stepNumber?: number;
-  readonly stepUuid?: string;
-  readonly dispatchEvent?: LoopEventDispatcher | undefined;
-  readonly onProgress?: ((toolCallId: string, update: ToolUpdate) => void) | undefined;
+  readonly signal: AbortSignal;
+  readonly turnId: number;
+  readonly onToolResult?: (toolCallId: string, result: ToolResult) => void | Promise<void>;
+  readonly dispatchProtocolEvent?: (event: AgentEvent) => void;
+  readonly onProgress?: (toolCallId: string, update: ToolUpdate) => void;
 }
 
 export interface IAgentToolExecutorService {
   readonly _serviceBrand: undefined;
 
-  execute(calls: ToolCall[], options?: ToolExecutorExecuteOptions): Promise<ToolResult[]>;
+  execute(calls: ToolCall[], options: ToolExecutorExecuteOptions): Promise<ToolResult[]>;
 
   readonly hooks: {
     readonly onWillExecuteTool: OrderedHookSlot<ToolWillExecuteContext>;
@@ -29,4 +28,5 @@ export interface IAgentToolExecutorService {
   };
 }
 
-export const IAgentToolExecutorService = createDecorator<IAgentToolExecutorService>('agentToolExecutorService');
+export const IAgentToolExecutorService =
+  createDecorator<IAgentToolExecutorService>('agentToolExecutorService');

@@ -108,7 +108,7 @@ describe('Cron — session E2E (P1.9)', () => {
       );
     }
     const createResult = await execution.execute({
-      turnId: 'p19-turn',
+      turnId: 19,
       toolCallId: 'p19-call',
       signal: new AbortController().signal,
     });
@@ -153,7 +153,7 @@ describe('Cron — session E2E (P1.9)', () => {
     const listTool = new CronListTool(cron);
     const deleteTool = new CronDeleteTool(cron);
     const ctxArgs = {
-      turnId: 'p19-tools',
+      turnId: 19,
       toolCallId: 'p19-tools-call',
       signal: new AbortController().signal,
     };

@@ -34,7 +34,7 @@ function context<Input>(
   args: Input,
   toolCallId = 'call_swarm',
 ): ExecutableToolContext & { readonly args: Input } {
-  return { turnId: '0', toolCallId, args, signal };
+  return { turnId: 0, toolCallId, args, signal };
 }
 
 function mockSwarmHost({

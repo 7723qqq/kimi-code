@@ -99,7 +99,7 @@ describe('EnterPlanModeTool telemetry', () => {
     const { telemetry } = recordingTelemetry();
 
     const result = await executeTool(new EnterPlanModeTool(planService(), telemetry), {
-      turnId: '0',
+      turnId: 0,
       toolCallId: 'call_enter_plan',
       args: {},
       signal: new AbortController().signal,
@@ -120,7 +120,7 @@ describe('EnterPlanModeTool telemetry', () => {
     const { telemetry } = recordingTelemetry();
 
     const result = await executeTool(new EnterPlanModeTool(planMode, telemetry), {
-      turnId: '0',
+      turnId: 0,
       toolCallId: 'call_enter_plan',
       args: {},
       signal: new AbortController().signal,
@@ -143,7 +143,7 @@ describe('EnterPlanModeTool telemetry', () => {
     const { telemetry } = recordingTelemetry();
 
     const result = await executeTool(new EnterPlanModeTool(planMode, telemetry), {
-      turnId: '0',
+      turnId: 0,
       toolCallId: 'call_enter_plan',
       args: {},
       signal: new AbortController().signal,
@@ -168,7 +168,7 @@ describe('EnterPlanModeTool telemetry', () => {
         telemetry,
       ),
       {
-        turnId: '0',
+        turnId: 0,
         toolCallId: 'call_enter_plan',
         args: {},
         signal: new AbortController().signal,
@@ -193,7 +193,7 @@ describe('EnterPlanModeTool telemetry', () => {
     const { telemetry, track } = recordingTelemetry();
 
     const result = await executeTool(new EnterPlanModeTool(planMode, telemetry), {
-      turnId: '0',
+      turnId: 0,
       toolCallId: 'call_enter_plan',
       args: {},
       signal: new AbortController().signal,
@@ -242,7 +242,7 @@ describe('AgentPlanService EnterPlanMode telemetry', () => {
         };
 
         const result = await toolExecutor.execute([call], {
-          turnId: '1',
+          turnId: 1,
           signal: new AbortController().signal,
         });
 
@@ -285,7 +285,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const { telemetry } = recordingTelemetry();
 
     const result = await executeTool(new ExitPlanModeTool(planService({ status: null }), telemetry), {
-      turnId: '7',
+      turnId: 7,
       toolCallId: 'call_exit_plan',
       args: {},
       signal: new AbortController().signal,
@@ -309,7 +309,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const result = await executeTool(
       new ExitPlanModeTool(planService({ status }), telemetry),
       {
-        turnId: '7',
+        turnId: 7,
         toolCallId: 'call_exit_plan',
         args: {},
         signal: new AbortController().signal,
@@ -347,7 +347,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const { telemetry, track } = recordingTelemetry();
 
     const result = await executeTool(new ExitPlanModeTool(planService({ exit }), telemetry), {
-      turnId: '7',
+      turnId: 7,
       toolCallId: 'call_exit_plan',
       args: {},
       signal: new AbortController().signal,
@@ -365,7 +365,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const { telemetry, track } = recordingTelemetry();
 
     const result = await executeTool(new ExitPlanModeTool(planService(), telemetry), {
-      turnId: '7',
+      turnId: 7,
       toolCallId: 'call_exit_plan_options',
       args: { options },
       signal: new AbortController().signal,
@@ -385,7 +385,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const { telemetry, track } = recordingTelemetry();
 
     const result = await executeTool(new ExitPlanModeTool(planService({ exit }), telemetry), {
-      turnId: '7',
+      turnId: 7,
       toolCallId: 'call_exit_plan_fail',
       args: {},
       signal: new AbortController().signal,

@@ -92,7 +92,6 @@ export class AgentMicroCompactionService
           this.detect();
           await next();
         },
-        { after: 'turn-before-step-event' },
       ),
     );
     this._register(

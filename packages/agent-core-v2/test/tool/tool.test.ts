@@ -372,7 +372,7 @@ describe('Agent tools', () => {
       expect(bashOnly!.description).not.toContain('the command will be started as a background task');
       await expect(
         executeTool(bashTool!, {
-          turnId: '0',
+          turnId: 0,
           toolCallId: 'call_bash',
           args: { command: 'sleep 10', run_in_background: true, description: 'watch' },
           signal,

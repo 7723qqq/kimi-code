@@ -138,7 +138,7 @@ async function runTool<Input>(
   const execution = await tool.resolveExecution(input);
   if (!isRunnableExecution(execution)) return execution;
   return execution.execute({
-    turnId: 'test-turn',
+    turnId: 0,
     toolCallId: 'test-call',
     signal: new AbortController().signal,
   });
@@ -324,12 +324,12 @@ describe('CronCreateTool', () => {
     }
 
     assertSuccess(await first.execute({
-      turnId: 'test-turn',
+      turnId: 0,
       toolCallId: 'first',
       signal: new AbortController().signal,
     }));
     const output = assertError(await second.execute({
-      turnId: 'test-turn',
+      turnId: 0,
       toolCallId: 'second',
       signal: new AbortController().signal,
     }));
@@ -383,7 +383,7 @@ describe('CronCreateTool', () => {
 
     harness.advance(6 * 60_000);
     assertSuccess(await execution.execute({
-      turnId: 'test-turn',
+      turnId: 0,
       toolCallId: 'test-call',
       signal: new AbortController().signal,
     }));

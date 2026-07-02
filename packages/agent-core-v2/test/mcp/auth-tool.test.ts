@@ -34,7 +34,7 @@ function runTool(opts: {
   const signal = opts.signal ?? new AbortController().signal;
   const updates: ToolUpdate[] = [];
   const result = executeTool(tool, {
-    turnId: 't',
+    turnId: 0,
     toolCallId: 'tc',
     args: {},
     signal,

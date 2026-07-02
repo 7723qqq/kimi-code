@@ -84,7 +84,7 @@ describe('TodoListTool', () => {
     const { tool, getTodos } = makeTool([{ title: 'existing', status: 'in_progress' }]);
 
     const result = await executeTool(tool, {
-      turnId: 't1',
+      turnId: 1,
       toolCallId: 'call_1',
       args: {},
       signal,
@@ -104,7 +104,7 @@ describe('TodoListTool', () => {
     ];
 
     const result = await executeTool(tool, {
-      turnId: 't1',
+      turnId: 1,
       toolCallId: 'call_1',
       args: { todos },
       signal,
@@ -129,7 +129,7 @@ describe('TodoListTool', () => {
     const { tool } = makeTool([{ title: 'shipped', status: 'done' }]);
 
     const result = await executeTool(tool, {
-      turnId: 't1',
+      turnId: 1,
       toolCallId: 'call_1',
       args: {},
       signal,
@@ -144,7 +144,7 @@ describe('TodoListTool', () => {
     const { tool, getTodos } = makeTool([{ title: 'x', status: 'pending' }]);
 
     const result = await executeTool(tool, {
-      turnId: 't1',
+      turnId: 1,
       toolCallId: 'call_1',
       args: { todos: [] },
       signal,

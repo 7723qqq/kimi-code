@@ -307,7 +307,7 @@ describe('AgentMcpService', () => {
     const echo = ix.get(IAgentToolRegistryService).resolve('mcp__s__echo');
     expect(echo).toBeDefined();
     const result = await executeTool(echo!, {
-      turnId: '1',
+      turnId: 1,
       toolCallId: 'tc-1',
       args: { text: 'hello world' },
       signal: new AbortController().signal,
@@ -341,7 +341,7 @@ describe('AgentMcpService', () => {
 
     const big = ix.get(IAgentToolRegistryService).resolve('mcp__s__big');
     const result = await executeTool(big!, {
-      turnId: '1',
+      turnId: 1,
       toolCallId: 'tc-big-text',
       args: {},
       signal: new AbortController().signal,
@@ -376,7 +376,7 @@ describe('AgentMcpService', () => {
 
     const snap = ix.get(IAgentToolRegistryService).resolve('mcp__s__snap');
     const result = await executeTool(snap!, {
-      turnId: '1',
+      turnId: 1,
       toolCallId: 'tc-small-image',
       args: {},
       signal: new AbortController().signal,
@@ -419,7 +419,7 @@ describe('AgentMcpService', () => {
     const controller = new AbortController();
     const echo = ix.get(IAgentToolRegistryService).resolve('mcp__s__echo');
     await executeTool(echo!, {
-      turnId: '1',
+      turnId: 1,
       toolCallId: 'tc-signal',
       args: { text: 'hi' },
       signal: controller.signal,

@@ -2,17 +2,9 @@ import { emptyUsage, type ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService } from '#/index';
-import { IAgentLLMRequesterService, type LLMEvent } from '#/agent/llmRequester';
-import {
-  IAgentLoopService,
-  runTurn,
-  type LLM,
-  type LLMStreamTiming,
-  type LoopEvent,
-  type LoopEventDispatcher,
-} from '#/agent/loop';
+import { IAgentLLMRequesterService, type LLMStreamTiming } from '#/agent/llmRequester';
+import { IAgentLoopService } from '#/agent/loop';
 import type { ExecutableTool } from '#/agent/tool';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 
 import { agentService, createTestAgent, type TestAgentContext } from '../harness';
@@ -194,54 +186,6 @@ describe('Agent loop', () => {
 });
 
 describe('step timing split propagation', () => {
-  const splitTiming: LLMStreamTiming = {
-    firstTokenLatencyMs: 100,
-    streamDurationMs: 200,
-    requestBuildMs: 30,
-    serverFirstTokenMs: 70,
-    serverDecodeMs: 150,
-    clientConsumeMs: 50,
-  };
-
-  it('carries the split from streamTiming onto the step.end event', async () => {
-    const llm: LLM = {
-      systemPrompt: 'system',
-      modelName: 'mock-model',
-      chat: async () => ({ toolCalls: [], usage: emptyUsage(), streamTiming: splitTiming }),
-    };
-    const dispatched: LoopEvent[] = [];
-    const dispatchEvent = ((event: LoopEvent) => {
-      dispatched.push(event);
-    }) as LoopEventDispatcher;
-    // No tool calls are produced, so the executor is never invoked.
-    const toolExecutor = {
-      _serviceBrand: undefined,
-      execute: async () => {
-        throw new Error('unexpected tool execution');
-      },
-    } as unknown as IAgentToolExecutorService;
-
-    await runTurn({
-      turnId: '0',
-      signal: new AbortController().signal,
-      llm,
-      buildMessages: () => [],
-      dispatchEvent,
-      toolExecutor,
-    });
-
-    const stepEnd = dispatched.find((event) => event.type === 'step.end');
-    expect(stepEnd).toMatchObject({
-      type: 'step.end',
-      llmFirstTokenLatencyMs: 100,
-      llmStreamDurationMs: 200,
-      llmRequestBuildMs: 30,
-      llmServerFirstTokenMs: 70,
-      llmServerDecodeMs: 150,
-      llmClientConsumeMs: 50,
-    });
-  });
-
   it('carries the split from the llmRequester timing event to the turn.step.completed protocol event', async () => {
     const ctx = createTestAgent(agentService(IAgentLLMRequesterService, createTimingRequester()));
     try {
@@ -268,23 +212,29 @@ describe('step timing split propagation', () => {
 });
 
 function createTimingRequester(): IAgentLLMRequesterService {
+  const timing: LLMStreamTiming = {
+    firstTokenLatencyMs: 100,
+    streamDurationMs: 200,
+    requestBuildMs: 30,
+    serverFirstTokenMs: 70,
+    serverDecodeMs: 150,
+    clientConsumeMs: 50,
+  };
+
   return {
     _serviceBrand: undefined,
-    request(): AsyncIterable<LLMEvent> {
-      return (async function* (): AsyncGenerator<LLMEvent> {
-        yield { type: 'part', part: { type: 'text', text: 'answer' } };
-        yield { type: 'usage', usage: emptyUsage(), model: 'mock-model' };
-        yield { type: 'finish' };
-        yield {
-          type: 'timing',
-          firstTokenLatencyMs: 100,
-          streamDurationMs: 200,
-          requestBuildMs: 30,
-          serverFirstTokenMs: 70,
-          serverDecodeMs: 150,
-          clientConsumeMs: 50,
-        };
-      })();
+    async request(_overrides, onPart = () => {}) {
+      await onPart({ type: 'text', text: 'answer' });
+      return {
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'answer' }],
+          toolCalls: [],
+        },
+        usage: emptyUsage(),
+        model: 'mock-model',
+        timing,
+      };
     },
   };
 }

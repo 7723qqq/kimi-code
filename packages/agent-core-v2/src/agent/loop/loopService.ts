@@ -5,7 +5,6 @@ import {
   newMessageId,
   type ContextMessage,
 } from '#/agent/contextMemory';
-import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
@@ -14,9 +13,8 @@ import {
   type LLMRequestFinish,
 } from '#/agent/llmRequester';
 import { IAgentProfileService } from '#/agent/profile';
-import type { ExecutableTool, ToolResult } from '#/agent/tool';
+import type { ToolResult } from '#/agent/tool';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IConfigRegistry, IConfigService } from '#/app/config';
 import { ILogService } from '#/app/log';
 import { ErrorCodes, isKimiError } from '#/errors';
@@ -29,7 +27,6 @@ import {
   type ContentPart,
   type StreamedMessagePart,
   type TokenUsage,
-  type ToolCall,
 } from '@moonshot-ai/kosong';
 import type { AgentEvent } from '@moonshot-ai/protocol';
 import { randomUUID } from 'node:crypto';
@@ -46,9 +43,9 @@ import {
   isAbortError,
   isMaxStepsExceededError,
 } from './errors';
-import type { LoopInterruptReason } from './events';
 import { IAgentLoopService } from './loop';
 import type {
+  LoopInterruptReason,
   LoopStepStopReason,
   LoopTurnStopReason,
   TurnResult,
@@ -72,12 +69,10 @@ export class AgentLoopService implements IAgentLoopService {
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentEventSinkService private readonly events: IAgentEventSinkService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IConfigRegistry configRegistry: IConfigRegistry,
@@ -100,14 +95,13 @@ export class AgentLoopService implements IAgentLoopService {
       let steps = 0;
       let stopReason: LoopTurnStopReason = 'end_turn';
       let activeStep: number | undefined;
-      const loopControl = this.config.get<LoopControl>(LOOP_CONTROL_SECTION);
+      const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
       let stopHookContinuationUsed = false;
 
       try {
         while (true) {
           signal.throwIfAborted();
 
-          const maxSteps = loopControl?.maxStepsPerTurn;
           if (maxSteps !== undefined && maxSteps > 0 && steps >= maxSteps) {
             throw createMaxStepsExceededError(maxSteps);
           }
@@ -128,19 +122,15 @@ export class AgentLoopService implements IAgentLoopService {
           }
 
           if (!stopHookContinuationUsed) {
-            const reason = await this.externalHooks.triggerStop(signal, stopHookContinuationUsed);
-            if (reason !== undefined) {
+            const reason = await this.externalHooks.triggerStop(signal, false);
+            if (reason !== undefined && hasStepBudgetRemaining(maxSteps, steps)) {
               stopHookContinuationUsed = true;
-              this.appendImmediately({
+              this.append({
                 role: 'user',
                 content: [{ type: 'text', text: reason }],
                 toolCalls: [],
                 origin: { kind: 'system_trigger', name: 'stop_hook' },
               });
-              if (!hasStepBudgetRemaining(loopControl?.maxStepsPerTurn, steps)) {
-                this.removeMatchedTailMessage(isStopHookMessage);
-                break;
-              }
               continue;
             }
           }
@@ -179,35 +169,22 @@ export class AgentLoopService implements IAgentLoopService {
     readonly continueTurn: boolean;
   }> {
     await this.hooks.beforeStep.run({ turnId, signal });
-
-    signal.throwIfAborted();
-
-    const messages = [...this.projector.project(this.context.get())];
     signal.throwIfAborted();
 
     const stepUuid = randomUUID();
-    const loopControl = this.config.get<LoopControl>(LOOP_CONTROL_SECTION);
+    const turnStep = `${turnId}.${String(currentStep)}`;
     const emit = (event: AgentEvent): void => {
       this.events.emit(event);
     };
 
     emit({ type: 'turn.step.started', turnId, step: currentStep, stepId: stepUuid });
 
-    const tools = this.toolRegistry
-      .list()
-      .filter((tool) => this.profile.isToolActive(tool.name, tool.source))
-      .flatMap((toolInfo): ExecutableTool[] => {
-        const tool = this.toolRegistry.resolve(toolInfo.name);
-        return tool === undefined ? [] : [tool];
-      });
     const emitToolCallDelta = createToolCallDeltaHandler(emit, turnId);
     const response = await this.llmRequester.request(
       {
-        messages,
-        tools,
-        requestLogFields: { turnStep: `${turnId}.${String(currentStep)}` },
+        requestLogFields: { turnStep },
         retry: {
-          maxAttempts: loopControl?.maxRetriesPerStep,
+          maxAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
           onRetry: (retry) => {
             emit({
               type: 'turn.step.retrying',
@@ -220,27 +197,25 @@ export class AgentLoopService implements IAgentLoopService {
               delayMs: retry.delayMs,
               errorName: retry.errorName,
               errorMessage: retry.errorMessage,
-              ...(retry.statusCode !== undefined ? { statusCode: retry.statusCode } : {}),
+              statusCode: retry.statusCode,
             });
           },
         },
         usageContext: { type: 'turn', turnId },
       },
-      (part) => this.emitStreamPart(turnId, emitToolCallDelta, part),
+      (part) => {
+        this.emitStreamPart(turnId, emitToolCallDelta, part);
+      },
       signal,
     );
 
-    if (hasAssistantMessage(response)) {
-      this.appendImmediately({
-        id: newMessageId(),
-        role: 'assistant',
-        content: response.message.content.map(cloneContentPart),
-        toolCalls: response.message.toolCalls.map(cloneToolCall),
-        ...(response.providerMessageId !== undefined
-          ? { providerMessageId: response.providerMessageId }
-          : {}),
-      });
-    }
+    this.append({
+      id: newMessageId(),
+      role: 'assistant',
+      content: response.message.content,
+      toolCalls: response.message.toolCalls,
+      providerMessageId: response.providerMessageId,
+    });
 
     const usage = response.usage;
     const usageContext = {
@@ -262,15 +237,12 @@ export class AgentLoopService implements IAgentLoopService {
       const toolResults = await this.toolExecutor.execute(response.message.toolCalls, {
         signal,
         turnId,
-        stepNumber: currentStep,
-        stepUuid,
         dispatchProtocolEvent: emit,
         onToolResult: (toolCallId, result) => {
-          const message = createToolMessage(toolCallId, toolResultOutputForModel(result));
-          this.appendImmediately({
-            ...message,
+          this.append({
+            ...createToolMessage(toolCallId, toolResultOutputForModel(result)),
             role: 'tool',
-            ...(result.isError !== undefined ? { isError: result.isError } : {}),
+            isError: result.isError,
           });
         },
         onProgress: (toolCallId, update) => {
@@ -285,13 +257,24 @@ export class AgentLoopService implements IAgentLoopService {
     signal.throwIfAborted();
 
     this.emitStepCompleted(turnId, currentStep, stepUuid, usage, effectiveStopReason, response);
-    logStepTiming(this.log, turnId, currentStep, response);
+    if (response.timing !== undefined) {
+      this.log.info('llm response', {
+        turnStep,
+        ttftMs: response.timing.firstTokenLatencyMs,
+        requestBuildMs: response.timing.requestBuildMs,
+        serverFirstTokenMs: response.timing.serverFirstTokenMs,
+        streamDurationMs: response.timing.streamDurationMs,
+        serverDecodeMs: response.timing.serverDecodeMs,
+        clientConsumeMs: response.timing.clientConsumeMs,
+        outputTokens: response.usage.output,
+      });
+    }
 
     const afterStepContext = { turnId, signal, continueTurn: false };
     try {
       await this.hooks.afterStep.run(afterStepContext);
-    } catch (error) {
-      void error;
+    } catch {
+      // afterStep hook failures must not affect the turn result.
     }
 
     return {
@@ -300,22 +283,13 @@ export class AgentLoopService implements IAgentLoopService {
     };
   }
 
-  private appendImmediately(...messages: ContextMessage[]): void {
-    if (messages.length === 0) return;
-    this.context.splice(this.context.get().length, 0, messages);
-  }
-
-  private removeMatchedTailMessage(matcher: (message: ContextMessage) => boolean): boolean {
-    const history = this.context.get();
-    const index = history.length - 1;
-    const message = history[index];
-    if (message === undefined || !matcher(message)) return false;
-    this.context.splice(index, 1, []);
-    return true;
+  private append(message: ContextMessage): void {
+    this.context.splice(this.context.get().length, 0, [message]);
   }
 
   private recordContextSize(usage: TokenUsage): void {
-    const tokens = tokenUsageTotal(usage);
+    const tokens =
+      usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
     if (tokens <= 0) return;
     this.contextSize.measured(this.context.get().length, tokens);
   }
@@ -390,7 +364,7 @@ export class AgentLoopService implements IAgentLoopService {
       turnId,
       step: activeStep,
       reason,
-      ...(message !== undefined ? { message } : {}),
+      message,
     });
   }
 }
@@ -402,18 +376,6 @@ function isContextOverflowError(error: unknown): boolean {
   );
 }
 
-function tokenUsageTotal(usage: TokenUsage): number {
-  return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
-}
-
-function cloneContentPart<T extends ContentPart>(part: T): T {
-  return { ...part };
-}
-
-function cloneToolCall<T extends ToolCall>(toolCall: T): T {
-  return { ...toolCall };
-}
-
 function toolResultOutputForModel(result: ToolResult): string | ContentPart[] {
   const output = result.output;
   if (typeof output === 'string') {
@@ -422,7 +384,10 @@ function toolResultOutputForModel(result: ToolResult): string | ContentPart[] {
       if (output.trimStart().startsWith('<system>ERROR:')) return output;
       return `${TOOL_ERROR_STATUS}\n${output}`;
     }
-    return isEmptyOutputText(output) ? TOOL_EMPTY_STATUS : output;
+    if (output.length === 0 || output.trim() === TOOL_OUTPUT_EMPTY_TEXT) {
+      return TOOL_EMPTY_STATUS;
+    }
+    return output;
   }
 
   if (output.length === 0) {
@@ -434,25 +399,13 @@ function toolResultOutputForModel(result: ToolResult): string | ContentPart[] {
     ];
   }
   if (result.isError === true) {
-    return [{ type: 'text', text: TOOL_ERROR_STATUS }, ...output.map(cloneContentPart)];
+    return [{ type: 'text', text: TOOL_ERROR_STATUS }, ...output];
   }
-  return output.map(cloneContentPart);
-}
-
-function isEmptyOutputText(output: string): boolean {
-  return output.length === 0 || output.trim() === TOOL_OUTPUT_EMPTY_TEXT;
-}
-
-function isStopHookMessage(message: ContextMessage): boolean {
-  return message.origin?.kind === 'system_trigger' && message.origin.name === 'stop_hook';
+  return output;
 }
 
 function hasStepBudgetRemaining(maxSteps: number | undefined, currentStep: number): boolean {
   return maxSteps === undefined || maxSteps <= 0 || currentStep < maxSteps;
-}
-
-function hasAssistantMessage(response: LLMRequestFinish): boolean {
-  return response.message.content.length > 0 || response.message.toolCalls.length > 0;
 }
 
 function deriveStepStopReason(response: LLMRequestFinish): LoopStepStopReason {
@@ -478,106 +431,38 @@ function deriveStepStopReason(response: LLMRequestFinish): LoopStepStopReason {
 }
 
 function createToolCallDeltaHandler(
-  emitEvent: (event: AgentEvent) => void,
+  emit: (event: AgentEvent) => void,
   turnId: number,
 ): (part: StreamedMessagePart) => void {
-  const callsByIndex = new Map<number | string, ToolCallDeltaIdentity>();
-  const pendingByIndex = new Map<number | string, string[]>();
-  let lastToolCall: ToolCallDeltaIdentity | undefined;
-
-  const emit = (
-    toolCallId: string,
-    name: string | undefined,
-    argumentsPart: string | undefined,
-  ): void => {
-    emitEvent({
-      type: 'tool.call.delta',
-      turnId,
-      toolCallId,
-      name,
-      argumentsPart,
-    });
-  };
-
-  const toolCallIdFor = (
-    part: Extract<StreamedMessagePart, { type: 'tool_call_part' }>,
-  ): ToolCallDeltaIdentity | undefined => {
-    if (part.index !== undefined) {
-      return callsByIndex.get(part.index);
-    }
-    return lastToolCall;
-  };
+  const callsByIndex = new Map<number | string, { id: string; name: string }>();
+  let lastToolCall: { id: string; name: string } | undefined;
 
   return (part) => {
     if (isToolCall(part)) {
-      const toolCall = { id: part.id, name: part.name };
-      lastToolCall = toolCall;
-      const index = part._streamIndex;
-      if (index !== undefined) {
-        callsByIndex.set(index, toolCall);
+      lastToolCall = { id: part.id, name: part.name };
+      if (part._streamIndex !== undefined) {
+        callsByIndex.set(part._streamIndex, lastToolCall);
       }
-      emit(toolCall.id, toolCall.name, undefined);
-      if (index !== undefined) {
-        const pending = pendingByIndex.get(index);
-        if (pending !== undefined) {
-          pendingByIndex.delete(index);
-          for (const argumentsPart of pending) {
-            emit(toolCall.id, toolCall.name, argumentsPart);
-          }
-        }
-      }
+      emit({
+        type: 'tool.call.delta',
+        turnId,
+        toolCallId: part.id,
+        name: part.name,
+        argumentsPart: part.arguments ?? undefined,
+      });
       return;
     }
-    if (!isToolCallPart(part)) return;
-    if (part.argumentsPart === null) return;
-    const toolCall = toolCallIdFor(part);
-    if (toolCall === undefined) {
-      if (part.index !== undefined) {
-        const pending = pendingByIndex.get(part.index) ?? [];
-        pending.push(part.argumentsPart);
-        pendingByIndex.set(part.index, pending);
-      }
-      return;
-    }
-    emit(toolCall.id, toolCall.name, part.argumentsPart);
+    if (!isToolCallPart(part) || part.argumentsPart === null) return;
+    const toolCall = part.index !== undefined ? callsByIndex.get(part.index) : lastToolCall;
+    if (toolCall === undefined) return;
+    emit({
+      type: 'tool.call.delta',
+      turnId,
+      toolCallId: toolCall.id,
+      name: toolCall.name,
+      argumentsPart: part.argumentsPart,
+    });
   };
-}
-
-interface ToolCallDeltaIdentity {
-  readonly id: string;
-  readonly name: string;
-}
-
-function logStepTiming(
-  log: ILogService,
-  turnId: number,
-  currentStep: number,
-  response: LLMRequestFinish,
-): void {
-  const timing = response.timing;
-  if (timing === undefined) return;
-  const payload: {
-    turnStep: string;
-    ttftMs: number;
-    requestBuildMs?: number;
-    serverFirstTokenMs?: number;
-    streamDurationMs: number;
-    serverDecodeMs?: number;
-    clientConsumeMs?: number;
-    outputTokens: number;
-  } = {
-    turnStep: `${turnId}.${String(currentStep)}`,
-    ttftMs: timing.firstTokenLatencyMs,
-    streamDurationMs: timing.streamDurationMs,
-    outputTokens: response.usage.output,
-  };
-  if (timing.requestBuildMs !== undefined) payload.requestBuildMs = timing.requestBuildMs;
-  if (timing.serverFirstTokenMs !== undefined) {
-    payload.serverFirstTokenMs = timing.serverFirstTokenMs;
-  }
-  if (timing.serverDecodeMs !== undefined) payload.serverDecodeMs = timing.serverDecodeMs;
-  if (timing.clientConsumeMs !== undefined) payload.clientConsumeMs = timing.clientConsumeMs;
-  log.info('llm response', payload);
 }
 
 registerScopedService(

@@ -1,6 +1,6 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart, ToolCall } from '@moonshot-ai/kosong';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
 import { isUserCancellation } from "#/_base/utils/abort";
@@ -11,20 +11,19 @@ import {
   type ToolArgsValidator,
 } from '#/_base/tools/args-validator';
 import { PathSecurityError } from '#/_base/tools/policies/path-access';
-import type {
-  ExecutableTool,
-  ExecutableToolResult,
-  RunnableToolExecution,
-  ToolExecution,
-  ToolResult,
-  ToolDidExecuteContext,
-  ToolWillExecuteContext,
+import {
+  ToolAccesses,
+  type ExecutableTool,
+  type ExecutableToolResult,
+  type RunnableToolExecution,
+  type ToolExecution,
+  type ToolResult,
+  type ToolDidExecuteContext,
+  type ToolWillExecuteContext,
 } from '#/agent/tool';
-import type { ToolCall } from '@moonshot-ai/kosong';
 import { ILogService } from '#/app/log';
 import { isAbortError } from '#/agent/loop/errors';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { ToolAccesses } from '#/agent/tool';
 import { OrderedHookSlot } from '#/hooks';
 import {
   IAgentToolExecutorService,
@@ -35,7 +34,6 @@ import { ToolScheduler } from './toolScheduler';
 const GRACE_TIMEOUT_MS = 2_000;
 const TOOL_OUTPUT_EMPTY = 'Tool output is empty.';
 const TOOL_OUTPUT_NON_TEXT = 'Tool returned non-text content.';
-const NEVER_ABORTS = new AbortController().signal;
 
 const validators = new WeakMap<ExecutableTool, ToolArgsValidator>();
 
@@ -58,11 +56,10 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
   async execute(
     calls: ToolCall[],
-    options: ToolExecutorExecuteOptions = {},
+    options: ToolExecutorExecuteOptions,
   ): Promise<ToolResult[]> {
     if (calls.length === 0) return [];
 
-    const signal = options.signal ?? NEVER_ABORTS;
     const preflighted = calls.map((call) => preflightToolCall(this.toolRegistry, call, this.log));
     const preparedTasks: Array<{
       task: ToolExecutionTask;
@@ -73,8 +70,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     let stopBatch = false;
     for (const call of preflighted) {
       if (stopBatch) {
-        const skipped = await this.prepareSkippedToolCall(call, options);
-        preparedTasks.push({ task: skipped.task, call });
+        preparedTasks.push({ task: this.prepareSkippedToolCall(call, options), call });
         continue;
       }
 
@@ -91,7 +87,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
     const rawResults = await this.executeBatch(
       preparedTasks.map(({ task }) => task),
-      { signal },
+      options.signal,
     );
 
     const results: ToolResult[] = [];
@@ -101,14 +97,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       const finalized = await this.finalizeToolResult(call, rawResult, options);
       results.push(finalized);
 
-      if (options.dispatchEvent !== undefined) {
-        await options.dispatchEvent({
-          type: 'tool.result',
-          parentUuid: call.toolCall.id,
-          toolCallId: call.toolCall.id,
-          result: finalized,
-        });
-      }
+      await dispatchToolResult(call, finalized, options);
     }
 
     return results;
@@ -119,22 +108,22 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     allCalls: readonly ToolCall[],
     options: ToolExecutorExecuteOptions,
   ): Promise<{ task: ToolExecutionTask; stopBatchAfterThis?: boolean }> {
-    const settleError = async (
+    const settleError = (
       args: unknown,
       output: string,
       displayFields?: ToolCallDisplayFields,
-    ): Promise<{ task: ToolExecutionTask }> => {
-      await dispatchToolCall(call, args, options, displayFields);
+    ): { task: ToolExecutionTask } => {
+      dispatchToolCall(call, args, options, displayFields);
       return { task: makeResolvedTask(makeErrorToolResult(call, args, output)) };
     };
 
-    const settleSynthetic = async (
+    const settleSynthetic = (
       args: unknown,
       result: ExecutableToolResult,
       displayFields?: ToolCallDisplayFields,
-    ): Promise<{ task: ToolExecutionTask; stopBatchAfterThis?: boolean }> => {
+    ): { task: ToolExecutionTask; stopBatchAfterThis?: boolean } => {
       const toolResult = this.normalizeAndMergeResult(result, call.toolName, undefined);
-      await dispatchToolCall(call, args, options, displayFields);
+      dispatchToolCall(call, args, options, displayFields);
       return {
         task: makeResolvedTask({
           toolCall: call.toolCall,
@@ -151,15 +140,6 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       return settleError(call.args, call.output);
     }
 
-    const validationError = validateExecutableToolArgs(call.tool, call.args);
-    if (validationError !== null) {
-      return settleError(
-        call.args,
-        `Invalid args for tool "${call.toolName}": ${validationError}`,
-      );
-    }
-
-    const { signal } = options;
     let execution: ToolExecution;
     try {
       execution = await call.tool.resolveExecution(call.args);
@@ -173,8 +153,12 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
     const displayFields = toolCallDisplayFieldsFromExecution(execution);
 
-    if (signal?.aborted === true) {
-      return settleError(call.args, abortedToolOutput(call.toolName, signal), displayFields);
+    if (options.signal.aborted) {
+      return settleError(
+        call.args,
+        abortedToolOutput(call.toolName, options.signal),
+        displayFields,
+      );
     }
 
     if (execution.isError === true) {
@@ -198,7 +182,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
     const executionMetadata = decision?.executionMetadata;
 
-    await dispatchToolCall(call, call.args, options, displayFields);
+    dispatchToolCall(call, call.args, options, displayFields);
 
     return {
       task: {
@@ -210,24 +194,24 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     };
   }
 
-  private async prepareSkippedToolCall(
+  private prepareSkippedToolCall(
     call: PreflightedToolCall,
     options: ToolExecutorExecuteOptions,
-  ): Promise<{ task: ToolExecutionTask }> {
+  ): ToolExecutionTask {
     const output = 'Tool skipped because a previous tool call stopped the turn.';
-    await dispatchToolCall(call, call.args, options);
-    return { task: makeResolvedTask(makeErrorToolResult(call, call.args, output)) };
+    dispatchToolCall(call, call.args, options);
+    return makeResolvedTask(makeErrorToolResult(call, call.args, output));
   }
 
   private async executeBatch(
     tasks: ToolExecutionTask[],
-    options: { signal: AbortSignal },
+    signal: AbortSignal,
   ): Promise<ToolResult[]> {
     const scheduler = new ToolScheduler<ToolResult>();
     const pendingResults = tasks.map((task) =>
       scheduler.add({
         accesses: task.accesses,
-        start: async () => ({ result: task.execute(options.signal) }),
+        start: async () => ({ result: task.execute(signal) }),
       }),
     );
 
@@ -256,7 +240,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     let rawResult: ExecutableToolResult;
     try {
       const executePromise = execution.execute({
-        turnId: options.turnId ?? -1,
+        turnId: options.turnId,
         toolCallId: call.toolCall.id,
         metadata,
         signal,
@@ -298,15 +282,13 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     result: ToolResult,
     options: ToolExecutorExecuteOptions,
   ): Promise<ToolResult> {
-    const { signal, turnId } = options;
-
     if (call.kind === 'rejected') {
       return result;
     }
 
     const didCtx: ToolDidExecuteContext = {
-      turnId: turnId ?? -1,
-      signal: signal ?? NEVER_ABORTS,
+      turnId: options.turnId,
+      signal: options.signal,
       toolCall: call.toolCall,
       toolCalls: [call.toolCall],
       tool: call.tool,
@@ -317,7 +299,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     try {
       await this.hooks.onDidExecuteTool.run(didCtx);
     } catch (error) {
-      const aborted = isAbortError(error) || signal?.aborted === true;
+      const aborted = isAbortError(error) || options.signal.aborted;
       const output = aborted
         ? `Tool "${call.toolName}" aborted during onDidExecuteTool hook.`
         : `onDidExecuteTool hook failed for "${call.toolName}": ${errorMessage(error)}`;
@@ -377,8 +359,8 @@ function buildWillExecuteContext(
   options: ToolExecutorExecuteOptions,
 ): ToolWillExecuteContext {
   return {
-    turnId: options.turnId ?? -1,
-    signal: options.signal ?? NEVER_ABORTS,
+    turnId: options.turnId,
+    signal: options.signal,
     toolCall: call.toolCall,
     toolCalls: allCalls,
     tool: call.tool,
@@ -468,24 +450,35 @@ function toolCallDisplayFieldsFromExecution(
   };
 }
 
-async function dispatchToolCall(
+function dispatchToolCall(
   call: PreflightedToolCall,
   args: unknown,
   options: ToolExecutorExecuteOptions,
   displayFields?: ToolCallDisplayFields,
-): Promise<void> {
-  if (options.dispatchEvent === undefined) return;
-  await options.dispatchEvent({
-    type: 'tool.call',
-    uuid: call.toolCall.id,
-    turnId: options.turnId ?? -1,
-    step: options.stepNumber ?? 0,
-    stepUuid: options.stepUuid ?? '',
+): void {
+  options.dispatchProtocolEvent?.({
+    type: 'tool.call.started',
+    turnId: options.turnId,
     toolCallId: call.toolCall.id,
     name: call.toolName,
     args,
     description: displayFields?.description,
     display: displayFields?.display,
+  });
+}
+
+async function dispatchToolResult(
+  call: PreflightedToolCall,
+  result: ToolResult,
+  options: ToolExecutorExecuteOptions,
+): Promise<void> {
+  await options.onToolResult?.(call.toolCall.id, result);
+  options.dispatchProtocolEvent?.({
+    type: 'tool.result',
+    turnId: options.turnId,
+    toolCallId: call.toolCall.id,
+    output: result.output,
+    isError: result.isError,
   });
 }
 

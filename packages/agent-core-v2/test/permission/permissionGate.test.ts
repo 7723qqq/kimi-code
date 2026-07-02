@@ -11,7 +11,6 @@ import type { ApprovalRequest } from '#/session/approval/approval';
 import { ISessionApprovalService } from '#/session/approval/approval';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IKaos } from '#/app/kaos';
-import type { LLM } from '#/agent/loop/llm';
 import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
 import { IAgentPermissionGate, AgentPermissionGate } from '#/agent/permissionGate';
 import type { PermissionGateOptions } from '#/agent/permissionGate';
@@ -55,7 +54,7 @@ function makeContext(
     arguments: JSON.stringify(args),
   };
   return {
-    turnId: '1',
+    turnId: 1,
     signal: new AbortController().signal,
     toolCall,
     toolCalls: [toolCall],

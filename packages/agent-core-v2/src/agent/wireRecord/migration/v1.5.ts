@@ -6,13 +6,6 @@ import {
 
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import type { ExecutableToolResult } from '#/agent/tool';
-import type {
-  LoopContentPartEvent,
-  LoopRecordedEvent,
-  LoopStepEndEvent,
-  LoopToolCallEvent,
-  LoopToolResultEvent,
-} from '#/agent/loop';
 import type { WireMigration, WireMigrationRecord } from './index';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
@@ -363,7 +356,7 @@ class V1_5MigrationState {
   }
 
   private ensureTurnLaunchForEvent(
-    event: LoopRecordedEvent,
+    event: V1_4LoopRecordedEvent,
     source: WireMigrationRecord,
   ): WireMigrationRecord[] {
     const turnId = turnIdOf(event);
@@ -435,7 +428,52 @@ interface V1_4AppendMessageRecord extends WireMigrationRecord {
 
 interface V1_4AppendLoopEventRecord extends WireMigrationRecord {
   readonly type: 'context.append_loop_event';
-  readonly event: LoopRecordedEvent;
+  readonly event: V1_4LoopRecordedEvent;
+}
+
+type V1_4LoopRecordedEvent =
+  | LoopStepBeginEvent
+  | LoopStepEndEvent
+  | LoopContentPartEvent
+  | LoopToolCallEvent
+  | LoopToolResultEvent;
+
+interface LoopStepBeginEvent {
+  readonly type: 'step.begin';
+  readonly uuid: string;
+  readonly turnId: number;
+}
+
+interface LoopStepEndEvent {
+  readonly type: 'step.end';
+  readonly uuid: string;
+  readonly turnId: number;
+}
+
+interface LoopToolResultEvent {
+  readonly type: 'tool.result';
+  readonly toolCallId: string;
+  readonly result: ExecutableToolResult;
+}
+
+interface LoopContentPartEvent {
+  readonly type: 'content.part';
+  readonly uuid: string;
+  readonly turnId: number;
+  readonly step: number;
+  readonly stepUuid: string;
+  readonly part: ContentPart;
+}
+
+interface LoopToolCallEvent {
+  readonly type: 'tool.call';
+  readonly uuid: string;
+  readonly turnId: number;
+  readonly step: number;
+  readonly stepUuid: string;
+  readonly toolCallId: string;
+  readonly name: string;
+  readonly args: unknown;
 }
 
 interface V1_4ApplyCompactionRecord extends WireMigrationRecord {
@@ -484,9 +522,9 @@ function withTime<T extends WireMigrationRecord>(
   return { ...record, time } as T;
 }
 
-function turnIdOf(event: LoopRecordedEvent): number | undefined {
+function turnIdOf(event: V1_4LoopRecordedEvent): number | undefined {
   if (event.type === 'tool.result') return undefined;
-  const turnId = Number(event.turnId);
+  const turnId = event.turnId;
   return Number.isInteger(turnId) && turnId >= 0 ? turnId : undefined;
 }
 
