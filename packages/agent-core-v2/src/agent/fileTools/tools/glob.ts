@@ -62,6 +62,7 @@ import { ISessionProcessRunner } from '#/session/process';
 import { ITelemetryService } from '#/app/telemetry';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 import {
   isWithinDirectory,
   resolvePathAccessPath,
@@ -379,6 +380,8 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     return { output: lines.join('\n') };
   }
 }
+
+registerTool(GlobTool);
 
 /**
  * Adapt an `ISessionProcessRunner` to the locator's {@link RgProbe}. The

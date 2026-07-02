@@ -11,6 +11,7 @@ import { z } from 'zod';
 
 import type { BuiltinTool } from '#/agent/tool';
 import type { ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentPlanService } from '#/agent/plan/plan';
@@ -195,6 +196,8 @@ export class ExitPlanModeTool implements BuiltinTool<ExitPlanModeInput> {
     };
   }
 }
+
+registerTool(ExitPlanModeTool);
 
 function hasUniqueOptionLabels(options: readonly ExitPlanModeOption[]): boolean {
   const labels = new Set<string>();

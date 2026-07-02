@@ -3,7 +3,8 @@
  *
  * Tracks swarm-mode enter/exit (mirroring it into `wireRecord` and
  * `systemReminder`) and auto-exits on turn end. Bound at Agent scope. The
- * `AgentSwarm` tool is registered separately by `AgentSwarmToolsService`.
+ * `AgentSwarm` tool self-registers via `registerTool(...)` in
+ * `tools/agent-swarm.ts`.
  */
 
 import { Disposable } from '#/_base/di';

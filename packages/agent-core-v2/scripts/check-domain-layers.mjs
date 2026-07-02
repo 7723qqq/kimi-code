@@ -139,7 +139,6 @@ const DOMAIN_LAYER = new Map([
   ['fileTools', 4],
   ['shellTools', 4],
   ['llmRequester', 4],
-  ['llmRequestLog', 4],
   ['externalHooks', 4],
   ['profile', 4],
   ['prompt', 4],

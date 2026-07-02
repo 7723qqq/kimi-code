@@ -29,6 +29,7 @@ import { IHostEnvironment } from '#/app/hostEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 import { resolvePathAccessPath } from '#/_base/tools/policies/path-access';
 import { MEDIA_SNIFF_BYTES, detectFileType } from '#/_base/tools/support/file-type';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
@@ -507,3 +508,5 @@ export class ReadTool implements BuiltinTool<ReadInput> {
     return parts.join(' ');
   }
 }
+
+registerTool(ReadTool);

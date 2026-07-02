@@ -32,6 +32,7 @@ import { IHostEnvironment } from '#/app/hostEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 
 import editDescriptionTemplate from './edit.md?raw';
 import { materializeModelText, toModelTextView } from './line-endings';
@@ -193,3 +194,5 @@ export class EditTool implements BuiltinTool<EditInput> {
     }
   }
 }
+
+registerTool(EditTool);

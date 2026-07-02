@@ -25,6 +25,7 @@ import { IHostEnvironment } from '#/app/hostEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 import { resolvePathAccessPath } from '#/_base/tools/policies/path-access';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/_base/tools/support/rule-match';
@@ -177,3 +178,5 @@ export class WriteTool implements BuiltinTool<WriteInput> {
     return undefined;
   }
 }
+
+registerTool(WriteTool);

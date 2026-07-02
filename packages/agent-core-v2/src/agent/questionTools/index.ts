@@ -1,8 +1,7 @@
 /**
- * `questionTools` domain barrel — re-exports the question tool contract and
- * its Agent-scope service. Importing this barrel registers the
- * `IAgentQuestionToolsService` binding into the scope registry.
+ * `questionTools` domain barrel — side-effect imports the `AskUserQuestion`
+ * tool so its `registerTool(...)` call runs at module load. Importing this
+ * barrel adds `AskUserQuestion` to the tool contribution list.
  */
 
-export * from './questionTools';
-export * from './questionToolsService';
+import './tools/ask-user';

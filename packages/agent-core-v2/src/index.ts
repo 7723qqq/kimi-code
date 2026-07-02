@@ -99,7 +99,12 @@ export * from '#/agent/todoList';
 export * from '#/agent/tool';
 export * from '#/agent/toolExecutor';
 import '#/agent/toolRegistry';
-export { IAgentToolRegistryService } from '#/agent/toolRegistry';
+export {
+  IAgentBuiltinToolsRegistrar,
+  IAgentToolRegistryService,
+  registerTool,
+} from '#/agent/toolRegistry';
+export type { ToolContribution, ToolContributionOptions } from '#/agent/toolRegistry';
 export * from '#/agent/toolStore';
 export * from '#/agent/userTool';
 export * from '#/agent/wireRecord';

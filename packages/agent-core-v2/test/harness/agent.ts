@@ -36,15 +36,13 @@ import {
   IAtomicDocumentStorage,
   IAgentBackgroundService,
   IBlobStorage,
-  IEnvironmentEnv,
-  IEnvironmentService,
+  IBootstrapService,
   IConfigService,
   IAgentContextMemoryService,
   IAgentContextProjectorService,
   IAgentContextSizeService,
   IAgentEventSinkService,
   IAgentExternalHooksService,
-  IAgentFileToolsService,
   IAgentFullCompactionService,
   IAgentLLMRequesterService,
   ILogService,
@@ -55,7 +53,6 @@ import {
   IAgentPermissionRulesService,
   ISessionAgentFileSystem,
   ISessionContext,
-  IAgentShellToolsService,
   ISessionProcessRunner,
   IStorageService,
   IAgentScopeContext,
@@ -66,6 +63,7 @@ import {
   IAgentToolService,
   AgentToolService,
   IAgentToolRegistryService,
+  IAgentBuiltinToolsRegistrar,
   IAgentToolStoreService,
   IAgentUserToolService,
   IAgentUsageService,
@@ -82,9 +80,10 @@ import {
   AgentUserToolService,
   AgentWireRecordService,
   SessionWorkspaceContextService,
-  environmentSeed,
+  bootstrap,
+  bootstrapSeed,
   createAppScope,
-  resolveEnvironment,
+  resolveBootstrapOptions,
   type IDisposable,
   type Scope,
   type ScopeSeed,
@@ -468,13 +467,13 @@ function resolveProcessRunnerOverride(
 export function homeDirServices(homeDir: string | undefined): TestAgentServiceOverride {
   return appServices((reg) => {
     if (homeDir !== undefined) {
-      const { service, env } = resolveEnvironment({
+      for (const [id, value] of bootstrapSeed({
         homeDir,
         cwd: process.cwd(),
         env: process.env,
-      });
-      reg.defineInstance(IEnvironmentService, service);
-      reg.defineInstance(IEnvironmentEnv, env);
+      })) {
+        reg.defineInstance(id, value);
+      }
       const file = (): SyncDescriptor<IStorageService> =>
         new SyncDescriptor(FileStorageService, [homeDir], true);
       reg.defineDescriptor(IStorageService, file());
@@ -840,11 +839,11 @@ class ConfigBackedModelResolver extends SessionModelResolver {
 class RecordingWireRecordService extends AgentWireRecordService {
   constructor(
     private readonly onAppend: (record: PersistedWireRecord) => void,
-    @IEnvironmentService environment: IEnvironmentService,
+    @IBootstrapService bootstrap: IBootstrapService,
     @IAgentBlobStoreService blobStore?: AgentBlobStoreService,
     @IAppendLogStore log?: IAppendLogStore,
   ) {
-    super({}, environment, blobStore, log);
+    super({}, bootstrap, blobStore, log);
   }
 
   override append(record: WireRecord): void {
@@ -919,7 +918,7 @@ export class AgentTestContext {
 
     const appSeeds = collectScopeSeed([
       (reg) => {
-        for (const [id, value] of environmentSeed({
+        for (const [id, value] of bootstrapSeed({
           homeDir: '/tmp/kimi-code-agent-app-v2-test',
           cwd: this.cwd,
           osHomeDir: TEST_HOME_DIR,
@@ -963,16 +962,20 @@ export class AgentTestContext {
     ], this.serviceOverrides, 'app');
     this.root = createAppScope({ extra: appSeeds });
 
-    const environment = this.root.accessor.get(IEnvironmentService);
+    const bootstrap = this.root.accessor.get(IBootstrapService);
+    const workspaceId = 'test-workspace';
+    const sessionScope = bootstrap.sessionScope(workspaceId, sessionId);
     this.session = this.root.createChild(LifecycleScope.Session, sessionId, {
       extra: collectScopeSeed([
         (reg) => {
           reg.defineInstance(ISessionContext, {
             _serviceBrand: undefined,
             sessionId,
-            workspaceId: 'test-workspace',
-            sessionDir: `${environment.sessionsDir}/test-workspace/${sessionId}`,
-            metaScope: `sessions/test-workspace/${sessionId}/session-meta`,
+            workspaceId,
+            sessionDir: bootstrap.sessionDir(workspaceId, sessionId),
+            metaScope: `${sessionScope}/session-meta`,
+            scope: (subKey?: string): string =>
+              subKey === undefined || subKey === '' ? sessionScope : `${sessionScope}/${subKey}`,
           });
           reg.defineInstance(ISessionInteractionService, this.createInteractionService());
           reg.defineInstance(ISessionApprovalService, this.createApprovalService());
@@ -1025,7 +1028,13 @@ export class AgentTestContext {
           reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService, [{}]));
           reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
           reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
-          reg.defineInstance(IAgentScopeContext, { _serviceBrand: undefined, agentId });
+          const agentScope = bootstrap.agentScope(workspaceId, sessionId, agentId);
+          reg.defineInstance(IAgentScopeContext, {
+            _serviceBrand: undefined,
+            agentId,
+            scope: (subKey?: string): string =>
+              subKey === undefined || subKey === '' ? agentScope : `${agentScope}/${subKey}`,
+          });
           reg.defineDescriptor(
             IAgentToolService,
             new SyncDescriptor(AgentToolService, [unavailableAgentToolRun()]),
@@ -1109,15 +1118,16 @@ export class AgentTestContext {
     const permissionRules = this.get(IAgentPermissionRulesService);
     const cron = this.get(IAgentCronService);
     const plan = this.get(IAgentPlanService);
-    const fileTools = this.get(IAgentFileToolsService);
-    const shellTools = this.get(IAgentShellToolsService);
+    // Force-instantiate the Eager builtin-tools registrar: its constructor
+    // consumes every `registerTool(...)` contribution, so `Read`/`Write`/
+    // `Bash`/etc. land in the per-agent registry the same way they would
+    // under a real Agent scope (see `AgentLifecycleService.create`).
+    this.get(IAgentBuiltinToolsRegistrar);
     const swarm = this.get(IAgentSwarmService);
 
     context.get();
     const microCompaction = this.get(IAgentMicroCompactionService);
     void microCompaction;
-    void fileTools._serviceBrand;
-    void shellTools._serviceBrand;
     void swarm.isActive;
     contextSize.getStatus();
     usage.status();

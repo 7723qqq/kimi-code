@@ -8,6 +8,7 @@ import { z } from 'zod';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
 import type { GoalBudgetLimits } from '#/agent/goal/types';
@@ -60,6 +61,8 @@ export class SetGoalBudgetTool implements BuiltinTool<SetGoalBudgetToolInput> {
     };
   }
 }
+
+registerTool(SetGoalBudgetTool);
 
 function normalizeBudgetInput(input: SetGoalBudgetToolInput): SetGoalBudgetToolInput {
   switch (input.unit) {

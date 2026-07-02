@@ -11,6 +11,7 @@
 import { z } from 'zod';
 
 import type { BuiltinTool } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
 } from '#/agent/agentTool';
@@ -191,6 +192,8 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
     );
   }
 }
+
+registerTool(AgentSwarmTool);
 
 function createAgentSwarmSpecs(
   args: AgentSwarmToolInput,

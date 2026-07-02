@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
+import { registerTool } from '#/agent/toolRegistry';
 
 import { IAgentBackgroundService } from '#/agent/background/background';
 import { TERMINAL_STATUSES } from '#/agent/background/task';
@@ -84,6 +85,8 @@ export class TaskStopTool implements BuiltinTool<TaskStopInput> {
     };
   }
 }
+
+registerTool(TaskStopTool);
 
 function terminalStopReason(reason: string | undefined): string {
   const trimmed = reason?.trim();
