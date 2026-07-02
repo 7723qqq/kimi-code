@@ -1,13 +1,25 @@
+/**
+ * `blobStore` domain — `IAgentBlobStoreService` implementation.
+ *
+ * Offloads large inline media payloads into content-addressed blobs and
+ * rehydrates them on read; persists bytes through `storage` (`IBlobStorage`)
+ * under a per-agent scope resolved through `environment`, matching the v1
+ * `<agentDir>/blobs/<sha256>` layout. Bound at Agent scope.
+ */
+
 import { createHash } from 'node:crypto';
+import { join, relative } from 'pathe';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IEnvironmentService } from '#/app/environment';
 import { IBlobStorage, type IStorageService } from '#/app/storage';
 
 import {
   BLOBREF_PROTOCOL,
   IAgentBlobStoreService,
   MISSING_MEDIA_PLACEHOLDER,
+  type BlobStoreServiceOptions,
 } from './blobStore';
 
 const DEFAULT_THRESHOLD = 4096;
@@ -18,14 +30,20 @@ const DATA_URI_HEADER_RE = /^data:([^;]+);base64,/;
 export class AgentBlobStoreService implements IAgentBlobStoreService {
   declare readonly _serviceBrand: undefined;
 
-  private readonly storageScope = DEFAULT_STORAGE_SCOPE;
+  private readonly storageScope: string;
   private readonly cache = new Map<string, Buffer>();
   private readonly cacheSizes = new Map<string, number>();
   private currentCacheSize = 0;
 
   constructor(
+    private readonly options: BlobStoreServiceOptions = {},
     @IBlobStorage private readonly storage: IStorageService,
+    @IEnvironmentService environment: IEnvironmentService,
   ) {
+    this.storageScope =
+      options.homedir === undefined
+        ? DEFAULT_STORAGE_SCOPE
+        : join(relative(environment.homeDir, options.homedir), 'blobs');
   }
 
   protected get threshold(): number {

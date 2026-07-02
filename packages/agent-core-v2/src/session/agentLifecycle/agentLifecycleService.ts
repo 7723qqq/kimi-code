@@ -2,8 +2,9 @@
  * `agentLifecycle` domain (L6) — `IAgentLifecycleService` implementation.
  *
  * Creates and tracks the session's agents as child scopes. Seeds each agent's
- * identity through `agent` scopeContext, wires per-agent wire records and MCP,
- * and registers the agent in the session registry. Bound at Session scope.
+ * identity through `agent` scopeContext, wires per-agent wire records, blob
+ * store, and MCP, and registers the agent in the session registry. Bound at
+ * Session scope.
  */
 
 import { join } from 'pathe';
@@ -33,6 +34,7 @@ import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentWireRecordService, AgentWireRecordService } from '#/agent/wireRecord';
+import { IAgentBlobStoreService, AgentBlobStoreService } from '#/agent/blobStore';
 import {
   IAgentReplayBuilderService,
   AgentReplayBuilderService,
@@ -85,6 +87,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         extra: [
           [IAgentScopeContext, { _serviceBrand: undefined, agentId } satisfies IAgentScopeContext],
           [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
+          [IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService, [{ homedir: agentHomedir }])],
           [IAgentMcpService, new SyncDescriptor(AgentMcpService, [{ manager: this.getMcpManager() }])],
           // These two carry a leading static `options` param; the scoped
           // registry supplies none, so seed an empty one to satisfy the DI

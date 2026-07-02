@@ -164,6 +164,7 @@ wireRecord --> blobStore #34495E
 wireRecord --> bootstrap #34495E
 wireRecord --> storage #34495E
 blobStore --> storage #34495E
+blobStore --> environment #34495E
 filestore --> storage #34495E
 record --> wireRecord #34495E
 contextMemory --> wireRecord #34495E

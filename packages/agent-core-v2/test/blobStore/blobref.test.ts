@@ -15,6 +15,7 @@ import {
   MISSING_MEDIA_PLACEHOLDER,
 } from '#/agent/blobStore';
 import { AgentBlobStoreService } from '#/agent/blobStore/blobStoreService';
+import { IEnvironmentService } from '#/app/environment';
 import { FileStorageService, IBlobStorage } from '#/app/storage';
 
 const cleanups: string[] = [];
@@ -65,7 +66,8 @@ function createStore(
 
   const ix = disposable.add(new TestInstantiationService());
   ix.set(IBlobStorage, new FileStorageService(homeDir));
-  ix.set(IAgentBlobStoreService, new SyncDescriptor(ctor));
+  ix.set(IEnvironmentService, { homeDir } as unknown as IEnvironmentService);
+  ix.set(IAgentBlobStoreService, new SyncDescriptor(ctor, [{}]));
   return ix.get(IAgentBlobStoreService);
 }
 
