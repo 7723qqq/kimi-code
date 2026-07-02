@@ -25,6 +25,7 @@ import {
   UNKNOWN_CAPABILITY,
   type ModelCapability,
   type ProviderRequestAuth,
+  type ThinkingEffort,
 } from '#/app/llmProtocol';
 import { IPlatformService, UNKNOWN_PLATFORM_KEY } from '#/app/platform';
 import type { OAuthRef, ProviderConfig } from '#/app/provider';
@@ -37,6 +38,23 @@ import { IModelService } from './model';
 import type { AuthProvider, Model } from './modelInstance';
 import { IModelResolver } from './modelResolver';
 import { ModelImpl, StaticAuthProvider } from './modelImpl';
+
+/**
+ * Default thinking effort applied when the user has not disabled thinking
+ * (matches `profile`'s `DEFAULT_THINKING_EFFORT`). Read here rather than
+ * imported so `model` (L2) does not depend on `profile` (L4); the source of
+ * truth for the value is the `thinking` / `defaultThinking` config sections,
+ * which are shared via `IConfigService`.
+ */
+const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'high';
+const THINKING_EFFORTS: readonly ThinkingEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** Shape of the `thinking` config section (owned by `profile`); only the
+ *  fields the resolver needs to mirror the production default are read here. */
+interface ThinkingSection {
+  readonly mode?: string;
+  readonly effort?: string;
+}
 
 interface ResolvedAuthMaterial {
   readonly apiKey?: string;
@@ -68,11 +86,16 @@ export class ModelResolverService extends Disposable implements IModelResolver {
       );
     }
 
-    const { providerConfig, providerName, resolvedBaseUrl } = this.resolveProviderContext(id, model);
+    const { providerConfig, providerName, resolvedBaseUrl: rawBaseUrl } = this.resolveProviderContext(id, model);
     const auth = this.resolveAuth(model, providerConfig);
     const authProvider = this.buildAuthProvider(providerName, auth);
 
     const protocol = this.resolveProtocol(id, model, providerConfig);
+    // The Anthropic SDK appends `/v1/messages` to the baseUrl, so a provider
+    // whose baseUrl already ends in `/v1` (e.g. the managed Kimi endpoint) would
+    // otherwise produce a double `/v1/v1/messages` → 404. Match production v1
+    // (`provider-manager` strips a trailing `/v1` for the anthropic transport).
+    const resolvedBaseUrl = protocol === 'anthropic' ? stripTrailingV1(rawBaseUrl) : rawBaseUrl;
     const wireName = model.name ?? model.model;
     if (wireName === undefined) {
       throw new KimiError(
@@ -97,7 +120,7 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     };
     const alwaysThinking = declared.has('always_thinking');
 
-    return new ModelImpl({
+    const impl = new ModelImpl({
       id,
       name: wireName,
       aliases: model.aliases ?? [],
@@ -113,7 +136,35 @@ export class ModelResolverService extends Disposable implements IModelResolver {
       providerName,
       authProvider,
       protocolRegistry: this.protocolRegistry as ProtocolAdapterRegistry,
+      extras: buildProviderExtras(model),
     });
+
+    // Apply the production default thinking effort so a plain `model.request()`
+    // behaves like the agent path (which routes through `profile` and reads the
+    // same `thinking` / `defaultThinking` config). Required for models whose
+    // endpoint rejects a request that omits thinking (e.g. kimi-k2.7 over the
+    // Anthropic protocol returns 400 unless `thinking.type === 'enabled'`).
+    const effort = this.resolveDefaultThinking(alwaysThinking);
+    return effort === 'off' ? impl : impl.withThinking(effort);
+  }
+
+  /**
+   * Mirror `profile`'s `resolveThinkingLevel` / `resolveThinkingEffort` so the
+   * god-object's default matches the production agent path:
+   *   - an explicit `defaultThinking === false` or `thinking.mode === 'off'`
+   *     turns thinking off;
+   *   - otherwise the configured `thinking.effort` (default 'high') is used;
+   *   - an `always_thinking` model clamps an explicit "off" back to on.
+   */
+  private resolveDefaultThinking(alwaysThinking: boolean): ThinkingEffort {
+    const defaultThinking = this.config.get<boolean | undefined>('defaultThinking');
+    const thinking = this.config.get<ThinkingSection | undefined>('thinking');
+    const turnedOff = defaultThinking === false || thinking?.mode === 'off';
+    const configured = parseThinkingEffort(thinking?.effort) ?? DEFAULT_THINKING_EFFORT;
+    if (turnedOff && !alwaysThinking) {
+      return 'off';
+    }
+    return configured;
   }
 
   findByName(name: string): readonly string[] {
@@ -198,12 +249,18 @@ export class ModelResolverService extends Disposable implements IModelResolver {
    *   1. Model-inline `apiKey` / `oauth` (flat-case override).
    *   2. Provider.platformId → Platform.auth (structured shared auth).
    *   3. Provider-legacy `apiKey` / `oauth` (pre-migration configs).
+   *
+   * An empty / whitespace `apiKey` is treated as absent (matching production's
+   * `nonEmptyString`), so a provider that carries both `api_key = ""` and an
+   * `oauth` block correctly falls through to OAuth instead of producing an
+   * empty bearer token.
    */
   private resolveAuth(
     model: ModelConfig,
     provider: ProviderConfig | undefined,
   ): ResolvedAuthMaterial {
-    if (model.apiKey !== undefined) return { apiKey: model.apiKey };
+    const modelApiKey = nonEmpty(model.apiKey);
+    if (modelApiKey !== undefined) return { apiKey: modelApiKey };
     if (model.oauth !== undefined) {
       return { oauth: model.oauth, oauthProviderKey: model.providerId ?? model.provider };
     }
@@ -211,7 +268,8 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     const platformId = provider?.platformId;
     if (platformId !== undefined && platformId !== UNKNOWN_PLATFORM_KEY) {
       const platform = this.platforms.get(platformId);
-      if (platform?.auth?.apiKey !== undefined) return { apiKey: platform.auth.apiKey };
+      const platformApiKey = nonEmpty(platform?.auth?.apiKey);
+      if (platformApiKey !== undefined) return { apiKey: platformApiKey };
       if (platform?.auth?.oauth !== undefined) {
         return {
           oauth: platform.auth.oauth,
@@ -221,7 +279,8 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     }
 
     // Legacy: provider carried auth directly (pre-Phase 4 migration).
-    if (provider?.apiKey !== undefined) return { apiKey: provider.apiKey };
+    const providerApiKey = nonEmpty(provider?.apiKey);
+    if (providerApiKey !== undefined) return { apiKey: providerApiKey };
     if (provider?.oauth !== undefined) {
       return { oauth: provider.oauth, oauthProviderKey: model.providerId ?? model.provider };
     }
@@ -248,6 +307,43 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     }
     return new StaticAuthProvider(undefined);
   }
+}
+
+function parseThinkingEffort(value: string | undefined): ThinkingEffort | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized !== undefined && (THINKING_EFFORTS as readonly string[]).includes(normalized)
+    ? (normalized as ThinkingEffort)
+    : undefined;
+}
+
+/** Treat an empty / whitespace string as absent (matches production's
+ *  `nonEmptyString` used by the session resolver). */
+function nonEmpty(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+}
+
+/** Strip a trailing `/v1` (with optional trailing slash) from a baseUrl, matching
+ *  production v1's anthropic-transport normalization so the Anthropic SDK's
+ *  `/v1/messages` suffix does not produce a double `/v1/v1/messages`. */
+function stripTrailingV1(baseUrl: string): string {
+  return baseUrl.replace(/\/v1\/?$/, '');
+}
+
+/** Provider knobs the wire adapter needs that aren't first-class ModelImpl
+ *  fields. `adaptiveThinking` changes how the Anthropic adapter encodes the
+ *  thinking param, so it must reach the provider for the default-thinking
+ *  transform to produce the right shape on adaptive models. */
+function buildProviderExtras(model: ModelConfig): Readonly<Record<string, unknown>> | undefined {
+  const extras: Record<string, unknown> = {};
+  if (model.adaptiveThinking !== undefined) {
+    extras['adaptiveThinking'] = model.adaptiveThinking;
+  }
+  const betaApi = (model as Record<string, unknown>)['betaApi'];
+  if (betaApi !== undefined) {
+    extras['betaApi'] = betaApi;
+  }
+  return Object.keys(extras).length > 0 ? extras : undefined;
 }
 
 /**
