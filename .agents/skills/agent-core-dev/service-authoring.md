@@ -17,7 +17,7 @@ One folder per domain, **camelCase**: `session/`, `sessionActivity/`, `contextMe
 └── index.ts             ← barrel: re-exports everything; importing it runs the domain's registrations
 ```
 
-- **One service per file.** An interface file holds exactly one injectable interface; an impl file holds exactly one class and exactly one `registerScopedService(...)`. A multi-service domain splits into one interface-file + one impl-file per service.
+- **One service per file, by default.** An interface file holds exactly one injectable interface; an impl file holds one class and one `registerScopedService(...)`. A multi-service domain normally splits into one interface-file + one impl-file per service — with one exception: a tightly-coupled same-scope group may share one impl file with several classes and registrations (see [Multi-Service domains](#multi-service-domains)).
 - **Scope is in the filename.** `session*.ts` = Session, `agent*.ts` = Agent, no scope prefix = App (see [Naming](#naming)). The header comment restates the same scope.
 - A domain therefore has as many impl files as it has services (e.g. `logService.ts` for the App `ILogService`, `sessionLogService.ts` for the Session `ISessionLogService`). See [Multi-Service domains](#multi-service-domains).
 
@@ -330,7 +330,7 @@ export * from './greet/index';
 
 ## Red lines (this topic)
 
-- One folder per domain, kebab-case; contract `<domain>.ts`, impl `<domain>Service.ts`, barrel `index.ts`.
+- One folder per domain, camelCase; contract `<domain>.ts`, impl `<domain>Service.ts`, barrel `index.ts`.
 - `IXxxService` / `XxxService` naming; decorator string is lowerCamelCase, globally unique, and stable.
 - Name Services by owning domain, never by scope (`IAgentEntityService`, `ISessionEntityService`).
 - `_serviceBrand` only on interfaces used as a DI token — never on base interfaces or plain models.

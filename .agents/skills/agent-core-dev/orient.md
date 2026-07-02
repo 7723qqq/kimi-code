@@ -47,6 +47,26 @@ A child scope sees its ancestors; a parent never sees its children. Resolution w
 
 Deterministic: **child scopes die first; within one scope, instances dispose in reverse construction order** (last constructed, first disposed). Business code declares which tier it lives in and never disposes by hand.
 
+## The `(Ln)` layer number in headers
+
+The `Ln` in a file-header identity line is the domain's **dependency layer** (L0–L7), **not** its `LifecycleScope`. They are easy to confuse because both are small integers, but they answer different questions:
+
+- `LifecycleScope` (App=0 / Session=1 / Agent=2) — **lifetime & visibility** (this stage).
+- Dependency layer `Ln` (L0–L7) — **who may import whom**: a domain at layer `L` may import only domains at layer `<= L`. Enforced by `lint:domain` from the authoritative `DOMAIN_LAYER` map in `scripts/check-domain-layers.mjs`.
+
+So a Session-scoped service is not "L1" — e.g. `session` is Session-scoped but lives at **L6**. When you write the header, read the number from the layer map, not from the scope.
+
+| Layer | Role | Representative domains |
+|---|---|---|
+| L0 | base infrastructure | `_base`, `errors`, `llmProtocol` |
+| L1 | bridges & low-level capabilities | `log`, `telemetry`, `event`, `environment`, `bootstrap`, `storage` |
+| L2 | data & cross-cutting capabilities | `records`, `wireRecord`, `config`, `provider`, `auth`, `workspaceRegistry` |
+| L3 | registries & capabilities | `tool`, `toolRegistry`, `permission*`, `flag`, `skill`, `plugin` |
+| L4 | agent behaviour | `turn`, `loop`, `prompt`, `profile`, `contextMemory`, `goal`, `plan`, `swarm` |
+| L5 | async lifecycle | `background`, `mcp`, `cron`, `agentTool` |
+| L6 | coordination | `session`, `agentLifecycle`, `sessionMetadata`, `interaction`, `terminal` |
+| L7 | boundary / edge | `gateway`, `rpc`, `approval`, `question`, `*Legacy` |
+
 ## File-header comment convention
 
 `packages/agent-core-v2/AGENTS.md` mandates a header-only comment style:
