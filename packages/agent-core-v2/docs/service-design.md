@@ -167,7 +167,7 @@ an **event**, or a **hook**. From first principles, they answer three different 
 **Q2. Is B's reaction part of A's responsibility, or B's own concern?**
 
 - A's responsibility *includes* B's behavior (A orchestrates B) → **direct call**. E.g.
-  `session` drives `agent-lifecycle`; `loop` drives `llmRequester` / `toolExecutor` — that
+  `session` drives `agentLifecycle`; `loop` drives `llmRequester` / `toolExecutor` — that
   *is* their job.
 - B's reaction is B's own concern, and A is merely **stating a fact** → **event**. E.g.
   `flag` reacts to `config.onDidChangeConfiguration`; `config` does not know who is listening.
@@ -240,7 +240,7 @@ reverse):
 2. **Data / state**: `records`, `filestore`, `workspace`, `blobStore`, `config`.
 3. **Capabilities**: `tool`, `permission`, `prompt`, `contextMemory`, `chatProvider`,
    `modelRuntime`, `skill`, …
-4. **Orchestrators**: `session`, `agent-lifecycle`, `loop`, `turn`, `swarm`.
+4. **Orchestrators**: `session`, `agentLifecycle`, `loop`, `turn`, `swarm`.
 5. **Edge**: `gateway`, `rpc`.
 
 **Red lines:**

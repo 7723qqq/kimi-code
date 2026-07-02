@@ -11,7 +11,7 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IHostEnvironment } from '#/app/hostEnvironment';
 import { SessionAgentFileSystem, ISessionAgentFileSystem } from '#/session/agentFs';

@@ -11,7 +11,7 @@
  *    `IAtomicTomlDocumentStore` (the same Store `config` uses).
  *  - `sessions/<workspace>/<session>/session-meta/state.json` — an **atomic
  *    document** (JSON codec), written through `IAtomicDocumentStore` (the same
- *    Store `session-metadata` uses).
+ *    Store `sessionMetadata` uses).
  *  - `wire/<hash>.jsonl` — an **append log** (JSONL framing), written through
  *    `IAppendLogStore` (the same Store `wireRecord` uses). `wireRecord` keys the
  *    log by a hash of the home dir; this example writes one record stream under

@@ -6,7 +6,7 @@
  * the same instance whether you ask the App scope or a child Session scope
  * (it is found by walking up), while a Session-scoped service
  * (`ISessionMetadata`) is one distinct instance per session, so two sessions
- * hold independent state. Loads only `log` and `session-metadata`.
+ * hold independent state. Loads only `log` and `sessionMetadata`.
  */
 
 import { mkdirSync } from 'node:fs';
@@ -19,11 +19,11 @@ import { LifecycleScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
 import { bootstrap } from '#/app/bootstrap/bootstrap';
 import { ILogService, sessionLogSeed } from '#/app/log/log';
 import { logSeed, resolveLoggingConfig } from '#/app/log/logConfig';
-import { sessionContextSeed } from '#/session/session-context/sessionContext';
+import { sessionContextSeed } from '#/session/sessionContext/sessionContext';
 import '#/app/log';
 import '#/session/sessionLog';
-import '#/session/session-metadata';
-import { ISessionMetadata } from '#/session/session-metadata/sessionMetadata';
+import '#/session/sessionMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { FileStorageService } from '#/app/storage/fileStorageService';
 import { IAtomicDocumentStorage } from '#/app/storage/storageService';
 

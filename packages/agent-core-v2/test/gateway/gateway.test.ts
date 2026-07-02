@@ -5,13 +5,13 @@ import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiati
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle, type ISessionScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle/agentLifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IRestGateway } from '#/app/gateway';
 import { RestGateway } from '#/app/gateway/gatewayService';
 import { ILogService } from '#/app/log';
 import { IAgentPromptService } from '#/agent/prompt';
-import { ISessionLifecycleService } from '#/app/session-lifecycle';
+import { ISessionLifecycleService } from '#/app/sessionLifecycle';
 import { IAgentTurnService } from '#/agent/turn';
 import { stubLog } from '../log/stubs';
 import { stubTurn } from '../turn/stubs';

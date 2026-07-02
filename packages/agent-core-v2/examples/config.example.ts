@@ -73,7 +73,7 @@ import { IProviderService } from '#/app/provider';
 import '#/app/provider';
 import '#/app/flag';
 import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
-import { ISessionContext } from '#/session/session-context';
+import { ISessionContext } from '#/session/sessionContext';
 import { IAtomicDocumentStore, IStorageService } from '#/app/storage';
 import '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';

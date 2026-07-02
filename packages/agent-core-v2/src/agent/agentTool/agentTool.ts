@@ -29,8 +29,8 @@ import {
   type RegisterBackgroundTaskOptions,
 } from '#/agent/background';
 import type { IAgentProfileService } from '#/agent/profile';
-import type { IAgentLifecycleService } from '#/session/agent-lifecycle';
-import type { ISessionMetadata } from '#/session/session-metadata';
+import type { IAgentLifecycleService } from '#/session/agentLifecycle';
+import type { ISessionMetadata } from '#/session/sessionMetadata';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import {

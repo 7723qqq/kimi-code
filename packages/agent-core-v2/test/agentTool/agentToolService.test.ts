@@ -4,14 +4,14 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentBackgroundService } from '#/agent/background';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { IExecContext } from '#/session/execContext';
 import { ILogService } from '#/app/log';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import { AgentToolService, IAgentToolService } from '#/agent/agentTool';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { ISessionMetadata } from '#/session/session-metadata';
+import { ISessionMetadata } from '#/session/sessionMetadata';
 import { ISessionProcessRunner } from '#/session/process';
 
 describe('AgentToolService DI wiring', () => {

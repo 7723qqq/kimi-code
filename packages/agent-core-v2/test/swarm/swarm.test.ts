@@ -8,7 +8,7 @@ import { IAgentEventSinkService } from '#/agent/eventSink';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
 } from '#/agent/agentTool';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { ISessionSwarmService } from '#/session/swarm';
 import type {
   SessionSwarmRunResult,

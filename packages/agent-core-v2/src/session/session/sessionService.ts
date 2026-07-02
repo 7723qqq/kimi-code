@@ -1,17 +1,17 @@
 /**
  * `session` domain (L6) — `ISessionService` implementation.
  *
- * Runs session-level commands; reads its identity through `session-context`,
- * mutates metadata through `session-metadata`, drives agent teardown through
- * `agent-lifecycle`, and broadcasts through `event`. Bound at Session scope.
+ * Runs session-level commands; reads its identity through `sessionContext`,
+ * mutates metadata through `sessionMetadata`, drives agent teardown through
+ * `agentLifecycle`, and broadcasts through `event`. Bound at Session scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle/agentLifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventService } from '#/app/event';
-import { ISessionContext } from '#/session/session-context';
-import { ISessionMetadata } from '#/session/session-metadata';
+import { ISessionContext } from '#/session/sessionContext';
+import { ISessionMetadata } from '#/session/sessionMetadata';
 
 import { ISessionService } from './session';
 

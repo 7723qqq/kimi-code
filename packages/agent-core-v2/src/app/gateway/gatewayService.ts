@@ -1,8 +1,8 @@
 /**
  * `gateway` domain (L7) — `IRestGateway` / `IWSGateway` implementations.
  *
- * Owns the REST/WS entry points; resolves sessions through `session-lifecycle`,
- * agents through `agent-lifecycle`, drives turns through `turn`, and flushes
+ * Owns the REST/WS entry points; resolves sessions through `sessionLifecycle`,
+ * agents through `agentLifecycle`, drives turns through `turn`, and flushes
  * logs through `log`. Bound at App scope.
  *
  * WS event fan-out (sequencing, journaling, replay, per-connection dispatch)
@@ -12,11 +12,11 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle/agentLifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentRecordService } from '#/agent/record';
 import { ILogService, ISessionLogService } from '#/app/log';
 import { IAgentPromptService } from '#/agent/prompt';
-import { ISessionLifecycleService } from '#/app/session-lifecycle';
+import { ISessionLifecycleService } from '#/app/sessionLifecycle';
 import { IAgentTurnService } from '#/agent/turn';
 
 import { IRestGateway, IWSGateway } from './gateway';

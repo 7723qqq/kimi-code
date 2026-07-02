@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { APIProviderRateLimitError } from '@moonshot-ai/kosong';
 
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import type { IScopeHandle } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';

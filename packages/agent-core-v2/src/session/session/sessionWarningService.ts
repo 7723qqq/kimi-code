@@ -13,7 +13,7 @@ import type { SessionWarning } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IHostEnvironment } from '#/app/hostEnvironment';
 import { ISessionAgentFileSystem } from '#/session/agentFs';

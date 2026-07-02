@@ -1,5 +1,5 @@
 /**
- * Scenario: the **session** slice — `session-lifecycle` + `session-metadata`.
+ * Scenario: the **session** slice — `sessionLifecycle` + `sessionMetadata`.
  *
  * Shows the session as a durable, tracked entity and how the slice's domains
  * compose: `ISessionLifecycleService` (App) creates Session child scopes —
@@ -19,10 +19,10 @@ import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Scope, ScopeSeed } from '#/_base/di/scope';
 import { bootstrap } from '#/app/bootstrap/bootstrap';
 import { logSeed, resolveLoggingConfig } from '#/app/log/logConfig';
-import { ISessionLifecycleService } from '#/app/session-lifecycle/sessionLifecycle';
-import '#/app/session-lifecycle';
-import { ISessionMetadata } from '#/session/session-metadata/sessionMetadata';
-import '#/session/session-metadata';
+import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
+import '#/app/sessionLifecycle';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import '#/session/sessionMetadata';
 import { FileStorageService } from '#/app/storage/fileStorageService';
 import { IAtomicDocumentStorage } from '#/app/storage/storageService';
 
@@ -31,7 +31,7 @@ function diskStorageSeed(homeDir: string): ScopeSeed {
   return [[IAtomicDocumentStorage as ServiceIdentifier<unknown>, new FileStorageService(homeDir)]];
 }
 
-describe('session slice (session-lifecycle + session-metadata)', () => {
+describe('session slice (sessionLifecycle + sessionMetadata)', () => {
   let homeDir: string;
   let app: Scope;
 

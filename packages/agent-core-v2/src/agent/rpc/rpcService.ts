@@ -19,7 +19,7 @@ import { expandCommandArguments, IPluginService } from '#/app/plugin';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentQuestionToolsService } from '#/agent/questionTools';
-import { ISessionMetadata, type SessionMetaPatch } from '#/session/session-metadata';
+import { ISessionMetadata, type SessionMetaPatch } from '#/session/sessionMetadata';
 import { BashTool, IAgentShellToolsService } from '#/agent/shellTools';
 import { IAgentSkillService } from '#/agent/skill';
 import { ISessionProcessRunner } from '#/session/process';

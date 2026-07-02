@@ -1,0 +1,93 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
+import { ILogService } from '#/app/log';
+import { ISessionContext } from '#/session/sessionContext';
+import { ISessionMetadata } from '#/session/sessionMetadata';
+import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataService';
+import {
+  AtomicDocumentStore,
+  IAtomicDocumentStorage,
+  IAtomicDocumentStore,
+  InMemoryStorageService,
+} from '#/app/storage';
+
+import { stubLog } from '../log/stubs';
+
+const META_SCOPE = 'sessions/wd_test/s1/session-meta';
+
+function makeContext(): ISessionContext {
+  return {
+    _serviceBrand: undefined,
+    sessionId: 's1',
+    workspaceId: 'wd_test',
+    sessionDir: '/tmp/sessions/wd_test/s1',
+    metaScope: META_SCOPE,
+  };
+}
+
+describe('SessionMetadata', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    ix = disposables.add(new TestInstantiationService());
+    ix.stub(ILogService, stubLog());
+    ix.stub(ISessionContext, makeContext());
+    ix.set(IAtomicDocumentStorage, new SyncDescriptor(InMemoryStorageService));
+    ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
+    ix.set(ISessionMetadata, new SyncDescriptor(SessionMetadata));
+  });
+
+  afterEach(() => disposables.dispose());
+
+  it('creates an initial document on first read', async () => {
+    const meta = ix.get(ISessionMetadata);
+    expect(await meta.read()).toMatchObject({ id: 's1', archived: false });
+    expect((await meta.read()).createdAt).toBeGreaterThan(0);
+  });
+
+  it('update merges fields and bumps updatedAt', async () => {
+    const meta = ix.get(ISessionMetadata);
+    const before = (await meta.read()).updatedAt;
+    await new Promise((r) => setTimeout(r, 2));
+    await meta.update({ title: 'hello' });
+
+    const next = await meta.read();
+    expect(next.title).toBe('hello');
+    expect(next.updatedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  it('setTitle / setArchived write through', async () => {
+    const meta = ix.get(ISessionMetadata);
+    await meta.setTitle('t');
+    await meta.setArchived(true);
+    expect(await meta.read()).toMatchObject({ title: 't', archived: true });
+  });
+
+  it('persists across instances', async () => {
+    const meta = ix.get(ISessionMetadata);
+    await meta.update({ title: 'persisted' });
+
+    const fresh = ix.createInstance(SessionMetadata);
+    expect(await fresh.read()).toMatchObject({ id: 's1', title: 'persisted' });
+  });
+
+  it('fires onDidChangeMetadata with the changed keys after update', async () => {
+    const meta = ix.get(ISessionMetadata);
+    await meta.ready;
+    let fired = 0;
+    let captured: { readonly changed: readonly string[] } | undefined;
+    const sub = meta.onDidChangeMetadata((e) => {
+      fired++;
+      captured = e;
+    });
+    await meta.update({ title: 'x' });
+    expect(fired).toBe(1);
+    expect(captured).toEqual({ changed: ['title'] });
+    sub.dispose();
+  });
+});

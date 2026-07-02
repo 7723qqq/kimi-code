@@ -34,7 +34,7 @@ Examples:
 - `PermissionRules` are Agent-scoped, but `permission` owns rule changes and evaluation.
 - `BackgroundTask` is spawned by an Agent, but `background` owns task state and output.
 - `ContextMessage` is consumed by the Agent loop, but `contextMemory` / `wireRecord` owns history and replay.
-- `SessionMeta` is about a Session, but it is owned by `session-metadata`, not by a broad `session` data bag.
+- `SessionMeta` is about a Session, but it is owned by `sessionMetadata`, not by a broad `session` data bag.
 
 ## Persistence models are not all entity CRUD
 
@@ -45,7 +45,7 @@ Before introducing `I{Domain}EntityService`, classify the persistence model:
 | **Atomic document** | One typed document per key | `SessionMeta`, `config.toml` |
 | **Append-log / event-sourced** | The authoritative record is "what happened" | `wireRecord`, `contextMemory`, `goal`, `plan`, `permission` transitions |
 | **Blob / key-value** | Large or content-addressed bytes | media offload, blob store |
-| **Indexed query / read model** | Derived, queryable view | `session-index`, future `IQueryStore` projections |
+| **Indexed query / read model** | Derived, queryable view | `sessionIndex`, future `IQueryStore` projections |
 | **Registry / catalog** | Global or scoped known items | `workspaceRegistry`, `toolRegistry` |
 | **Ephemeral runtime state** | No durable entity | active turn handle, pending interactions, terminal handles |
 
@@ -80,18 +80,18 @@ The `session` domain owns only Session-level identity, metadata, lifecycle comma
 
 | Concern | Owner | Notes |
 |---|---|---|
-| `sessionId`, `workspaceId`, `sessionDir`, `metaScope` | `session-context` | Seeded facts; no IO |
-| `SessionMeta` | `session-metadata` | Durable atomic document; entity-like |
-| Open session scope registry | `session-lifecycle` | App-scope live handles; not the persisted entity table |
+| `sessionId`, `workspaceId`, `sessionDir`, `metaScope` | `sessionContext` | Seeded facts; no IO |
+| `SessionMeta` | `sessionMetadata` | Durable atomic document; entity-like |
+| Open session scope registry | `sessionLifecycle` | App-scope live handles; not the persisted entity table |
 | Session commands such as `archive()` | `session` | Orchestrates metadata, agent teardown, and events |
-| Persisted session list / get / count | `session-index` | Backend-neutral read model |
-| Running / idle / awaiting status | `session-activity` | Derived from interactions and active turns; owns no state |
+| Persisted session list / get / count | `sessionIndex` | Backend-neutral read model |
+| Running / idle / awaiting status | `sessionActivity` | Derived from interactions and active turns; owns no state |
 
 `session` must not reabsorb these:
 
 | Data | Real owner |
 |---|---|
-| Agent instances / handles | `agent-lifecycle` |
+| Agent instances / handles | `agentLifecycle` |
 | Turns | `turn` |
 | Context messages | `contextMemory` / `wireRecord` |
 | Tool state | `toolStore` / `tool` |
@@ -118,9 +118,9 @@ Strictly, the `agent` domain owns only Agent-instance concerns:
 
 | Concern | Owner | Notes |
 |---|---|---|
-| Agent instance identity / handle | `agent-lifecycle` | Owns live Agent scope handles |
-| Agent creation / removal | `agent-lifecycle` | Lifecycle, not a data bag |
-| Parent / child relationship | `session` / `agent-lifecycle` depending on current code | Do not duplicate it into a new Agent data service |
+| Agent instance identity / handle | `agentLifecycle` | Owns live Agent scope handles |
+| Agent creation / removal | `agentLifecycle` | Lifecycle, not a data bag |
+| Parent / child relationship | `session` / `agentLifecycle` depending on current code | Do not duplicate it into a new Agent data service |
 | Active turn reference | `turn` | Turn is its own domain even though it is Agent-scoped |
 
 Many Agent-scoped Services are **not** in the `agent` domain:

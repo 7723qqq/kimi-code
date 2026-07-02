@@ -2,7 +2,7 @@
  * `agent` domain (L2) — agent-scope identity token.
  *
  * Exposes `IAgentScopeContext`, the identity of the current agent scope (its
- * `agentId`). Seeded into every agent scope at creation by `agent-lifecycle`
+ * `agentId`). Seeded into every agent scope at creation by `agentLifecycle`
  * so Agent-scoped consumers can refer to themselves (for example as the
  * parent of a subagent) without threading the id through every call site.
  * Bound at Agent scope via a per-agent seed, not the scoped registry.

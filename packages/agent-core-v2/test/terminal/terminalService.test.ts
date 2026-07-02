@@ -6,7 +6,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ErrorCodes } from '#/errors';
-import { ISessionContext } from '#/session/session-context';
+import { ISessionContext } from '#/session/sessionContext';
 import {
   type TerminalAttachSink,
   type TerminalFrame,

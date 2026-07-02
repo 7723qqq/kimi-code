@@ -18,7 +18,7 @@ import type { ResolvedConfig } from '#/app/config';
 import type { McpServerConfig } from '#/agent/mcp';
 import type { ExperimentalFeatureState } from '#/app/flag';
 import type { ResumeSessionResult } from '#/agent/replayBuilder/types';
-import type { SessionMeta } from '#/session/session-metadata';
+import type { SessionMeta } from '#/session/sessionMetadata';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import type { SessionWarning, UsageStatus } from '@moonshot-ai/protocol';
 

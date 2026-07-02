@@ -4,12 +4,12 @@ import type { ServicesAccessor } from '#/_base/di/instantiation';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle/agentLifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventService } from '#/app/event';
 import { ISessionService } from '#/session/session';
 import { SessionService } from '#/session/session/sessionService';
-import { ISessionContext } from '#/session/session-context';
-import { ISessionMetadata } from '#/session/session-metadata';
+import { ISessionContext } from '#/session/sessionContext';
+import { ISessionMetadata } from '#/session/sessionMetadata';
 
 const handle: IAgentScopeHandle = {
   id: 'main',

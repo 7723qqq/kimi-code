@@ -17,7 +17,7 @@ import {
   spawnChildAgent,
 } from '#/agent/agentTool';
 import { IAgentRecordService } from '#/agent/record';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 
 import {
   ISessionSwarmService,

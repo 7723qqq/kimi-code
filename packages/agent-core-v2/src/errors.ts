@@ -8,7 +8,7 @@
  */
 
 import { CoreErrors } from '#/_base/errors';
-import { AgentLifecycleErrors } from '#/session/agent-lifecycle/errors';
+import { AgentLifecycleErrors } from '#/session/agentLifecycle/errors';
 import { AuthErrors } from '#/app/auth/errors';
 import { BackgroundErrors } from '#/agent/background/errors';
 import { ChatProviderErrors } from '#/app/chatProvider/errors';
@@ -32,7 +32,7 @@ import { TurnErrors } from '#/agent/turn/errors';
 import { WireRecordErrors } from '#/agent/wireRecord/errors';
 
 export * from '#/_base/errors';
-export { AgentLifecycleErrors } from '#/session/agent-lifecycle/errors';
+export { AgentLifecycleErrors } from '#/session/agentLifecycle/errors';
 export { AuthErrors } from '#/app/auth/errors';
 export { BackgroundErrors } from '#/agent/background/errors';
 export { ChatProviderErrors } from '#/app/chatProvider/errors';

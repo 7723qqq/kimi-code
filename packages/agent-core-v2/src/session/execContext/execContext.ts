@@ -4,7 +4,7 @@
  * Defines `IExecContext`, an immutable snapshot of the working directory the
  * session runs in (`cwd`) and the env layers that are overlaid onto every
  * spawned process (`envLayers`). The context is seeded into the Session scope
- * by `session-lifecycle` when the session is created and never mutates in
+ * by `sessionLifecycle` when the session is created and never mutates in
  * place — `withCwd` / `withEnv` return derived contexts.
  *
  * Consumed by:
@@ -44,7 +44,7 @@ export const IExecContext: ServiceIdentifier<IExecContext> =
   createDecorator<IExecContext>('execContext');
 
 /**
- * Construct a plain immutable `IExecContext` value. Used by `session-lifecycle`
+ * Construct a plain immutable `IExecContext` value. Used by `sessionLifecycle`
  * when creating a fresh Session scope, and by `withCwd`/`withEnv` derivations
  * inside session-scoped services.
  */
@@ -63,7 +63,7 @@ export function createExecContext(
 }
 
 /**
- * Build the DI seed pair used by `session-lifecycle` to inject an
+ * Build the DI seed pair used by `sessionLifecycle` to inject an
  * `IExecContext` into a new Session scope.
  */
 export function execContextSeed(ctx: IExecContext): ScopeSeed {

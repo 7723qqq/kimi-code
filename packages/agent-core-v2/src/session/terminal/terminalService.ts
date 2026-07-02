@@ -4,7 +4,7 @@
  * Owns this session's terminal set and its per-terminal output buffers and
  * attached sinks; spawns PTYs through the injected `ISessionTerminalBackend`,
  * resolves the working directory through `workspaceContext`, and reads the
- * session id through `session-context` to tag frames. Bound at Session scope.
+ * session id through `sessionContext` to tag frames. Bound at Session scope.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -13,7 +13,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
-import { ISessionContext } from '#/session/session-context';
+import { ISessionContext } from '#/session/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 import {

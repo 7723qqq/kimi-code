@@ -7,7 +7,7 @@
  * (`AgentToolRunOverride`) that lets tests substitute the `runChildAgent`
  * helpers; the scoped registry supplies none. Bound at Agent scope; reads its
  * identity through `scopeContext`, creates child agents through
- * `agent-lifecycle`, reads the parent check through `session-metadata`, gates
+ * `agentLifecycle`, reads the parent check through `sessionMetadata`, gates
  * background execution through the agent `profile`, and gathers git context
  * through `kaos` (cwd) + `process` (runner).
  */
@@ -21,9 +21,9 @@ import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IExecContext } from '#/session/execContext';
 import { ILogService } from '#/app/log';
-import { IAgentLifecycleService } from '#/session/agent-lifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { ISessionProcessRunner } from '#/session/process';
-import { ISessionMetadata } from '#/session/session-metadata';
+import { ISessionMetadata } from '#/session/sessionMetadata';
 
 import { AgentTool } from './agentTool';
 import { IAgentToolService } from './agentToolServiceToken';
