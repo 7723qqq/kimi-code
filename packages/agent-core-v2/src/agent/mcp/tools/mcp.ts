@@ -6,7 +6,7 @@
  * and normalizes the result.
  */
 
-import type { Tool as KosongTool } from '@moonshot-ai/kosong';
+import type { Tool as KosongTool } from '#/app/llmProtocol';
 
 import type { ExecutableTool, ExecutableToolResult } from '#/agent/tool';
 import { mcpResultToExecutableOutput } from '#/agent/mcp/output';

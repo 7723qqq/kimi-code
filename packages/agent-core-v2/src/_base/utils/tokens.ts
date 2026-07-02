@@ -2,7 +2,7 @@
  * Character-based token-count estimates for messages, tools, and content parts.
  */
 
-import type { ContentPart, Message, Tool } from '@moonshot-ai/kosong';
+import type { ContentPart, Message, Tool } from '#/app/llmProtocol';
 
 const messageTokenEstimateCache = new WeakMap<Message, number>();
 

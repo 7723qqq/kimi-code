@@ -64,10 +64,10 @@ export interface ProviderCredentialState {
 
 export function toProtocolModel(modelId: string, alias: ModelAlias): ModelCatalogItem {
   return {
-    provider: alias.provider,
+    provider: alias.provider ?? '',
     model: modelId,
-    display_name: alias.displayName ?? alias.model,
-    max_context_size: alias.maxContextSize,
+    display_name: alias.displayName ?? alias.model ?? modelId,
+    max_context_size: alias.maxContextSize ?? 0,
     capabilities: alias.capabilities,
   };
 }
@@ -84,7 +84,7 @@ export function toProtocolProvider(
     provider.defaultModel ?? globalDefaultForProvider(models, globalDefaultModel, providerId);
   return {
     id: providerId,
-    type: provider.type,
+    type: provider.type ?? 'openai',
     base_url: provider.baseUrl,
     default_model: defaultModel,
     has_api_key: credential.hasApiKey,

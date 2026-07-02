@@ -10,7 +10,7 @@
  * `exactOptionalPropertyTypes: true`.
  */
 
-import type { Message, TokenUsage } from '@moonshot-ai/kosong';
+import type { Message, TokenUsage } from '#/app/llmProtocol';
 
 import type { LLM } from './llm';
 

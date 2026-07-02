@@ -7,7 +7,7 @@
  * lives in the internal `subagentBatch` module. Bound at Session scope.
  */
 
-import type { TokenUsage } from '@moonshot-ai/kosong';
+import type { TokenUsage } from '#/app/llmProtocol';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 

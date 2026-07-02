@@ -19,7 +19,7 @@ import type { McpServerConfig } from '#/agent/mcp';
 import type { ExperimentalFeatureState } from '#/app/flag';
 import type { ResumeSessionResult } from '#/agent/replayBuilder/types';
 import type { SessionMeta } from '#/session/sessionMetadata';
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol';
 import type { SessionWarning, UsageStatus } from '@moonshot-ai/protocol';
 
 import type { PluginCommandDef, PluginInfo, PluginSummary, ReloadSummary } from '#/app/plugin';

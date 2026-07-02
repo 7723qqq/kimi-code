@@ -6,7 +6,7 @@
  * and final `TurnResult` mapping. One-step execution lives in `turn-step.ts`.
  */
 
-import { addUsage, emptyUsage, type TokenUsage } from '@moonshot-ai/kosong';
+import { addUsage, emptyUsage, type TokenUsage } from '#/app/llmProtocol';
 
 import type { ILogger as Logger } from '#/app/log';
 

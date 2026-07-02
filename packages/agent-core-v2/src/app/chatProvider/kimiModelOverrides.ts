@@ -11,10 +11,9 @@
 
 import {
   type ChatProvider,
-  type GenerationKwargs,
   KimiChatProvider,
-  type ThinkingEffort,
 } from '@moonshot-ai/kosong';
+import type { GenerationKwargs, ThinkingEffort } from '#/app/llmProtocol';
 
 export interface KimiModelOverrides {
   readonly temperature?: number;

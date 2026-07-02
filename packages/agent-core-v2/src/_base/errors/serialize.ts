@@ -9,7 +9,7 @@ import {
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol';
 
 import { CoreErrors, errorInfo, isErrorCode } from './codes';
 import type { ErrorCode } from './codes';

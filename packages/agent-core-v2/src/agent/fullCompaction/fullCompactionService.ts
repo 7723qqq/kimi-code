@@ -5,7 +5,7 @@ import {
   isContentPart,
   isRetryableGenerateError,
   type TokenUsage,
-  } from '@moonshot-ai/kosong';
+  } from '#/app/llmProtocol';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 

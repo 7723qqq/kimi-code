@@ -3,7 +3,8 @@
  * chat provider.
  */
 
-import type { ChatProvider, ModelCapability } from '@moonshot-ai/kosong';
+import type { ChatProvider } from '@moonshot-ai/kosong';
+import type { ModelCapability } from '#/app/llmProtocol';
 
 export interface CompletionBudgetConfig {
   readonly hardCap?: number;

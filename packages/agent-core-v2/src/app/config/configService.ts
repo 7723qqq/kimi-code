@@ -15,8 +15,6 @@
  * already-loaded raw value and re-runs overlays. Bound at App scope.
  */
 
-import { basename } from 'pathe';
-
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -246,7 +244,7 @@ export class ConfigService extends Disposable implements IConfigService {
     @IAtomicTomlDocumentStore private readonly documentStore: IAtomicDocumentStore,
   ) {
     super();
-    this.configKey = basename(this.bootstrap.configPath);
+    this.configKey = this.bootstrap.configKey;
     this._register(this.registry.onDidRegisterSection((e) => this.revalidateDomain(e.domain)));
     this._register(this.registry.onDidRegisterOverlay(() => this.reapplyOverlays()));
     this.ready = this.load('load');

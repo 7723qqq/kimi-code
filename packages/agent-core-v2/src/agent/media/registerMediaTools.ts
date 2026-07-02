@@ -13,7 +13,8 @@
  * left to the composition root, which owns the auth resolver.
  */
 
-import type { ChatProvider, ModelCapability } from '@moonshot-ai/kosong';
+import type { ChatProvider } from '@moonshot-ai/kosong';
+import type { ModelCapability } from '#/app/llmProtocol';
 
 import { toDisposable, type IDisposable } from '#/_base/di';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';

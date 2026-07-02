@@ -25,7 +25,7 @@ import {
   type ToolCall as KosongToolCall,
   type StreamedMessagePart,
   type TokenUsage,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol';
 
 import {
   Disposable,

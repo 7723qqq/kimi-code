@@ -10,7 +10,7 @@
  * instance per agent.
  */
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 

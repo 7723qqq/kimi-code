@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { TokenUsage } from '@moonshot-ai/kosong';
+import type { TokenUsage } from '#/app/llmProtocol';
 import type { ILogger as Logger } from '#/app/log';
 
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor';

@@ -1,4 +1,4 @@
-import type { FinishReason, TextPart, ThinkPart, TokenUsage } from '@moonshot-ai/kosong';
+import type { FinishReason, TextPart, ThinkPart, TokenUsage } from '#/app/llmProtocol';
 
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import type { ExecutableToolResult, ToolUpdate } from '#/agent/tool';

@@ -1,4 +1,4 @@
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol';
 
 export const HOOK_EVENT_TYPES = [
   'PreToolUse',

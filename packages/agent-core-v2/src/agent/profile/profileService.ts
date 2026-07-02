@@ -11,13 +11,14 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import type { ChatProvider, ProviderConfig } from '@moonshot-ai/kosong';
 import {
   UNKNOWN_CAPABILITY,
-  type ChatProvider,
+  type GenerationKwargs,
   type ModelCapability,
-  type ProviderConfig,
   type ThinkingEffort,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol';
+import { IModelResolver, type Model } from '#/app/model';
 import picomatch from 'picomatch';
 
 import { ErrorCodes, KimiError } from "#/errors";
@@ -79,6 +80,7 @@ export class AgentProfileService implements IAgentProfileService {
     @IConfigService private readonly config: IConfigService,
     @ISessionModelResolver private readonly modelResolver: ISessionModelResolver,
     @IChatProviderFactory private readonly chatProviders: IChatProviderFactory,
+    @IModelResolver private readonly modelFactory: IModelResolver,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
     @IExecContext private readonly execCtx: IExecContext,
@@ -95,7 +97,6 @@ export class AgentProfileService implements IAgentProfileService {
     record.define('tools.set_active_tools', {
       resume: (r) => {
         this.applyActiveToolNames(r.names);
-        this.initializeBuiltinTools();
       },
     });
   }
@@ -104,8 +105,6 @@ export class AgentProfileService implements IAgentProfileService {
     this.optionsValue = {
       cwd: options.cwd ?? this.optionsValue.cwd,
       chdir: options.chdir ?? this.optionsValue.chdir,
-      initializeBuiltinTools:
-        options.initializeBuiltinTools ?? this.optionsValue.initializeBuiltinTools,
       emitStatusUpdated: options.emitStatusUpdated ?? this.optionsValue.emitStatusUpdated,
     };
     if (this.cwdValue === undefined) {
@@ -228,6 +227,20 @@ export class AgentProfileService implements IAgentProfileService {
     return this.getProvider();
   }
 
+  resolveModel(): Model | undefined {
+    if (this.modelAlias === undefined) return undefined;
+    let model: Model = this.modelFactory.resolve(this.modelAlias);
+    model = model.withThinking(this.thinkingLevel);
+    const overrides = this.config.get<KimiModelOverrides>('modelOverrides');
+    if (overrides !== undefined) {
+      const kwargs: GenerationKwargs = {};
+      if (overrides.temperature !== undefined) kwargs.temperature = overrides.temperature;
+      if (overrides.topP !== undefined) kwargs.top_p = overrides.topP;
+      if (Object.keys(kwargs).length > 0) model = model.withGenerationKwargs(kwargs);
+    }
+    return model;
+  }
+
   getModelCapabilities(): ModelCapability {
     return this.tryResolvedProviderConfig()?.modelCapabilities ?? UNKNOWN_CAPABILITY;
   }
@@ -290,25 +303,16 @@ export class AgentProfileService implements IAgentProfileService {
     if (changed.activeToolNames !== undefined) {
       this.applyActiveToolNames(changed.activeToolNames);
     }
-    if (this.hasProvider() && (changed.cwd !== undefined || changed.modelAlias !== undefined)) {
-      this.optionsValue.initializeBuiltinTools?.();
-    }
     this.emitStatusUpdated();
   }
 
   private setActiveTools(names: readonly string[]): void {
     this.record.append({ type: 'tools.set_active_tools', names: [...names] });
     this.applyActiveToolNames(names);
-    this.initializeBuiltinTools();
   }
 
   private applyActiveToolNames(names: readonly string[]): void {
     this.activeToolNames = [...names];
-  }
-
-  private initializeBuiltinTools(): void {
-    if (!this.hasProvider()) return;
-    this.optionsValue.initializeBuiltinTools?.();
   }
 
   private emitStatusUpdated(): void {

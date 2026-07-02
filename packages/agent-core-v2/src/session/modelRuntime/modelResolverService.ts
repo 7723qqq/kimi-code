@@ -7,16 +7,10 @@
  * Session-scoped service; `modelResolverSeed` remains a host/test override seam.
  */
 
-import type {
-  ModelCapability,
-  ProviderConfig as RuntimeProviderConfig,
-  ProviderRequestAuth,
-} from '@moonshot-ai/kosong';
-import {
-  APIStatusError,
-  getModelCapability,
-  UNKNOWN_CAPABILITY,
-} from '@moonshot-ai/kosong';
+import type { ProviderConfig as RuntimeProviderConfig } from '@moonshot-ai/kosong';
+import { getModelCapability } from '@moonshot-ai/kosong';
+import type { ModelCapability, ProviderRequestAuth } from '#/app/llmProtocol';
+import { APIStatusError, UNKNOWN_CAPABILITY } from '#/app/llmProtocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
@@ -112,10 +106,20 @@ export class SessionModelResolver implements ISessionModelResolver {
       );
     }
 
-    if (!Number.isInteger(alias.maxContextSize) || alias.maxContextSize <= 0) {
+    if (
+      alias.maxContextSize === undefined ||
+      !Number.isInteger(alias.maxContextSize) ||
+      alias.maxContextSize <= 0
+    ) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
         `Model "${model}" must define a positive max_context_size in config.toml.`,
+      );
+    }
+    if (alias.model === undefined) {
+      throw new KimiError(
+        ErrorCodes.CONFIG_INVALID,
+        `Model "${model}" must define a wire-facing model name in config.toml.`,
       );
     }
 
@@ -219,7 +223,7 @@ function resolveModelCapabilities(
     audio_in: declared.has('audio_in') || detected.audio_in,
     thinking: declared.has('thinking') || declared.has('always_thinking') || detected.thinking,
     tool_use: declared.has('tool_use') || detected.tool_use,
-    max_context_tokens: alias.maxContextSize,
+    max_context_tokens: alias.maxContextSize ?? 0,
   };
 }
 
@@ -287,7 +291,7 @@ function toRuntimeProviderConfig(
       };
     }
     default: {
-      const exhaustive: never = provider.type;
+      const exhaustive: never = provider.type as never;
       throw new KimiError(
         ErrorCodes.MODEL_CONFIG_INVALID,
         `Unsupported provider type: ${String(exhaustive)}`,
@@ -305,6 +309,8 @@ function defaultHeadersField(
 
 function providerApiKey(provider: ProviderConfig): string | undefined {
   switch (provider.type) {
+    case undefined:
+      return provider.apiKey;
     case 'anthropic':
       return providerValue(provider.apiKey, provider.env, 'ANTHROPIC_API_KEY');
     case 'openai':

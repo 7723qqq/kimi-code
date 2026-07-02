@@ -5,7 +5,7 @@ import type {
   ToolDidExecuteContext,
   ToolWillExecuteContext,
 } from '#/agent/tool';
-import type { ToolCall } from '@moonshot-ai/kosong';
+import type { ToolCall } from '#/app/llmProtocol';
 import type { LoopEventDispatcher } from '#/agent/loop/events';
 import type { OrderedHookSlot } from '#/hooks';
 

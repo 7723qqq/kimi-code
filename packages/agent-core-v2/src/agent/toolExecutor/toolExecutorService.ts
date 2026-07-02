@@ -1,6 +1,6 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
 import { isUserCancellation } from "#/_base/utils/abort";
@@ -20,7 +20,7 @@ import type {
   ToolDidExecuteContext,
   ToolWillExecuteContext,
 } from '#/agent/tool';
-import type { ToolCall } from '@moonshot-ai/kosong';
+import type { ToolCall } from '#/app/llmProtocol';
 import { ILogService } from '#/app/log';
 import { isAbortError } from '#/agent/loop/errors';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';

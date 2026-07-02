@@ -2,7 +2,7 @@ import {
   createToolMessage,
   type ContentPart,
   type ToolCall,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol';
 
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import type { ExecutableToolResult } from '#/agent/tool';

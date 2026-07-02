@@ -15,7 +15,7 @@ import type {
   TokenUsage,
   Tool,
   ToolCall,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol';
 
 export interface ToolCallDelta {
   readonly toolCallId: string;

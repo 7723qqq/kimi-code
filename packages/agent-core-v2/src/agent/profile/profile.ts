@@ -4,6 +4,7 @@ import type {
   ProviderConfig,
   ThinkingEffort,
 } from '@moonshot-ai/kosong';
+import type { Model } from '#/app/model';
 
 import { createDecorator } from "#/_base/di";
 import type { ToolSource } from '#/agent/tool';
@@ -69,7 +70,6 @@ export type ProfileUpdateData = Partial<{
 export interface ProfileServiceOptions {
   readonly cwd?: string | (() => string | undefined);
   readonly chdir?: (cwd: string) => void | Promise<void>;
-  readonly initializeBuiltinTools?: () => void;
   readonly emitStatusUpdated?: () => void;
 }
 
@@ -122,6 +122,14 @@ export interface IAgentProfileService {
   data(): ProfileData;
   resolveModelContext(): ProfileModelContext;
   getProvider(): ChatProvider;
+  /**
+   * Return a runnable god-object `Model` for the currently-active model.
+   * Phase 3 addition — coexists with {@link getProvider} during the
+   * transitional period. Consumers migrating off the kosong `ChatProvider`
+   * surface should call this instead. Returns `undefined` when no model is
+   * configured yet (same shape as `hasModel()` returning false).
+   */
+  resolveModel(): Model | undefined;
   /**
    * The resolved chat provider for the active model. Equivalent to
    * {@link getProvider}, exposed as a property so media/video tooling (and

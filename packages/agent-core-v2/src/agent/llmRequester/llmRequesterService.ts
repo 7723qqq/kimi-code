@@ -9,15 +9,17 @@
  */
 
 import {
-  emptyUsage,
   generate,
   type ChatProvider,
+} from '@moonshot-ai/kosong';
+import {
+  emptyUsage,
   type GenerateCallbacks,
   type Message,
   type ProviderRequestAuth,
   type StreamDecodeStats,
   type Tool as KosongTool,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 

@@ -7,7 +7,7 @@
  * scope.
  */
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol';
 
 import { createDecorator } from '#/_base/di';
 import type { Turn } from '#/agent/turn';

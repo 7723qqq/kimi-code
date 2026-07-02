@@ -3,7 +3,7 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import type { Tool } from '@moonshot-ai/kosong';
+import type { Tool } from '#/app/llmProtocol';
 
 import { ILogService } from "#/app/log/log";
 import {

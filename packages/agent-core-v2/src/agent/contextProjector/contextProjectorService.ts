@@ -6,7 +6,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IAgentMicroCompactionService } from '#/agent/microCompaction';
-import type { ContentPart, Message, TextPart } from '@moonshot-ai/kosong';
+import type { ContentPart, Message, TextPart } from '#/app/llmProtocol';
 import { IAgentContextProjectorService } from './contextProjector';
 
 export class AgentContextProjectorService implements IAgentContextProjectorService {

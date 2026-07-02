@@ -1,6 +1,6 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import type { Tool as KosongTool } from '@moonshot-ai/kosong';
+import type { Tool as KosongTool } from '#/app/llmProtocol';
 
 import {
   Disposable,

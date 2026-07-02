@@ -8,11 +8,8 @@
  * through DI. Bound at Session scope.
  */
 
-import type {
-  ModelCapability,
-  ProviderConfig as RuntimeProviderConfig,
-  ProviderRequestAuth,
-} from '@moonshot-ai/kosong';
+import type { ProviderConfig as RuntimeProviderConfig } from '@moonshot-ai/kosong';
+import type { ModelCapability, ProviderRequestAuth } from '#/app/llmProtocol';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { IConfigService } from '#/app/config';

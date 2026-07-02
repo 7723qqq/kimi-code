@@ -1,4 +1,4 @@
-import type { Tool as KosongTool } from '@moonshot-ai/kosong';
+import type { Tool as KosongTool } from '#/app/llmProtocol';
 
 import { createDecorator, type IDisposable } from "#/_base/di";
 import type {
