@@ -7,9 +7,10 @@
  * identify a model (e.g. user-configured custom endpoint); `isUnknownCapability`
  * is the corresponding predicate.
  *
- * v2 owns the type names; the concrete registry still lives in kosong for now
- * and is queried by `IModelResolver` during Model construction.
+ * v2 owns the type names; the concrete registry lives in the vendored kosong
+ * copy under `./kosong` and is queried by `IModelResolver` during Model
+ * construction.
  */
 
-export { isUnknownCapability, UNKNOWN_CAPABILITY } from '@moonshot-ai/kosong';
-export type { ModelCapability } from '@moonshot-ai/kosong';
+export { isUnknownCapability, UNKNOWN_CAPABILITY } from './kosong';
+export type { ModelCapability } from './kosong';

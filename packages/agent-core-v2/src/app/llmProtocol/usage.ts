@@ -8,5 +8,5 @@
  * touches kosong directly.
  */
 
-export { addUsage, emptyUsage, grandTotal, inputTotal } from '@moonshot-ai/kosong';
-export type { TokenUsage } from '@moonshot-ai/kosong';
+export { addUsage, emptyUsage, grandTotal, inputTotal } from './kosong';
+export type { TokenUsage } from './kosong';
