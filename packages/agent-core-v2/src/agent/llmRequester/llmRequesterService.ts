@@ -15,10 +15,13 @@
 import { createHash } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import {
-  applyCompletionBudget,
-  resolveCompletionBudget,
-} from '#/app/model/completionBudget';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextProjectorService } from '#/agent/contextProjector';
+import { IAgentContextSizeService } from '#/agent/contextSize';
+import { IAgentProfileService } from '#/agent/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { IAgentUsageService } from '#/agent/usage';
+import { IConfigService } from '#/app/config';
 import {
   emptyUsage,
   isRetryableGenerateError,
@@ -26,15 +29,11 @@ import {
   type ThinkingEffort,
   type Tool,
 } from '#/app/llmProtocol';
-import type { Protocol } from '#/app/protocol';
-import { IConfigService } from '#/app/config';
-import type { KimiModelOverrides, Model, ModelRequestEvent } from '#/app/model';
 import { ILogService } from '#/app/log';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentContextProjectorService } from '#/agent/contextProjector';
-import { IAgentContextSizeService } from '#/agent/contextSize';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import type { KimiModelOverrides, Model, ModelRequestEvent } from '#/app/model';
+import { applyCompletionBudget, resolveCompletionBudget } from '#/app/model/completionBudget';
+import type { Protocol } from '#/app/protocol';
+
 import type {
   LLMRequestFinish,
   LLMRequestLogFields,
@@ -42,7 +41,6 @@ import type {
   LLMRequestPartHandler,
   LLMStreamTiming,
 } from './index';
-import { IAgentUsageService } from '#/agent/usage';
 import { IAgentLLMRequesterService } from './llmRequester';
 import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
@@ -153,7 +151,9 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     maxAttempts: number,
   ): Promise<LLMRequestFinish> {
     signal?.throwIfAborted();
-    const request = this.resolveRequest(requestOverridesForAttempt(overrides, attempt, maxAttempts));
+    const request = this.resolveRequest(
+      requestOverridesForAttempt(overrides, attempt, maxAttempts),
+    );
     return await this.runRequest(request, onPart, signal);
   }
 
@@ -202,7 +202,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const input = {
       systemPrompt: request.systemPrompt,
       tools: request.tools,
-      messages: request.messages,
+      messages: this.projector.project(request.messages),
     };
 
     let message: Message | undefined;
@@ -236,6 +236,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
 
     const usageModel = request.modelAlias;
     this.usage.record(usageModel, usage, request.usageContext);
+    this.contextSize.measured(request.messages, [message], usage);
 
     return {
       message,
@@ -263,12 +264,13 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       usedContextTokens: this.contextSize.getStatus().contextTokens,
     });
 
+    const messages = overrides.messages ?? this.context.get();
     return {
       model,
       modelAlias: resolved.modelAlias,
       systemPrompt: overrides.systemPrompt ?? this.profile.getSystemPrompt(),
       tools: [...(overrides.tools ?? this.defaultTools())],
-      messages: [...(overrides.messages ?? this.projector.project(this.context.get()))],
+      messages: [...messages],
       requestLogFields: overrides.requestLogFields,
       usageContext: overrides.usageContext,
     };
@@ -294,9 +296,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       this.log.info('llm config', { ...requestLogFields, ...config });
     }
 
-    const partialMessageCount = input.messages.filter(
-      (message) => message.partial === true,
-    ).length;
+    const partialMessageCount = input.messages.filter((message) => message.partial === true).length;
     const requestFields: {
       turnStep?: string;
       attempt?: string;

@@ -4,7 +4,6 @@ import type { AgentEvent } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester';
 import { IAgentProfileService } from '#/agent/profile';
@@ -50,14 +49,12 @@ export class AgentLoopService implements IAgentLoopService {
 
   readonly hooks: IAgentLoopService['hooks'] = {
     beforeStep: new OrderedHookSlot(),
-    onStepUsage: new OrderedHookSlot(),
     afterStep: new OrderedHookSlot(),
     onContextOverflow: new OrderedHookSlot(),
   };
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
@@ -196,21 +193,9 @@ export class AgentLoopService implements IAgentLoopService {
     });
 
     const usage = response.usage;
-    const usageContext = {
-      turnId,
-      signal,
-      usage,
-      stepNumber: currentStep,
-      stepUuid,
-      toolCallCount: response.message.toolCalls.length,
-      stopTurn: false,
-    };
-    await this.hooks.onStepUsage.run(usageContext);
-    this.recordContextSize(usage);
     const stopReason = deriveStepStopReason(response);
 
-    let effectiveStopReason: LoopStepStopReason =
-      usageContext.stopTurn && stopReason === 'tool_use' ? 'end_turn' : stopReason;
+    let effectiveStopReason: LoopStepStopReason = stopReason;
     if (effectiveStopReason === 'tool_use') {
       const toolResults = await this.toolExecutor.execute(response.message.toolCalls, {
         signal,
@@ -248,7 +233,7 @@ export class AgentLoopService implements IAgentLoopService {
       });
     }
 
-    const afterStepContext = { turnId, signal, continueTurn: false };
+    const afterStepContext = { turnId, signal, usage, continueTurn: false };
     try {
       await this.hooks.afterStep.run(afterStepContext);
     } catch {
@@ -263,13 +248,6 @@ export class AgentLoopService implements IAgentLoopService {
 
   private append(message: ContextMessage): void {
     this.context.splice(this.context.get().length, 0, [message]);
-  }
-
-  private recordContextSize(usage: TokenUsage): void {
-    const tokens =
-      usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
-    if (tokens <= 0) return;
-    this.contextSize.measured(this.context.get().length, tokens);
   }
 
   private emitStepCompleted(

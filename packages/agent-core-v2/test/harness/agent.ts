@@ -21,6 +21,51 @@ import {
 } from '@moonshot-ai/kosong';
 import { expect, vi } from 'vitest';
 
+import { toDisposable } from '#/_base/di';
+import { Event } from '#/_base/event';
+import type { PromisifyMethods } from '#/_base/utils/types';
+import { escapeXmlAttr } from '#/_base/utils/xml-escape';
+import type { BackgroundTaskInfo } from '#/agent/background';
+import {
+  IAgentBlobStoreService,
+  type IAgentBlobStoreService as AgentBlobStoreService,
+} from '#/agent/blobStore';
+import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import type { ContextMessage } from '#/agent/contextMemory';
+import { IAgentCronService } from '#/agent/cron/cron';
+import { AgentCronService } from '#/agent/cron/cronService';
+import type { HookEngine } from '#/agent/externalHooks/engine';
+import type { FullCompactionServiceOptions } from '#/agent/fullCompaction';
+import { AgentGoalService, IAgentGoalService, type GoalServiceOptions } from '#/agent/goal';
+import type { McpServiceOptions } from '#/agent/mcp';
+import { MICRO_COMPACTION_SECTION, type MicroCompactionConfig } from '#/agent/microCompaction';
+import type { PermissionGateOptions } from '#/agent/permissionGate';
+import type { PermissionMode } from '#/agent/permissionPolicy';
+import type { PermissionRule } from '#/agent/permissionRules';
+import { IAgentPlanService } from '#/agent/plan';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentRecordService } from '#/agent/record';
+import {
+  IAgentReplayBuilderService,
+  AgentReplayBuilderService,
+  type ReplayBuilderServiceOptions,
+} from '#/agent/replayBuilder';
+import type { AgentAPI } from '#/agent/rpc/core-api';
+import { IAgentSkillService } from '#/agent/skill/skill';
+import { AgentSkillService } from '#/agent/skill/skillService';
+import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/agent/tool';
+import type {
+  PersistedWireRecord,
+  WireRecord,
+  WireRecordRestoreOptions,
+  WireRecordRestoreResult,
+} from '#/agent/wireRecord';
+import { IOAuthService } from '#/app/auth/auth';
+import { IChatProviderFactory } from '#/app/chatProvider';
+import type { SkillCatalog } from '#/app/globalSkillCatalog/types';
+import type { ILogger, LogContext, LogLevel } from '#/app/log';
+import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   AgentBackgroundService,
@@ -90,37 +135,8 @@ import {
   type ServiceIdentifier,
   type AgentToolRunOverride,
 } from '#/index';
-import type { IProcess } from '#/session/process';
-import { IExecContext, createExecContext } from '#/session/execContext';
-import { ISessionSwarmService } from '#/session/swarm';
-import { Event } from '#/_base/event';
-import { toDisposable } from '#/_base/di';
-import type { PromisifyMethods } from '#/_base/utils/types';
 import type { ApprovalResponse } from '#/session/approval';
-import type { BackgroundTaskInfo } from '#/agent/background';
-import { IAgentBlobStoreService, type IAgentBlobStoreService as AgentBlobStoreService } from '#/agent/blobStore';
-import { IOAuthService } from '#/app/auth/auth';
-import { IChatProviderFactory } from '#/app/chatProvider';
-import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
-import type { EnabledPluginSessionStart } from '#/app/plugin/types';
-import { escapeXmlAttr } from '#/_base/utils/xml-escape';
-import { IAgentCronService } from '#/agent/cron/cron';
-import { AgentCronService } from '#/agent/cron/cronService';
-import type { HookEngine } from '#/agent/externalHooks/engine';
-import type { FullCompactionServiceOptions } from '#/agent/fullCompaction';
-import type { ILogger, LogContext, LogLevel } from '#/app/log';
-import type { McpServiceOptions } from '#/agent/mcp';
-import { MICRO_COMPACTION_SECTION, type MicroCompactionConfig } from '#/agent/microCompaction';
-import { ISessionModelResolver, SessionModelResolver, type ResolvedModel } from '#/session/modelRuntime';
-import type { PermissionGateOptions } from '#/agent/permissionGate';
-import type { PermissionMode } from '#/agent/permissionPolicy';
-import type { PermissionRule } from '#/agent/permissionRules';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { AgentGoalService, IAgentGoalService, type GoalServiceOptions } from '#/agent/goal';
-import { IAgentPlanService } from '#/agent/plan';
-import { ISessionQuestionService, type QuestionResult } from '#/session/question/question';
+import { IExecContext, createExecContext } from '#/session/execContext';
 import {
   ISessionInteractionService,
   type Interaction,
@@ -129,26 +145,18 @@ import {
   type InteractionResolution,
 } from '#/session/interaction';
 import {
-  IAgentReplayBuilderService,
-  AgentReplayBuilderService,
-  type ReplayBuilderServiceOptions,
-} from '#/agent/replayBuilder';
-import type { AgentAPI } from '#/agent/rpc/core-api';
-import { IAgentSkillService } from '#/agent/skill/skill';
+  ISessionModelResolver,
+  SessionModelResolver,
+  type ResolvedModel,
+} from '#/session/modelRuntime';
+import type { IProcess } from '#/session/process';
+import { ISessionQuestionService, type QuestionResult } from '#/session/question/question';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { AgentSkillService } from '#/agent/skill/skillService';
-import type { SkillCatalog } from '#/app/globalSkillCatalog/types';
-import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/agent/tool';
-import type {
-  PersistedWireRecord,
-  WireRecord,
-  WireRecordRestoreOptions,
-  WireRecordRestoreResult,
-} from '#/agent/wireRecord';
-import { IAgentRecordService } from '#/agent/record';
+import { ISessionSwarmService } from '#/session/swarm';
 import type { PathAccessOperation } from '#/session/workspaceContext';
-import { createFakeAgentFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 
+import { recordAgentEvents, type RecordedEventEntry } from '../snapshot/events';
+import { createFakeAgentFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import { createScriptedGenerate } from './scripted-generate';
 import {
   DEFAULT_TEST_SYSTEM_PROMPT,
@@ -156,7 +164,6 @@ import {
   type EventSnapshotEntry,
   type WireSnapshotEntry,
 } from './snapshots';
-import { recordAgentEvents, type RecordedEventEntry } from '../snapshot/events';
 
 const TEST_HOME_DIR = '/home/test';
 
@@ -295,11 +302,15 @@ export interface TestAgentOptions {
   readonly generate?: GenerateFn | undefined;
   readonly telemetry?: ITelemetryService | undefined;
   readonly persistence?: WireRecordPersistence | undefined;
-  readonly microCompaction?: {
-    readonly config?: Partial<MicroCompactionConfig> | undefined;
-  } | undefined;
+  readonly microCompaction?:
+    | {
+        readonly config?: Partial<MicroCompactionConfig> | undefined;
+      }
+    | undefined;
   readonly fullCompaction?: FullCompactionServiceOptions | undefined;
-  readonly hookEngine?: Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined;
+  readonly hookEngine?:
+    | Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
+    | undefined;
   readonly initialConfig?: Partial<KimiConfig> | undefined;
   readonly autoConfigure?: boolean | undefined;
   readonly [key: string]: unknown;
@@ -414,9 +425,15 @@ export function execEnvServices(override: ExecEnvOverride = {}): TestAgentServic
       reg.defineInstance(ISessionAgentFileSystem, resolveAgentFsOverride(override.agentFs));
     }
     if (override.processRunner !== undefined) {
-      reg.defineInstance(ISessionProcessRunner, resolveProcessRunnerOverride(override.processRunner));
+      reg.defineInstance(
+        ISessionProcessRunner,
+        resolveProcessRunnerOverride(override.processRunner),
+      );
     }
-    reg.defineDescriptor(ISessionWorkspaceContext, new SyncDescriptor(SessionWorkspaceContextService));
+    reg.defineDescriptor(
+      ISessionWorkspaceContext,
+      new SyncDescriptor(SessionWorkspaceContextService),
+    );
   });
 }
 
@@ -486,18 +503,26 @@ export function homeDirServices(homeDir: string | undefined): TestAgentServiceOv
 
 export function additionalDirServices(additionalDirs: readonly string[]): TestAgentServiceOverride {
   return sessionServices((reg) => {
-    reg.defineInstance(ISessionWorkspaceContext, createWorkspaceContextStub(process.cwd(), additionalDirs));
+    reg.defineInstance(
+      ISessionWorkspaceContext,
+      createWorkspaceContextStub(process.cwd(), additionalDirs),
+    );
   });
 }
 
-export function modelProviderServices(modelResolver: ISessionModelResolver): TestAgentServiceOverride {
+export function modelProviderServices(
+  modelResolver: ISessionModelResolver,
+): TestAgentServiceOverride {
   return sessionService(ISessionModelResolver, modelResolver);
 }
 
 export function modelProviderOptionServices(
   options: TestModelProviderOptions,
 ): TestAgentServiceOverride {
-  return sessionService(ISessionModelResolver, new SyncDescriptor(ConfigBackedModelResolver, [options]));
+  return sessionService(
+    ISessionModelResolver,
+    new SyncDescriptor(ConfigBackedModelResolver, [options]),
+  );
 }
 
 export function configServices(readConfig: () => KimiConfig): TestAgentServiceOverride {
@@ -508,10 +533,7 @@ export function wireRecordPersistenceServices(
   persistence: WireRecordPersistence,
   onRead: (event: PersistedWireRecord) => void = () => {},
 ): TestAgentServiceOverride {
-  return appService(
-    IAppendLogStore,
-    new PersistenceAppendLogStore(persistence, () => {}, onRead),
-  );
+  return appService(IAppendLogStore, new PersistenceAppendLogStore(persistence, () => {}, onRead));
 }
 
 export function logServices(logger: Logger): TestAgentServiceOverride {
@@ -539,9 +561,9 @@ export function externalHookServices(
   );
 }
 
-export function microCompactionServices(
-  options: { readonly config?: Partial<MicroCompactionConfig> },
-): TestAgentServiceOverride {
+export function microCompactionServices(options: {
+  readonly config?: Partial<MicroCompactionConfig>;
+}): TestAgentServiceOverride {
   return configServices(() => ({
     ...emptyConfig(),
     [MICRO_COMPACTION_SECTION]: options.config,
@@ -551,17 +573,19 @@ export function microCompactionServices(
 export function fullCompactionServices(
   options: FullCompactionServiceOptions,
 ): TestAgentServiceOverride {
-  return agentService(IAgentFullCompactionService, new SyncDescriptor(AgentFullCompactionService, [options]));
-}
-
-export function permissionModeServices(mode: PermissionMode): TestAgentServiceOverride {
   return agentService(
-    IAgentPermissionModeService,
-    createPermissionModeService(mode),
+    IAgentFullCompactionService,
+    new SyncDescriptor(AgentFullCompactionService, [options]),
   );
 }
 
-export function permissionRulesServices(rules: readonly PermissionRule[]): TestAgentServiceOverride {
+export function permissionModeServices(mode: PermissionMode): TestAgentServiceOverride {
+  return agentService(IAgentPermissionModeService, createPermissionModeService(mode));
+}
+
+export function permissionRulesServices(
+  rules: readonly PermissionRule[],
+): TestAgentServiceOverride {
   return agentService(IAgentPermissionRulesService, createPermissionRulesStub(rules));
 }
 
@@ -579,17 +603,19 @@ export function mcpServices(options: McpServiceOptions): TestAgentServiceOverrid
   return agentService(IAgentMcpService, new SyncDescriptor(AgentMcpService, [options]));
 }
 
-export function skillServices(input: ISessionSkillCatalog | SkillCatalog): TestAgentServiceOverride {
-  const catalogService = isSessionSkillCatalog(input)
-    ? input
-    : createSessionSkillCatalog(input);
+export function skillServices(
+  input: ISessionSkillCatalog | SkillCatalog,
+): TestAgentServiceOverride {
+  const catalogService = isSessionSkillCatalog(input) ? input : createSessionSkillCatalog(input);
   return [
     sessionService(ISessionSkillCatalog, catalogService),
     agentService(IAgentSkillService, new SyncDescriptor(AgentSkillService)),
   ];
 }
 
-function isSessionSkillCatalog(input: ISessionSkillCatalog | SkillCatalog): input is ISessionSkillCatalog {
+function isSessionSkillCatalog(
+  input: ISessionSkillCatalog | SkillCatalog,
+): input is ISessionSkillCatalog {
   return 'catalog' in input;
 }
 
@@ -604,15 +630,10 @@ function createSessionSkillCatalog(catalog: SkillCatalog): ISessionSkillCatalog 
 }
 
 export function agentToolServices(runOverride: AgentToolRunOverride): TestAgentServiceOverride {
-  return agentService(
-    IAgentToolService,
-    new SyncDescriptor(AgentToolService, [runOverride]),
-  );
+  return agentService(IAgentToolService, new SyncDescriptor(AgentToolService, [runOverride]));
 }
 
-export function swarmServices(
-  swarmService: ISessionSwarmService,
-): TestAgentServiceOverride {
+export function swarmServices(swarmService: ISessionSwarmService): TestAgentServiceOverride {
   return [
     sessionService(ISessionSwarmService, swarmService),
     agentService(IAgentSwarmService, new SyncDescriptor(AgentSwarmService)),
@@ -623,8 +644,13 @@ export function goalServices(options: GoalServiceOptions): TestAgentServiceOverr
   return agentService(IAgentGoalService, new SyncDescriptor(AgentGoalService, [options]));
 }
 
-export function replayServices(options: ReplayBuilderServiceOptions = {}): TestAgentServiceOverride {
-  return agentService(IAgentReplayBuilderService, new SyncDescriptor(AgentReplayBuilderService, [options]));
+export function replayServices(
+  options: ReplayBuilderServiceOptions = {},
+): TestAgentServiceOverride {
+  return agentService(
+    IAgentReplayBuilderService,
+    new SyncDescriptor(AgentReplayBuilderService, [options]),
+  );
 }
 
 /**
@@ -658,9 +684,10 @@ export function createTestAgent(...inputs: readonly TestAgentInput[]): AgentTest
   return new AgentTestContext(overrides, options);
 }
 
-function normalizeTestAgentInputs(
-  inputs: readonly TestAgentInput[],
-): { readonly options: TestAgentOptions; readonly overrides: readonly TestAgentServiceOverride[] } {
+function normalizeTestAgentInputs(inputs: readonly TestAgentInput[]): {
+  readonly options: TestAgentOptions;
+  readonly overrides: readonly TestAgentServiceOverride[];
+} {
   let options: TestAgentOptions = {};
   const overrides: TestAgentServiceOverride[] = [];
   for (const input of inputs) {
@@ -677,10 +704,7 @@ function isTestAgentOptions(input: TestAgentInput): input is TestAgentOptions {
   return !Array.isArray(input) && !('scope' in input);
 }
 
-function mergeTestAgentOptions(
-  base: TestAgentOptions,
-  next: TestAgentOptions,
-): TestAgentOptions {
+function mergeTestAgentOptions(base: TestAgentOptions, next: TestAgentOptions): TestAgentOptions {
   return {
     ...base,
     ...next,
@@ -688,13 +712,13 @@ function mergeTestAgentOptions(
       base.microCompaction === undefined && next.microCompaction === undefined
         ? undefined
         : {
-          ...base.microCompaction,
-          ...next.microCompaction,
-          config: {
-            ...base.microCompaction?.config,
-            ...next.microCompaction?.config,
+            ...base.microCompaction,
+            ...next.microCompaction,
+            config: {
+              ...base.microCompaction?.config,
+              ...next.microCompaction?.config,
+            },
           },
-        },
     initialConfig: {
       ...base.initialConfig,
       ...next.initialConfig,
@@ -903,10 +927,7 @@ export class AgentTestContext {
   readonly mockNextResponse = this.scriptedGenerate.mockNextResponse;
   readonly mockNextProviderResponse = this.scriptedGenerate.mockNextProviderResponse;
 
-  constructor(
-    overrides: readonly TestAgentServiceOverride[] = [],
-    options: TestAgentOptions = {},
-  ) {
+  constructor(overrides: readonly TestAgentServiceOverride[] = [], options: TestAgentOptions = {}) {
     this.options = options;
     this.serviceOverrides = flattenServiceOverrides(overrides);
     this.emitter.on('error', () => {});
@@ -916,131 +937,169 @@ export class AgentTestContext {
     const agentId = 'main';
     const persistence = options.persistence ?? new InMemoryWireRecordPersistence();
 
-    const appSeeds = collectScopeSeed([
-      (reg) => {
-        for (const [id, value] of bootstrapSeed({
-          homeDir: '/tmp/kimi-code-agent-app-v2-test',
-          cwd: this.cwd,
-          osHomeDir: TEST_HOME_DIR,
-          env: process.env,
-        })) {
-          reg.defineInstance(id, value);
-        }
-        // In-memory Storage-layer backend. The `InMemoryStorageService` is no
-        // longer auto-registered, so the harness seeds it here to keep a
-        // workable default for storage-backed services. Tests that need durable
-        // (file) storage override this via `homeDirServices(dir)` — overrides
-        // win over this base seed (see `collectScopeSeed`).
-        const memoryStorage = (): SyncDescriptor<IStorageService> =>
-          new SyncDescriptor(InMemoryStorageService, [], true);
-        reg.defineDescriptor(IStorageService, memoryStorage());
-        reg.defineDescriptor(IAppendLogStorage, memoryStorage());
-        reg.defineDescriptor(IAtomicDocumentStorage, memoryStorage());
-        reg.defineDescriptor(IBlobStorage, memoryStorage());
-        reg.defineInstance(IConfigService, configService(() => this.kimiConfig));
-        reg.defineInstance(
-          IAppendLogStore,
-          new PersistenceAppendLogStore(
-            persistence,
-            () => {},
-            (event) => {
-              this.recordHistory.push(cloneRecord(event));
-            },
-          ),
-        );
-        reg.defineInstance(ILogService, createLogService(undefined));
-        reg.defineInstance(
-          IChatProviderFactory,
-          createGenerateBackedChatProviderFactory(
-            options.generate ?? this.scriptedGenerate.generate,
-          ),
-        );
-        if (options.telemetry !== undefined) {
-          reg.defineInstance(ITelemetryService, options.telemetry);
-        }
-      },
-    ], this.serviceOverrides, 'app');
+    const appSeeds = collectScopeSeed(
+      [
+        (reg) => {
+          for (const [id, value] of bootstrapSeed({
+            homeDir: '/tmp/kimi-code-agent-app-v2-test',
+            cwd: this.cwd,
+            osHomeDir: TEST_HOME_DIR,
+            env: process.env,
+          })) {
+            reg.defineInstance(id, value);
+          }
+          // In-memory Storage-layer backend. The `InMemoryStorageService` is no
+          // longer auto-registered, so the harness seeds it here to keep a
+          // workable default for storage-backed services. Tests that need durable
+          // (file) storage override this via `homeDirServices(dir)` — overrides
+          // win over this base seed (see `collectScopeSeed`).
+          const memoryStorage = (): SyncDescriptor<IStorageService> =>
+            new SyncDescriptor(InMemoryStorageService, [], true);
+          reg.defineDescriptor(IStorageService, memoryStorage());
+          reg.defineDescriptor(IAppendLogStorage, memoryStorage());
+          reg.defineDescriptor(IAtomicDocumentStorage, memoryStorage());
+          reg.defineDescriptor(IBlobStorage, memoryStorage());
+          reg.defineInstance(
+            IConfigService,
+            configService(() => this.kimiConfig),
+          );
+          reg.defineInstance(
+            IAppendLogStore,
+            new PersistenceAppendLogStore(
+              persistence,
+              () => {},
+              (event) => {
+                this.recordHistory.push(cloneRecord(event));
+              },
+            ),
+          );
+          reg.defineInstance(ILogService, createLogService(undefined));
+          reg.defineInstance(
+            IChatProviderFactory,
+            createGenerateBackedChatProviderFactory(
+              options.generate ?? this.scriptedGenerate.generate,
+            ),
+          );
+          if (options.telemetry !== undefined) {
+            reg.defineInstance(ITelemetryService, options.telemetry);
+          }
+        },
+      ],
+      this.serviceOverrides,
+      'app',
+    );
     this.root = createAppScope({ extra: appSeeds });
 
     const bootstrap = this.root.accessor.get(IBootstrapService);
     const workspaceId = 'test-workspace';
     const sessionScope = bootstrap.sessionScope(workspaceId, sessionId);
     this.session = this.root.createChild(LifecycleScope.Session, sessionId, {
-      extra: collectScopeSeed([
-        (reg) => {
-          reg.defineInstance(ISessionContext, {
-            _serviceBrand: undefined,
-            sessionId,
-            workspaceId,
-            sessionDir: bootstrap.sessionDir(workspaceId, sessionId),
-            metaScope: `${sessionScope}/session-meta`,
-            scope: (subKey?: string): string =>
-              subKey === undefined || subKey === '' ? sessionScope : `${sessionScope}/${subKey}`,
-          });
-          reg.defineInstance(ISessionInteractionService, this.createInteractionService());
-          reg.defineInstance(ISessionApprovalService, this.createApprovalService());
-          reg.defineInstance(ISessionQuestionService, this.createQuestionService());
-          reg.defineInstance(IExecContext, createExecContext(this.cwd));
-          // Note: `ISessionAgentFileSystem` and `ISessionProcessRunner` are
-          // auto-registered by their service files and backed by `IExecContext`.
-          // Tests that need a fake override them via `execEnvServices`.
-          reg.defineInstance(ISessionTerminalBackend, createTerminalBackend());
-          reg.defineDescriptor(ISessionWorkspaceContext, new SyncDescriptor(SessionWorkspaceContextService));
-          reg.defineDescriptor(ISessionModelResolver, new SyncDescriptor(ConfigBackedModelResolver, [{}]));
-        },
-      ], this.serviceOverrides, 'session'),
+      extra: collectScopeSeed(
+        [
+          (reg) => {
+            reg.defineInstance(ISessionContext, {
+              _serviceBrand: undefined,
+              sessionId,
+              workspaceId,
+              sessionDir: bootstrap.sessionDir(workspaceId, sessionId),
+              metaScope: `${sessionScope}/session-meta`,
+              scope: (subKey?: string): string =>
+                subKey === undefined || subKey === '' ? sessionScope : `${sessionScope}/${subKey}`,
+            });
+            reg.defineInstance(ISessionInteractionService, this.createInteractionService());
+            reg.defineInstance(ISessionApprovalService, this.createApprovalService());
+            reg.defineInstance(ISessionQuestionService, this.createQuestionService());
+            reg.defineInstance(IExecContext, createExecContext(this.cwd));
+            // Note: `ISessionAgentFileSystem` and `ISessionProcessRunner` are
+            // auto-registered by their service files and backed by `IExecContext`.
+            // Tests that need a fake override them via `execEnvServices`.
+            reg.defineInstance(ISessionTerminalBackend, createTerminalBackend());
+            reg.defineDescriptor(
+              ISessionWorkspaceContext,
+              new SyncDescriptor(SessionWorkspaceContextService),
+            );
+            reg.defineDescriptor(
+              ISessionModelResolver,
+              new SyncDescriptor(ConfigBackedModelResolver, [{}]),
+            );
+          },
+        ],
+        this.serviceOverrides,
+        'session',
+      ),
     });
     const workspace = this.session.accessor.get(ISessionWorkspaceContext);
 
     this.agent = this.session.createChild(LifecycleScope.Agent, agentId, {
-      extra: collectScopeSeed([
-        (reg) => {
-          reg.defineDescriptor(IAgentWireRecordService, new SyncDescriptor(RecordingWireRecordService, [
-            (event: PersistedWireRecord) => this.captureRecord(event),
-          ]));
-          reg.defineDescriptor(IAgentProfileService, new SyncDescriptor(AgentProfileService));
-          reg.defineDescriptor(IAgentLLMRequesterService, new SyncDescriptor(AgentLLMRequesterService));
-          reg.defineDescriptor(
-            IAgentExternalHooksService,
-            new SyncDescriptor(AgentExternalHooksService, [
-              options.hookEngine === undefined ? {} : { hookEngine: options.hookEngine },
-            ]),
-          );
-          reg.defineDescriptor(IAgentMicroCompactionService, new SyncDescriptor(AgentMicroCompactionService));
-          reg.defineDescriptor(
-            IAgentFullCompactionService,
-            new SyncDescriptor(AgentFullCompactionService, [options.fullCompaction ?? {}]),
-          );
-          reg.defineDescriptor(
-            IAgentPermissionRulesService,
-            new SyncDescriptor(AgentPermissionRulesService),
-          );
-          reg.defineDescriptor(
-            IAgentPermissionGate,
-            new SyncDescriptor(AgentPermissionGate, [{
+      extra: collectScopeSeed(
+        [
+          (reg) => {
+            reg.defineDescriptor(
+              IAgentWireRecordService,
+              new SyncDescriptor(RecordingWireRecordService, [
+                (event: PersistedWireRecord) => this.captureRecord(event),
+              ]),
+            );
+            reg.defineDescriptor(IAgentProfileService, new SyncDescriptor(AgentProfileService));
+            reg.defineDescriptor(
+              IAgentLLMRequesterService,
+              new SyncDescriptor(AgentLLMRequesterService),
+            );
+            reg.defineDescriptor(
+              IAgentExternalHooksService,
+              new SyncDescriptor(AgentExternalHooksService, [
+                options.hookEngine === undefined ? {} : { hookEngine: options.hookEngine },
+              ]),
+            );
+            reg.defineDescriptor(
+              IAgentMicroCompactionService,
+              new SyncDescriptor(AgentMicroCompactionService),
+            );
+            reg.defineDescriptor(
+              IAgentFullCompactionService,
+              new SyncDescriptor(AgentFullCompactionService, [options.fullCompaction ?? {}]),
+            );
+            reg.defineDescriptor(
+              IAgentPermissionRulesService,
+              new SyncDescriptor(AgentPermissionRulesService),
+            );
+            reg.defineDescriptor(
+              IAgentPermissionGate,
+              new SyncDescriptor(AgentPermissionGate, [
+                {
+                  agentId,
+                } satisfies PermissionGateOptions,
+              ]),
+            );
+            reg.defineDescriptor(IAgentCronService, new SyncDescriptor(AgentCronService, [{}]));
+            reg.defineDescriptor(
+              IAgentBackgroundService,
+              new SyncDescriptor(AgentBackgroundService),
+            );
+            reg.defineDescriptor(IAgentMcpService, new SyncDescriptor(AgentMcpService, [{}]));
+            reg.defineDescriptor(
+              IAgentReplayBuilderService,
+              new SyncDescriptor(AgentReplayBuilderService, [{}]),
+            );
+            reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService, [{}]));
+            reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
+            reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
+            const agentScope = bootstrap.agentScope(workspaceId, sessionId, agentId);
+            reg.defineInstance(IAgentScopeContext, {
+              _serviceBrand: undefined,
               agentId,
-            } satisfies PermissionGateOptions]),
-          );
-          reg.defineDescriptor(IAgentCronService, new SyncDescriptor(AgentCronService, [{}]));
-          reg.defineDescriptor(IAgentBackgroundService, new SyncDescriptor(AgentBackgroundService));
-          reg.defineDescriptor(IAgentMcpService, new SyncDescriptor(AgentMcpService, [{}]));
-          reg.defineDescriptor(IAgentReplayBuilderService, new SyncDescriptor(AgentReplayBuilderService, [{}]));
-          reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService, [{}]));
-          reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
-          reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
-          const agentScope = bootstrap.agentScope(workspaceId, sessionId, agentId);
-          reg.defineInstance(IAgentScopeContext, {
-            _serviceBrand: undefined,
-            agentId,
-            scope: (subKey?: string): string =>
-              subKey === undefined || subKey === '' ? agentScope : `${agentScope}/${subKey}`,
-          });
-          reg.defineDescriptor(
-            IAgentToolService,
-            new SyncDescriptor(AgentToolService, [unavailableAgentToolRun()]),
-          );
-        },
-      ], this.serviceOverrides, 'agent'),
+              scope: (subKey?: string): string =>
+                subKey === undefined || subKey === '' ? agentScope : `${agentScope}/${subKey}`,
+            });
+            reg.defineDescriptor(
+              IAgentToolService,
+              new SyncDescriptor(AgentToolService, [unavailableAgentToolRun()]),
+            );
+          },
+        ],
+        this.serviceOverrides,
+        'agent',
+      ),
     });
 
     this.get(IAgentProfileService).configure({
@@ -1092,9 +1151,7 @@ export class AgentTestContext {
     return this.get(IAgentWireRecordService);
   }
 
-  async restorePersisted(
-    options?: WireRecordRestoreOptions,
-  ): Promise<WireRecordRestoreResult> {
+  async restorePersisted(options?: WireRecordRestoreOptions): Promise<WireRecordRestoreResult> {
     return this.wireRecord.restore(undefined, options);
   }
 
@@ -1192,7 +1249,7 @@ export class AgentTestContext {
     profile.update({ modelAlias: provider.model });
   }
 
-  contextData(): { readonly history: readonly ContextMessage[]; readonly tokenCount: number; } {
+  contextData(): { readonly history: readonly ContextMessage[]; readonly tokenCount: number } {
     const context = this.get(IAgentContextMemoryService);
     const contextSize = this.get(IAgentContextSizeService);
     return {
@@ -1207,7 +1264,9 @@ export class AgentTestContext {
     return projector.project(messages ?? context.get());
   }
 
-  toolsData(): Array<ReturnType<IAgentToolRegistryService['list']>[number] & { readonly active: boolean; }> {
+  toolsData(): Array<
+    ReturnType<IAgentToolRegistryService['list']>[number] & { readonly active: boolean }
+  > {
     const profile = this.get(IAgentProfileService);
     const toolRegistry = this.get(IAgentToolRegistryService);
     return toolRegistry.list().map((tool) => ({
@@ -1245,7 +1304,12 @@ export class AgentTestContext {
   appendLocalCommandStdout(content: string): void {
     this.appendMessage({
       role: 'user',
-      content: [{ type: 'text', text: `<local-command-stdout>\n${content.trim()}\n</local-command-stdout>` }],
+      content: [
+        {
+          type: 'text',
+          text: `<local-command-stdout>\n${content.trim()}\n</local-command-stdout>`,
+        },
+      ],
       toolCalls: [],
       origin: { kind: 'injection', variant: 'local-command-stdout' },
     });
@@ -1339,12 +1403,7 @@ export class AgentTestContext {
     return this.snapshots.onceAny(types);
   }
 
-  appendExchange(
-    _step: number,
-    userText: string,
-    assistantText: string,
-    tokenTotal: number,
-  ): void {
+  appendExchange(_step: number, userText: string, assistantText: string, tokenTotal: number): void {
     this.appendUserText(userText);
     this.appendAssistantMessage({
       role: 'assistant',
@@ -1452,7 +1511,7 @@ export class AgentTestContext {
     this.appendToolResult('call_open_one', 'one result');
   }
 
-  compactHistory(): Array<{ readonly role: string; readonly text: string; }> {
+  compactHistory(): Array<{ readonly role: string; readonly text: string }> {
     const context = this.get(IAgentContextMemoryService);
     return context.get().map((message) => ({
       role: message.role,
@@ -1471,9 +1530,9 @@ export class AgentTestContext {
       createResumeNoSideEffectExecEnv(profile.data().cwd),
       configServices(() => configSnapshot),
       llmGenerateServices(failOnResumeGenerate),
-      wireRecordPersistenceServices(new InMemoryWireRecordPersistence(
-        withMetadata(this.recordHistory.map(cloneRecord)),
-      )),
+      wireRecordPersistenceServices(
+        new InMemoryWireRecordPersistence(withMetadata(this.recordHistory.map(cloneRecord))),
+      ),
     );
 
     try {
@@ -1740,7 +1799,7 @@ export class AgentTestContext {
     // rebuilds size and usage the same way the real loop does.
     const context = this.get(IAgentContextMemoryService);
     const contextSize = this.get(IAgentContextSizeService);
-    contextSize.measured(context.get().length, tokenTotal);
+    contextSize.measured(context.get(), [], usage);
     const profile = this.get(IAgentProfileService);
     const usageService = this.get(IAgentUsageService);
     usageService.record(profile.data().modelAlias ?? 'mock-model', usage, {
@@ -1777,7 +1836,7 @@ function createWorkspaceContextStub(
     setWorkDir: (next) => {
       workDir = resolve(next);
     },
-    resolve: (path) => isAbsolute(path) ? resolve(path) : resolve(workDir, path),
+    resolve: (path) => (isAbsolute(path) ? resolve(path) : resolve(workDir, path)),
     isWithin,
     assertAllowed: (absPath: string, op: PathAccessOperation) => {
       const target = isAbsolute(absPath) ? resolve(absPath) : resolve(workDir, absPath);
@@ -1849,7 +1908,7 @@ function createTerminalBackend(): ISessionTerminalBackend {
     _serviceBrand: undefined,
     spawn: async () => ({
       onData: Event.None as Event<string>,
-      onExit: Event.None as Event<{ exitCode: number | null; }>,
+      onExit: Event.None as Event<{ exitCode: number | null }>,
       write: () => {},
       resize: () => {},
       kill: () => {},
@@ -1954,10 +2013,7 @@ function emptyConfig(): KimiConfig {
   return configWithProvider({ providers: {} }, MOCK_PROVIDER, undefined);
 }
 
-function applyTestAgentOptionsToConfig(
-  config: KimiConfig,
-  options: TestAgentOptions,
-): KimiConfig {
+function applyTestAgentOptionsToConfig(config: KimiConfig, options: TestAgentOptions): KimiConfig {
   const initialConfig = options.initialConfig ?? {};
   return {
     ...config,
@@ -2143,11 +2199,7 @@ function capabilityNames(capabilities: ModelCapability | undefined): string[] {
   ].filter((capability): capability is string => capability !== undefined);
 }
 
-function toolCall(
-  id: string,
-  name: string,
-  args: unknown,
-): ContextMessage['toolCalls'][number] {
+function toolCall(id: string, name: string, args: unknown): ContextMessage['toolCalls'][number] {
   return {
     type: 'function',
     id,
@@ -2161,10 +2213,7 @@ function contentPartsFromToolOutput(output: ToolOutput): ContentPart[] {
   return [{ type: 'text', text: output }];
 }
 
-function createLogService(
-  logger: Logger | undefined,
-  bindings: LogContext = {},
-): ILogService {
+function createLogService(logger: Logger | undefined, bindings: LogContext = {}): ILogService {
   let level: LogLevel = 'debug';
   return {
     _serviceBrand: undefined,
@@ -2186,10 +2235,11 @@ function createLogService(
     debug: (message, payload) => {
       writeLog(logger, 'debug', message, payload, bindings);
     },
-    child: (childBindings) => createLogService(
-      logger?.child?.(childBindings) ?? logger?.createChild?.(childBindings) ?? logger,
-      { ...bindings, ...childBindings },
-    ),
+    child: (childBindings) =>
+      createLogService(
+        logger?.child?.(childBindings) ?? logger?.createChild?.(childBindings) ?? logger,
+        { ...bindings, ...childBindings },
+      ),
     flush: () => Promise.resolve(),
   };
 }
@@ -2219,14 +2269,7 @@ class GenerateBackedKimiChatProvider extends KimiChatProvider {
     history: KosongMessage[],
     options?: GenerateOptions,
   ): Promise<StreamedMessage> {
-    return generateBackedResponse(
-      this,
-      this.generateFn,
-      systemPrompt,
-      tools,
-      history,
-      options,
-    );
+    return generateBackedResponse(this, this.generateFn, systemPrompt, tools, history, options);
   }
 }
 
@@ -2250,14 +2293,7 @@ class GenerateBackedChatProvider implements ChatProvider {
     history: KosongMessage[],
     options?: GenerateOptions,
   ): Promise<StreamedMessage> {
-    return generateBackedResponse(
-      this,
-      this.generateFn,
-      systemPrompt,
-      tools,
-      history,
-      options,
-    );
+    return generateBackedResponse(this, this.generateFn, systemPrompt, tools, history, options);
   }
 
   withThinking(effort: ThinkingEffort): ChatProvider {
@@ -2270,15 +2306,10 @@ class GenerateBackedChatProvider implements ChatProvider {
   }
 
   withMaxCompletionTokens(maxCompletionTokens: number): ChatProvider {
-    return new GenerateBackedChatProvider(
-      this.config,
-      this.generateFn,
-      this.thinkingEffort,
-      {
-        ...this.modelParameters,
-        [completionBudgetParamName(this.config.type)]: maxCompletionTokens,
-      },
-    );
+    return new GenerateBackedChatProvider(this.config, this.generateFn, this.thinkingEffort, {
+      ...this.modelParameters,
+      [completionBudgetParamName(this.config.type)]: maxCompletionTokens,
+    });
   }
 }
 
@@ -2337,7 +2368,9 @@ function completionBudgetParamName(type: ProviderConfig['type']): string {
   return 'max_tokens';
 }
 
-function partsFromGeneratedMessage(message: Awaited<ReturnType<GenerateFn>>['message']): StreamedMessagePart[] {
+function partsFromGeneratedMessage(
+  message: Awaited<ReturnType<GenerateFn>>['message'],
+): StreamedMessagePart[] {
   const parts: StreamedMessagePart[] = [
     ...message.content.map((part) => structuredClone(part)),
     ...message.toolCalls.map((part) => structuredClone(part)),
@@ -2345,7 +2378,9 @@ function partsFromGeneratedMessage(message: Awaited<ReturnType<GenerateFn>>['mes
   return parts.length > 0 ? parts : [{ type: 'text', text: '' }];
 }
 
-function normalizeProviderStreamParts(parts: readonly StreamedMessagePart[]): StreamedMessagePart[] {
+function normalizeProviderStreamParts(
+  parts: readonly StreamedMessagePart[],
+): StreamedMessagePart[] {
   const normalized: StreamedMessagePart[] = [];
   const pendingIndexedDeltas = new Map<number | string, StreamedMessagePart[]>();
   const seenIndexes = new Set<number | string>();
@@ -2379,10 +2414,7 @@ function normalizeProviderStreamParts(parts: readonly StreamedMessagePart[]): St
 
 function createStreamedMessage(
   parts: readonly StreamedMessagePart[],
-  meta: Pick<
-    Awaited<ReturnType<GenerateFn>>,
-    'id' | 'usage' | 'finishReason' | 'rawFinishReason'
-  >,
+  meta: Pick<Awaited<ReturnType<GenerateFn>>, 'id' | 'usage' | 'finishReason' | 'rawFinishReason'>,
 ): StreamedMessage {
   return {
     id: meta.id,

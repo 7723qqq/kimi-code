@@ -25,6 +25,7 @@ import {
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { ToolCall } from '#/app/llmProtocol';
 import { ILogService } from '#/app/log';
+import { ITelemetryService } from '#/app/telemetry';
 import { OrderedHookSlot } from '#/hooks';
 import {
   IAgentToolExecutorService,
@@ -52,6 +53,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
   constructor(
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
     @ILogService private readonly log?: ILogService,
   ) {}
 
@@ -99,9 +101,24 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       results.push(finalized);
 
       await dispatchToolResult(call, finalized, options);
+      this.trackToolCall(call, finalized);
     }
 
     return results;
+  }
+
+  private trackToolCall(
+    call: PreflightedToolCall,
+    result: ToolResult,
+  ): void {
+    const properties: Record<string, string> = {
+      tool_name: call.toolName,
+      outcome: toolTelemetryOutcome(result),
+      duration_ms: 'TODO',
+      dup_type: 'TODO',
+    };
+    if (result.isError === true) properties['error_type'] = 'TODO';
+    this.telemetry.track('tool_call', properties);
   }
 
   private async prepareToolCall(
@@ -564,6 +581,24 @@ function normalizeToolResult(result: ExecutableToolResult): ToolResult {
     return { output, isError: true, stopTurn: result.stopTurn };
   }
   return { output, stopTurn: result.stopTurn };
+}
+
+function toolTelemetryOutcome(result: ToolResult): 'success' | 'error' | 'cancelled' {
+  if (result.isError !== true) return 'success';
+  const text = toolOutputText(result.output).toLowerCase();
+  return text.includes('aborted') ||
+    text.includes('cancelled') ||
+    text.includes('manually interrupted')
+    ? 'cancelled'
+    : 'error';
+}
+
+function toolOutputText(output: ToolResult['output']): string {
+  if (typeof output === 'string') return output;
+  return output
+    .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('');
 }
 
 function isMediaContentPart(part: ContentPart): boolean {

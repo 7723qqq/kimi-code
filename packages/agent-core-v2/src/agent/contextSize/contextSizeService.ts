@@ -1,18 +1,13 @@
-import {
-  Disposable,
-} from "#/_base/di";
-import {
-  estimateTokensForMessage,
-} from "#/_base/utils/tokens";
+import { Disposable } from '#/_base/di';
+import { InstantiationType } from '#/_base/di/extensions';
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { estimateTokensForMessage } from '#/_base/utils/tokens';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
-import {
-  IAgentContextSizeService,
-  type ContextSizeStatus,
-} from './contextSize';
-import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import type { Message, TokenUsage } from '#/app/llmProtocol';
+
+import { IAgentContextSizeService, type ContextSizeStatus } from './contextSize';
 
 declare module '#/agent/wireRecord' {
   interface WireRecordMap {
@@ -23,14 +18,16 @@ declare module '#/agent/wireRecord' {
   }
 }
 
-export class AgentContextSizeService
-  extends Disposable
-  implements IAgentContextSizeService
-{
+export class AgentContextSizeService extends Disposable implements IAgentContextSizeService {
   declare readonly _serviceBrand: undefined;
 
   private estimates: number[] = [];
   private measuredPrefixTokens: Array<number | null> = [0];
+  // A measurement that arrived before its target prefix existed in `estimates`
+  // (e.g. `llmRequester` measures `input + output` before the loop appends the
+  // assistant message). Promoted into `measuredPrefixTokens` once a later splice
+  // grows `estimates` to cover it.
+  private pendingMeasurement: { readonly length: number; readonly tokens: number } | null = null;
   private lastEmitted: ContextSizeStatus = {
     contextTokens: 0,
     contextTokensWithPending: 0,
@@ -65,7 +62,13 @@ export class AgentContextSizeService
     };
   }
 
-  measured(length: number, tokens: number): void {
+  measured(input: readonly Message[], output: readonly Message[], usage: TokenUsage): void {
+    // Only adopt the measurement when `input` still matches the live context.
+    // This rejects stale readings (e.g. the context was spliced, or the request
+    // used overridden messages) so a mismatched measurement cannot poison state.
+    if (!matchesContext(input, this.context.get())) return;
+    const length = input.length + output.length;
+    const tokens = tokenUsageTotal(usage);
     const record: AgentRecord<'context_size.measured'> = {
       type: 'context_size.measured',
       length,
@@ -98,15 +101,29 @@ export class AgentContextSizeService
       next[this.estimates.length] = Math.max(0, context.tokens);
     }
 
+    const pending = this.pendingMeasurement;
+    if (pending !== null) {
+      if (pending.length <= this.estimates.length) {
+        next[pending.length] = pending.tokens;
+        this.pendingMeasurement = null;
+      }
+    }
+
     this.measuredPrefixTokens = next;
     this.emitIfChanged();
   }
 
   private applyMeasurement(record: AgentRecord<'context_size.measured'>): void {
-    const length = clampMeasuredLength(record.length, this.estimates.length);
+    const length = normalizeMeasuredLength(record.length);
     const tokens = Math.max(0, record.tokens);
-    this.measuredPrefixTokens[length] = tokens;
-    this.emitIfChanged();
+    if (length <= this.estimates.length) {
+      this.measuredPrefixTokens[length] = tokens;
+      this.emitIfChanged();
+    } else {
+      // The target prefix does not exist yet; defer until a splice grows the
+      // context to cover it (see `pendingMeasurement`).
+      this.pendingMeasurement = { length, tokens };
+    }
   }
 
   private lastMeasuredPrefix(): { readonly length: number; readonly tokens: number } {
@@ -142,9 +159,21 @@ function clampDeleteCount(deleteCount: number, max: number): number {
   return Math.min(deleteCount, Math.max(0, max));
 }
 
-function clampMeasuredLength(length: number, max: number): number {
-  if (!Number.isFinite(length)) return max;
-  return Math.min(Math.max(0, Math.floor(length)), max);
+function normalizeMeasuredLength(length: number): number {
+  if (!Number.isFinite(length)) return 0;
+  return Math.max(0, Math.floor(length));
+}
+
+function matchesContext(input: readonly Message[], context: readonly ContextMessage[]): boolean {
+  if (input.length !== context.length) return false;
+  for (let index = 0; index < input.length; index += 1) {
+    if (input[index] !== context[index]) return false;
+  }
+  return true;
+}
+
+function tokenUsageTotal(usage: TokenUsage): number {
+  return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
 }
 
 function sum(values: readonly number[]): number {
