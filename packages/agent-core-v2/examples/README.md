@@ -77,6 +77,7 @@ Status: ✅ exists · ⬜ planned.
 | `wire-record` | ✅ | Ag | append-log primitive; `append` + `restore` replay chain |
 | `session` | ✅ | A/S | `sessionLifecycle` + `sessionMetadata`; session as a durable, tracked entity |
 | `sessionIndex` | ✅ | A | business-specific Store building a query read-model |
+| `session-skill` | ✅ | A/S | session skill catalog: load skills from the current `workDir` and inspect each skill's `source` provenance |
 | `agentLifecycle` | ⬜ | S | Agent-scope creation, parent/child |
 | `tool-framework` | ⬜ | Ag | registry pattern, runtime state |
 | `context` | ⬜ | Ag | event-sourced context, projection |
