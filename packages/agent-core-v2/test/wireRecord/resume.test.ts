@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
-  IAgentReplayBuilderService,
+  IAgentRecordService,
   type PersistedWireRecord,
   type PromptOrigin,
 } from '#/index';
@@ -483,7 +483,7 @@ describe('Agent resume', () => {
         origin: { kind: 'compaction_summary' },
       }),
     ]);
-    expect(ctx.get(IAgentReplayBuilderService).buildResult()).toEqual([
+    expect(ctx.get(IAgentRecordService).buildReplay()).toEqual([
       expect.objectContaining({
         type: 'message',
         message: expect.objectContaining({
@@ -519,7 +519,7 @@ describe('Agent resume', () => {
 
     await ctx.restorePersisted();
 
-    expect(ctx.get(IAgentReplayBuilderService).buildResult()).toEqual([
+    expect(ctx.get(IAgentRecordService).buildReplay()).toEqual([
       expect.objectContaining({
         type: 'compaction',
         result: 'cancelled',
@@ -632,7 +632,7 @@ describe('Agent resume', () => {
 
     await ctx.restorePersisted();
 
-    expect(ctx.get(IAgentReplayBuilderService).buildResult()).toContainEqual(
+    expect(ctx.get(IAgentRecordService).buildReplay()).toContainEqual(
       expect.objectContaining({
         type: 'message',
         message: expect.objectContaining({
@@ -733,7 +733,7 @@ describe('Agent resume', () => {
     await ctx.restorePersisted();
 
     expect(ctx.context.get()).toHaveLength(0);
-    expect(ctx.get(IAgentReplayBuilderService).buildResult()).toContainEqual(
+    expect(ctx.get(IAgentRecordService).buildReplay()).toContainEqual(
       expect.objectContaining({
         type: 'goal_updated',
         snapshot: expect.objectContaining({
@@ -847,7 +847,7 @@ describe('Agent resume', () => {
     expect(ctx.context.get()[0]?.role).toBe('user');
     expect(ctx.context.get()[1]?.role).toBe('assistant');
 
-    const replay = ctx.get(IAgentReplayBuilderService).buildResult();
+    const replay = ctx.get(IAgentRecordService).buildReplay();
     expect(replay).toHaveLength(2);
     expect(replay[0]).toMatchObject({
       type: 'message',

@@ -5,7 +5,6 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { OrderedHookSlot } from '#/hooks';
 import { IAgentEventSinkService } from '#/agent/eventSink';
-import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { AgentRecordService, IAgentRecordService } from '#/agent/record';
 import { IAgentUsageService, type UsageStatus } from '#/agent/usage';
 import { AgentUsageService } from '#/agent/usage/usageService';
@@ -242,12 +241,6 @@ function createUsageHarness(): {
           events.push(event);
         },
         on: () => toDisposable(() => {}),
-      });
-      reg.definePartialInstance(IAgentReplayBuilderService, {
-        push: () => {},
-        buildResult: () => [],
-        captureLiveRecords: false,
-        postRestoring: false,
       });
       reg.define(IAgentRecordService, AgentRecordService);
       reg.define(IAgentUsageService, AgentUsageService);

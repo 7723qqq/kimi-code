@@ -2,7 +2,6 @@ import {
   Disposable,
 } from "#/_base/di";
 import { OrderedHookSlot } from '#/hooks';
-import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 import { IAgentContextMemoryService } from './contextMemory';
 import { ensureMessageId } from './messageId';
@@ -36,7 +35,6 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
 
   constructor(
     @IAgentRecordService private readonly record: IAgentRecordService,
-    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
   ) {
     super();
     this._register(
@@ -87,9 +85,9 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
         : [];
     const messages = record.messages.map(ensureMessageId);
     this.history.splice(record.start, record.deleteCount, ...messages);
-    this.replayBuilder.removeLastMessages(new Set(removedMessages));
+    this.record.removeLastMessages(new Set(removedMessages));
     for (const message of messages) {
-      this.replayBuilder.push({ type: 'message', message });
+      this.record.push({ type: 'message', message });
     }
     void this.hooks.onSpliced.run({
       start: record.start,

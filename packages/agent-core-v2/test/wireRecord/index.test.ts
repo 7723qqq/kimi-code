@@ -5,12 +5,12 @@ import {
   IAgentContextMemoryService,
   IAgentContextSizeService,
   IAgentFullCompactionService,
-  IAgentReplayBuilderService,
+  IAgentRecordService,
   IAgentWireRecordService,
   type ContextMessage,
   type PersistedWireRecord,
 } from '#/index';
-import type { ReplayRangeOptions } from '#/agent/replayBuilder';
+import type { ReplayRangeOptions } from '#/agent/record';
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,
@@ -26,7 +26,7 @@ describe('AgentRecords persistence metadata', () => {
   let expectResumeMatches: boolean;
   let persistence: RecordingInMemoryWireRecordPersistence;
   let records: IAgentWireRecordService;
-  let replay: IAgentReplayBuilderService;
+  let replay: IAgentRecordService;
 
   beforeEach(() => {
     expectResumeMatches = true;
@@ -35,7 +35,7 @@ describe('AgentRecords persistence metadata', () => {
     context = ctx.get(IAgentContextMemoryService);
     contextSize = ctx.get(IAgentContextSizeService);
     records = ctx.get(IAgentWireRecordService);
-    replay = ctx.get(IAgentReplayBuilderService);
+    replay = ctx.get(IAgentRecordService);
   });
 
   afterEach(async () => {
@@ -237,7 +237,7 @@ describe('AgentRecords persistence metadata', () => {
 
     await expect(ctx.restorePersisted()).resolves.toEqual({});
     expect(context.get()).toHaveLength(0);
-    expect(replay.buildResult()).toEqual([
+    expect(replay.buildReplay()).toEqual([
       expect.objectContaining({
         type: 'goal_updated',
         snapshot: expect.objectContaining({ goalId: 'g1', status: 'active' }),
@@ -652,12 +652,12 @@ async function buildReplayFromPersistence(
     replayServices(range === undefined ? {} : { range }),
   );
   const fullCompaction = ctx.get(IAgentFullCompactionService);
-  const replay = ctx.get(IAgentReplayBuilderService);
+  const replay = ctx.get(IAgentRecordService);
   try {
     const isCompacting = fullCompaction.isCompacting;
     if (isCompacting) throw new Error('Unexpected active compaction before restore');
     await ctx.restorePersisted({ rewriteMigratedRecords: false });
-    return replay.buildResult();
+    return replay.buildReplay();
   } finally {
     try {
       await ctx.expectResumeMatches();

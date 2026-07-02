@@ -8,7 +8,7 @@
  * holds the model's CURRENT, folded context and is left untouched. For a live
  * session this adapter reads that folded history (its transcript is in memory
  * by definition); for a cold session it loads the session, restores the main
- * agent's wire log, and reads the FULL transcript from `IAgentReplayBuilderService`
+ * agent's wire log, and reads the FULL transcript from `IAgentRecordService`
  * (pre-compaction messages preserved, matching v1's `wire.jsonl` rebuild). The
  * `ContextMessage → Message` projection is shared with the `snapshot` and
  * `:undo` edges via `contextMemory/messageProjection`. Bound at App scope — a

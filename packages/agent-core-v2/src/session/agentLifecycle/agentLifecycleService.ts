@@ -35,10 +35,6 @@ import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry';
 import { IAgentWireRecordService, AgentWireRecordService } from '#/agent/wireRecord';
 import { IAgentBlobStoreService, AgentBlobStoreService } from '#/agent/blobStore';
 import {
-  IAgentReplayBuilderService,
-  AgentReplayBuilderService,
-} from '#/agent/replayBuilder';
-import {
   IAgentExternalHooksService,
   AgentExternalHooksService,
 } from '#/agent/externalHooks';
@@ -106,12 +102,11 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
           [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
           [IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService, [{}])],
           [IAgentMcpService, new SyncDescriptor(AgentMcpService, [{ manager: this.getMcpManager() }])],
-          // These two carry a leading static `options` param; the scoped
+          // External hooks carries a leading static `options` param; the scoped
           // registry supplies none, so seed an empty one to satisfy the DI
           // contract (static args must fill the slots before the first `@IX`).
-          // Kept delayed so they only instantiate (with their full dependency
-          // set) when a turn actually resolves them.
-          [IAgentReplayBuilderService, new SyncDescriptor(AgentReplayBuilderService, [{}], true)],
+          // Kept delayed so it only instantiates (with its full dependency set)
+          // when a turn actually resolves it.
           [IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService, [{}], true)],
         ],
       },
