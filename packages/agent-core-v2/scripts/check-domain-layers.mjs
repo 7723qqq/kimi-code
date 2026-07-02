@@ -62,6 +62,10 @@ const DOMAIN_LAYER = new Map([
   // it is a pure seed with no IO, so it sits in L1.
   ['sessionContext', 1],
   ['hostFs', 1],
+  // `git` is the App-scope `IGitService` that runs `git status` / `git diff`
+  // against a local repo via `node:child_process`; it depends only on `_base`
+  // and the `errors` facade, so it sits in L1 beside the other host bridges.
+  ['git', 1],
   ['workspaceContext', 1],
   ['chatProvider', 1],
   ['hooks', 1],

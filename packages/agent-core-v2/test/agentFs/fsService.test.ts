@@ -10,6 +10,8 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
+import { IGitService } from '#/app/git';
+import { ErrorCodes, KimiError } from '#/errors';
 import { ISessionAgentFileSystem } from '#/session/agentFs';
 import { ISessionFsService } from '#/session/agentFs/fs';
 import { SessionFsService } from '#/session/agentFs/fsService';
@@ -188,10 +190,27 @@ afterEach(() => {
   host = undefined;
 });
 
+function defaultGitStub(): IGitService {
+  return {
+    _serviceBrand: undefined,
+    status: async () => ({
+      branch: '',
+      ahead: 0,
+      behind: 0,
+      entries: {},
+      additions: 0,
+      deletions: 0,
+      pullRequest: null,
+    }),
+    diff: async () => ({ path: '', diff: '', truncated: false }),
+  };
+}
+
 function makeSession(
   files: Record<string, string>,
   handler: RunHandler,
   events: Array<{ event: string; properties: Record<string, unknown> }> = [],
+  git: IGitService = defaultGitStub(),
 ): ISessionFsService {
   host = createScopedTestHost();
   const session = host.child(LifecycleScope.Session, 's1', [
@@ -199,6 +218,7 @@ function makeSession(
     stubPair(ISessionAgentFileSystem, fakeFs(files)),
     stubPair(ISessionProcessRunner, fakeRunner(handler)),
     stubPair(ITelemetryService, telemetryStub(events)),
+    stubPair(IGitService, git),
   ]);
   return session.accessor.get(ISessionFsService);
 }
@@ -206,50 +226,72 @@ function makeSession(
 const emptyHandler: RunHandler = () => ({ stdout: '', exitCode: 0 });
 
 describe('SessionFsService.gitStatus', () => {
-  it('returns branch, entries, numstat, and null pull request', async () => {
-    const fs = makeSession({}, (args) => {
-      const cmd = args.join(' ');
-      if (cmd.includes('--is-inside-work-tree')) return { stdout: 'true\n', exitCode: 0 };
-      if (cmd.includes('status --porcelain')) {
-        return { stdout: '## main...origin/main\n M src/a.ts\n', exitCode: 0 };
-      }
-      if (cmd.includes('--verify') && cmd.includes('HEAD')) return { stdout: '', exitCode: 0 };
-      if (cmd.includes('--numstat')) return { stdout: '3\t1\tsrc/a.ts\n', exitCode: 0 };
-      if (args[0] === 'gh') return { stdout: '', exitCode: 1 };
-      return { stdout: '', exitCode: 0 };
-    });
-    const result = await fs.gitStatus({});
+  it('delegates to IGitService with the session cwd and a confined filter', async () => {
+    const calls: Array<{ cwd: string; filter: ReadonlySet<string> | undefined }> = [];
+    const git: IGitService = {
+      _serviceBrand: undefined,
+      status: async (cwd, filter) => {
+        calls.push({ cwd, filter });
+        return {
+          branch: 'main',
+          ahead: 0,
+          behind: 0,
+          entries: { 'src/a.ts': 'modified' },
+          additions: 3,
+          deletions: 1,
+          pullRequest: null,
+        };
+      },
+      diff: async () => ({ path: '', diff: '', truncated: false }),
+    };
+    const fs = makeSession({}, emptyHandler, [], git);
+    const result = await fs.gitStatus({ paths: ['src/a.ts'] });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.cwd).toBe(WORK_DIR);
+    expect(calls[0]?.filter).toEqual(new Set(['src/a.ts']));
     expect(result.branch).toBe('main');
     expect(result.entries).toEqual({ 'src/a.ts': 'modified' });
     expect(result.additions).toBe(3);
-    expect(result.deletions).toBe(1);
-    expect(result.pullRequest).toBeNull();
   });
 
-  it('throws FS_GIT_UNAVAILABLE when not a git repo', async () => {
-    const fs = makeSession({}, () => ({
-      stdout: '',
-      stderr: 'not a git repository',
-      exitCode: 128,
-    }));
+  it('propagates FS_GIT_UNAVAILABLE thrown by IGitService', async () => {
+    const git: IGitService = {
+      _serviceBrand: undefined,
+      status: async () => {
+        throw new KimiError(ErrorCodes.FS_GIT_UNAVAILABLE, 'git unavailable at /repo: not a repo');
+      },
+      diff: async () => ({ path: '', diff: '', truncated: false }),
+    };
+    const fs = makeSession({}, emptyHandler, [], git);
     await expect(fs.gitStatus({})).rejects.toMatchObject({ code: 'fs.git_unavailable' });
   });
 });
 
 describe('SessionFsService.diff', () => {
-  it('returns the unified diff for a tracked file', async () => {
-    const fs = makeSession({ 'src/a.ts': 'content' }, (args) => {
-      const cmd = args.join(' ');
-      if (cmd.includes('--is-inside-work-tree')) return { stdout: 'true\n', exitCode: 0 };
-      if (cmd.includes('status --porcelain')) return { stdout: ' M src/a.ts\n', exitCode: 0 };
-      if (cmd.includes('--verify') && cmd.includes('HEAD')) return { stdout: '', exitCode: 0 };
-      if (cmd.includes('diff') && cmd.includes('HEAD')) {
-        return { stdout: '-old\n+new\n', exitCode: 0 };
-      }
-      return { stdout: '', exitCode: 0 };
-    });
+  it('delegates to IGitService with confined rel and abs paths', async () => {
+    const calls: Array<{ cwd: string; rel: string; abs: string }> = [];
+    const git: IGitService = {
+      _serviceBrand: undefined,
+      status: async () => ({
+        branch: '',
+        ahead: 0,
+        behind: 0,
+        entries: {},
+        additions: 0,
+        deletions: 0,
+        pullRequest: null,
+      }),
+      diff: async (cwd, rel, abs) => {
+        calls.push({ cwd, rel, abs });
+        return { path: rel, diff: '-old\n+new\n', truncated: false };
+      },
+    };
+    const fs = makeSession({ 'src/a.ts': 'content' }, emptyHandler, [], git);
     const result = await fs.diff({ path: 'src/a.ts' });
-    expect(result.path).toBe('src/a.ts');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.cwd).toBe(WORK_DIR);
+    expect(calls[0]?.rel).toBe('src/a.ts');
+    expect(calls[0]?.abs).toBe(resolve(WORK_DIR, 'src/a.ts'));
     expect(result.diff).toContain('+new');
     expect(result.truncated).toBe(false);
   });

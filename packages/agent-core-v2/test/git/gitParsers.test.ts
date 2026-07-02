@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseNumstat, parsePorcelain, parsePullRequest } from '#/session/agentFs/fsGit';
+import { parseNumstat, parsePorcelain, parsePullRequest } from '#/app/git/gitParsers';
 
 describe('parsePorcelain', () => {
   it('parses branch header and ahead/behind', () => {

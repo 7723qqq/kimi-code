@@ -2,9 +2,12 @@
  * `agentFs` domain (L2) — `ISessionFsService` implementation.
  *
  * Backs the fs REST surface (search / grep / git status / git diff) by
- * orchestrating `ISessionAgentFileSystem` (file IO) and `ISessionProcessRunner` (`rg` /
- * `git` / `gh`). Bound at Session scope — the workspace root and execution
- * environment come from the scope, so no `sessionId` is threaded through.
+ * orchestrating `ISessionAgentFileSystem` (file IO), `ISessionProcessRunner` (`rg`),
+ * and `IGitService` (git status / diff). Bound at Session scope — the workspace
+ * root and execution environment come from the scope, so no `sessionId` is
+ * threaded through. Git operations are delegated to the App-scoped
+ * `IGitService`; this service only confines paths and computes repo-relative
+ * paths before calling it.
  *
  * Path confinement is lexical (`ISessionWorkspaceContext.isWithin`); it does not
  * follow symlinks, matching the rest of v2 (`_base/tools/policies/path-access.ts`).
@@ -29,7 +32,6 @@ import {
   type FsListResponse,
   type FsMkdirRequest,
   type FsMkdirResponse,
-  type FsPullRequest,
   type FsReadRequest,
   type FsReadResponse,
   type FsSearchHit,
@@ -45,13 +47,13 @@ import ignore, { type Ignore } from 'ignore';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
-import { ISessionProcessRunner } from '#/session/process';
+import { IGitService } from '#/app/git';
 import { ITelemetryService } from '#/app/telemetry';
+import { ISessionProcessRunner } from '#/session/process';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 import { type AgentFileStat, ISessionAgentFileSystem } from './agentFs';
 import { type FsDownloadResolved, type FsPathResolved, ISessionFsService } from './fs';
-import { parseNumstat, parsePorcelain, parsePullRequest } from './fsGit';
 import { runCommand } from './fsProcess';
 import { ensureRgPath, type RgProbe, type RgResolution } from './rgLocator';
 import {
@@ -68,9 +70,6 @@ import {
 const SEARCH_HARD_CAP = 500;
 const GREP_TIMEOUT_MS = 30_000;
 const WALK_MAX_DEPTH = 64;
-const DIFF_MAX_BYTES = 1_048_576;
-const PR_SPAWN_TIMEOUT_MS = 5_000;
-const PULL_REQUEST_TTL_MS = 60_000;
 
 /** Hard cap for `fs:read` payloads (10 MiB). */
 const FS_READ_MAX_BYTES = 10 * 1024 * 1024;
@@ -86,10 +85,6 @@ export class SessionFsService implements ISessionFsService {
   declare readonly _serviceBrand: undefined;
 
   private readonly gitignoreCache = new Map<string, Ignore>();
-  private readonly pullRequestCache = new Map<
-    string,
-    { value: FsPullRequest | null; fetchedAt: number }
-  >();
   /**
    * Cached ripgrep resolution. `undefined` = not probed yet; `null` = probed
    * and unavailable (use the node fallback). Mirrors the old `rgAvailable`
@@ -102,6 +97,7 @@ export class SessionFsService implements ISessionFsService {
     @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
     @ISessionProcessRunner private readonly runner: ISessionProcessRunner,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IGitService private readonly git: IGitService,
   ) {}
 
   async list(req: FsListRequest): Promise<FsListResponse> {
@@ -446,159 +442,21 @@ export class SessionFsService implements ISessionFsService {
   async gitStatus(req: FsGitStatusRequest): Promise<FsGitStatusResponse> {
     const cwd = this.workspace.workDir;
 
-    let filterSet: Set<string> | undefined;
+    let filter: Set<string> | undefined;
     if (req.paths !== undefined && req.paths.length > 0) {
-      filterSet = new Set();
+      filter = new Set();
       for (const p of req.paths) {
-        filterSet.add(this.toRel(this.resolveWithin(p)));
+        filter.add(this.toRel(this.resolveWithin(p)));
       }
     }
 
-    const inside = await runCommand(
-      this.runner,
-      ['git', 'rev-parse', '--is-inside-work-tree'],
-      { cwd },
-    );
-    if (inside.exitCode !== 0 || inside.stdout.trim() !== 'true') {
-      throw this.gitUnavailable(cwd, inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`);
-    }
-
-    const porc = await runCommand(
-      this.runner,
-      ['git', 'status', '--porcelain=v1', '--branch'],
-      { cwd },
-    );
-    if (porc.exitCode !== 0) {
-      throw this.gitUnavailable(cwd, porc.stderr.trim() || `git status exit ${porc.exitCode}`);
-    }
-
-    const result = parsePorcelain(porc.stdout, filterSet);
-
-    const dirty = porc.stdout
-      .split('\n')
-      .some((line) => line.length > 0 && !line.startsWith('## '));
-    if (dirty) {
-      const head = await runCommand(
-        this.runner,
-        ['git', 'rev-parse', '--verify', '--quiet', 'HEAD'],
-        { cwd },
-      );
-      if (head.exitCode === 0) {
-        const numstat = await runCommand(
-          this.runner,
-          ['git', 'diff', '--no-color', '--numstat', 'HEAD', '--'],
-          { cwd },
-        );
-        if (numstat.exitCode === 0) {
-          const stats = parseNumstat(numstat.stdout);
-          result.additions = stats.additions;
-          result.deletions = stats.deletions;
-        }
-      }
-    }
-
-    result.pullRequest = await this.readPullRequest(cwd);
-    return result;
+    return this.git.status(cwd, filter);
   }
 
   async diff(req: FsDiffRequest): Promise<FsDiffResponse> {
     const cwd = this.workspace.workDir;
-    const rel = this.toRel(this.resolveWithin(req.path));
-
-    const inside = await runCommand(
-      this.runner,
-      ['git', 'rev-parse', '--is-inside-work-tree'],
-      { cwd },
-    );
-    if (inside.exitCode !== 0 || inside.stdout.trim() !== 'true') {
-      throw this.gitUnavailable(cwd, inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`);
-    }
-
-    const statusRes = await runCommand(
-      this.runner,
-      ['git', 'status', '--porcelain=v1', '--', rel],
-      { cwd },
-    );
-    if (statusRes.exitCode !== 0) {
-      throw this.gitUnavailable(cwd, statusRes.stderr.trim() || `git status exit ${statusRes.exitCode}`);
-    }
-    const untracked = statusRes.stdout.startsWith('??');
-
-    const headRes = await runCommand(
-      this.runner,
-      ['git', 'rev-parse', '--verify', '--quiet', 'HEAD'],
-      { cwd },
-    );
-    const hasHead = headRes.exitCode === 0;
-
-    let diffStdout: string;
-    if (untracked || !hasHead) {
-      const res = await runCommand(
-        this.runner,
-        ['git', 'diff', '--no-color', '--no-index', '--', '/dev/null', rel],
-        { cwd },
-      );
-      if (res.exitCode !== 0 && res.exitCode !== 1) {
-        throw this.gitUnavailable(cwd, res.stderr.trim() || `git diff exit ${res.exitCode}`);
-      }
-      diffStdout = res.stdout;
-    } else {
-      const res = await runCommand(
-        this.runner,
-        ['git', 'diff', '--no-color', 'HEAD', '--', rel],
-        { cwd },
-      );
-      if (res.exitCode !== 0) {
-        throw this.gitUnavailable(cwd, res.stderr.trim() || `git diff exit ${res.exitCode}`);
-      }
-      if (res.stdout.length === 0 && statusRes.stdout.length === 0) {
-        const exists = await this.fs.stat(rel).then(
-          () => true,
-          () => false,
-        );
-        if (!exists) {
-          throw new KimiError(ErrorCodes.FS_PATH_NOT_FOUND, `path not found: ${req.path}`, {
-            details: { path: req.path },
-          });
-        }
-      }
-      diffStdout = res.stdout;
-    }
-
-    const truncated = diffStdout.length > DIFF_MAX_BYTES;
-    return {
-      path: rel,
-      diff: truncated ? diffStdout.slice(0, DIFF_MAX_BYTES) : diffStdout,
-      truncated,
-    };
-  }
-
-  private async readPullRequest(cwd: string): Promise<FsPullRequest | null> {
-    const cached = this.pullRequestCache.get(cwd);
-    const now = Date.now();
-    if (cached !== undefined && now - cached.fetchedAt < PULL_REQUEST_TTL_MS) {
-      return cached.value;
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), PR_SPAWN_TIMEOUT_MS);
-    timer.unref?.();
-    try {
-      const res = await runCommand(
-        this.runner,
-        ['gh', 'pr', 'view', '--json', 'number,url,state'],
-        {
-          cwd,
-          env: { GH_NO_UPDATE_NOTIFIER: '1', GH_PROMPT_DISABLED: '1' },
-          signal: controller.signal,
-        },
-      );
-      const value = res.exitCode === 0 ? parsePullRequest(res.stdout) : null;
-      this.pullRequestCache.set(cwd, { value, fetchedAt: now });
-      return value;
-    } finally {
-      clearTimeout(timer);
-    }
+    const abs = this.resolveWithin(req.path);
+    return this.git.diff(cwd, this.toRel(abs), abs);
   }
 
   private async grepWithRg(
@@ -812,12 +670,6 @@ export class SessionFsService implements ISessionFsService {
     const rel = relative(cwd, abs);
     if (rel === '') return '.';
     return rel.split(sep).join('/');
-  }
-
-  private gitUnavailable(cwd: string, detail: string): KimiError {
-    return new KimiError(ErrorCodes.FS_GIT_UNAVAILABLE, `git unavailable at ${cwd}: ${detail}`, {
-      details: { cwd, detail },
-    });
   }
 }
 

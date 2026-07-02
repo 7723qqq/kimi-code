@@ -1,10 +1,11 @@
 /**
- * `agentFs` domain (L2) — pure git-output parsers.
+ * `git` domain (L1) — pure git-output parsers.
  *
  * Parses `git status --porcelain=v1 --branch`, `git diff --numstat`, and
  * `gh pr view --json` output into the protocol `FsGitStatusResponse` shape.
- * No IO, no DI — plain functions so they can be unit-tested directly. Ported
- * from v1 `services/fs/fsGit.ts`.
+ * No IO, no DI — plain functions so they can be unit-tested directly. Moved
+ * from `session/agentFs/fsGit.ts` (originally ported from v1
+ * `services/fs/fsGit.ts`).
  */
 
 import path from 'node:path';
@@ -13,7 +14,7 @@ import type { FsGitStatus, FsGitStatusResponse, FsPullRequest } from '@moonshot-
 
 export function parsePorcelain(
   stdout: string,
-  filter: Set<string> | undefined,
+  filter: ReadonlySet<string> | undefined,
 ): FsGitStatusResponse {
   const lines = stdout.split('\n');
   let branch = '';
