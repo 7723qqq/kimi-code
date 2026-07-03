@@ -12,6 +12,8 @@ export * from '#/app/telemetry';
 export * from '#/app/bootstrap';
 export * from '#/os/interface';
 export * from '#/os/backends/node-local';
+export * from '#/session/terminal';
+export * from '#/task';
 export { IEventService, type DomainEvent } from '#/app/event';
 export * from '#/app/llmProtocol';
 
@@ -42,7 +44,7 @@ export * from '#/agent/usage';
 export * from '#/agent/toolDedupe';
 
 export * from '#/agent/background';
-export * from '#/app/cronStore';
+export * from '#/app/cronPersistence';
 export * from '#/session/cron';
 import '#/agent/cron';
 
@@ -62,15 +64,19 @@ export * from '#/app/gateway';
 
 export * from '#/session/workspaceContext';
 export * from '#/app/workspaceRegistry';
+export * from '#/session/execContext';
+export * from '#/session/process';
 export * from '#/session/agentFs';
+export * from '#/app/hostFolderBrowser';
 export * from '#/persistence/interface';
 export * from '#/persistence/backends/node-fs';
 export * from '#/persistence/backends/memory';
 export * from '#/app/auth';
 export * from '#/app/authLegacy';
+export * from '#/app/file';
 
 // Ported agent services. These keep the current service boundaries during the migration.
-export * from '#/agent/blobStore';
+export * from '#/agent/blob';
 export * from '#/agent/contextMemory';
 export * from '#/agent/systemReminder';
 export * from '#/agent/contextProjector';
@@ -105,7 +111,7 @@ export {
   registerTool,
 } from '#/agent/toolRegistry';
 export type { ToolContribution, ToolContributionOptions } from '#/agent/toolRegistry';
-export * from '#/agent/toolStore';
+export * from '#/agent/toolState';
 export * from '#/agent/userTool';
 export * from '#/agent/wireRecord';
 export * from '#/agent/fileTools';
