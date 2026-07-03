@@ -9,6 +9,7 @@ import type { FileItem } from './MentionMenu.vue';
 import type { ActivationBadges, ConversationStatus, PermissionMode, QueuedPromptView } from '../../types';
 import type { AppModel, AppSkill, ThinkingLevel } from '../../api/types';
 import {
+  coerceThinkingForModel,
   commitLevel,
   effortLabel,
   isThinkingOn,
@@ -599,19 +600,27 @@ const currentModel = computed(() => {
 });
 const thinkingAvailability = computed(() => modelThinkingAvailability(currentModel.value));
 const thinkingSegments = computed(() => segmentsFor(currentModel.value));
+// The persisted level can be stale relative to the active model (e.g. a
+// boolean 'on'/'off' carried over when selecting another session). Coerce it
+// against the current model before deriving display state so an always-on
+// model never shows "thinking: off" and an effort model shows its concrete
+// level instead of the bare "thinking" tag.
+const coercedThinkingLevel = computed(() =>
+  coerceThinkingForModel(currentModel.value, props.thinking ?? 'off'),
+);
 // Runtime level clamped to the segments this model actually offers, so a
 // carried-over value never highlights a segment that doesn't exist here.
 const activeThinkingSegment = computed(() => {
   const segs = thinkingSegments.value;
-  const raw = props.thinking ?? 'off';
-  if (segs.includes(raw)) return raw;
+  const level = coercedThinkingLevel.value;
+  if (segs.includes(level)) return level;
   if (segs.includes('on')) return 'on';
   return segs[0] ?? 'off';
 });
 const thinkingOn = computed(() => {
   if (thinkingAvailability.value === 'always-on') return true;
   if (thinkingAvailability.value === 'unsupported') return false;
-  return isThinkingOn(props.thinking ?? 'off');
+  return isThinkingOn(coercedThinkingLevel.value);
 });
 // Single-segment (always-on boolean) or unsupported models can't be changed.
 const thinkingReadonly = computed(
@@ -622,7 +631,7 @@ const thinkingReadonly = computed(
 const thinkingSuffix = computed(() => {
   if (!thinkingOn.value) return '';
   const hasEfforts = (currentModel.value?.supportEfforts?.length ?? 0) > 0;
-  const level = props.thinking ?? 'off';
+  const level = coercedThinkingLevel.value;
   if (hasEfforts && level !== 'on') return t('composer.thinkingSuffixEffort', { level });
   return t('composer.thinkingSuffix');
 });
