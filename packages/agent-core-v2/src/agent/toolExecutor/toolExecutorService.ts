@@ -12,6 +12,7 @@ import {
 import { PathSecurityError } from '#/_base/tools/policies/path-access';
 import { isUserCancellation } from "#/_base/utils/abort";
 import { isAbortError } from '#/agent/loop/errors';
+import { IAgentRecordService } from '#/agent/record';
 import {
   ToolAccesses,
   type ExecutableTool,
@@ -20,6 +21,7 @@ import {
   type ToolDidExecuteContext,
   type ToolExecution,
   type ToolResult,
+  type ToolUpdate,
   type ToolWillExecuteContext,
 } from '#/agent/tool';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
@@ -58,6 +60,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
   constructor(
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @IAgentRecordService private readonly record: IAgentRecordService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ILogService private readonly log?: ILogService,
   ) {}
@@ -107,7 +110,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       const finalized = await this.finalizeToolResult(call, rawResult, options);
       results.push(finalized);
 
-      await dispatchToolResult(call, finalized, options);
+      await this.dispatchToolResult(call, finalized, options);
       this.trackToolCall(call, finalized, timedResult.durationMs, options.turnId);
     }
 
@@ -145,7 +148,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       output: string,
       displayFields?: ToolCallDisplayFields,
     ): { task: ToolExecutionTask } => {
-      dispatchToolCall(call, args, options, displayFields);
+      this.dispatchToolCall(call, args, options, displayFields);
       return {
         task: makeResolvedTask(makeErrorToolResult(call, args, output)),
       };
@@ -160,7 +163,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       stopBatchAfterThis?: boolean;
     } => {
       const toolResult = this.normalizeAndMergeResult(result, call.toolName, undefined);
-      dispatchToolCall(call, args, options, displayFields);
+      this.dispatchToolCall(call, args, options, displayFields);
       return {
         task: makeResolvedTask({
           toolCall: call.toolCall,
@@ -223,7 +226,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
     const executionMetadata = decision?.executionMetadata;
 
-    dispatchToolCall(call, call.args, options, displayFields);
+    this.dispatchToolCall(call, call.args, options, displayFields);
 
     return {
       task: {
@@ -240,7 +243,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     options: ToolExecutorExecuteOptions,
   ): ToolExecutionTask {
     const output = 'Tool skipped because a previous tool call stopped the turn.';
-    dispatchToolCall(call, call.args, options);
+    this.dispatchToolCall(call, call.args, options);
     return makeResolvedTask(makeErrorToolResult(call, call.args, output));
   }
 
@@ -295,7 +298,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         signal,
         onUpdate: (update) => {
           if (signal.aborted) return;
-          options.onProgress?.(call.toolCall.id, update);
+          this.dispatchToolProgress(call, update, options);
         },
       });
       rawResult = await raceWithGraceTimeout(executePromise, signal, call.toolName);
@@ -324,6 +327,51 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       approvalRule: execution?.approvalRule,
       stopBatchAfterThis: normalized.stopBatchAfterThis ?? execution?.stopBatchAfterThis,
     };
+  }
+
+  private dispatchToolCall(
+    call: PreflightedToolCall,
+    args: unknown,
+    options: ToolExecutorExecuteOptions,
+    displayFields?: ToolCallDisplayFields,
+  ): void {
+    this.record.signal({
+      type: 'tool.call.started',
+      turnId: options.turnId,
+      toolCallId: call.toolCall.id,
+      name: call.toolName,
+      args,
+      description: displayFields?.description,
+      display: displayFields?.display,
+    });
+  }
+
+  private async dispatchToolResult(
+    call: PreflightedToolCall,
+    result: ToolResult,
+    options: ToolExecutorExecuteOptions,
+  ): Promise<void> {
+    await options.onToolResult?.(call.toolCall.id, result);
+    this.record.signal({
+      type: 'tool.result',
+      turnId: options.turnId,
+      toolCallId: call.toolCall.id,
+      output: result.output,
+      isError: result.isError,
+    });
+  }
+
+  private dispatchToolProgress(
+    call: RunnableToolCall,
+    update: ToolUpdate,
+    options: ToolExecutorExecuteOptions,
+  ): void {
+    this.record.signal({
+      type: 'tool.progress',
+      turnId: options.turnId,
+      toolCallId: call.toolCall.id,
+      update,
+    });
   }
 
   private async finalizeToolResult(
@@ -502,38 +550,6 @@ function toolCallDisplayFieldsFromExecution(
     description: description !== undefined && description.length > 0 ? description : undefined,
     display,
   };
-}
-
-function dispatchToolCall(
-  call: PreflightedToolCall,
-  args: unknown,
-  options: ToolExecutorExecuteOptions,
-  displayFields?: ToolCallDisplayFields,
-): void {
-  options.dispatchProtocolEvent?.({
-    type: 'tool.call.started',
-    turnId: options.turnId,
-    toolCallId: call.toolCall.id,
-    name: call.toolName,
-    args,
-    description: displayFields?.description,
-    display: displayFields?.display,
-  });
-}
-
-async function dispatchToolResult(
-  call: PreflightedToolCall,
-  result: ToolResult,
-  options: ToolExecutorExecuteOptions,
-): Promise<void> {
-  await options.onToolResult?.(call.toolCall.id, result);
-  options.dispatchProtocolEvent?.({
-    type: 'tool.result',
-    turnId: options.turnId,
-    toolCallId: call.toolCall.id,
-    output: result.output,
-    isError: result.isError,
-  });
 }
 
 function makeResolvedTask(result: PreparedToolResult): ToolExecutionTask {

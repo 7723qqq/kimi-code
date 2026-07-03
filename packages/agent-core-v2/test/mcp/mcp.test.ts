@@ -16,8 +16,10 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { IAgentTurnService } from '#/agent/turn';
 import { IAgentProfileService } from '#/agent/profile';
+import { IAgentRecordService } from '#/agent/record';
 
 import { createTestAgent, mcpServices, type TestAgentContext } from '../harness';
+import { stubRecord } from '../contextMemory/stubs';
 import { stubTurnWithHooks } from '../turn/stubs';
 import { discoverTools, executeTool, fakeMcpClient } from './stubs';
 
@@ -139,6 +141,7 @@ describe('AgentMcpService', () => {
       on: () => toDisposable(() => {}),
     });
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
+    ix.stub(IAgentRecordService, stubRecord());
     ix.set(IAgentToolExecutorService, new SyncDescriptor(AgentToolExecutorService));
     ix.stub(IAgentTurnService, stubTurnWithHooks());
   });

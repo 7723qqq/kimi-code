@@ -2,18 +2,21 @@ import type { ToolCall } from '#/app/llmProtocol/kosong';
 import type { AgentEvent, ToolInputDisplay } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
+import { AgentRecordService, IAgentRecordService } from '#/agent/record';
 import { ToolAccesses, type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolResult, type ToolUpdate } from '#/agent/tool';
 import { IAgentToolExecutorService, AgentToolExecutorService, parseToolCallArguments } from '#/agent/toolExecutor';
 import { IAgentToolRegistryService, AgentToolRegistryService } from '#/agent/toolRegistry';
+import { IAgentWireRecordService } from '#/agent/wireRecord';
 import { ITelemetryService } from '#/app/telemetry';
+import { stubWireRecord } from '../contextMemory/stubs';
 import { registerLogServices } from '../log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 
 type ToolExecutorEvent =
-  | { readonly type: 'tool.result'; readonly toolCallId: string; readonly result: ToolResult }
-  | { readonly type: 'tool.progress'; readonly toolCallId: string; readonly update: ToolUpdate };
+  | { readonly type: 'tool.result'; readonly toolCallId: string; readonly result: ToolResult };
 
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
@@ -32,10 +35,15 @@ beforeEach(() => {
     additionalServices: (reg) => {
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
+      reg.defineInstance(IAgentWireRecordService, stubWireRecord());
       reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
       registerLogServices(reg);
     },
     strict: true,
+  });
+  ix.set(IAgentRecordService, new SyncDescriptor(AgentRecordService, [{}]));
+  ix.get(IAgentRecordService).on((event) => {
+    protocolEvents.push(event);
   });
   executor = ix.get(IAgentToolExecutorService);
   registry = ix.get(IAgentToolRegistryService);
@@ -359,9 +367,9 @@ describe('AgentToolExecutorService', () => {
 
     await execute([toolCall('call_progress', 'progress', {})]);
 
-    expect(events.filter((event) => event.type === 'tool.progress')).toEqual([
-      { type: 'tool.progress', toolCallId: 'call_progress', update: updates[0] },
-      { type: 'tool.progress', toolCallId: 'call_progress', update: updates[1] },
+    expect(protocolEvents.filter((event) => event.type === 'tool.progress')).toEqual([
+      { type: 'tool.progress', turnId: 0, toolCallId: 'call_progress', update: updates[0] },
+      { type: 'tool.progress', turnId: 0, toolCallId: 'call_progress', update: updates[1] },
     ]);
   });
 
@@ -534,12 +542,6 @@ function execute(calls: ToolCall[], signal?: AbortSignal): Promise<ToolResult[]>
     onToolResult: (toolCallId, result) => {
       events.push({ type: 'tool.result', toolCallId, result });
     },
-    dispatchProtocolEvent: (event) => {
-      protocolEvents.push(event);
-    },
-    onProgress: (toolCallId, update) => {
-      events.push({ type: 'tool.progress', toolCallId, update });
-    },
   });
 }
 
@@ -568,9 +570,9 @@ function pairedToolCallIds(): { readonly calls: string[]; readonly results: stri
           event.type === 'tool.call.started',
       )
       .map((event) => event.toolCallId),
-    results: events
+    results: protocolEvents
       .filter(
-        (event): event is Extract<ToolExecutorEvent, { type: 'tool.result' }> =>
+        (event): event is Extract<AgentEvent, { type: 'tool.result' }> =>
           event.type === 'tool.result',
       )
       .map((event) => event.toolCallId),

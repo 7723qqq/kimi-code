@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
 
-import type { AgentEvent } from '@moonshot-ai/protocol';
-
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester';
@@ -151,11 +149,8 @@ export class AgentLoopService implements IAgentLoopService {
 
     const stepUuid = randomUUID();
     const turnStep = `${turnId}.${String(currentStep)}`;
-    const emit = (event: AgentEvent): void => {
-      this.record.signal(event);
-    };
 
-    emit({ type: 'turn.step.started', turnId, step: currentStep, stepId: stepUuid });
+    this.record.signal({ type: 'turn.step.started', turnId, step: currentStep, stepId: stepUuid });
 
     const emitStreamPart = this.createStreamPartHandler(turnId);
     const response = await this.llmRequester.request(
@@ -164,7 +159,7 @@ export class AgentLoopService implements IAgentLoopService {
         retry: {
           maxAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
           onRetry: (retry) => {
-            emit({
+            this.record.signal({
               type: 'turn.step.retrying',
               turnId,
               step: currentStep,
@@ -201,16 +196,12 @@ export class AgentLoopService implements IAgentLoopService {
       const toolResults = await this.toolExecutor.execute(response.message.toolCalls, {
         signal,
         turnId,
-        dispatchProtocolEvent: emit,
         onToolResult: (toolCallId, result) => {
           this.append({
             ...createToolMessage(toolCallId, toolResultOutputForModel(result)),
             role: 'tool',
             isError: result.isError,
           });
-        },
-        onProgress: (toolCallId, update) => {
-          emit({ type: 'tool.progress', turnId, toolCallId, update });
         },
       });
       if (toolResults.some((r) => r.stopTurn === true)) {
