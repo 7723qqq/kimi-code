@@ -5,8 +5,7 @@
  * `DEFAULT_AGENT_SUBAGENT_PROFILES` map. `explore` carries its own system-
  * prompt overlay (formerly `EXPLORE_ROLE_ADDITIONAL`), the `<git-context>`
  * prompt prefix (formerly `withGitContext`), and the 200-char summary
- * distillation policy (formerly `SUMMARY_MIN_LENGTH` /
- * `SUMMARY_CONTINUATION_ATTEMPTS` in `runChildAgent.ts`).
+ * distillation policy now consumed by `observeChildAgentTurn`.
  *
  * Import-triggered registration: this module is side-effect-imported by
  * `#/app/agentProfileCatalog/builtin` so a top-level barrel load populates the

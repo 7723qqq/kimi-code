@@ -153,7 +153,6 @@ const DOMAIN_LAYER = new Map([
   ['fileTools', 4],
   ['shellTools', 4],
   ['llmRequester', 4],
-  ['externalHooks', 4],
   ['profile', 4],
   ['prompt', 4],
   ['replayBuilder', 4],
@@ -164,6 +163,8 @@ const DOMAIN_LAYER = new Map([
   ['mcp', 5],
   ['cron', 5],
   ['cronPersistence', 5],
+  ['agentTool', 5],
+  ['externalHooks', 5],
   // `btw` forks a single side-question sub-agent via `agentLifecycle`,
   // parallel to how the `Agent` tool spawns child agents. Agent-scope, L5.
   ['btw', 5],
@@ -239,6 +240,10 @@ function domainFromRel(rel, { exemptRootFile }) {
  *  - `permissionGate>approval`  : permissionGate(Agent) requests approval(Session broker).
  *  - `userTool>interaction`     : userTool(Agent) requests host-side execution
  *                                 through the Session interaction broker.
+ *  - `permissionPolicy>plan`     : plan-mode approval policies need the current
+ *                                 Agent plan state to approve/deny tool use.
+ *  - `permissionPolicy>swarm`    : swarm-mode approval policy needs the current
+ *                                 Agent swarm state to approve AgentSwarm.
  *  - `skill>turn`           : skill activate starts a turn (same Agent scope intent).
  *  - `turn>agentLifecycle` : turn cancels sub-agents via lifecycle handle.
  *  - `swarm>agentLifecycle`: swarm spawns/manages sub-agents.
@@ -264,6 +269,8 @@ const ALLOWED_EXCEPTIONS = new Set([
   '_base>hostEnvironment',
   'permissionGate>approval',
   'userTool>interaction',
+  'permissionPolicy>plan',
+  'permissionPolicy>swarm',
   'skill>turn',
   'turn>agentLifecycle',
   'swarm>agentLifecycle',

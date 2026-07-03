@@ -87,7 +87,8 @@ describe('Agent loop', () => {
       [wire] context.splice          { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "blocked" } ], "toolCalls": [], "providerMessageId": "mock-1" } ], "time": "<time>" }
       [emit] agent.status.updated    { "contextTokens": 0 }
       [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "filtered" }
-      [emit] turn.ended              { "turnId": 0, "reason": "filtered" }
+      [emit] turn.ended              { "turnId": 0, "reason": "failed", "error": { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered", "turnId": 0 }, "retryable": false } }
+      [emit] error                   { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered", "turnId": 0 }, "retryable": false }
     `);
 
     const rpcStepEnd = ctx.allEvents.find(
@@ -180,6 +181,43 @@ describe('Agent loop', () => {
       assistant: text "I will look it up."  calls call_lookup:Lookup { "query": "moon" }
       tool[call_lookup]: text "lookup-result"
   `);
+  });
+
+  it('lets non-external stop hooks continue a turn more than once', async () => {
+    profile.update({ activeToolNames: [] });
+    let continuations = 0;
+    loop.hooks.onWillStop.register('test-repeat-stop-continuation', async (hookCtx, next) => {
+      if (continuations < 2) {
+        continuations += 1;
+        hookCtx.continuationPrompt = `continue ${continuations}`;
+        return;
+      }
+      await next();
+    });
+
+    ctx.mockNextResponse({ type: 'text', text: 'First answer.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Second answer.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Third answer.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
+    await ctx.untilTurnEnd();
+
+    expect(continuations).toBe(2);
+    expect(ctx.llmCalls).toHaveLength(3);
+    expect(ctx.contextData().history).toContainEqual(
+      expect.objectContaining({
+        role: 'user',
+        content: [{ type: 'text', text: 'continue 1' }],
+        origin: { kind: 'system_trigger', name: 'stop_hook' },
+      }),
+    );
+    expect(ctx.contextData().history).toContainEqual(
+      expect.objectContaining({
+        role: 'user',
+        content: [{ type: 'text', text: 'continue 2' }],
+        origin: { kind: 'system_trigger', name: 'stop_hook' },
+      }),
+    );
   });
 });
 

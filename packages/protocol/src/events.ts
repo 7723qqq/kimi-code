@@ -230,6 +230,7 @@ export type KimiErrorCode =
   | 'context.overflow'
   | 'loop.max_steps_exceeded'
   | 'provider.api_error'
+  | 'provider.filtered'
   | 'provider.rate_limit'
   | 'provider.auth_error'
   | 'provider.connection_error'
@@ -339,7 +340,7 @@ export interface McpOAuthAuthorizationUrlUpdateData {
   readonly authorizationUrl: string;
 }
 
-export type TurnEndReason = 'completed' | 'cancelled' | 'failed' | 'filtered';
+export type TurnEndReason = 'completed' | 'cancelled' | 'failed' | 'blocked';
 
 export interface AgentStatusUpdatedEvent {
   readonly type: 'agent.status.updated';
@@ -960,6 +961,7 @@ export const kimiErrorCodeSchema = z.enum([
   'context.overflow',
   'loop.max_steps_exceeded',
   'provider.api_error',
+  'provider.filtered',
   'provider.rate_limit',
   'provider.auth_error',
   'provider.connection_error',
@@ -1058,7 +1060,7 @@ export const mcpOAuthAuthorizationUrlUpdateDataSchema = z.object({
   authorizationUrl: z.string(),
 }) satisfies z.ZodType<McpOAuthAuthorizationUrlUpdateData>;
 
-export const turnEndReasonSchema = z.enum(['completed', 'cancelled', 'failed', 'filtered']) satisfies z.ZodType<TurnEndReason>;
+export const turnEndReasonSchema = z.enum(['completed', 'cancelled', 'failed', 'blocked']) satisfies z.ZodType<TurnEndReason>;
 
 export const agentStatusUpdatedEventSchema = z.object({
   type: z.literal('agent.status.updated'),

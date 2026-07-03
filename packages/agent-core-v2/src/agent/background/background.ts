@@ -1,5 +1,6 @@
 import { createDecorator } from "#/_base/di";
 import type { ITaskHandle } from '#/app/task';
+import type { Hooks } from '#/hooks';
 import type {
   BackgroundTask,
   BackgroundTaskInfo,
@@ -80,8 +81,21 @@ export interface IBackgroundEntry {
   readonly onDidDetach: Promise<ForegroundTaskReleaseReason>;
 }
 
+export interface BackgroundNotificationContext {
+  readonly notificationType: string;
+  readonly title: string;
+  readonly body: string;
+  readonly severity: 'info' | 'warning';
+  readonly sourceKind: string;
+  readonly sourceId: string;
+}
+
 export interface IAgentBackgroundService {
   readonly _serviceBrand: undefined;
+
+  readonly hooks: Hooks<{
+    onDidNotify: BackgroundNotificationContext;
+  }>;
 
   /** Track a `ITaskHandle` (from `taskService.run()`). */
   track(handle: ITaskHandle, options: BackgroundTrackOptions): IBackgroundEntry;

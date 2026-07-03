@@ -3,6 +3,7 @@ import type {
   CompactionSource,
 } from './types';
 import { createDecorator } from "#/_base/di";
+import type { Hooks } from '#/hooks';
 
 export type FullCompactionCompleteData = Omit<CompactionResult, 'summary'>;
 
@@ -13,8 +14,23 @@ export interface CompactInput {
   readonly signal?: AbortSignal;
 }
 
+export interface FullCompactionWillCompactContext {
+  readonly trigger: CompactionSource;
+  readonly tokenCount: number;
+  readonly signal: AbortSignal;
+}
+
+export interface FullCompactionDidCompactContext {
+  readonly trigger: CompactionSource;
+  readonly estimatedTokenCount: number;
+}
+
 export interface IAgentFullCompactionService {
   readonly _serviceBrand: undefined;
+  readonly hooks: Hooks<{
+    onWillCompact: FullCompactionWillCompactContext;
+    onDidCompact: FullCompactionDidCompactContext;
+  }>;
   readonly isCompacting: boolean;
 
   begin(input: CompactInput): boolean;

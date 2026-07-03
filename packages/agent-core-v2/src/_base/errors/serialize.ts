@@ -33,6 +33,7 @@ export interface CodedErrorShape {
 }
 
 const PROVIDER_API_ERROR: ErrorCode = 'provider.api_error';
+const PROVIDER_FILTERED: ErrorCode = 'provider.filtered';
 const PROVIDER_RATE_LIMIT: ErrorCode = 'provider.rate_limit';
 const PROVIDER_AUTH_ERROR: ErrorCode = 'provider.auth_error';
 const PROVIDER_CONNECTION_ERROR: ErrorCode = 'provider.connection_error';
@@ -101,7 +102,8 @@ export function toErrorPayload(error: unknown): ErrorPayload {
     return makeErrorPayload(PROVIDER_CONNECTION_ERROR, error.message, { name: error.name });
   }
   if (error instanceof APIEmptyResponseError) {
-    return makeErrorPayload(PROVIDER_API_ERROR, error.message, {
+    const code = error.finishReason === 'filtered' ? PROVIDER_FILTERED : PROVIDER_API_ERROR;
+    return makeErrorPayload(code, error.message, {
       name: error.name,
       details: {
         finishReason: error.finishReason,

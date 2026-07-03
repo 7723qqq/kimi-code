@@ -6,6 +6,7 @@ import type { TurnResult } from './types';
 
 export interface TurnBeforeStepContext {
   readonly turnId: number;
+  readonly step: number;
   readonly signal: AbortSignal;
 }
 
@@ -21,12 +22,18 @@ export interface TurnContextOverflowContext {
   handled: boolean;
 }
 
+export interface TurnWillStopContext {
+  readonly signal: AbortSignal;
+  continuationPrompt?: string;
+}
+
 export interface IAgentLoopService {
   readonly _serviceBrand: undefined;
   readonly hooks: Hooks<{
     beforeStep: TurnBeforeStepContext;
     afterStep: TurnAfterStepContext;
     onContextOverflow: TurnContextOverflowContext;
+    onWillStop: TurnWillStopContext;
   }>;
   runTurn(turnId: number, signal?: AbortSignal): Promise<TurnResult>;
 }

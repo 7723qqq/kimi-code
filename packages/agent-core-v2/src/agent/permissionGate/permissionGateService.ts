@@ -13,7 +13,6 @@ import type {
 } from '#/agent/tool';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { ISessionApprovalService } from "#/session/approval/approval";
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import {
   IAgentPermissionPolicyService,
@@ -26,19 +25,26 @@ import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import {
   IAgentPermissionGate,
+  type PermissionApprovalRequestContext,
+  type PermissionApprovalResultContext,
   type PermissionGateOptions,
 } from './permissionGate';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { OrderedHookSlot } from '#/hooks';
 
 export class AgentPermissionGate extends Disposable implements IAgentPermissionGate {
   declare readonly _serviceBrand: undefined;
+  readonly hooks: IAgentPermissionGate['hooks'] = {
+    onDidRequestApproval: new OrderedHookSlot<PermissionApprovalRequestContext>(),
+    onDidResolveApproval: new OrderedHookSlot<PermissionApprovalResultContext>(),
+  };
+
   constructor(
     private readonly options: PermissionGateOptions = {},
     @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
     @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
     @IAgentPermissionPolicyService private readonly policyService: IAgentPermissionPolicyService,
-    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @ISessionContext private readonly session: ISessionContext,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -130,14 +136,14 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
     if (approvalService === undefined) {
       response = { decision: 'approved' };
     } else {
-      this.externalHooks.triggerPermissionRequest({
+      void this.hooks.onDidRequestApproval.run({
         turnId: context.turnId,
         toolCallId: context.toolCall.id,
         toolName: name,
         action,
         toolInput: context.args,
         display,
-      });
+      }).catch(() => undefined);
       try {
         response = await abortable(
           approvalService.request({
@@ -164,14 +170,14 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
           session_cache_written: false,
           has_feedback: false,
         });
-        this.externalHooks.triggerPermissionResult({
+        void this.hooks.onDidResolveApproval.run({
           turnId: context.turnId,
           toolCallId: context.toolCall.id,
           toolName: name,
           action,
           decision: 'error',
           error: error instanceof Error ? error.message : String(error),
-        });
+        }).catch(() => undefined);
         const resolved = result.resolveError?.(error);
         if (resolved !== undefined) {
           return this.permissionPolicyResolutionToAuthorize(resolved, context, policyName);
@@ -185,7 +191,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
         ? context.execution.approvalRule
         : undefined;
     if (approvalService !== undefined) {
-      this.externalHooks.triggerPermissionResult({
+      void this.hooks.onDidResolveApproval.run({
         turnId: context.turnId,
         toolCallId: context.toolCall.id,
         toolName: name,
@@ -194,7 +200,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
         scope: response.scope,
         feedback: response.feedback,
         selectedLabel: response.selectedLabel,
-      });
+      }).catch(() => undefined);
     }
     this.rulesService.recordApprovalResult({
       turnId: context.turnId,

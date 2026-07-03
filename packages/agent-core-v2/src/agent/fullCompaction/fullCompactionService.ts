@@ -9,7 +9,6 @@ import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import {
   IAgentLLMRequesterService,
   retryBackoffDelays,
@@ -40,6 +39,8 @@ import {
   IAgentFullCompactionService,
   type CompactInput,
   type FullCompactionCompleteData,
+  type FullCompactionDidCompactContext,
+  type FullCompactionWillCompactContext,
 } from './fullCompaction';
 import {
   RuntimeCompactionStrategy,
@@ -49,6 +50,7 @@ import {
   type CompactionBeginData,
   type CompactionResult,
 } from './types';
+import { OrderedHookSlot } from '#/hooks';
 
 declare module '#/agent/wireRecord' {
   interface WireRecordMap {
@@ -91,6 +93,11 @@ class CompactionTruncatedError extends Error {
 
 export class AgentFullCompactionService extends Disposable implements IAgentFullCompactionService {
   declare readonly _serviceBrand: undefined;
+  readonly hooks: IAgentFullCompactionService['hooks'] = {
+    onWillCompact: new OrderedHookSlot<FullCompactionWillCompactContext>(),
+    onDidCompact: new OrderedHookSlot<FullCompactionDidCompactContext>(),
+  };
+
   private readonly strategy: CompactionStrategy;
   private compactionCountInTurn = 0;
   private compacting: ActiveCompaction | null = null;
@@ -105,7 +112,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IAgentToolState private readonly toolStore: IAgentToolState,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentRecordService private readonly record: IAgentRecordService,
-    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IAgentTurnService turnService: IAgentTurnService,
     @IAgentLoopService loopService: IAgentLoopService,
   ) {
@@ -324,10 +330,10 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       if (this.compacting !== active) return;
       this.markCompleted(completeData(finalResult));
       this.record.signal({ type: 'compaction.completed', result: finalResult });
-      this.externalHooks.triggerPostCompact({
+      void this.hooks.onDidCompact.run({
         trigger: data.source,
         estimatedTokenCount: finalResult.tokensAfter,
-      });
+      }).catch(() => undefined);
     } catch (error) {
       if (isAbortError(error)) return;
       const blockedByTurn = this.compacting === active && active.blockedByTurn;
@@ -359,10 +365,11 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       let compactedCount = initialCompactedCount;
       signal.throwIfAborted();
 
-      await this.externalHooks.triggerPreCompact(
-        { trigger: data.source, tokenCount: tokensBefore },
+      await this.hooks.onWillCompact.run({
+        trigger: data.source,
+        tokenCount: tokensBefore,
         signal,
-      );
+      });
 
       const resolvedModel = this.profile.resolveModelContext();
       const maxContextTokens = resolvedModel.modelCapabilities.max_context_tokens;
@@ -389,6 +396,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
               {
                 messages,
                 maxOutputSize: compactionMaxOutputSize,
+                requestLogFields: { requestKind: 'full_compaction' },
               },
               undefined,
               signal,
