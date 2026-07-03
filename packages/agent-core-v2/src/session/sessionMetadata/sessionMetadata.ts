@@ -15,8 +15,14 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 export interface AgentMeta {
   /** Per-agent directory used as the wire-record `homedir` (persistence key). */
   readonly homedir: string;
-  /** Agent this one was cloned / derived from (provenance only; not used by business logic). */
+  /** Agent this one was forked / derived from (provenance only; not used by business logic). */
   readonly forkedFrom?: string;
+  /**
+   * Business-defined recorded values (e.g. the swarm's `swarmItem`), persisted
+   * verbatim. Never interpreted by the lifecycle.
+   */
+  readonly labels?: Readonly<Record<string, string>>;
+  /** @deprecated Legacy on-disk field predating `labels`; read-compat only. */
   readonly swarmItem?: string;
 }
 

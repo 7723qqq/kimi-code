@@ -6,22 +6,23 @@ import {
   type BackgroundTaskSink,
 } from './task';
 
-type SubagentCompletion = {
+type AgentTaskCompletion = {
   readonly result: string;
   readonly usage?: TokenUsage;
 };
 
-export type SubagentHandle = {
+/** Handle to an agent run launched by the `Agent` tool (or swarm). */
+export type AgentTaskHandle = {
   readonly agentId: string;
   readonly profileName: string;
-  readonly completion: Promise<SubagentCompletion>;
+  readonly completion: Promise<AgentTaskCompletion>;
 };
 
 export interface AgentBackgroundTaskInfo extends BackgroundTaskInfoBase {
   readonly kind: 'agent';
-  /** Subagent identifier accepted by Agent(resume=...). */
+  /** Agent identifier accepted by Agent(resume=...). */
   readonly agentId?: string;
-  /** Subagent profile name. */
+  /** Profile name of the agent. Wire DTO field name kept for compatibility. */
   readonly subagentType?: string;
 }
 
@@ -34,14 +35,14 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Create a `taskService.run()`-compatible executor that waits for a
- * subagent completion promise.  Resolves with the subagent result on
+ * Create a `taskService.run()`-compatible executor that waits for an
+ * agent-run completion promise.  Resolves with the agent's result on
  * success, throws on abort or failure.
  */
 export function createAgentExecutor(
-  handle: SubagentHandle,
+  handle: AgentTaskHandle,
   abortController: AbortController,
-): (signal: AbortSignal, output: (data: string) => void) => Promise<SubagentCompletion> {
+): (signal: AbortSignal, output: (data: string) => void) => Promise<AgentTaskCompletion> {
   return async (signal, output) => {
     const requestAbort = (): void => {
       abortController.abort(signal.reason);
@@ -74,7 +75,7 @@ export class AgentBackgroundTask implements BackgroundTask {
   readonly subagentType: string;
 
   constructor(
-    private readonly handle: SubagentHandle,
+    private readonly handle: AgentTaskHandle,
     readonly description: string,
     private readonly abortController: AbortController,
   ) {

@@ -7,7 +7,6 @@ import {
   type TestInstantiationService,
 } from '#/_base/di/test';
 import { Event } from '#/_base/event';
-import { IAgentToolService } from '#/agent/agentTool';
 import { IAgentBackgroundService } from '#/agent/background';
 import {
   AgentExternalHooksService,
@@ -138,9 +137,6 @@ describe('HookEngine integration', () => {
           });
           reg.definePartialInstance(IAgentBackgroundService, {
             hooks: createHooks(['onDidNotify']),
-          });
-          reg.definePartialInstance(IAgentToolService, {
-            hooks: createHooks(['onWillRunSubagent', 'onDidRunSubagent']),
           });
         },
       });

@@ -115,7 +115,7 @@ describe('server-v2 /api/v1 tools + mcp', () => {
     const session = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
     let agent = session.accessor.get(IAgentLifecycleService).getHandle('main');
-    agent ??= await session.accessor.get(IAgentLifecycleService).createMain();
+    agent ??= await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
     return agent;
   }
 

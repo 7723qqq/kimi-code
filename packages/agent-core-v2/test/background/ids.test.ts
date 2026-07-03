@@ -9,7 +9,7 @@ import {
   IAgentBackgroundService,
   ProcessBackgroundTask,
 } from '#/agent/background';
-import type { SubagentHandle } from '#/agent/background';
+import type { AgentTaskHandle } from '#/agent/background';
 import { createTestAgent, type TestAgentContext } from '../harness';
 import { createBackgroundTaskPersistence } from './stubs';
 
@@ -26,10 +26,9 @@ function agentTask(
   completion: Promise<{ result: string }>,
   description: string,
 ): AgentBackgroundTask {
-  const handle: SubagentHandle = {
+  const handle: AgentTaskHandle = {
     agentId: 'agent-child',
     profileName: 'coder',
-    resumed: false,
     completion,
   };
   return new AgentBackgroundTask(

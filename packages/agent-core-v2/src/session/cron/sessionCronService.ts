@@ -12,7 +12,7 @@ import type { ContentPart } from '#/app/llmProtocol';
 
 import { createDecorator } from '#/_base/di';
 import type { Turn } from '#/agent/turn';
-import type { CronTask, CronTaskInit } from '#/app/cronPersistence';
+import type { CronTask, CronTaskInit } from '#/app/cron';
 
 export interface CronLoadOptions {
   readonly replace?: boolean;

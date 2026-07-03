@@ -36,7 +36,7 @@ import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentProfileService } from '#/agent/profile';
 import { createExecContext, type IExecContext } from '#/session/execContext';
 import type { IProcess, ISessionProcessRunner } from '#/session/process';
-import { type BashInput, BashInputSchema, BashTool } from '#/agent/shellTools/tools/bash';
+import { type BashInput, BashInputSchema, BashTool } from '#/os/backends/node-local/tools/bash';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { createHooks } from '#/hooks';
 

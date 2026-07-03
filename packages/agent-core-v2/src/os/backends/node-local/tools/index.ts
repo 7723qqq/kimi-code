@@ -1,3 +1,4 @@
+export * from './bash';
 export * from './edit';
 export * from './glob';
 export * from './grep';
