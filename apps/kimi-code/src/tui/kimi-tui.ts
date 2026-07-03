@@ -7,7 +7,7 @@ import {
   type Focusable,
   getCapabilities,
   Spacer,
-} from '@earendil-works/pi-tui';
+} from '@moonshot-ai/pi-tui';
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
 import type {
   ApprovalRequest,
@@ -30,6 +30,7 @@ import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
+import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { BannerProvider } from './banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
@@ -205,7 +206,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     planMode: input.cliOptions.plan,
     inputMode: 'prompt',
     swarmMode: false,
-    thinking: false,
+    thinkingEffort: 'off',
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
@@ -216,6 +217,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     theme: input.tuiConfig.theme,
     version: input.version,
     editorCommand: input.tuiConfig.editorCommand,
+    disablePasteBurst: input.tuiConfig.disablePasteBurst,
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
     availableModels: {},
@@ -565,6 +567,9 @@ export class KimiTUI {
   }
 
   private startEventLoop(): void {
+    // Dispose any previous focus/clipboard/theme tracking so re-entering the
+    // event loop (e.g. a future TUI reconnect) can't stack duplicate listeners.
+    this.disposeTerminalTracking();
     this.state.ui.start();
     this.startClipboardImageHintController();
     this.terminalFocusTrackingDispose = installTerminalFocusTracking(this.state);
@@ -764,18 +769,42 @@ export class KimiTUI {
     this.unregisterSignalHandlers();
     this.aborted = true;
     this.streamingUI.discardPending();
-    this.editorKeyboard.clearPendingExit();
+    // Stop background polling, streaming intervals, and per-component timers
+    // before tearing the UI down, so they can't keep firing requestRender after
+    // stop() returns (or leak when stop() runs without process.exit).
+    this.tasksBrowserController.close();
+    this.btwPanelController.clear();
+    this.stopActivitySpinner();
+    this.streamingUI.disposeActiveCompactionBlock();
+    this.streamingUI.resetToolUi();
+    this.disposeTranscriptChildren();
+    this.editorKeyboard.dispose();
+    this.state.footer.dispose();
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
     }
     this.reverseRpcDisposers.length = 0;
     this.disposeTerminalTracking();
-    await this.closeSession('shutting down');
-    await this.harness.close();
-    this.sessionEventHandler.stopAllMcpServerStatusSpinners();
-    this.uninstallRainbowDance();
-    await this.state.terminal.drainInput();
-    this.state.ui.stop();
+    // Restore the terminal even if closing the session / harness throws — a
+    // SIGTERM during a network or MCP shutdown must not leave the user stuck in
+    // raw mode with a hidden cursor.
+    try {
+      await this.closeSession('shutting down');
+      await this.harness.close();
+    } finally {
+      this.sessionEventHandler.stopAllMcpServerStatusSpinners();
+      this.uninstallRainbowDance();
+      try {
+        await this.state.terminal.drainInput();
+      } catch {
+        // best effort — the terminal may already be dead (SIGHUP / EIO).
+      }
+      try {
+        this.state.ui.stop();
+      } catch {
+        // best effort terminal restore.
+      }
+    }
     if (this.onExit) {
       await this.onExit(exitCode);
     }
@@ -839,6 +868,10 @@ export class KimiTUI {
   private emergencyTerminalExit(exitCode = 129): never {
     this.isShuttingDown = true;
     this.unregisterSignalHandlers();
+    // Best-effort terminal restore: stop() may not have run (SIGHUP) or may
+    // have thrown (SIGTERM cleanup failure), so recover raw mode / cursor /
+    // bracketed paste before exiting instead of leaving the user's shell broken.
+    restoreTerminalModes();
     process.exit(exitCode);
   }
 
@@ -898,11 +931,11 @@ export class KimiTUI {
       this.showError('Cannot send input while session history is replaying.');
       return;
     }
-    // Shell commands (`! …`) are not prompts — keep them out of input history
-    // so ↑ recall never surfaces a bare command stripped of its `!`.
-    if (!wasBashMode) {
-      void this.persistInputHistory(text);
-    }
+    // Shell commands are stored with a leading `!` so ↑ recall can tell them
+    // apart from prompts and restore bash mode (see CustomEditor's mode-aware
+    // history navigation). The `!` is stripped again when the entry is recalled.
+    const historyText = wasBashMode ? `!${text}` : text;
+    void this.persistInputHistory(historyText);
     if (wasBashMode) {
       // Only one foreground action at a time: queue the shell command while
       // another shell command is running or an agent turn is in progress.
@@ -954,6 +987,8 @@ export class KimiTUI {
     // pane shows the moon spinner, and ctrl+b is enabled while it runs.
     this.setAppState({ streamingPhase: 'shell' });
     this.state.ui.requestRender();
+
+    this.track('shell_command');
 
     void session.runShellCommand(command, { commandId }).then(
       ({ stdout, stderr, isError, backgrounded }) => {
@@ -1385,8 +1420,7 @@ export class KimiTUI {
     const options: MutableCreateSessionOptions = {
       workDir: this.state.appState.workDir,
       model,
-      thinking:
-        this.session === undefined ? undefined : this.state.appState.thinking ? 'on' : 'off',
+      thinking: this.session === undefined ? undefined : this.state.appState.thinkingEffort,
       permission: this.state.appState.permissionMode,
       planMode: this.state.appState.planMode ? true : undefined,
     };
@@ -1410,7 +1444,7 @@ export class KimiTUI {
     this.setAppState({
       sessionId: session.id,
       model: status.model ?? '',
-      thinking: status.thinkingLevel !== 'off',
+      thinkingEffort: status.thinkingEffort,
       permissionMode: status.permission,
       planMode: status.planMode,
       swarmMode: status.swarmMode ?? false,
@@ -1489,6 +1523,7 @@ export class KimiTUI {
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
     }
+    this.reverseRpcDisposers.length = 0;
   }
 
   private registerSessionHandlers(session: Session): void {
@@ -1846,6 +1881,16 @@ export class KimiTUI {
     this.state.terminal.write(deleteAllKittyImages());
   }
 
+  private disposeTranscriptChildren(): void {
+    // Dispose disposable children (e.g. ShellRunComponent's 1s timer,
+    // ThinkingComponent's spinner) before dropping them, so a /clear, session
+    // switch, or shutdown can't leak intervals that keep firing requestRender
+    // on a removed component.
+    for (const child of this.state.transcriptContainer.children) {
+      if (hasDispose(child)) child.dispose();
+    }
+  }
+
   private clearTranscriptAndRedraw(): void {
     this.streamingUI.discardPending();
     this.state.transcriptEntries = [];
@@ -1853,12 +1898,7 @@ export class KimiTUI {
     this.streamingUI.resetLiveText();
     this.streamingUI.resetToolUi();
     this.sessionEventHandler.stopAllMcpServerStatusSpinners();
-    // Dispose disposable children (e.g. ShellRunComponent's 1s timer) before
-    // dropping them, so a /clear or session switch can't leak intervals that
-    // keep firing requestRender on a removed component.
-    for (const child of this.state.transcriptContainer.children) {
-      if (hasDispose(child)) child.dispose();
-    }
+    this.disposeTranscriptChildren();
     this.state.transcriptContainer.clear();
     this.btwPanelController.clear();
     this.clearTerminalInlineImages();
@@ -1866,6 +1906,11 @@ export class KimiTUI {
     this.state.todoPanelContainer.clear();
     this.imageStore.clear();
     this.renderWelcome();
+    // Session resets (/new, /clear, session switch) want a pristine screen.
+    // Force a destructive full render: the renderer's collapse repaint
+    // intentionally preserves scrollback, which would leave the previous
+    // session's text above the welcome banner.
+    this.state.ui.requestRender(true);
   }
 
   private isTurnBoundaryComponent(child: Component): boolean {
@@ -1904,6 +1949,15 @@ export class KimiTUI {
 
     const toRemove = turnsToTrim(turns, TRANSCRIPT_MAX_TURNS, TRANSCRIPT_HYSTERESIS);
     if (toRemove.size === 0) return false;
+
+    // Reclaim image bytes referenced by trimmed user messages. The transcript
+    // renders historical thumbnails via imageStore.get(id), so an attachment can
+    // only be dropped once its owning user message leaves the transcript.
+    for (const entry of toRemove) {
+      if (entry.kind === 'user' && entry.imageAttachmentIds !== undefined) {
+        this.imageStore.removeMany(entry.imageAttachmentIds);
+      }
+    }
 
     let boundariesToRemove = 0;
     for (const entry of toRemove) {
@@ -2232,6 +2286,10 @@ export class KimiTUI {
       case 'session': {
         this.stopActivitySpinner();
         this.syncAgentSwarmActivitySpinner(undefined);
+        // Keep a placeholder row so the activity area does not fully shrink
+        // when the spinner is removed at the end of streaming; combined with
+        // pi-tui's clamp, this avoids a destructive full redraw (viewport jump).
+        this.state.activityContainer.addChild(new Spacer(1));
         break;
       }
     }
@@ -2298,7 +2356,12 @@ export class KimiTUI {
       if (!isExpandable(child)) continue;
       child.setExpanded(this.state.toolOutputExpanded && i >= expandCutoff);
     }
-    this.state.ui.requestRender();
+    // Expanding/collapsing shifts content above the viewport; the clamped
+    // differential render would paint a second copy below the stale one in
+    // scrollback. This is a deliberate user action (like /clear), so do a
+    // destructive full render: scrollback holds exactly one copy and the
+    // expanded output can be read by scrolling up.
+    this.state.ui.requestRender(true);
   }
 
   toggleTodoPanelExpansion(): void {

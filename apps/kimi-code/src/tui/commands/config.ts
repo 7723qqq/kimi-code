@@ -1,25 +1,30 @@
-import type {
-  ExperimentalFeatureState,
-  FlagId,
-  PermissionMode,
-  Session,
+import {
+  effectiveModelAlias,
+  type ExperimentalFeatureState,
+  type ModelAlias,
+  type PermissionMode,
+  type Session,
+  type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { EditorSelectorComponent } from '../components/dialogs/editor-selector';
+import { EffortSelectorComponent } from '../components/dialogs/effort-selector';
 import {
   ExperimentsSelectorComponent,
   type ExperimentalFeatureDraftChange,
 } from '../components/dialogs/experiments-selector';
+import { modelDisplayName, segmentsFor } from '../components/dialogs/model-selector';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
 import { SettingsSelectorComponent, type SettingsSelection } from '../components/dialogs/settings-selector';
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
-import { saveTuiConfig } from '../config';
+import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import type { ThemeName } from '#/tui/theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import { thinkingEffortToConfig } from '../utils/thinking-config';
 import { showUsage } from './info';
 import { setExperimentalFeatures } from './experimental-flags';
 import type { SlashCommandHost } from './dispatch';
@@ -29,6 +34,16 @@ import type { SlashCommandHost } from './dispatch';
 // ---------------------------------------------------------------------------
 
 const MODEL_PICKER_REFRESH_TIMEOUT_MS = 2_000;
+
+function currentTuiConfig(host: SlashCommandHost): TuiConfig {
+  return {
+    theme: host.state.appState.theme,
+    editorCommand: host.state.appState.editorCommand,
+    disablePasteBurst: host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
+    notifications: host.state.appState.notifications,
+    upgrade: host.state.appState.upgrade,
+  };
+}
 
 export async function handlePlanCommand(host: SlashCommandHost, args: string): Promise<void> {
   const session = host.session;
@@ -212,6 +227,56 @@ export async function handleModelCommand(host: SlashCommandHost, args: string): 
   showModelPicker(host, alias);
 }
 
+export async function handleEffortCommand(host: SlashCommandHost, args: string): Promise<void> {
+  const alias = host.state.appState.model;
+  const model = host.state.appState.availableModels[alias];
+  if (model === undefined) {
+    host.showError('No model selected. Run /model to select one first.');
+    return;
+  }
+  const effective = effectiveModelAlias(model);
+  const segments = segmentsFor(effective);
+  const arg = args.trim().toLowerCase();
+  if (arg.length === 0) {
+    showEffortPicker(host, effective, segments);
+    return;
+  }
+  if (!segments.includes(arg)) {
+    host.showError(
+      `Unsupported thinking effort "${arg}" for ${alias}. Available: ${segments.join(', ')}`,
+    );
+    return;
+  }
+  await performModelSwitch(host, alias, arg, true);
+}
+
+function showEffortPicker(
+  host: SlashCommandHost,
+  model: ModelAlias,
+  segments: readonly string[],
+): void {
+  const liveEffort = host.state.appState.thinkingEffort;
+  const currentValue = segments.includes(liveEffort) ? liveEffort : (segments[0] ?? 'off');
+  const alias = host.state.appState.model;
+  host.mountEditorReplacement(
+    new EffortSelectorComponent({
+      efforts: segments,
+      currentValue,
+      onSelect: (effort) => {
+        host.restoreEditor();
+        void performModelSwitch(host, alias, effort, true);
+      },
+      onSessionOnlySelect: (effort) => {
+        host.restoreEditor();
+        void performModelSwitch(host, alias, effort, false);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Pickers & config apply
 // ---------------------------------------------------------------------------
@@ -273,10 +338,8 @@ async function applyEditorChoice(host: SlashCommandHost, value: string): Promise
   const editorCommand = value.length > 0 ? value : null;
   try {
     await saveTuiConfig({
-      theme: host.state.appState.theme,
+      ...currentTuiConfig(host),
       editorCommand,
-      notifications: host.state.appState.notifications,
-      upgrade: host.state.appState.upgrade,
     });
   } catch (error) {
     host.showStatus(
@@ -308,7 +371,7 @@ export function showModelPicker(host: SlashCommandHost, selectedValue: string = 
       models: host.state.appState.availableModels,
       currentValue: host.state.appState.model,
       selectedValue,
-      currentThinking: host.state.appState.thinking,
+      currentThinkingEffort: host.state.appState.thinkingEffort,
       onSelect: ({ alias, thinking }) => {
         host.restoreEditor();
         void performModelSwitch(host, alias, thinking, true);
@@ -327,7 +390,7 @@ export function showModelPicker(host: SlashCommandHost, selectedValue: string = 
 async function performModelSwitch(
   host: SlashCommandHost,
   alias: string,
-  thinking: boolean,
+  effort: ThinkingEffort,
   persist: boolean,
 ): Promise<void> {
   if (host.state.appState.streamingPhase !== 'idle') {
@@ -335,21 +398,23 @@ async function performModelSwitch(
     return;
   }
 
-  const level = thinking ? 'on' : 'off';
   const prevModel = host.state.appState.model;
-  const prevThinking = host.state.appState.thinking;
-  const runtimeChanged = alias !== prevModel || thinking !== prevThinking;
+  const prevEffort = host.state.appState.thinkingEffort;
+  const modelChanged = alias !== prevModel;
+  const effortChanged = effort !== prevEffort;
+  const runtimeChanged = modelChanged || effortChanged;
+  const displayName = modelDisplayName(alias, host.state.appState.availableModels[alias]);
 
   const session = host.session;
   try {
     if (session === undefined && runtimeChanged) {
-      await host.authFlow.activateModelAfterLogin(alias, thinking);
+      await host.authFlow.activateModelAfterLogin(alias, effort);
     } else if (session !== undefined) {
       if (alias !== prevModel) {
         await session.setModel(alias);
       }
-      if (thinking !== prevThinking) {
-        await session.setThinking(level);
+      if (effort !== prevEffort) {
+        await session.setThinking(effort);
       }
     }
   } catch (error) {
@@ -358,48 +423,65 @@ async function performModelSwitch(
     return;
   }
 
-  host.setAppState({ model: alias, thinking });
+  host.setAppState({ model: alias, thinkingEffort: effort });
   if (session === undefined && runtimeChanged) {
     if (alias !== prevModel) {
       host.track('model_switch', { model: alias });
     }
-    if (thinking !== prevThinking) {
-      host.track('thinking_toggle', { enabled: thinking });
+    if (effort !== prevEffort) {
+      host.track('thinking_toggle', {
+        enabled: effort !== 'off',
+        effort,
+        from: prevEffort,
+      });
     }
   }
 
   let persisted = false;
   if (persist) {
     try {
-      persisted = await persistModelSelection(host, alias, thinking);
+      persisted = await persistModelSelection(host, alias, effort);
     } catch (error) {
       const msg = formatErrorMessage(error);
-      host.showError(`Switched to ${alias}, but failed to save default: ${msg}`);
+      host.showError(`Switched to ${displayName}, but failed to save default: ${msg}`);
       return;
     }
   }
 
   let status: string;
-  if (runtimeChanged) {
+  if (modelChanged) {
     status = persist
-      ? `Switched to ${alias} with thinking ${level}.`
-      : `Switched to ${alias} with thinking ${level} for this session only.`;
+      ? `Switched to ${displayName} with thinking ${effort}.`
+      : `Switched to ${displayName} with thinking ${effort} for this session only.`;
+  } else if (effortChanged) {
+    status = persist
+      ? `Thinking set to ${effort}.`
+      : `Thinking set to ${effort} for this session only.`;
   } else if (persist && persisted) {
-    status = `Saved ${alias} with thinking ${level} as default.`;
+    status = `Saved ${displayName} with thinking ${effort} as default.`;
   } else {
-    status = `Already using ${alias} with thinking ${level}.`;
+    status = `Already using ${displayName} with thinking ${effort}.`;
   }
   host.showStatus(status, 'success');
 }
 
-async function persistModelSelection(host: SlashCommandHost, alias: string, thinking: boolean): Promise<boolean> {
+async function persistModelSelection(
+  host: SlashCommandHost,
+  alias: string,
+  effort: ThinkingEffort,
+): Promise<boolean> {
   const config = await host.harness.getConfig({ reload: true });
-  if (config.defaultModel === alias && config.defaultThinking === thinking) {
+  const patch = thinkingEffortToConfig(effort);
+  if (
+    config.defaultModel === alias &&
+    config.thinking?.enabled === patch.enabled &&
+    config.thinking?.effort === patch.effort
+  ) {
     return false;
   }
   await host.harness.setConfig({
     defaultModel: alias,
-    defaultThinking: thinking,
+    thinking: patch,
   });
   return true;
 }
@@ -439,10 +521,8 @@ async function applyThemeChoice(host: SlashCommandHost, theme: ThemeName): Promi
 
   try {
     await saveTuiConfig({
+      ...currentTuiConfig(host),
       theme,
-      editorCommand: host.state.appState.editorCommand,
-      notifications: host.state.appState.notifications,
-      upgrade: host.state.appState.upgrade,
     });
   } catch (error) {
     host.showStatus(
@@ -515,7 +595,7 @@ export async function applyExperimentalFeatureChanges(
     return;
   }
 
-  const experimental: Partial<Record<FlagId, boolean>> = {};
+  const experimental: Record<string, boolean> = {};
   for (const change of changes) {
     experimental[change.id] = change.enabled;
   }
@@ -582,9 +662,7 @@ export async function applyUpdatePreferenceChoice(
   const upgrade = { autoInstall };
   try {
     await saveTuiConfig({
-      theme: host.state.appState.theme,
-      editorCommand: host.state.appState.editorCommand,
-      notifications: host.state.appState.notifications,
+      ...currentTuiConfig(host as unknown as SlashCommandHost),
       upgrade,
     });
   } catch (error) {

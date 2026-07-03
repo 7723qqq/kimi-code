@@ -29,15 +29,18 @@ const MINUTE = 60 * 1000;
 const DEFAULT_MARKER = '[Old tool result content cleared]';
 const MICRO_COMPACTION_FLAG_ENV = getMicroCompactionFlagEnv();
 
-describe('MicroCompaction', () => {
+// Micro compaction is disabled and its flag has been removed; the suite is
+// skipped because the feature can no longer be enabled.
+describe.skip('MicroCompaction', () => {
   beforeEach(() => {
     vi.stubEnv(MASTER_ENV, '0');
     vi.stubEnv(MICRO_COMPACTION_FLAG_ENV, '1');
   });
 
-  it('defaults the micro_compaction flag on', () => {
-    expect(new FlagResolver({}, FLAG_DEFINITIONS).enabled('micro_compaction')).toBe(true);
-  });
+  // The micro_compaction flag no longer exists, so there is no default to assert.
+  // it('defaults the micro_compaction flag off', () => {
+  //   expect(new FlagResolver({}, FLAG_DEFINITIONS).enabled('micro_compaction')).toBe(false);
+  // });
 
   it('truncates old tool results after cache miss', () => {
     vi.useFakeTimers();
@@ -485,7 +488,7 @@ describe('MicroCompaction', () => {
       truncated_tool_result_tokens_after: expect.any(Number),
       tokens_before: expect.any(Number),
       tokens_after: expect.any(Number),
-      thinking_level: 'off',
+      thinking_effort: 'off',
     });
     expect(numberProperty(event, 'truncated_tool_result_tokens_before')).toBeGreaterThan(
       numberProperty(event, 'truncated_tool_result_tokens_after'),
@@ -700,10 +703,10 @@ describe('MicroCompaction', () => {
     await ctx.rpc.beginCompaction({});
     await compacted;
 
-    expect(ctx.agent.context.messages).toHaveLength(1);
-    expect(ctx.agent.context.messages[0]).toMatchObject({
-      role: 'assistant',
-      content: [{ type: 'text', text: 'Summary.' }],
+    expect(ctx.agent.context.messages).toHaveLength(2);
+    expect(ctx.agent.context.messages[1]).toMatchObject({
+      role: 'user',
+      content: [{ type: 'text', text: expect.stringContaining('Summary.') }],
     });
   });
 
@@ -966,11 +969,9 @@ function hasMarker(messages: readonly Message[]): boolean {
 }
 
 function getMicroCompactionFlagEnv(): string {
-  const flag = FLAG_DEFINITIONS.find((definition) => definition.id === 'micro_compaction');
-  if (flag === undefined) {
-    throw new Error('Missing micro_compaction flag definition.');
-  }
-  return flag.env;
+  // Micro compaction is disabled and its flag has been removed from the registry;
+  // the env var name is kept so the (skipped) suite still type-checks.
+  return 'KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION';
 }
 
 function singleTelemetryEvent(
