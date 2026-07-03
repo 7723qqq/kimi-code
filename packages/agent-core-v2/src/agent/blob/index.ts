@@ -1,6 +1,6 @@
 /**
- * `blobStore` domain barrel — compatibility re-export.
+ * `blob` domain barrel.
  */
 
-export * from '#/persistence/interface/blobStore';
-export * from '#/persistence/backends/node-fs/blobStoreService';
+export * from './agentBlobService';
+export * from './agentBlobServiceImpl';

@@ -11,15 +11,15 @@ import type { PromisifyMethods } from '#/_base/utils/types';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
 import type { BackgroundTaskInfo } from '#/agent/background';
 import {
-  IAgentBlobStoreService,
-  type IAgentBlobStoreService as AgentBlobStoreService,
-} from '#/agent/blobStore';
+  IAgentBlobService,
+  type IAgentBlobService as AgentBlobService,
+} from '#/agent/blob';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { SessionCronServiceImpl } from '#/session/cron/sessionCronServiceImpl';
-import { ICronTaskStore } from '#/app/cronStore/cronTaskStore';
-import { CronTaskStoreService } from '#/app/cronStore/cronTaskStoreService';
+import { ICronTaskPersistence } from '#/app/cronPersistence/cronTaskPersistence';
+import { CronTaskPersistenceService } from '#/app/cronPersistence/cronTaskPersistenceService';
 import type { HookEngine } from '#/agent/externalHooks/engine';
 import type { FullCompactionServiceOptions } from '#/agent/fullCompaction';
 import { AgentGoalService, IAgentGoalService, type GoalServiceOptions } from '#/agent/goal';
@@ -72,12 +72,12 @@ import {
   AgentFullCompactionService,
   IAgentRPCService,
   IAppendLogStore,
-  IAppendLogStorage,
+  IFileSystemStorageService,
   ISessionApprovalService,
   ISessionMetadata,
-  IAtomicDocumentStorage,
   IAgentBackgroundService,
-  IBlobStorage,
+  IBlobStore,
+  BlobStoreService,
   IBootstrapService,
   IConfigService,
   IAgentContextMemoryService,
@@ -96,15 +96,14 @@ import {
   ISessionAgentFileSystem,
   ISessionContext,
   ISessionProcessRunner,
-  IStorageService,
   IAgentScopeContext,
   IAgentSwarmService,
   AgentSwarmService,
   ITelemetryService,
-  ISessionTerminalBackend,
+  IHostTerminalService,
   IAgentToolRegistryService,
   IAgentBuiltinToolsRegistrar,
-  IAgentToolStoreService,
+  IAgentToolState,
   IAgentUserToolService,
   IAgentUsageService,
   IAgentWireRecordService,
@@ -280,7 +279,7 @@ interface ResumeStateSnapshot {
     readonly tokenCount: number;
   };
   readonly permission: ReturnType<IAgentPermissionGate['data']>;
-  readonly toolStore: ReturnType<IAgentToolStoreService['data']>;
+  readonly toolStore: ReturnType<IAgentToolState['data']>;
   readonly usage: ReturnType<IAgentUsageService['status']>;
 }
 
@@ -485,12 +484,10 @@ export function homeDirServices(homeDir: string | undefined): TestAgentServiceOv
       })) {
         reg.defineInstance(id, value);
       }
-      const file = (): SyncDescriptor<IStorageService> =>
+      const file = (): SyncDescriptor<IFileSystemStorageService> =>
         new SyncDescriptor(FileStorageService, [homeDir], true);
-      reg.defineDescriptor(IStorageService, file());
-      reg.defineDescriptor(IAppendLogStorage, file());
-      reg.defineDescriptor(IAtomicDocumentStorage, file());
-      reg.defineDescriptor(IBlobStorage, file());
+      reg.defineDescriptor(IFileSystemStorageService, file());
+      reg.define(IBlobStore, BlobStoreService);
     }
   });
 }
@@ -847,7 +844,7 @@ class RecordingWireRecordService extends AgentWireRecordService {
   constructor(
     private readonly onAppend: (record: PersistedWireRecord) => void,
     @IBootstrapService bootstrap: IBootstrapService,
-    @IAgentBlobStoreService blobStore?: AgentBlobStoreService,
+    @IAgentBlobService blobStore?: AgentBlobService,
     @IAppendLogStore log?: IAppendLogStore,
   ) {
     super({}, bootstrap, blobStore, log);
@@ -936,12 +933,10 @@ export class AgentTestContext {
           // workable default for storage-backed services. Tests that need durable
           // (file) storage override this via `homeDirServices(dir)` — overrides
           // win over this base seed (see `collectScopeSeed`).
-          const memoryStorage = (): SyncDescriptor<IStorageService> =>
+          const memoryStorage = (): SyncDescriptor<IFileSystemStorageService> =>
             new SyncDescriptor(InMemoryStorageService, [], true);
-          reg.defineDescriptor(IStorageService, memoryStorage());
-          reg.defineDescriptor(IAppendLogStorage, memoryStorage());
-          reg.defineDescriptor(IAtomicDocumentStorage, memoryStorage());
-          reg.defineDescriptor(IBlobStorage, memoryStorage());
+          reg.defineDescriptor(IFileSystemStorageService, memoryStorage());
+          reg.define(IBlobStore, BlobStoreService);
           reg.defineInstance(
             IConfigService,
             configService(() => this.kimiConfig),
@@ -966,7 +961,8 @@ export class AgentTestContext {
           if (options.telemetry !== undefined) {
             reg.defineInstance(ITelemetryService, options.telemetry);
           }
-          reg.defineDescriptor(ICronTaskStore, new SyncDescriptor(CronTaskStoreService));
+          reg.defineInstance(IHostTerminalService, createHostTerminalService());
+          reg.defineDescriptor(ICronTaskPersistence, new SyncDescriptor(CronTaskPersistenceService));
         },
       ],
       this.serviceOverrides,
@@ -997,7 +993,6 @@ export class AgentTestContext {
             // Note: `ISessionAgentFileSystem` and `ISessionProcessRunner` are
             // auto-registered by their service files and backed by `IExecContext`.
             // Tests that need a fake override them via `execEnvServices`.
-            reg.defineInstance(ISessionTerminalBackend, createTerminalBackend());
             reg.defineDescriptor(
               ISessionWorkspaceContext,
               new SyncDescriptor(SessionWorkspaceContextService),
@@ -1147,7 +1142,7 @@ export class AgentTestContext {
     const context = this.get(IAgentContextMemoryService);
     const contextSize = this.get(IAgentContextSizeService);
     const usage = this.get(IAgentUsageService);
-    const toolStore = this.get(IAgentToolStoreService);
+    const toolStore = this.get(IAgentToolState);
     const background = this.get(IAgentBackgroundService);
     const permission = this.get(IAgentPermissionGate);
     const permissionMode = this.get(IAgentPermissionModeService);
@@ -1254,8 +1249,8 @@ export class AgentTestContext {
     }));
   }
 
-  toolStoreData(): ReturnType<IAgentToolStoreService['data']> {
-    const toolStore = this.get(IAgentToolStoreService);
+  toolStoreData(): ReturnType<IAgentToolState['data']> {
+    const toolStore = this.get(IAgentToolState);
     return toolStore.data();
   }
 
@@ -1882,7 +1877,7 @@ function createPermissionRulesStub(
   };
 }
 
-function createTerminalBackend(): ISessionTerminalBackend {
+function createHostTerminalService(): IHostTerminalService {
   return {
     _serviceBrand: undefined,
     spawn: async () => ({
@@ -1910,7 +1905,7 @@ function createResumeNoSideEffectExecEnv(initialCwd: string): TestAgentServiceOv
 function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
   const background = ctx.get(IAgentBackgroundService);
   const usage = ctx.get(IAgentUsageService);
-  const toolStore = ctx.get(IAgentToolStoreService);
+  const toolStore = ctx.get(IAgentToolState);
   const permission = ctx.get(IAgentPermissionGate);
   return {
     background: normalizeBackgroundSnapshot(background.list(false)),

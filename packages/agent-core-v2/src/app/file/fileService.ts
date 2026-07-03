@@ -1,14 +1,9 @@
 /**
- * `persistence/interface` — `IFileStore` contract and error helpers.
+ * `file` domain — `IFileService` contract and error helpers.
  *
  * Process-global upload store backing the `/files` REST endpoints: persists
- * uploaded bytes in the `IBlobStorage` backend and their `FileMeta` index in the
- * same byte store, then hands callers a stream back on download. Bound at App
- * scope.
- *
- * This file ships the interface, DI token, error domain, and error helpers
- * only. The concrete `FileStoreService` implementation lives in
- * `persistence/backends/node-fs/fileStoreService.ts`.
+ * uploaded bytes via `IBlobStore` and their `FileMeta` index in the same
+ * store, then hands callers a stream back on download. Bound at App scope.
  */
 
 import type { Readable } from 'node:stream';
@@ -36,7 +31,7 @@ export interface GetResult {
   readonly stream: Readable;
 }
 
-export interface IFileStore {
+export interface IFileService {
   readonly _serviceBrand: undefined;
 
   save(source: Readable, filename: string, options?: SaveOptions): Promise<FileMeta>;
@@ -46,7 +41,7 @@ export interface IFileStore {
   delete(fileId: string): Promise<void>;
 }
 
-export const IFileStore: ServiceIdentifier<IFileStore> = createDecorator<IFileStore>('fileStore');
+export const IFileService: ServiceIdentifier<IFileService> = createDecorator<IFileService>('fileService');
 
 // ---------------------------------------------------------------------------
 // Error domain

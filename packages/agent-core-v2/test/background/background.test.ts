@@ -11,7 +11,7 @@ import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionContext } from '#/session/sessionContext';
-import { IAtomicDocumentStore, IStorageService } from '#/app/storage';
+import { IAtomicDocumentStore, IFileSystemStorageService } from '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
@@ -60,7 +60,7 @@ describe('AgentBackgroundService', () => {
       delete: async () => {},
       list: async () => [],
     });
-    ix.stub(IStorageService, {
+    ix.stub(IFileSystemStorageService, {
       read: async () => undefined,
       readStream: async function* () {},
       write: async () => {},

@@ -2,7 +2,7 @@
  * `workspaceRegistry` domain (L1) — `IWorkspaceRegistry` implementation.
  *
  * Process-wide catalog of known workspaces, now durable: an in-memory cache
- * is loaded once from `IWorkspaceStore` (`<homeDir>/workspaces.json`, v1
+ * is loaded once from `IWorkspacePersistence` (`<homeDir>/workspaces.json`, v1
  * compatible) and every mutation writes back through it. When the catalog is
  * absent or malformed, it is rebuilt once from the legacy
  * `<homeDir>/session_index.jsonl` (one workspace per distinct absolute
@@ -16,10 +16,10 @@ import { basename, isAbsolute } from 'pathe';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IStorageService } from '#/app/storage';
+import { IFileSystemStorageService } from '#/app/storage';
 
 import { IWorkspaceRegistry, type Workspace, type WorkspaceUpdate } from './workspaceRegistry';
-import { IWorkspaceStore } from './workspaceStore';
+import { IWorkspacePersistence } from './workspacePersistence';
 
 // Legacy v1 session index, read only for the one-shot rebuild. Empty scope
 // resolves to `<homeDir>/<key>` (join skips empty segments).
@@ -42,8 +42,8 @@ export class WorkspaceRegistryService implements IWorkspaceRegistry {
   private opQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
-    @IWorkspaceStore private readonly store: IWorkspaceStore,
-    @IStorageService private readonly storage: IStorageService,
+    @IWorkspacePersistence private readonly store: IWorkspacePersistence,
+    @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
   ) {}
 
   list(): Promise<readonly Workspace[]> {

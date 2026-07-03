@@ -1,21 +1,24 @@
 /**
- * `FileStoreService` unit tests — exercise the store through its `IFileStore`
- * interface against an in-memory `IBlobStorage` backend.
+ * `FileServiceImpl` unit tests — exercise the service through its `IFileService`
+ * interface against an in-memory `IBlobStore` backend.
  */
 
 import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
   FileErrors,
-  FileStoreService,
-  IFileStore,
-} from '#/app/filestore';
-import { IBlobStorage, InMemoryStorageService, type IStorageService } from '#/app/storage';
+  FileServiceImpl,
+  IFileService,
+} from '#/app/file';
+import { IFileSystemStorageService, InMemoryStorageService } from '#/app/storage';
+import { IBlobStore } from '#/persistence/interface/blobStore';
+import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 
 function readable(data: string | Buffer): Readable {
   return Readable.from([typeof data === 'string' ? Buffer.from(data) : data]);
@@ -31,7 +34,7 @@ async function readAll(stream: Readable): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-describe('FileStoreService', () => {
+describe('FileServiceImpl', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let backend: InMemoryStorageService;
@@ -41,16 +44,17 @@ describe('FileStoreService', () => {
     backend = new InMemoryStorageService();
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(IBlobStorage, backend);
-        reg.define(IFileStore, FileStoreService);
+        reg.defineInstance(IFileSystemStorageService, backend);
+        reg.define(IBlobStore, BlobStoreService);
+        reg.define(IFileService, FileServiceImpl);
       },
     });
   });
 
   afterEach(() => disposables.dispose());
 
-  function store(): IFileStore {
-    return ix.get(IFileStore);
+  function store(): IFileService {
+    return ix.get(IFileService);
   }
 
   it('saves a file and reads its bytes back', async () => {
@@ -121,7 +125,7 @@ describe('FileStoreService', () => {
 
   it('prunes the index when the backing blob is missing', async () => {
     const meta = await store().save(readable('payload'), 'p.txt');
-    await (backend as IStorageService).delete('files', meta.id);
+    await (backend as IFileSystemStorageService).delete('files', meta.id);
 
     await expect(store().get(meta.id)).rejects.toMatchObject({
       code: FileErrors.codes.FILE_NOT_FOUND,
@@ -138,11 +142,12 @@ describe('FileStoreService', () => {
     // A fresh store over the same backend reloads the persisted index.
     const ix2 = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(IBlobStorage, backend);
-        reg.define(IFileStore, FileStoreService);
+        reg.defineInstance(IFileSystemStorageService, backend);
+        reg.define(IBlobStore, BlobStoreService);
+        reg.define(IFileService, FileServiceImpl);
       },
     });
-    const reloaded = ix2.get(IFileStore);
+    const reloaded = ix2.get(IFileService);
     const { meta: got, stream } = await reloaded.get(meta.id);
     expect(got.id).toBe(meta.id);
     expect((await readAll(stream)).toString()).toBe('durable');
@@ -152,7 +157,7 @@ describe('FileStoreService', () => {
     await backend.write('files', 'f_valid', Buffer.from('ok'));
     await backend.write('files', 'f_invalid', Buffer.from('bad'));
     await backend.write(
-      'filestore',
+      'file',
       'index.json',
       textEncoder.encode(
         JSON.stringify({

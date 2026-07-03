@@ -22,7 +22,7 @@ export interface ISessionContext {
   /**
    * Persistence scope rooted at this session. `scope()` returns the session
    * scope itself; `scope(subKey)` returns `${sessionScope}/${subKey}`. The
-   * returned string is what business code passes to `IStorageService` /
+   * returned string is what business code passes to `IFileSystemStorageService` /
    * `IAtomicDocumentStore` / `IAppendLogStore` — it is bootstrap-resolved and
    * business code should not perform further path arithmetic on it.
    */

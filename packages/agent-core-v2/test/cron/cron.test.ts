@@ -14,7 +14,7 @@ import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionContext } from '#/session/sessionContext';
 import {
   InMemoryStorageService,
-  IStorageService,
+  IFileSystemStorageService,
   IAtomicDocumentStore,
   IAtomicTomlDocumentStore,
   TomlAtomicDocumentStore,
@@ -52,7 +52,7 @@ function textOf(message: ContextMessage): string {
 // no separate coordinator suite to migrate.
 
 // TODO: The DI setup below was written for AgentCronService (Agent scope).
-// SessionCronServiceImpl (Session scope) injects ISessionContext, ICronTaskStore,
+// SessionCronServiceImpl (Session scope) injects ISessionContext, ICronTaskPersistence,
 // IAgentLifecycleService, ITelemetryService, IConfigService — not IAgentPromptService,
 // IAgentRecordService, IAgentTurnService directly. The stub setup needs to be
 // reworked to match the new dependency graph.
@@ -101,7 +101,7 @@ describe('SessionCronService', () => {
       metaScope: 'session',
     });
     ix.stub(ILogService, stubLog());
-    ix.stub(IStorageService, new InMemoryStorageService());
+    ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.stub(IAtomicDocumentStore, {
       get: async () => undefined,
       set: async () => {},

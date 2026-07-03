@@ -1,11 +1,11 @@
 /**
- * `filestore` domain (L2) — `IFileStore` implementation.
+ * `file` domain (L2) — `IFileService` implementation.
  *
- * Streams uploads into the `IBlobStorage` backend under the `files` scope and
- * keeps a JSON `FileMeta` index in the same backend under the `filestore`
- * scope. Enforces the 50 MiB upload cap while collecting the stream, prunes the
+ * Streams uploads into the `IBlobStore` under the `files` scope and keeps a
+ * JSON `FileMeta` index in the same store under the `file` scope.
+ * Enforces the 50 MiB upload cap while collecting the stream, prunes the
  * index when a referenced blob is missing, and hands downloads back as a lazy
- * `Readable` over `readStream`. Bound at App scope.
+ * `Readable` over `getStream`. Bound at App scope.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -15,18 +15,18 @@ import type { FileMeta } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IBlobStorage, type IStorageService } from '#/persistence/interface/storage';
+import { IBlobStore } from '#/persistence/interface/blobStore';
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
-  IFileStore,
+  IFileService,
   fileNotFoundError,
   fileTooLargeError,
   type GetResult,
   type SaveOptions,
-} from '#/persistence/interface/fileStore';
+} from './fileService';
 
 const BLOB_SCOPE = 'files';
-const INDEX_SCOPE = 'filestore';
+const INDEX_SCOPE = 'file';
 const INDEX_KEY = 'index.json';
 const FILE_ID_REGEX = /^f_[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
@@ -58,13 +58,13 @@ function isFileMeta(value: unknown): value is FileMeta {
   );
 }
 
-export class FileStoreService implements IFileStore {
+export class FileServiceImpl implements IFileService {
   declare readonly _serviceBrand: undefined;
 
   private indexCache: Map<string, FileMeta> | undefined;
   private indexLoadPromise: Promise<void> | undefined;
 
-  constructor(@IBlobStorage private readonly blobs: IStorageService) {}
+  constructor(@IBlobStore private readonly blobs: IBlobStore) {}
 
   async save(source: Readable, filename: string, options: SaveOptions = {}): Promise<FileMeta> {
     await this.ensureIndex();
@@ -82,7 +82,7 @@ export class FileStoreService implements IFileStore {
     }
     const data = Buffer.concat(chunks);
 
-    await this.blobs.write(BLOB_SCOPE, id, data, { atomic: true });
+    await this.blobs.put(BLOB_SCOPE, id, data);
 
     const now = Date.now();
     const meta: FileMeta = {
@@ -111,14 +111,14 @@ export class FileStoreService implements IFileStore {
       throw fileNotFoundError(fileId);
     }
 
-    const present = await this.blobs.list(BLOB_SCOPE, fileId);
-    if (!present.includes(fileId)) {
+    const present = await this.blobs.has(BLOB_SCOPE, fileId);
+    if (!present) {
       this.indexCache!.delete(fileId);
       await this.writeIndex();
       throw fileNotFoundError(fileId);
     }
 
-    return { meta, stream: Readable.from(this.blobs.readStream(BLOB_SCOPE, fileId)) };
+    return { meta, stream: Readable.from(this.blobs.getStream(BLOB_SCOPE, fileId)) };
   }
 
   async delete(fileId: string): Promise<void> {
@@ -144,7 +144,7 @@ export class FileStoreService implements IFileStore {
   }
 
   private async loadIndex(): Promise<void> {
-    const raw = await this.blobs.read(INDEX_SCOPE, INDEX_KEY);
+    const raw = await this.blobs.get(INDEX_SCOPE, INDEX_KEY);
     if (raw === undefined) {
       this.indexCache = new Map();
       return;
@@ -169,16 +169,14 @@ export class FileStoreService implements IFileStore {
     const cache = this.indexCache;
     if (cache === undefined) return;
     const payload: IndexFile = { version: 1, files: Array.from(cache.values()) };
-    await this.blobs.write(INDEX_SCOPE, INDEX_KEY, textEncoder.encode(JSON.stringify(payload)), {
-      atomic: true,
-    });
+    await this.blobs.put(INDEX_SCOPE, INDEX_KEY, textEncoder.encode(JSON.stringify(payload)));
   }
 }
 
 registerScopedService(
   LifecycleScope.App,
-  IFileStore,
-  FileStoreService,
+  IFileService,
+  FileServiceImpl,
   InstantiationType.Delayed,
-  'filestore',
+  'file',
 );

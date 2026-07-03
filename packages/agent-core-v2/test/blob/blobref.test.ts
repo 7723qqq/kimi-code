@@ -10,14 +10,16 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import {
+  AgentBlobServiceImpl,
   BLOBREF_PROTOCOL,
-  IAgentBlobStoreService,
+  IAgentBlobService,
   MISSING_MEDIA_PLACEHOLDER,
-} from '#/agent/blobStore';
-import { AgentBlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
+} from '#/agent/blob';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
-import { FileStorageService, IBlobStorage } from '#/app/storage';
+import { FileStorageService, IFileSystemStorageService } from '#/app/storage';
+import { IBlobStore } from '#/persistence/interface/blobStore';
+import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 
 const cleanups: string[] = [];
 const disposables: DisposableStore[] = [];
@@ -60,23 +62,24 @@ async function makeHomeDir(): Promise<{ homeDir: string; blobsDir: string }> {
 
 function createStore(
   homeDir: string,
-  ctor: typeof AgentBlobStoreService = AgentBlobStoreService,
-): IAgentBlobStoreService {
+  ctor: typeof AgentBlobServiceImpl = AgentBlobServiceImpl,
+): IAgentBlobService {
   const disposable = new DisposableStore();
   disposables.push(disposable);
 
   const ix = disposable.add(new TestInstantiationService());
-  ix.set(IBlobStorage, new FileStorageService(homeDir));
+  ix.set(IFileSystemStorageService, new FileStorageService(homeDir));
+  ix.set(IBlobStore, new SyncDescriptor(BlobStoreService, []));
   ix.set(IBootstrapService, { homeDir } as unknown as IBootstrapService);
   ix.set(
     IAgentScopeContext,
     makeAgentScopeContext({ agentId: 'test', agentScope: '' }),
   );
-  ix.set(IAgentBlobStoreService, new SyncDescriptor(ctor, [{}]));
-  return ix.get(IAgentBlobStoreService);
+  ix.set(IAgentBlobService, new SyncDescriptor(ctor, [{}]));
+  return ix.get(IAgentBlobService);
 }
 
-async function makeStore(): Promise<{ store: IAgentBlobStoreService; blobsDir: string }> {
+async function makeStore(): Promise<{ store: IAgentBlobService; blobsDir: string }> {
   const { homeDir, blobsDir } = await makeHomeDir();
   return {
     store: createStore(homeDir),
@@ -84,13 +87,13 @@ async function makeStore(): Promise<{ store: IAgentBlobStoreService; blobsDir: s
   };
 }
 
-class TwoBlobCacheStoreService extends AgentBlobStoreService {
+class TwoBlobCacheStoreService extends AgentBlobServiceImpl {
   protected override get maxCacheSize(): number {
     return 8_000;
   }
 }
 
-class OneBlobCacheStoreService extends AgentBlobStoreService {
+class OneBlobCacheStoreService extends AgentBlobServiceImpl {
   protected override get maxCacheSize(): number {
     return 4_000;
   }

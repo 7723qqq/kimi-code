@@ -3,7 +3,7 @@
  *
  * JSON and TOML codec implementations plus the `AtomicDocumentStoreBase`,
  * `AtomicDocumentStore`, and `TomlAtomicDocumentStore` classes. Reads and
- * writes bytes through `IStorageService` / `IAtomicDocumentStorage`. Bound at
+ * writes bytes through `IFileSystemStorageService`. Bound at
  * App scope.
  */
 
@@ -14,7 +14,7 @@ import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Event } from '#/_base/event';
 
-import { IAtomicDocumentStorage, IStorageService } from '#/persistence/interface/storage';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import {
   IAtomicDocumentStore,
   IAtomicTomlDocumentStore,
@@ -48,7 +48,7 @@ class AtomicDocumentStoreBase implements IAtomicDocumentStore {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    private readonly storage: IStorageService,
+    private readonly storage: IFileSystemStorageService,
     private readonly codec: DocumentCodec,
   ) {}
 
@@ -79,13 +79,13 @@ class AtomicDocumentStoreBase implements IAtomicDocumentStore {
 }
 
 export class AtomicDocumentStore extends AtomicDocumentStoreBase {
-  constructor(@IAtomicDocumentStorage storage: IStorageService) {
+  constructor(@IFileSystemStorageService storage: IFileSystemStorageService) {
     super(storage, jsonDocumentCodec);
   }
 }
 
 export class TomlAtomicDocumentStore extends AtomicDocumentStoreBase {
-  constructor(@IStorageService storage: IStorageService) {
+  constructor(@IFileSystemStorageService storage: IFileSystemStorageService) {
     super(storage, tomlDocumentCodec);
   }
 }

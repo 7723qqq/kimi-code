@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { AppendLogCorruptedError, IAppendLogStorage, IAppendLogStore, IStorageService } from '#/app/storage';
+import { AppendLogCorruptedError, IFileSystemStorageService, IAppendLogStore } from '#/app/storage';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
@@ -16,7 +16,7 @@ interface Rec {
 const SCOPE = 'agents/main';
 const KEY = 'wire.jsonl';
 
-function chunkedStorage(chunks: Uint8Array[]): IStorageService {
+function chunkedStorage(chunks: Uint8Array[]): IFileSystemStorageService {
   return {
     _serviceBrand: undefined,
     read: async () => undefined,
@@ -42,7 +42,7 @@ describe('AppendLogStore', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     storage = new InMemoryStorageService();
-    ix.stub(IAppendLogStorage, storage);
+    ix.stub(IFileSystemStorageService, storage);
     ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     record = ix.get(IAppendLogStore);
   });
@@ -120,7 +120,7 @@ describe('AppendLogStore', () => {
     // Split into chunks that cut through the middle of lines.
     const chunks = [bytes.slice(0, 7), bytes.slice(7, 23), bytes.slice(23)];
     const localIx = disposables.add(new TestInstantiationService());
-    localIx.stub(IAppendLogStorage, chunkedStorage(chunks));
+    localIx.stub(IFileSystemStorageService, chunkedStorage(chunks));
     localIx.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     const log = localIx.get(IAppendLogStore);
 
@@ -135,7 +135,7 @@ describe('AppendLogStore', () => {
     // Split at every byte to maximally stress multi-byte decode across chunks.
     const chunks = Array.from(bytes, (b) => new Uint8Array([b]));
     const localIx = disposables.add(new TestInstantiationService());
-    localIx.stub(IAppendLogStorage, chunkedStorage(chunks));
+    localIx.stub(IFileSystemStorageService, chunkedStorage(chunks));
     localIx.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     const log = localIx.get(IAppendLogStore);
 

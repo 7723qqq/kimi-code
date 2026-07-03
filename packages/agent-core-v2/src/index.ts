@@ -13,7 +13,7 @@ export * from '#/app/bootstrap';
 export * from '#/os/interface';
 export * from '#/os/backends/node-local';
 export * from '#/session/terminal';
-export * from '#/task';
+export * from '#/app/task';
 export { IEventService, type DomainEvent } from '#/app/event';
 export * from '#/app/llmProtocol';
 

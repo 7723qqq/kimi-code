@@ -30,7 +30,7 @@ import { IConfigService } from '#/app/config';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionContext } from '#/session/sessionContext';
-import { IAtomicDocumentStore, IStorageService } from '#/app/storage';
+import { IAtomicDocumentStore, IFileSystemStorageService } from '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 import {
@@ -137,7 +137,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore atomicDocs: IAtomicDocumentStore,
-    @IStorageService byteStore: IStorageService,
+    @IFileSystemStorageService byteStore: IFileSystemStorageService,
     @ISessionContext session: ISessionContext,
   ) {
     super();

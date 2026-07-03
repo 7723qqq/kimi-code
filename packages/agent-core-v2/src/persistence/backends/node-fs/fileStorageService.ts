@@ -1,5 +1,5 @@
 /**
- * `FileStorageService` — `IStorageService` backed by the local filesystem.
+ * `FileStorageService` — `IFileSystemStorageService` backed by the local filesystem.
  *
  * Layout: a value addressed by `(scope, key)` lives at
  * `<baseDir>/<scope>/<key>`. `scope` may contain slashes to form nested
@@ -36,7 +36,7 @@ import { Emitter, type Event } from '#/_base/event';
 import { atomicWrite, syncDir } from '#/_base/utils/fs';
 
 import type {
-  IStorageService,
+  IFileSystemStorageService,
   StorageAppendOptions,
   StorageWriteOptions,
 } from '#/persistence/interface/storage';
@@ -49,7 +49,7 @@ function isEnoent(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
 
-export class FileStorageService implements IStorageService {
+export class FileStorageService implements IFileSystemStorageService {
   declare readonly _serviceBrand: undefined;
 
   private readonly syncedDirs = new Set<string>();

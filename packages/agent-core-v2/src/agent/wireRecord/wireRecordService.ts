@@ -6,7 +6,7 @@ import {
   Disposable,
   toDisposable,
 } from "#/_base/di";
-import { IAgentBlobStoreService } from '#/agent/blobStore';
+import { IAgentBlobService } from '#/agent/blob';
 import { IBootstrapService } from '#/app/bootstrap';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IAppendLogStore } from '#/app/storage';
@@ -56,7 +56,7 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
   constructor(
     private readonly options: WireRecordServiceOptions = {},
     @IBootstrapService bootstrap: IBootstrapService,
-    @IAgentBlobStoreService private readonly blobStore?: IAgentBlobStoreService,
+    @IAgentBlobService private readonly blobStore?: IAgentBlobService,
     @IAppendLogStore private readonly log?: IAppendLogStore,
   ) {
     super();

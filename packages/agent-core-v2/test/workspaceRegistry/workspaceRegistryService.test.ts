@@ -16,12 +16,12 @@ import {
   AtomicDocumentStore,
   FileStorageService,
   IAtomicDocumentStore,
-  IStorageService,
+  IFileSystemStorageService,
 } from '#/app/storage';
 import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
 import { WorkspaceRegistryService } from '#/app/workspaceRegistry/workspaceRegistryService';
-import { FileWorkspaceStore } from '#/app/workspaceRegistry/fileWorkspaceStore';
-import { IWorkspaceStore, type PersistedWorkspaceEntry } from '#/app/workspaceRegistry/workspaceStore';
+import { FileWorkspacePersistence } from '#/app/workspaceRegistry/fileWorkspacePersistence';
+import { IWorkspacePersistence, type PersistedWorkspaceEntry } from '#/app/workspaceRegistry/workspacePersistence';
 
 interface SessionIndexLine {
   readonly sessionId: string;
@@ -37,8 +37,8 @@ describe('WorkspaceRegistryService (file-backed)', () => {
     _clearScopedRegistryForTests();
     registerScopedService(
       LifecycleScope.App,
-      IWorkspaceStore,
-      FileWorkspaceStore,
+      IWorkspacePersistence,
+      FileWorkspacePersistence,
       InstantiationType.Delayed,
       'workspaceRegistry',
     );
@@ -61,7 +61,7 @@ describe('WorkspaceRegistryService (file-backed)', () => {
   function build(): IWorkspaceRegistry {
     const fileStorage = new FileStorageService(homeDir);
     const host = createScopedTestHost([
-      stubPair(IStorageService, fileStorage),
+      stubPair(IFileSystemStorageService, fileStorage),
       stubPair(IAtomicDocumentStore, new AtomicDocumentStore(fileStorage)),
     ]);
     currentHost = host;

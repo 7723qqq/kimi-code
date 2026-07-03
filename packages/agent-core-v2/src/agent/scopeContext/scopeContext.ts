@@ -20,7 +20,7 @@ export interface IAgentScopeContext {
    * Persistence scope rooted at this agent. `scope()` returns the agent
    * scope itself; `scope(subKey)` returns `${agentScope}/${subKey}` (e.g.
    * `scope('cron')` → `sessions/<wsId>/<sId>/agents/<aId>/cron`). Business
-   * code passes the returned string straight to `IStorageService` /
+   * code passes the returned string straight to `IFileSystemStorageService` /
    * `IAtomicDocumentStore` / `IAppendLogStore`.
    */
   scope(subKey?: string): string;

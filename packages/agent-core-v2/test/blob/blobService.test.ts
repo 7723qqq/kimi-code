@@ -5,10 +5,12 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { type ServiceIdentifier } from '#/_base/di/instantiation';
 import { LifecycleScope } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { AgentBlobStoreService, IAgentBlobStoreService } from '#/agent/blobStore';
+import { AgentBlobServiceImpl, IAgentBlobService } from '#/agent/blob';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap';
-import { IBlobStorage, InMemoryStorageService } from '#/app/storage';
+import { IFileSystemStorageService, InMemoryStorageService } from '#/app/storage';
+import { IBlobStore } from '#/persistence/interface/blobStore';
+import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 
 function makeLargeDataUri(mimeType = 'image/png'): { uri: string; payload: string } {
   // The default threshold is 4096 base64 characters.
@@ -21,13 +23,14 @@ function makeSmallDataUri(mimeType = 'image/png'): { uri: string; payload: strin
   return { uri: `data:${mimeType};base64,${payload}`, payload };
 }
 
-describe('AgentBlobStoreService', () => {
+describe('AgentBlobServiceImpl', () => {
   let host: ReturnType<typeof createScopedTestHost>;
 
   beforeEach(() => {
     host = createScopedTestHost([
-      stubPair(IBlobStorage, new InMemoryStorageService()),
+      stubPair(IFileSystemStorageService, new InMemoryStorageService()),
       stubPair(IBootstrapService, { homeDir: '/home' } as unknown as IBootstrapService),
+      [IBlobStore as ServiceIdentifier<unknown>, new SyncDescriptor(BlobStoreService, [])],
     ]);
   });
 
@@ -35,18 +38,18 @@ describe('AgentBlobStoreService', () => {
     host.dispose();
   });
 
-  function getBlobStore(): IAgentBlobStoreService {
+  function getBlobStore(): IAgentBlobService {
     const agent = host.child(LifecycleScope.Agent, 'test-agent', [
       [
         IAgentScopeContext as ServiceIdentifier<unknown>,
         makeAgentScopeContext({ agentId: 'test-agent', agentScope: '' }),
       ],
       [
-        IAgentBlobStoreService as ServiceIdentifier<unknown>,
-        new SyncDescriptor(AgentBlobStoreService, [{}]),
+        IAgentBlobService as ServiceIdentifier<unknown>,
+        new SyncDescriptor(AgentBlobServiceImpl, [{}]),
       ],
     ]);
-    return agent.accessor.get(IAgentBlobStoreService);
+    return agent.accessor.get(IAgentBlobService);
   }
 
   it('leaves small data URIs unchanged', async () => {
@@ -72,7 +75,7 @@ describe('AgentBlobStoreService', () => {
     expect(store.isBlobRef(newUrl)).toBe(true);
     expect(newUrl.startsWith('blobref:image/png;')).toBe(true);
 
-    const backend = host.app.accessor.get(IBlobStorage);
+    const backend = host.app.accessor.get(IFileSystemStorageService);
     const keys = await backend.list('blobs');
     expect(keys).toHaveLength(1);
     expect(Buffer.from((await backend.read('blobs', keys[0]!))!).toString('base64')).toBe(payload);
@@ -141,18 +144,18 @@ describe('AgentBlobStoreService', () => {
         }),
       ],
       [
-        IAgentBlobStoreService as ServiceIdentifier<unknown>,
-        new SyncDescriptor(AgentBlobStoreService, [{}]),
+        IAgentBlobService as ServiceIdentifier<unknown>,
+        new SyncDescriptor(AgentBlobServiceImpl, [{}]),
       ],
     ]);
-    const store = agent.accessor.get(IAgentBlobStoreService);
+    const store = agent.accessor.get(IAgentBlobService);
     const { uri, payload } = makeLargeDataUri();
     const parts: ContentPart[] = [{ type: 'image_url', imageUrl: { url: uri } }];
 
     const offloaded = await store.offloadParts(parts);
     expect(store.isBlobRef((offloaded[0]! as { imageUrl: { url: string } }).imageUrl.url)).toBe(true);
 
-    const backend = host.app.accessor.get(IBlobStorage);
+    const backend = host.app.accessor.get(IFileSystemStorageService);
     const perAgentScope = 'sessions/s1/agents/a1/blobs';
     const perAgentKeys = await backend.list(perAgentScope);
     expect(perAgentKeys).toHaveLength(1);
