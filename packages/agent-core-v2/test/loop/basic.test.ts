@@ -182,6 +182,43 @@ describe('Agent loop', () => {
       tool[call_lookup]: text "lookup-result"
   `);
   });
+
+  it('lets non-external stop hooks continue a turn more than once', async () => {
+    profile.update({ activeToolNames: [] });
+    let continuations = 0;
+    loop.hooks.onWillStop.register('test-repeat-stop-continuation', async (hookCtx, next) => {
+      if (continuations < 2) {
+        continuations += 1;
+        hookCtx.continuationPrompt = `continue ${continuations}`;
+        return;
+      }
+      await next();
+    });
+
+    ctx.mockNextResponse({ type: 'text', text: 'First answer.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Second answer.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Third answer.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
+    await ctx.untilTurnEnd();
+
+    expect(continuations).toBe(2);
+    expect(ctx.llmCalls).toHaveLength(3);
+    expect(ctx.contextData().history).toContainEqual(
+      expect.objectContaining({
+        role: 'user',
+        content: [{ type: 'text', text: 'continue 1' }],
+        origin: { kind: 'system_trigger', name: 'stop_hook' },
+      }),
+    );
+    expect(ctx.contextData().history).toContainEqual(
+      expect.objectContaining({
+        role: 'user',
+        content: [{ type: 'text', text: 'continue 2' }],
+        origin: { kind: 'system_trigger', name: 'stop_hook' },
+      }),
+    );
+  });
 });
 
 describe('step timing split propagation', () => {

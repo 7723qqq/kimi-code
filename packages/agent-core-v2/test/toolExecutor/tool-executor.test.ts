@@ -70,10 +70,11 @@ describe('AgentToolExecutorService', () => {
     expect(telemetryEvents).toContainEqual({
       event: 'tool_call',
       properties: expect.objectContaining({
+        turn_id: 0,
+        tool_call_id: 'call_echo',
         tool_name: 'echo',
         outcome: 'success',
         duration_ms: expect.any(Number),
-        dup_type: 'normal',
       }),
     });
   });
@@ -94,10 +95,11 @@ describe('AgentToolExecutorService', () => {
     expect(telemetryEvents).toContainEqual({
       event: 'tool_call',
       properties: expect.objectContaining({
+        turn_id: 0,
+        tool_call_id: 'call_missing',
         tool_name: 'missing',
         outcome: 'error',
         duration_ms: expect.any(Number),
-        dup_type: 'normal',
         error_type: 'error',
       }),
     });
@@ -467,6 +469,31 @@ describe('AgentToolExecutorService', () => {
         stopTurn: true,
       }),
     ]);
+  });
+
+  it('onDidExecuteTool can replace the final tool result', async () => {
+    const tool = new TestTool('echo');
+    registry.register(tool);
+    executor.hooks.onDidExecuteTool.register('replace-result', async (ctx) => {
+      ctx.result = { output: 'hook output', isError: true };
+    });
+
+    const results = await execute([toolCall('call_echo', 'echo', { text: 'raw output' })]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        output: 'hook output',
+        isError: true,
+      }),
+    ]);
+    expect(events).toContainEqual({
+      type: 'tool.result',
+      toolCallId: 'call_echo',
+      result: expect.objectContaining({
+        output: 'hook output',
+        isError: true,
+      }),
+    });
   });
 });
 

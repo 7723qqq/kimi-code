@@ -11,6 +11,7 @@ import {
   APITimeoutError,
   type ChatProvider,
   type ModelCapability,
+  type ProviderRequestAuth,
   type ToolCall,
 } from '#/app/llmProtocol/kosong';
 import { describe, expect, it, vi } from 'vitest';
@@ -207,6 +208,7 @@ describe('Agent turn flow', () => {
       properties: {
         turn_id: 0,
         step_no: 1,
+        tool_call_id: 'call_dup_2',
         tool_name: 'Bash',
         dup_type: 'same_step',
         args_hash: expect.any(String),
@@ -244,6 +246,7 @@ describe('Agent turn flow', () => {
       properties: {
         turn_id: 0,
         step_no: 2,
+        tool_call_id: 'call_dup_2',
         tool_name: 'Bash',
         dup_type: 'cross_step',
         args_hash: expect.any(String),
@@ -252,9 +255,10 @@ describe('Agent turn flow', () => {
     expect(records).toContainEqual({
       event: 'tool_call',
       properties: expect.objectContaining({
+        turn_id: 0,
+        tool_call_id: 'call_dup_2',
         tool_name: 'Bash',
         outcome: 'success',
-        dup_type: 'cross_step',
         duration_ms: expect.any(Number),
       }),
     });
@@ -329,9 +333,10 @@ describe('Agent turn flow', () => {
     expect(records).toContainEqual({
       event: 'tool_call',
       properties: expect.objectContaining({
+        turn_id: 0,
+        tool_call_id: 'call_missing',
         tool_name: 'MissingTool',
         outcome: 'error',
-        dup_type: 'normal',
         error_type: 'ToolNotFound',
         duration_ms: expect.any(Number),
       }),
@@ -898,7 +903,7 @@ describe('Agent turn flow', () => {
     expect(JSON.stringify(ctx.contextData().history)).toContain('Second answer.');
   });
 
-  it('removes an unconsumed Stop hook continuation when no step budget remains', async () => {
+  it('fails with max steps when a Stop hook continuation exceeds step budget', async () => {
     const hookEngine = new HookEngine([
       {
         event: 'Stop',
@@ -919,11 +924,19 @@ describe('Agent turn flow', () => {
     const events = await ctx.untilTurnEnd();
 
     expect(ctx.llmCalls).toHaveLength(1);
-    expect(JSON.stringify(ctx.contextData().history)).not.toContain('continue from hook');
+    expect(JSON.stringify(ctx.contextData().history)).toContain('continue from hook');
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
-        args: expect.objectContaining({ reason: 'completed' }),
+        args: expect.objectContaining({
+          reason: 'failed',
+          error: expect.objectContaining({
+            code: 'loop.max_steps_exceeded',
+            details: expect.objectContaining({
+              maxSteps: 1,
+            }),
+          }),
+        }),
       }),
     );
   });
@@ -1748,7 +1761,7 @@ describe('Agent turn flow', () => {
     const withAuth = ctx.modelResolver.resolveAuth?.('kimi-code');
     if (withAuth === undefined) throw new Error('OAuth model did not resolve auth wrapper');
     const videoUploader: VideoUploader = (input) =>
-      withAuth((auth) => {
+      withAuth((auth: ProviderRequestAuth) => {
         const uploadVideo = provider.uploadVideo;
         if (uploadVideo === undefined) throw new Error('Provider did not expose uploadVideo');
         return uploadVideo.call(provider, input, { auth });

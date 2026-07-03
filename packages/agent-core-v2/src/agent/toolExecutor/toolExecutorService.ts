@@ -100,14 +100,15 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
     const results: ToolResult[] = [];
     for (let index = 0; index < preparedTasks.length; index += 1) {
-      const { call } = preparedTasks[index]!;
+      const prepared = preparedTasks[index]!;
+      const { call } = prepared;
       const timedResult = timedResults[index]!;
       const rawResult = timedResult.result;
       const finalized = await this.finalizeToolResult(call, rawResult, options);
       results.push(finalized);
 
       await dispatchToolResult(call, finalized, options);
-      this.trackToolCall(call, finalized, timedResult.durationMs);
+      this.trackToolCall(call, finalized, timedResult.durationMs, options.turnId);
     }
 
     return results;
@@ -117,13 +118,15 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     call: PreflightedToolCall,
     result: ToolResult,
     durationMs: number,
+    turnId: number,
   ): void {
     const outcome = toolTelemetryOutcome(result);
     const properties: Record<string, unknown> = {
+      turn_id: turnId,
+      tool_call_id: call.toolCall.id,
       tool_name: call.toolName,
       outcome,
       duration_ms: durationMs,
-      dup_type: 'normal',
     };
     if (result.isError === true) properties['error_type'] = toolTelemetryErrorType(outcome);
     this.telemetry.track('tool_call', properties);
@@ -133,21 +136,29 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     call: PreflightedToolCall,
     allCalls: readonly ToolCall[],
     options: ToolExecutorExecuteOptions,
-  ): Promise<{ task: ToolExecutionTask; stopBatchAfterThis?: boolean }> {
+  ): Promise<{
+    task: ToolExecutionTask;
+    stopBatchAfterThis?: boolean;
+  }> {
     const settleError = (
       args: unknown,
       output: string,
       displayFields?: ToolCallDisplayFields,
     ): { task: ToolExecutionTask } => {
       dispatchToolCall(call, args, options, displayFields);
-      return { task: makeResolvedTask(makeErrorToolResult(call, args, output)) };
+      return {
+        task: makeResolvedTask(makeErrorToolResult(call, args, output)),
+      };
     };
 
     const settleSynthetic = (
       args: unknown,
       result: ExecutableToolResult,
       displayFields?: ToolCallDisplayFields,
-    ): { task: ToolExecutionTask; stopBatchAfterThis?: boolean } => {
+    ): {
+      task: ToolExecutionTask;
+      stopBatchAfterThis?: boolean;
+    } => {
       const toolResult = this.normalizeAndMergeResult(result, call.toolName, undefined);
       dispatchToolCall(call, args, options, displayFields);
       return {
@@ -203,7 +214,11 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       );
     }
     if (decision?.syntheticResult !== undefined) {
-      return settleSynthetic(call.args, decision.syntheticResult, displayFields);
+      return settleSynthetic(
+        call.args,
+        decision.syntheticResult,
+        displayFields,
+      );
     }
 
     const executionMetadata = decision?.executionMetadata;
@@ -346,9 +361,14 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       };
     }
 
-    const effectiveResult = coerceToolResult(didCtx.result, call.toolName);
+    const coercedResult = coerceToolResult(didCtx.result, call.toolName);
+    const effectiveResult = normalizeToolResult(coercedResult);
     return {
-      ...result,
+      ...effectiveResult,
+      message: coercedResult.message ?? result.message,
+      description: result.description,
+      display: result.display,
+      approvalRule: result.approvalRule,
       stopTurn:
         result.stopTurn === true ||
         didCtx.stopTurn === true ||

@@ -8,6 +8,8 @@
  * hooks are installed without any other service injecting it.
  */
 
+import { createHash } from 'node:crypto';
+
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -70,6 +72,16 @@ function makeKey(toolName: string, args: unknown): string {
   return `${toolName} ${canonicalTelemetryArgs(args)}`;
 }
 
+function argsHash(args: unknown): string {
+  return createHash('sha256').update(canonicalTelemetryArgs(args)).digest('hex').slice(0, 8);
+}
+
+interface CheckedToolCall {
+  readonly syntheticResult: ToolDedupResult | null;
+}
+
+type ToolCallDupType = 'same_step' | 'cross_step';
+
 function appendReminder(result: ToolDedupResult, reminderText: string): ToolDedupResult {
   const output = result.output;
   let newOutput: string | ContentPart[];
@@ -106,6 +118,8 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
   private readonly callKeyByCallId = new Map<string, string>();
   private consecutiveKey: string | null = null;
   private consecutiveCount = 0;
+  private activeTurnId: number | undefined;
+  private activeStep = 0;
 
   constructor(
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -113,8 +127,8 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
     super();
-    loop.hooks.beforeStep.register('toolDedup', async (_ctx, next) => {
-      this.beginStep();
+    loop.hooks.beforeStep.register('toolDedup', async (ctx, next) => {
+      this.beginStep(ctx.turnId, ctx.step);
       await next();
     });
     loop.hooks.afterStep.register('toolDedup', async (_ctx, next) => {
@@ -122,9 +136,9 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
       await next();
     });
     toolExecutor.hooks.onWillExecuteTool.register('toolDedup', async (ctx, next) => {
-      const cached = this.checkSameStep(ctx.toolCall.id, ctx.toolCall.name, ctx.args);
-      if (cached !== null) {
-        ctx.decision = { syntheticResult: cached };
+      const checked = this.checkToolCall(ctx.toolCall.id, ctx.toolCall.name, ctx.args);
+      if (checked.syntheticResult !== null) {
+        ctx.decision = { syntheticResult: checked.syntheticResult };
         return;
       }
       await next();
@@ -143,7 +157,16 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
     });
   }
 
-  private beginStep(): void {
+  private beginStep(turnId?: number, step?: number): void {
+    if (turnId !== undefined && turnId !== this.activeTurnId) {
+      this.activeTurnId = turnId;
+      this.consecutiveKey = null;
+      this.consecutiveCount = 0;
+    }
+    if (step !== undefined) {
+      this.activeStep = step;
+    }
+
     for (const deferred of this.stepDeferreds.values()) {
       deferred.resolve({
         output: 'Tool call deduplicated but original result was lost',
@@ -168,7 +191,8 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
     }
   }
 
-  private checkSameStep(toolCallId: string, toolName: string, args: unknown): ToolDedupResult | null {
+
+  private checkToolCall(toolCallId: string, toolName: string, args: unknown): CheckedToolCall {
     const key = makeKey(toolName, args);
     const index = this.stepCalls.length;
     this.stepCalls.push(key);
@@ -177,11 +201,32 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
     const existing = this.stepDeferreds.get(key);
     if (existing !== undefined) {
       this.syntheticCallIds.add(toolCallId);
-      return DEDUP_PLACEHOLDER_RESULT;
+      this.recordDupType(toolCallId, toolName, args, 'same_step');
+      return { syntheticResult: DEDUP_PLACEHOLDER_RESULT };
     }
     this.stepDeferreds.set(key, makeDeferred<ToolDedupResult>());
     this.originalCallIndex.set(toolCallId, index);
-    return null;
+    if (this.consecutiveKey === key && this.consecutiveCount > 0) {
+      this.recordDupType(toolCallId, toolName, args, 'cross_step');
+      return { syntheticResult: null };
+    }
+    return { syntheticResult: null };
+  }
+
+  private recordDupType(
+    toolCallId: string,
+    toolName: string,
+    args: unknown,
+    dupType: ToolCallDupType,
+  ): void {
+    this.telemetry.track('tool_call_dedup_detected', {
+      turn_id: this.activeTurnId ?? 0,
+      step_no: this.activeStep,
+      tool_call_id: toolCallId,
+      tool_name: toolName,
+      dup_type: dupType,
+      args_hash: argsHash(args),
+    });
   }
 
   private async finalizeResult(
