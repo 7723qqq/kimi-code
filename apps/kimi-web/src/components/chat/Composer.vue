@@ -8,7 +8,13 @@ import { buildSlashItems, parseSlash } from '../../lib/slashCommands';
 import type { FileItem } from './MentionMenu.vue';
 import type { ActivationBadges, ConversationStatus, PermissionMode, QueuedPromptView } from '../../types';
 import type { AppModel, AppSkill, ThinkingLevel } from '../../api/types';
-import { modelThinkingAvailability } from '../../lib/modelThinking';
+import {
+  commitLevel,
+  effortLabel,
+  isThinkingOn,
+  modelThinkingAvailability,
+  segmentsFor,
+} from '../../lib/modelThinking';
 import { useInputHistory } from '../../composables/useInputHistory';
 import { useSlashMenu } from '../../composables/useSlashMenu';
 import { useMentionMenu } from '../../composables/useMentionMenu';
@@ -592,15 +598,37 @@ const currentModel = computed(() => {
   );
 });
 const thinkingAvailability = computed(() => modelThinkingAvailability(currentModel.value));
-const thinkingToggleable = computed(() => thinkingAvailability.value === 'toggle');
+const thinkingSegments = computed(() => segmentsFor(currentModel.value));
+// Runtime level clamped to the segments this model actually offers, so a
+// carried-over value never highlights a segment that doesn't exist here.
+const activeThinkingSegment = computed(() => {
+  const segs = thinkingSegments.value;
+  const raw = props.thinking ?? 'off';
+  if (segs.includes(raw)) return raw;
+  if (segs.includes('on')) return 'on';
+  return segs[0] ?? 'off';
+});
 const thinkingOn = computed(() => {
   if (thinkingAvailability.value === 'always-on') return true;
   if (thinkingAvailability.value === 'unsupported') return false;
-  return (props.thinking ?? 'off') !== 'off';
+  return isThinkingOn(props.thinking ?? 'off');
 });
-function toggleThinking(): void {
-  if (!thinkingToggleable.value) return;
-  emit('setThinking', thinkingOn.value ? 'off' : 'high');
+// Single-segment (always-on boolean) or unsupported models can't be changed.
+const thinkingReadonly = computed(
+  () => thinkingAvailability.value === 'unsupported' || thinkingSegments.value.length <= 1,
+);
+// Footer-style suffix: effort models show the concrete level; boolean models
+// keep the plain "thinking" tag; off shows nothing.
+const thinkingSuffix = computed(() => {
+  if (!thinkingOn.value) return '';
+  const hasEfforts = (currentModel.value?.supportEfforts?.length ?? 0) > 0;
+  const level = props.thinking ?? 'off';
+  if (hasEfforts && level !== 'on') return t('composer.thinkingSuffixEffort', { level });
+  return t('composer.thinkingSuffix');
+});
+function setThinkingSegment(draft: string): void {
+  if (thinkingReadonly.value) return;
+  emit('setThinking', commitLevel(currentModel.value, draft));
 }
 
 // Plan toggle
@@ -928,7 +956,7 @@ function selectModel(modelId: string): void {
             @keydown.space.prevent="toggleDropdown"
           >
             <b>{{ status.model }}</b>
-            <span v-if="thinkingOn" class="think-suffix">{{ t('composer.thinkingSuffix') }}</span>
+            <span v-if="thinkingSuffix" class="think-suffix">{{ thinkingSuffix }}</span>
             <Icon class="cv" name="chevron-down" size="sm" />
           </span>
           <Tooltip v-if="running" :text="t('composer.interruptTitle')">
@@ -986,19 +1014,31 @@ function selectModel(modelId: string): void {
 
           <div v-if="providerModels.length > 0" class="md-divider" />
 
-          <!-- Thinking toggle -->
-          <button
-            class="md-row md-row-toggle"
-            role="menuitem"
-            :class="{ 'is-on': thinkingOn, 'is-disabled': !thinkingToggleable }"
-            :disabled="!thinkingToggleable"
-            @click="toggleThinking()"
-          >
-            <span class="md-check"><Icon v-if="thinkingOn" name="check" size="sm" /></span>
+          <!-- Thinking level — segmented control. Effort models show every
+               declared level; boolean models show On/Off; unsupported shows a note. -->
+          <div class="md-thinking" :class="{ 'is-readonly': thinkingReadonly }">
             <span class="md-name">{{ t('status.thinkingLabel') }}</span>
-            <span v-if="thinkingAvailability === 'always-on'" class="md-note">{{ t('status.planOn') }}</span>
-            <span v-else-if="thinkingAvailability === 'unsupported'" class="md-note">{{ t('status.modeNotSupported') }}</span>
-          </button>
+            <span
+              v-if="thinkingAvailability === 'unsupported'"
+              class="md-note"
+            >{{ t('status.modeNotSupported') }}</span>
+            <div
+              v-else
+              class="effort-segments"
+              role="group"
+              :aria-label="t('status.thinkingLabel')"
+            >
+              <button
+                v-for="seg in thinkingSegments"
+                :key="seg"
+                type="button"
+                class="effort-seg"
+                :class="{ 'is-active': seg === activeThinkingSegment }"
+                :disabled="thinkingReadonly"
+                @click="setThinkingSegment(seg)"
+              >{{ effortLabel(seg) }}</button>
+            </div>
+          </div>
 
           <div class="md-divider" />
 
@@ -1551,6 +1591,73 @@ function selectModel(modelId: string): void {
   margin: 3px 0;
 }
 
+/* Thinking level segmented control — sits inside the model dropdown. */
+.md-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px;
+  border-radius: var(--radius-sm);
+}
+.md-thinking .md-name {
+  font-family: var(--mono);
+  font-size: var(--ui-font-size);
+  color: var(--color-text);
+  flex: none;
+}
+.md-thinking .md-note {
+  margin-left: auto;
+}
+.effort-segments {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+.effort-seg {
+  appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: var(--ui-font-size-xs);
+  line-height: 1;
+  color: var(--color-text-muted);
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+}
+.effort-seg:hover:not(:disabled):not(.is-active) {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+.effort-seg:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.effort-seg.is-active {
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  box-shadow: var(--shadow-xs);
+  font-weight: 500;
+}
+.effort-seg:disabled {
+  cursor: default;
+}
+.md-thinking.is-readonly .effort-segments {
+  opacity: 0.62;
+}
+.md-thinking.is-readonly .effort-seg.is-active {
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  box-shadow: none;
+}
+
 /* Permission dropdown — anchored to the toolbar left side */
 .perm-dropdown {
   position: absolute;
@@ -1871,6 +1978,19 @@ function selectModel(modelId: string): void {
   }
   .md-section {
     font-size: var(--ui-font-size);
+  }
+  .md-thinking {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .md-thinking .effort-segments {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+  .md-thinking .effort-seg {
+    flex: 1;
+    padding: 5px 6px;
   }
   .pd-name {
     font-size: var(--ui-font-size);

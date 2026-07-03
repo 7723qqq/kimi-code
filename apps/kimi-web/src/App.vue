@@ -37,6 +37,7 @@ import { openDialogCount } from './composables/dialogStack';
 import ServerAuthDialog from './components/ServerAuthDialog.vue';
 import { initServerAuth, onAuthRequired } from './api/daemon/serverAuth';
 import type { AppConfig, ThinkingLevel } from './api/types';
+import { commitLevel, segmentsFor } from './lib/modelThinking';
 import Button from './components/ui/Button.vue';
 import IconButton from './components/ui/IconButton.vue';
 import Icon from './components/ui/Icon.vue';
@@ -87,10 +88,18 @@ const { showAuthGate, blinkAuthLogo } = useAuthGate({ client, authLogoRef });
 // spinner while the agent is running so activity is visible at a glance.
 usePageTitle({ running, showAuthGate });
 
-// Thinking is on/off (TUI parity — no effort-level cycling). The /thinking
-// command flips between off and the backend default effort ('high').
+// The /thinking slash command has no popover anchor, so it steps to the next
+// segment for the active model (effort models cycle through their declared
+// levels; boolean models flip on/off; unsupported stays off).
 function nextThinkingLevel(current: ThinkingLevel): ThinkingLevel {
-  return current === 'off' ? 'high' : 'off';
+  const raw = client.status.value.modelId ?? client.status.value.model ?? '';
+  const model = client.models.value.find(
+    (m) => m.id === raw || m.model === raw || m.displayName === client.status.value.model,
+  );
+  const segs = segmentsFor(model);
+  const idx = segs.indexOf(current);
+  const next = segs[(idx + 1) % segs.length] ?? segs[0] ?? 'off';
+  return commitLevel(model, next);
 }
 
 // First-run onboarding (language + welcome greeting). Shown until the user
@@ -939,6 +948,7 @@ function openPr(url: string): void {
       v-model="showMobileSettings"
       :status="client.status.value"
       :thinking="client.thinking.value"
+      :models="client.models.value"
       :plan-mode="client.planMode.value"
       :swarm-mode="client.swarmMode.value"
       :color-scheme="client.colorScheme.value"
