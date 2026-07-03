@@ -1,7 +1,7 @@
 /**
- * `workspaceRegistry` domain (L1) — `FileWorkspaceStore` implementation.
+ * `workspaceRegistry` domain (L1) — `FileWorkspacePersistence` implementation.
  *
- * File backend of `IWorkspaceStore`. Persists the catalog as a single
+ * File backend of `IWorkspacePersistence`. Persists the catalog as a single
  * v1-compatible `workspaces.json` document at the storage root
  * (`<homeDir>/workspaces.json`, via `scope = ''`) through the
  * `IAtomicDocumentStore` access-pattern Store. Bound at App scope.
@@ -13,10 +13,10 @@ import { IAtomicDocumentStore } from '#/app/storage';
 
 import type { Workspace } from './workspaceRegistry';
 import {
-  IWorkspaceStore,
+  IWorkspacePersistence,
   type PersistedWorkspaceEntry,
   type PersistedWorkspaceFile,
-} from './workspaceStore';
+} from './workspacePersistence';
 
 const WORKSPACE_REGISTRY_VERSION = 1;
 // Empty scope resolves to `<homeDir>/<key>` (join skips empty segments),
@@ -24,7 +24,7 @@ const WORKSPACE_REGISTRY_VERSION = 1;
 const WORKSPACE_REGISTRY_SCOPE = '';
 const WORKSPACE_REGISTRY_KEY = 'workspaces.json';
 
-export class FileWorkspaceStore implements IWorkspaceStore {
+export class FileWorkspacePersistence implements IWorkspacePersistence {
   declare readonly _serviceBrand: undefined;
 
   constructor(@IAtomicDocumentStore private readonly docs: IAtomicDocumentStore) {}
@@ -105,8 +105,8 @@ function parseTime(value: string, fallback: number): number {
 
 registerScopedService(
   LifecycleScope.App,
-  IWorkspaceStore,
-  FileWorkspaceStore,
+  IWorkspacePersistence,
+  FileWorkspacePersistence,
   InstantiationType.Delayed,
   'workspaceRegistry',
 );

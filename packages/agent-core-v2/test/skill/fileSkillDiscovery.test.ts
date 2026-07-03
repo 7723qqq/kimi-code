@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { FileSkillCatalogStore } from '#/app/globalSkillCatalog/fileSkillCatalogStore';
+import { FileSkillDiscovery } from '#/app/globalSkillCatalog/fileSkillDiscovery';
 
-describe('FileSkillCatalogStore', () => {
+describe('FileSkillDiscovery', () => {
   let root: string;
 
   beforeEach(async () => {
@@ -31,7 +31,7 @@ describe('FileSkillCatalogStore', () => {
     await markGitRoot();
     await writeSkill('.kimi-code/skills/commit/SKILL.md', 'name: commit\ndescription: commit changes');
 
-    const result = await new FileSkillCatalogStore().discoverProject(root);
+    const result = await new FileSkillDiscovery().discoverProject(root);
 
     expect(result.skills.map((s) => s.name)).toEqual(['commit']);
     expect(result.skills[0]?.source).toBe('project');
@@ -41,7 +41,7 @@ describe('FileSkillCatalogStore', () => {
     await markGitRoot();
     await writeSkill('.agents/skills/review/SKILL.md', 'name: review\ndescription: review code');
 
-    const result = await new FileSkillCatalogStore().discoverProject(root);
+    const result = await new FileSkillDiscovery().discoverProject(root);
 
     expect(result.skills.map((s) => s.name)).toEqual(['review']);
   });
@@ -49,7 +49,7 @@ describe('FileSkillCatalogStore', () => {
   it('returns an empty result when no skill directories exist', async () => {
     await markGitRoot();
 
-    const result = await new FileSkillCatalogStore().discoverProject(root);
+    const result = await new FileSkillDiscovery().discoverProject(root);
 
     expect(result.skills).toEqual([]);
     expect(result.scannedRoots).toEqual([]);
@@ -59,7 +59,7 @@ describe('FileSkillCatalogStore', () => {
     await markGitRoot();
     await writeSkill('.kimi-code/skills/summarize.md', 'name: summarize\ndescription: summarize text');
 
-    const result = await new FileSkillCatalogStore().discoverProject(root);
+    const result = await new FileSkillDiscovery().discoverProject(root);
 
     expect(result.skills.map((s) => s.name)).toEqual(['summarize']);
   });
@@ -69,7 +69,7 @@ describe('FileSkillCatalogStore', () => {
     await writeSkill('.kimi-code/skills/dup/SKILL.md', 'name: dup\ndescription: from brand');
     await writeSkill('.agents/skills/dup/SKILL.md', 'name: dup\ndescription: from generic');
 
-    const result = await new FileSkillCatalogStore().discoverProject(root);
+    const result = await new FileSkillDiscovery().discoverProject(root);
 
     expect(result.skills).toHaveLength(1);
     expect(result.skills[0]?.description).toBe('from brand');
@@ -78,7 +78,7 @@ describe('FileSkillCatalogStore', () => {
   it('discovers user skills under homeDir/skills', async () => {
     await writeSkill('skills/notes/SKILL.md', 'name: notes\ndescription: personal notes');
 
-    const result = await new FileSkillCatalogStore().discoverUser(root, root);
+    const result = await new FileSkillDiscovery().discoverUser(root, root);
 
     expect(result.skills.map((s) => s.name)).toEqual(['notes']);
     expect(result.skills[0]?.source).toBe('user');
@@ -95,7 +95,7 @@ describe('FileSkillCatalogStore', () => {
       'name: child\ndescription: child skill',
     );
 
-    const result = await new FileSkillCatalogStore().discoverProject(root);
+    const result = await new FileSkillDiscovery().discoverProject(root);
     const names = result.skills.map((s) => s.name).toSorted();
 
     expect(names).toEqual(['parent', 'parent.child']);
@@ -109,7 +109,7 @@ describe('FileSkillCatalogStore', () => {
       'name: hidden\ndescription: hidden',
     );
 
-    const result = await new FileSkillCatalogStore().discoverProject(root);
+    const result = await new FileSkillDiscovery().discoverProject(root);
 
     expect(result.skills.map((s) => s.name)).not.toContain('hidden');
   });

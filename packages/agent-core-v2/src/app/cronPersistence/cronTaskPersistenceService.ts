@@ -1,5 +1,5 @@
 /**
- * `cron` domain (L5) — `ICronTaskStore` implementation.
+ * `cron` domain (L5) — `ICronTaskPersistence` implementation.
  *
  * Persists cron tasks as atomic JSON documents under the `cron` persistence
  * scope (`bootstrap.scope('cron')`), laid out as `<workspaceId>/<id>.json`.
@@ -12,7 +12,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAtomicDocumentStore } from '#/persistence/interface';
 import { IBootstrapService } from '#/app/bootstrap';
 
-import { ICronTaskStore, type CronTaskQuery } from './cronTaskStore';
+import { ICronTaskPersistence, type CronTaskQuery } from './cronTaskPersistence';
 import type { CronTask } from './cronTask';
 
 export const CRON_ID_REGEX: RegExp = /^[0-9a-f]{8}$/;
@@ -41,7 +41,7 @@ export function isValidCronTask(obj: unknown): obj is CronTask {
   return true;
 }
 
-export class CronTaskStoreService extends Disposable implements ICronTaskStore {
+export class CronTaskPersistenceService extends Disposable implements ICronTaskPersistence {
   declare readonly _serviceBrand: undefined;
 
   private readonly cronScope: string;
@@ -93,8 +93,8 @@ export class CronTaskStoreService extends Disposable implements ICronTaskStore {
 
 registerScopedService(
   LifecycleScope.App,
-  ICronTaskStore,
-  CronTaskStoreService,
+  ICronTaskPersistence,
+  CronTaskPersistenceService,
   InstantiationType.Delayed,
   'cron',
 );

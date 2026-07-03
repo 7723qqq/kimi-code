@@ -2,7 +2,7 @@
  * `cron` domain (L5) — shared `CronTask` data record.
  *
  * The authoritative definition of a cron task's persistent shape. Used by
- * `ICronTaskStore` (App scope) for project-level persistence and by
+ * `ICronTaskPersistence` (App scope) for project-level persistence and by
  * `ISessionCronService` (Session scope) for the live scheduling engine.
  * The `tags` map carries arbitrary metadata (e.g. `sessionId`) that the
  * Session projection uses to filter tasks belonging to the current session.

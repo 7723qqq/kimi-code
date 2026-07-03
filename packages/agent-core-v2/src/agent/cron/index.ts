@@ -2,7 +2,7 @@
  * `cron` domain barrel — re-exports cron utilities (expression parser, jitter,
  * format, clock, config) and registers the three cron tools (`CronCreate` /
  * `CronList` / `CronDelete`) via side-effect imports. The cron task record
- * type lives in `app/cronStore`; the scheduling engine lives in `session/cron`.
+ * type lives in `app/cronPersistence`; the scheduling engine lives in `session/cron`.
  */
 
 import './configSection';

@@ -1,10 +1,10 @@
 /**
- * `globalSkillCatalog` domain (L5) — filesystem `ISkillCatalogStore` backend.
+ * `globalSkillCatalog` domain (L5) — filesystem `ISkillDiscovery` backend.
  *
  * Discovers skill bundles by walking skill roots on the local filesystem and
  * parsing each SKILL.md through `parser`. This is the only file in the skill
  * domain that imports `node:fs`; the rest of the domain depends on the
- * `ISkillCatalogStore` interface and stays filesystem-agnostic. Bound at App
+ * `ISkillDiscovery` interface and stays filesystem-agnostic. Bound at App
  * scope by the composition root (tests register the in-memory backend instead).
  */
 
@@ -16,7 +16,7 @@ import {
   UnsupportedSkillTypeError,
   parseSkillText,
 } from './parser';
-import type { SkillDiscoveryResult, ISkillCatalogStore } from './skillCatalogStore';
+import type { SkillDiscoveryResult, ISkillDiscovery } from './skillDiscovery';
 import type { SkillDefinition, SkillRoot, SkillSource, SkippedSkill } from './types';
 import { normalizeSkillName } from './types';
 
@@ -31,7 +31,7 @@ const PROJECT_GENERIC_DIRS = ['.agents/skills'] as const;
 // loop forever. Real skill trees are 1-3 levels deep.
 const MAX_SKILL_SCAN_DEPTH = 8;
 
-export class FileSkillCatalogStore implements ISkillCatalogStore {
+export class FileSkillDiscovery implements ISkillDiscovery {
   declare readonly _serviceBrand: undefined;
 
   async discoverProject(

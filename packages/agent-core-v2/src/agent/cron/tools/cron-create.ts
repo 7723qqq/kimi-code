@@ -4,7 +4,7 @@
  * cron cadence (`recurring: true`, the default).
  *
  * Tasks live in `ISessionCronService` (Session scope) and are persisted
- * through the App-scoped `ICronTaskStore` under the project's cron
+ * through the App-scoped `ICronTaskPersistence` under the project's cron
  * scope, so a `kimi resume` of the same session reloads them and the
  * scheduler picks up where it left off (fires that fell during downtime
  * are collapsed into a single delivery with `coalescedCount`). Tasks do

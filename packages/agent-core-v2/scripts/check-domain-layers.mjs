@@ -98,8 +98,8 @@ const DOMAIN_LAYER = new Map([
   // L2 — data & cross-cutting capabilities
   ['records', 2],
   ['wireRecord', 2],
-  ['blobStore', 2],
-  ['filestore', 2],
+  ['blob', 2],
+  ['file', 2],
   ['config', 2],
   ['agentFs', 2],
   ['process', 2],
@@ -120,7 +120,7 @@ const DOMAIN_LAYER = new Map([
   ['flag', 3],
   ['toolExecutor', 3],
   ['toolRegistry', 3],
-  ['toolStore', 3],
+  ['toolState', 3],
   ['userTool', 3],
   ['permissionMode', 3],
   ['permissionPolicy', 3],
@@ -163,7 +163,7 @@ const DOMAIN_LAYER = new Map([
   ['background', 5],
   ['mcp', 5],
   ['cron', 5],
-  ['cronStore', 5],
+  ['cronPersistence', 5],
   // `btw` forks a single side-question sub-agent via `agentLifecycle`,
   // parallel to how the `Agent` tool spawns child agents. Agent-scope, L5.
   ['btw', 5],

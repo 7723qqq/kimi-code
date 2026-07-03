@@ -1,5 +1,5 @@
 /**
- * `workspaceRegistry` domain (L1) — `IWorkspaceStore` contract.
+ * `workspaceRegistry` domain (L1) — `IWorkspacePersistence` contract.
  *
  * Domain-specific persistence Store for the known-workspaces catalog. It hides
  * the on-disk document layout (`<homeDir>/workspaces.json`, the v1-compatible
@@ -30,7 +30,7 @@ export interface PersistedWorkspaceFile {
   readonly workspaces: Record<string, PersistedWorkspaceEntry>;
 }
 
-export interface IWorkspaceStore {
+export interface IWorkspacePersistence {
   readonly _serviceBrand: undefined;
 
   /**
@@ -46,5 +46,5 @@ export interface IWorkspaceStore {
   save(workspaces: readonly Workspace[]): Promise<void>;
 }
 
-export const IWorkspaceStore: ServiceIdentifier<IWorkspaceStore> =
-  createDecorator<IWorkspaceStore>('workspaceStore');
+export const IWorkspacePersistence: ServiceIdentifier<IWorkspacePersistence> =
+  createDecorator<IWorkspacePersistence>('workspacePersistence');

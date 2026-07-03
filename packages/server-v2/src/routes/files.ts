@@ -5,7 +5,7 @@
  *   GET    /files/{file_id}  download a file (binary stream)
  *   DELETE /files/{file_id}  delete a file → { deleted: true }
  *
- * Backed by the v2 `IFileStore` (Core scope), which stores bytes in
+ * Backed by the v2 `IFileService` (Core scope), which stores bytes in
  * `IBlobStorage` and the metadata index alongside them. Mirrors the v1 server's
  * wire behavior (envelope codes 40407 / 41301, 50 MiB cap, content-disposition)
  * but resolves the store through `core.accessor.get` and streams downloads from
@@ -17,7 +17,7 @@ import multipart from '@fastify/multipart';
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
   ErrorCodes,
-  IFileStore,
+  IFileService,
   KimiError,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
@@ -107,7 +107,7 @@ export function registerFilesRoutes(app: FilesRouteHost, core: Scope): void {
         const nameOverride = readFieldString(part.fields['name']);
         const expiresInSec = readFieldNumber(part.fields['expires_in_sec']);
 
-        const store = core.accessor.get(IFileStore);
+        const store = core.accessor.get(IFileService);
 
         const partFile = part.file as NodeJS.ReadableStream & { truncated?: boolean };
         let busboyTruncated = false;
@@ -168,7 +168,7 @@ export function registerFilesRoutes(app: FilesRouteHost, core: Scope): void {
     async (req, reply) => {
       try {
         const { file_id } = req.params;
-        const store = core.accessor.get(IFileStore);
+        const store = core.accessor.get(IFileService);
         const { meta, stream } = await store.get(file_id);
         const r = reply as unknown as FilesReply;
         r.type(meta.media_type)
@@ -201,7 +201,7 @@ export function registerFilesRoutes(app: FilesRouteHost, core: Scope): void {
     async (req, reply) => {
       try {
         const { file_id } = req.params;
-        const store = core.accessor.get(IFileStore);
+        const store = core.accessor.get(IFileService);
         await store.delete(file_id);
         reply.send(okEnvelope({ deleted: true as const }, req.id));
       } catch (err) {

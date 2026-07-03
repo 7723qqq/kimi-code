@@ -2,7 +2,7 @@
  * `cron` domain (L5) — `ISessionCronService` contract.
  *
  * Session-level scheduling engine for cron tasks. Owns the live task set
- * (filtered from `ICronTaskStore` by `sessionId` tag), the polling timer,
+ * (filtered from `ICronTaskPersistence` by `sessionId` tag), the polling timer,
  * and the fire/coalesce/jitter logic. On fire, borrows the main agent's
  * `IAgentPromptService` via `IAgentLifecycleService` handle to steer a new
  * turn. Bound at Session scope.
@@ -12,7 +12,7 @@ import type { ContentPart } from '#/app/llmProtocol';
 
 import { createDecorator } from '#/_base/di';
 import type { Turn } from '#/agent/turn';
-import type { CronTask, CronTaskInit } from '#/app/cronStore';
+import type { CronTask, CronTaskInit } from '#/app/cronPersistence';
 
 export interface CronLoadOptions {
   readonly replace?: boolean;

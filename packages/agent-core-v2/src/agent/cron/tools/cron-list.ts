@@ -46,7 +46,7 @@ import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool'
 import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { ISessionCronService } from '#/session/cron';
-import type { CronTask } from '#/app/cronStore';
+import type { CronTask } from '#/app/cronPersistence';
 import {
   cronToHuman,
   parseCronExpression,

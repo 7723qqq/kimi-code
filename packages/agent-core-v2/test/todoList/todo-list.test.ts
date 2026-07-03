@@ -7,13 +7,13 @@ import {
   TodoListTool,
   type TodoItem,
 } from '#/agent/todoList/tools/todo-list';
-import type { IAgentToolStoreService } from '#/agent/toolStore';
+import type { IAgentToolState } from '#/agent/toolState';
 import { executeTool } from '../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
 
 function makeStore(initial: readonly TodoItem[] = []): {
-  readonly store: IAgentToolStoreService;
+  readonly store: IAgentToolState;
   readonly getTodos: () => readonly TodoItem[];
 } {
   let todos = [...initial];
@@ -28,7 +28,7 @@ function makeStore(initial: readonly TodoItem[] = []): {
       },
       data: () => ({ [TODO_STORE_KEY]: todos }),
       hooks: { onUpdated: { register: () => ({ dispose: () => {} }) } },
-    } as unknown as IAgentToolStoreService,
+    } as unknown as IAgentToolState,
     getTodos: () => todos,
   };
 }

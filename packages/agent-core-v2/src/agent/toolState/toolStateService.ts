@@ -4,7 +4,7 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { OrderedHookSlot } from '#/hooks';
-import { IAgentToolStoreService, type ToolStoreData, type ToolStoreKey } from './toolStore';
+import { IAgentToolState, type ToolStoreData, type ToolStoreKey } from './toolState';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 
 declare module '#/agent/wireRecord' {
@@ -16,7 +16,7 @@ declare module '#/agent/wireRecord' {
   }
 }
 
-export class AgentToolStoreService extends Disposable implements IAgentToolStoreService {
+export class AgentToolStateService extends Disposable implements IAgentToolState {
   declare readonly _serviceBrand: undefined;
   private readonly store: Partial<ToolStoreData> = {};
 
@@ -66,8 +66,8 @@ export class AgentToolStoreService extends Disposable implements IAgentToolStore
 
 registerScopedService(
   LifecycleScope.Agent,
-  IAgentToolStoreService,
-  AgentToolStoreService,
+  IAgentToolState,
+  AgentToolStateService,
   InstantiationType.Delayed,
-  'toolStore',
+  'toolState',
 );

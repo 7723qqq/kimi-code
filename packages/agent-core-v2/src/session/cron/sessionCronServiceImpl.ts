@@ -2,9 +2,9 @@
  * `cron` domain (L5) — `SessionCronService` implementation.
  *
  * Session-level scheduling engine. Holds the in-memory task map (filtered
- * from `ICronTaskStore` by `sessionId` tag), runs the polling timer
+ * from `ICronTaskPersistence` by `sessionId` tag), runs the polling timer
  * (tick / coalesce / jitter / cursor), persists mutations through the
- * App-scoped `ICronTaskStore`, mirrors mutations onto `wireRecord` for
+ * App-scoped `ICronTaskPersistence`, mirrors mutations onto `wireRecord` for
  * replay via the main agent's `IAgentRecordService` (cross-scope borrow),
  * and steers the main agent through `IAgentPromptService` when a task fires.
  * Bound at Session scope.
@@ -22,7 +22,7 @@ import { IntervalTimer } from '#/_base/utils';
 
 import { IConfigService } from '#/app/config';
 import { ITelemetryService } from '#/app/telemetry';
-import { ICronTaskStore, type CronTask, type CronTaskInit } from '#/app/cronStore';
+import { ICronTaskPersistence, type CronTask, type CronTaskInit } from '#/app/cronPersistence';
 import { ISessionContext } from '#/session/sessionContext';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import type { ContextMessage } from '#/agent/contextMemory';
@@ -98,7 +98,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
 
   constructor(
     @ISessionContext private readonly ctx: ISessionContext,
-    @ICronTaskStore private readonly store: ICronTaskStore,
+    @ICronTaskPersistence private readonly store: ICronTaskPersistence,
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IConfigService private readonly config: IConfigService,

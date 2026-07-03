@@ -25,7 +25,7 @@ import {
   renderTodoList,
   type TodoItem,
 } from '#/agent/todoList/tools/todo-list';
-import { IAgentToolStoreService } from '#/agent/toolStore';
+import { IAgentToolState } from '#/agent/toolState';
 import { IAgentTurnService } from '#/agent/turn';
 import {
   APIContextOverflowError,
@@ -102,7 +102,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IAgentToolStoreService private readonly toolStore: IAgentToolStoreService,
+    @IAgentToolState private readonly toolStore: IAgentToolState,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,

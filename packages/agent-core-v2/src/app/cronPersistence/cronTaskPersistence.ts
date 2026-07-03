@@ -1,11 +1,11 @@
 /**
- * `cron` domain (L5) — `ICronTaskStore` contract.
+ * `cron` domain (L5) — `ICronTaskPersistence` contract.
  *
- * Project-level persistence catalog for cron tasks. Stores tasks under
+ * Project-level persistence for cron tasks. Persists tasks under
  * `bootstrap.scope('cron')` as atomic documents keyed by
  * `<workspaceId>/<taskId>.json`. Provides CRUD and query-by-workspace.
- * The store is a pure data layer — scheduling, timers, and fire delivery
- * are owned by `ISessionCronService` at Session scope. Bound at App scope.
+ * A pure data layer — scheduling, timers, and fire delivery are owned by
+ * `ISessionCronService` at Session scope. Bound at App scope.
  */
 
 import { createDecorator } from '#/_base/di';
@@ -16,7 +16,7 @@ export interface CronTaskQuery {
   readonly workspaceId: string;
 }
 
-export interface ICronTaskStore {
+export interface ICronTaskPersistence {
   readonly _serviceBrand: undefined;
   get(workspaceId: string, taskId: string): Promise<CronTask | undefined>;
   list(query: CronTaskQuery): Promise<readonly CronTask[]>;
@@ -24,4 +24,4 @@ export interface ICronTaskStore {
   delete(workspaceId: string, taskId: string): Promise<void>;
 }
 
-export const ICronTaskStore = createDecorator<ICronTaskStore>('cronTaskStore');
+export const ICronTaskPersistence = createDecorator<ICronTaskPersistence>('cronTaskPersistence');

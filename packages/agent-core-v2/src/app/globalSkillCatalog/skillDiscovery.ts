@@ -1,7 +1,7 @@
 /**
- * `globalSkillCatalog` domain (L5) — catalog Store contract.
+ * `globalSkillCatalog` domain (L5) — catalog discovery contract.
  *
- * `ISkillCatalogStore` is a business-specific Store that hides how skill
+ * `ISkillDiscovery` is a business-specific interface that hides how skill
  * bundles are discovered: a backend walks a skill root, reads each SKILL.md,
  * and parses it into `SkillDefinition`s. The skill domain depends on this
  * interface only and never touches `node:fs` / `hostFs`; the backend is chosen
@@ -19,7 +19,7 @@ export interface SkillDiscoveryResult {
   readonly scannedRoots: readonly string[];
 }
 
-export interface ISkillCatalogStore {
+export interface ISkillDiscovery {
   readonly _serviceBrand: undefined;
 
   discoverProject(
@@ -30,4 +30,4 @@ export interface ISkillCatalogStore {
   discoverUser(homeDir: string, osHomeDir: string): Promise<SkillDiscoveryResult>;
 }
 
-export const ISkillCatalogStore = createDecorator<ISkillCatalogStore>('skillCatalogStore');
+export const ISkillDiscovery = createDecorator<ISkillDiscovery>('skillDiscovery');

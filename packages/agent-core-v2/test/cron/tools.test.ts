@@ -8,7 +8,7 @@ import type {
   RunnableToolExecution,
   ToolExecution,
 } from '#/agent/tool';
-import type { CronTask, CronTaskInit } from '#/app/cronStore';
+import type { CronTask, CronTaskInit } from '#/app/cronPersistence';
 import type { ISessionCronService } from '#/session/cron';
 import {
   computeNextCronRun,

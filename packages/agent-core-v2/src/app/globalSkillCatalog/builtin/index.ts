@@ -3,7 +3,7 @@
  *
  * Registers the code-defined builtin skills into an in-memory catalog. Builtin
  * skills are constants (not discovered from storage), so they bypass the
- * `ISkillCatalogStore` and are registered directly by the global catalog.
+ * `ISkillDiscovery` and are registered directly by the global catalog.
  */
 
 import type { InMemorySkillCatalog } from '#/app/globalSkillCatalog/registry';

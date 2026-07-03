@@ -1,5 +1,5 @@
 /**
- * `globalSkillCatalog` domain (L5) — in-memory `ISkillCatalogStore` backend.
+ * `globalSkillCatalog` domain (L5) — in-memory `ISkillDiscovery` backend.
  *
  * Returns preset skill lists for project / user discovery without any IO.
  * Registered as the App-scope default so tests and scopes work without a
@@ -10,11 +10,11 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import type { SkillDiscoveryResult } from './skillCatalogStore';
-import { ISkillCatalogStore } from './skillCatalogStore';
+import type { SkillDiscoveryResult } from './skillDiscovery';
+import { ISkillDiscovery } from './skillDiscovery';
 import type { SkillDefinition } from './types';
 
-export class InMemorySkillCatalogStore implements ISkillCatalogStore {
+export class InMemorySkillDiscovery implements ISkillDiscovery {
   declare readonly _serviceBrand: undefined;
 
   private projectSkills: readonly SkillDefinition[] = [];
@@ -39,8 +39,8 @@ export class InMemorySkillCatalogStore implements ISkillCatalogStore {
 
 registerScopedService(
   LifecycleScope.App,
-  ISkillCatalogStore,
-  InMemorySkillCatalogStore,
+  ISkillDiscovery,
+  InMemorySkillDiscovery,
   InstantiationType.Delayed,
   'skill',
 );

@@ -18,7 +18,7 @@ import { z } from 'zod';
 import type { BuiltinTool } from '#/agent/tool';
 import type { ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { IAgentToolStoreService } from '#/agent/toolStore';
+import { IAgentToolState } from '#/agent/toolState';
 import DESCRIPTION from './todo-list.md?raw';
 import TODO_LIST_WRITE_REMINDER from './todo-list-write-reminder.md?raw';
 
@@ -42,7 +42,7 @@ export function readTodoItems(raw: unknown): readonly TodoItem[] {
   }));
 }
 
-declare module '#/agent/toolStore' {
+declare module '#/agent/toolState' {
   interface ToolStoreData {
     todo: readonly TodoItem[];
   }
@@ -111,7 +111,7 @@ export class TodoListTool implements BuiltinTool<TodoListInput> {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TodoListInputSchema);
 
-  constructor(@IAgentToolStoreService private readonly store: IAgentToolStoreService) {}
+  constructor(@IAgentToolState private readonly store: IAgentToolState) {}
 
   resolveExecution(args: TodoListInput): ToolExecution {
     const description =
