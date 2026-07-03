@@ -193,7 +193,17 @@ export interface CompactionMarkerMetadata {
 // Prompt
 // ---------------------------------------------------------------------------
 
-export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/**
+ * Runtime thinking level. 'off' disables extended thinking; 'on' is the
+ * enable signal for legacy boolean models (those without `support_efforts`);
+ * any other string is a model-declared effort level (e.g. 'low'/'high'/'max').
+ *
+ * `support_efforts` is the single source of truth for which concrete levels a
+ * model accepts; providers silently drop unknown efforts rather than erroring.
+ * Collapses to `string` at runtime — this is a semantic marker, not a closed
+ * enum. Mirrors kosong's `ThinkingEffort`.
+ */
+export type ThinkingLevel = 'off' | 'on' | (string & {});
 
 export interface PromptSubmission {
   content: AppMessageContent[];
@@ -550,6 +560,11 @@ export interface AppModel {
   maxContextSize: number;
   /** Optional capability tags (e.g. ["vision", "thinking"]) */
   capabilities?: string[];
+  /** Effort levels this model supports for extended thinking (e.g. ["low", "high", "max"]).
+      Sourced from the model catalog (managed) or config [models.<id>.overrides]. */
+  supportEfforts?: readonly string[];
+  /** Catalog-declared default effort for extended thinking. */
+  defaultEffort?: string;
 }
 
 export interface AppProvider {
