@@ -10,7 +10,7 @@ import type {
 
 export { AgentBackgroundTask } from './agent-task';
 export { createAgentExecutor } from './agent-task';
-export type { AgentBackgroundTaskInfo, SubagentHandle } from './agent-task';
+export type { AgentBackgroundTaskInfo, AgentTaskHandle } from './agent-task';
 export { ProcessBackgroundTask, createProcessExecutor, ProcessExitError } from './process-task';
 export type { ProcessBackgroundTaskInfo, ProcessTaskResult } from './process-task';
 export { QuestionBackgroundTask, createQuestionExecutor, QuestionTaskError } from './question-task';

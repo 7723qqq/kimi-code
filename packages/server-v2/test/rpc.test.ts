@@ -109,7 +109,7 @@ describe('server-v2 /api/v2 RPC', () => {
   async function createMainAgent(sessionId: string): Promise<void> {
     const session = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
-    await session.accessor.get(IAgentLifecycleService).createMain();
+    await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
   }
 
   // --- Core scope -----------------------------------------------------------

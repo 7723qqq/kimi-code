@@ -7,9 +7,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CronCreateTool } from '#/agent/cron/tools/cron-create';
-import { CronDeleteTool } from '#/agent/cron/tools/cron-delete';
-import { CronListTool } from '#/agent/cron/tools/cron-list';
+import { CronCreateTool } from '#/session/cron/tools/cron-create';
+import { CronDeleteTool } from '#/session/cron/tools/cron-delete';
+import { CronListTool } from '#/session/cron/tools/cron-list';
 import type { ExecutableToolOutput } from '#/agent/tool';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { ISessionCronService } from '#/session/cron';

@@ -1,10 +1,10 @@
 /**
- * `sessionSwarm` domain (L4) — batch scheduler for swarm subagent runs.
+ * `sessionSwarm` domain (L4) — batch scheduler for swarm agent runs.
  *
  * Defines `ISessionSwarmService`, the Session-scoped service that runs a batch
- * of subagents on behalf of a caller agent. Owns the in-flight batch state so
+ * of agents on behalf of a caller agent. Owns the in-flight batch state so
  * cancellation can reach every run; the actual concurrency / rate-limit logic
- * lives in the internal `subagentBatch` module. Bound at Session scope.
+ * lives in the internal `agentRunBatch` module. Bound at Session scope.
  */
 
 import type { TokenUsage } from '#/app/llmProtocol';

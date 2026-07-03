@@ -1,107 +1,128 @@
 /**
- * `agentLifecycle` domain (L6) — creates and tracks agents within a session.
+ * `agentLifecycle` domain (L6) — flat registry of the session's agents.
  *
- * Defines the public contract of agent lifecycle: the `CreateAgentOptions` and
- * the `IAgentLifecycleService` used to create agents (`create` / `createMain`),
- * clone an existing agent (`clone`), look them up (`getHandle` / `list`), and
- * remove them. Session-scoped — one instance per session.
+ * Defines the public contract of agent lifecycle: `create` (from zero, Profile
+ * + Model), `fork` (inherit binding + context history), `run` (drive one
+ * prompt/retry turn on an agent and await its distilled summary), plus lookup
+ * (`getHandle` / `list`) and removal. Session-scoped — one instance per
+ * session.
+ *
+ * Invariants:
+ * - The registry is flat: agents have no nesting. There is no parent/child or
+ *   caller/callee relationship here; when a business domain needs such a
+ *   relationship (e.g. the `Agent` tool's display events), that domain
+ *   maintains it itself.
+ * - The main agent is an ordinary agent whose only distinction is
+ *   `agentId === 'main'`. Business operations (create / fork / run / lookup)
+ *   treat it uniformly; the only main-specific surface is the
+ *   `onDidCreateMain` event, fired via `notifyMainCreated` by the main
+ *   bootstrapper so main-only capabilities subscribe without filtering every
+ *   `onDidCreate`.
+ * - `forkedFrom` is provenance only (a recorded value); business logic must
+ *   not branch on it.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import type { Event } from '#/_base/event';
 import type { TokenUsage } from '#/app/llmProtocol';
+import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog';
+import type { BindAgentInput } from '#/agent/profile';
+import type { Turn } from '#/agent/turn';
 
 export interface CreateAgentOptions {
   readonly agentId?: string;
-  /** Agent this one is cloned / derived from (provenance only; not used by business logic). */
+  /**
+   * Profile + Model to bind at creation so the agent is born runnable
+   * (`Profile + Model ⇒ Agent`). May be omitted by exactly two callers:
+   * session resume/fork (the binding is restored from the wire log) and the
+   * edge-bootstrapped main agent (the edge binds a model right after). Every
+   * other creation path must pass a full binding.
+   */
+  readonly binding?: BindAgentInput;
+  /** Agent this one is derived from (provenance only; not used by business logic). */
   readonly forkedFrom?: string;
-  readonly cwd?: string;
-  readonly swarmItem?: string;
+  /**
+   * Business-defined recorded values (e.g. the swarm's `swarmItem`). Persisted
+   * verbatim into the session's agent registry; never interpreted here.
+   */
+  readonly labels?: Readonly<Record<string, string>>;
 }
 
-export interface SpawnAgentOptions {
+export interface ForkAgentOptions {
   readonly agentId?: string;
-  /** Override the child's cwd. Defaults to the parent's cwd. */
-  readonly cwd?: string;
-  readonly swarmItem?: string;
+  /**
+   * Overrides merged over the source agent's binding (e.g. a title generator
+   * forking `main` onto a cheaper model).
+   */
+  readonly binding?: Partial<BindAgentInput>;
+}
+
+export type AgentRunRequest =
+  | { readonly kind: 'prompt'; readonly prompt: string }
+  | { readonly kind: 'retry'; readonly trigger?: string };
+
+export interface RunAgentOptions {
+  /** Cancellation signal. Aborting it cancels the agent's turn. */
+  readonly signal: AbortSignal;
+  /**
+   * Summary distillation policy. Defaults to the `summaryPolicy` of the
+   * profile the target agent is bound to; pass explicitly to override.
+   */
+  readonly summaryPolicy?: AgentProfileSummaryPolicy;
+  /** Fires once the turn's first request is committed (used by swarm to fan out). */
+  readonly onReady?: () => void;
+}
+
+export interface AgentRunHandle {
+  readonly agentId: string;
+  readonly turn: Turn;
+  readonly completion: Promise<{ readonly summary: string; readonly usage?: TokenUsage }>;
 }
 
 export interface AgentListFilter {
   readonly prefix?: string;
 }
 
-// ── Subagent orchestration types ────────────────────────────────────
-
-export interface SubagentRecordMetadata {
-  readonly parentToolCallId?: string;
-  readonly description?: string;
-  readonly runInBackground?: boolean;
-  readonly swarmIndex?: number;
-}
-
-export interface RunSubagentOptions {
-  readonly callerAgentId: string;
-  readonly profileName: string;
-  readonly prompt: string;
-  readonly signal: AbortSignal;
-  readonly metadata?: SubagentRecordMetadata;
-  readonly suppressRateLimitFailureEvent?: boolean;
-  readonly onReady?: () => void;
-}
-
-export interface ResumeSubagentOptions {
-  readonly callerAgentId: string;
-  readonly agentId: string;
-  readonly prompt: string;
-  readonly signal: AbortSignal;
-  readonly metadata?: SubagentRecordMetadata;
-}
-
-export interface SubagentRunHandle {
-  readonly agentId: string;
-  readonly profileName: string;
-  readonly completion: Promise<{ readonly result: string; readonly usage?: TokenUsage }>;
-}
-
 export interface IAgentLifecycleService {
   readonly _serviceBrand: undefined;
   /** Fires after an agent is created and registered, with its scope handle. */
   readonly onDidCreate: Event<IAgentScopeHandle>;
+  /**
+   * Fires once after the main agent is created and its main-only wirings are
+   * attached, with its scope handle. Use this instead of `onDidCreate` when a
+   * capability belongs exclusively to the main agent, so subscribers do not
+   * need to filter every agent creation by `id === 'main'`.
+   */
+  readonly onDidCreateMain: Event<IAgentScopeHandle>;
   /** Fires after an agent is removed, with its agent id. */
   readonly onDidDispose: Event<string>;
-  create(opts: CreateAgentOptions): Promise<IAgentScopeHandle>;
-  createMain(): Promise<IAgentScopeHandle>;
-  /** Clone an agent: copy its profile and context history into a new agent. */
-  clone(sourceAgentId: string): Promise<IAgentScopeHandle>;
+  /** Create an agent from zero (empty context). */
+  create(opts?: CreateAgentOptions): Promise<IAgentScopeHandle>;
   /**
-   * Create a child agent from a parent, copying the parent's profile fields
-   * (`cwd` / `modelAlias` / `thinkingLevel` / `systemPrompt` / `activeToolNames`)
-   * and recording `forkedFrom = parentAgentId`. Does **not** copy the parent's
-   * context memory — the child starts with an empty context. Throws when the
-   * parent does not exist.
-   *
-   * Applying a named profile (system-prompt overlay, tool overrides, prompt
-   * prefix, summary policy) is a caller concern: use `applyProfileToAgent(...)`
-   * from `session/agentLifecycle` after `spawn` returns.
+   * Fire {@link onDidCreateMain} for the given handle. Called exactly once by
+   * the main-agent bootstrapper (`ensureMainAgent`) after main-only wirings
+   * are attached, so main-only capabilities can subscribe without filtering
+   * every {@link onDidCreate}. No other caller should invoke it.
    */
-  spawn(parentAgentId: string, opts?: SpawnAgentOptions): Promise<IAgentScopeHandle>;
+  notifyMainCreated(handle: IAgentScopeHandle): void;
+  /**
+   * Fork an agent: copy its profile binding and context history into a new
+   * agent, recording `forkedFrom = sourceAgentId`. Throws when the source does
+   * not exist.
+   */
+  fork(sourceAgentId: string, opts?: ForkAgentOptions): Promise<IAgentScopeHandle>;
+  /**
+   * Submit one prompt (or retry) turn to an existing agent and return a handle
+   * whose `completion` resolves with the distilled summary and token usage.
+   * Emits nothing on anyone else's record stream — a caller that wants to
+   * surface this run (the `Agent` tool, the swarm) mirrors it itself. Throws
+   * when the agent does not exist or a turn cannot be started (busy / no head).
+   */
+  run(agentId: string, request: AgentRunRequest, opts: RunAgentOptions): AgentRunHandle;
   getHandle(agentId: string): IAgentScopeHandle | undefined;
   list(filter?: AgentListFilter): readonly IAgentScopeHandle[];
   remove(agentId: string): Promise<void>;
-  /**
-   * Spawn a new child agent under a named profile, observe its turn, and
-   * return a handle to the running completion. Composes `spawn` →
-   * `applyProfileToAgent` → prompt-prefix → record signaling → telemetry →
-   * `observeChildAgentTurn`.
-   */
-  runSubagent(opts: RunSubagentOptions): Promise<SubagentRunHandle>;
-  /**
-   * Resume an existing child agent with a new prompt, observe its turn, and
-   * return a handle to the running completion. Validates the target agent
-   * exists, resolves its profile, and delegates to `observeChildAgentTurn`.
-   */
-  resumeSubagent(opts: ResumeSubagentOptions): Promise<SubagentRunHandle>;
 }
 
 export const IAgentLifecycleService: ServiceIdentifier<IAgentLifecycleService> =

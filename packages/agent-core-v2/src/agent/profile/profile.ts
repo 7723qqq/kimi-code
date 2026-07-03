@@ -1,3 +1,4 @@
+import type { AgentProfile, AgentProfileContext } from '#/app/agentProfileCatalog';
 import type { ModelCapability, ThinkingEffort } from '#/app/llmProtocol';
 import type { Model } from '#/app/model';
 
@@ -28,27 +29,26 @@ export type AgentConfigUpdateData = Partial<{
   systemPrompt: string;
 }>;
 
-export interface SystemPromptContext {
-  readonly cwd?: string;
-  /** 2-level tree listing of the working directory, for LLM orientation. */
-  readonly cwdListing?: string;
-  /** Concatenated AGENTS.md instruction hierarchy (user-level + project-level). */
-  readonly agentsMd?: string;
-  /** Rendered listings of additional workspace directories. */
-  readonly additionalDirsInfo?: string;
+/**
+ * Runtime context supplied to a profile's system-prompt renderer. Extends the
+ * catalog's {@link AgentProfileContext} (host OS/shell, cwd, AGENTS.md, skills,
+ * …) with the AGENTS.md size warning produced by `prepareSystemPromptContext`.
+ */
+export interface SystemPromptContext extends AgentProfileContext {
   /**
    * Present when the combined AGENTS.md content exceeds the recommended soft
    * budget. Surfaced through `getSessionWarnings` instead of truncating.
    */
   readonly agentsMdWarning?: string;
-  readonly [key: string]: unknown;
 }
 
-export interface ResolvedAgentProfile {
-  readonly name: string;
-  readonly tools: readonly string[];
-  systemPrompt(context: SystemPromptContext): string;
-}
+/**
+ * Resolved profile consumed by {@link IAgentProfileService.useProfile} /
+ * {@link IAgentProfileService.applyProfile}. Alias of the catalog's
+ * {@link AgentProfile} — a profile is self-contained (full system prompt +
+ * tools), so the per-agent binding and the profile catalog share one type.
+ */
+export type ResolvedAgentProfile = AgentProfile;
 
 export interface ProfileData extends AgentConfigData {
   readonly activeToolNames?: readonly string[];
@@ -92,11 +92,39 @@ export interface ProfileSetModelResult {
   readonly providerName?: string | undefined;
 }
 
+/**
+ * Atomic binding input: a named Profile plus a Model id/alias. Binding the two
+ * (with optional run config) is what makes an Agent runnable — `Profile +
+ * Model ⇒ Agent`. `profile` defaults to the catalog's default profile when the
+ * caller only supplies a model (see {@link IAgentProfileService.setModel}).
+ */
+export interface BindAgentInput {
+  /** Profile name from `IAgentProfileCatalogService` (e.g. 'agent', 'explore'). */
+  readonly profile: string;
+  /** Model id or routing alias resolved through `IModelResolver`. */
+  readonly model: string;
+  readonly thinking?: string;
+  readonly cwd?: string;
+}
+
 export interface IAgentProfileService {
   readonly _serviceBrand: undefined;
   configure(options: ProfileServiceOptions): void;
   update(changed: ProfileUpdateData): void;
-  setModel(model: string): ProfileSetModelResult;
+  /**
+   * Atomically bind a Profile + Model (plus optional run config) to this agent,
+   * rendering the profile's system prompt and activating its tool set. This is
+   * the production entry point that turns an agent scope into a runnable Agent.
+   * Throws `PROFILE_NOT_FOUND` / `MODEL_NOT_CONFIGURED` on unknown inputs.
+   */
+  bind(input: BindAgentInput): Promise<void>;
+  /**
+   * Bind (or switch) the active Model. When no Profile is bound yet, the
+   * catalog's default profile is bound first (rendering its system prompt and
+   * tool set), so a fresh agent becomes runnable on its first `setModel`.
+   * Subsequent calls swap the model while keeping the existing profile.
+   */
+  setModel(model: string): Promise<ProfileSetModelResult>;
   setThinking(level: string): void;
   getModel(): string;
   useProfile(profile: ResolvedAgentProfile, context: SystemPromptContext): void;
@@ -135,6 +163,8 @@ export interface IAgentProfileService {
   getModelCapabilities(): ModelCapability;
   getMaxOutputSize(): number | undefined;
   hasModel(): boolean;
+  /** True when both a Profile and a Model are bound — i.e. the agent can run a turn. */
+  isRunnable(): boolean;
   hasProvider(): boolean;
   getSystemPrompt(): string;
   getActiveToolNames(): readonly string[] | undefined;

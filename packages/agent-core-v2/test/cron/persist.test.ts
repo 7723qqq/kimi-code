@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CronTask } from '#/app/cronPersistence';
-import { CRON_ID_REGEX, isValidCronTask } from '#/app/cronPersistence';
+import type { CronTask } from '#/app/cron';
+import { CRON_ID_REGEX, isValidCronTask } from '#/app/cron';
 
 const validTask: CronTask = {
   id: '0123abcd',

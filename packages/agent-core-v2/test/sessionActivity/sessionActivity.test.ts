@@ -56,15 +56,16 @@ function lifecycle(handles: readonly IAgentScopeHandle[]): IAgentLifecycleServic
     _serviceBrand: undefined,
     onDidCreate: () => ({ dispose: () => {} }),
     onDidDispose: () => ({ dispose: () => {} }),
+    onDidCreateMain: () => ({ dispose: () => {} }),
+    notifyMainCreated: () => {},
     create: () => Promise.resolve(handles[0]!),
-    createMain: () => Promise.resolve(handles[0]!),
-    clone: () => Promise.resolve(handles[0]!),
-    spawn: () => Promise.resolve(handles[0]!),
+    fork: () => Promise.resolve(handles[0]!),
+    run: () => {
+      throw new Error('not implemented in test');
+    },
     getHandle: () => undefined,
     list: () => handles,
     remove: () => Promise.resolve(),
-    runSubagent: () => Promise.reject(new Error('not implemented in test')),
-    resumeSubagent: () => Promise.reject(new Error('not implemented in test')),
   };
 }
 

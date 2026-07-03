@@ -11,6 +11,11 @@ import type { SessionSummary } from '#/agent/rpc/core-api';
 import type { UsageStatus } from '@moonshot-ai/protocol';
 import type { SessionMeta } from '#/session/sessionMetadata';
 
+/**
+ * Wire projection of the agent's role in the resume DTO: `'main'` when
+ * `agentId === 'main'`, `'sub'` otherwise. Wire values kept for node-sdk
+ * compatibility; not a business concept.
+ */
 type AgentType = 'main' | 'sub';
 
 export type AgentReplayRecordPayload =

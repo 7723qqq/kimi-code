@@ -17,7 +17,7 @@ import {
   ProcessBackgroundTask,
   type BackgroundTaskInfo,
 } from '#/agent/background';
-import type { SubagentHandle } from '#/agent/background';
+import type { AgentTaskHandle } from '#/agent/background';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import {
   configServices,
@@ -83,10 +83,9 @@ function agentTask(
     readonly timeoutMs?: number;
   } = {},
 ): AgentBackgroundTask {
-  const handle: SubagentHandle = {
+  const handle: AgentTaskHandle = {
     agentId: options.agentId ?? 'agent-child',
     profileName: options.subagentType ?? 'coder',
-    resumed: false,
     completion,
   };
   const task = new AgentBackgroundTask(

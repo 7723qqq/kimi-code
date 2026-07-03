@@ -6,14 +6,14 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleService';
 import { IBootstrapService } from '#/app/bootstrap';
+import { IConfigService } from '#/app/config';
 import { IPluginSessionStartInjectorService } from '#/agent/contextInjector';
-import { IAgentEventSinkService } from '#/agent/eventSink';
 import { ILogService } from '#/app/log';
 import { IPluginService } from '#/app/plugin';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { IAgentToolRegistryService, _clearToolContributionsForTests } from '#/agent/toolRegistry';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 const noopLog = {
@@ -52,6 +52,10 @@ describe('AgentLifecycleService', () => {
   let registerAgent: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    // The unit under test force-instantiates the builtin-tools registrar per
+    // created agent; clear module-level tool contributions so no real tool
+    // (with its own service dependencies) is constructed in this unit test.
+    _clearToolContributionsForTests();
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     registerAgent = vi.fn(() => Promise.resolve());
@@ -76,6 +80,10 @@ describe('AgentLifecycleService', () => {
       _serviceBrand: undefined,
       homeDir: '/tmp/kimi-agentLifecycle-home',
       cwd: '/tmp/kimi-agentLifecycle-home',
+      agentHomedir: (_ws: string, _session: string, agentId: string) =>
+        `/tmp/kimi-agentLifecycle-test/agents/${agentId}`,
+      agentScope: (_ws: string, _session: string, agentId: string) =>
+        `test/agents/${agentId}`,
     } as unknown as IBootstrapService);
     ix.stub(ISessionWorkspaceContext, {
       _serviceBrand: undefined,
@@ -83,6 +91,10 @@ describe('AgentLifecycleService', () => {
       additionalDirs: [],
     } as unknown as ISessionWorkspaceContext);
     ix.stub(IPluginService, pluginServiceStub);
+    ix.stub(IConfigService, {
+      ready: Promise.resolve(),
+      get: (() => undefined) as IConfigService['get'],
+    } as unknown as IConfigService);
     ix.stub(ILogService, noopLog);
     ix.stub(IPluginSessionStartInjectorService, {
       _serviceBrand: undefined,
@@ -93,11 +105,6 @@ describe('AgentLifecycleService', () => {
       resolve: () => undefined,
       list: () => [],
     } as unknown as IAgentToolRegistryService);
-    ix.stub(IAgentEventSinkService, {
-      _serviceBrand: undefined,
-      emit: () => {},
-      on: () => ({ dispose: () => {} }),
-    } as unknown as IAgentEventSinkService);
     ix.stub(IAgentToolExecutorService, {
       _serviceBrand: undefined,
       hooks: {
@@ -111,7 +118,7 @@ describe('AgentLifecycleService', () => {
 
   it('create / getHandle / list / remove', async () => {
     const svc = ix.get(IAgentLifecycleService);
-    const main = await svc.createMain();
+    const main = await svc.create({ agentId: 'main' });
     expect(main.id).toBe('main');
     expect(svc.getHandle('main')).toBe(main);
     expect(svc.list()).toEqual([main]);
@@ -126,21 +133,33 @@ describe('AgentLifecycleService', () => {
     expect(a.id).not.toBe(b.id);
   });
 
-  it('persists subagent metadata when creating a child agent', async () => {
+  it('persists provenance and labels when creating an agent', async () => {
     const svc = ix.get(IAgentLifecycleService);
 
     const child = await svc.create({
       agentId: 'child',
       forkedFrom: 'main',
-      swarmItem: 'swarm-item-1',
+      labels: { swarmItem: 'swarm-item-1' },
     });
 
     expect(child.id).toBe('child');
     expect(registerAgent).toHaveBeenCalledWith('child', {
       homedir: '/tmp/kimi-agentLifecycle-test/agents/child',
       forkedFrom: 'main',
-      swarmItem: 'swarm-item-1',
+      labels: { swarmItem: 'swarm-item-1' },
     });
+  });
+
+  it('fork throws when the source agent does not exist', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    await expect(svc.fork('missing')).rejects.toThrow('Source agent "missing" does not exist');
+  });
+
+  it('run throws when the agent does not exist', () => {
+    const svc = ix.get(IAgentLifecycleService);
+    expect(() =>
+      svc.run('missing', { kind: 'prompt', prompt: 'hi' }, { signal: new AbortController().signal }),
+    ).toThrow('Agent "missing" does not exist');
   });
 
   it('fires onDidCreate on create and onDidDispose on remove', async () => {

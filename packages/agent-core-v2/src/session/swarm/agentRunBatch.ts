@@ -3,7 +3,7 @@
  *
  * Owns the burst-then-throttle launch ramp and the provider-rate-limit recovery
  * loop used by `SessionSwarmService`; drives each attempt through a
- * `SubagentBatchLauncher` and surfaces requeues via `suspended`. Pure scheduling
+ * `AgentRunBatchLauncher` and surfaces requeues via `suspended`. Pure scheduling
  * logic — owns no scoped state. Not part of the public surface: only
  * `SessionSwarmService` imports it.
  */
@@ -16,13 +16,13 @@ import type { SessionSwarmRunResult, SessionSwarmTask } from './sessionSwarm';
 
 // ── Launcher contract ────────────────────────────────────────────────
 //
-// The scheduler drives child-agent attempts through a small launcher
+// The scheduler drives agent-run attempts through a small launcher
 // interface. Consumers (currently only `SessionSwarmService`) implement it
-// on top of `IAgentLifecycleService.spawn({ profile })` +
-// `observeChildAgentTurn`; the option shapes are defined here so the
-// scheduler has a stable contract regardless of how launches are wired.
+// on top of `IAgentLifecycleService.create({ binding })` + `run` +
+// `mirrorAgentRun`; the option shapes are defined here so the scheduler has
+// a stable contract regardless of how launches are wired.
 
-export interface RunSubagentOptions {
+export interface AgentRunAttemptOptions {
   readonly parentToolCallId: string;
   readonly parentToolCallUuid?: string;
   readonly prompt: string;
@@ -34,12 +34,12 @@ export interface RunSubagentOptions {
   readonly suppressRateLimitFailureEvent?: boolean;
 }
 
-export interface SpawnSubagentOptions extends RunSubagentOptions {
+export interface AgentSpawnAttemptOptions extends AgentRunAttemptOptions {
   readonly profileName: string;
   readonly swarmItem?: string;
 }
 
-export type SubagentHandle = {
+export type AgentRunAttemptHandle = {
   readonly agentId: string;
   readonly profileName: string;
   readonly completion: Promise<{
@@ -49,7 +49,7 @@ export type SubagentHandle = {
 };
 
 /*
-Subagent batch scheduling contract:
+Agent-run batch scheduling contract:
 Normal phase:
 - Return results in input order; empty input returns an empty list.
 - Start up to 5 tasks immediately, then 1 more every 700 ms while queued work remains. By default active tasks do not cap this ramp; when KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY is set to a positive integer, the ramp additionally stops while active tasks reach that cap, and resumes as tasks complete.
@@ -79,23 +79,23 @@ const RATE_LIMIT_SUSPENDED_REASON = 'Provider rate limit; subagent requeued for 
 
 const AGENT_SWARM_MAX_CONCURRENCY_ENV = 'KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY';
 
-export type QueuedSubagentTask<T = unknown> = SessionSwarmTask<T>;
+export type QueuedAgentRunTask<T = unknown> = SessionSwarmTask<T>;
 
-export type SubagentResult<T = unknown> = SessionSwarmRunResult<T>;
+export type AgentRunResult<T = unknown> = SessionSwarmRunResult<T>;
 
-export type QueuedSubagentRunResult<T = unknown> = SessionSwarmRunResult<T>;
+export type QueuedAgentRunResult<T = unknown> = SessionSwarmRunResult<T>;
 
-export type SubagentSuspendedEvent = {
-  readonly task: QueuedSubagentTask;
+export type AgentRunSuspendedEvent = {
+  readonly task: QueuedAgentRunTask;
   readonly agentId: string;
   readonly reason: string;
 };
 
-export type SubagentBatchLauncher = {
-  spawn(options: SpawnSubagentOptions): Promise<SubagentHandle>;
-  resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle>;
-  retry(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle>;
-  suspended?(event: SubagentSuspendedEvent): void;
+export type AgentRunBatchLauncher = {
+  spawn(options: AgentSpawnAttemptOptions): Promise<AgentRunAttemptHandle>;
+  resume(agentId: string, options: AgentRunAttemptOptions): Promise<AgentRunAttemptHandle>;
+  retry(agentId: string, options: AgentRunAttemptOptions): Promise<AgentRunAttemptHandle>;
+  suspended?(event: AgentRunSuspendedEvent): void;
 };
 
 type RateLimitedOutcome = {
@@ -104,11 +104,11 @@ type RateLimitedOutcome = {
   readonly error: string;
 };
 
-type AttemptOutcome<T> = SubagentResult<T> | RateLimitedOutcome;
+type AttemptOutcome<T> = AgentRunResult<T> | RateLimitedOutcome;
 
 type TaskState<T> = {
   readonly index: number;
-  readonly task: QueuedSubagentTask<T>;
+  readonly task: QueuedAgentRunTask<T>;
   agentId?: string;
   retryAgentId?: string;
   retryCount: number;
@@ -124,19 +124,19 @@ type ActiveAttempt<T> = {
   timedOut: boolean;
 };
 
-export type SubagentBatchOptions = {
+export type AgentRunBatchOptions = {
   /**
-   * Optional cap on how many subagents may run concurrently during the normal
+   * Optional cap on how many agent runs may execute concurrently during the normal
    * phase. `undefined` means no cap (legacy ramp behavior). The rate-limit
    * phase is governed by its own capacity logic and is not affected.
    */
   readonly maxConcurrency?: number;
 };
 
-export class SubagentBatch<T> {
+export class AgentRunBatch<T> {
   private readonly states: Array<TaskState<T>>;
   private readonly pending: Array<TaskState<T>>;
-  private readonly results: Array<SubagentResult<T> | undefined>;
+  private readonly results: Array<AgentRunResult<T> | undefined>;
   private readonly active = new Set<ActiveAttempt<T>>();
   private readonly controller = new AbortController();
   private readonly batchSignal: AbortSignal | undefined;
@@ -145,7 +145,7 @@ export class SubagentBatch<T> {
   private normalLaunchCount = 0;
   private normalLaunchTimer: ReturnType<typeof setTimeout> | undefined;
   private rateLimitLaunchTimer: ReturnType<typeof setTimeout> | undefined;
-  private resolve: ((results: Array<SubagentResult<T>>) => void) | undefined;
+  private resolve: ((results: Array<AgentRunResult<T>>) => void) | undefined;
   private reject: ((error: unknown) => void) | undefined;
   private finished = false;
   private started = false;
@@ -159,9 +159,9 @@ export class SubagentBatch<T> {
   private nextRateLimitLaunchAt = 0;
 
   constructor(
-    private readonly launcher: SubagentBatchLauncher,
-    tasks: readonly QueuedSubagentTask<T>[],
-    options: SubagentBatchOptions = {},
+    private readonly launcher: AgentRunBatchLauncher,
+    tasks: readonly QueuedAgentRunTask<T>[],
+    options: AgentRunBatchOptions = {},
   ) {
     this.maxConcurrency = options.maxConcurrency;
     this.states = tasks.map((task, index) => ({
@@ -184,9 +184,9 @@ export class SubagentBatch<T> {
     };
   }
 
-  run(): Promise<Array<SubagentResult<T>>> {
+  run(): Promise<Array<AgentRunResult<T>>> {
     if (this.started) {
-      throw new Error('SubagentBatch.run() can only be called once.');
+      throw new Error('AgentRunBatch.run() can only be called once.');
     }
     this.started = true;
 
@@ -307,7 +307,7 @@ export class SubagentBatch<T> {
 
   private async runAttempt(attempt: ActiveAttempt<T>): Promise<AttemptOutcome<T>> {
     const task = attempt.state.task;
-    const runOptions: RunSubagentOptions = {
+    const runOptions: AgentRunAttemptOptions = {
       parentToolCallId: task.parentToolCallId,
       parentToolCallUuid: task.parentToolCallUuid,
       prompt: task.prompt,
@@ -321,7 +321,7 @@ export class SubagentBatch<T> {
       suppressRateLimitFailureEvent: true,
     };
 
-    let handle: SubagentHandle;
+    let handle: AgentRunAttemptHandle;
     try {
       attempt.controller.signal.throwIfAborted();
       if (attempt.state.retryAgentId !== undefined) {
@@ -329,7 +329,7 @@ export class SubagentBatch<T> {
       } else if (task.kind === 'resume') {
         handle = await this.launcher.resume(task.resumeAgentId, runOptions);
       } else {
-        const spawnOptions: SpawnSubagentOptions = {
+        const spawnOptions: AgentSpawnAttemptOptions = {
           profileName: task.profileName,
           swarmItem: task.swarmItem,
           ...runOptions,
@@ -363,7 +363,7 @@ export class SubagentBatch<T> {
     }
   }
 
-  private failedAttemptOutcome(attempt: ActiveAttempt<T>, error: unknown): SubagentResult<T> {
+  private failedAttemptOutcome(attempt: ActiveAttempt<T>, error: unknown): AgentRunResult<T> {
     const status =
       attempt.controller.signal.aborted && isUserCancellation(attempt.controller.signal.reason)
         ? 'aborted'
@@ -588,7 +588,7 @@ export class SubagentBatch<T> {
     );
   }
 
-  private finish(results: Array<SubagentResult<T>>): void {
+  private finish(results: Array<AgentRunResult<T>>): void {
     if (this.finished) return;
     this.finished = true;
     this.cleanup();
@@ -622,7 +622,7 @@ export class SubagentBatch<T> {
     this.rateLimitLaunchTimer = undefined;
   }
 
-  private linkAttemptSignals(attempt: ActiveAttempt<T>, task: QueuedSubagentTask<T>): () => void {
+  private linkAttemptSignals(attempt: ActiveAttempt<T>, task: QueuedAgentRunTask<T>): () => void {
     const abortFromBatch = () => {
       attempt.controller.abort(this.controller.signal.reason);
     };
@@ -656,7 +656,7 @@ export class SubagentBatch<T> {
   private attemptErrorMessage(
     attempt: ActiveAttempt<T>,
     error: unknown,
-    status: SubagentResult<T>['status'],
+    status: AgentRunResult<T>['status'],
   ): string {
     if (attempt.timedOut && attempt.state.task.timeout !== undefined) {
       return 'Subagent timed out.';

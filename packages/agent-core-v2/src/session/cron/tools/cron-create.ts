@@ -26,28 +26,19 @@
 import { z } from 'zod';
 
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
-import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern } from '#/_base/tools/support/rule-match';
-import { IConfigService } from '#/app/config';
 import { ISessionCronService } from '#/session/cron';
-import {
-  CRON_SECTION,
-  DEFAULT_CRON_CONFIG,
-  type CronConfig,
-} from '#/agent/cron/configSection';
 import {
   computeNextCronRun,
   cronToHuman,
+  formatLocalIsoWithOffset,
   hasFireWithinYears,
-  parseCronExpression,
-  type ParsedCronExpression,
-} from '#/agent/cron/cron-expr';
-import { formatLocalIsoWithOffset } from '#/agent/cron/format';
-import {
   jitteredNextCronRunMs,
   oneShotJitteredNextCronRunMs,
-} from '#/agent/cron/jitter';
+  parseCronExpression,
+  type ParsedCronExpression,
+} from '#/app/cron';
 import CRON_CREATE_DESCRIPTION from './cron-create.md?raw';
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -321,13 +312,6 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
     };
   }
 }
-
-registerTool(CronCreateTool, {
-  staticArgs: (accessor) => [
-    accessor.get(IConfigService).get<CronConfig>(CRON_SECTION)?.disabled
-      ?? DEFAULT_CRON_CONFIG.disabled,
-  ],
-});
 
 function formatOutput(o: CronCreateOutput): string {
   const lines = [

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContentPart } from '#/app/llmProtocol/kosong';
 
-import type { CronTask } from '#/app/cronPersistence';
+import type { CronTask } from '#/app/cron';
 import {
   CRON_FIRED,
   CRON_MISSED,

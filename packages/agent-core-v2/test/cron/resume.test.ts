@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ContentPart } from '#/app/llmProtocol/kosong';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
-import type { CronTask } from '#/app/cronPersistence';
+import type { CronTask } from '#/app/cron';
 import { ISessionCronService } from '#/session/cron';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';

@@ -1,10 +1,16 @@
 /**
  * `agentLifecycle` domain (L6) — `IAgentLifecycleService` implementation.
  *
- * Creates and tracks the session's agents as child scopes. Seeds each agent's
- * identity through `agent` scopeContext, wires per-agent wire records, blob
- * store, and MCP, and registers the agent in the session registry. Bound at
- * Session scope.
+ * Creates and tracks the session's agents as child scopes in a flat registry.
+ * Seeds each agent's identity through `agent` scopeContext, wires per-agent
+ * wire records, blob store, and MCP, and registers the agent in the session
+ * registry. Bound at Session scope.
+ *
+ * No agent id is special here: the main agent is created by its bootstrappers
+ * as `create({ agentId: 'main' })` (see `mainAgent.ts`), and `fork` requires
+ * its source to exist. Caller-facing orchestration (record mirroring, hooks,
+ * telemetry, prompt prefixes) lives with the callers — see this domain's
+ * wrapper helpers (`tools/agent.ts`, `mirrorAgentRun`).
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -19,10 +25,9 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap';
-import { IPluginSessionStartInjectorService } from '#/agent/contextInjector';
 import { ILogService } from '#/app/log';
-import { IAgentProfileCatalogService, type AgentProfileDefinition } from '#/app/agentProfileCatalog';
-import { ITelemetryService } from '#/app/telemetry';
+import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog';
+import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog';
 import { AgentMcpService, IAgentMcpService } from '#/agent/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
 import { resolveSessionMcpConfig } from '#/agent/mcp/session-config';
@@ -33,7 +38,6 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentRecordService } from '#/agent/record';
 import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry';
 import { IAgentWireRecordService, AgentWireRecordService } from '#/agent/wireRecord';
 import { IAgentBlobService, AgentBlobServiceImpl } from '#/agent/blob';
@@ -44,16 +48,14 @@ import {
 
 import {
   type AgentListFilter,
+  type AgentRunHandle,
+  type AgentRunRequest,
   type CreateAgentOptions,
+  type ForkAgentOptions,
   IAgentLifecycleService,
-  type ResumeSubagentOptions,
-  type RunSubagentOptions,
-  type SpawnAgentOptions,
-  type SubagentRunHandle,
+  type RunAgentOptions,
 } from './agentLifecycle';
-import { applyProfileToAgent } from './applyProfileToAgent';
-import { observeChildAgentTurn } from './observeChildAgentTurn';
-import { ISessionProcessRunner } from '#/session/process';
+import { runAgentTurn } from './runAgentTurn';
 
 let nextAgentId = 0;
 
@@ -61,11 +63,15 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   declare readonly _serviceBrand: undefined;
   private readonly handles = new Map<string, IAgentScopeHandle>();
   private readonly onDidCreateEmitter = this._register(new Emitter<IAgentScopeHandle>());
+  private readonly onDidCreateMainEmitter = this._register(new Emitter<IAgentScopeHandle>());
   private readonly onDidDisposeEmitter = this._register(new Emitter<string>());
   private mcpManager: McpConnectionManager | undefined;
 
   get onDidCreate() {
     return this.onDidCreateEmitter.event;
+  }
+  get onDidCreateMain() {
+    return this.onDidCreateMainEmitter.event;
   }
   get onDidDispose() {
     return this.onDidDisposeEmitter.event;
@@ -80,13 +86,11 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IPluginService private readonly plugins: IPluginService,
     @ILogService private readonly log: ILogService,
     @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
-    @ITelemetryService private readonly telemetry: ITelemetryService,
-    @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
   ) {
     super();
   }
 
-  async create(opts: CreateAgentOptions): Promise<IAgentScopeHandle> {
+  async create(opts: CreateAgentOptions = {}): Promise<IAgentScopeHandle> {
     const agentId = opts.agentId ?? `agent-${nextAgentId++}`;
     // Per-agent homedir → the wire-record persistence key (`hashKey(homedir)`).
     // Bootstrap computes it under the session dir, mirroring v1's
@@ -134,7 +138,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     await this.sessionMetadata.registerAgent(agentId, {
       homedir: agentHomedir,
       forkedFrom: opts.forkedFrom,
-      swarmItem: opts.swarmItem,
+      labels: opts.labels,
     });
     this.onDidCreateEmitter.fire(handle);
     // Force-instantiate the Eager builtin-tools registrar: its constructor
@@ -154,32 +158,40 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     // first turn — otherwise plugin/session MCP servers would connect but their
     // tools would never register until something explicitly requests the service.
     handle.accessor.get(IAgentMcpService);
+    if (opts.binding !== undefined) {
+      await handle.accessor.get(IAgentProfileService).bind(opts.binding);
+    }
     return handle;
   }
 
-  async createMain(): Promise<IAgentScopeHandle> {
-    const handle = await this.create({ agentId: 'main' });
-    // Force-instantiate the plugin session-start injector so it registers its
-    // turn-cadence injection before the first turn. Main-agent only, matching
-    // v1's `pluginSessionStarts: type === 'main' ? ... : undefined`.
-    handle.accessor.get(IPluginSessionStartInjectorService);
-    return handle;
+  notifyMainCreated(handle: IAgentScopeHandle): void {
+    this.onDidCreateMainEmitter.fire(handle);
   }
 
-  async clone(sourceAgentId: string): Promise<IAgentScopeHandle> {
-    const source =
-      this.handles.get(sourceAgentId) ??
-      (sourceAgentId === 'main' ? await this.createMain() : undefined);
+  async fork(sourceAgentId: string, opts?: ForkAgentOptions): Promise<IAgentScopeHandle> {
+    const source = this.handles.get(sourceAgentId);
     if (source === undefined) throw new Error(`Source agent "${sourceAgentId}" does not exist`);
-    const child = await this.create({ forkedFrom: source.id });
+    const child = await this.create({ agentId: opts?.agentId, forkedFrom: source.id });
 
     const sourceData = source.accessor.get(IAgentProfileService).data();
-    child.accessor.get(IAgentProfileService).update({
-      modelAlias: sourceData.modelAlias,
-      thinkingLevel: sourceData.thinkingLevel,
-      systemPrompt: sourceData.systemPrompt,
-      activeToolNames: sourceData.activeToolNames,
-    });
+    const childProfile = child.accessor.get(IAgentProfileService);
+    const override = opts?.binding;
+    const model = override?.model ?? sourceData.modelAlias;
+    if (model !== undefined) {
+      await childProfile.bind({
+        profile: override?.profile ?? sourceData.profileName ?? 'agent',
+        model,
+        thinking: override?.thinking ?? sourceData.thinkingLevel,
+        cwd: override?.cwd ?? sourceData.cwd,
+      });
+    } else {
+      childProfile.update({
+        profileName: override?.profile ?? sourceData.profileName,
+        thinkingLevel: override?.thinking ?? sourceData.thinkingLevel,
+        systemPrompt: sourceData.systemPrompt,
+        activeToolNames: sourceData.activeToolNames,
+      });
+    }
 
     const sourceMessages = source.accessor.get(IAgentContextMemoryService)?.get();
     if (sourceMessages !== undefined && sourceMessages.length > 0) {
@@ -188,30 +200,26 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     return child;
   }
 
-  async spawn(parentAgentId: string, opts?: SpawnAgentOptions): Promise<IAgentScopeHandle> {
-    const parent = this.handles.get(parentAgentId);
-    if (parent === undefined) throw new Error(`Parent agent "${parentAgentId}" does not exist`);
-    const parentData = parent.accessor.get(IAgentProfileService).data();
-    const child = await this.create({
-      agentId: opts?.agentId,
-      forkedFrom: parentAgentId,
-      cwd: opts?.cwd ?? parentData.cwd,
-      swarmItem: opts?.swarmItem,
+  run(agentId: string, request: AgentRunRequest, opts: RunAgentOptions): AgentRunHandle {
+    const handle = this.handles.get(agentId);
+    if (handle === undefined) throw new Error(`Agent "${agentId}" does not exist`);
+    return runAgentTurn(handle, request, {
+      summaryPolicy: opts.summaryPolicy ?? this.summaryPolicyFor(handle),
+      signal: opts.signal,
+      onReady: opts.onReady,
     });
-    child.accessor.get(IAgentProfileService).update({
-      cwd: opts?.cwd ?? parentData.cwd,
-      modelAlias: parentData.modelAlias,
-      thinkingLevel: parentData.thinkingLevel,
-      systemPrompt: parentData.systemPrompt,
-      activeToolNames: parentData.activeToolNames,
-    });
-    return child;
+  }
+
+  private summaryPolicyFor(handle: IAgentScopeHandle): AgentProfileSummaryPolicy | undefined {
+    const profileName = handle.accessor.get(IAgentProfileService).data().profileName;
+    if (profileName === undefined) return undefined;
+    return this.catalog.get(profileName)?.summaryPolicy;
   }
 
   /**
    * One shared `McpConnectionManager` per session (built lazily, cached). All
    * agents in the session share it, matching v1's session-scoped MCP and
-   * avoiding a reconnect storm per subagent. Connects the session-config
+   * avoiding a reconnect storm per agent. Connects the session-config
    * servers merged with enabled plugin MCP servers (fire-and-forget; the
    * manager's `initialLoad` gates tool use via `waitForInitialLoad`).
    */
@@ -234,119 +242,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     const servers = { ...base?.servers, ...pluginServers };
     if (Object.keys(servers).length === 0) return;
     await manager.connectAll(servers);
-  }
-
-  // ── Subagent orchestration ─────────────────────────────────────────
-
-  async runSubagent(opts: RunSubagentOptions): Promise<SubagentRunHandle> {
-    const { callerAgentId, profileName, signal } = opts;
-    const caller = this.handles.get(callerAgentId);
-    if (caller === undefined) throw new Error(`Caller agent "${callerAgentId}" does not exist`);
-
-    const profile = this.catalog.get(profileName);
-    if (profile === undefined) throw new Error(`Unknown agent type: "${profileName}"`);
-
-    const child = await this.spawn(callerAgentId);
-    applyProfileToAgent(child, profile);
-
-    const promptText = await this.withProfilePrefix(profile, opts.prompt);
-    this.emitSubagentSpawned(caller, child.id, profileName, opts.metadata);
-    this.telemetry?.track('subagent_created', {
-      subagent_name: profileName,
-      run_in_background: opts.metadata?.runInBackground ?? false,
-    });
-
-    const observed = observeChildAgentTurn(
-      caller,
-      child,
-      { kind: 'prompt', prompt: promptText },
-      {
-        profileName,
-        summaryPolicy: profile.summaryPolicy,
-        suppressRateLimitFailureEvent: opts.suppressRateLimitFailureEvent,
-        signal,
-        onReady: opts.onReady,
-      },
-    );
-    if (observed === undefined) throw new Error('Subagent turn could not be started');
-
-    return {
-      agentId: child.id,
-      profileName,
-      completion: observed.completion.then((r) => ({ result: r.summary, usage: r.usage })),
-    };
-  }
-
-  async resumeSubagent(opts: ResumeSubagentOptions): Promise<SubagentRunHandle> {
-    const { callerAgentId, agentId, signal } = opts;
-    const caller = this.handles.get(callerAgentId);
-    if (caller === undefined) throw new Error(`Caller agent "${callerAgentId}" does not exist`);
-
-    const child = this.handles.get(agentId);
-    if (child === undefined) throw new Error(`Agent instance "${agentId}" does not exist`);
-
-    const profileName =
-      child.accessor.get(IAgentProfileService).data().profileName ?? 'subagent';
-    const profile = this.catalog.get(profileName);
-
-    this.emitSubagentSpawned(caller, agentId, profileName, opts.metadata);
-    this.telemetry?.track('subagent_created', {
-      subagent_name: profileName,
-      run_in_background: opts.metadata?.runInBackground ?? false,
-    });
-
-    const observed = observeChildAgentTurn(
-      caller,
-      child,
-      { kind: 'prompt', prompt: opts.prompt },
-      {
-        profileName,
-        summaryPolicy: profile?.summaryPolicy,
-        signal,
-      },
-    );
-    if (observed === undefined) throw new Error('Subagent turn could not be started');
-
-    return {
-      agentId,
-      profileName,
-      completion: observed.completion.then((r) => ({ result: r.summary, usage: r.usage })),
-    };
-  }
-
-  private emitSubagentSpawned(
-    caller: IAgentScopeHandle,
-    subagentId: string,
-    profileName: string,
-    metadata?: RunSubagentOptions['metadata'],
-  ): void {
-    caller.accessor.get(IAgentRecordService)?.signal({
-      type: 'subagent.spawned',
-      subagentId,
-      subagentName: profileName,
-      parentToolCallId: metadata?.parentToolCallId ?? '',
-      callerAgentId: caller.id,
-      description: metadata?.description,
-      swarmIndex: metadata?.swarmIndex,
-      runInBackground: metadata?.runInBackground ?? false,
-    });
-  }
-
-  private async withProfilePrefix(
-    profile: AgentProfileDefinition,
-    prompt: string,
-  ): Promise<string> {
-    if (profile.promptPrefix === undefined) return prompt;
-    try {
-      const prefix = await profile.promptPrefix({
-        cwd: this.workspace.workDir,
-        runner: this.processRunner,
-        log: this.log,
-      });
-      return prefix.length > 0 ? `${prefix}\n\n${prompt}` : prompt;
-    } catch {
-      return prompt;
-    }
   }
 
   getHandle(agentId: string): IAgentScopeHandle | undefined {

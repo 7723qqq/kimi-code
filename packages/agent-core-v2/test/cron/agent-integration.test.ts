@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CronCreateTool,
   type CronCreateInput,
-} from '#/agent/cron/tools/cron-create';
+} from '#/session/cron/tools/cron-create';
 import { ISessionCronService } from '#/session/cron';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';

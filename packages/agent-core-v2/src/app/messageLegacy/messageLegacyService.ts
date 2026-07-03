@@ -15,7 +15,7 @@ import type { Message, PageResponse } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
+import { ensureMainAgent } from '#/session/agentLifecycle';
 import {
   IAgentContextMemoryService,
   toProtocolMessage,
@@ -28,7 +28,6 @@ import { ISessionLifecycleService } from '#/app/sessionLifecycle';
 
 import { IMessageLegacyService, type MessageListQuery } from './messageLegacy';
 
-const MAIN_AGENT_ID = 'main';
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
 
@@ -128,13 +127,10 @@ export class MessageLegacyService implements IMessageLegacyService {
   private async resolveMainAgent(sessionId: string): Promise<IAgentScopeHandle | undefined> {
     const session = await this.lifecycle.resume(sessionId);
     if (session === undefined) return undefined;
-    const agents = session.accessor.get(IAgentLifecycleService);
-    const existing = agents.getHandle(MAIN_AGENT_ID);
-    if (existing !== undefined) return existing;
     // Live session whose main agent has not been materialized yet: create it
     // fresh. No restore here — the session was already live, so any persisted
     // wire is already reflected in memory; re-restoring would re-apply splices.
-    return agents.createMain();
+    return ensureMainAgent(session);
   }
 }
 

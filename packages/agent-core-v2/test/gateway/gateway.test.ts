@@ -72,15 +72,16 @@ describe('RestGateway', () => {
       _serviceBrand: undefined,
       onDidCreate: () => ({ dispose: () => {} }),
       onDidDispose: () => ({ dispose: () => {} }),
+      onDidCreateMain: () => ({ dispose: () => {} }),
+      notifyMainCreated: () => {},
       create: () => Promise.resolve(agentHandle),
-      createMain: () => Promise.resolve(agentHandle),
-      clone: () => Promise.resolve(agentHandle),
-      spawn: () => Promise.resolve(agentHandle),
+      fork: () => Promise.resolve(agentHandle),
+      run: () => {
+        throw new Error('not implemented in test');
+      },
       getHandle: (id) => (id === 'main' ? agentHandle : undefined),
       list: () => [agentHandle],
       remove: () => Promise.resolve(),
-      runSubagent: () => Promise.reject(new Error('not implemented in test')),
-      resumeSubagent: () => Promise.reject(new Error('not implemented in test')),
     };
     const sessionHandle: ISessionScopeHandle = {
       id: 's1',

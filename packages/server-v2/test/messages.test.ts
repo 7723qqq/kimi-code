@@ -110,7 +110,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
     let agent = session.accessor.get(IAgentLifecycleService).getHandle('main');
     if (agent === undefined) {
-      agent = await session.accessor.get(IAgentLifecycleService).createMain();
+      agent = await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
     }
     if (messages.length > 0) {
       agent.accessor.get(IAgentContextMemoryService).splice(0, 0, messages);
@@ -283,7 +283,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     const id = await createSession();
     const session = server!.core.accessor.get(ISessionLifecycleService).get(id);
     if (session === undefined) throw new Error(`session ${id} not found`);
-    const agent = await session.accessor.get(IAgentLifecycleService).createMain();
+    const agent = await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
     const ctx = agent.accessor.get(IAgentContextMemoryService);
     // Three messages, then a compaction that folds the prefix into a summary.
     ctx.splice(0, 0, [

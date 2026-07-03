@@ -38,7 +38,6 @@
 import { z } from 'zod';
 
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
-import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { ISessionCronService } from '#/session/cron';
 import CRON_DELETE_DESCRIPTION from './cron-delete.md?raw';
@@ -116,5 +115,3 @@ export class CronDeleteTool implements BuiltinTool<CronDeleteInput> {
     };
   }
 }
-
-registerTool(CronDeleteTool);

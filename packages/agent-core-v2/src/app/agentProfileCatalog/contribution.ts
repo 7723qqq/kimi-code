@@ -9,11 +9,11 @@
  * can override built-ins by re-registering.
  */
 
-import type { AgentProfileDefinition } from './agentProfileCatalog';
+import type { AgentProfile } from './agentProfileCatalog';
 
-const _profileContributions: AgentProfileDefinition[] = [];
+const _profileContributions: AgentProfile[] = [];
 
-export function registerAgentProfile(definition: AgentProfileDefinition): void {
+export function registerAgentProfile(definition: AgentProfile): void {
   const existingIndex = _profileContributions.findIndex((d) => d.name === definition.name);
   if (existingIndex >= 0) {
     _profileContributions.splice(existingIndex, 1);
@@ -21,7 +21,7 @@ export function registerAgentProfile(definition: AgentProfileDefinition): void {
   _profileContributions.push(definition);
 }
 
-export function getAgentProfileContributions(): readonly AgentProfileDefinition[] {
+export function getAgentProfileContributions(): readonly AgentProfile[] {
   return _profileContributions;
 }
 
