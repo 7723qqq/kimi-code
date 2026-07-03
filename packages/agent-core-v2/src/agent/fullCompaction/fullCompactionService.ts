@@ -19,13 +19,8 @@ import { IAgentLoopService, type TurnContextOverflowContext } from '#/agent/loop
 import { isAbortError } from '#/agent/loop/errors';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentRecordService } from '#/agent/record';
-import {
-  TODO_STORE_KEY,
-  renderTodoList,
-  type TodoItem,
-} from '#/agent/todoList/tools/todo-list';
-import { IAgentToolState } from '#/agent/toolState';
 import { IAgentTurnService } from '#/agent/turn';
+import { ISessionTodoService, renderTodoList, type TodoItem } from '#/session/todo';
 import {
   APIContextOverflowError,
   APIEmptyResponseError,
@@ -109,7 +104,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IAgentToolState private readonly toolStore: IAgentToolState,
+    @ISessionTodoService private readonly todo: ISessionTodoService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentTurnService turnService: IAgentTurnService,
@@ -486,12 +481,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   }
 
   private currentTodos(): readonly TodoItem[] {
-    const raw = this.toolStore.data()[TODO_STORE_KEY];
-    if (!Array.isArray(raw)) return [];
-    return raw.filter(isTodoItem).map((todo) => ({
-      title: todo.title,
-      status: todo.status,
-    }));
+    return this.todo.getTodos();
   }
 
   private tokenCountWithPending(): number {

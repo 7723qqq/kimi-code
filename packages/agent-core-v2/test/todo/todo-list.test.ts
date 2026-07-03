@@ -2,33 +2,32 @@ import { describe, expect, it } from 'vitest';
 
 import {
   TODO_LIST_TOOL_NAME,
-  TODO_STORE_KEY,
   TodoListInputSchema,
   TodoListTool,
+  type ISessionTodoService,
   type TodoItem,
-} from '#/agent/todoList/tools/todo-list';
-import type { IAgentToolState } from '#/agent/toolState';
+} from '#/session/todo';
 import { executeTool } from '../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
 
-function makeStore(initial: readonly TodoItem[] = []): {
-  readonly store: IAgentToolState;
+function makeTodoService(initial: readonly TodoItem[] = []): {
+  readonly service: ISessionTodoService;
   readonly getTodos: () => readonly TodoItem[];
 } {
   let todos = [...initial];
   return {
-    store: {
+    service: {
       _serviceBrand: undefined,
-      get: (key: string) => (key === TODO_STORE_KEY ? todos : undefined),
-      set: (key: string, value: unknown) => {
-        if (key === TODO_STORE_KEY) {
-          todos = [...(value as readonly TodoItem[])];
-        }
+      getTodos: () => todos,
+      setTodos: (next: readonly TodoItem[]) => {
+        todos = next.map((todo) => ({ title: todo.title, status: todo.status }));
       },
-      data: () => ({ [TODO_STORE_KEY]: todos }),
-      hooks: { onUpdated: { register: () => ({ dispose: () => {} }) } },
-    } as unknown as IAgentToolState,
+      clear: () => {
+        todos = [];
+      },
+      onDidChange: () => ({ dispose: () => {} }),
+    },
     getTodos: () => todos,
   };
 }
@@ -37,8 +36,8 @@ function makeTool(initial: readonly TodoItem[] = []): {
   readonly tool: TodoListTool;
   readonly getTodos: () => readonly TodoItem[];
 } {
-  const { store, getTodos } = makeStore(initial);
-  return { tool: new TodoListTool(store), getTodos };
+  const { service, getTodos } = makeTodoService(initial);
+  return { tool: new TodoListTool(service), getTodos };
 }
 
 describe('TodoListTool', () => {
@@ -46,7 +45,6 @@ describe('TodoListTool', () => {
     const { tool } = makeTool();
 
     expect(TODO_LIST_TOOL_NAME).toBe('TodoList');
-    expect(TODO_STORE_KEY).toBe('todo');
     expect(tool.name).toBe(TODO_LIST_TOOL_NAME);
     expect(tool.description.length).toBeGreaterThan(0);
     expect(TodoListInputSchema.safeParse({}).success).toBe(true);
@@ -99,7 +97,7 @@ describe('TodoListTool', () => {
     expect(getTodos()).toEqual([{ title: 'existing', status: 'in_progress' }]);
   });
 
-  it('write mode replaces the list and defensively copies todos into the store', async () => {
+  it('write mode replaces the list and defensively copies todos into the service', async () => {
     const { tool, getTodos } = makeTool();
     const todos: TodoItem[] = [
       { title: 'first', status: 'pending' },

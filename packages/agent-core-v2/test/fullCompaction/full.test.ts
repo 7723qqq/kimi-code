@@ -33,9 +33,8 @@ import {
   IAgentMicroCompactionService,
   IOAuthService,
   IAgentProfileService,
-  IAgentToolState,
+  ISessionTodoService,
 } from '#/index';
-import { TODO_STORE_KEY } from '#/agent/todoList/tools/todo-list';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 
@@ -2080,7 +2079,7 @@ describe('FullCompaction', () => {
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
 
-    ctx.get(IAgentToolState).set(TODO_STORE_KEY, [
+    ctx.get(ISessionTodoService).setTodos([
       { title: 'Fix the auth bug', status: 'in_progress' },
       { title: 'Add tests', status: 'pending' },
     ]);

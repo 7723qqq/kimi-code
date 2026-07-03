@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ContextMessage } from '#/agent/contextMemory';
-import { todoListStaleReminder } from '#/agent/todoList/todoListReminder';
-import type { TodoItem } from '#/agent/todoList/tools/todo-list';
+import { todoListStaleReminder, type TodoItem } from '#/session/todo';
 
 function assistantMessage(): ContextMessage {
   return {
@@ -51,7 +50,7 @@ function priorTodoReminder(): ContextMessage {
   };
 }
 
-describe('TodoListReminderInjector', () => {
+describe('todoListStaleReminder', () => {
   it('skips reminder injection when TodoList is not active', async () => {
     const history = Array.from({ length: 10 }, () => assistantMessage());
     const result = todoListStaleReminder({

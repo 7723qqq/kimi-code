@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
+import { DisposableStore } from '#/_base/di/lifecycle';
 import {
   createServices,
   type TestInstantiationService,
@@ -12,20 +12,12 @@ import { IAgentLoopService } from '#/agent/loop';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
-import { IAgentTodoListService, TODO_LIST_REMINDER_VARIANT } from '#/agent/todoList';
-import { AgentTodoListService } from '#/agent/todoList/todoListService';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IAgentToolState } from '#/agent/toolState';
 import { IAgentTurnService } from '#/agent/turn';
 import { registerContextMemoryServices } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubTurnWithHooks } from '../turn/stubs';
 
 type InjectableContextInjector = IAgentContextInjectorService & {
   inject(): Promise<void>;
-};
-
-type ContextInjectorInternals = {
-  entries: Set<{ variant: string }>;
 };
 
 function injector(ix: TestInstantiationService): InjectableContextInjector {
@@ -247,46 +239,5 @@ describe('AgentContextInjectorService', () => {
       { kind: 'injection', variant: 'recording_a' },
       { kind: 'injection', variant: 'recording_b' },
     ]);
-  });
-});
-
-describe('AgentContextInjectorService registration', () => {
-  let disposables: DisposableStore;
-  let ix: TestInstantiationService;
-
-  beforeEach(() => {
-    disposables = new DisposableStore();
-    ix = createServices(disposables, {
-      base: [registerContextMemoryServices],
-      strict: true,
-      additionalServices: (reg) => {
-        reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
-        reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
-        reg.define(IAgentSystemReminderService, AgentSystemReminderService);
-        reg.define(IAgentContextInjectorService, AgentContextInjectorService);
-        reg.definePartialInstance(IAgentProfileService, {
-          isToolActive: () => false,
-        });
-        reg.definePartialInstance(IAgentToolState, {
-          data: () => ({}),
-        });
-        reg.definePartialInstance(IAgentToolRegistryService, {
-          register: () => toDisposable(() => {}),
-        });
-        reg.define(IAgentTodoListService, AgentTodoListService);
-      },
-    });
-  });
-
-  afterEach(() => disposables.dispose());
-
-  it('registers the todo-list reminder when the todo-list service is resolved', () => {
-    ix.get(IAgentTodoListService);
-
-    const entries = [
-      ...(injector(ix) as unknown as ContextInjectorInternals).entries,
-    ];
-
-    expect(entries.some((entry) => entry.variant === TODO_LIST_REMINDER_VARIANT)).toBe(true);
   });
 });

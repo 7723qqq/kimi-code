@@ -62,6 +62,7 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>terminal</b>\n<size:9><i>App</i></size>\n  IHostTerminalService" as terminal_app #D6EAF8
   rectangle "<b>sessionTerminal</b>\n<size:9><i>Session</i></size>\n  ISessionTerminalService" as terminal_session #D5F5E3
   rectangle "<b>modelProvider</b>\n<size:9><i>Session</i></size>\n  IModelProvider (seed)" as modelProvider #D5F5E3
+  rectangle "<b>todo</b>\n<size:9><i>Session</i></size>\n  ISessionTodoService" as todo #D5F5E3
 }
 
 package "Agent scope (per agent)" #FDF5E6 {
@@ -98,7 +99,6 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>fullCompaction</b>\n<size:9><i>Agent</i></size>\n  IAgentFullCompactionService" as fullCompaction #FDEBD0
   rectangle "<b>microCompaction</b>\n<size:9><i>Agent</i></size>\n  IAgentMicroCompactionService" as microCompaction #FDEBD0
   rectangle "<b>externalHooks</b>\n<size:9><i>Agent</i></size>\n  IAgentExternalHooksService" as externalHooks #FDEBD0
-  rectangle "<b>todoList</b>\n<size:9><i>Agent</i></size>\n  IAgentTodoListService" as todoList #FDEBD0
   rectangle "<b>usage</b>\n<size:9><i>Agent</i></size>\n  IAgentUsageService" as usage #FDEBD0
   rectangle "<b>rpc</b>\n<size:9><i>Agent</i></size>\n  IAgentRPCService" as rpc #FDEBD0
   rectangle "<b>fileTools</b>\n<size:9><i>Agent</i></size>\n  Read/Write/Grep/Glob tools" as fileTools #FDEBD0
@@ -301,11 +301,7 @@ microCompaction --> loop #34495E
 externalHooks --> config #34495E
 externalHooks --> bootstrap #34495E
 externalHooks --> plugin #34495E
-todoList --> contextMemory #34495E
-todoList --> profile #34495E
-todoList --> toolStore #34495E
-todoList --> toolRegistry #34495E
-todoList --> contextInjector #34495E
+todo --> agent_lifecycle #34495E
 usage --> wireRecord #34495E
 usage --> record #34495E
 rpc --> prompt #34495E
@@ -354,6 +350,7 @@ userTool ..> wireRecord #16A085 : tools.register_/unregister_user_tool
 profile ..> wireRecord #16A085 : config.update / tools.set_active_tools
 contextMemory ..> wireRecord #16A085 : context.splice
 cron ..> wireRecord #16A085 : cron.add / delete / cursor
+todo ..> wireRecord #16A085 : todo.set
 fullCompaction ..> wireRecord #16A085 : full_compaction.begin/cancel/complete
 fullCompaction ..> loop #16A085 : hooks.onContextOverflow
 permissionRules ..> wireRecord #16A085 : permission.rules.add / record_approval_result

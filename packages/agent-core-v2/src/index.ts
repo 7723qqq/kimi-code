@@ -103,7 +103,7 @@ export * from '#/agent/rpc';
 export * from '#/agent/scopeContext';
 export * from '#/session/btw';
 export * from '#/session/swarm';
-export * from '#/agent/todoList';
+export * from '#/session/todo';
 export * from '#/agent/tool';
 export * from '#/agent/toolExecutor';
 import '#/agent/toolRegistry';

@@ -156,7 +156,7 @@ const DOMAIN_LAYER = new Map([
   ['profile', 4],
   ['prompt', 4],
   ['replayBuilder', 4],
-  ['todoList', 4],
+  ['todo', 4],
   ['web', 4],
   // L5 — agent task management
   ['agentTask', 5],
@@ -248,6 +248,8 @@ function domainFromRel(rel, { exemptRootFile }) {
  *  - `swarm>agentLifecycle`: swarm spawns/manages sub-agents.
  *  - `cron>agentLifecycle` : cron coordinator steers the main agent.
  *  - `cron>sessionContext`: cron scheduler reads session identity for store filtering.
+ *  - `todo>agentLifecycle` : todo binds its tool/reminder into agents and its
+ *                            resume resumer into the main agent via lifecycle handle.
  *
  * Post-rebase-v2 restructuring introduced cross-domain type sharing between
  * L3 (registries/capabilities) and L4 (agent behaviour). The tool contract
@@ -281,6 +283,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'swarm>agentLifecycle',
   'cron>agentLifecycle',
   'cron>sessionContext',
+  'todo>agentLifecycle',
   'wireRecord>hooks',
   // L3/L4 type-sharing: tool contract + execution hook contexts now live in
   // `tool`; the remaining upward import is a `loop` error/event helper.
