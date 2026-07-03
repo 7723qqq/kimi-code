@@ -21,6 +21,8 @@ import {
 import { IBootstrapService } from '#/app/bootstrap';
 import { IPluginSessionStartInjectorService } from '#/agent/contextInjector';
 import { ILogService } from '#/app/log';
+import { IAgentProfileCatalogService, type AgentProfileDefinition } from '#/app/agentProfileCatalog';
+import { ITelemetryService } from '#/app/telemetry';
 import { AgentMcpService, IAgentMcpService } from '#/agent/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
 import { resolveSessionMcpConfig } from '#/agent/mcp/session-config';
@@ -31,6 +33,7 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentRecordService } from '#/agent/record';
 import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry';
 import { IAgentWireRecordService, AgentWireRecordService } from '#/agent/wireRecord';
 import { IAgentBlobService, AgentBlobServiceImpl } from '#/agent/blob';
@@ -39,7 +42,18 @@ import {
   AgentExternalHooksService,
 } from '#/agent/externalHooks';
 
-import { type AgentListFilter, type CreateAgentOptions, IAgentLifecycleService, type SpawnAgentOptions } from './agentLifecycle';
+import {
+  type AgentListFilter,
+  type CreateAgentOptions,
+  IAgentLifecycleService,
+  type ResumeSubagentOptions,
+  type RunSubagentOptions,
+  type SpawnAgentOptions,
+  type SubagentRunHandle,
+} from './agentLifecycle';
+import { applyProfileToAgent } from './applyProfileToAgent';
+import { observeChildAgentTurn } from './observeChildAgentTurn';
+import { ISessionProcessRunner } from '#/session/process';
 
 let nextAgentId = 0;
 
@@ -65,6 +79,9 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
     @IPluginService private readonly plugins: IPluginService,
     @ILogService private readonly log: ILogService,
+    @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
+    @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
   ) {
     super();
   }
@@ -217,6 +234,119 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     const servers = { ...base?.servers, ...pluginServers };
     if (Object.keys(servers).length === 0) return;
     await manager.connectAll(servers);
+  }
+
+  // ── Subagent orchestration ─────────────────────────────────────────
+
+  async runSubagent(opts: RunSubagentOptions): Promise<SubagentRunHandle> {
+    const { callerAgentId, profileName, signal } = opts;
+    const caller = this.handles.get(callerAgentId);
+    if (caller === undefined) throw new Error(`Caller agent "${callerAgentId}" does not exist`);
+
+    const profile = this.catalog.get(profileName);
+    if (profile === undefined) throw new Error(`Unknown agent type: "${profileName}"`);
+
+    const child = await this.spawn(callerAgentId);
+    applyProfileToAgent(child, profile);
+
+    const promptText = await this.withProfilePrefix(profile, opts.prompt);
+    this.emitSubagentSpawned(caller, child.id, profileName, opts.metadata);
+    this.telemetry?.track('subagent_created', {
+      subagent_name: profileName,
+      run_in_background: opts.metadata?.runInBackground ?? false,
+    });
+
+    const observed = observeChildAgentTurn(
+      caller,
+      child,
+      { kind: 'prompt', prompt: promptText },
+      {
+        profileName,
+        summaryPolicy: profile.summaryPolicy,
+        suppressRateLimitFailureEvent: opts.suppressRateLimitFailureEvent,
+        signal,
+        onReady: opts.onReady,
+      },
+    );
+    if (observed === undefined) throw new Error('Subagent turn could not be started');
+
+    return {
+      agentId: child.id,
+      profileName,
+      completion: observed.completion.then((r) => ({ result: r.summary, usage: r.usage })),
+    };
+  }
+
+  async resumeSubagent(opts: ResumeSubagentOptions): Promise<SubagentRunHandle> {
+    const { callerAgentId, agentId, signal } = opts;
+    const caller = this.handles.get(callerAgentId);
+    if (caller === undefined) throw new Error(`Caller agent "${callerAgentId}" does not exist`);
+
+    const child = this.handles.get(agentId);
+    if (child === undefined) throw new Error(`Agent instance "${agentId}" does not exist`);
+
+    const profileName =
+      child.accessor.get(IAgentProfileService).data().profileName ?? 'subagent';
+    const profile = this.catalog.get(profileName);
+
+    this.emitSubagentSpawned(caller, agentId, profileName, opts.metadata);
+    this.telemetry?.track('subagent_created', {
+      subagent_name: profileName,
+      run_in_background: opts.metadata?.runInBackground ?? false,
+    });
+
+    const observed = observeChildAgentTurn(
+      caller,
+      child,
+      { kind: 'prompt', prompt: opts.prompt },
+      {
+        profileName,
+        summaryPolicy: profile?.summaryPolicy,
+        signal,
+      },
+    );
+    if (observed === undefined) throw new Error('Subagent turn could not be started');
+
+    return {
+      agentId,
+      profileName,
+      completion: observed.completion.then((r) => ({ result: r.summary, usage: r.usage })),
+    };
+  }
+
+  private emitSubagentSpawned(
+    caller: IAgentScopeHandle,
+    subagentId: string,
+    profileName: string,
+    metadata?: RunSubagentOptions['metadata'],
+  ): void {
+    caller.accessor.get(IAgentRecordService)?.signal({
+      type: 'subagent.spawned',
+      subagentId,
+      subagentName: profileName,
+      parentToolCallId: metadata?.parentToolCallId ?? '',
+      callerAgentId: caller.id,
+      description: metadata?.description,
+      swarmIndex: metadata?.swarmIndex,
+      runInBackground: metadata?.runInBackground ?? false,
+    });
+  }
+
+  private async withProfilePrefix(
+    profile: AgentProfileDefinition,
+    prompt: string,
+  ): Promise<string> {
+    if (profile.promptPrefix === undefined) return prompt;
+    try {
+      const prefix = await profile.promptPrefix({
+        cwd: this.workspace.workDir,
+        runner: this.processRunner,
+        log: this.log,
+      });
+      return prefix.length > 0 ? `${prefix}\n\n${prompt}` : prompt;
+    } catch {
+      return prompt;
+    }
   }
 
   getHandle(agentId: string): IAgentScopeHandle | undefined {

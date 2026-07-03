@@ -63,6 +63,8 @@ function lifecycle(handles: readonly IAgentScopeHandle[]): IAgentLifecycleServic
     getHandle: () => undefined,
     list: () => handles,
     remove: () => Promise.resolve(),
+    runSubagent: () => Promise.reject(new Error('not implemented in test')),
+    resumeSubagent: () => Promise.reject(new Error('not implemented in test')),
   };
 }
 
