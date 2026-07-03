@@ -37,6 +37,8 @@ import '#/app/flag';
 export * from '#/app/flag';
 
 import '#/agent/turn';
+import '#/agent/edit';
+export * from '#/agent/edit';
 export * from '#/agent/plan';
 export * from '#/agent/goal';
 export * from '#/agent/swarm';

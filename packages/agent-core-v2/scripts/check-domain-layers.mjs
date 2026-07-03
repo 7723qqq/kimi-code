@@ -147,6 +147,11 @@ const DOMAIN_LAYER = new Map([
   ['microCompaction', 4],
   ['loop', 4],
   ['media', 4],
+  // `edit` owns the EditTool plus its pure TextModel / EditService and the
+  // os-backed FileEditService adapter. It is an Agent-entry tool that depends
+  // on the L3 tool contract / registry and the L1 host bridges, so it sits in
+  // L4 beside the other agent-behaviour tools.
+  ['edit', 4],
   ['llmRequester', 4],
   ['profile', 4],
   ['prompt', 4],

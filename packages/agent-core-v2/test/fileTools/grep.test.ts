@@ -2,26 +2,42 @@
  * GrepTool tests for the v2 fileTools domain.
  *
  * Ported from v1 (`packages/agent-core/test/tools/grep.test.ts`) and adapted
- * to the v2 constructor `(fs, kaos, workspace)`. Self-contained: builds a
- * minimal fake `ISessionFsService` returning canned `FsGrepResponse`s so the tool's
- * argument mapping and result rendering can be exercised without the
- * composition root or a real ripgrep. The v1 tests that asserted on the exact
- * `rg` argv (which the tool no longer builds — `ISessionFsService.grep` owns the
- * subprocess) are intentionally dropped here.
+ * to the v2 constructor `(processService, fs, env, workspace)`. The search
+ * execution (`executeGrepSearch` — ripgrep via `IHostProcessService` plus the
+ * node fallback) is mocked out so the tool's argument mapping and result
+ * rendering can be exercised without the composition root or a real ripgrep.
+ * The v1 tests that asserted on the exact `rg` argv are intentionally dropped
+ * here (the tool maps args onto an `FsGrepRequest`; the argv lives in the
+ * mocked search module).
  */
 
 import type { FsGrepFileHit, FsGrepRequest, FsGrepResponse } from '@moonshot-ai/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import { stubWorkspaceContext } from './stub-workspace-context';
-import type { ISessionFsService } from '#/session/agentFs';
 import {
   type GrepInput,
   GrepInputSchema,
   GrepTool,
 } from '#/os/backends/node-local/tools/grep';
+import { executeGrepSearch } from '#/os/backends/node-local/tools/grepSearch';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { IHostProcessService } from '#/os/interface/hostProcess';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+
+// The search execution (ripgrep + node fallback) is mocked out so these tests
+// assert on argument mapping and result rendering without probing a real `rg`
+// or walking the filesystem.
+vi.mock('#/os/backends/node-local/tools/grepSearch', () => ({
+  executeGrepSearch: vi.fn(),
+}));
+
+const DUMMY_PROCESS_SERVICE = {
+  _serviceBrand: undefined,
+  spawn: vi.fn(),
+} as unknown as IHostProcessService;
+const DUMMY_FS = { _serviceBrand: undefined } as unknown as IHostFileSystem;
 
 const signal = new AbortController().signal;
 const workspace = stubWorkspaceContext('/workspace', ['/extra']);
@@ -40,11 +56,12 @@ function emptyResponse(overrides: Partial<FsGrepResponse> = {}): FsGrepResponse 
 function createFakeFs(
   response: FsGrepResponse | ((req: FsGrepRequest) => FsGrepResponse | Promise<FsGrepResponse>),
 ) {
-  const grep = vi.fn(async (req: FsGrepRequest) =>
+  const grep = vi.mocked(executeGrepSearch);
+  grep.mockReset();
+  grep.mockImplementation(async (req: FsGrepRequest) =>
     typeof response === 'function' ? response(req) : response,
   );
-  const fs = { grep } as unknown as ISessionFsService;
-  return { fs, grep };
+  return { fs: DUMMY_FS, grep };
 }
 
 function createTestEnv(home = '/home'): IHostEnvironment {
@@ -88,7 +105,7 @@ function toolContentString(result: ExecutableToolResult): string {
 describe('GrepTool', () => {
   it('exposes current metadata and schema', () => {
     const { fs } = createFakeFs(emptyResponse());
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     expect(tool.name).toBe('Grep');
     expect(tool.description).toContain('unknown content or unknown file locations');
@@ -121,7 +138,7 @@ describe('GrepTool', () => {
     const { fs, grep } = createFakeFs(
       emptyResponse({ files: [fileHit('src/a.ts'), fileHit('src/b.ts')] }),
     );
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'hit' });
 
@@ -133,7 +150,7 @@ describe('GrepTool', () => {
     const { fs } = createFakeFs(
       emptyResponse({ files: [fileHit('src/a.ts', [10, 20])] }),
     );
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'hit', output_mode: 'content' });
 
@@ -142,7 +159,7 @@ describe('GrepTool', () => {
 
   it('treats the pattern as a regex when calling the fs layer', async () => {
     const { fs, grep } = createFakeFs(emptyResponse({ files: [fileHit('src/a.ts')] }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     await execute(tool, { pattern: 'foo|bar' });
 
@@ -153,7 +170,7 @@ describe('GrepTool', () => {
 
   it('maps -i to a case-insensitive request', async () => {
     const { fs, grep } = createFakeFs(emptyResponse({ files: [fileHit('src/a.ts')] }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     await execute(tool, { pattern: 'Hit', '-i': true });
 
@@ -163,7 +180,7 @@ describe('GrepTool', () => {
 
   it('is case-sensitive by default', async () => {
     const { fs, grep } = createFakeFs(emptyResponse({ files: [fileHit('src/a.ts')] }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     await execute(tool, { pattern: 'Hit' });
 
@@ -173,7 +190,7 @@ describe('GrepTool', () => {
 
   it('maps glob to include_globs and leaves exclude_globs empty', async () => {
     const { fs, grep } = createFakeFs(emptyResponse({ files: [fileHit('src/a.ts')] }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     await execute(tool, { pattern: 'hit', glob: '*.ts' });
 
@@ -184,7 +201,7 @@ describe('GrepTool', () => {
 
   it('passes an exclude-style glob through include_globs verbatim', async () => {
     const { fs, grep } = createFakeFs(emptyResponse({ files: [fileHit('src/a.ts')] }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     await execute(tool, { pattern: 'hit', glob: '!**/*.test.ts' });
 
@@ -194,7 +211,7 @@ describe('GrepTool', () => {
 
   it('maps type to a recursive include glob', async () => {
     const { fs, grep } = createFakeFs(emptyResponse({ files: [fileHit('src/a.ts')] }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     await execute(tool, { pattern: 'hit', type: 'ts' });
 
@@ -204,7 +221,7 @@ describe('GrepTool', () => {
 
   it('maps include_ignored to follow_gitignore=false', async () => {
     const { fs, grep } = createFakeFs(emptyResponse({ files: [fileHit('src/a.ts')] }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     await execute(tool, { pattern: 'hit', include_ignored: true });
 
@@ -216,7 +233,7 @@ describe('GrepTool', () => {
     const { fs } = createFakeFs(
       emptyResponse({ files: [fileHit('src/a.ts')], truncated: true }),
     );
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'hit' });
     const output = toolContentString(result);
@@ -228,7 +245,7 @@ describe('GrepTool', () => {
 
   it('returns a clean no-match result', async () => {
     const { fs, grep } = createFakeFs(emptyResponse());
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'missing' });
 
@@ -243,7 +260,7 @@ describe('GrepTool', () => {
         files: [fileHit('a.ts'), fileHit('b.ts'), fileHit('c.ts'), fileHit('d.ts')],
       }),
     );
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'hit', offset: 1, head_limit: 2 });
     const output = toolContentString(result);
@@ -258,7 +275,7 @@ describe('GrepTool', () => {
   it('treats head_limit zero as unlimited', async () => {
     const files = Array.from({ length: 260 }, (_, i) => fileHit(`src/${String(i)}.ts`));
     const { fs } = createFakeFs(emptyResponse({ files }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'hit', head_limit: 0 });
     const output = toolContentString(result);
@@ -270,7 +287,7 @@ describe('GrepTool', () => {
   it('limits files_with_matches output to 250 lines by default', async () => {
     const files = Array.from({ length: 251 }, (_, i) => fileHit(`src/${String(i)}.ts`));
     const { fs } = createFakeFs(emptyResponse({ files }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'hit' });
     const output = toolContentString(result);
@@ -287,7 +304,7 @@ describe('GrepTool', () => {
     const { fs } = createFakeFs(
       emptyResponse({ files: [fileHit('src/a.ts', [1, 2, 3]), fileHit('src/b.ts', [1, 2])] }),
     );
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'hit', output_mode: 'count_matches' });
 
@@ -299,7 +316,7 @@ describe('GrepTool', () => {
     const { fs } = createFakeFs(
       emptyResponse({ files: [fileHit('a.ts', [1]), fileHit('b.ts', [1]), fileHit('c.ts', [1])] }),
     );
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, {
       pattern: 'hit',
@@ -317,7 +334,7 @@ describe('GrepTool', () => {
     const { fs } = createFakeFs(
       emptyResponse({ files: [fileHit('src/main.ts'), fileHit('.env')] }),
     );
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'hit' });
     const output = toolContentString(result);
@@ -329,7 +346,7 @@ describe('GrepTool', () => {
 
   it('reports no non-sensitive matches when every result is sensitive', async () => {
     const { fs } = createFakeFs(emptyResponse({ files: [fileHit('.env')] }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'hit', output_mode: 'content' });
     const output = toolContentString(result);
@@ -357,7 +374,7 @@ describe('GrepTool', () => {
         ],
       }),
     );
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'match', output_mode: 'content', '-C': 1 });
 
@@ -368,7 +385,7 @@ describe('GrepTool', () => {
     const controller = new AbortController();
     controller.abort();
     const { fs, grep } = createFakeFs(emptyResponse({ files: [fileHit('src/a.ts')] }));
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const resolved = tool.resolveExecution({ pattern: 'hit' });
     const execution = isPromiseLike(resolved) ? await resolved : resolved;
@@ -388,7 +405,7 @@ describe('GrepTool', () => {
     const { fs } = createFakeFs(() => {
       throw new KimiError(ErrorCodes.FS_GREP_TIMEOUT, 'grep timed out after 30000ms');
     });
-    const tool = new GrepTool(fs, createTestEnv(), workspace);
+    const tool = new GrepTool(DUMMY_PROCESS_SERVICE, fs, createTestEnv(), workspace);
 
     const result = await execute(tool, { pattern: 'slow' });
 

@@ -2,12 +2,12 @@
  * WriteTool tests for the v2 fileTools domain.
  *
  * Ported from v1 (`packages/agent-core/test/tools/write.test.ts`) and adapted
- * to the v2 constructor `(fs, kaos, workspace)`. Self-contained: builds minimal
- * fake `ISessionAgentFileSystem` and `IKaos` inline so the tool can be exercised
- * without the composition root.
+ * to the v2 constructor `(fs, env, workspace)`. Self-contained: builds a
+ * minimal fake `IHostFileSystem` inline so the tool can be exercised without
+ * the composition root.
  *
  * The v1 append path used `kaos.writeText(path, data, { mode: 'a' })`. v2's
- * `ISessionAgentFileSystem.writeText` has no mode flag, so append is implemented as
+ * `IHostFileSystem.writeText` has no mode flag, so append is implemented as
  * `readText` (treating a missing file as empty) followed by `writeText` of the
  * concatenation. The append-call assertions below reflect that mechanic.
  */
@@ -15,7 +15,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
-import type { AgentFileStat, ISessionAgentFileSystem } from '#/session/agentFs';
+import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { stubWorkspaceContext } from './stub-workspace-context';
 import { type WriteInput, WriteInputSchema, WriteTool } from '#/os/backends/node-local/tools/write';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
@@ -52,7 +52,7 @@ interface WriteFsOptions {
   /** Override writeText. Default no-op. */
   writeText?: (path: string, data: string) => Promise<void>;
   /** Override stat. Default reports an existing directory. */
-  stat?: (path: string) => Promise<AgentFileStat>;
+  stat?: (path: string) => Promise<HostFileStat>;
   /** Override mkdir. Default no-op. */
   mkdir?: (path: string) => Promise<void>;
 }
@@ -76,7 +76,7 @@ function createWriteFs(options: WriteFsOptions = {}) {
     options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })),
   );
   const mkdir = vi.fn(options.mkdir ?? (async () => {}));
-  const fs = { cwd: '/', readText, writeText, stat, mkdir } as unknown as ISessionAgentFileSystem;
+  const fs = { cwd: '/', readText, writeText, stat, mkdir } as unknown as IHostFileSystem;
   return { fs, readText, writeText, stat, mkdir };
 }
 
@@ -289,7 +289,7 @@ describe('WriteTool', () => {
     const result = await execute(tool, { path: '/tmp/missing-dir/file.txt', content: 'data' });
 
     expect(result.isError).toBeFalsy();
-    expect(mkdir).toHaveBeenCalledWith('/tmp/missing-dir');
+    expect(mkdir).toHaveBeenCalledWith('/tmp/missing-dir', { recursive: true });
     expect(writeText).toHaveBeenCalledWith('/tmp/missing-dir/file.txt', 'data');
   });
 

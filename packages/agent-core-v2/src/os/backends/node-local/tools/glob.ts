@@ -3,23 +3,22 @@
  *
  * Finds files matching a glob pattern, returned sorted by modification time
  * (most recent first). Implemented by shelling out to `rg --files` through the
- * session `ISessionProcessRunner` — sharing the ripgrep subprocess plumbing,
+ * host `IHostProcessService` — sharing the ripgrep subprocess plumbing,
  * gitignore handling, and sensitive-file filtering with the Grep domain.
  *
  * Ported from v1 (`packages/agent-core/src/tools/builtin/file/glob.ts`) onto
- * the v2 domains:
+ * the v2 os domains:
  *   - Search: v1 `kaos.exec(rgPath, ...)` maps to
- *     `this.runner.exec([rgPath, ...], { cwd: searchRoot })`. Pinning the
- *     subprocess cwd to the search root so `--glob` patterns match paths
+ *     `this.processService.spawn(rgPath, [...], { cwd: searchRoot })`. Pinning
+ *     the subprocess cwd to the search root so `--glob` patterns match paths
  *     relative to that root.
- *   - Binary resolution: `ensureRgPath` (`#/session/agentFs/rgLocator`) probes
- *     the execution environment for a working `rg` (system PATH, then the cached
- *     bootstrap binary) so a missing `rg` surfaces an actionable message
- *     instead of a naked `spawn rg ENOENT`.
+ *   - Binary resolution: `ensureRgPath` (`./rgLocator`) probes the execution
+ *     environment for a working `rg` (system PATH, then the cached bootstrap
+ *     binary) so a missing `rg` surfaces an actionable message instead of a
+ *     naked `spawn rg ENOENT`.
  *   - Subprocess plumbing: `runRgOnce` / `shouldRetryRipgrepEagain`
- *     (`#/session/agentFs/runRg`) own spawn, capped draining, abort/timeout,
- *     two-phase kill, and the single-threaded EAGAIN retry shared with v1's
- *     run-rg.
+ *     (`./runRg`) own spawn, capped draining, abort/timeout, two-phase kill,
+ *     and the single-threaded EAGAIN retry shared with v1's run-rg.
  *   - Directory pre-check: `fs.readdir(searchRoot)` surfaces a missing or
  *     non-directory root as "does not exist" / "is not a directory" instead of
  *     a misleading "No matches found" (or, for a file root, rg listing the
@@ -48,17 +47,17 @@
 import { normalize, resolve } from 'pathe';
 import { z } from 'zod';
 
-import { ISessionAgentFileSystem } from '#/session/agentFs';
-import { ensureRgPath, rgUnavailableMessage, type RgProbe } from '#/session/agentFs/rgLocator';
+import { ensureRgPath, rgUnavailableMessage, type RgProbe } from '#/os/backends/node-local/tools/rgLocator';
 import {
   DEFAULT_TIMEOUT_MS,
   MAX_OUTPUT_BYTES,
   runRgOnce,
   shouldRetryRipgrepEagain,
-} from '#/session/agentFs/runRg';
+} from '#/os/backends/node-local/tools/runRg';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
-import { ISessionProcessRunner } from '#/session/process';
 import { ITelemetryService } from '#/app/telemetry';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
@@ -147,9 +146,9 @@ export class GlobTool implements BuiltinTool<GlobInput> {
   readonly description: string;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GlobInputSchema);
   constructor(
-    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @IHostFileSystem private readonly fs: IHostFileSystem,
     @IHostEnvironment private readonly env: IHostEnvironment,
-    @ISessionProcessRunner private readonly runner: ISessionProcessRunner,
+    @IHostProcessService private readonly processService: IHostProcessService,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
@@ -234,7 +233,7 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     // telemetry — instead of a confusing `spawn rg ENOENT`.
     let rgPath: string;
     try {
-      const resolution = await ensureRgPath(createRgProbe(this.runner), {
+      const resolution = await ensureRgPath(createRgProbe(this.processService), {
         signal,
         allowCachedFallback: true,
       });
@@ -260,7 +259,7 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     // Running from the search root makes glob matching relative to it.
     let run;
     try {
-      run = await runRgOnce(this.runner, buildRgArgs(rgPath, args), signal, { cwd: searchRoot });
+      run = await runRgOnce(this.processService, buildRgArgs(rgPath, args), signal, { cwd: searchRoot });
     } catch (error) {
       return {
         isError: true,
@@ -276,7 +275,7 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     // pool and usually succeeds.
     if (shouldRetryRipgrepEagain(run)) {
       try {
-        run = await runRgOnce(this.runner, buildRgArgs(rgPath, args, true), signal, { cwd: searchRoot });
+        run = await runRgOnce(this.processService, buildRgArgs(rgPath, args, true), signal, { cwd: searchRoot });
       } catch (error) {
         return {
           isError: true,
@@ -384,15 +383,18 @@ export class GlobTool implements BuiltinTool<GlobInput> {
 registerTool(GlobTool);
 
 /**
- * Adapt an `ISessionProcessRunner` to the locator's {@link RgProbe}. The
- * probe runs `rg --version` (or the cached binary with `--version`) through
- * the runner and reports the exit code. stdout/stderr are drained (flowing
- * mode) so a chatty probe can never block the pipe; the bytes are discarded.
+ * Adapt an `IHostProcessService` to the locator's {@link RgProbe}. The probe
+ * runs `rg --version` (or the cached binary with `--version`) through the host
+ * process service and reports the exit code. stdout/stderr are drained
+ * (flowing mode) so a chatty probe can never block the pipe; the bytes are
+ * discarded.
  */
-function createRgProbe(runner: ISessionProcessRunner): RgProbe {
+function createRgProbe(processService: IHostProcessService): RgProbe {
   return {
     exec: async (args) => {
-      const proc = await runner.exec(args);
+      const [command, ...rest] = args;
+      if (command === undefined) return { exitCode: -1 };
+      const proc = await processService.spawn(command, rest);
       try {
         proc.stdin.end();
       } catch {
@@ -402,7 +404,7 @@ function createRgProbe(runner: ISessionProcessRunner): RgProbe {
       proc.stderr.resume();
       const exitCode = await proc.wait();
       try {
-        await proc.dispose();
+        proc.dispose();
       } catch {
         /* best-effort cleanup */
       }

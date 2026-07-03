@@ -2,12 +2,12 @@
  * ReadTool tests for the v2 fileTools domain.
  *
  * Ported from v1 (`packages/agent-core/test/tools/read.test.ts`) and adapted
- * to the v2 constructor `(fs, kaos, workspace)`. Self-contained: builds minimal
- * fake `ISessionAgentFileSystem` and `IKaos` inline so the tool can be exercised
- * without the composition root.
+ * to the v2 constructor `(fs, env, workspace)`. Self-contained: builds a
+ * minimal fake `IHostFileSystem` inline so the tool can be exercised without
+ * the composition root.
  *
  * The v1 fast-path tests (`scanTextFile` / `readLineRange` / `readTailLines` /
- * `readTextPreview`) are intentionally dropped: `ISessionAgentFileSystem` streams
+ * `readTextPreview`) are intentionally dropped: `IHostFileSystem` streams
  * through `readLines` only, so `readForward` / `readTail` always take the
  * line-iteration path.
  */
@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
 import { MEDIA_SNIFF_BYTES } from '../../src/_base/tools/support/file-type';
 import { stubWorkspaceContext } from './stub-workspace-context';
-import type { ISessionAgentFileSystem } from '#/session/agentFs';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   MAX_BYTES,
   MAX_LINE_LENGTH,
@@ -86,7 +86,7 @@ function createSpiedFs(content: string) {
   const readLines = vi.fn().mockImplementation(() => generateLines(content));
   const readText = vi.fn(async () => content);
   const stat = vi.fn(async () => ({ isFile: true, isDirectory: false, size: bytes.length }));
-  const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as ISessionAgentFileSystem;
+  const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as IHostFileSystem;
   return { fs, readBytes, readLines, readText, stat };
 }
 
@@ -132,7 +132,7 @@ function createSpiedMapFs(files: Record<string, FakeFile>) {
       size: file.size ?? file.bytes.length,
     };
   });
-  const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as ISessionAgentFileSystem;
+  const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as IHostFileSystem;
   return { fs, readBytes, readLines, readText, stat };
 }
 
@@ -576,7 +576,7 @@ describe('ReadTool', () => {
       n === undefined ? bytes : bytes.subarray(0, n),
     );
     const stat = vi.fn(async () => ({ isFile: true, isDirectory: false, size: bytes.length }));
-    const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as ISessionAgentFileSystem;
+    const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as IHostFileSystem;
     const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/large.txt' });
