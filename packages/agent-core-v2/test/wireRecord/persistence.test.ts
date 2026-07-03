@@ -8,8 +8,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentBlobStoreService } from '#/agent/blobStore';
-import { AgentBlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
+import { IAgentBlobService, AgentBlobServiceImpl } from '#/agent/blob';
+import { IBlobStore } from '#/persistence/interface/blobStore';
+import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IHostFileSystem, HostFileSystem } from '#/app/hostFs';
 import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
@@ -18,16 +19,14 @@ import { IAgentRecordService } from '#/agent/record';
 import {
   AppendLogStore,
   AGENT_WIRE_PROTOCOL_VERSION,
-  IAppendLogStorage,
+  IFileSystemStorageService,
   IAppendLogStore,
-  IBlobStorage,
   IAgentWireRecordService,
   type PersistedWireRecord,
   AgentWireRecordService,
 } from '#/index';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import type { IStorageService } from '#/app/storage';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubRecord } from '../contextMemory/stubs';
 
@@ -57,12 +56,12 @@ async function readLines(path: string): Promise<string[]> {
   return raw.split('\n').filter((line) => line.length > 0);
 }
 
-function createAppendLogHarness(storage: IStorageService): IAppendLogStore {
+function createAppendLogHarness(storage: IFileSystemStorageService): IAppendLogStore {
   const disposable = new DisposableStore();
   disposables.push(disposable);
 
   const ix = disposable.add(new TestInstantiationService());
-  ix.stub(IAppendLogStorage, storage);
+  ix.stub(IFileSystemStorageService, storage);
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   return ix.get(IAppendLogStore);
 }
@@ -88,7 +87,7 @@ async function collect<R>(log: IAppendLogStore, scope = SCOPE, key = KEY): Promi
 
 async function createWireHarness(): Promise<{
   readonly dir: string;
-  readonly storage: IStorageService;
+  readonly storage: IFileSystemStorageService;
   readonly wire: IAgentWireRecordService;
 }> {
   const dir = await makeDir('wire-service-test');
@@ -97,13 +96,13 @@ async function createWireHarness(): Promise<{
 
   const storage = new FileStorageService(dir);
   const ix = disposable.add(new TestInstantiationService());
-  ix.stub(IAppendLogStorage, storage);
-  ix.stub(IBlobStorage, storage);
+  ix.stub(IFileSystemStorageService, storage);
+  ix.set(IBlobStore, new SyncDescriptor(BlobStoreService));
   ix.stub(IBootstrapService, stubBootstrap(dir));
   ix.stub(IHostFileSystem, new HostFileSystem());
   ix.stub(IAgentRecordService, stubRecord());
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-  ix.set(IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService));
+  ix.set(IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl));
   ix.set(IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{}]));
   ix.set(IAgentContextMemoryService, new SyncDescriptor(AgentContextMemoryService));
   ix.get(IAgentContextMemoryService);
@@ -116,7 +115,7 @@ async function createWireHarness(): Promise<{
 }
 
 async function readPersistedWireRecords(
-  storage: IStorageService,
+  storage: IFileSystemStorageService,
 ): Promise<readonly PersistedWireRecord[]> {
   const keys = await storage.list('wire');
   if (keys.length === 0) return [];

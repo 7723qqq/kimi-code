@@ -14,7 +14,7 @@ import { IAtomicTomlDocumentStore, TomlAtomicDocumentStore } from '#/app/storage
  * Register the default config collaborators: a real `ConfigRegistry` plus an
  * empty `IConfigService` placeholder, and the real TOML atomic-document store
  * (so tests exercising the real `ConfigService` only need to supply an
- * `IStorageService` backend and override the `IConfigService` placeholder).
+ * `IFileSystemStorageService` backend and override the `IConfigService` placeholder).
  */
 export function registerConfigServices(reg: ServiceRegistration): void {
   reg.defineInstance(IConfigRegistry, new ConfigRegistry());

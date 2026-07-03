@@ -8,10 +8,7 @@ import { bootstrap } from '#/app/bootstrap/bootstrap';
 import { BootstrapService } from '#/app/bootstrap/bootstrapService';
 import {
   FileStorageService,
-  IAppendLogStorage,
-  IAtomicDocumentStorage,
-  IBlobStorage,
-  IStorageService,
+  IFileSystemStorageService,
 } from '#/app/storage';
 
 describe('BootstrapService (scoped)', () => {
@@ -53,21 +50,11 @@ describe('resolveBootstrapOptions', () => {
 });
 
 describe('bootstrap() storage seeding', () => {
-  it('routes each storage role token to its own FileStorageService instance', () => {
+  it('seeds IFileSystemStorageService as a FileStorageService instance', () => {
     const { app } = bootstrap({ homeDir: '/tmp/kimi-home' });
     try {
-      const storage = app.accessor.get(IStorageService);
-      const appendLog = app.accessor.get(IAppendLogStorage);
-      const atomicDoc = app.accessor.get(IAtomicDocumentStorage);
-      const blob = app.accessor.get(IBlobStorage);
-
-      for (const instance of [storage, appendLog, atomicDoc, blob]) {
-        expect(instance).toBeInstanceOf(FileStorageService);
-      }
-
-      // Roles are independently routable, so they must not collapse into one
-      // shared backend instance by default.
-      expect(new Set([storage, appendLog, atomicDoc, blob]).size).toBe(4);
+      const storage = app.accessor.get(IFileSystemStorageService);
+      expect(storage).toBeInstanceOf(FileStorageService);
     } finally {
       app.dispose();
     }

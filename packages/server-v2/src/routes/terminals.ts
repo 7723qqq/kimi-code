@@ -4,13 +4,14 @@
  * Mirrors `packages/server/src/routes/terminals.ts` path-for-path and
  * schema-for-schema so existing v1 clients keep working against server-v2.
  * Backed by the v2 Session-scoped `ISessionTerminalService`
- * (`agent-core-v2/src/terminal`): the route resolves the session from the URL,
- * then dispatches to the matching `ISessionTerminalService` method. The wire schema is
- * reused from `@moonshot-ai/protocol`.
+ * (`agent-core-v2/src/session/terminal`): the route resolves the session from
+ * the URL, then dispatches to the matching `ISessionTerminalService` method.
+ * The wire schema is reused from `@moonshot-ai/protocol`.
  *
  * The v2 service is Session-scoped (one instance owns only its own session's
  * terminals), so unlike v1 the methods do not take a `session_id` — the session
- * is fixed by the scope the service is resolved from.
+ * is fixed by the scope the service is resolved from. The actual OS PTY
+ * processes are owned by the App-scoped `IHostTerminalService`.
  *
  * **Error mapping**:
  *   - unknown session     → `40401` (session.not_found)

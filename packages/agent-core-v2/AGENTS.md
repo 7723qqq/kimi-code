@@ -4,9 +4,9 @@
 
 ## Examples
 
-`examples/` holds runnable **domain-slice scenarios**: each `examples/<name>.example.ts` is a vitest test that exercises one subset of domains end-to-end, so a single file teaches a single capability. Each example builds its **own** container (the `createServices` flat harness for App-scope slices, or `bootstrap` + child scopes for tree-spanning slices), runs its slice's services for real, and stubs the collaborators outside the slice — so examples never need the full engine, and different examples stub different subsets. Tree-spanning examples redirect `KIMI_CODE_HOME` to a single `.vitest-results/kimi-code-{timestamp}/` per run (set once in `examples/_globalSetup.ts` and shared across every file in the invocation) and seed a file-backed `IAtomicDocumentStorage`, so persisted state is written to disk for inspection.
+> The runnable examples have moved to the standalone `kimi-code-mini-bench` package at `../kimi-code-mini-bench`. They are wired to `agent-core-v2` through a pnpm `link:` dependency and run as a separate Vitest project.
 
-Run one from the repo root with `pnpm dev:core-example <name>` (a filename filter; omit `<name>` to run them all). Examples use their own vitest project (`agent-core-v2-examples`, via `vitest.examples.config.ts`), so they are separate from the real `test/` suite and their console output is shown per scenario. Add a new example by adding an `examples/<name>.example.ts` that imports only its slice's domains.
+Domain-slice scenarios that used to live in `examples/<name>.example.ts` are now maintained there. Each `*.example.ts` exercises one subset of domains end-to-end, builds its own container, runs its slice's services for real, and stubs collaborators outside the slice. See `../kimi-code-mini-bench/README.md` for how to run them.
 
 ## Comment conventions
 

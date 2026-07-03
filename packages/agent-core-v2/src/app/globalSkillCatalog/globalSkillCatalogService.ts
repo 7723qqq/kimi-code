@@ -2,7 +2,7 @@
  * `globalSkillCatalog` domain (L5) — `IGlobalSkillCatalog` implementation.
  *
  * Registers the builtin skills and discovers user / brand skills through the
- * `ISkillCatalogStore`, using the user home directories from `bootstrap`. The
+ * `ISkillDiscovery`, using the user home directories from `bootstrap`. The
  * result is cached after the first `load()`. Bound at App scope.
  */
 
@@ -13,7 +13,7 @@ import { IBootstrapService } from '#/app/bootstrap';
 import { registerBuiltinSkills } from '#/app/globalSkillCatalog/builtin';
 import { IGlobalSkillCatalog } from './globalSkillCatalog';
 import { InMemorySkillCatalog } from './registry';
-import { ISkillCatalogStore } from './skillCatalogStore';
+import { ISkillDiscovery } from './skillDiscovery';
 import type { SkillCatalog } from './types';
 
 export class GlobalSkillCatalogService implements IGlobalSkillCatalog {
@@ -23,7 +23,7 @@ export class GlobalSkillCatalogService implements IGlobalSkillCatalog {
   private loaded = false;
 
   constructor(
-    @ISkillCatalogStore private readonly store: ISkillCatalogStore,
+    @ISkillDiscovery private readonly store: ISkillDiscovery,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
   ) {}
 

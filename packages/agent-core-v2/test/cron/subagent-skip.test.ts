@@ -1,6 +1,6 @@
 /**
  * Subagent cron suppression: each session can spawn many subagents, and
- * unconditionally starting an AgentCronService per agent leaks 1s setInterval
+ * unconditionally starting a SessionCronService per agent leaks 1s setInterval
  * timers and SIGUSR1 listeners (under KIMI_CRON_MANUAL_TICK=1) that
  * never serve any purpose — default subagent profiles don't expose the
  * Cron tools to the LLM. This test pins both halves of the fix:
@@ -15,9 +15,8 @@
  *      — listener bound, tools registered.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeAgentScopeContext } from '#/agent/scopeContext';
 
-import { IAgentCronService } from '#/agent/cron';
+import { ISessionCronService } from '#/session/cron';
 import { IAgentProfileService } from '#/agent/profile';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 
@@ -38,14 +37,14 @@ describe('Agent + Cron — subagent suppression', () => {
 
   describe("type='sub'", () => {
     let ctx: TestAgentContext;
-    let cron: IAgentCronService;
+    let cron: ISessionCronService;
     let profile: IAgentProfileService;
     let listenerCountBeforeCreate: number;
 
     beforeEach(() => {
       listenerCountBeforeCreate = process.listenerCount('SIGUSR1');
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'sub-1', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
       profile = ctx.get(IAgentProfileService);
     });
 
@@ -60,7 +59,7 @@ describe('Agent + Cron — subagent suppression', () => {
     it('cron exists, start() is skipped, tools not registered', () => {
       if (process.platform === 'win32') return;
 
-      // Subagents get a disabled AgentCronService: no scheduler, no timers,
+      // Subagents get a disabled SessionCronService: no scheduler, no timers,
       // no SIGUSR1 listener and no tools — the service-DI equivalent of
       // the old `agent.cron === null`.
       expect(cron.isEnabled).toBe(false);

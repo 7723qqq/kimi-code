@@ -1,19 +1,18 @@
 /**
  * Session-level cron end-to-end smoke: exercises the full
- * `CronCreateTool → AgentCronService → agent.turn.steer` pipeline
+ * `CronCreateTool → SessionCronService → agent.turn.steer` pipeline
  * through the real `AgentTestContext`, with Date.now controlled by
  * the test so the `coalescedCount = 3` calibration after a 15-minute advance is
  * deterministic regardless of host TZ.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeAgentScopeContext } from '#/agent/scopeContext';
 
 import { CronCreateTool } from '#/agent/cron/tools/cron-create';
 import { CronDeleteTool } from '#/agent/cron/tools/cron-delete';
 import { CronListTool } from '#/agent/cron/tools/cron-list';
 import type { ExecutableToolOutput } from '#/agent/tool';
 import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentCronService } from '#/agent/cron';
+import { ISessionCronService } from '#/session/cron';
 import { IAgentPromptService } from '#/agent/prompt';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 
@@ -44,7 +43,7 @@ function outputText(out: ExecutableToolOutput): string {
 
 describe('Cron — session E2E (P1.9)', () => {
   let ctx: TestAgentContext;
-  let cron: IAgentCronService;
+  let cron: ISessionCronService;
   let prompt: IAgentPromptService;
   let harness: ReturnType<typeof createClocks>;
 
@@ -58,8 +57,8 @@ describe('Cron — session E2E (P1.9)', () => {
     vi.stubEnv('KIMI_CRON_NO_JITTER', '1');
     vi.stubEnv('KIMI_CRON_POLL_INTERVAL_MS', '0');
     harness = createClocks();
-    ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-    cron = ctx.get(IAgentCronService);
+    ctx = createTestAgent(cronServices());
+    cron = ctx.get(ISessionCronService);
     prompt = ctx.get(IAgentPromptService);
     cron.start();
   });

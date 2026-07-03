@@ -16,7 +16,7 @@ import {
   AtomicDocumentStore,
   FileStorageService,
   IAtomicDocumentStore,
-  IStorageService,
+  IFileSystemStorageService,
 } from '#/app/storage';
 
 const WORK_DIR = '/home/user/repo';
@@ -44,7 +44,7 @@ describe('FileSessionIndex', () => {
   function build(): ISessionIndex {
     const fileStorage = new FileStorageService(homeDir);
     const host = createScopedTestHost([
-      stubPair(IStorageService, fileStorage),
+      stubPair(IFileSystemStorageService, fileStorage),
       stubPair(IAtomicDocumentStore, new AtomicDocumentStore(fileStorage)),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
     ]);

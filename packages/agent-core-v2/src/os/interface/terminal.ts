@@ -1,14 +1,15 @@
 /**
  * `terminal` domain (L6) — interactive terminal (PTY) contract.
  *
- * Defines the `ISessionTerminalService` that business code (and the edge, via an
- * accessor borrow) uses to manage a session's interactive terminals, the
- * `ISessionTerminalBackend` provider that hides the local/ssh/container split, and
- * the attach/stream types (`TerminalProcess`, `TerminalAttachSink`,
- * `TerminalFrame`) used to wire terminal I/O to a transport. Session-scoped:
- * one `ISessionTerminalService` owns only its own session's terminals. Wire types
- * (`Terminal`, `CreateTerminalRequest`, frame messages) are sourced from
- * `@moonshot-ai/protocol`.
+ * Defines the App-scoped `IHostTerminalService` that owns the actual OS terminal
+ * processes and the low-level process/stream primitives (`TerminalProcess`,
+ * `TerminalSpawnOptions`, `TerminalAttachSink`, `TerminalFrame`) used to wire
+ * terminal I/O to a transport. The session-scoped facade
+ * (`ISessionTerminalService`) lives in `src/session/terminal` and is the
+ * surface most business code and the edge consume.
+ *
+ * Wire types (`Terminal`, `CreateTerminalRequest`, frame messages) are sourced
+ * from `@moonshot-ai/protocol`.
  */
 
 import type {
@@ -49,40 +50,18 @@ export interface TerminalProcess {
   kill(): void;
 }
 
-export interface ISessionTerminalService {
-  readonly _serviceBrand: undefined;
-
-  create(input: CreateTerminalRequest): Promise<Terminal>;
-
-  list(): Promise<readonly Terminal[]>;
-
-  get(terminalId: string): Promise<Terminal>;
-
-  attach(
-    terminalId: string,
-    sink: TerminalAttachSink,
-    options?: TerminalAttachOptions,
-  ): Promise<{ replayed: number }>;
-
-  detach(terminalId: string, sinkId: string): void;
-
-  detachAllForSink(sinkId: string): void;
-
-  write(terminalId: string, data: string): Promise<void>;
-
-  resize(terminalId: string, cols: number, rows: number): Promise<void>;
-
-  close(terminalId: string): Promise<{ closed: true }>;
-}
-
-export const ISessionTerminalService: ServiceIdentifier<ISessionTerminalService> =
-  createDecorator<ISessionTerminalService>('sessionTerminalService');
-
-export interface ISessionTerminalBackend {
+/**
+ * App-scoped OS terminal process service.
+ *
+ * Owns the actual PTY process layer for the whole process. It does not know
+ * about sessions, workspace paths, or output buffering; it only spawns and
+ * exposes `TerminalProcess` handles directly via `node-pty`.
+ */
+export interface IHostTerminalService {
   readonly _serviceBrand: undefined;
 
   spawn(options: TerminalSpawnOptions): Promise<TerminalProcess>;
 }
 
-export const ISessionTerminalBackend: ServiceIdentifier<ISessionTerminalBackend> =
-  createDecorator<ISessionTerminalBackend>('sessionTerminalBackend');
+export const IHostTerminalService: ServiceIdentifier<IHostTerminalService> =
+  createDecorator<IHostTerminalService>('hostTerminalService');

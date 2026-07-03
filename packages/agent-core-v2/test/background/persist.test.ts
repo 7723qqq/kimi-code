@@ -19,8 +19,7 @@ import {
   AtomicDocumentStore,
   FileStorageService,
   IAtomicDocumentStore,
-  IAtomicDocumentStorage,
-  IStorageService,
+  IFileSystemStorageService,
 } from '#/app/storage';
 
 const SESSION_SCOPE = 'session';
@@ -59,11 +58,11 @@ beforeEach(async () => {
   disposables = new DisposableStore();
   const ix = disposables.add(new TestInstantiationService());
   const fs = new FileStorageService(sessionDir, 0o700);
-  ix.set(IAtomicDocumentStorage, fs);
-  ix.set(IStorageService, fs);
+  ix.set(IFileSystemStorageService, fs);
+  ix.set(IFileSystemStorageService, fs);
   ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
   const docs = ix.get(IAtomicDocumentStore);
-  const bytes = ix.get(IStorageService);
+  const bytes = ix.get(IFileSystemStorageService);
   persistence = new BackgroundTaskPersistence(sessionDir, SESSION_SCOPE, docs, bytes);
 });
 

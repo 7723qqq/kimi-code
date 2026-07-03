@@ -15,7 +15,7 @@ import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminde
 import { IAgentTodoListService, TODO_LIST_REMINDER_VARIANT } from '#/agent/todoList';
 import { AgentTodoListService } from '#/agent/todoList/todoListService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IAgentToolStoreService } from '#/agent/toolStore';
+import { IAgentToolState } from '#/agent/toolState';
 import { IAgentTurnService } from '#/agent/turn';
 import { registerContextMemoryServices } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubTurnWithHooks } from '../turn/stubs';
@@ -227,7 +227,7 @@ describe('AgentContextInjectorService registration', () => {
         reg.definePartialInstance(IAgentProfileService, {
           isToolActive: () => false,
         });
-        reg.definePartialInstance(IAgentToolStoreService, {
+        reg.definePartialInstance(IAgentToolState, {
           data: () => ({}),
         });
         reg.definePartialInstance(IAgentToolRegistryService, {

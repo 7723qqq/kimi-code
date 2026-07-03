@@ -57,7 +57,8 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>approval</b>\n<size:9><i>Session</i></size>\n  IApprovalService" as approval #D5F5E3
   rectangle "<b>question</b>\n<size:9><i>Session</i></size>\n  IQuestionService" as question #D5F5E3
   rectangle "<b>process</b>\n<size:9><i>Session</i></size>\n  IProcessRunner\n  IProcess" as process #D5F5E3
-  rectangle "<b>terminal</b>\n<size:9><i>Session</i></size>\n  ITerminalService\n  ITerminalBackend" as terminal #D5F5E3
+  rectangle "<b>terminal</b>\n<size:9><i>App</i></size>\n  IHostTerminalService" as terminal_app #D6EAF8
+  rectangle "<b>sessionTerminal</b>\n<size:9><i>Session</i></size>\n  ISessionTerminalService" as terminal_session #D5F5E3
   rectangle "<b>modelProvider</b>\n<size:9><i>Session</i></size>\n  IModelProvider (seed)" as modelProvider #D5F5E3
 }
 
@@ -141,8 +142,9 @@ agentFs --> workspaceContext #34495E
 agentFs --> execContext #34495E
 agentFs --> process #34495E
 process --> execContext #34495E
-terminal --> workspaceContext #34495E
-terminal --> session_context #34495E
+terminal_session --> terminal_app #34495E
+terminal_session --> workspaceContext #34495E
+terminal_session --> session_context #34495E
 approval --> interaction #34495E
 question --> interaction #34495E
 modelProvider --> config #34495E

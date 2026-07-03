@@ -12,8 +12,6 @@
     "dev:cli:marketplace": "KIMI_CODE_DEV_MARKETPLACE_URL=https://code.kimi.com/kimi-code/plugins/marketplace.json pnpm -C apps/kimi-code run dev",
     "dev:web": "pnpm -C apps/kimi-web run dev",
     "dev:server": "pnpm -C packages/server-v2 run dev",
-    "dev:core-example": "pnpm -C packages/agent-core-v2 run example",
-    "dev:core-example:list": "pnpm -C packages/agent-core-v2 exec vitest list --config vitest.examples.config.ts",
     "build:plugin-marketplace": "pnpm -C apps/kimi-code run build:plugin-marketplace",
     "vis": "pnpm -C apps/vis run dev",
     "dev:docs": "pnpm -C docs install --ignore-workspace && pnpm -C docs run dev",

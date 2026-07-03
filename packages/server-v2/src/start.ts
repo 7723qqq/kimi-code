@@ -26,9 +26,6 @@ import { acquireLock, ServerLockedError } from './lock';
 import { transformOpenApiDocument } from './openapi/transforms';
 import { resolveRequestId } from './request-id';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
-// Registers the real `node-pty` `ISessionTerminalBackend`, overriding the
-// `SessionNotImplementedTerminalBackend` stub from `agent-core-v2`. Side-effect import.
-import './terminal/nodePtyTerminalBackend';
 import {
   createServerLogger,
   type ServerLogger,

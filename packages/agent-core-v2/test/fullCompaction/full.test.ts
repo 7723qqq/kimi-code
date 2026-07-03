@@ -33,7 +33,7 @@ import {
   IAgentMicroCompactionService,
   IOAuthService,
   IAgentProfileService,
-  IAgentToolStoreService,
+  IAgentToolState,
 } from '#/index';
 import { TODO_STORE_KEY } from '#/agent/todoList/tools/todo-list';
 
@@ -2080,7 +2080,7 @@ describe('FullCompaction', () => {
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
 
-    ctx.get(IAgentToolStoreService).set(TODO_STORE_KEY, [
+    ctx.get(IAgentToolState).set(TODO_STORE_KEY, [
       { title: 'Fix the auth bug', status: 'in_progress' },
       { title: 'Add tests', status: 'pending' },
     ]);

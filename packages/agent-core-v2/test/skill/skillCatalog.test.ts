@@ -8,9 +8,9 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import '#/app/globalSkillCatalog';
 import '#/session/sessionSkillCatalog';
 import '#/agent/skill';;
-import { InMemorySkillCatalogStore } from '#/app/globalSkillCatalog/inMemorySkillCatalogStore';
+import { InMemorySkillDiscovery } from '#/app/globalSkillCatalog/inMemorySkillDiscovery';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { ISkillCatalogStore } from '#/app/globalSkillCatalog/skillCatalogStore';
+import { ISkillDiscovery } from '#/app/globalSkillCatalog/skillDiscovery';
 import type { SkillRoot } from '#/app/globalSkillCatalog/types';
 
 import { stubSkill } from './stubs';
@@ -65,12 +65,12 @@ function workspaceStub(workDir: string): {
 }
 
 function makeHost(
-  store: ISkillCatalogStore,
+  store: ISkillDiscovery,
   ws: ISessionWorkspaceContext,
   pluginRoots: readonly SkillRoot[] = [],
 ) {
   const host = createScopedTestHost([
-    stubPair(ISkillCatalogStore, store),
+    stubPair(ISkillDiscovery, store),
     stubPair(IBootstrapService, bootstrapStub),
     stubPair(IPluginService, pluginStub(pluginRoots)),
   ]);
@@ -80,7 +80,7 @@ function makeHost(
 
 describe('SessionSkillCatalogService', () => {
   it('merges global and project skills; project wins on name collision', async () => {
-    const store = new InMemorySkillCatalogStore();
+    const store = new InMemorySkillDiscovery();
     store.setUserSkills([
       stubSkill('global-only'),
       stubSkill('shared', { description: 'from user' }),
@@ -104,7 +104,7 @@ describe('SessionSkillCatalogService', () => {
   });
 
   it('reload replaces project skills when the workDir changes', async () => {
-    const store = new InMemorySkillCatalogStore();
+    const store = new InMemorySkillDiscovery();
     store.setUserSkills([stubSkill('global-only')]);
     store.setProjectSkills([stubSkill('first')]);
     const { stub: ws, setWorkDir } = workspaceStub('/work1');
@@ -125,7 +125,7 @@ describe('SessionSkillCatalogService', () => {
   });
 
   it('does not reload when the workDir is unchanged', async () => {
-    const store = new InMemorySkillCatalogStore();
+    const store = new InMemorySkillDiscovery();
     store.setProjectSkills([stubSkill('first')]);
     const { stub: ws } = workspaceStub('/work');
     const { host, session } = makeHost(store, ws);
@@ -147,7 +147,7 @@ describe('SessionSkillCatalogService', () => {
       source: 'extra',
       plugin: { id: 'demo', instructions: 'Use the demo tools.' },
     };
-    class ExtraRootStore implements ISkillCatalogStore {
+    class ExtraRootStore implements ISkillDiscovery {
       declare readonly _serviceBrand: undefined;
       receivedRoots: readonly SkillRoot[] | undefined;
       async discoverProject(_workDir: string, extraRoots?: readonly SkillRoot[]) {

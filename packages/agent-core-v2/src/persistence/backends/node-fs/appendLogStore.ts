@@ -1,7 +1,7 @@
 /**
  * `AppendLogStore` — node-fs backend for `IAppendLogStore`.
  *
- * Sits on top of `IStorageService` and turns a byte stream into an ordered
+ * Sits on top of `IFileSystemStorageService` and turns a byte stream into an ordered
  * sequence of typed JSON records. Owns the concerns the storage service
  * deliberately ignores: line framing (one JSON value per line, a.k.a. JSONL),
  * batching of appends into a single durable `append`, and crash-tolerant
@@ -12,7 +12,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IAppendLogStorage, type IStorageService } from '#/persistence/interface/storage';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import {
   AppendLogCorruptedError,
   IAppendLogStore,
@@ -34,7 +34,7 @@ export class AppendLogStore implements IAppendLogStore {
 
   private readonly logs = new Map<string, LogState>();
 
-  constructor(@IAppendLogStorage private readonly storage: IStorageService) {}
+  constructor(@IFileSystemStorageService private readonly storage: IFileSystemStorageService) {}
 
   append<R>(scope: string, key: string, record: R, options?: AppendLogOptions): void {
     const state = this.state(scope, key);

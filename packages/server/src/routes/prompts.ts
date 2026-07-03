@@ -12,7 +12,7 @@ import {
   promptSteerResultSchema,
   type PromptSubmission,
 } from '@moonshot-ai/protocol';
-import { IPromptService, AuthModelNotResolvedError, AuthProvisioningRequiredError, AuthTokenMissingError, AuthTokenUnauthorizedError, PromptAlreadyCompletedError, PromptNotFoundError, SessionBusyError, SessionNotFoundError, FileNotFoundError, IFileStore, type IInstantiationService, type GetResult } from '@moonshot-ai/agent-core';
+import { IPromptService, AuthModelNotResolvedError, AuthProvisioningRequiredError, AuthTokenMissingError, AuthTokenUnauthorizedError, PromptAlreadyCompletedError, PromptNotFoundError, SessionBusyError, SessionNotFoundError, FileNotFoundError, IFileService, type IInstantiationService, type GetResult } from '@moonshot-ai/agent-core';
 import { z } from 'zod';
 
 
@@ -126,7 +126,7 @@ export function registerPromptsRoutes(
         const result = await ix.invokeFunction(async (a) =>
           a.get(IPromptService).submit(
             session_id,
-            await resolvePromptMediaFiles(body, a.get(IFileStore)),
+            await resolvePromptMediaFiles(body, a.get(IFileService)),
           ),
         );
         reply.send(okEnvelope(result, req.id));
@@ -249,7 +249,7 @@ export function registerPromptsRoutes(
 
 async function resolvePromptMediaFiles(
   body: PromptSubmission,
-  store: IFileStore,
+  store: IFileService,
 ): Promise<PromptSubmission> {
   let changed = false;
   const content: PromptSubmission['content'] = [];

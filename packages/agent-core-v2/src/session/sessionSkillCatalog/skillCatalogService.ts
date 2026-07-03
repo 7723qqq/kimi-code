@@ -2,7 +2,7 @@
  * `sessionSkillCatalog` domain (L5) — `ISessionSkillCatalog` implementation.
  *
  * Merges the global catalog (`IGlobalSkillCatalog`) with the project skills
- * discovered through `ISkillCatalogStore` for the session's current workDir
+ * discovered through `ISkillDiscovery` for the session's current workDir
  * (`workspaceContext`). Project skills override global skills on name
  * collision. `ready` resolves once the first `load()` completes, so consumers
  * (e.g. skill activation) can await it instead of racing the asynchronous
@@ -18,7 +18,7 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { IGlobalSkillCatalog } from '#/app/globalSkillCatalog/globalSkillCatalog';
 import { InMemorySkillCatalog } from '#/app/globalSkillCatalog/registry';
 import { ISessionSkillCatalog } from './skillCatalog';
-import { ISkillCatalogStore } from '#/app/globalSkillCatalog/skillCatalogStore';
+import { ISkillDiscovery } from '#/app/globalSkillCatalog/skillDiscovery';
 import type { SkillCatalog } from '#/app/globalSkillCatalog/types';
 
 export class SessionSkillCatalogService extends Disposable implements ISessionSkillCatalog {
@@ -30,7 +30,7 @@ export class SessionSkillCatalogService extends Disposable implements ISessionSk
 
   constructor(
     @IGlobalSkillCatalog private readonly global: IGlobalSkillCatalog,
-    @ISkillCatalogStore private readonly store: ISkillCatalogStore,
+    @ISkillDiscovery private readonly store: ISkillDiscovery,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
     @IPluginService private readonly plugins: IPluginService,
   ) {

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { IStorageService } from '#/app/storage';
+import type { IFileSystemStorageService } from '#/app/storage';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
@@ -12,7 +12,7 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 interface ServiceHandle {
-  readonly service: IStorageService;
+  readonly service: IFileSystemStorageService;
   readonly cleanup?: () => Promise<void>;
 }
 
@@ -21,7 +21,7 @@ function storageServiceSuite(
   setup: () => Promise<ServiceHandle>,
 ): void {
   describe(name, () => {
-    let service: IStorageService;
+    let service: IFileSystemStorageService;
     let cleanup: (() => Promise<void>) | undefined;
 
     beforeEach(async () => {

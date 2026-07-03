@@ -2,7 +2,7 @@
  * `persistence/interface` — `IAppendLogStore` contract.
  *
  * The append-log access-pattern store: turns a byte stream into an ordered
- * sequence of typed JSON records on top of `IStorageService`. Owns the
+ * sequence of typed JSON records on top of `IFileSystemStorageService`. Owns the
  * concerns the storage service deliberately ignores: line framing, batching,
  * and crash-tolerant decoding.
  *

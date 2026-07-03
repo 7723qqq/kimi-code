@@ -1,5 +1,5 @@
 /**
- * `InMemoryStorageService` — `IStorageService` backed by in-memory maps.
+ * `InMemoryStorageService` — `IFileSystemStorageService` backed by in-memory maps.
  *
  * Not auto-registered: the Storage-layer backend is a deployment choice that
  * the composition root must provide. `bootstrap()` seeds a per-token
@@ -22,7 +22,7 @@ import {
 import { Emitter, type Event } from '#/_base/event';
 
 import {
-  IStorageService,
+  IFileSystemStorageService,
   type StorageAppendOptions,
   type StorageWriteOptions,
 } from '#/persistence/interface/storage';
@@ -32,7 +32,7 @@ interface WatchEntry {
   count: number;
 }
 
-export class InMemoryStorageService implements IStorageService {
+export class InMemoryStorageService implements IFileSystemStorageService {
   declare readonly _serviceBrand: undefined;
 
   private readonly scopes = new Map<string, Map<string, Uint8Array>>();

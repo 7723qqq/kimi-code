@@ -33,7 +33,7 @@ import { IAgentProfileService } from '#/agent/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry';
 import { IAgentWireRecordService, AgentWireRecordService } from '#/agent/wireRecord';
-import { IAgentBlobStoreService, AgentBlobStoreService } from '#/agent/blobStore';
+import { IAgentBlobService, AgentBlobServiceImpl } from '#/agent/blob';
 import {
   IAgentExternalHooksService,
   AgentExternalHooksService,
@@ -100,7 +100,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
             } satisfies IAgentScopeContext,
           ],
           [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
-          [IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService, [{}])],
+          [IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl, [{}])],
           [IAgentMcpService, new SyncDescriptor(AgentMcpService, [{ manager: this.getMcpManager() }])],
           // External hooks carries a leading static `options` param; the scoped
           // registry supplies none, so seed an empty one to satisfy the DI

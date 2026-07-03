@@ -7,11 +7,9 @@
  * (`homeDir`, `configPath`, …). `resolveBootstrapOptions` is the single place
  * that reads `process.env` / `os.homedir()` / invocation input to resolve
  * the snapshot; everything downstream reads from `IBootstrapService` instead of
- * touching `process` directly. Bound at App scope. Also seeds the App storage
- * roles (`IStorageService`, `IAppendLogStorage`, `IAtomicDocumentStorage`,
- * `IBlobStorage`) each with its own `FileStorageService` rooted at `homeDir`
- * (via per-token `SyncDescriptor`s), so the byte layer (and every Store above
- * it) persists to disk while the roles stay independently routable.
+ * touching `process` directly. Bound at App scope. Also seeds the
+ * `IFileSystemStorageService` with a `FileStorageService` rooted at `homeDir`
+ * so the byte layer (and every Store above it) persists to disk.
  */
 
 import { mkdirSync } from 'node:fs';
@@ -23,14 +21,11 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { createAppScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
 import {
-  IAppendLogStorage,
-  IAtomicDocumentStorage,
-  IBlobStorage,
-  IStorageService,
+  IFileSystemStorageService,
 } from '#/persistence/interface/storage';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { FileSkillCatalogStore } from '#/app/globalSkillCatalog/fileSkillCatalogStore';
-import { ISkillCatalogStore } from '#/app/globalSkillCatalog/skillCatalogStore';
+import { FileSkillDiscovery } from '#/app/globalSkillCatalog/fileSkillDiscovery';
+import { ISkillDiscovery } from '#/app/globalSkillCatalog/skillDiscovery';
 
 export interface IBootstrapOptions {
   readonly homeDir: string;
@@ -48,7 +43,7 @@ export const IBootstrapOptions: ServiceIdentifier<IBootstrapOptions> =
 /**
  * Well-known top-level persistence areas. The bootstrap layer owns the mapping
  * from each semantic name to concrete backend addressing; business code passes
- * a scope string to `IStorageService` / `IAtomicDocumentStore` / `IAppendLogStore`
+ * a scope string to `IFileSystemStorageService` / `IAtomicDocumentStore` / `IAppendLogStore`
  * without caring whether the byte layer talks to a filesystem, a database, or
  * a blob store.
  */
@@ -59,7 +54,8 @@ export type PersistenceScopeName =
   | 'store'
   | 'logs'
   | 'cache'
-  | 'credentials';
+  | 'credentials'
+  | 'cron';
 
 export interface IBootstrapService {
   readonly _serviceBrand: undefined;
@@ -81,7 +77,7 @@ export interface IBootstrapService {
 
   /**
    * Scope string for a well-known top-level persistence area. Business code
-   * passes this to `IStorageService` / `IAtomicDocumentStore` / `IAppendLogStore`
+   * passes this to `IFileSystemStorageService` / `IAtomicDocumentStore` / `IAppendLogStore`
    * — the backend layer converts it to concrete addressing.
    */
   scope(name: PersistenceScopeName): string;
@@ -160,21 +156,10 @@ export function bootstrap(input: BootstrapInput = {}, extraSeeds: ScopeSeed = []
 }
 
 function storageSeed(options: IBootstrapOptions): ScopeSeed {
-  // Each storage role token resolves to its OWN `FileStorageService` instance
-  // rooted at `homeDir`. The four roles are intentionally independent so a
-  // composition profile can route any one of them (e.g. `IBlobStorage`) to a
-  // different backend; bundling them into a single shared instance would bake
-  // in the assumption that they are always the same backend. We seed a
-  // per-token `SyncDescriptor` (VS Code's `new SyncDescriptor(Ctor, [args])`
-  // pattern) so the container builds each instance via DI, while the `extra`
-  // seed still overrides the in-memory default robustly.
-  const file = (): SyncDescriptor<IStorageService> =>
+  const file = (): SyncDescriptor<IFileSystemStorageService> =>
     new SyncDescriptor(FileStorageService, [options.homeDir], true);
   return [
-    [IStorageService as ServiceIdentifier<unknown>, file()],
-    [IAppendLogStorage as ServiceIdentifier<unknown>, file()],
-    [IAtomicDocumentStorage as ServiceIdentifier<unknown>, file()],
-    [IBlobStorage as ServiceIdentifier<unknown>, file()],
+    [IFileSystemStorageService as ServiceIdentifier<unknown>, file()],
   ];
 }
 
@@ -184,8 +169,8 @@ function skillSeed(): ScopeSeed {
   // in the skill domain (this `extra` seed overrides it in production).
   return [
     [
-      ISkillCatalogStore as ServiceIdentifier<unknown>,
-      new SyncDescriptor(FileSkillCatalogStore, [], true),
+      ISkillDiscovery as ServiceIdentifier<unknown>,
+      new SyncDescriptor(FileSkillDiscovery, [], true),
     ],
   ];
 }

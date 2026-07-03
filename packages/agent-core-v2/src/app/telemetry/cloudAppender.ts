@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { arch, platform, release } from 'node:os';
 
-import type { IStorageService } from '#/app/storage';
+import type { IFileSystemStorageService } from '#/app/storage';
 
 import type { ITelemetryAppender, TelemetryContextPatch, TelemetryProperties } from './telemetry';
 import {
@@ -22,7 +22,7 @@ import {
 } from './cloudTransport';
 
 export interface CloudAppenderOptions {
-  readonly storage: IStorageService;
+  readonly storage: IFileSystemStorageService;
   readonly deviceId: string;
   readonly sessionId?: string;
   readonly appName: string;

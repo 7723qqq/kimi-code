@@ -4,7 +4,7 @@
  *
  * Persists task state (`<taskId>.json`) and raw task output (`output.log`)
  * through the `storage` access-pattern stores (`IAtomicDocumentStore` for
- * atomic whole-document state, `IStorageService` byte primitives for ordered
+ * atomic whole-document state, `IFileSystemStorageService` byte primitives for ordered
  * output append), addressed under the session's storage scope so the domain
  * never touches the filesystem. Task ids are validated against the
  * `{prefix}-{8 hex}` shape before use as path segments (path-traversal and
@@ -15,7 +15,7 @@
 
 import { join } from 'pathe';
 
-import type { IAtomicDocumentStore, IStorageService } from '#/app/storage';
+import type { IAtomicDocumentStore, IFileSystemStorageService } from '#/app/storage';
 
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from './task';
 
@@ -43,7 +43,7 @@ export class BackgroundTaskPersistence {
     private readonly sessionDir: string,
     private readonly sessionScope: string,
     private readonly docs: IAtomicDocumentStore,
-    private readonly bytes: IStorageService,
+    private readonly bytes: IFileSystemStorageService,
   ) {}
 
   private tasksScope(): string {

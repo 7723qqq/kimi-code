@@ -1,14 +1,12 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import {
+  IHostTerminalService,
   InstantiationType,
-  ISessionTerminalBackend,
   LifecycleScope,
-  modelResolverSeed,
   registerScopedService,
-  SingleModelResolver,
   type TerminalProcess,
   type TerminalSpawnOptions,
 } from '@moonshot-ai/agent-core-v2';
@@ -18,14 +16,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 
-// --- Fake PTY backend -------------------------------------------------------
+// --- Fake PTY service -------------------------------------------------------
 //
-// The real `node-pty` backend is registered by `src/start.ts` (imported via
-// `startServer`). Registering this fake at `Session` scope AFTER those imports
-// overrides it — `buildCollection` applies scoped registrations in import order
-// and the last `set` for a given (scope, id) wins. Each session scope gets its
-// own `FakeTerminalBackend` instance, but every spawned process is pushed into
-// the module-level collectors below so tests can inspect cwd / kill state.
+// `startServer` bootstraps the real `HostTerminalService` (backed by node-pty).
+// Registering this fake at App scope AFTER those imports overrides it —
+// `buildCollection` applies scoped registrations in import order and the last
+// `set` for a given (scope, id) wins. Every spawned process is pushed into the
+// module-level collectors below so tests can inspect cwd / kill state.
 
 class FakeTerminalProcess implements TerminalProcess {
   private readonly dataListeners = new Set<(data: string) => void>();
@@ -63,7 +60,7 @@ class FakeTerminalProcess implements TerminalProcess {
   }
 }
 
-class FakeTerminalBackend implements ISessionTerminalBackend {
+class FakeHostTerminalService implements IHostTerminalService {
   declare readonly _serviceBrand: undefined;
 
   spawn(options: TerminalSpawnOptions): Promise<TerminalProcess> {
@@ -78,9 +75,9 @@ const spawnOptions: TerminalSpawnOptions[] = [];
 const processes: FakeTerminalProcess[] = [];
 
 registerScopedService(
-  LifecycleScope.Session,
-  ISessionTerminalBackend,
-  FakeTerminalBackend,
+  LifecycleScope.App,
+  IHostTerminalService,
+  FakeHostTerminalService,
   InstantiationType.Delayed,
   'terminal-test',
 );
@@ -106,17 +103,26 @@ describe('server-v2 /api/v1/sessions/{sid}/terminals', () => {
     processes.length = 0;
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-term-home-'));
     work = await mkdtemp(join(tmpdir(), 'kimi-server-v2-term-work-'));
-    const modelResolver = new SingleModelResolver({
-      type: 'openai',
-      model: 'stub',
-      apiKey: 'stub',
-    });
+    await writeFile(
+      join(home, 'config.toml'),
+      [
+        '[providers.stub]',
+        'type = "openai"',
+        'base_url = "http://127.0.0.1:9999"',
+        'api_key = "stub"',
+        '',
+        '[models.stub]',
+        'provider = "stub"',
+        'model = "stub"',
+        'max_context_size = 1000',
+        '',
+      ].join('\n'),
+    );
     server = await startServer({
       host: '127.0.0.1',
       port: 0,
       homeDir: home,
       logLevel: 'silent',
-      seeds: modelResolverSeed(modelResolver),
     });
     base = `http://127.0.0.1:${server.port}`;
   });

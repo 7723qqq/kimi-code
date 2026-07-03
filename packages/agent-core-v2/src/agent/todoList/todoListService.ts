@@ -17,7 +17,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IAgentToolStoreService } from '#/agent/toolStore';
+import { IAgentToolState } from '#/agent/toolState';
 import { IAgentTodoListService } from './todoList';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -28,7 +28,7 @@ export class AgentTodoListService extends Disposable implements IAgentTodoListSe
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IAgentToolStoreService private readonly toolStore: IAgentToolStoreService,
+    @IAgentToolState private readonly toolStore: IAgentToolState,
     @IAgentToolRegistryService toolRegistry: IAgentToolRegistryService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @IInstantiationService private readonly instantiationService: IInstantiationService,

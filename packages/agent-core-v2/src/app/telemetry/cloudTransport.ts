@@ -2,13 +2,13 @@
  * `telemetry` domain (L1) — `CloudTransport`, the HTTP transport behind
  * `CloudAppender`. Posts enriched events to the telemetry endpoint with Bearer
  * auth, retry, and a byte-store fallback for failed events, persisted through
- * the `storage` byte layer (`IStorageService`) under the `telemetry` scope.
+ * the `storage` byte layer (`IFileSystemStorageService`) under the `telemetry` scope.
  * App-scoped; independent of `@moonshot-ai/kimi-telemetry`.
  */
 
 import { randomBytes } from 'node:crypto';
 
-import type { IStorageService } from '#/app/storage';
+import type { IFileSystemStorageService } from '#/app/storage';
 
 export type CloudPrimitive = boolean | number | string | undefined | null;
 
@@ -35,7 +35,7 @@ export interface CloudPayload {
 }
 
 export interface CloudTransportOptions {
-  readonly storage: IStorageService;
+  readonly storage: IFileSystemStorageService;
   readonly deviceId: string;
   readonly endpoint?: string;
   readonly getAccessToken?: () => string | null | Promise<string | null>;
@@ -61,7 +61,7 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 export class CloudTransport {
-  private readonly storage: IStorageService;
+  private readonly storage: IFileSystemStorageService;
   private readonly deviceId: string;
   private readonly endpoint: string;
   private readonly getAccessToken: (() => string | null | Promise<string | null>) | null;

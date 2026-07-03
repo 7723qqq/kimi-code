@@ -25,6 +25,7 @@ export function stubBootstrap(homeDir = '/tmp/kimi-home', env: NodeJS.ProcessEnv
     logs: 'logs',
     cache: 'cache',
     credentials: 'credentials',
+    cron: 'cron',
   };
   const sessionScope = (wsId: string, sId: string): string => `${sessionsScope}/${wsId}/${sId}`;
   const agentScope = (wsId: string, sId: string, aId: string): string =>

@@ -17,7 +17,7 @@ import { ILogService } from '#/app/log/log';
 import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { IStorageService } from '#/persistence/interface/storage';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../log/stubs';
@@ -73,7 +73,7 @@ describe('FlagService', () => {
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(IBootstrapService, stubBootstrap(homeDir, env));
     ix.stub(ILogService, stubLog());
-    ix.stub(IStorageService, new InMemoryStorageService());
+    ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
     ix.set(IConfigService, new SyncDescriptor(ConfigService));

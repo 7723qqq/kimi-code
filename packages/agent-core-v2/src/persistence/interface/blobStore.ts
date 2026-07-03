@@ -1,29 +1,31 @@
 /**
- * `blobStore` domain — `IAgentBlobStoreService` contract.
+ * `persistence/interface` — `IBlobStore` contract.
  *
- * Offloads large inline media payloads to content-addressed blob storage and
- * rehydrates them on read. Bound at Agent scope.
+ * The blob access-pattern Store: write-once, key-addressed, potentially large
+ * objects. Sits alongside `IAppendLogStore` and `IAtomicDocumentStore` as the
+ * third generic access-pattern Store in the three-layer persistence model.
+ *
+ * Business services that need blob storage (`IFileService`, `IAgentBlobService`)
+ * depend on this interface rather than on the raw `IFileSystemStorageService`.
  */
 
-import type { ContentPart } from '#/app/llmProtocol';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-import { createDecorator } from "#/_base/di";
-
-export const BLOBREF_PROTOCOL = 'blobref:';
-export const MISSING_MEDIA_PLACEHOLDER = '[media missing]';
-
-export interface BlobStoreServiceOptions {
-  // Reserved for future overrides (threshold / cache size). The persistence
-  // root is derived from `IAgentScopeContext.scope('blobs')`.
-}
-
-export interface IAgentBlobStoreService {
+export interface IBlobStore {
   readonly _serviceBrand: undefined;
-  offloadParts(parts: readonly ContentPart[]): Promise<readonly ContentPart[]>;
-  rehydrateParts(parts: readonly ContentPart[]): Promise<readonly ContentPart[]>;
-  isBlobRef(url: string): boolean;
+
+  put(scope: string, key: string, data: Uint8Array): Promise<void>;
+
+  get(scope: string, key: string): Promise<Uint8Array | undefined>;
+
+  getStream(scope: string, key: string): AsyncIterable<Uint8Array>;
+
+  has(scope: string, key: string): Promise<boolean>;
+
+  delete(scope: string, key: string): Promise<void>;
+
+  list(scope: string, prefix?: string): Promise<readonly string[]>;
 }
 
-export const IAgentBlobStoreService = createDecorator<IAgentBlobStoreService>(
-  'agentBlobStoreService',
-);
+export const IBlobStore: ServiceIdentifier<IBlobStore> =
+  createDecorator<IBlobStore>('blobStore');

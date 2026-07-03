@@ -4,10 +4,9 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import {
-  IAtomicDocumentStorage,
+  IFileSystemStorageService,
   IAtomicDocumentStore,
   IAtomicTomlDocumentStore,
-  IStorageService,
 } from '#/app/storage';
 import { AtomicDocumentStore, TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
@@ -27,7 +26,7 @@ describe('AtomicDocumentStore', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     storage = new InMemoryStorageService();
-    ix.stub(IAtomicDocumentStorage, storage);
+    ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
     config = ix.get(IAtomicDocumentStore);
   });
@@ -78,7 +77,7 @@ describe('AtomicDocumentStore', () => {
     expect((await config.list('session', 'job-')).toSorted()).toEqual(['job-1', 'job-2']);
   });
 
-  it('value is persisted through the underlying IStorageService', async () => {
+  it('value is persisted through the underlying IFileSystemStorageService', async () => {
     await config.set<State>('session', 'state.json', { title: 'x' });
     const raw = new TextDecoder().decode(await storage.read('session', 'state.json'));
     expect(JSON.parse(raw)).toEqual({ title: 'x' });
@@ -106,7 +105,7 @@ describe('TomlAtomicDocumentStore', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     storage = new InMemoryStorageService();
-    ix.stub(IStorageService, storage);
+    ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     config = ix.get(IAtomicTomlDocumentStore);
   });
@@ -128,7 +127,7 @@ describe('TomlAtomicDocumentStore', () => {
     expect(await config.get<State>('session', 'config.toml')).toEqual({ title: 'new', count: 2 });
   });
 
-  it('value is persisted as TOML through the underlying IStorageService', async () => {
+  it('value is persisted as TOML through the underlying IFileSystemStorageService', async () => {
     await config.set<State>('session', 'config.toml', { title: 'x' });
     const raw = new TextDecoder().decode(await storage.read('session', 'config.toml'));
     expect(raw).toContain('title = "x"');

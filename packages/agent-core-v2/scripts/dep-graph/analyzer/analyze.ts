@@ -76,8 +76,8 @@ const FRAMEWORK_BINDINGS: readonly { token: string; scope: ServiceScope; impl: s
  * Production composition-root bindings seeded by `bootstrap()` via
  * `ScopeOptions.extra`. `buildCollection` applies `extra` AFTER the static
  * `registerScopedService` registry, so these take precedence at runtime: they
- * override a static default where one exists (e.g. `ISkillCatalogStore` →
- * `FileSkillCatalogStore`) and supply the binding where the layer ships no
+ * override a static default where one exists (e.g. `ISkillDiscovery` →
+ * `FileSkillDiscovery`) and supply the binding where the layer ships no
  * in-package default (the Storage-layer tokens → `FileStorageService`, whose
  * in-memory backend is no longer auto-registered). The analyzer mirrors that
  * so the graph reflects the backend that actually runs in production.
@@ -91,7 +91,7 @@ const PRODUCTION_OVERRIDES: readonly { token: string; scope: ServiceScope; impl:
   { token: 'IAppendLogStorage', scope: 'App', impl: 'FileStorageService' },
   { token: 'IAtomicDocumentStorage', scope: 'App', impl: 'FileStorageService' },
   { token: 'IBlobStorage', scope: 'App', impl: 'FileStorageService' },
-  { token: 'ISkillCatalogStore', scope: 'App', impl: 'FileSkillCatalogStore' },
+  { token: 'ISkillDiscovery', scope: 'App', impl: 'FileSkillDiscovery' },
 ];
 
 /**

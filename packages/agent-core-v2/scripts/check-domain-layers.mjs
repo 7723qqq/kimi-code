@@ -82,6 +82,10 @@ const DOMAIN_LAYER = new Map([
   ['protocol', 1],
   ['hooks', 1],
   ['storage', 1],
+  // `task` is the managed-concurrent-execution primitive (run + defer).
+  // Depends only on `_base`; sits in L1 beside the other program-control
+  // layer substrates.
+  ['task', 1],
   // persistence/ and os/ — the two-level scopes. `interface` holds contracts
   // (same layer as the old domains they replace); `backends` holds
   // implementations that may depend on cross-domain services at various layers.
@@ -94,8 +98,8 @@ const DOMAIN_LAYER = new Map([
   // L2 — data & cross-cutting capabilities
   ['records', 2],
   ['wireRecord', 2],
-  ['blobStore', 2],
-  ['filestore', 2],
+  ['blob', 2],
+  ['file', 2],
   ['config', 2],
   ['agentFs', 2],
   ['process', 2],
@@ -116,7 +120,7 @@ const DOMAIN_LAYER = new Map([
   ['flag', 3],
   ['toolExecutor', 3],
   ['toolRegistry', 3],
-  ['toolStore', 3],
+  ['toolState', 3],
   ['userTool', 3],
   ['permissionMode', 3],
   ['permissionPolicy', 3],
@@ -158,6 +162,7 @@ const DOMAIN_LAYER = new Map([
   ['background', 5],
   ['mcp', 5],
   ['cron', 5],
+  ['cronPersistence', 5],
   ['agentTool', 5],
   ['externalHooks', 5],
   // `btw` forks a single side-question sub-agent via `agentLifecycle`,
@@ -244,7 +249,7 @@ function domainFromRel(rel, { exemptRootFile }) {
  *  - `swarm>agentLifecycle`: swarm spawns/manages sub-agents.
  *  - `background>agentLifecycle`: background agent-tasks spawn sub-agents.
  *  - `cron>agentLifecycle` : cron coordinator steers the main agent.
- *  - `cron>sessionActivity`: cron scheduler gates on session idle.
+ *  - `cron>sessionContext`: cron scheduler reads session identity for store filtering.
  *
  * Post-rebase-v2 restructuring introduced cross-domain type sharing between
  * L3 (registries/capabilities) and L4 (agent behaviour). The tool contract
@@ -271,7 +276,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'swarm>agentLifecycle',
   'background>agentLifecycle',
   'cron>agentLifecycle',
-  'cron>sessionActivity',
+  'cron>sessionContext',
   'wireRecord>hooks',
   // L3/L4 type-sharing: tool contract + execution hook contexts now live in
   // `tool`; the remaining upward import is a `loop` error/event helper.

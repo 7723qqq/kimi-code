@@ -188,6 +188,108 @@ function observeProcessStream(
   });
 }
 
+export interface ProcessTaskResult {
+  readonly exitCode: number | null;
+}
+
+/**
+ * Create a `taskService.run()`-compatible executor that drives a spawned
+ * process to completion.  Returns a resolved `ProcessTaskResult` on exit 0,
+ * throws on non-zero exit or abort.
+ */
+export function createProcessExecutor(
+  proc: IProcess,
+  onOutput?: ProcessBackgroundTaskOutputCallback,
+): (signal: AbortSignal, output: (data: string) => void) => Promise<ProcessTaskResult> {
+  return async (signal, output) => {
+    const forwardOutput = (chunk: string, kind: ProcessBackgroundTaskOutputKind): void => {
+      if (chunk.length === 0) return;
+      output(chunk);
+      onOutput?.(kind, chunk);
+    };
+
+    const streamDrained = Promise.all([
+      observeProcessStreamRaw(proc.stdout, 'stdout', signal, forwardOutput),
+      observeProcessStreamRaw(proc.stderr, 'stderr', signal, forwardOutput),
+    ]).then(() => undefined);
+    void streamDrained.catch(() => {});
+
+    const requestStop = (): void => {
+      void proc.kill('SIGTERM').catch(() => {});
+    };
+    if (signal.aborted) {
+      requestStop();
+    } else {
+      signal.addEventListener('abort', requestStop, { once: true });
+    }
+
+    try {
+      const exitCode = await proc.wait();
+      await waitForStreamDrain(streamDrained);
+      signal.removeEventListener('abort', requestStop);
+      await disposeProcess(proc);
+      if (signal.aborted) throw signal.reason;
+      if (exitCode !== 0) {
+        const err = new ProcessExitError(exitCode);
+        throw err;
+      }
+      return { exitCode };
+    } catch (error: unknown) {
+      await waitForStreamDrainSettled(streamDrained);
+      signal.removeEventListener('abort', requestStop);
+      await disposeProcess(proc);
+      throw error;
+    }
+  };
+}
+
+export class ProcessExitError extends Error {
+  constructor(readonly exitCode: number | null) {
+    super(`Process exited with code ${exitCode}`);
+    this.name = 'ProcessExitError';
+  }
+}
+
+function observeProcessStreamRaw(
+  stream: Readable,
+  kind: ProcessBackgroundTaskOutputKind,
+  signal: AbortSignal,
+  onChunk: (chunk: string, kind: ProcessBackgroundTaskOutputKind) => void,
+): Promise<void> {
+  stream.setEncoding('utf8');
+  const onData = (chunk: string): void => {
+    onChunk(chunk, kind);
+  };
+  stream.on('data', onData);
+
+  return new Promise<void>((resolve, reject) => {
+    let ended = false;
+    const cleanup = (): void => {
+      stream.removeListener('data', onData);
+      stream.removeListener('end', onEnd);
+      stream.removeListener('close', onClose);
+      stream.removeListener('error', onError);
+    };
+    const done = (): void => { cleanup(); resolve(); };
+    const fail = (error: unknown): void => { cleanup(); reject(error); };
+    const onEnd = (): void => { ended = true; done(); };
+    const onClose = (): void => {
+      if (ended || signal.aborted) { done(); return; }
+      fail(createPrematureCloseError());
+    };
+    const onError = (error: Error): void => {
+      if (signal.aborted) { done(); } else { fail(error); }
+    };
+    stream.once('end', onEnd);
+    stream.once('close', onClose);
+    stream.once('error', onError);
+  });
+}
+
+async function disposeProcess(proc: IProcess): Promise<void> {
+  try { await proc.dispose(); } catch { /* best-effort */ }
+}
+
 function createPrematureCloseError(): Error {
   const error = new Error('Premature close') as NodeJS.ErrnoException;
   error.code = 'ERR_STREAM_PREMATURE_CLOSE';

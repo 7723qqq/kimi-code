@@ -4,7 +4,7 @@
  * Reads the persisted session set through the `storage` access-pattern stores,
  * rooted at the `sessionsDir` path layout fact from `bootstrap`. The directory
  * tree `<sessionsDir>/<workspaceId>/<sessionId>/` is the index: workspace and
- * session ids are enumerated via `IStorageService.list`, and each session's
+ * session ids are enumerated via `IFileSystemStorageService.list`, and each session's
  * metadata document is read via `IAtomicDocumentStore` to build its summary.
  *
  * The session metadata document lives at `<sessionDir>/state.json`, a layout
@@ -21,7 +21,7 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap';
-import { IAtomicDocumentStore, IStorageService, type Page } from '#/app/storage';
+import { IAtomicDocumentStore, IFileSystemStorageService, type Page } from '#/app/storage';
 
 import { ISessionIndex, type SessionListQuery, type SessionSummary } from './sessionIndex';
 
@@ -43,7 +43,7 @@ export class FileSessionIndex implements ISessionIndex {
 
   constructor(
     @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IStorageService private readonly storage: IStorageService,
+    @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
   ) {}
 

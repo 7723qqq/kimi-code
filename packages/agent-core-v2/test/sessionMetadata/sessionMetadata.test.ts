@@ -9,7 +9,7 @@ import { ISessionMetadata } from '#/session/sessionMetadata';
 import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataService';
 import {
   AtomicDocumentStore,
-  IAtomicDocumentStorage,
+  IFileSystemStorageService,
   IAtomicDocumentStore,
   InMemoryStorageService,
 } from '#/app/storage';
@@ -37,7 +37,7 @@ describe('SessionMetadata', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
     ix.stub(ISessionContext, makeContext());
-    ix.set(IAtomicDocumentStorage, new SyncDescriptor(InMemoryStorageService));
+    ix.set(IFileSystemStorageService, new SyncDescriptor(InMemoryStorageService));
     ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
     ix.set(ISessionMetadata, new SyncDescriptor(SessionMetadata));
   });

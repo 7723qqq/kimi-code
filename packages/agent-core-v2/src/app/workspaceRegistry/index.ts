@@ -7,5 +7,5 @@
 
 export * from './workspaceRegistry';
 export * from './workspaceRegistryService';
-export * from './workspaceStore';
-export * from './fileWorkspaceStore';
+export * from './workspacePersistence';
+export * from './fileWorkspacePersistence';
