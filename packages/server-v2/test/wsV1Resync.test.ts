@@ -131,7 +131,7 @@ describe('server-v2 /api/v1/ws resync', () => {
     expect(session).toBeDefined();
     const agents = session!.accessor.get(IAgentLifecycleService);
     if (agents.getHandle('main') === undefined) {
-      await agents.createMain();
+      await agents.create({ agentId: 'main' });
     }
   }
 

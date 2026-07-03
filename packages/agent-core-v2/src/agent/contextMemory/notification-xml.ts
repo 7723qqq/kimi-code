@@ -14,7 +14,7 @@
  * consumers that detect chat-history injections.
  *
  * `agent_id` is emitted only for task notifications whose
- * source task is an agent subagent — surfacing it structurally lets the
+ * source task is an agent run — surfacing it structurally lets the
  * LLM identify the correct id to pass to `Agent(resume=...)` without
  * having to grep the body or the original spawn-success ToolResult.
  * It is intentionally a separate attribute from `source_id`: the two

@@ -102,7 +102,6 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>rpc</b>\n<size:9><i>Agent</i></size>\n  IAgentRPCService" as rpc #FDEBD0
   rectangle "<b>fileTools</b>\n<size:9><i>Agent</i></size>\n  IAgentFileToolsService" as fileTools #FDEBD0
   rectangle "<b>shellTools</b>\n<size:9><i>Agent</i></size>\n  IAgentShellToolsService" as shellTools #FDEBD0
-  rectangle "<b>agentTool</b>\n<size:9><i>Agent</i></size>\n  IAgentToolService" as agentTool #FDEBD0
   rectangle "<b>scopeContext</b>\n<size:9><i>Agent</i></size>\n  IAgentScopeContext (seed)" as scopeContext #FDEBD0
 }
 
@@ -367,7 +366,7 @@ externalHooks ..> turn #16A085 : prompt/end hooks
 externalHooks ..> loop #16A085 : stop hook
 externalHooks ..> fullCompaction #16A085 : compaction hooks
 externalHooks ..> task #16A085 : notification hook
-externalHooks ..> agentTool #16A085 : subagent hooks
+agent_lifecycle ..> externalHooks #16A085 : SubagentStart/Stop (mirrorAgentRun)
 toolStore ..> wireRecord #16A085 : tools.update_store
 usage ..> wireRecord #16A085 : usage.record
 contextSize ..> contextMemory #16A085 : hooks.onSpliced

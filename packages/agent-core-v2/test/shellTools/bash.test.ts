@@ -31,12 +31,12 @@ import {
   type RegisterAgentTaskOptions,
 } from '#/agent/task';
 import type { AgentTaskSettlement } from '#/agent/task/types';
-import { ProcessTask } from '#/agent/shellTools/tools/process-task';
+import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentProfileService } from '#/agent/profile';
 import { createExecContext, type IExecContext } from '#/session/execContext';
 import type { IProcess, ISessionProcessRunner } from '#/session/process';
-import { type BashInput, BashInputSchema, BashTool } from '#/agent/shellTools/tools/bash';
+import { type BashInput, BashInputSchema, BashTool } from '#/os/backends/node-local/tools/bash';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { createHooks } from '#/hooks';
 

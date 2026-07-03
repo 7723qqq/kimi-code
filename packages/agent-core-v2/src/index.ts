@@ -44,9 +44,8 @@ export * from '#/agent/usage';
 export * from '#/agent/toolDedupe';
 
 export * from '#/agent/task';
-export * from '#/app/cronPersistence';
+export * from '#/app/cron';
 export * from '#/session/cron';
-import '#/agent/cron';
 
 export * from '#/session/agentLifecycle';
 export * from '#/app/sessionLifecycle';
@@ -115,4 +114,3 @@ export type { ToolContribution, ToolContributionOptions } from '#/agent/toolRegi
 export * from '#/agent/toolState';
 export * from '#/agent/userTool';
 export * from '#/agent/wireRecord';
-export * from '#/agent/shellTools';

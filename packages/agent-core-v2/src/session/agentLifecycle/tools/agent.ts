@@ -1,12 +1,13 @@
 /**
  * `agentLifecycle` domain (L6) — the `Agent` collaboration tool.
  *
- * Thin adapter over `IAgentLifecycleService.runSubagent` /
- * `resumeSubagent`. The tool owns only the LLM-facing surface: JSON
- * schema + tool description, approval rule, task registration
- * (so the LLM can see the child under TaskList/TaskOutput/TaskStop when
- * `run_in_background=true` or after detach), and terminal text
- * formatting.
+ * The LLM-facing wrapper over `IAgentLifecycleService`: translates the tool
+ * args into a Profile + Model binding, creates (or resumes) an agent, drives
+ * one turn via `run`, and mirrors the run onto the calling agent's record
+ * stream (`mirrorAgentRun`). The tool also owns the JSON schema + description,
+ * approval rule, background-task registration (so the LLM can see the run
+ * under TaskList/TaskOutput/TaskStop when `run_in_background=true` or after
+ * detach), and terminal text formatting.
  *
  * Registered via the module-level `registerTool(AgentTool)` at the bottom of
  * this file — the same "import = register" pattern used by every builtin tool.
@@ -33,12 +34,16 @@ import type {
 import { ToolAccesses } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
 import {
+  applyProfilePromptPrefix,
   IAgentProfileCatalogService,
-  type AgentProfileDefinition,
+  type AgentProfile,
 } from '#/app/agentProfileCatalog';
 import { ILogService } from '#/app/log';
+import { ISessionProcessRunner } from '#/session/process';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 import { IAgentLifecycleService } from '../agentLifecycle';
+import { emitAgentRunSpawned, mirrorAgentRun } from '../mirrorAgentRun';
 import { SubagentTask, type SubagentHandle } from './subagent-task';
 
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
@@ -135,6 +140,8 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     @IAgentScopeContext scopeContext: IAgentScopeContext,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
+    @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
+    @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
     @ILogService private readonly log: ILogService,
   ) {
     this.callerAgentId = scopeContext.agentId;
@@ -188,9 +195,99 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
   }
 
   private resumeProfileName(agentId: string): string | undefined {
-    const child = this.lifecycle.getHandle(agentId);
-    if (child === undefined) return undefined;
-    return child.accessor.get(IAgentProfileService).data().profileName;
+    const target = this.lifecycle.getHandle(agentId);
+    if (target === undefined) return undefined;
+    return target.accessor.get(IAgentProfileService).data().profileName;
+  }
+
+  /**
+   * Launch (or resume) the target agent and start its turn: create from an
+   * explicit Profile + Model binding inherited from this agent's own config,
+   * submit the prompt via `lifecycle.run`, and mirror the run onto this
+   * agent's record stream. Returns a handle whose completion carries the
+   * distilled result text.
+   */
+  private async launch(
+    args: AgentToolInput,
+    toolCallId: string,
+    controller: AbortController,
+  ): Promise<SubagentHandle> {
+    const requester = this.lifecycle.getHandle(this.callerAgentId);
+    if (requester === undefined) {
+      throw new Error(`Caller agent "${this.callerAgentId}" does not exist`);
+    }
+
+    const resumeAgentId = args.resume?.trim();
+    const isResume = resumeAgentId !== undefined && resumeAgentId.length > 0;
+
+    let agentId: string;
+    let profileName: string;
+    let promptText = args.prompt;
+    if (isResume) {
+      const target = this.lifecycle.getHandle(resumeAgentId);
+      if (target === undefined) {
+        throw new Error(`Agent instance "${resumeAgentId}" does not exist`);
+      }
+      agentId = target.id;
+      profileName =
+        target.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_LABEL;
+    } else {
+      const requestedProfileName = args.subagent_type?.length
+        ? args.subagent_type
+        : DEFAULT_PROFILE_NAME;
+      const profile = this.catalog.get(requestedProfileName);
+      if (profile === undefined) {
+        throw new Error(`Unknown agent type: "${requestedProfileName}"`);
+      }
+      const own = this.profile.data();
+      if (own.modelAlias === undefined) {
+        throw new Error('Caller agent has no model bound');
+      }
+      // Explicit inheritance: the new agent runs the requested profile on this
+      // agent's own model / thinking level / cwd (Profile + Model ⇒ Agent).
+      const created = await this.lifecycle.create({
+        binding: {
+          profile: profile.name,
+          model: own.modelAlias,
+          thinking: own.thinkingLevel,
+          cwd: own.cwd,
+        },
+      });
+      agentId = created.id;
+      profileName = profile.name;
+      promptText = await applyProfilePromptPrefix(profile, args.prompt, {
+        cwd: this.workspace.workDir,
+        runner: this.processRunner,
+        log: this.log,
+      });
+    }
+
+    const runInBackground = args.run_in_background === true;
+    emitAgentRunSpawned(requester, agentId, {
+      profileName,
+      parentToolCallId: toolCallId,
+      description: args.description,
+      runInBackground,
+    });
+
+    const run = this.lifecycle.run(
+      agentId,
+      { kind: 'prompt', prompt: promptText },
+      { signal: controller.signal },
+    );
+    const mirrored = mirrorAgentRun(requester, run, {
+      profileName,
+      prompt: promptText,
+      signal: controller.signal,
+      cancel: (reason) => {
+        controller.abort(reason);
+      },
+    });
+    return {
+      agentId,
+      profileName,
+      completion: mirrored.then((r) => ({ result: r.summary, usage: r.usage })),
+    };
   }
 
   private async execution(
@@ -213,13 +310,6 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         return { output: BACKGROUND_AGENT_UNAVAILABLE, isError: true };
       }
 
-      const metadata = {
-        parentToolCallId: toolCallId,
-        description: args.description,
-        runInBackground,
-      };
-
-      // Delegate spawn-or-resume + turn observation to the lifecycle service.
       const controller = new AbortController();
       const abortBeforeRegister = (): void => {
         controller.abort(signal.reason);
@@ -228,36 +318,16 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         signal.addEventListener('abort', abortBeforeRegister, { once: true });
       }
 
-      let handle;
+      let handle: SubagentHandle;
       try {
-        handle = isResume
-          ? await this.lifecycle.resumeSubagent({
-              callerAgentId: this.callerAgentId,
-              agentId: resumeAgentId!,
-              prompt: args.prompt,
-              signal: controller.signal,
-              metadata,
-            })
-          : await this.lifecycle.runSubagent({
-              callerAgentId: this.callerAgentId,
-              profileName: requestedProfileName ?? DEFAULT_PROFILE_NAME,
-              prompt: args.prompt,
-              signal: controller.signal,
-              metadata,
-            });
+        handle = await this.launch(args, toolCallId, controller);
       } catch (error) {
         signal.removeEventListener('abort', abortBeforeRegister);
         throw error;
       }
 
-      // Wrap the lifecycle handle in a background task so the LLM can interact
+      // Wrap the run handle in a background task so the LLM can interact
       // with it via TaskList / TaskOutput / TaskStop.
-      const subagentHandle: SubagentHandle = {
-        agentId: handle.agentId,
-        profileName: handle.profileName,
-        completion: handle.completion,
-      };
-
       let taskId: string;
       try {
         const registerOptions: RegisterAgentTaskOptions = {
@@ -266,18 +336,18 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
           signal: runInBackground ? undefined : signal,
         };
         taskId = this.tasks.registerTask(
-          new SubagentTask(subagentHandle, args.description, controller),
+          new SubagentTask(handle, args.description, controller),
           registerOptions,
         );
         signal.removeEventListener('abort', abortBeforeRegister);
       } catch (error) {
         controller.abort();
-        void subagentHandle.completion.catch(() => {});
+        void handle.completion.catch(() => {});
         signal.removeEventListener('abort', abortBeforeRegister);
-        this.log?.warn('subagent task registration failed', {
+        this.log?.warn('background agent task registration failed', {
           toolCallId,
-          agentId: subagentHandle.agentId,
-          subagentType: subagentHandle.profileName,
+          agentId: handle.agentId,
+          subagentType: handle.profileName,
           error,
         });
         return {
@@ -288,17 +358,17 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
 
       if (runInBackground) {
         return {
-          output: formatBackgroundAgentResult(taskId, subagentHandle, args.description, allowBackground),
+          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
         };
       }
 
       const release = await this.tasks.waitForForegroundRelease(taskId);
       if (release === 'detached') {
         return {
-          output: formatBackgroundAgentResult(taskId, subagentHandle, args.description, allowBackground),
+          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
         };
       }
-      return await this.formatForegroundResult(taskId, subagentHandle);
+      return await this.formatForegroundResult(taskId, handle);
     } catch (error) {
       return { output: `subagent error: ${launchErrorMessage(error, signal)}`, isError: true };
     }
@@ -334,7 +404,7 @@ registerTool(AgentTool);
 // ── formatting helpers ───────────────────────────────────────────────
 
 function buildProfileDescriptions(
-  profiles: readonly AgentProfileDefinition[],
+  profiles: readonly AgentProfile[],
 ): string {
   return profiles
     .map((profile) => {
@@ -342,10 +412,10 @@ function buildProfileDescriptions(
         (part): part is string => part !== undefined && part.length > 0,
       );
       const header = details.length === 0 ? `- ${profile.name}` : `- ${profile.name}: ${details.join(' ')}`;
-      if (profile.activeToolNames === undefined || profile.activeToolNames.length === 0) {
+      if (profile.tools.length === 0) {
         return header;
       }
-      return `${header}\n  Tools: ${profile.activeToolNames.join(', ')}`;
+      return `${header}\n  Tools: ${profile.tools.join(', ')}`;
     })
     .join('\n');
 }

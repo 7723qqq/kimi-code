@@ -11,7 +11,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
+import { ensureMainAgent } from '#/session/agentLifecycle';
 import { IAgentContextMemoryService, toProtocolMessage, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
@@ -46,8 +46,6 @@ import {
   type SessionChildrenQuery,
   type SessionWireFields,
 } from './sessionLegacy';
-
-const MAIN_AGENT_ID = 'main';
 
 /**
  * v1 `child_session_kind` marker (`packages/agent-core/.../sessionService.ts`).
@@ -263,17 +261,15 @@ export class SessionLegacyService implements ISessionLegacyService {
 
   /**
    * Resolve the session's main agent, creating it on demand (mirrors v1's
-   * `resumeSession` + the server-v2 `ensureMainAgent` helper).
+   * `resumeSession`; delegates to the `agentLifecycle` domain's
+   * `ensureMainAgent` bootstrap helper).
    */
   private async resolveMainAgent(sessionId: string): Promise<IAgentScopeHandle> {
     const session = this.lifecycle.get(sessionId);
     if (session === undefined) {
       throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
     }
-    const agents = session.accessor.get(IAgentLifecycleService);
-    const existing = agents.getHandle(MAIN_AGENT_ID);
-    if (existing !== undefined) return existing;
-    return agents.createMain();
+    return ensureMainAgent(session);
   }
 
   private async assembleStatus(sessionId: string, agent: IAgentScopeHandle): Promise<SessionStatusResponse> {

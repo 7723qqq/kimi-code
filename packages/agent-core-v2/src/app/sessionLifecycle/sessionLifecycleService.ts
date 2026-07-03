@@ -23,7 +23,7 @@ import {
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
+import { IAgentLifecycleService, ensureMainAgent, MAIN_AGENT_ID } from '#/session/agentLifecycle';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IEventService } from '#/app/event';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
@@ -153,8 +153,8 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
 
     const handle = await this.create({ sessionId, workDir: workspace.root });
     const agents = handle.accessor.get(IAgentLifecycleService);
-    if (agents.getHandle('main') === undefined) {
-      const main = await agents.createMain();
+    if (agents.getHandle(MAIN_AGENT_ID) === undefined) {
+      const main = await ensureMainAgent(handle);
       // Resolve context memory BEFORE restoring so its `context.splice` resumer
       // is registered; otherwise the wire replay applies splices into a void and
       // the restored transcript never lands in context memory.
@@ -280,7 +280,9 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       const agentHandle = await target.accessor.get(IAgentLifecycleService).create({
         agentId,
         forkedFrom: sourceAgent.forkedFrom ?? legacy.parentAgentId,
-        swarmItem: sourceAgent.swarmItem,
+        labels:
+          sourceAgent.labels ??
+          (sourceAgent.swarmItem !== undefined ? { swarmItem: sourceAgent.swarmItem } : undefined),
       });
       await agentHandle.accessor.get(IAgentWireRecordService).restore();
     }

@@ -3,9 +3,12 @@
  * hook commands.
  *
  * Listens to hook slots owned by the agent behavior/lifecycle domains
- * (`toolExecutor`, `permissionGate`, `turn`, `loop`, `fullCompaction`,
- * `task`, and `agentTool`) and translates those minimal contexts into
- * the configured external HookEngine events.
+ * (`toolExecutor`, `permissionGate`, `turn`, `loop`, `fullCompaction`, and
+ * `task`) and translates those minimal contexts into the configured external
+ * HookEngine events. The `SubagentStart` / `SubagentStop` pair is the one
+ * exception: the `agentLifecycle` tool wrapper has no hook service of its own,
+ * so `mirrorAgentRun` invokes `runAgentTaskStart` / `notifyAgentTaskStop` on
+ * this service directly.
  */
 
 import { Disposable, IInstantiationService } from '#/_base/di';
@@ -13,11 +16,6 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isUserCancellation } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
-import type {
-  AgentToolDidRunSubagentContext,
-  AgentToolWillRunSubagentContext,
-} from '#/agent/agentTool';
-import { IAgentToolService } from '#/agent/agentTool';
 import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task';
 import {
   IAgentFullCompactionService,
@@ -50,6 +48,8 @@ import { HOOKS_SECTION, type HookDefConfig } from './configSection';
 import { HookEngine } from './engine';
 import {
   IAgentExternalHooksService,
+  type AgentTaskStartHookContext,
+  type AgentTaskStopHookContext,
   type ExternalHooksServiceOptions,
 } from './externalHooks';
 import {
@@ -128,9 +128,6 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       this.instantiation.invokeFunction((accessor) => accessor.get(IAgentTaskService)),
     );
 
-    this.registerAgentToolHooks(
-      this.instantiation.invokeFunction((accessor) => accessor.get(IAgentToolService)),
-    );
   }
 
   private registerToolHooks(toolExecutor: IAgentToolExecutorService): void {
@@ -232,21 +229,6 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     this._register(
       tasks.hooks.onDidNotify.register('externalHooks', async (ctx, next) => {
         this.notifyTaskNotification(ctx);
-        await next();
-      }),
-    );
-  }
-
-  private registerAgentToolHooks(agentTool: IAgentToolService): void {
-    this._register(
-      agentTool.hooks.onWillRunSubagent.register('externalHooks', async (ctx, next) => {
-        await this.runSubagentStart(ctx);
-        await next();
-      }),
-    );
-    this._register(
-      agentTool.hooks.onDidRunSubagent.register('externalHooks', async (ctx, next) => {
-        this.notifySubagentStop(ctx);
         await next();
       }),
     );
@@ -390,7 +372,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private async runSubagentStart(ctx: AgentToolWillRunSubagentContext): Promise<void> {
+  async runAgentTaskStart(ctx: AgentTaskStartHookContext): Promise<void> {
     ctx.signal.throwIfAborted();
     await this.engine()?.trigger('SubagentStart', {
       matcherValue: ctx.agentName,
@@ -403,7 +385,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     ctx.signal.throwIfAborted();
   }
 
-  private notifySubagentStop(ctx: AgentToolDidRunSubagentContext): void {
+  notifyAgentTaskStop(ctx: AgentTaskStopHookContext): void {
     void this.engine()?.fireAndForgetTrigger('SubagentStop', {
       matcherValue: ctx.agentName,
       inputData: {

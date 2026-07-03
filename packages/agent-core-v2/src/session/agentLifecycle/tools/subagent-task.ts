@@ -11,6 +11,7 @@ type SubagentCompletion = {
   readonly usage?: TokenUsage;
 };
 
+/** Handle to an agent run launched by the `Agent` tool (or swarm). */
 export type SubagentHandle = {
   readonly agentId: string;
   readonly profileName: string;
@@ -19,9 +20,9 @@ export type SubagentHandle = {
 
 export interface SubagentTaskInfo extends AgentTaskInfoBase {
   readonly kind: 'agent';
-  /** Subagent identifier accepted by Agent(resume=...). */
+  /** Agent identifier accepted by Agent(resume=...). */
   readonly agentId?: string;
-  /** Subagent profile name. */
+  /** Profile name of the agent. Wire DTO field name kept for compatibility. */
   readonly subagentType?: string;
 }
 
@@ -40,8 +41,8 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Create a `taskService.run()`-compatible executor that waits for a
- * subagent completion promise.  Resolves with the subagent result on
+ * Create a `taskService.run()`-compatible executor that waits for an
+ * agent-run completion promise.  Resolves with the agent's result on
  * success, throws on abort or failure.
  */
 export function createSubagentExecutor(

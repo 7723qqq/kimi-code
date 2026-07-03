@@ -6,7 +6,7 @@ import { join } from 'pathe';
 import type { IProcess } from '#/session/process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IAgentTaskService } from '#/agent/task';
-import { ProcessTask } from '#/agent/shellTools/tools/process-task';
+import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
 import { taskServices, createTestAgent, homeDirServices, type TestAgentContext } from '../harness';
 

@@ -15,6 +15,10 @@ import {
   type ModelCapability,
   type ThinkingEffort,
 } from '#/app/llmProtocol';
+import {
+  DEFAULT_AGENT_PROFILE_NAME,
+  IAgentProfileCatalogService,
+} from '#/app/agentProfileCatalog';
 import { IModelResolver, type KimiModelOverrides, type Model } from '#/app/model';
 import picomatch from 'picomatch';
 
@@ -28,6 +32,7 @@ import { ISessionAgentFileSystem } from '#/session/agentFs';
 import { IExecContext } from '#/session/execContext';
 import { isMcpToolName } from '#/agent/tool';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile';
 
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
@@ -36,6 +41,7 @@ import type { ToolSource } from '#/agent/tool';
 import { prepareSystemPromptContext } from './context';
 import type {
   ApplyProfileOptions,
+  BindAgentInput,
   ProfileData,
   ProfileModelContext,
   ProfileServiceOptions,
@@ -79,6 +85,8 @@ export class AgentProfileService implements IAgentProfileService {
     @IExecContext private readonly execCtx: IExecContext,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
+    @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
+    @ISessionSkillCatalog private readonly skillCatalog: ISessionSkillCatalog,
   ) {
     this.configure({});
     record.define('config.update', {
@@ -116,9 +124,44 @@ export class AgentProfileService implements IAgentProfileService {
     }
   }
 
-  setModel(alias: string): ProfileSetModelResult {
+  async bind(input: BindAgentInput): Promise<void> {
+    const profile = this.catalog.get(input.profile);
+    if (profile === undefined) {
+      throw new Error(`Unknown agent profile: "${input.profile}"`);
+    }
+    // Resolve eagerly so an unknown model id fails the bind here rather than on
+    // the first turn.
+    this.modelFactory.resolve(input.model);
+
+    const context = await this.buildSystemPromptContext(input.cwd);
+    const systemPrompt = profile.systemPrompt(context);
+    const { agentsMdWarning } = context;
+    this.agentsMdWarning = agentsMdWarning;
+
+    this.update({
+      cwd: input.cwd,
+      profileName: profile.name,
+      modelAlias: input.model,
+      thinkingLevel: input.thinking,
+      systemPrompt,
+      activeToolNames: profile.tools,
+    });
+
+    if (agentsMdWarning !== undefined) {
+      this.record.signal({
+        type: 'warning',
+        message: agentsMdWarning,
+        code: 'agents-md-oversized',
+      });
+    }
+  }
+
+  async setModel(alias: string): Promise<ProfileSetModelResult> {
     const model = this.modelFactory.resolve(alias);
-    if (this.modelAlias !== alias) {
+    if (this.profileName === undefined) {
+      await this.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: alias });
+      this.telemetry.track('model_switch', { model: alias });
+    } else if (this.modelAlias !== alias) {
       this.update({ modelAlias: alias });
       this.telemetry.track('model_switch', { model: alias });
     }
@@ -240,6 +283,10 @@ export class AgentProfileService implements IAgentProfileService {
     return this.modelAlias !== undefined;
   }
 
+  isRunnable(): boolean {
+    return this.profileName !== undefined && this.hasModel();
+  }
+
   hasProvider(): boolean {
     return this.tryResolveRawModel() !== undefined;
   }
@@ -350,6 +397,35 @@ export class AgentProfileService implements IAgentProfileService {
       return this.modelFactory.resolve(alias);
     } catch {
       return undefined;
+    }
+  }
+
+  private async buildSystemPromptContext(cwd?: string): Promise<SystemPromptContext> {
+    const effectiveCwd = cwd ?? this.execCtx.cwd;
+    const base = await prepareSystemPromptContext(
+      { fs: this.fs, homeDir: this.env.homeDir },
+      effectiveCwd,
+      this.bootstrap.homeDir,
+      { additionalDirs: this.workspace.additionalDirs },
+    );
+    const skills = await this.resolveSkillListing();
+    return {
+      ...base,
+      cwd: effectiveCwd,
+      osKind: this.env.osKind,
+      shellName: this.env.shellName,
+      shellPath: this.env.shellPath,
+      now: new Date().toISOString(),
+      skills,
+    };
+  }
+
+  private async resolveSkillListing(): Promise<string> {
+    try {
+      await this.skillCatalog.ready;
+      return this.skillCatalog.catalog.getModelSkillListing();
+    } catch {
+      return '';
     }
   }
 

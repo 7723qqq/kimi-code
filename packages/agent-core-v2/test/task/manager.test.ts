@@ -19,7 +19,7 @@ import {
   SubagentTask,
   type SubagentHandle,
 } from '#/session/agentLifecycle/tools/subagent-task';
-import { ProcessTask } from '#/agent/shellTools/tools/process-task';
+import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import {
   configServices,
@@ -88,7 +88,6 @@ function agentTask(
   const handle: SubagentHandle = {
     agentId: options.agentId ?? 'agent-child',
     profileName: options.subagentType ?? 'coder',
-    resumed: false,
     completion,
   };
   const task = new SubagentTask(

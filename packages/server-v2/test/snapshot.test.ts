@@ -56,7 +56,7 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
   async function ensureMainAgent(sessionId: string): Promise<void> {
     const session = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     const agents = session!.accessor.get(IAgentLifecycleService);
-    if (agents.getHandle('main') === undefined) await agents.createMain();
+    if (agents.getHandle('main') === undefined) await agents.create({ agentId: 'main' });
   }
 
   function emit(sessionId: string, event: AgentEvent): void {
@@ -172,7 +172,7 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
     // snapshot projects message timestamps from the normalized numeric base.
     const resumed = await server!.core.accessor.get(ISessionLifecycleService).resume(sid);
     if (resumed === undefined) throw new Error(`session ${sid} failed to resume`);
-    const main = await resumed.accessor.get(IAgentLifecycleService).createMain();
+    const main = await resumed.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
     main.accessor.get(IAgentContextMemoryService).splice(0, 0, [
       { role: 'user', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
       { role: 'assistant', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },

@@ -104,7 +104,7 @@ describe('server-v2 /api/v1 skills', () => {
     const session = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
     const agents = session.accessor.get(IAgentLifecycleService);
-    if (agents.getHandle('main') === undefined) await agents.createMain();
+    if (agents.getHandle('main') === undefined) await agents.create({ agentId: 'main' });
   }
 
   describe('GET /api/v1/sessions/{sid}/skills', () => {

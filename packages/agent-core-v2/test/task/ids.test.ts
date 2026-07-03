@@ -11,7 +11,7 @@ import {
   SubagentTask,
   type SubagentHandle,
 } from '#/session/agentLifecycle/tools/subagent-task';
-import { ProcessTask } from '#/agent/shellTools/tools/process-task';
+import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import { createTestAgent, type TestAgentContext } from '../harness';
 import { createAgentTaskPersistence } from './stubs';
 
@@ -31,7 +31,6 @@ function agentTask(
   const handle: SubagentHandle = {
     agentId: 'agent-child',
     profileName: 'coder',
-    resumed: false,
     completion,
   };
   return new SubagentTask(

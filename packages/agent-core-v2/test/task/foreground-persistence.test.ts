@@ -15,7 +15,7 @@ import type { IProcess } from '#/session/process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentTaskService } from '#/agent/task';
-import { ProcessTask } from '#/agent/shellTools/tools/process-task';
+import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import {
   taskServices,
   createTestAgent,

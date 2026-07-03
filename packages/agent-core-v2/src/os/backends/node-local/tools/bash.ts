@@ -39,13 +39,13 @@ import { ISessionProcessRunner } from '#/session/process';
 import type { IProcess } from '#/session/process';
 import { IAgentProfileService } from '#/agent/profile';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution, ToolUpdate } from '#/agent/tool';
+import { ToolResultBuilder } from '#/agent/tool/result-builder';
 import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import bashDescriptionTemplate from './bash.md?raw';
 import { ProcessTask } from './process-task';
-import { ToolResultBuilder } from './result-builder';
 
 const MS_PER_SECOND = 1000;
 const DEFAULT_TIMEOUT_S = 60;

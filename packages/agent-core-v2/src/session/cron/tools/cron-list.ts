@@ -43,15 +43,14 @@
 import { z } from 'zod';
 
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
-import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { ISessionCronService } from '#/session/cron';
-import type { CronTask } from '#/app/cronPersistence';
 import {
   cronToHuman,
+  formatLocalIsoWithOffset,
   parseCronExpression,
-} from '#/agent/cron/cron-expr';
-import { formatLocalIsoWithOffset } from '#/agent/cron/format';
+  type CronTask,
+} from '#/app/cron';
 import CRON_LIST_DESCRIPTION from './cron-list.md?raw';
 
 // ── Input schema ─────────────────────────────────────────────────────
@@ -170,5 +169,3 @@ export class CronListTool implements BuiltinTool<CronListInput> {
     ].join('\n');
   }
 }
-
-registerTool(CronListTool);

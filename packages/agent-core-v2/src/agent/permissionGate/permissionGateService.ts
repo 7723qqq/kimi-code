@@ -258,20 +258,25 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
       result.decision === 'cancelled'
         ? `Tool "${toolName}" was not run because the approval request was cancelled.`
         : `Tool "${toolName}" was not run because the user rejected the approval request.`;
-    if (this.isSubagent()) {
+    if (this.usesWorkerRejectionGuidance()) {
       return `${prefix}${suffix} Try a different approach — don't retry the same call, don't attempt to bypass the restriction.`;
     }
     return `${prefix}${suffix}`;
   }
 
   private formatDenyMessage(message: string): string {
-    if (this.isSubagent()) {
+    if (this.usesWorkerRejectionGuidance()) {
       return `${message} Try a different approach — don't retry the same call, don't attempt to bypass the restriction.`;
     }
     return message;
   }
 
-  private isSubagent(): boolean {
+  /**
+   * Rejection messages for agents driven by another agent (no user in the
+   * loop) carry extra "don't retry / don't bypass" guidance. Heuristic: any
+   * agent other than `main` is treated as worker-driven.
+   */
+  private usesWorkerRejectionGuidance(): boolean {
     return this.options.agentId !== undefined && this.options.agentId !== 'main';
   }
 }

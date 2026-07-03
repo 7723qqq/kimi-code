@@ -3,13 +3,13 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const GUARDED_FILES = [
-  'cronService.ts',
-  'jitter.ts',
+  { dir: 'session/cron', file: 'sessionCronServiceImpl.ts' },
+  { dir: 'app/cron', file: 'jitter.ts' },
 ] as const;
 
 describe('cron source clock guard', () => {
-  it.each(GUARDED_FILES)('%s does not call Date.now()', (file) => {
-    const source = readFileSync(new URL(`../../src/agent/cron/${file}`, import.meta.url), 'utf8');
+  it.each(GUARDED_FILES)('$file does not call Date.now()', ({ dir, file }) => {
+    const source = readFileSync(new URL(`../../src/${dir}/${file}`, import.meta.url), 'utf8');
     expect(stripComments(source)).not.toMatch(/\bDate\.now\s*\(/);
   });
 });

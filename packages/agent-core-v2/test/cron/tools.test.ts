@@ -8,24 +8,24 @@ import type {
   RunnableToolExecution,
   ToolExecution,
 } from '#/agent/tool';
-import type { CronTask, CronTaskInit } from '#/app/cronPersistence';
+import type { CronTask, CronTaskInit } from '#/app/cron';
 import type { ISessionCronService } from '#/session/cron';
 import {
   computeNextCronRun,
   parseCronExpression,
-} from '#/agent/cron/cron-expr';
-import { renderCronFireXml } from '#/agent/cron/format';
+} from '#/app/cron/cron-expr';
+import { renderCronFireXml } from '#/app/cron/format';
 import {
   jitteredNextCronRunMs,
   oneShotJitteredNextCronRunMs,
-} from '#/agent/cron/jitter';
+} from '#/app/cron/jitter';
 import {
   CronCreateTool,
   MAX_CRON_JOBS_PER_SESSION,
   type CronCreateInput,
-} from '#/agent/cron/tools/cron-create';
-import { CronDeleteTool, type CronDeleteInput } from '#/agent/cron/tools/cron-delete';
-import { CronListTool, type CronListInput } from '#/agent/cron/tools/cron-list';
+} from '#/session/cron/tools/cron-create';
+import { CronDeleteTool, type CronDeleteInput } from '#/session/cron/tools/cron-delete';
+import { CronListTool, type CronListInput } from '#/session/cron/tools/cron-list';
 
 const WALL_ANCHOR = 1_700_000_000_000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;

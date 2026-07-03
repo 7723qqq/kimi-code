@@ -6,7 +6,10 @@
  * (tick / coalesce / jitter / cursor), persists mutations through the
  * App-scoped `ICronTaskPersistence`, mirrors mutations onto `wireRecord` for
  * replay via the main agent's `IAgentRecordService` (cross-scope borrow),
- * and steers the main agent through `IAgentPromptService` when a task fires.
+ * steers the main agent through `IAgentPromptService` when a task fires, and
+ * registers the cron tools (`CronCreate` / `CronList` / `CronDelete`) into the
+ * main agent's `IAgentToolRegistryService` once `IAgentLifecycleService`
+ * signals `onDidCreateMain`. Bound at Session scope.
  * Bound at Session scope.
  */
 
@@ -17,37 +20,41 @@ import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';
 
 import { Disposable, toDisposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IntervalTimer } from '#/_base/utils';
 
 import { IConfigService } from '#/app/config';
 import { ITelemetryService } from '#/app/telemetry';
-import { ICronTaskPersistence, type CronTask, type CronTaskInit } from '#/app/cronPersistence';
+import {
+  computeNextCronRun,
+  type ClockSources,
+  type CronConfig,
+  type CronTask,
+  type CronTaskInit,
+  CRON_SECTION,
+  DEFAULT_CRON_CONFIG,
+  ICronTaskPersistence,
+  jitteredNextCronRunMs,
+  oneShotJitteredNextCronRunMs,
+  parseCronExpression,
+  type ParsedCronExpression,
+  renderCronFireXml,
+  resolveClockSources,
+  SYSTEM_CLOCKS,
+} from '#/app/cron';
 import { ISessionContext } from '#/session/sessionContext';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentRecordService } from '#/agent/record';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn } from '#/agent/turn';
 import { IAgentTurnService } from '#/agent/turn';
 
-import {
-  type CronConfig,
-  CRON_SECTION,
-  DEFAULT_CRON_CONFIG,
-} from '#/agent/cron/configSection';
-import {
-  computeNextCronRun,
-  parseCronExpression,
-  type ParsedCronExpression,
-} from '#/agent/cron/cron-expr';
-import { renderCronFireXml } from '#/agent/cron/format';
-import { jitteredNextCronRunMs, oneShotJitteredNextCronRunMs } from '#/agent/cron/jitter';
-import {
-  resolveClockSources,
-  SYSTEM_CLOCKS,
-  type ClockSources,
-} from '#/agent/cron/clock';
+import { CronCreateTool } from './tools/cron-create';
+import { CronListTool } from './tools/cron-list';
+import { CronDeleteTool } from './tools/cron-delete';
 
 import { ISessionCronService, type CronLoadOptions } from './sessionCronService';
 
@@ -116,15 +123,14 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
       resolveClockSources(this.cronConfig.clock, this.cronConfig.debug) ?? SYSTEM_CLOCKS;
 
     this._register(
-      this.agentLifecycle.onDidCreate((handle) => {
-        if (handle.id !== 'main') return;
-        this.wireMainAgent(handle);
+      this.agentLifecycle.onDidCreateMain((handle) => {
+        this.bindMainAgent(handle);
       }),
     );
 
     const existingMain = this.agentLifecycle.getHandle('main');
     if (existingMain) {
-      this.wireMainAgent(existingMain);
+      this.bindMainAgent(existingMain);
     }
 
     this._register(
@@ -134,7 +140,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     );
   }
 
-  private wireMainAgent(handle: IAgentScopeHandle): void {
+  private bindMainAgent(handle: IAgentScopeHandle): void {
     const record = handle.accessor.get(IAgentRecordService);
 
     record.define('cron.add', {
@@ -158,7 +164,22 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
       await next();
     });
 
+    this.registerCronTools(handle);
+
     void this.loadFromStore().then(() => this.start());
+  }
+
+  private registerCronTools(handle: IAgentScopeHandle): void {
+    const instantiation = handle.accessor.get(IInstantiationService);
+    const registry = handle.accessor.get(IAgentToolRegistryService);
+    const tools = [
+      instantiation.createInstance(CronCreateTool, this.cronConfig.disabled),
+      instantiation.createInstance(CronListTool),
+      instantiation.createInstance(CronDeleteTool),
+    ];
+    for (const tool of tools) {
+      this._register(registry.register(tool, { source: 'builtin' }));
+    }
   }
 
   now(): number {
