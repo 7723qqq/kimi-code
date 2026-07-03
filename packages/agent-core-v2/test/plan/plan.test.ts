@@ -10,9 +10,9 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentPlanService, type PlanData } from '#/agent/plan';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules';
 import { IAgentProfileService } from '#/agent/profile';
-import type { ISessionAgentFileSystem } from '#/session/agentFs';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ISessionProcessRunner } from '#/session/process';
-import { createFakeAgentFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
+import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import {
   createCommandRunner,
   createTestAgent,
@@ -21,7 +21,7 @@ import {
 } from '../harness';
 
 interface PlanFakes {
-  readonly fs: ISessionAgentFileSystem;
+  readonly fs: IHostFileSystem;
   readonly runner: ISessionProcessRunner;
 }
 
@@ -30,8 +30,8 @@ interface PlanFakes {
  * readText no-op, runner throws). Individual tests override the specific
  * methods they need.
  */
-function createPlanFakes(overrides: Partial<ISessionAgentFileSystem> = {}): PlanFakes {
-  const fs = createFakeAgentFs({
+function createPlanFakes(overrides: Partial<IHostFileSystem> = {}): PlanFakes {
+  const fs = createFakeHostFs({
     mkdir: vi.fn().mockResolvedValue(undefined),
     readText: vi.fn().mockResolvedValue(''),
     ...overrides,
@@ -49,7 +49,7 @@ function createPlanCommandFakes(stdout: string): PlanFakes {
 
 function createPlanFileFakes(
   files = new Map<string, string>(),
-  overrides: Partial<ISessionAgentFileSystem> = {},
+  overrides: Partial<IHostFileSystem> = {},
 ): {
   readonly files: Map<string, string>;
   readonly readText: ReturnType<typeof vi.fn>;
@@ -91,7 +91,7 @@ describe('Plan service', () => {
     tempDirs = [];
     ctx = createTestAgent(
       execEnvServices({
-        agentFs: delegatingFs(),
+        hostFs: delegatingFs(),
         processRunner: delegatingRunner(),
       }),
     );
@@ -115,13 +115,13 @@ describe('Plan service', () => {
    * A fs whose methods delegate to whichever `activeFakes.fs` is set at call
    * time. Lets a test swap fakes mid-flight by reassigning `activeFakes`.
    */
-  function delegatingFs(): ISessionAgentFileSystem {
+  function delegatingFs(): IHostFileSystem {
     return new Proxy(createPlanFakes().fs, {
       get(_target, prop, receiver) {
         const value = Reflect.get(activeFakes.fs, prop, receiver);
         return typeof value === 'function' ? value.bind(activeFakes.fs) : value;
       },
-    }) as ISessionAgentFileSystem;
+    }) as IHostFileSystem;
   }
 
   function delegatingRunner(): ISessionProcessRunner {
@@ -184,7 +184,7 @@ describe('Plan service', () => {
       const status = await expectActivePlan();
       expect(status.path.startsWith(`${join(cwd, 'plan')}/`)).toBe(true);
       expect(status.path.endsWith('.md')).toBe(true);
-      expect(mkdir).toHaveBeenCalledWith(join(cwd, 'plan'));
+      expect(mkdir).toHaveBeenCalledWith(join(cwd, 'plan'), { recursive: true });
       expect(writeText).not.toHaveBeenCalled();
       expect(ctx.allEvents.some((event) => event.event === 'turn.started')).toBe(false);
       expect(ctx.llmCalls).toHaveLength(0);

@@ -93,7 +93,7 @@ import {
   IAgentPermissionGate,
   IAgentPermissionModeService,
   IAgentPermissionRulesService,
-  ISessionAgentFileSystem,
+  IHostFileSystem,
   ISessionContext,
   ISessionProcessRunner,
   IAgentScopeContext,
@@ -149,7 +149,7 @@ import { ISessionSwarmService } from '#/session/swarm';
 import type { PathAccessOperation } from '#/session/workspaceContext';
 
 import { recordAgentEvents, type RecordedEventEntry } from '../snapshot/events';
-import { createFakeAgentFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
+import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import { createScriptedGenerate } from './scripted-generate';
 import {
   DEFAULT_TEST_SYSTEM_PROMPT,
@@ -397,7 +397,7 @@ type ExecContextOverride = {
  */
 export interface ExecEnvOverride {
   readonly execContext?: ExecContextOverride;
-  readonly agentFs?: ISessionAgentFileSystem | Partial<ISessionAgentFileSystem>;
+  readonly hostFs?: IHostFileSystem | Partial<IHostFileSystem>;
   readonly processRunner?: ISessionProcessRunner | Partial<ISessionProcessRunner>;
 }
 
@@ -414,8 +414,8 @@ export function execEnvServices(override: ExecEnvOverride = {}): TestAgentServic
         createExecContext(override.execContext.cwd ?? '/workspace', override.execContext.envLayers),
       );
     }
-    if (override.agentFs !== undefined) {
-      reg.defineInstance(ISessionAgentFileSystem, resolveAgentFsOverride(override.agentFs));
+    if (override.hostFs !== undefined) {
+      reg.defineInstance(IHostFileSystem, resolveHostFsOverride(override.hostFs));
     }
     if (override.processRunner !== undefined) {
       reg.defineInstance(
@@ -430,30 +430,28 @@ export function execEnvServices(override: ExecEnvOverride = {}): TestAgentServic
   });
 }
 
-function resolveAgentFsOverride(
-  input: ISessionAgentFileSystem | Partial<ISessionAgentFileSystem>,
-): ISessionAgentFileSystem {
+function resolveHostFsOverride(input: IHostFileSystem | Partial<IHostFileSystem>): IHostFileSystem {
   // A full impl (class instance or `Proxy` over one) exposes every core
   // method. A partial override typically covers only a few of them. If every
   // core method is a function, pass the input through unchanged; otherwise
   // treat it as a partial override and spread it over the fake defaults.
-  if (isFullAgentFs(input)) return input as ISessionAgentFileSystem;
-  return createFakeAgentFs(input as Partial<ISessionAgentFileSystem>);
+  if (isFullHostFs(input)) return input as IHostFileSystem;
+  return createFakeHostFs(input as Partial<IHostFileSystem>);
 }
 
-function isFullAgentFs(input: unknown): boolean {
+function isFullHostFs(input: unknown): boolean {
   if (typeof input !== 'object' || input === null) return false;
-  const keys: readonly (keyof ISessionAgentFileSystem)[] = [
+  const keys: readonly (keyof IHostFileSystem)[] = [
     'readText',
     'writeText',
     'readBytes',
-    'readLines',
     'writeBytes',
+    'readLines',
+    'createExclusive',
     'stat',
     'readdir',
-    'glob',
     'mkdir',
-    'withCwd',
+    'remove',
   ];
   return keys.every((k) => typeof (input as Record<string, unknown>)[k] === 'function');
 }
@@ -990,9 +988,9 @@ export class AgentTestContext {
             reg.defineInstance(ISessionApprovalService, this.createApprovalService());
             reg.defineInstance(ISessionQuestionService, this.createQuestionService());
             reg.defineInstance(IExecContext, createExecContext(this.cwd));
-            // Note: `ISessionAgentFileSystem` and `ISessionProcessRunner` are
-            // auto-registered by their service files and backed by `IExecContext`.
-            // Tests that need a fake override them via `execEnvServices`.
+            // Note: the os `IHostFileSystem` (App scope) and `ISessionProcessRunner`
+            // are auto-registered by their service files. Tests that need a fake
+            // filesystem override it via `execEnvServices({ hostFs })`.
             reg.defineDescriptor(
               ISessionWorkspaceContext,
               new SyncDescriptor(SessionWorkspaceContextService),

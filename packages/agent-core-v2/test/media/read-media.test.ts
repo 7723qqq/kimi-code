@@ -1,14 +1,14 @@
 /**
  * ReadMediaFileTool tests for the v2 output/capability contract.
  *
- * Self-contained: builds minimal fake `ISessionAgentFileSystem` and `IKaos` inline
- * so the tool can be exercised without the missing composition root.
+ * Self-contained: builds a minimal fake `IHostFileSystem` inline so the tool can
+ * be exercised without the missing composition root.
  */
 
 import type { ContentPart, ModelCapability } from '#/app/llmProtocol/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ISessionAgentFileSystem } from '#/session/agentFs';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import {
   ReadMediaFileInputSchema,
@@ -65,10 +65,9 @@ interface FakeFile {
   readonly size?: number;
 }
 
-function createTestFs(files: Record<string, FakeFile>): ISessionAgentFileSystem {
+function createTestFs(files: Record<string, FakeFile>): IHostFileSystem {
   const lookup = (path: string): FakeFile | undefined => files[path];
   return {
-    cwd: '/workspace',
     readBytes: vi.fn(async (path: string, _n?: number) => lookup(path)?.data ?? Buffer.alloc(0)),
     stat: vi.fn(async (path: string) => {
       const file = lookup(path);
@@ -78,7 +77,7 @@ function createTestFs(files: Record<string, FakeFile>): ISessionAgentFileSystem 
         size: file?.size ?? file?.data.length ?? 0,
       };
     }),
-  } as unknown as ISessionAgentFileSystem;
+  } as unknown as IHostFileSystem;
 }
 
 function createTestEnv(): IHostEnvironment {

@@ -18,7 +18,7 @@ import {
   createAgentTaskPersistence,
   type TaskServiceTestManager,
 } from '../task/stubs';
-import { createFakeAgentFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
+import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import {
   DEFAULT_TEST_SYSTEM_PROMPT,
   InMemoryWireRecordPersistence,
@@ -66,7 +66,7 @@ describe('Agent resume', () => {
     const execWithEnv = vi.fn().mockRejectedValue(new Error('Bash should not execute on resume'));
     const ctx = testAgent(
       execEnvServices({
-        agentFs: createFakeAgentFs({ readText: vi.fn().mockResolvedValue('') }),
+        hostFs: createFakeHostFs({ readText: vi.fn().mockResolvedValue('') }),
         processRunner: createFakeProcessRunner({ exec: execWithEnv }),
       }),
       { autoConfigure: false, persistence },

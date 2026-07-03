@@ -36,8 +36,16 @@ function* splitLinesKeepingTerminator(text: string): Generator<string> {
 export class HostFileSystem implements IHostFileSystem {
   declare readonly _serviceBrand: undefined;
 
-  async readText(path: string): Promise<string> {
-    return readFile(path, 'utf8');
+  async readText(
+    path: string,
+    options?: { encoding?: BufferEncoding; errors?: TextDecodeErrors },
+  ): Promise<string> {
+    if (options === undefined) {
+      return readFile(path, 'utf8');
+    }
+    const encoding = options.encoding ?? 'utf-8';
+    const errors = options.errors ?? 'strict';
+    return decodeTextWithErrors(await readFile(path), encoding, errors);
   }
 
   async writeText(path: string, data: string): Promise<void> {
@@ -142,7 +150,13 @@ export class HostFileSystem implements IHostFileSystem {
 
   async stat(path: string): Promise<HostFileStat> {
     const s = await stat(path);
-    return { isFile: s.isFile(), isDirectory: s.isDirectory(), size: s.size };
+    return {
+      isFile: s.isFile(),
+      isDirectory: s.isDirectory(),
+      size: s.size,
+      mtimeMs: s.mtimeMs,
+      ino: s.ino,
+    };
   }
 
   async readdir(path: string): Promise<readonly HostDirEntry[]> {

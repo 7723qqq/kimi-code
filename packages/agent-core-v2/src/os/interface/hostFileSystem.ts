@@ -14,6 +14,10 @@ export interface HostFileStat {
   readonly isFile: boolean;
   readonly isDirectory: boolean;
   readonly size: number;
+  /** Last-modified time in epoch milliseconds, when the backend exposes it. */
+  readonly mtimeMs?: number;
+  /** Inode number, when the backend exposes it (`0` on backends without inodes). */
+  readonly ino?: number;
 }
 
 export interface HostDirEntry {
@@ -25,7 +29,10 @@ export interface HostDirEntry {
 export interface IHostFileSystem {
   readonly _serviceBrand: undefined;
 
-  readText(path: string): Promise<string>;
+  readText(
+    path: string,
+    options?: { encoding?: BufferEncoding; errors?: TextDecodeErrors },
+  ): Promise<string>;
   writeText(path: string, data: string): Promise<void>;
   /**
    * Read bytes from `path`. When `n` is given, reads at most the first `n`

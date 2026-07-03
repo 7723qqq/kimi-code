@@ -4,7 +4,7 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { SessionAgentFileSystem } from '#/session/agentFs/agentFsService';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { createExecContext } from '#/session/execContext';
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile';
 
@@ -38,12 +38,12 @@ describe('AgentProfileService.applyProfile', () => {
     // (empty temp dir) so a developer's real ~/.kimi-code / ~/.agents files
     // never leak into the assertions.
     const execCtx = createExecContext(workDir);
-    const fs = new SessionAgentFileSystem(execCtx);
+    const fs = new HostFileSystem();
     ctx = createTestAgent(
       execEnvServices({
         hostEnvironment: { homeDir },
         execContext: execCtx,
-        agentFs: fs,
+        hostFs: fs,
       }),
     );
     return { ctx, profile: ctx.get(IAgentProfileService) };

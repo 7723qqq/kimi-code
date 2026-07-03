@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createFakeAgentFs } from '../tools/fixtures/fake-exec';
+import { createFakeHostFs } from '../tools/fixtures/fake-exec';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentPlanService } from '#/agent/plan';
@@ -62,7 +62,7 @@ describe('PlanModeService dynamic injection content', () => {
   beforeEach(() => {
     readText = async () => '';
     ctx = createTestAgent(execEnvServices({
-      agentFs: createFakeAgentFs({
+      hostFs: createFakeHostFs({
         mkdir: vi.fn().mockResolvedValue(undefined),
         readText: (path: string) => readText(path),
         writeText: vi.fn(async () => undefined),
@@ -144,7 +144,7 @@ describe('PlanModeService dynamic injection cadence', () => {
 
   beforeEach(() => {
     ctx = createTestAgent(execEnvServices({
-      agentFs: createFakeAgentFs({
+      hostFs: createFakeHostFs({
         mkdir: vi.fn().mockResolvedValue(undefined),
         readText: async () => '',
         writeText: vi.fn(async () => undefined),

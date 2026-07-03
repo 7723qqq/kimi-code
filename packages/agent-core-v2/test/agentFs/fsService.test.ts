@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -12,7 +12,7 @@ import {
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { IGitService } from '#/app/git';
 import { ErrorCodes, KimiError } from '#/errors';
-import { ISessionAgentFileSystem } from '#/session/agentFs';
+import { type HostDirEntry, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionFsService } from '#/session/agentFs/fs';
 import { SessionFsService } from '#/session/agentFs/fsService';
 import { ISessionProcessRunner, type IProcess } from '#/session/process';
@@ -38,16 +38,20 @@ function stubWorkspace(): ISessionWorkspaceContext {
   };
 }
 
-function fakeFs(files: Record<string, string>): ISessionAgentFileSystem {
-  const fileMap = new Map(Object.entries(files));
-  const dirSet = new Set<string>(['']);
-  for (const p of fileMap.keys()) {
-    const parts = p.split('/');
+function fakeFs(files: Record<string, string>): IHostFileSystem {
+  // Keys are stored as absolute paths; fsService now resolves workspace-relative
+  // paths to absolute (`join(WORK_DIR, rel)`) before calling into `IHostFileSystem`.
+  const fileMap = new Map<string, string>();
+  const dirSet = new Set<string>([WORK_DIR]);
+  for (const [rel, content] of Object.entries(files)) {
+    const abs = join(WORK_DIR, rel);
+    fileMap.set(abs, content);
+    const parts = rel.split('/');
     for (let i = 1; i < parts.length; i++) {
-      dirSet.add(parts.slice(0, i).join('/'));
+      dirSet.add(join(WORK_DIR, parts.slice(0, i).join('/')));
     }
   }
-  const isDir = (p: string): boolean => p === '' || p === '.' || dirSet.has(p);
+  const isDir = (p: string): boolean => p === WORK_DIR || dirSet.has(p);
   const enoent = (p: string): NodeJS.ErrnoException => {
     const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
     err.code = 'ENOENT';
@@ -55,7 +59,6 @@ function fakeFs(files: Record<string, string>): ISessionAgentFileSystem {
   };
   return {
     _serviceBrand: undefined,
-    cwd: WORK_DIR,
     readText: async (p) => {
       const c = fileMap.get(p);
       if (c === undefined) throw enoent(p);
@@ -72,6 +75,7 @@ function fakeFs(files: Record<string, string>): ISessionAgentFileSystem {
       // not needed by the fs surface under test
     },
     writeBytes: async () => {},
+    createExclusive: async () => false,
     stat: async (p) => {
       if (fileMap.has(p)) {
         return {
@@ -88,41 +92,62 @@ function fakeFs(files: Record<string, string>): ISessionAgentFileSystem {
       throw enoent(p);
     },
     readdir: async (p) => {
-      const prefix = p === '.' || p === '' ? '' : `${p}/`;
-      const children = new Set<string>();
-      const addChild = (key: string): void => {
-        if (key === '' || key === p) return;
-        if (!key.startsWith(prefix)) return;
+      if (!isDir(p)) throw enoent(p);
+      const prefix = `${p}/`;
+      const children = new Map<string, HostDirEntry>();
+      const addDir = (name: string): void => {
+        if (!children.has(name)) {
+          children.set(name, { name, isFile: false, isDirectory: true });
+        }
+      };
+      const addFile = (name: string): void => {
+        if (!children.has(name)) {
+          children.set(name, { name, isFile: true, isDirectory: false });
+        }
+      };
+      const visit = (key: string, isFile: boolean): void => {
+        if (key === p || !key.startsWith(prefix)) return;
         const rest = key.slice(prefix.length);
         const first = rest.split('/')[0];
-        if (first !== undefined && first.length > 0) children.add(first);
+        if (first === undefined || first.length === 0) return;
+        if (rest.includes('/')) addDir(first);
+        else if (isFile) addFile(first);
+        else addDir(first);
       };
-      for (const f of fileMap.keys()) addChild(f);
-      for (const d of dirSet) addChild(d);
-      return [...children];
+      for (const d of dirSet) visit(d, false);
+      for (const f of fileMap.keys()) visit(f, true);
+      return [...children.values()];
     },
-    glob: async () => [],
     mkdir: async (p, options) => {
-      const existOk = options?.existOk ?? true;
-      if ((dirSet.has(p) || fileMap.has(p)) && !existOk) {
+      const recursive = options?.recursive ?? false;
+      const exists = isDir(p) || fileMap.has(p);
+      if (recursive) {
+        // Add every ancestor up to (but not including) WORK_DIR, mirroring
+        // `fs.mkdir(..., { recursive: true })` which never throws EEXIST.
+        let current = p;
+        while (current !== WORK_DIR && current.length > WORK_DIR.length) {
+          dirSet.add(current);
+          const next = current.slice(0, current.lastIndexOf('/'));
+          if (next === current || next === '') break;
+          current = next;
+        }
+        dirSet.add(p);
+        return;
+      }
+      if (exists) {
         const err = new Error(`EEXIST: ${p}`) as NodeJS.ErrnoException;
         err.code = 'EEXIST';
         throw err;
       }
-      const parents = options?.parents ?? true;
-      if (!parents) {
-        const parent = p.split('/').slice(0, -1).join('/');
-        if (parent !== '' && !isDir(parent)) {
-          const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
-          err.code = 'ENOENT';
-          throw err;
-        }
+      const parent = p.slice(0, p.lastIndexOf('/'));
+      if (parent !== '' && parent !== WORK_DIR && !isDir(parent)) {
+        const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
       }
       dirSet.add(p);
     },
-    withCwd: () => {
-      throw new Error('not implemented');
-    },
+    remove: async () => {},
   };
 }
 
@@ -215,7 +240,7 @@ function makeSession(
   host = createScopedTestHost();
   const session = host.child(LifecycleScope.Session, 's1', [
     stubPair(ISessionWorkspaceContext, stubWorkspace()),
-    stubPair(ISessionAgentFileSystem, fakeFs(files)),
+    stubPair(IHostFileSystem, fakeFs(files)),
     stubPair(ISessionProcessRunner, fakeRunner(handler)),
     stubPair(ITelemetryService, telemetryStub(events)),
     stubPair(IGitService, git),

@@ -12,7 +12,7 @@ import type { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 
 import { executeTool } from '../tools/fixtures/execute-tool';
-import { createFakeAgentFs } from '../tools/fixtures/fake-exec';
+import { createFakeHostFs } from '../tools/fixtures/fake-exec';
 import {
   createTestAgent,
   execEnvServices,
@@ -218,7 +218,7 @@ describe('AgentPlanService EnterPlanMode telemetry', () => {
         records.splice(0);
         ctx = createTestAgent(
           execEnvServices({
-            agentFs: createFakeAgentFs({
+            hostFs: createFakeHostFs({
               mkdir: vi.fn().mockResolvedValue(undefined),
             }),
           }),

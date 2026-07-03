@@ -4,21 +4,20 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { SessionAgentFileSystem } from '#/session/agentFs/agentFsService';
-import type { ISessionAgentFileSystem } from '#/session/agentFs';
-import { createExecContext } from '#/session/execContext';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { loadAgentsMd, prepareSystemPromptContext } from '#/agent/profile';
 
 /**
- * Build a `SessionAgentFileSystem` rooted at `workDir` — the v2 profile
- * context loaders take `{ fs, homeDir }` and read every AGENTS.md through the
- * fs's `readText` / `readdir` / `stat`.
+ * Build an os-backed `IHostFileSystem`. The v2 profile context loaders take
+ * `{ fs, homeDir }` and read every AGENTS.md through the fs's `readText` /
+ * `readdir` / `stat` using absolute paths, so no cwd rooting is needed.
  */
-function createFs(workDir: string): ISessionAgentFileSystem {
-  return new SessionAgentFileSystem(createExecContext(workDir));
+function createFs(): IHostFileSystem {
+  return new HostFileSystem();
 }
 
-let fs: ISessionAgentFileSystem;
+let fs: IHostFileSystem;
 let homeDir: string;
 let workDir: string;
 let extraDirs: string[];
@@ -27,7 +26,7 @@ beforeEach(async () => {
   homeDir = await mkdtemp(join(tmpdir(), 'kimi-agents-home-'));
   workDir = await mkdtemp(join(tmpdir(), 'kimi-agents-work-'));
   extraDirs = [];
-  fs = createFs(workDir);
+  fs = createFs();
 });
 
 afterEach(async () => {

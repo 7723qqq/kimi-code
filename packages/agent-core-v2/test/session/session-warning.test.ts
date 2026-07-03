@@ -14,7 +14,8 @@ import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { SessionAgentFileSystem, ISessionAgentFileSystem } from '#/session/agentFs';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { createExecContext, IExecContext } from '#/session/execContext';
 import { IAgentProfileService } from '#/agent/profile';
 import { ISessionWarningService, SessionWarningService } from '#/session/session';
@@ -68,10 +69,10 @@ function build(args: {
     stubPair(IHostEnvironment, hostEnvironment(args.homeDir)),
   ]);
   const ctx = createExecContext(args.workDir);
-  const fs: ISessionAgentFileSystem = new SessionAgentFileSystem(ctx);
+  const fs: IHostFileSystem = new HostFileSystem();
   const session = host.child(LifecycleScope.Session, 's1', [
     stubPair(IExecContext, ctx),
-    stubPair(ISessionAgentFileSystem, fs),
+    stubPair(IHostFileSystem, fs),
     stubPair(ISessionWorkspaceContext, workspaceStub(args.additionalDirs ?? [])),
     stubPair(
       IAgentLifecycleService,

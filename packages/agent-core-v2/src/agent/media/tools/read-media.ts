@@ -27,7 +27,7 @@ import type {
 } from '#/app/llmProtocol';
 import { z } from 'zod';
 
-import { ISessionAgentFileSystem } from '#/session/agentFs';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
@@ -136,7 +136,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
   readonly description: string;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ReadMediaFileInputSchema);
   constructor(
-    private readonly fs: ISessionAgentFileSystem,
+    private readonly fs: IHostFileSystem,
     private readonly env: IHostEnvironment,
     private readonly workspace: WorkspaceConfig,
     private readonly capabilities: ModelCapability,

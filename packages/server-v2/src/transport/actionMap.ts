@@ -22,7 +22,6 @@
  */
 
 import {
-  ISessionAgentFileSystem,
   IAgentRPCService,
   ISessionApprovalService,
   IAuthSummaryService,
@@ -155,12 +154,6 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'workspace:setWorkDir': { service: ISessionWorkspaceContext, method: 'setWorkDir' },
     'workspace:addAdditionalDir': { service: ISessionWorkspaceContext, method: 'addAdditionalDir' },
     'workspace:removeAdditionalDir': { service: ISessionWorkspaceContext, method: 'removeAdditionalDir' },
-
-    'agentFs:readText': { service: ISessionAgentFileSystem, method: 'readText', readonly: true },
-    'agentFs:writeText': { service: ISessionAgentFileSystem, method: 'writeText' },
-    'agentFs:stat': { service: ISessionAgentFileSystem, method: 'stat', readonly: true },
-    'agentFs:readdir': { service: ISessionAgentFileSystem, method: 'readdir', readonly: true },
-    'agentFs:mkdir': { service: ISessionAgentFileSystem, method: 'mkdir' },
 
     'fs:search': { service: ISessionFsService, method: 'search', readonly: true },
     'fs:grep': { service: ISessionFsService, method: 'grep', readonly: true },

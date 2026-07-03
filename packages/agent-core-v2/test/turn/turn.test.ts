@@ -17,7 +17,7 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 
 import { abortError, abortable } from '#/_base/utils/abort';
-import { ISessionAgentFileSystem } from '#/session/agentFs';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IOAuthService } from '#/app/auth';
@@ -39,7 +39,7 @@ import type {
   SessionSwarmTask as QueuedSubagentTask,
 } from '#/session/swarm';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
-import { createFakeAgentFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
+import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import {
   configServices,
   appServices,
@@ -1747,7 +1747,7 @@ describe('Agent turn flow', () => {
         throw new APIStatusError(401, 'Unauthorized', 'req-upload-401');
       }),
     } as unknown as ChatProvider;
-    const ctx = testAgent(oauthOptions.services, execEnvServices({ agentFs: createVideoAgentFs() }), {
+    const ctx = testAgent(oauthOptions.services, execEnvServices({ hostFs: createVideoHostFs() }), {
       initialConfig: oauthOptions.initialConfig,
       autoConfigure: false,
     });
@@ -1767,7 +1767,7 @@ describe('Agent turn flow', () => {
         return uploadVideo.call(provider, input, { auth });
       });
     const registration = registerMediaTools(ctx.get(IAgentToolRegistryService), {
-      fs: ctx.get(ISessionAgentFileSystem),
+      fs: ctx.get(IHostFileSystem),
       env: ctx.get(IHostEnvironment),
       workspace: { workspaceDir: '/workspace', additionalDirs: [] },
       capabilities: mediaCapabilities(),
@@ -2090,8 +2090,8 @@ function createExecRunner(output: string): {
   return { runner: createFakeProcessRunner({ exec }), exec };
 }
 
-function createVideoAgentFs(): ISessionAgentFileSystem {
-  return createFakeAgentFs({
+function createVideoHostFs(): IHostFileSystem {
+  return createFakeHostFs({
     stat: vi.fn(async () => ({
       isFile: true,
       isDirectory: false,
