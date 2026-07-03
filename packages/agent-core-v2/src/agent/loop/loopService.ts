@@ -71,7 +71,6 @@ export class AgentLoopService implements IAgentLoopService {
       let stopReason: LoopTurnStopReason = 'completed';
       let activeStep: number | undefined;
       const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
-      let stopHookContinuationUsed = false;
 
       try {
         while (true) {
@@ -96,19 +95,16 @@ export class AgentLoopService implements IAgentLoopService {
             continue;
           }
 
-          if (!stopHookContinuationUsed) {
-            const context: TurnWillStopContext = { signal, stopHookActive: false };
-            await this.hooks.onWillStop.run(context);
-            if (context.continuationPrompt !== undefined && hasStepBudgetRemaining(maxSteps, steps)) {
-              stopHookContinuationUsed = true;
-              this.append({
-                role: 'user',
-                content: [{ type: 'text', text: context.continuationPrompt }],
-                toolCalls: [],
-                origin: { kind: 'system_trigger', name: 'stop_hook' },
-              });
-              continue;
-            }
+          const context: TurnWillStopContext = { signal };
+          await this.hooks.onWillStop.run(context);
+          if (context.continuationPrompt !== undefined) {
+            this.append({
+              role: 'user',
+              content: [{ type: 'text', text: context.continuationPrompt }],
+              toolCalls: [],
+              origin: { kind: 'system_trigger', name: 'stop_hook' },
+            });
+            continue;
           }
 
           break;
@@ -150,7 +146,7 @@ export class AgentLoopService implements IAgentLoopService {
     readonly stopReason: FinishReason;
     readonly continueTurn: boolean;
   }> {
-    await this.hooks.beforeStep.run({ turnId, signal });
+    await this.hooks.beforeStep.run({ turnId, step: currentStep, signal });
     signal.throwIfAborted();
 
     const stepUuid = randomUUID();
@@ -228,7 +224,7 @@ export class AgentLoopService implements IAgentLoopService {
 
     this.emitStepCompleted(turnId, currentStep, stepUuid, usage, finishReason, response);
 
-    const afterStepContext = { turnId, signal, usage, continueTurn: false };
+    const afterStepContext = { turnId, step: currentStep, signal, usage, continueTurn: false };
     try {
       await this.hooks.afterStep.run(afterStepContext);
     } catch {
@@ -381,10 +377,6 @@ function toolResultOutputForModel(result: ToolResult): string | ContentPart[] {
     return [{ type: 'text', text: TOOL_ERROR_STATUS }, ...output];
   }
   return output;
-}
-
-function hasStepBudgetRemaining(maxSteps: number | undefined, currentStep: number): boolean {
-  return maxSteps === undefined || maxSteps <= 0 || currentStep < maxSteps;
 }
 
 registerScopedService(

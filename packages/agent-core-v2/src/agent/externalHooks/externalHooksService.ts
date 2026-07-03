@@ -77,6 +77,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
   declare readonly _serviceBrand: undefined;
 
   private dynamicEngine: HookEngine | undefined;
+  private stopHookContinuationUsed = false;
 
   constructor(
     private readonly options: ExternalHooksServiceOptions = {},
@@ -203,6 +204,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       loop.hooks.onWillStop.register('externalHooks', async (ctx, next) => {
         const reason = await this.runStop(ctx);
         if (reason !== undefined) {
+          this.stopHookContinuationUsed = true;
           ctx.continuationPrompt = reason;
           return;
         }
@@ -314,6 +316,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
   }
 
   private notifyTurnEnded(ctx: TurnEndedContext): void {
+    this.stopHookContinuationUsed = false;
     if (ctx.result.reason === 'failed' && ctx.result.error !== undefined) {
       this.notifyStopFailure(ctx.result.error, ctx.turn.abortController.signal);
     }
@@ -343,9 +346,11 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
 
   private async runStop(ctx: TurnWillStopContext): Promise<string | undefined> {
     ctx.signal.throwIfAborted();
+    if (this.stopHookContinuationUsed) return undefined;
+
     const block = await this.engine()?.triggerBlock('Stop', {
       signal: ctx.signal,
-      inputData: { stopHookActive: ctx.stopHookActive },
+      inputData: { stopHookActive: false },
     });
     ctx.signal.throwIfAborted();
     return block?.reason;

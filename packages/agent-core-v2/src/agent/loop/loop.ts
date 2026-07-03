@@ -6,6 +6,7 @@ import type { TurnResult } from './types';
 
 export interface TurnBeforeStepContext {
   readonly turnId: number;
+  readonly step: number;
   readonly signal: AbortSignal;
 }
 
@@ -23,7 +24,6 @@ export interface TurnContextOverflowContext {
 
 export interface TurnWillStopContext {
   readonly signal: AbortSignal;
-  readonly stopHookActive: boolean;
   continuationPrompt?: string;
 }
 
