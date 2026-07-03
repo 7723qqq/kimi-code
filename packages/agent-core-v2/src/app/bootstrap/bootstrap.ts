@@ -59,7 +59,8 @@ export type PersistenceScopeName =
   | 'store'
   | 'logs'
   | 'cache'
-  | 'credentials';
+  | 'credentials'
+  | 'cron';
 
 export interface IBootstrapService {
   readonly _serviceBrand: undefined;

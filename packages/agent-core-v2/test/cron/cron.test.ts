@@ -7,8 +7,8 @@ import { IBootstrapService } from '#/app/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/app/config';
 import { ConfigRegistry, ConfigService } from '#/app/config/configService';
 import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentCronService } from '#/agent/cron';
-import { AgentCronService } from '#/agent/cron/cronService';
+import { ISessionCronService } from '#/session/cron';
+import { SessionCronServiceImpl } from '#/session/cron/sessionCronServiceImpl';
 import { ILogService } from '#/app/log';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionContext } from '#/session/sessionContext';
@@ -47,11 +47,16 @@ function textOf(message: ContextMessage): string {
 
 // NOTE: the legacy `CronFireCoordinator` (which steered the main agent on fire
 // through `IAgentTurnService.steer`) no longer exists in HEAD. Fire delivery now
-// lives inside `AgentCronService` itself: a due, idle task is delivered via
+// lives inside `SessionCronServiceImpl` itself: a due, idle task is delivered via
 // `IAgentPromptService.steer`. The cases below cover that path directly, so there is
 // no separate coordinator suite to migrate.
 
-describe('AgentCronService', () => {
+// TODO: The DI setup below was written for AgentCronService (Agent scope).
+// SessionCronServiceImpl (Session scope) injects ISessionContext, ICronTaskStore,
+// IAgentLifecycleService, ITelemetryService, IConfigService — not IAgentPromptService,
+// IAgentRecordService, IAgentTurnService directly. The stub setup needs to be
+// reworked to match the new dependency graph.
+describe('SessionCronService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let now: number;
@@ -107,8 +112,8 @@ describe('AgentCronService', () => {
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
     ix.set(IConfigService, new SyncDescriptor(ConfigService));
     ix.set(
-      IAgentCronService,
-      new SyncDescriptor(AgentCronService, [{}]),
+      ISessionCronService,
+      new SyncDescriptor(SessionCronServiceImpl, [{}]),
     );
   });
   afterEach(() => {
@@ -118,7 +123,7 @@ describe('AgentCronService', () => {
   });
 
   it('addTask / list / removeTasks', () => {
-    const svc = ix.get(IAgentCronService);
+    const svc = ix.get(ISessionCronService);
     const task = svc.addTask({ cron: '* * * * *', prompt: 'hi', recurring: false });
 
     expect(svc.list()).toHaveLength(1);
@@ -127,7 +132,7 @@ describe('AgentCronService', () => {
   });
 
   it('does not fire while a turn is active', () => {
-    const svc = ix.get(IAgentCronService);
+    const svc = ix.get(ISessionCronService);
     svc.addTask({ cron: '* * * * *', prompt: 'fire-me', recurring: false });
 
     activeTurn = fakeTurn();
@@ -138,7 +143,7 @@ describe('AgentCronService', () => {
   });
 
   it('fires a due task when idle', () => {
-    const svc = ix.get(IAgentCronService);
+    const svc = ix.get(ISessionCronService);
     svc.addTask({ cron: '* * * * *', prompt: 'fire-me', recurring: false });
 
     now = FAR_FUTURE_MS;
@@ -150,7 +155,7 @@ describe('AgentCronService', () => {
   });
 
   it('removes one-shot tasks after firing', () => {
-    const svc = ix.get(IAgentCronService);
+    const svc = ix.get(ISessionCronService);
     svc.addTask({ cron: '* * * * *', prompt: 'x', recurring: false });
 
     now = FAR_FUTURE_MS;

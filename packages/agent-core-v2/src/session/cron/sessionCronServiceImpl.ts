@@ -1,13 +1,13 @@
 /**
- * `cron` domain (L5) — `AgentCronService` implementation.
+ * `cron` domain (L5) — `SessionCronService` implementation.
  *
- * Owns the agent's cron task set end to end: holds the in-memory task map,
- * runs the scheduling loop (tick / coalesce / jitter / cursor), persists each
- * task as an atomic document under the agent's home directory
- * (`<sessionDir>/agents/<agentId>/cron/<id>.json`, matching the v1 layout so a
- * session written by either side is readable by the other), mirrors mutations
- * onto `wireRecord` for replay, registers the cron tools into `toolRegistry`,
- * and steers the agent through `prompt` when a task fires. Bound at Agent scope.
+ * Session-level scheduling engine. Holds the in-memory task map (filtered
+ * from `ICronTaskStore` by `sessionId` tag), runs the polling timer
+ * (tick / coalesce / jitter / cursor), persists mutations through the
+ * App-scoped `ICronTaskStore`, mirrors mutations onto `wireRecord` for
+ * replay via the main agent's `IAgentRecordService` (cross-scope borrow),
+ * and steers the main agent through `IAgentPromptService` when a task fires.
+ * Bound at Session scope.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -17,16 +17,17 @@ import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';
 
 import { Disposable, toDisposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IntervalTimer } from '#/_base/utils';
 
 import { IConfigService } from '#/app/config';
-import { IAtomicDocumentStore } from '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';
+import { ICronTaskStore, type CronTask, type CronTaskInit } from '#/app/cronStore';
+import { ISessionContext } from '#/session/sessionContext';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentRecordService } from '#/agent/record';
-import { IAgentScopeContext } from '#/agent/scopeContext';
 import type { Turn } from '#/agent/turn';
 import { IAgentTurnService } from '#/agent/turn';
 
@@ -34,27 +35,22 @@ import {
   type CronConfig,
   CRON_SECTION,
   DEFAULT_CRON_CONFIG,
-} from './configSection';
-import {
-  IAgentCronService,
-  type CronLoadOptions,
-  type CronTask,
-  type CronTaskInit,
-} from './cron';
+} from '#/agent/cron/configSection';
 import {
   computeNextCronRun,
   parseCronExpression,
   type ParsedCronExpression,
-} from './cron-expr';
-import { renderCronFireXml } from './format';
-import { jitteredNextCronRunMs, oneShotJitteredNextCronRunMs } from './jitter';
+} from '#/agent/cron/cron-expr';
+import { renderCronFireXml } from '#/agent/cron/format';
+import { jitteredNextCronRunMs, oneShotJitteredNextCronRunMs } from '#/agent/cron/jitter';
 import {
   resolveClockSources,
   SYSTEM_CLOCKS,
   type ClockSources,
-} from './clock';
+} from '#/agent/cron/clock';
 
-/** Telemetry event names emitted by the cron subsystem. Centralised so a typo can't drift a metric. */
+import { ISessionCronService, type CronLoadOptions } from './sessionCronService';
+
 export const CRON_SCHEDULED = 'cron_scheduled' as const;
 export const CRON_FIRED = 'cron_fired' as const;
 export const CRON_MISSED = 'cron_missed' as const;
@@ -77,94 +73,37 @@ declare module '#/agent/wireRecord' {
 
 const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
-
-/**
- * Cap on how many ideal fires we attempt to enumerate when computing
- * coalescedCount. With a 1-minute cron, this still covers 10 000 minutes
- * (~7 days). Beyond that we'd rather report 10 000 than spin.
- */
 const MAX_COALESCE_ITERATIONS = 10_000;
-
-/** Canonical cron task id shape (8 lower-hex chars) — doubles as the path-traversal guard. */
-export const CRON_ID_REGEX: RegExp = /^[0-9a-f]{8}$/;
-
-const JSON_SUFFIX = '.json';
+const CRON_ID_REGEX: RegExp = /^[0-9a-f]{8}$/;
 const MAX_ID_ATTEMPTS = 8;
+const SESSION_TAG = 'sessionId';
 
-export function isValidCronTask(obj: unknown): obj is CronTask {
-  if (typeof obj !== 'object' || obj === null) return false;
-  const o = obj as Record<string, unknown>;
-  if (typeof o['id'] !== 'string' || !CRON_ID_REGEX.test(o['id'])) return false;
-  if (typeof o['cron'] !== 'string') return false;
-  if (typeof o['prompt'] !== 'string') return false;
-  if (typeof o['createdAt'] !== 'number') return false;
-  if (o['recurring'] !== undefined && typeof o['recurring'] !== 'boolean') return false;
-  if (
-    o['lastFiredAt'] !== undefined &&
-    (typeof o['lastFiredAt'] !== 'number' || !Number.isFinite(o['lastFiredAt']))
-  ) {
-    return false;
-  }
-  return true;
-}
-
-function cronKey(id: string): string {
-  if (!CRON_ID_REGEX.test(id)) {
-    throw new Error(`Invalid cron job id: "${id}"`);
-  }
-  return `${id}${JSON_SUFFIX}`;
-}
-
-export class AgentCronService extends Disposable implements IAgentCronService {
+export class SessionCronServiceImpl extends Disposable implements ISessionCronService {
   declare readonly _serviceBrand: undefined;
 
-  // —— task set (the in-memory store) ——
   private readonly tasks = new Map<string, CronTask>();
-
-  // —— scheduler bookkeeping ——
   private readonly parsedCache = new Map<string, ParsedCronExpression>();
   private readonly lastSeenAt = new Map<string, number>();
-  private readonly seededFromDisk = new Set<string>();
+  private readonly seededFromStore = new Set<string>();
   private readonly inFlight = new Set<string>();
   private readonly timer = this._register(new IntervalTimer({ unref: true }));
-
-  // —— persistence write serialization, keyed by task id ——
   private readonly persistQueues = new Map<string, Promise<void>>();
 
   readonly clocks: ClockSources;
+  readonly isEnabled: boolean = true;
 
-  private readonly enabled: boolean;
-  /**
-   * HomeDir-relative atomic-document scope for this agent's cron tasks,
-   * e.g. `sessions/<workspaceId>/<sessionId>/agents/<agentId>/cron`. Co-locates
-   * the tasks with the agent's home directory (`<agentHomedir>/cron/<id>.json`),
-   * matching the v1 layout. `undefined` when the agent has no id (ephemeral /
-   * test seam) — persistence is then skipped, matching v1's "no homedir, no
-   * persistence" behaviour.
-   */
-  private readonly cronScope: string | undefined;
   private cronConfig: CronConfig;
   private started = false;
   private sigusr1Handler: NodeJS.SignalsListener | null = null;
 
   constructor(
-    @IAgentScopeContext private readonly ctx: IAgentScopeContext,
-    @IAgentPromptService private readonly prompt: IAgentPromptService,
-    @IAgentRecordService private readonly record: IAgentRecordService,
-    @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @ISessionContext private readonly ctx: ISessionContext,
+    @ICronTaskStore private readonly store: ICronTaskStore,
+    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IConfigService private readonly config: IConfigService,
-    @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
   ) {
     super();
-    this.enabled = this.ctx.agentId === 'main';
-    // Co-locate cron tasks with the agent's home directory
-    // (`sessions/<wsId>/<sId>/agents/<agentId>/cron/<id>.json`), matching the v1
-    // layout so a session written by the CLI / v1 server is readable here and
-    // vice-versa. `ctx.scope('cron')` is the agent-scoped persistence root's
-    // `cron` sub-scope, addressed straight into `IAtomicDocumentStore`.
-    this.cronScope =
-      typeof this.ctx.agentId === 'string' ? this.ctx.scope('cron') : undefined;
     this.cronConfig = this.config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
     this._register(
       this.config.onDidChangeConfiguration((e) => {
@@ -177,36 +116,15 @@ export class AgentCronService extends Disposable implements IAgentCronService {
       resolveClockSources(this.cronConfig.clock, this.cronConfig.debug) ?? SYSTEM_CLOCKS;
 
     this._register(
-      record.define('cron.add', {
-        resume: (r) => {
-          if (this.enabled) this.adopt(r.task);
-        },
-      }),
-    );
-    this._register(
-      record.define('cron.delete', {
-        resume: (r) => {
-          if (this.enabled) this.removeByIds(r.ids);
-        },
-      }),
-    );
-    this._register(
-      record.define('cron.cursor', {
-        resume: (r) => {
-          if (this.enabled) this.markFired(r.id, r.lastFiredAt);
-        },
-      }),
-    );
-    this._register(
-      record.hooks.onResumeEnded.register('cron-lifecycle-resume', async (_ctx, next) => {
-        await this.loadFromDisk({ replace: false });
-        this.start();
-        await next();
+      this.agentLifecycle.onDidCreate((handle) => {
+        if (handle.id !== 'main') return;
+        this.wireMainAgent(handle);
       }),
     );
 
-    if (this.enabled) {
-      this.start();
+    const existingMain = this.agentLifecycle.getHandle('main');
+    if (existingMain) {
+      this.wireMainAgent(existingMain);
     }
 
     this._register(
@@ -216,8 +134,31 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     );
   }
 
-  get isEnabled(): boolean {
-    return this.enabled;
+  private wireMainAgent(handle: IAgentScopeHandle): void {
+    const record = handle.accessor.get(IAgentRecordService);
+
+    record.define('cron.add', {
+      resume: (r) => {
+        this.adopt(r.task);
+      },
+    });
+    record.define('cron.delete', {
+      resume: (r) => {
+        this.removeByIds(r.ids);
+      },
+    });
+    record.define('cron.cursor', {
+      resume: (r) => {
+        this.markFired(r.id, r.lastFiredAt);
+      },
+    });
+    record.hooks.onResumeEnded.register('cron-lifecycle-resume', async (_ctx, next) => {
+      await this.loadFromStore({ replace: false });
+      this.start();
+      await next();
+    });
+
+    void this.loadFromStore().then(() => this.start());
   }
 
   now(): number {
@@ -231,10 +172,13 @@ export class AgentCronService extends Disposable implements IAgentCronService {
       ...init,
       id: this.generateUniqueId(),
       createdAt: this.clocks.wallNow(),
+      tags: { ...init.tags, [SESSION_TAG]: this.ctx.sessionId },
     };
     this.tasks.set(task.id, task);
-    this.record.append({ type: 'cron.add', task });
-    this.persistEnqueue(task.id, (scope) => this.atomicDocs.set(scope, cronKey(task.id), task));
+    this.appendRecord({ type: 'cron.add', task });
+    this.persistEnqueue(task.id, () =>
+      this.store.save(this.ctx.workspaceId, task),
+    );
     return task;
   }
 
@@ -242,9 +186,11 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     const removed = this.removeByIds(ids);
     if (removed.length === 0) return removed;
 
-    this.record.append({ type: 'cron.delete', ids: removed });
+    this.appendRecord({ type: 'cron.delete', ids: removed });
     for (const id of removed) {
-      this.persistEnqueue(id, (scope) => this.atomicDocs.delete(scope, cronKey(id)));
+      this.persistEnqueue(id, () =>
+        this.store.delete(this.ctx.workspaceId, id),
+      );
     }
     return removed;
   }
@@ -282,26 +228,19 @@ export class AgentCronService extends Disposable implements IAgentCronService {
 
   // —— lifecycle ——
 
-  async loadFromDisk(options: CronLoadOptions = {}): Promise<void> {
-    if (!this.enabled) return;
-    if (this.cronScope === undefined) return;
-    const scope = this.cronScope;
+  async loadFromStore(options: CronLoadOptions = {}): Promise<void> {
     if (options.replace !== false) {
       this.tasks.clear();
     }
-    const keys = await this.atomicDocs.list(scope);
-    for (const key of keys) {
-      if (!key.endsWith(JSON_SUFFIX)) continue;
-      const id = key.slice(0, -JSON_SUFFIX.length);
-      if (!CRON_ID_REGEX.test(id)) continue;
-      const value = await this.atomicDocs.get<CronTask>(scope, key);
-      if (value === undefined || !isValidCronTask(value)) continue;
-      this.adopt(value);
+    const allTasks = await this.store.list({ workspaceId: this.ctx.workspaceId });
+    for (const task of allTasks) {
+      if (task.tags?.[SESSION_TAG] !== this.ctx.sessionId) continue;
+      this.adopt(task);
     }
   }
 
   start(): void {
-    if (!this.enabled || this.started) return;
+    if (this.started) return;
     this.started = true;
 
     const poll = this.cronConfig.manualTick ? null : this.cronConfig.pollIntervalMs;
@@ -317,7 +256,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     this.timer.cancel();
     this.inFlight.clear();
     this.lastSeenAt.clear();
-    this.seededFromDisk.clear();
+    this.seededFromStore.clear();
     this.parsedCache.clear();
     await this.flushPersist();
     this.started = false;
@@ -325,8 +264,13 @@ export class AgentCronService extends Disposable implements IAgentCronService {
 
   tick(): void {
     if (this.cronConfig.disabled) return;
-    if (this.turnService.getActiveTurn() !== undefined) return;
     if (this.tasks.size === 0) return;
+
+    const mainHandle = this.agentLifecycle.getHandle('main');
+    if (!mainHandle) return;
+
+    const turnService = mainHandle.accessor.get(IAgentTurnService);
+    if (turnService.getActiveTurn() !== undefined) return;
 
     const now = this.clocks.wallNow();
 
@@ -338,7 +282,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
           const parsed = this.getParsed(task.cron);
 
           if (
-            !this.seededFromDisk.has(task.id) &&
+            !this.seededFromStore.has(task.id) &&
             task.lastFiredAt !== undefined &&
             Number.isFinite(task.lastFiredAt) &&
             task.lastFiredAt <= now &&
@@ -346,7 +290,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
           ) {
             this.lastSeenAt.set(task.id, task.lastFiredAt);
           }
-          this.seededFromDisk.add(task.id);
+          this.seededFromStore.add(task.id);
 
           const seen = this.lastSeenAt.get(task.id);
           const baseFromMs =
@@ -382,7 +326,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
           if (task.recurring === false) {
             this.removeTasks([task.id]);
             this.lastSeenAt.delete(task.id);
-            this.seededFromDisk.delete(task.id);
+            this.seededFromStore.delete(task.id);
           } else {
             const advancedTo = lastDueMs ?? now;
             this.lastSeenAt.set(task.id, advancedTo);
@@ -410,7 +354,13 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     tasks: readonly CronTask[],
     renderMissedNotification: (tasks: readonly CronTask[]) => readonly ContentPart[],
   ): Turn | undefined {
-    if (!this.enabled || tasks.length === 0) return undefined;
+    if (tasks.length === 0) return undefined;
+
+    const mainHandle = this.agentLifecycle.getHandle('main');
+    if (!mainHandle) return undefined;
+
+    const promptService = mainHandle.accessor.get(IAgentPromptService);
+
     const origin: CronMissedOrigin = {
       kind: 'cron_missed',
       count: tasks.length,
@@ -421,7 +371,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
       toolCalls: [],
       origin,
     };
-    const turn = this.prompt.steer(message);
+    const turn = promptService.steer(message);
     this.telemetry.track(CRON_MISSED, { count: tasks.length });
     return turn;
   }
@@ -452,6 +402,11 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     task: CronTask,
     ctx: { readonly coalescedCount: number; readonly firedAt: number },
   ): Turn | undefined {
+    const mainHandle = this.agentLifecycle.getHandle('main');
+    if (!mainHandle) return undefined;
+
+    const promptService = mainHandle.accessor.get(IAgentPromptService);
+
     const origin: CronJobOrigin = {
       kind: 'cron_job',
       jobId: task.id,
@@ -471,8 +426,8 @@ export class AgentCronService extends Disposable implements IAgentCronService {
       toolCalls: [],
       origin,
     };
-    this.record.signal({ type: 'cron.fired', origin, prompt: task.prompt });
-    const turn = this.prompt.steer(message);
+    this.signalRecord({ type: 'cron.fired', origin, prompt: task.prompt });
+    const turn = promptService.steer(message);
     this.telemetry.track(CRON_FIRED, {
       recurring: task.recurring !== false,
       coalesced_count: ctx.coalescedCount,
@@ -486,8 +441,26 @@ export class AgentCronService extends Disposable implements IAgentCronService {
     const updated = this.markFired(id, lastFiredAt);
     if (updated === undefined) return;
 
-    this.record.append({ type: 'cron.cursor', id, lastFiredAt });
-    this.persistEnqueue(id, (scope) => this.atomicDocs.set(scope, cronKey(id), updated));
+    this.appendRecord({ type: 'cron.cursor', id, lastFiredAt });
+    this.persistEnqueue(id, () =>
+      this.store.save(this.ctx.workspaceId, updated),
+    );
+  }
+
+  // —— wireRecord borrow helpers ——
+
+  private appendRecord(record: { type: string; [key: string]: unknown }): void {
+    const mainHandle = this.agentLifecycle.getHandle('main');
+    if (!mainHandle) return;
+    const recordService = mainHandle.accessor.get(IAgentRecordService);
+    recordService.append(record as never);
+  }
+
+  private signalRecord(event: { type: string; [key: string]: unknown }): void {
+    const mainHandle = this.agentLifecycle.getHandle('main');
+    if (!mainHandle) return;
+    const recordService = mainHandle.accessor.get(IAgentRecordService);
+    recordService.signal(event as never);
   }
 
   // —— scheduler helpers ——
@@ -569,7 +542,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
 
   private debugLog(message: string): void {
     if (this.cronConfig.debug) {
-      process.stderr.write(`[cron/service] ${message}\n`);
+      process.stderr.write(`[cron/session] ${message}\n`);
     }
   }
 
@@ -604,7 +577,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
       if (!this.tasks.has(candidate)) return candidate;
     }
     throw new Error(
-      `AgentCronService: failed to generate a unique 8-hex id after ${MAX_ID_ATTEMPTS} attempts`,
+      `SessionCronService: failed to generate a unique 8-hex id after ${MAX_ID_ATTEMPTS} attempts`,
     );
   }
 
@@ -617,13 +590,11 @@ export class AgentCronService extends Disposable implements IAgentCronService {
 
   // —— persistence write serialization ——
 
-  private persistEnqueue(id: string, work: (scope: string) => Promise<void>): void {
-    if (this.cronScope === undefined) return;
-    const scope = this.cronScope;
+  private persistEnqueue(id: string, work: () => Promise<void>): void {
     const prev = this.persistQueues.get(id) ?? Promise.resolve();
     const next = prev
       .catch(() => {})
-      .then(() => work(scope))
+      .then(() => work())
       .catch(() => {})
       .finally(() => {
         if (this.persistQueues.get(id) === next) {
@@ -645,7 +616,7 @@ export class AgentCronService extends Disposable implements IAgentCronService {
       } catch (error) {
         if (this.cronConfig.debug) {
           const msg = error instanceof Error ? error.message : String(error);
-          process.stderr.write(`[cron/service] SIGUSR1 tick threw: ${msg}\n`);
+          process.stderr.write(`[cron/session] SIGUSR1 tick threw: ${msg}\n`);
         }
       }
     };
@@ -661,9 +632,9 @@ export class AgentCronService extends Disposable implements IAgentCronService {
 }
 
 registerScopedService(
-  LifecycleScope.Agent,
-  IAgentCronService,
-  AgentCronService,
+  LifecycleScope.Session,
+  ISessionCronService,
+  SessionCronServiceImpl,
   InstantiationType.Delayed,
   'cron',
 );

@@ -68,6 +68,7 @@ export class BootstrapService implements IBootstrapService {
       logs: relative(options.homeDir, this.logsDir),
       cache: relative(options.homeDir, this.cacheDir),
       credentials: 'credentials',
+      cron: 'cron',
     };
   }
 

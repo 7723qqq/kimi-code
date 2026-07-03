@@ -3,21 +3,20 @@
  * at a future wall-clock time, either once (`recurring: false`) or on a
  * cron cadence (`recurring: true`, the default).
  *
- * Tasks live in `AgentCronService` and are mirrored to
- * `<sessionDir>/agents/<agentId>/cron/<id>.json` via
- * `IAgentCronService.addTask`, so a
- * `kimi resume` of the same session reloads them and the scheduler
- * picks up where it left off (fires that fell during downtime are
- * collapsed into a single delivery with `coalescedCount`). Tasks do
+ * Tasks live in `ISessionCronService` (Session scope) and are persisted
+ * through the App-scoped `ICronTaskStore` under the project's cron
+ * scope, so a `kimi resume` of the same session reloads them and the
+ * scheduler picks up where it left off (fires that fell during downtime
+ * are collapsed into a single delivery with `coalescedCount`). Tasks do
  * NOT carry over into a brand-new session.
  *
  * The tool itself is pure validation + bookkeeping; the firing /
- * coalesce / jitter / persistence logic lives in `AgentCronService`.
+ * coalesce / jitter / persistence logic lives in `SessionCronService`.
  * This file only knows how to:
  *
  *   1. validate the request (killswitch, cron parse, 5-year window,
  *      session cap, byte-length cap);
- *   2. add it to the service (which writes through to disk on success);
+ *   2. add it to the service (which writes through to the store);
  *   3. report back the post-jitter `nextFireAt` and a human-readable
  *      schedule for the model's benefit;
  *   4. emit `cron_scheduled` telemetry through the service (the tool
@@ -31,7 +30,7 @@ import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern } from '#/_base/tools/support/rule-match';
 import { IConfigService } from '#/app/config';
-import { IAgentCronService } from '#/agent/cron/cron';
+import { ISessionCronService } from '#/session/cron';
 import {
   CRON_SECTION,
   DEFAULT_CRON_CONFIG,
@@ -129,7 +128,7 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
 
   constructor(
     private readonly disabled: boolean = false,
-    @IAgentCronService private readonly cron: IAgentCronService,
+    @ISessionCronService private readonly cron: ISessionCronService,
   ) {}
 
   resolveExecution(args: CronCreateInput): ToolExecution {
@@ -324,7 +323,6 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
 }
 
 registerTool(CronCreateTool, {
-  when: (accessor) => accessor.get(IAgentCronService).isEnabled,
   staticArgs: (accessor) => [
     accessor.get(IConfigService).get<CronConfig>(CRON_SECTION)?.disabled
       ?? DEFAULT_CRON_CONFIG.disabled,

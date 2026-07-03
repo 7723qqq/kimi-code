@@ -1,9 +1,8 @@
 /**
- * `cron` domain barrel — re-exports the cron contract (`cron`) and its scoped
- * service (`cronService`), plus a side-effect import of each cron tool so its
- * `registerTool(...)` call runs at module load. Importing this barrel wires
- * `IAgentCronService` into the scope registry and adds the three cron tools
- * (`CronCreate` / `CronList` / `CronDelete`) to the tool contribution list.
+ * `cron` domain barrel — re-exports cron utilities (expression parser, jitter,
+ * format, clock, config) and registers the three cron tools (`CronCreate` /
+ * `CronList` / `CronDelete`) via side-effect imports. The cron task record
+ * type lives in `app/cronStore`; the scheduling engine lives in `session/cron`.
  */
 
 import './configSection';
@@ -11,5 +10,8 @@ import './tools/cron-create';
 import './tools/cron-delete';
 import './tools/cron-list';
 
-export * from './cron';
-export * from './cronService';
+export * from './cron-expr';
+export * from './format';
+export * from './jitter';
+export * from './clock';
+export { CRON_SECTION, type CronConfig, DEFAULT_CRON_CONFIG } from './configSection';

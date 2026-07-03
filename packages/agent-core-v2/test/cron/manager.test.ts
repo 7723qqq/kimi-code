@@ -4,16 +4,15 @@
  * (turn.hasActiveTurn, turn.steer, telemetry.track) need to look real.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeAgentScopeContext } from '#/agent/scopeContext';
 
 import type { ContentPart } from '#/app/llmProtocol/kosong';
 
-import type { CronTask } from '#/agent/cron';
+import type { CronTask } from '#/app/cronStore';
 import {
   CRON_FIRED,
   CRON_MISSED,
-  IAgentCronService,
-} from '#/agent/cron';
+} from '#/session/cron/sessionCronServiceImpl';
+import { ISessionCronService } from '#/session/cron';
 import { IAgentPromptService } from '#/agent/prompt';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { ITelemetryService } from '#/app/telemetry';
@@ -77,8 +76,8 @@ function captureTelemetry(telemetry: ITelemetryService): TelemetryRecord[] {
   return records;
 }
 
-describe('AgentCronService', () => {
-  let cron: IAgentCronService;
+describe('SessionCronService', () => {
+  let cron: ISessionCronService;
   let ctx: TestAgentContext;
   let prompt: IAgentPromptService;
   let telemetry: ITelemetryService;
@@ -108,8 +107,8 @@ describe('AgentCronService', () => {
 
   describe('construction', () => {
     beforeEach(() => {
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
     });
 
     it('does not throw with default clocks and supports start/stop', async () => {
@@ -141,8 +140,8 @@ describe('AgentCronService', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
       prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       telemetryRecords = captureTelemetry(telemetry);
@@ -213,8 +212,8 @@ describe('AgentCronService', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
       prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       telemetryRecords = captureTelemetry(telemetry);
@@ -258,8 +257,8 @@ describe('AgentCronService', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
     });
 
     it('flags recurring tasks older than 7 days as stale', () => {
@@ -313,8 +312,8 @@ describe('AgentCronService', () => {
     beforeEach(() => {
       vi.stubEnv('KIMI_CRON_NO_STALE', '1');
       harness = createClocks();
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
     });
 
     it('KIMI_CRON_NO_STALE=1 disables stale judgment for recurring', () => {
@@ -333,9 +332,9 @@ describe('AgentCronService', () => {
     beforeEach(() => {
       vi.spyOn(Date, 'now').mockReturnValue(Number.NaN);
       ctx = createTestAgent(
-        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
+        cronServices(),
       );
-      cron = ctx.get(IAgentCronService);
+      cron = ctx.get(ISessionCronService);
     });
 
     it('non-finite age is treated as not stale', () => {
@@ -357,8 +356,8 @@ describe('AgentCronService', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
       prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       telemetryRecords = captureTelemetry(telemetry);
@@ -425,8 +424,8 @@ describe('AgentCronService', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
       prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       telemetryRecords = captureTelemetry(telemetry);
@@ -452,8 +451,8 @@ describe('AgentCronService', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
       prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       turn = ctx.get(IAgentTurnService);
@@ -495,8 +494,8 @@ describe('AgentCronService', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
       prompt = ctx.get(IAgentPromptService);
       steerCalls = createSteerSpy(prompt);
     });
@@ -519,8 +518,8 @@ describe('AgentCronService', () => {
     let telemetryRecords: TelemetryRecord[];
 
     beforeEach(() => {
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
       prompt = ctx.get(IAgentPromptService);
       telemetry = ctx.get(ITelemetryService);
       telemetryRecords = captureTelemetry(telemetry);
@@ -574,8 +573,8 @@ describe('AgentCronService', () => {
 
     beforeEach(() => {
       harness = createClocks();
-      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })));
-      cron = ctx.get(IAgentCronService);
+      ctx = createTestAgent(cronServices());
+      cron = ctx.get(ISessionCronService);
       prompt = ctx.get(IAgentPromptService);
     });
 

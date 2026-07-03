@@ -8,7 +8,8 @@ import type {
   RunnableToolExecution,
   ToolExecution,
 } from '#/agent/tool';
-import type { CronTask, CronTaskInit, IAgentCronService } from '#/agent/cron';
+import type { CronTask, CronTaskInit } from '#/app/cronStore';
+import type { ISessionCronService } from '#/session/cron';
 import {
   computeNextCronRun,
   parseCronExpression,
@@ -38,7 +39,7 @@ interface FakeStore {
 
 interface ToolHarness {
   readonly store: FakeStore;
-  readonly cron: IAgentCronService;
+  readonly cron: ISessionCronService;
   readonly scheduled: CronTask[];
   readonly deleted: string[];
   setNow(value: number): void;
@@ -73,7 +74,7 @@ function createToolHarness(options: {
     },
   };
 
-  const cron: IAgentCronService = {
+  const cron: ISessionCronService = {
     _serviceBrand: undefined,
     isEnabled: true,
     now: () => now,
@@ -106,7 +107,7 @@ function createToolHarness(options: {
     emitDeleted: (id) => {
       deleted.push(id);
     },
-    loadFromDisk: async () => {},
+    loadFromStore: async () => {},
     start: () => {},
     stop: async () => {},
     tick: () => {},

@@ -16,8 +16,10 @@ import {
 } from '#/agent/blobStore';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentCronService } from '#/agent/cron/cron';
-import { AgentCronService } from '#/agent/cron/cronService';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
+import { SessionCronServiceImpl } from '#/session/cron/sessionCronServiceImpl';
+import { ICronTaskStore } from '#/app/cronStore/cronTaskStore';
+import { CronTaskStoreService } from '#/app/cronStore/cronTaskStoreService';
 import type { HookEngine } from '#/agent/externalHooks/engine';
 import type { FullCompactionServiceOptions } from '#/agent/fullCompaction';
 import { AgentGoalService, IAgentGoalService, type GoalServiceOptions } from '#/agent/goal';
@@ -585,10 +587,8 @@ export function backgroundServices(): TestAgentServiceOverride {
   return agentService(IAgentBackgroundService, new SyncDescriptor(AgentBackgroundService));
 }
 
-export function cronServices(
-  options: ConstructorParameters<typeof AgentCronService>[0],
-): TestAgentServiceOverride {
-  return agentService(IAgentCronService, new SyncDescriptor(AgentCronService, [options]));
+export function cronServices(): TestAgentServiceOverride {
+  return sessionService(ISessionCronService, new SyncDescriptor(SessionCronServiceImpl));
 }
 
 export function mcpServices(options: McpServiceOptions): TestAgentServiceOverride {
@@ -966,6 +966,7 @@ export class AgentTestContext {
           if (options.telemetry !== undefined) {
             reg.defineInstance(ITelemetryService, options.telemetry);
           }
+          reg.defineDescriptor(ICronTaskStore, new SyncDescriptor(CronTaskStoreService));
         },
       ],
       this.serviceOverrides,
@@ -1004,6 +1005,10 @@ export class AgentTestContext {
             reg.defineDescriptor(
               ISessionModelResolver,
               new SyncDescriptor(ConfigBackedModelResolver, [{}]),
+            );
+            reg.defineDescriptor(
+              ISessionCronService,
+              new SyncDescriptor(SessionCronServiceImpl),
             );
           },
         ],
@@ -1054,7 +1059,6 @@ export class AgentTestContext {
                 } satisfies PermissionGateOptions,
               ]),
             );
-            reg.defineDescriptor(IAgentCronService, new SyncDescriptor(AgentCronService, [{}]));
             reg.defineDescriptor(
               IAgentBackgroundService,
               new SyncDescriptor(AgentBackgroundService),
@@ -1148,7 +1152,7 @@ export class AgentTestContext {
     const permission = this.get(IAgentPermissionGate);
     const permissionMode = this.get(IAgentPermissionModeService);
     const permissionRules = this.get(IAgentPermissionRulesService);
-    const cron = this.get(IAgentCronService);
+    const cron = this.get(ISessionCronService);
     const plan = this.get(IAgentPlanService);
     // Force-instantiate the Eager builtin-tools registrar: its constructor
     // consumes every `registerTool(...)` contribution, so `Read`/`Write`/

@@ -42,6 +42,8 @@ export * from '#/agent/usage';
 export * from '#/agent/toolDedupe';
 
 export * from '#/agent/background';
+export * from '#/app/cronStore';
+export * from '#/session/cron';
 import '#/agent/cron';
 
 export * from '#/session/agentLifecycle';

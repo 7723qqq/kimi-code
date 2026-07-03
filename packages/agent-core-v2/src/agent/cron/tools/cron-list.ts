@@ -27,7 +27,7 @@
  *                       decimal places. Useful context for the `stale`
  *                       flag and for the LLM's "should I still be
  *                       running?" judgement.
- *   - `stale`         — mirrors `IAgentCronService.isStale(task)`; see that
+ *   - `stale`         — mirrors `ISessionCronService.isStale(task)`; see that
  *                       method for the precise rules
  *                       (`recurring && age >= 7 days`, gated by
  *                       `KIMI_CRON_NO_STALE`).
@@ -45,8 +45,8 @@ import { z } from 'zod';
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { IAgentCronService } from '#/agent/cron/cron';
-import type { CronTask } from '#/agent/cron/cron';
+import { ISessionCronService } from '#/session/cron';
+import type { CronTask } from '#/app/cronStore';
 import {
   cronToHuman,
   parseCronExpression,
@@ -92,7 +92,7 @@ export class CronListTool implements BuiltinTool<CronListInput> {
     CronListInputSchema,
   );
 
-  constructor(@IAgentCronService private readonly cron: IAgentCronService) {}
+  constructor(@ISessionCronService private readonly cron: ISessionCronService) {}
 
   resolveExecution(_args: CronListInput): ToolExecution {
     return {
@@ -171,6 +171,4 @@ export class CronListTool implements BuiltinTool<CronListInput> {
   }
 }
 
-registerTool(CronListTool, {
-  when: (accessor) => accessor.get(IAgentCronService).isEnabled,
-});
+registerTool(CronListTool);

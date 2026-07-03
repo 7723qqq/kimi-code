@@ -1,6 +1,6 @@
 /**
  * Agent + cron wiring smoke: verifies `new Agent(...)` constructs and
- * starts an AgentCronService, registers the three cron tools, and that
+ * starts a SessionCronService, registers the three cron tools, and that
  * `KIMI_DISABLE_CRON=1` short-circuits `CronCreate`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,7 +9,7 @@ import {
   CronCreateTool,
   type CronCreateInput,
 } from '#/agent/cron/tools/cron-create';
-import { IAgentCronService } from '#/agent/cron';
+import { ISessionCronService } from '#/session/cron';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { createTestAgent, type TestAgentContext } from '../harness';
@@ -17,12 +17,12 @@ import { createTestAgent, type TestAgentContext } from '../harness';
 describe('Agent + Cron integration (P1.7)', () => {
   describe('default cron wiring', () => {
     let ctx: TestAgentContext;
-    let cron: IAgentCronService;
+    let cron: ISessionCronService;
     let profile: IAgentProfileService;
 
     beforeEach(() => {
       ctx = createTestAgent();
-      cron = ctx.get(IAgentCronService);
+      cron = ctx.get(ISessionCronService);
       profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: ['CronCreate', 'CronList', 'CronDelete'] });
     });
@@ -59,14 +59,14 @@ describe('Agent + Cron integration (P1.7)', () => {
 
   describe('disabled cron config', () => {
     let ctx: TestAgentContext;
-    let cron: IAgentCronService;
+    let cron: ISessionCronService;
     let profile: IAgentProfileService;
     let tools: IAgentToolRegistryService;
 
     beforeEach(() => {
       vi.stubEnv('KIMI_DISABLE_CRON', '1');
       ctx = createTestAgent();
-      cron = ctx.get(IAgentCronService);
+      cron = ctx.get(ISessionCronService);
       profile = ctx.get(IAgentProfileService);
       tools = ctx.get(IAgentToolRegistryService);
       profile.update({ activeToolNames: ['CronCreate'] });

@@ -159,6 +159,7 @@ const DOMAIN_LAYER = new Map([
   ['background', 5],
   ['mcp', 5],
   ['cron', 5],
+  ['cronStore', 5],
   // `btw` forks a single side-question sub-agent via `agentLifecycle`,
   // parallel to how the `Agent` tool spawns child agents. Agent-scope, L5.
   ['btw', 5],
@@ -239,7 +240,7 @@ function domainFromRel(rel, { exemptRootFile }) {
  *  - `swarm>agentLifecycle`: swarm spawns/manages sub-agents.
  *  - `background>agentLifecycle`: background agent-tasks spawn sub-agents.
  *  - `cron>agentLifecycle` : cron coordinator steers the main agent.
- *  - `cron>sessionActivity`: cron scheduler gates on session idle.
+ *  - `cron>sessionContext`: cron scheduler reads session identity for store filtering.
  *
  * Post-rebase-v2 restructuring introduced cross-domain type sharing between
  * L3 (registries/capabilities) and L4 (agent behaviour). The tool contract
@@ -264,7 +265,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'swarm>agentLifecycle',
   'background>agentLifecycle',
   'cron>agentLifecycle',
-  'cron>sessionActivity',
+  'cron>sessionContext',
   'wireRecord>hooks',
   // L3/L4 type-sharing: tool contract + execution hook contexts now live in
   // `tool`; the remaining upward import is a `loop` error/event helper.
