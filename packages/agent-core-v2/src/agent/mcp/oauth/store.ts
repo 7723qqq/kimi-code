@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 
 import { basename } from 'pathe';
 
-import type { IAtomicDocumentStore } from '#/app/storage';
+import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 
 const CREDENTIALS_SCOPE = 'credentials/mcp';
 

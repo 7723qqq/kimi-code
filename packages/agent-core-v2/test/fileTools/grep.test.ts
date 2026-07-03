@@ -19,8 +19,8 @@ import {
   type GrepInput,
   GrepInputSchema,
   GrepTool,
-} from '#/agent/fileTools/tools/grep';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
+} from '#/os/backends/node-local/tools/grep';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;

@@ -16,7 +16,7 @@ import { basename, isAbsolute } from 'pathe';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IFileSystemStorageService } from '#/app/storage';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import { IWorkspaceRegistry, type Workspace, type WorkspaceUpdate } from './workspaceRegistry';
 import { IWorkspacePersistence } from './workspacePersistence';

@@ -7,12 +7,10 @@ import { ILogService } from '#/app/log';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata';
 import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataService';
-import {
-  AtomicDocumentStore,
-  IFileSystemStorageService,
-  IAtomicDocumentStore,
-  InMemoryStorageService,
-} from '#/app/storage';
+import { AtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
 import { stubLog } from '../log/stubs';
 

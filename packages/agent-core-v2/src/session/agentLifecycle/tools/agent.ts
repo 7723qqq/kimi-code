@@ -1,17 +1,12 @@
 /**
  * `agentLifecycle` domain (L6) — the `Agent` collaboration tool.
  *
- * Lets a parent Agent invoke a child Agent under a named profile from the App
- * `IAgentProfileCatalogService`. The tool is a thin adapter over three
- * primitives: `IAgentLifecycleService.spawn` (create the child scope inheriting
- * the parent's profile fields), `applyProfileToAgent` (overlay the named
- * profile's tool set / system-prompt / bookkeeping), and
- * `observeChildAgentTurn` (submit the prompt, mirror the child's turn
- * lifecycle onto the caller's record + external hooks, and distill the
- * summary). The tool owns only the LLM-facing surface: JSON schema + tool
- * description, approval rule, task registration (so the LLM can see the child
- * under TaskList/TaskOutput/TaskStop when `run_in_background=true` or after
- * detach), and the terminal text formatting.
+ * Thin adapter over `IAgentLifecycleService.runSubagent` /
+ * `resumeSubagent`. The tool owns only the LLM-facing surface: JSON
+ * schema + tool description, approval rule, task registration
+ * (so the LLM can see the child under TaskList/TaskOutput/TaskStop when
+ * `run_in_background=true` or after detach), and terminal text
+ * formatting.
  *
  * Registered via the module-level `registerTool(AgentTool)` at the bottom of
  * this file — the same "import = register" pattern used by every builtin tool.
@@ -27,7 +22,6 @@ import {
   type RegisterAgentTaskOptions,
 } from '#/agent/task';
 import { IAgentProfileService } from '#/agent/profile';
-import { IAgentRecordService } from '#/agent/record';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import { isAbortError } from '#/agent/loop/errors';
 import type {
@@ -43,13 +37,8 @@ import {
   type AgentProfileDefinition,
 } from '#/app/agentProfileCatalog';
 import { ILogService } from '#/app/log';
-import { ITelemetryService } from '#/app/telemetry';
-import { IExecContext } from '#/session/execContext';
-import { ISessionProcessRunner } from '#/session/process';
 
 import { IAgentLifecycleService } from '../agentLifecycle';
-import { applyProfileToAgent } from '../applyProfileToAgent';
-import { observeChildAgentTurn } from '../observeChildAgentTurn';
 import { SubagentTask, type SubagentHandle } from './subagent-task';
 
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
@@ -138,7 +127,6 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentToolInputSchema);
 
   private readonly callerAgentId: string;
-  private readonly cwd: string;
   private readonly canRunInBackground: () => boolean;
 
   constructor(
@@ -147,14 +135,9 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     @IAgentScopeContext scopeContext: IAgentScopeContext,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IAgentRecordService private readonly record: IAgentRecordService,
-    @IExecContext execContext: IExecContext,
-    @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
-    @ITelemetryService private readonly telemetry: ITelemetryService,
     @ILogService private readonly log: ILogService,
   ) {
     this.callerAgentId = scopeContext.agentId;
-    this.cwd = execContext.cwd;
     this.canRunInBackground = () =>
       this.profile.isToolActive('TaskList') &&
       this.profile.isToolActive('TaskOutput') &&
@@ -230,58 +213,13 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         return { output: BACKGROUND_AGENT_UNAVAILABLE, isError: true };
       }
 
-      const caller = this.lifecycle.getHandle(this.callerAgentId);
-      if (caller === undefined) {
-        return { output: `Caller agent "${this.callerAgentId}" is not registered`, isError: true };
-      }
-
-      // Resolve the target child (spawn a new one, or look up an existing agent id).
-      let child;
-      let profileName: string;
-      let profile: AgentProfileDefinition | undefined;
-
-      if (isResume) {
-        child = this.lifecycle.getHandle(resumeAgentId!);
-        if (child === undefined) {
-          return { output: `Agent instance "${resumeAgentId}" does not exist`, isError: true };
-        }
-        profileName = child.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_LABEL;
-        profile = this.catalog.get(profileName);
-      } else {
-        profileName = requestedProfileName ?? DEFAULT_PROFILE_NAME;
-        profile = this.catalog.get(profileName);
-        if (profile === undefined) {
-          return { output: `Unknown agent type: "${profileName}"`, isError: true };
-        }
-        try {
-          child = await this.lifecycle.spawn(this.callerAgentId);
-        } catch (error) {
-          this.log?.warn('subagent spawn failed', {
-            toolCallId,
-            subagentType: profileName,
-            error,
-          });
-          throw error;
-        }
-        applyProfileToAgent(child, profile);
-      }
-
-      // Announce the spawn on the caller's wire — this carries tool-call
-      // provenance (parentToolCallId) that only the tool knows.
-      this.record.signal({
-        type: 'subagent.spawned',
-        subagentId: child.id,
-        subagentName: profileName,
+      const metadata = {
         parentToolCallId: toolCallId,
-        callerAgentId: this.callerAgentId,
         description: args.description,
         runInBackground,
-      });
-      this.telemetry?.track('subagent_created', {
-        subagent_name: profileName,
-        run_in_background: runInBackground,
-      });
+      };
 
+      // Delegate spawn-or-resume + turn observation to the lifecycle service.
       const controller = new AbortController();
       const abortBeforeRegister = (): void => {
         controller.abort(signal.reason);
@@ -290,31 +228,34 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         signal.addEventListener('abort', abortBeforeRegister, { once: true });
       }
 
-      // Compose the prompt with any per-invocation prefix the profile owns
-      // (e.g. explore's `<git-context>` block).
-      const promptText = isResume
-        ? args.prompt
-        : await this.withProfilePrefix(profile!, args.prompt);
-
-      const observed = observeChildAgentTurn(
-        caller,
-        child,
-        { kind: 'prompt', prompt: promptText },
-        {
-          profileName,
-          summaryPolicy: profile?.summaryPolicy,
-          signal: controller.signal,
-        },
-      );
-      if (observed === undefined) {
+      let handle;
+      try {
+        handle = isResume
+          ? await this.lifecycle.resumeSubagent({
+              callerAgentId: this.callerAgentId,
+              agentId: resumeAgentId!,
+              prompt: args.prompt,
+              signal: controller.signal,
+              metadata,
+            })
+          : await this.lifecycle.runSubagent({
+              callerAgentId: this.callerAgentId,
+              profileName: requestedProfileName ?? DEFAULT_PROFILE_NAME,
+              prompt: args.prompt,
+              signal: controller.signal,
+              metadata,
+            });
+      } catch (error) {
         signal.removeEventListener('abort', abortBeforeRegister);
-        return { output: 'Subagent turn could not be started', isError: true };
+        throw error;
       }
 
-      const handle: SubagentHandle = {
-        agentId: child.id,
-        profileName,
-        completion: observed.completion.then((r) => ({ result: r.summary, usage: r.usage })),
+      // Wrap the lifecycle handle in a background task so the LLM can interact
+      // with it via TaskList / TaskOutput / TaskStop.
+      const subagentHandle: SubagentHandle = {
+        agentId: handle.agentId,
+        profileName: handle.profileName,
+        completion: handle.completion,
       };
 
       let taskId: string;
@@ -325,18 +266,18 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
           signal: runInBackground ? undefined : signal,
         };
         taskId = this.tasks.registerTask(
-          new SubagentTask(handle, args.description, controller),
+          new SubagentTask(subagentHandle, args.description, controller),
           registerOptions,
         );
         signal.removeEventListener('abort', abortBeforeRegister);
       } catch (error) {
         controller.abort();
-        void handle.completion.catch(() => {});
+        void subagentHandle.completion.catch(() => {});
         signal.removeEventListener('abort', abortBeforeRegister);
         this.log?.warn('subagent task registration failed', {
           toolCallId,
-          agentId: handle.agentId,
-          subagentType: handle.profileName,
+          agentId: subagentHandle.agentId,
+          subagentType: subagentHandle.profileName,
           error,
         });
         return {
@@ -347,36 +288,19 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
 
       if (runInBackground) {
         return {
-          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
+          output: formatBackgroundAgentResult(taskId, subagentHandle, args.description, allowBackground),
         };
       }
 
       const release = await this.tasks.waitForForegroundRelease(taskId);
       if (release === 'detached') {
         return {
-          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
+          output: formatBackgroundAgentResult(taskId, subagentHandle, args.description, allowBackground),
         };
       }
-      return await this.formatForegroundResult(taskId, handle);
+      return await this.formatForegroundResult(taskId, subagentHandle);
     } catch (error) {
       return { output: `subagent error: ${launchErrorMessage(error, signal)}`, isError: true };
-    }
-  }
-
-  private async withProfilePrefix(
-    profile: AgentProfileDefinition,
-    prompt: string,
-  ): Promise<string> {
-    if (profile.promptPrefix === undefined) return prompt;
-    try {
-      const prefix = await profile.promptPrefix({
-        cwd: this.cwd,
-        runner: this.processRunner,
-        log: this.log,
-      });
-      return prefix.length > 0 ? `${prefix}\n\n${prompt}` : prompt;
-    } catch {
-      return prompt;
     }
   }
 

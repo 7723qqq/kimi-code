@@ -19,7 +19,7 @@ import type { Model } from '#/app/model';
 import { toDisposable, type IDisposable } from '#/_base/di';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 import type { ISessionAgentFileSystem } from '#/session/agentFs';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { ReadMediaFileTool, type VideoUploader } from '#/agent/media/tools/read-media';
 

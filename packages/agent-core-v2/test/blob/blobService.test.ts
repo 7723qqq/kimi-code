@@ -8,7 +8,8 @@ import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { AgentBlobServiceImpl, IAgentBlobService } from '#/agent/blob';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap';
-import { IFileSystemStorageService, InMemoryStorageService } from '#/app/storage';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 

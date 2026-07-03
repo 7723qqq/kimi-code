@@ -79,6 +79,8 @@ describe('RestGateway', () => {
       getHandle: (id) => (id === 'main' ? agentHandle : undefined),
       list: () => [agentHandle],
       remove: () => Promise.resolve(),
+      runSubagent: () => Promise.reject(new Error('not implemented in test')),
+      resumeSubagent: () => Promise.reject(new Error('not implemented in test')),
     };
     const sessionHandle: ISessionScopeHandle = {
       id: 's1',

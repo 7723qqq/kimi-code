@@ -28,7 +28,7 @@ import type {
 import { z } from 'zod';
 
 import { ISessionAgentFileSystem } from '#/session/agentFs';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { resolvePathAccessPath } from '#/_base/tools/policies/path-access';

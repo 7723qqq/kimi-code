@@ -56,16 +56,13 @@ const DOMAIN_LAYER = new Map([
   ['bootstrap', 1],
   // `environment` is the App-scope resolved startup snapshot: host facts, the
   // app path layout, and the env bag; low-level substrate that any domain may
-  // read for paths/facts, so it sits in L1 beside `bootstrap` and
-  // `hostEnvironment`.
+  // read for paths/facts, so it sits in L1 beside `bootstrap` and the
+  // `os/interface` host facts.
   ['environment', 1],
   // `event` is the App-scope pub/sub bus, a thin wrapper over the
   // `_base/event` `Emitter`. Foundational substrate that any domain may
   // publish/subscribe through, so it sits in L1 (not the edge boundary).
   ['event', 1],
-  // `hostEnvironment` is the App-scope OS/shell/path/home probe snapshot;
-  // low-level substrate that any Session/Agent domain may read synchronously.
-  ['hostEnvironment', 1],
   // `execContext` is the Session-scope seeded immutable value (`cwd`,
   // `envLayers`); same layer as the other low-level bridges.
   ['execContext', 1],
@@ -73,15 +70,15 @@ const DOMAIN_LAYER = new Map([
   // (`sessionId`/`workspaceId`/`sessionDir`/`metaScope`); like `execContext`
   // it is a pure seed with no IO, so it sits in L1.
   ['sessionContext', 1],
-  ['hostFs', 1],
   // `git` is the App-scope `IGitService` that runs `git status` / `git diff`
-  // against a local repo via `node:child_process`; it depends only on `_base`
+  // against a local repo. Process spawning goes through `os/interface`
+  // (`IHostProcessService`) and the lone path-existence probe through
+  // `IHostFileSystem`; besides those host bridges it depends only on `_base`
   // and the `errors` facade, so it sits in L1 beside the other host bridges.
   ['git', 1],
   ['workspaceContext', 1],
   ['protocol', 1],
   ['hooks', 1],
-  ['storage', 1],
   // `task` is the managed-concurrent-execution primitive (run + defer).
   // Depends only on `_base`; sits in L1 beside the other program-control
   // layer substrates.
@@ -150,7 +147,6 @@ const DOMAIN_LAYER = new Map([
   ['microCompaction', 4],
   ['loop', 4],
   ['media', 4],
-  ['fileTools', 4],
   ['shellTools', 4],
   ['llmRequester', 4],
   ['profile', 4],
@@ -263,10 +259,17 @@ const ALLOWED_EXCEPTIONS = new Set([
   'bootstrap>globalSkillCatalog',
   // bootstrap is the composition root — it wires backends by design.
   'bootstrap>persistence/backends',
+  // `auth` (KimiOAuth, L2) owns the OAuth-backed `WebSearch` tool and registers
+  // it through the tool contribution API, so it reaches up to the L3 tool
+  // contract and registry. Surfaced for review: the tool needs an authenticated
+  // backend, which is why it lives beside the OAuth toolkit rather than in the
+  // auth-independent `web` domain.
+  'auth>tool',
+  'auth>toolRegistry',
   // path-access (base tool policy) needs the `IHostEnvironment` type to stay
   // host-aware (path class, home dir). Structural type dependency only —
   // path-access does not construct or resolve the service.
-  '_base>hostEnvironment',
+  '_base>os/interface',
   'permissionGate>approval',
   'userTool>interaction',
   'permissionPolicy>plan',
@@ -309,13 +312,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'wireRecord>contextMemory',
   'wireRecord>loop',
   'wireRecord>tool',
-  // Compatibility barrels: old domain barrels (L1-L2) re-export from the new
-  // persistence/os backends directories. These are pure re-export shims and
-  // will be removed once all consumers migrate to canonical paths.
-  'hostEnvironment>os/backends',
-  'hostFs>os/backends',
   'hostFolderBrowser>os/backends',
-  'storage>persistence/backends',
   'filestore>persistence/backends',
   'process>os/backends',
   'terminal>os/backends',

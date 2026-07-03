@@ -33,7 +33,7 @@
 import { z } from 'zod';
 
 import { IAgentTaskService } from '#/agent/task';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IExecContext } from '#/session/execContext';
 import { ISessionProcessRunner } from '#/session/process';
 import type { IProcess } from '#/session/process';

@@ -30,7 +30,8 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IConfigService } from '#/app/config';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionContext } from '#/session/sessionContext';
-import { IAtomicDocumentStore, IFileSystemStorageService } from '#/app/storage';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 import {

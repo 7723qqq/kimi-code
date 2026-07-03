@@ -14,7 +14,7 @@ import { IAgentPermissionGate } from '#/agent/permissionGate';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPlanService } from '#/agent/plan';
 import { IExecContext } from '#/session/execContext';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { expandCommandArguments, IPluginService } from '#/app/plugin';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';

@@ -15,7 +15,8 @@
 
 import { join } from 'pathe';
 
-import type { IAtomicDocumentStore, IFileSystemStorageService } from '#/app/storage';
+import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import type { AgentTaskInfo, AgentTaskStatus } from './types';
 

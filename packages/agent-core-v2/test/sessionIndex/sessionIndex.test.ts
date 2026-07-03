@@ -12,12 +12,10 @@ import { IBootstrapService } from '#/app/bootstrap';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { FileSessionIndex } from '#/app/sessionIndex/sessionIndexService';
 import { stubBootstrap } from '../bootstrap/stubs';
-import {
-  AtomicDocumentStore,
-  FileStorageService,
-  IAtomicDocumentStore,
-  IFileSystemStorageService,
-} from '#/app/storage';
+import { AtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 const WORK_DIR = '/home/user/repo';
 

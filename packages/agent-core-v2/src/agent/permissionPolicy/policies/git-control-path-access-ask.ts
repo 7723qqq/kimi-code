@@ -1,6 +1,6 @@
 import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
-import { IHostEnvironment } from '#/app/hostEnvironment';
-import type { IHostEnvironment as HostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostEnvironment as HostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import type { ISessionWorkspaceContext as WorkspaceContext } from '#/session/workspaceContext';
 import type {

@@ -32,7 +32,7 @@ import {
 } from '#/agent/task';
 import type { AgentTaskSettlement } from '#/agent/task/types';
 import { ProcessTask } from '#/agent/shellTools/tools/process-task';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentProfileService } from '#/agent/profile';
 import { createExecContext, type IExecContext } from '#/session/execContext';
 import type { IProcess, ISessionProcessRunner } from '#/session/process';

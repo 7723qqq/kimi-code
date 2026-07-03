@@ -3,7 +3,7 @@
  *
  * Runs a batch of subagents on behalf of a caller agent: builds a
  * `SubagentBatchLauncher` on top of the `agentLifecycle` primitives
- * (`spawn`, `applyProfileToAgent`, `observeChildAgentTurn`), drives the
+ * (`spawn({ profile })`, `observeChildAgentTurn`), drives the
  * internal `SubagentBatch` scheduler, and tracks one `AbortController` per
  * caller so `cancel` can abort every in-flight run. `subagent.spawned` facts
  * carrying the swarm's tool-call context, and `subagent.suspended` facts
@@ -25,7 +25,6 @@ import { ITelemetryService } from '#/app/telemetry';
 import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog';
 import {
   IAgentLifecycleService,
-  applyProfileToAgent,
   observeChildAgentTurn,
 } from '#/session/agentLifecycle';
 import { IExecContext } from '#/session/execContext';
@@ -105,8 +104,10 @@ export class SessionSwarmService implements ISessionSwarmService {
     if (profile === undefined) {
       throw new Error(`Unknown agent type: "${options.profileName}"`);
     }
-    const child = await this.lifecycle.spawn(callerAgentId, { swarmItem: options.swarmItem });
-    applyProfileToAgent(child, profile);
+    const child = await this.lifecycle.spawn(callerAgentId, {
+      swarmItem: options.swarmItem,
+      profile: profile.name,
+    });
     this.emitSpawned(caller, child.id, options.profileName, options);
     const promptText = profile.promptPrefix !== undefined
       ? await this.withProfilePrefix(profile.promptPrefix, options.prompt)

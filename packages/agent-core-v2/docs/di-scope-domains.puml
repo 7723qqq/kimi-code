@@ -32,7 +32,8 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>workspaceRegistry</b>\n<size:9><i>App</i></size>\n  IWorkspaceRegistry" as workspaceRegistry #D6EAF8
   rectangle "<b>hostFolderBrowser</b>\n<size:9><i>App</i></size>\n  IHostFolderBrowser" as hostFolderBrowser #D6EAF8
   rectangle "<b>hostEnvironment</b>\n<size:9><i>App</i></size>\n  IHostEnvironment" as hostEnvironment #D6EAF8
-  rectangle "<b>auth</b>\n<size:9><i>App</i></size>\n  IOAuthService\n  IAuthSummaryService" as auth #D6EAF8
+  rectangle "<b>auth</b>\n<size:9><i>App</i></size>\n  IOAuthService\n  IAuthSummaryService\n  IWebSearchProviderService" as auth #D6EAF8
+  rectangle "<b>web</b>\n<size:9><i>App</i></size>\n  IWebFetchService" as web #D6EAF8
   rectangle "<b>provider</b>\n<size:9><i>App</i></size>\n  IProviderService" as provider #D6EAF8
   rectangle "<b>flag</b>\n<size:9><i>App</i></size>\n  IFlagService\n  IFlagRegistry" as flag #D6EAF8
   rectangle "<b>config</b>\n<size:9><i>App</i></size>\n  IConfigRegistry\n  IConfigService" as config #D6EAF8
@@ -337,6 +338,8 @@ shellTools --> process #34495E
 shellTools --> hostEnvironment
 shellTools --> execContext #34495E
 shellTools --> task #34495E
+web --> toolRegistry #34495E
+auth --> toolRegistry #34495E
 
 ' ---- event-driven (dashed) ----
 flag ..> config #16A085 : onDidChangeConfiguration

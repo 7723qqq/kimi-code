@@ -23,7 +23,7 @@ import { IBootstrapService } from '#/app/bootstrap';
 import { IConfigService } from '#/app/config';
 import { resolveThinkingEffort } from './thinking';
 import type { LoopControl } from '#/agent/loop/configSection';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionAgentFileSystem } from '#/session/agentFs';
 import { IExecContext } from '#/session/execContext';
 import { isMcpToolName } from '#/agent/tool';

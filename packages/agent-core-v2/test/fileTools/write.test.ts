@@ -17,8 +17,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
 import type { AgentFileStat, ISessionAgentFileSystem } from '#/session/agentFs';
 import { stubWorkspaceContext } from './stub-workspace-context';
-import { type WriteInput, WriteInputSchema, WriteTool } from '#/agent/fileTools/tools/write';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
+import { type WriteInput, WriteInputSchema, WriteTool } from '#/os/backends/node-local/tools/write';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;

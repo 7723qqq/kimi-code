@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { AppendLogCorruptedError, IFileSystemStorageService, IAppendLogStore } from '#/app/storage';
+import { AppendLogCorruptedError, IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 

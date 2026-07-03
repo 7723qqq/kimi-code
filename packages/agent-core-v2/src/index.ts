@@ -74,6 +74,7 @@ export * from '#/persistence/backends/memory';
 export * from '#/app/auth';
 export * from '#/app/authLegacy';
 export * from '#/app/file';
+export * from '#/app/web';
 
 // Ported agent services. These keep the current service boundaries during the migration.
 export * from '#/agent/blob';
@@ -114,5 +115,4 @@ export type { ToolContribution, ToolContributionOptions } from '#/agent/toolRegi
 export * from '#/agent/toolState';
 export * from '#/agent/userTool';
 export * from '#/agent/wireRecord';
-export * from '#/agent/fileTools';
 export * from '#/agent/shellTools';

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { FileStorageService } from '#/app/storage';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
 
 interface CapturedRequest {

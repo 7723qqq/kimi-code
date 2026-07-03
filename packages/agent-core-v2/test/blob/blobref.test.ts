@@ -17,7 +17,8 @@ import {
 } from '#/agent/blob';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
-import { FileStorageService, IFileSystemStorageService } from '#/app/storage';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 

@@ -5,7 +5,8 @@ import {
   type AgentTaskInfo,
   type IAgentTaskService,
 } from '#/agent/task';
-import { AtomicDocumentStore, FileStorageService } from '#/app/storage';
+import { AtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 
 export type TaskServiceTestManager = IAgentTaskService & {
   loadFromDisk(): Promise<void>;

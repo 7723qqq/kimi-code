@@ -18,7 +18,7 @@ import {
   type TaskState,
   TERMINAL_TASK_STATES,
   TaskCancelledError,
-} from './interface/task';
+} from './task';
 
 function isTerminal(state: TaskState): boolean {
   return TERMINAL_TASK_STATES.has(state);

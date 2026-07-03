@@ -9,7 +9,7 @@ import type { ContentPart, ModelCapability } from '#/app/llmProtocol/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ISessionAgentFileSystem } from '#/session/agentFs';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import {
   ReadMediaFileInputSchema,
   ReadMediaFileTool,

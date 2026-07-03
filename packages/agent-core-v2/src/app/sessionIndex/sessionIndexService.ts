@@ -21,7 +21,9 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap';
-import { IAtomicDocumentStore, IFileSystemStorageService, type Page } from '#/app/storage';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import type { Page } from '#/persistence/interface/queryStore';
 
 import { ISessionIndex, type SessionListQuery, type SessionSummary } from './sessionIndex';
 
