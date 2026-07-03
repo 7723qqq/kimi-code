@@ -1,9 +1,14 @@
 /**
- * WebSearchTool — host-injected web search.
+ * `auth` domain (cross-cutting) — `WebSearch` builtin tool and its
+ * `WebSearchProvider` contract.
  *
- * agent-core-v2 defines the interface; the host provides the real search
- * implementation via `WebSearchProvider`. If no provider is supplied,
- * the tool is not registered (there is no local search backend).
+ * Defines the `WebSearch` tool and the host-injected `WebSearchProvider`
+ * interface (plus `WebSearchResult`). Web search needs an authenticated
+ * Moonshot backend, so the tool lives in the KimiOAuth `auth` domain: it reads
+ * its provider from the App-scope `IWebSearchProviderService` at
+ * registry-construction time and self-registers via `registerTool(...)` at
+ * module load, but only when a provider is configured (there is no local
+ * search backend).
  */
 
 import { z } from 'zod';
@@ -18,7 +23,9 @@ import type {
 } from '#/agent/tool';
 import { ToolAccesses } from '#/agent/tool';
 import { ToolResultBuilder } from '#/agent/tool/result-builder';
+import { registerTool } from '#/agent/toolRegistry';
 
+import { IWebSearchProviderService } from '../webSearch';
 import DESCRIPTION from './web-search.md?raw';
 
 // ── Provider interface (host-injected) ───────────────────────────────
@@ -172,3 +179,14 @@ function classifySearchError(error: unknown): string {
   }
   return `Search failed: ${message}`;
 }
+
+registerTool(WebSearchTool, {
+  when: (accessor) => accessor.get(IWebSearchProviderService).getWebSearchProvider() !== undefined,
+  staticArgs: (accessor) => {
+    const provider = accessor.get(IWebSearchProviderService).getWebSearchProvider();
+    if (provider === undefined) {
+      throw new Error('WebSearchProviderService returned no provider during tool registration.');
+    }
+    return [provider];
+  },
+});
