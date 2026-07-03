@@ -397,6 +397,8 @@ export class ContextMemory {
     let reordered = 0;
     let synthesized = 0;
     let droppedOrphan = 0;
+    let duplicateCallsDropped = 0;
+    let duplicateResultsDropped = 0;
     let leadingDropped = 0;
     let assistantsMerged = 0;
     let whitespaceDropped = 0;
@@ -404,6 +406,8 @@ export class ContextMemory {
       if (anomaly.kind === 'tool_result_reordered') reordered += 1;
       else if (anomaly.kind === 'tool_result_synthesized') synthesized += 1;
       else if (anomaly.kind === 'orphan_tool_result_dropped') droppedOrphan += 1;
+      else if (anomaly.kind === 'duplicate_tool_call_dropped') duplicateCallsDropped += 1;
+      else if (anomaly.kind === 'duplicate_tool_result_dropped') duplicateResultsDropped += 1;
       else if (anomaly.kind === 'leading_non_user_dropped') leadingDropped += 1;
       else if (anomaly.kind === 'consecutive_assistants_merged') assistantsMerged += 1;
       else whitespaceDropped += 1;
@@ -417,6 +421,8 @@ export class ContextMemory {
       reordered,
       synthesized,
       droppedOrphan,
+      duplicateCallsDropped,
+      duplicateResultsDropped,
       leadingDropped,
       assistantsMerged,
       whitespaceDropped,
@@ -426,6 +432,8 @@ export class ContextMemory {
       reordered,
       synthesized,
       dropped_orphan: droppedOrphan,
+      duplicate_calls_dropped: duplicateCallsDropped,
+      duplicate_results_dropped: duplicateResultsDropped,
       leading_dropped: leadingDropped,
       assistants_merged: assistantsMerged,
       whitespace_dropped: whitespaceDropped,
@@ -443,15 +451,17 @@ export class ContextMemory {
   }
 
   // Last-resort projection for the post-400 strict resend: close every open tool
-  // call (including a trailing in-flight one), drop stray tool results, drop a
-  // leading non-user message, and merge consecutive assistant turns, so the
-  // request is wire-compliant for strict providers no matter how the history was
-  // mangled. Only used when the provider has already rejected the normal
-  // projection — see the adjacency fallback in `turn-step`.
+  // call (including a trailing in-flight one), drop stray tool results, dedupe
+  // duplicate tool call ids (with their extra results), drop a leading non-user
+  // message, and merge consecutive assistant turns, so the request is
+  // wire-compliant for strict providers no matter how the history was mangled.
+  // Only used when the provider has already rejected the normal projection —
+  // see the adjacency fallback in `turn-step`.
   get strictMessages(): Message[] {
     return this.project(this.history, {
       synthesizeMissing: true,
       dropOrphanResults: true,
+      dedupeDuplicateToolCalls: true,
       dropLeadingNonUser: true,
       mergeConsecutiveAssistants: true,
     });
@@ -464,7 +474,15 @@ export class ContextMemory {
 
   finishResume(): void {
     this.openSteps.clear();
-    this.closePendingToolResults();
+    const closed = this.closePendingToolResults();
+    if (closed.length > 0) {
+      // Routine end-of-resume close of a genuinely interrupted trailing call
+      // (e.g. the process died mid-tool), logged for traceability.
+      this.agent.log.info('closed interrupted tool calls at end of resume', {
+        closed: closed.length,
+        toolCallIds: closed.slice(0, 5),
+      });
+    }
   }
 
   // Synthesize interrupted tool results for any still-open tool calls, closing
@@ -473,9 +491,11 @@ export class ContextMemory {
   // exactly where it occurred — otherwise it would keep `hasOpenToolExchange`
   // true and strand every later message in `deferredMessages`, so only the
   // trailing exchange ends up aligned. `finishResume` runs the same routine once
-  // more to close a genuine trailing interruption at end of resume.
-  private closePendingToolResults(): void {
-    if (this.pendingToolResultIds.size === 0) return;
+  // more to close a genuine trailing interruption at end of resume, and
+  // `closeAbandonedToolExchange` reuses it (with a live-turn message) as the
+  // turn-end teardown. Returns the ids it closed; callers own the logging.
+  private closePendingToolResults(output: string = TOOL_INTERRUPTED_ON_RESUME_OUTPUT): string[] {
+    if (this.pendingToolResultIds.size === 0) return [];
     const interruptedToolCallIds = [...this.pendingToolResultIds];
     for (const toolCallId of interruptedToolCallIds) {
       this.appendLoopEvent({
@@ -483,11 +503,25 @@ export class ContextMemory {
         parentUuid: toolCallId,
         toolCallId,
         result: {
-          output: TOOL_INTERRUPTED_ON_RESUME_OUTPUT,
+          output,
           isError: true,
         },
       });
     }
+    return interruptedToolCallIds;
+  }
+
+  /**
+   * Defensive teardown for a live turn that ended — normally, cancelled, or
+   * failed — while recorded tool calls were still awaiting results (e.g. the
+   * batch's result dispatch died after a `tool.call` was already recorded).
+   * Synthesizes an error result for each dangling call so the exchange closes:
+   * left open, it would keep `hasOpenToolExchange` true and strand every later
+   * message in `deferredMessages`, silently swallowing user input. No-op when
+   * the exchange is already closed. Returns the number of calls it closed.
+   */
+  closeAbandonedToolExchange(output: string): number {
+    return this.closePendingToolResults(output).length;
   }
 
   appendLoopEvent(event: LoopRecordedEvent): void {
@@ -501,7 +535,16 @@ export class ContextMemory {
         // earlier step were interrupted (the invariant guarantees this never
         // happens live, so this is a no-op outside replay). Close them in place
         // before opening the new step so mid-history gaps stay aligned.
-        this.closePendingToolResults();
+        const closed = this.closePendingToolResults();
+        if (closed.length > 0) {
+          // A mid-history gap means results were lost before this boundary —
+          // a genuine defect worth investigating, unlike the expected trailing
+          // interruption `finishResume` closes.
+          this.agent.log.warn('closed unresolved tool calls at a step boundary', {
+            closed: closed.length,
+            toolCallIds: closed.slice(0, 5),
+          });
+        }
         const message: ContextMessage = {
           role: 'assistant',
           content: [],
