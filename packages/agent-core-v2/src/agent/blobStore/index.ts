@@ -1,6 +1,6 @@
 /**
- * `blobStore` domain barrel - re-exports the blobStore service contract and implementation.
+ * `blobStore` domain barrel — compatibility re-export.
  */
 
-export * from './blobStore';
-export * from './blobStoreService';
+export * from '#/persistence/interface/blobStore';
+export * from '#/persistence/backends/node-fs/blobStoreService';

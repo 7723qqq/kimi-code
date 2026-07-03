@@ -26,7 +26,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentScopeContext } from '#/agent/scopeContext';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import {
   IAgentLifecycleService,
 } from '#/session/agentLifecycle';

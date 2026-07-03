@@ -39,7 +39,7 @@ import type {
   IStorageService,
   StorageAppendOptions,
   StorageWriteOptions,
-} from './storageService';
+} from '#/persistence/interface/storage';
 
 // `fs.watch` often emits a burst per save (plus the temp file of an atomic
 // replace); collapse it into one reload signal.

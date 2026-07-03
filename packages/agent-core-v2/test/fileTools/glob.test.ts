@@ -22,7 +22,7 @@ import { noopTelemetryService } from '#/app/telemetry';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { stubWorkspaceContext } from './stub-workspace-context';
 import type { ISessionAgentFileSystem } from '#/session/agentFs';
-import { SessionAgentFileSystem } from '#/session/agentFs/agentFsService';
+import { SessionAgentFileSystem } from '#/os/backends/node-local/agentFsService';
 import {
   type GlobInput,
   GlobInputSchema,
@@ -33,7 +33,7 @@ import {
 import type { IHostEnvironment } from '#/app/hostEnvironment';
 import { probeHostEnvironmentFromNode } from '#/_base/execEnv';
 import { createExecContext } from '#/session/execContext';
-import { SessionProcessRunner } from '#/session/process/processRunnerService';
+import { SessionProcessRunner } from '#/os/backends/node-local/processRunnerService';
 import type { IProcess, ISessionProcessRunner } from '#/session/process';
 import type { ITelemetryService } from '#/app/telemetry';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';

@@ -9,7 +9,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentBlobStoreService } from '#/agent/blobStore';
-import { AgentBlobStoreService } from '#/agent/blobStore/blobStoreService';
+import { AgentBlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IHostFileSystem, HostFileSystem } from '#/app/hostFs';
 import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
@@ -25,8 +25,8 @@ import {
   type PersistedWireRecord,
   AgentWireRecordService,
 } from '#/index';
-import { FileStorageService } from '#/app/storage/fileStorageService';
-import { InMemoryStorageService } from '#/app/storage/inMemoryStorageService';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import type { IStorageService } from '#/app/storage';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubRecord } from '../contextMemory/stubs';

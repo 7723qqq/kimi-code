@@ -27,7 +27,7 @@ import {
   type TerminalProcess,
   ISessionTerminalBackend,
   ISessionTerminalService,
-} from './terminal';
+} from '#/os/interface/terminal';
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;

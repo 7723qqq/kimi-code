@@ -15,9 +15,9 @@ import { spawn } from 'node:child_process';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IExecContext } from '#/session/execContext';
+import { IExecContext } from '#/os/interface/execContext';
 
-import { type IProcess, ISessionProcessRunner, type ProcessExecOptions } from './process';
+import { type IProcess, ISessionProcessRunner, type ProcessExecOptions } from '#/os/interface/process';
 import {
   buildLocalSpawnOptions,
   isWindows,

@@ -1,9 +1,8 @@
 /**
- * `filestore` domain barrel — re-exports the file-store contract, its errors,
- * and the App-scoped implementation. Importing this barrel registers the
- * `IFileStore` binding and the file error codes into the scope/error registries.
+ * `filestore` domain barrel — compatibility re-export.
+ *
+ * Re-exports from the new canonical locations in `persistence/`.
  */
 
-export * from './errors';
-export * from './filestore';
-export * from './fileStoreService';
+export * from '#/persistence/interface/fileStore';
+export * from '#/persistence/backends/node-fs/fileStoreService';

@@ -23,12 +23,12 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { createAppScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
 import {
-  FileStorageService,
   IAppendLogStorage,
   IAtomicDocumentStorage,
   IBlobStorage,
   IStorageService,
-} from '#/app/storage';
+} from '#/persistence/interface/storage';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { FileSkillCatalogStore } from '#/app/globalSkillCatalog/fileSkillCatalogStore';
 import { ISkillCatalogStore } from '#/app/globalSkillCatalog/skillCatalogStore';
 

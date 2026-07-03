@@ -1,8 +1,6 @@
 /**
- * `process` domain barrel — re-exports the process contract (`process`) and
- * its scoped service (`processRunnerService`). Importing this barrel registers
- * the `ISessionProcessRunner` binding into the scope registry.
+ * `process` domain barrel — compatibility re-export.
  */
 
-export * from './process';
-export * from './processRunnerService';
+export * from '#/os/interface/process';
+export * from '#/os/backends/node-local/processRunnerService';

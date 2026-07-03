@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { IStorageService } from '#/app/storage';
-import { FileStorageService } from '#/app/storage/fileStorageService';
-import { InMemoryStorageService } from '#/app/storage/inMemoryStorageService';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();

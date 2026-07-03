@@ -15,7 +15,7 @@ import {
   ISessionTerminalBackend,
   ISessionTerminalService,
 } from '#/session/terminal';
-import { SessionTerminalService } from '#/session/terminal/terminalService';
+import { SessionTerminalService } from '#/os/backends/node-local/terminalService';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 class FakeTerminalProcess implements TerminalProcess {

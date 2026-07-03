@@ -4,7 +4,7 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { SessionAgentFileSystem } from '#/session/agentFs/agentFsService';
+import { SessionAgentFileSystem } from '#/os/backends/node-local/agentFsService';
 import type { ISessionAgentFileSystem } from '#/session/agentFs';
 import { createExecContext } from '#/session/execContext';
 import { loadAgentsMd, prepareSystemPromptContext } from '#/agent/profile';

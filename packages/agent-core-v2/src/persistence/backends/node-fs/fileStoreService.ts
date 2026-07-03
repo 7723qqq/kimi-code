@@ -15,15 +15,15 @@ import type { FileMeta } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IBlobStorage, type IStorageService } from '#/app/storage';
-
-import { fileNotFoundError, fileTooLargeError } from './errors';
+import { IBlobStorage, type IStorageService } from '#/persistence/interface/storage';
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
   IFileStore,
+  fileNotFoundError,
+  fileTooLargeError,
   type GetResult,
   type SaveOptions,
-} from './filestore';
+} from '#/persistence/interface/fileStore';
 
 const BLOB_SCOPE = 'files';
 const INDEX_SCOPE = 'filestore';

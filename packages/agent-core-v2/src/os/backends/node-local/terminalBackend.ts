@@ -12,7 +12,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { NotImplementedError } from '#/_base/errors';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { type TerminalProcess, type TerminalSpawnOptions, ISessionTerminalBackend } from './terminal';
+import { type TerminalProcess, type TerminalSpawnOptions, ISessionTerminalBackend } from '#/os/interface/terminal';
 
 export class SessionNotImplementedTerminalBackend implements ISessionTerminalBackend {
   declare readonly _serviceBrand: undefined;

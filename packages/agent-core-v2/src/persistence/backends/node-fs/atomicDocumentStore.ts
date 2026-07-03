@@ -1,34 +1,28 @@
 /**
- * `storage` domain (L1) — `IAtomicDocumentStore` contract and its JSON/TOML
- * implementations.
+ * `AtomicDocumentStore` — node-fs backend for `IAtomicDocumentStore`.
  *
- * The atomic-document access-pattern store: one typed value per `(scope,
- * key)`, replaced atomically on every write. Serialization is delegated to a
- * `DocumentCodec` so the same access pattern serves different on-disk formats:
- * `jsonDocumentCodec` backs the default `AtomicDocumentStore` (cron/background/
- * session metadata) and `tomlDocumentCodec` backs `TomlAtomicDocumentStore`
- * (the `config` document). Reads and writes bytes through `IStorageService`
- * (the config document) or `IAtomicDocumentStorage` (everyone else). Bound at
+ * JSON and TOML codec implementations plus the `AtomicDocumentStoreBase`,
+ * `AtomicDocumentStore`, and `TomlAtomicDocumentStore` classes. Reads and
+ * writes bytes through `IStorageService` / `IAtomicDocumentStorage`. Bound at
  * App scope.
  */
 
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 
 import { InstantiationType } from '#/_base/di/extensions';
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Event } from '#/_base/event';
 
-import { IAtomicDocumentStorage, IStorageService } from './storageService';
+import { IAtomicDocumentStorage, IStorageService } from '#/persistence/interface/storage';
+import {
+  IAtomicDocumentStore,
+  IAtomicTomlDocumentStore,
+  type DocumentCodec,
+} from '#/persistence/interface/atomicDocumentStore';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
-export interface DocumentCodec {
-  encode(value: unknown): Uint8Array;
-  decode(bytes: Uint8Array): unknown;
-}
 
 export const jsonDocumentCodec: DocumentCodec = {
   encode(value: unknown): Uint8Array {
@@ -49,28 +43,6 @@ export const tomlDocumentCodec: DocumentCodec = {
     return parseToml(text);
   },
 };
-
-export interface IAtomicDocumentStore {
-  readonly _serviceBrand: undefined;
-
-  get<T>(scope: string, key: string): Promise<T | undefined>;
-
-  set<T>(scope: string, key: string, value: T): Promise<void>;
-
-  delete(scope: string, key: string): Promise<void>;
-
-  list(scope: string, prefix?: string): Promise<readonly string[]>;
-
-  watch(scope: string, key: string): Event<void>;
-
-  acquire(scope: string, key: string): IDisposable;
-}
-
-export const IAtomicDocumentStore: ServiceIdentifier<IAtomicDocumentStore> =
-  createDecorator<IAtomicDocumentStore>('atomicDocumentStore');
-
-export const IAtomicTomlDocumentStore: ServiceIdentifier<IAtomicDocumentStore> =
-  createDecorator<IAtomicDocumentStore>('atomicTomlDocumentStore');
 
 class AtomicDocumentStoreBase implements IAtomicDocumentStore {
   declare readonly _serviceBrand: undefined;

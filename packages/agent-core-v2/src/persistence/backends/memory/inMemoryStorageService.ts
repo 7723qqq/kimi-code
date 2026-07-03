@@ -25,7 +25,7 @@ import {
   IStorageService,
   type StorageAppendOptions,
   type StorageWriteOptions,
-} from './storageService';
+} from '#/persistence/interface/storage';
 
 interface WatchEntry {
   readonly emitter: Emitter<void>;

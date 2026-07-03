@@ -52,7 +52,7 @@ import { ITelemetryService } from '#/app/telemetry';
 import { ISessionProcessRunner } from '#/session/process';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
-import { type AgentFileStat, ISessionAgentFileSystem } from './agentFs';
+import { type AgentFileStat, ISessionAgentFileSystem } from '#/os/interface/fileSystem';
 import { type FsDownloadResolved, type FsPathResolved, ISessionFsService } from './fs';
 import { runCommand } from './fsProcess';
 import { ensureRgPath, type RgProbe, type RgResolution } from './rgLocator';

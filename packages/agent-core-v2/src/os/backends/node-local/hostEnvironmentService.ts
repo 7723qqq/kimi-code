@@ -17,7 +17,7 @@ import {
   type OsKind,
   type PathClass,
   type ShellName,
-} from './hostEnvironment';
+} from '#/os/interface/hostEnvironment';
 
 export class HostEnvironmentService implements IHostEnvironment {
   declare readonly _serviceBrand: undefined;

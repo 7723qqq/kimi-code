@@ -1,5 +1,16 @@
 /**
- * Scenario: the **host** slice — `IHostEnvironment` + the `IExecContext` seed.
+ * Scenario: the **os** slice — `IHostEnvironment` + the `IExecContext` seed.
+ *
+ * The os dimension is organised as:
+ *
+ *   os/
+ *     interface/         ← contracts only: IHostEnvironment, IExecContext,
+ *                          ISessionAgentFileSystem, IHostFileSystem,
+ *                          ISessionProcessRunner, ISessionTerminalService,
+ *                          ISessionTerminalBackend, IHostFolderBrowser
+ *     backends/
+ *       node-local/      ← HostEnvironmentService, SessionAgentFileSystem,
+ *                          HostFileSystem, SessionProcessRunner, etc.
  *
  * Concept taught: not every dependency is *constructed* by the container. Some
  * enter the scope tree as plain **values** seeded through `stubPair(...)` /
@@ -32,11 +43,15 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 
-import { IHostEnvironment } from '#/app/hostEnvironment';
+// ── os/interface ──────────────────────────────────────────────────────
+// Import contracts from the canonical os/interface paths.
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import {
   createExecContext,
   IExecContext,
-} from '#/session/execContext';
+} from '#/os/interface/execContext';
+
+// Workspace context stays in session/ — it's a business-level facade.
 import {
   ISessionWorkspaceContext,
   SessionWorkspaceContextService,

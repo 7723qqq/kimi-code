@@ -14,7 +14,7 @@ import {
   IAgentBlobStoreService,
   MISSING_MEDIA_PLACEHOLDER,
 } from '#/agent/blobStore';
-import { AgentBlobStoreService } from '#/agent/blobStore/blobStoreService';
+import { AgentBlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
 import { FileStorageService, IBlobStorage } from '#/app/storage';

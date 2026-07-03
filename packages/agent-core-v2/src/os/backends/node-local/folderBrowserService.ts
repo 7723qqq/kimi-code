@@ -24,7 +24,7 @@ import {
   HostFolderPermissionError,
   IHostFolderBrowser,
   RECENT_ROOTS_LIMIT,
-} from './hostFolderBrowser';
+} from '#/os/interface/folderBrowser';
 
 export class HostFolderBrowser implements IHostFolderBrowser {
   declare readonly _serviceBrand: undefined;

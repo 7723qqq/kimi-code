@@ -12,14 +12,13 @@ import type { ContentPart } from '#/app/llmProtocol';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentScopeContext } from '#/agent/scopeContext';
-import { IBlobStorage, type IStorageService } from '#/app/storage';
-
+import { IBlobStorage, type IStorageService } from '#/persistence/interface/storage';
 import {
   BLOBREF_PROTOCOL,
   IAgentBlobStoreService,
   MISSING_MEDIA_PLACEHOLDER,
   type BlobStoreServiceOptions,
-} from './blobStore';
+} from '#/persistence/interface/blobStore';
 
 const DEFAULT_THRESHOLD = 4096;
 const DEFAULT_MAX_CACHE_SIZE = 50 * 1024 * 1024;

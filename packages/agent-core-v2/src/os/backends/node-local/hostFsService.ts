@@ -10,7 +10,7 @@ import { open, readFile, readdir, stat, mkdir, rm, writeFile } from 'node:fs/pro
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { type HostDirEntry, type HostFileStat, IHostFileSystem } from './hostFs';
+import { type HostDirEntry, type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 
 export class HostFileSystem implements IHostFileSystem {
   declare readonly _serviceBrand: undefined;

@@ -20,9 +20,9 @@ import {
   type TextDecodeErrors,
 } from '#/_base/execEnv';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IExecContext } from '#/session/execContext';
+import { IExecContext } from '#/os/interface/execContext';
 
-import { type AgentFileStat, ISessionAgentFileSystem } from './agentFs';
+import { type AgentFileStat, ISessionAgentFileSystem } from '#/os/interface/fileSystem';
 
 const READ_CHUNK_SIZE = 64 * 1024;
 

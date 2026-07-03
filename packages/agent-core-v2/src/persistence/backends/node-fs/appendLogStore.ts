@@ -1,62 +1,26 @@
 /**
- * `IAppendLogStore` / `AppendLogStore` — the append-log access-pattern store.
+ * `AppendLogStore` — node-fs backend for `IAppendLogStore`.
  *
  * Sits on top of `IStorageService` and turns a byte stream into an ordered
  * sequence of typed JSON records. Owns the concerns the storage service
  * deliberately ignores: line framing (one JSON value per line, a.k.a. JSONL),
  * batching of appends into a single durable `append`, and crash-tolerant
  * decoding (a torn final line is dropped; corruption anywhere else throws).
- *
- * It is a DI service: any domain that needs an append-log injects
- * `IAppendLogStore` and calls `append/read/rewrite` with the `(scope, key)` of
- * the log it owns. Buffering is kept per log inside the service, so many
- * appends within a synchronous block collapse into one durable write.
  */
 
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { InstantiationType } from '#/_base/di/extensions';
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { IAppendLogStorage, IStorageService } from './storageService';
+import { IAppendLogStorage, type IStorageService } from '#/persistence/interface/storage';
+import {
+  AppendLogCorruptedError,
+  IAppendLogStore,
+  type AppendLogOptions,
+} from '#/persistence/interface/appendLogStore';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
-export class AppendLogCorruptedError extends Error {
-  constructor(
-    readonly scope: string,
-    readonly key: string,
-    readonly lineNumber: number,
-    cause: unknown,
-  ) {
-    super(`append-log ${scope}/${key}: corrupted line ${lineNumber}: ${String(cause)}`);
-    this.name = 'AppendLogCorruptedError';
-  }
-}
-
-export interface AppendLogOptions {
-  readonly onError?: (error: unknown) => void;
-}
-
-export interface IAppendLogStore {
-  readonly _serviceBrand: undefined;
-
-  append<R>(scope: string, key: string, record: R, options?: AppendLogOptions): void;
-
-  read<R>(scope: string, key: string): AsyncIterable<R>;
-
-  rewrite<R>(scope: string, key: string, records: readonly R[]): Promise<void>;
-
-  flush(): Promise<void>;
-
-  close(): Promise<void>;
-
-  acquire(scope: string, key: string): IDisposable;
-}
-
-export const IAppendLogStore: ServiceIdentifier<IAppendLogStore> =
-  createDecorator<IAppendLogStore>('appendLogStore');
 
 interface LogState {
   pending: unknown[];

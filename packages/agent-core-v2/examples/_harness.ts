@@ -44,7 +44,7 @@ import {
   IAgentScopeContext,
   makeAgentScopeContext,
 } from '#/agent/scopeContext';
-import { createExecContext, execContextSeed } from '#/session/execContext';
+import { createExecContext, execContextSeed } from '#/os/interface/execContext';
 import {
   makeSessionContext,
   sessionContextSeed,

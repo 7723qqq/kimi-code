@@ -14,7 +14,7 @@ import type { Readable, Writable } from 'node:stream';
 
 import { BufferedReadable } from '#/_base/execEnv';
 
-import type { IProcess } from './process';
+import type { IProcess } from '#/os/interface/process';
 
 export const isWindows: boolean = process.platform === 'win32';
 
