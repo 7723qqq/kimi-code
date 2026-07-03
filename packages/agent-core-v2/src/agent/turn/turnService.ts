@@ -1,3 +1,5 @@
+import { createControlledPromise } from '@antfu/utils';
+
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
@@ -30,8 +32,6 @@ export class AgentTurnService implements IAgentTurnService {
   private nextTurnId = 0;
   private activeTurn: Turn | undefined;
   private lastEndedReasonValue: TurnResult['reason'] | undefined;
-  private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
-  private readonly readySettled = new WeakSet<Turn>();
   private readonly turnTelemetry = new Map<number, ITelemetryService>();
 
   readonly hooks = {
@@ -52,16 +52,6 @@ export class AgentTurnService implements IAgentTurnService {
         this.restoreLaunch(r.turnId);
       },
     });
-    this.loop.hooks.beforeStep.register(
-      'turn-ready-before-step',
-      async (ctx, next) => {
-        await next();
-        const turn = this.activeTurn;
-        if (turn !== undefined && turn.id === ctx.turnId) {
-          this.resolveReady(turn);
-        }
-      },
-    );
   }
 
   launch(origin: PromptOrigin, promptMessageId?: string): Turn {
@@ -82,13 +72,12 @@ export class AgentTurnService implements IAgentTurnService {
       id: turnId,
       promptMessageId,
       abortController,
-      ready: ready.promise,
+      ready,
       result: Promise.resolve({ reason: 'failed' }),
     };
-    this.readyControllers.set(turn, ready);
-    void ready.promise.catch(() => undefined);
+    void ready.catch(() => undefined);
     this.activeTurn = turn;
-    turn.result = this.runTurn(turn, origin);
+    turn.result = this.runTurn(turn, origin, ready);
     void this.hooks.onLaunched.run({ turn });
     return turn;
   }
@@ -101,7 +90,11 @@ export class AgentTurnService implements IAgentTurnService {
     return this.lastEndedReasonValue;
   }
 
-  private async runTurn(turn: Turn, origin: PromptOrigin): Promise<TurnResult> {
+  private async runTurn(
+    turn: Turn,
+    origin: PromptOrigin,
+    ready: ReturnType<typeof createControlledPromise<void>>,
+  ): Promise<TurnResult> {
     const startedAt = Date.now();
     const turnTelemetry = this.telemetry.withContext(this.telemetryContext.get());
     this.turnTelemetry.set(turn.id, turnTelemetry);
@@ -119,24 +112,20 @@ export class AgentTurnService implements IAgentTurnService {
         result = promptHookResult;
         return result;
       }
-      result = await this.loop.runTurn(turn.id, turn.abortController.signal);
-      if (result.reason === 'failed') {
-        this.rejectReady(turn, result.error ?? result);
-      }
+      result = await this.loop.runTurn(turn.id, {
+        signal: turn.abortController.signal,
+        onStepStarted: () => ready.resolve(),
+      });
       return result;
     } catch (error) {
       if (turn.abortController.signal.aborted) {
         result = { reason: 'cancelled', error: turn.abortController.signal.reason };
-        this.rejectReady(turn, turn.abortController.signal.reason);
         return result;
       }
-      this.rejectReady(turn, error);
       result = { reason: 'failed', error };
       return result;
     } finally {
-      if (result !== undefined) {
-        this.rejectReady(turn, result);
-      }
+      ready.reject(createTurnReadyError(result));
       if (this.activeTurn === turn) {
         this.activeTurn = undefined;
       }
@@ -156,12 +145,6 @@ export class AgentTurnService implements IAgentTurnService {
       }
       this.turnTelemetry.delete(turn.id);
     }
-  }
-
-  private resolveReady(turn: Turn): void {
-    if (this.readySettled.has(turn)) return;
-    this.readySettled.add(turn);
-    this.readyControllers.get(turn)?.resolve();
   }
 
   private restoreLaunch(turnId: number): void {
@@ -220,12 +203,6 @@ export class AgentTurnService implements IAgentTurnService {
     this.context.splice(this.context.get().length, 0, messages);
   }
 
-  private rejectReady(turn: Turn, reason: unknown): void {
-    if (this.readySettled.has(turn)) return;
-    this.readySettled.add(turn);
-    this.readyControllers.get(turn)?.reject(reason);
-  }
-
   private trackTurnInterrupted(turnId: number, atStep: number): void {
     const telemetry =
       this.turnTelemetry.get(turnId) ?? this.telemetry.withContext(this.telemetryContext.get());
@@ -274,24 +251,21 @@ function summarizeTurnError(error: unknown, turnId: number): KimiErrorPayload {
   return { ...payload, details };
 }
 
-interface ControlledPromise<T> {
-  readonly promise: Promise<T>;
-  resolve(value: T | PromiseLike<T>): void;
-  reject(reason?: unknown): void;
-}
-
 type MutableTurn = {
   -readonly [K in keyof Turn]: Turn[K];
 };
 
-function createControlledPromise<T>(): ControlledPromise<T> {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
+function createTurnReadyError(result: TurnResult | undefined): Error {
+  const cause = turnReadyFailureCause(result);
+  return cause === undefined
+    ? new Error('Turn ended before first step')
+    : new Error('Turn ended before first step', { cause });
+}
+
+function turnReadyFailureCause(result: TurnResult | undefined): unknown {
+  if (result === undefined) return undefined;
+  if ('error' in result && result.error !== undefined) return result.error;
+  return result.reason;
 }
 
 registerScopedService(

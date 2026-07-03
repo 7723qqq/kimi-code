@@ -10,6 +10,10 @@ export interface Turn {
   /** Id of the user message that triggered this turn, when launched from a prompt. */
   readonly promptMessageId?: string;
   readonly abortController: AbortController;
+  /**
+   * Resolves on the first model response event for the first loop step, or at
+   * step completion; rejects if the turn ends earlier.
+   */
   readonly ready: Promise<void>;
   readonly result: Promise<TurnResult>;
 }

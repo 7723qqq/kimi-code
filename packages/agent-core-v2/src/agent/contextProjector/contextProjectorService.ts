@@ -6,7 +6,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IAgentMicroCompactionService } from '#/agent/microCompaction';
-import type { ContentPart, Message, TextPart, ToolCall } from '#/app/llmProtocol';
+import type { ContentPart, Message } from '#/app/llmProtocol';
 import { IAgentContextProjectorService } from './contextProjector';
 
 export class AgentContextProjectorService implements IAgentContextProjectorService {
@@ -27,91 +27,151 @@ export class AgentContextProjectorService implements IAgentContextProjectorServi
 }
 
 // Projects the stored context history into the wire messages sent to the
-// model, in two passes over the history:
+// model, in a single pass over the history.
 //
-// Pass 1 resolves which recorded result answers each assistant tool call. A
-// call stays open until its first result; a call id reused by a later
-// assistant re-opens for the results that follow. Partial messages (stream
-// interrupted) are invisible here, so their calls never anchor an exchange.
+// Strict providers require every tool call to be answered right after the
+// assistant message, so each call is closed on the spot with a synthetic
+// interrupted result and its slot in the output stays open until the recorded
+// result overwrites it in place. A call stays open until its first result; a
+// call id reused by a later assistant re-targets the slots that follow.
+// Partial messages (stream interrupted) are invisible here, so their calls
+// never anchor an exchange. Tool messages are skipped where they originally
+// sat — a result either lands in its call's slot or it is an orphan,
+// wire-invalid and useless to the model. A history with no assistant at all
+// is a bare sizing slice (micro-compaction sizes single messages this way)
+// and passes through as-is. Emitting cleans each message (drops empty /
+// whitespace-only text blocks, rejected by strict providers), merges runs of
+// adjacent user prompts (accumulated and materialized once per run), and
+// strips context-only metadata off the wire.
 //
-// Pass 2 emits the projection. Strict providers require every tool call to be
-// answered right after the assistant message, so each call's result is emitted
-// beside it (a synthetic interrupted result when none was recorded), and tool
-// messages are skipped where they originally sat — a result is either
-// re-emitted beside its call or it is an orphan, wire-invalid and useless to
-// the model. A history with no assistant at all is a bare sizing slice
-// (micro-compaction sizes single messages this way) and passes through as-is.
-// Emitting cleans each message (drops empty / whitespace-only text blocks,
-// rejected by strict providers), merges adjacent user prompts, and strips
-// context-only metadata off the wire.
+// The projected messages share their content parts and tool calls with the
+// stored context (only the top-level wrapper is rebuilt); consumers must
+// treat the projection as read-only, which every provider conversion already
+// honors by building fresh structures.
 function project(history: readonly ContextMessage[]): Message[] {
-  const openCalls = new Map<string, ToolCall>();
-  const answers = new Map<ToolCall, ContextMessage>();
-  let hasAssistant = false;
-  for (const message of history) {
-    if (message.partial === true) continue;
-    if (message.role === 'assistant') {
-      hasAssistant = true;
-      for (const call of message.toolCalls) openCalls.set(call.id, call);
-    } else if (message.role === 'tool' && message.toolCallId !== undefined) {
-      const call = openCalls.get(message.toolCallId);
-      if (call === undefined) continue;
-      answers.set(call, message);
-      openCalls.delete(message.toolCallId);
-    }
-  }
+  const hasAssistant = history.some(
+    (message) => message.partial !== true && message.role === 'assistant',
+  );
 
   const out: Message[] = [];
-  let mergeSource: ContextMessage | undefined;
+  const openSlots = new Map<string, number>();
+  let merge: MergeGroup | undefined;
+
+  const flushMerge = (): void => {
+    if (merge === undefined) return;
+    if (merge.singleContent === undefined) {
+      const text = merge.texts.join('\n\n');
+      const content: ContentPart[] = text === '' ? [] : [{ type: 'text', text }];
+      content.push(...merge.parts);
+      out[merge.index] = {
+        role: 'user',
+        name: undefined,
+        content,
+        toolCalls: [],
+        toolCallId: undefined,
+        partial: undefined,
+      };
+    }
+    merge = undefined;
+  };
 
   const emit = (source: ContextMessage): void => {
-    const content = source.content.some(isBlankText)
-      ? source.content.filter((part) => !isBlankText(part))
-      : source.content;
-    if (source.role === 'tool' && content.length === 0) {
-      throw new KimiError(
-        ErrorCodes.REQUEST_INVALID,
-        'Tool result message content cannot be empty after removing empty text blocks.',
-        { details: { toolCallId: source.toolCallId } },
-      );
-    }
+    const content = cleanContent(source);
     if (content.length === 0 && source.toolCalls.length === 0) return;
 
-    const message = content === source.content ? source : { ...source, content };
-    if (mergeSource !== undefined && canMergeUserMessage(message)) {
-      mergeSource = mergeTwoUserMessages(mergeSource, message);
-      out[out.length - 1] = stripContextMetadata(mergeSource);
+    if (canMergeUserMessage(source)) {
+      if (merge === undefined) {
+        out.push(toWireMessage(source, content));
+        merge = { index: out.length - 1, singleContent: content, texts: [], parts: [] };
+      } else {
+        if (merge.singleContent !== undefined) {
+          appendMergeContent(merge, merge.singleContent);
+          merge.singleContent = undefined;
+        }
+        appendMergeContent(merge, content);
+      }
       return;
     }
-    mergeSource = canMergeUserMessage(message) ? message : undefined;
-    out.push(stripContextMetadata(message));
+    flushMerge();
+    out.push(toWireMessage(source, content));
   };
 
   for (const message of history) {
     if (message.partial === true) continue;
     if (message.role === 'tool') {
-      if (!hasAssistant) emit(message);
+      if (!hasAssistant) {
+        emit(message);
+        continue;
+      }
+      if (message.toolCallId === undefined) continue;
+      const slot = openSlots.get(message.toolCallId);
+      if (slot === undefined) continue;
+      openSlots.delete(message.toolCallId);
+      out[slot] = toWireMessage(message, cleanContent(message));
       continue;
     }
     emit(message);
     for (const call of message.toolCalls) {
-      emit(answers.get(call) ?? createInterruptedToolResult(call.id));
+      const reopened = openSlots.get(call.id);
+      if (reopened !== undefined) out[reopened] = createInterruptedToolResult(call.id);
+      openSlots.set(call.id, out.length);
+      out.push(TOOL_RESULT_SLOT);
     }
   }
+  for (const [id, slot] of openSlots) out[slot] = createInterruptedToolResult(id);
+  flushMerge();
   return out;
+}
+
+interface MergeGroup {
+  index: number;
+  singleContent: readonly ContentPart[] | undefined;
+  texts: string[];
+  parts: ContentPart[];
+}
+
+// Join only the non-empty texts so merging an image-only message never
+// produces a whitespace-only text block (rejected by strict providers).
+function appendMergeContent(group: MergeGroup, content: readonly ContentPart[]): void {
+  let text = '';
+  for (const part of content) {
+    if (part.type === 'text') text += part.text;
+    else group.parts.push(part);
+  }
+  if (text.length > 0) group.texts.push(text);
+}
+
+function cleanContent(source: ContextMessage): ContentPart[] {
+  const content = source.content.some(isBlankText)
+    ? source.content.filter((part) => !isBlankText(part))
+    : source.content;
+  if (source.role === 'tool' && content.length === 0) {
+    throw new KimiError(
+      ErrorCodes.REQUEST_INVALID,
+      'Tool result message content cannot be empty after removing empty text blocks.',
+      { details: { toolCallId: source.toolCallId } },
+    );
+  }
+  return content;
 }
 
 const TOOL_INTERRUPTED_TEXT =
   '<system>ERROR: Tool execution failed.</system>\n' +
   'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
 
-function createInterruptedToolResult(toolCallId: string): ContextMessage {
+// Shared inert filler for a call's slot while it awaits its recorded result;
+// every slot still open at the end is overwritten with a synthetic result, so
+// this object never reaches the returned projection.
+const TOOL_RESULT_SLOT: Message = createInterruptedToolResult('');
+
+function createInterruptedToolResult(toolCallId: string): Message {
   return {
     role: 'tool',
+    name: undefined,
     content: [{ type: 'text', text: TOOL_INTERRUPTED_TEXT }],
     toolCalls: [],
     toolCallId,
-    isError: true,
+    partial: undefined,
   };
 }
 
@@ -123,31 +183,12 @@ function canMergeUserMessage(message: ContextMessage): boolean {
   return message.role === 'user' && message.origin?.kind === 'user';
 }
 
-function mergeTwoUserMessages(a: ContextMessage, b: ContextMessage): ContextMessage {
-  // Join only the non-empty sides so merging an image-only message never
-  // produces a whitespace-only text block (rejected by strict providers).
-  const text = [a, b].map(extractText).filter((t) => t.length > 0).join('\n\n');
-  const content: ContentPart[] = text === '' ? [] : [{ type: 'text', text }];
-  content.push(
-    ...a.content.filter((part) => part.type !== 'text'),
-    ...b.content.filter((part) => part.type !== 'text'),
-  );
-  return { role: 'user', content, toolCalls: [], origin: a.origin };
-}
-
-function extractText(message: ContextMessage): string {
-  return message.content
-    .filter((part): part is TextPart => part.type === 'text')
-    .map((part) => part.text)
-    .join('');
-}
-
-function stripContextMetadata(message: ContextMessage): Message {
+function toWireMessage(message: ContextMessage, content: ContentPart[]): Message {
   return {
     role: message.role,
     name: message.name,
-    content: message.content.map((part) => ({ ...part })) as ContentPart[],
-    toolCalls: message.toolCalls.map((toolCall) => ({ ...toolCall })),
+    content,
+    toolCalls: message.toolCalls,
     toolCallId: message.toolCallId,
     partial: message.partial,
   };

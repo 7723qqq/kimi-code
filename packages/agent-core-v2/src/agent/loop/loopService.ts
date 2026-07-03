@@ -28,7 +28,7 @@ import {
   isAbortError,
   isMaxStepsExceededError,
 } from './errors';
-import { IAgentLoopService, type TurnWillStopContext } from './loop';
+import { IAgentLoopService, type RunTurnOptions, type TurnWillStopContext } from './loop';
 import type { LoopInterruptReason, TurnResult } from './types';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
@@ -59,8 +59,9 @@ export class AgentLoopService implements IAgentLoopService {
 
   async runTurn(
     turnId: number,
-    signal: AbortSignal = new AbortController().signal,
+    options: RunTurnOptions = {},
   ): Promise<TurnResult> {
+    const signal = options.signal ?? new AbortController().signal;
     this.profile.resolveModelContext();
 
     while (true) {
@@ -78,7 +79,12 @@ export class AgentLoopService implements IAgentLoopService {
 
           steps += 1;
           activeStep = steps;
-          const stepResult = await this.executeLoopStep(turnId, signal, steps);
+          const stepResult = await this.executeLoopStep(
+            turnId,
+            signal,
+            steps,
+            options.onStepStarted,
+          );
           activeStep = undefined;
 
           if (stepResult.stopReason === 'filtered') {
@@ -147,6 +153,7 @@ export class AgentLoopService implements IAgentLoopService {
     turnId: number,
     signal: AbortSignal,
     currentStep: number,
+    onStepStarted: ((step: number) => void) | undefined,
   ): Promise<{
     readonly stopReason: FinishReason;
     readonly continueTurn: boolean;
@@ -158,7 +165,13 @@ export class AgentLoopService implements IAgentLoopService {
 
     this.record.signal({ type: 'turn.step.started', turnId, step: currentStep, stepId: stepUuid });
 
-    const emitStreamPart = this.createStreamPartHandler(turnId);
+    let stepStarted = false;
+    const markStepStarted = (): void => {
+      if (stepStarted) return;
+      stepStarted = true;
+      onStepStarted?.(currentStep);
+    };
+    const emitStreamPart = this.createStreamPartHandler(turnId, markStepStarted);
     const response = await this.llmRequester.request(
       {
         source: { type: 'turn', turnId, step: currentStep },
@@ -221,6 +234,7 @@ export class AgentLoopService implements IAgentLoopService {
 
     signal.throwIfAborted();
 
+    markStepStarted();
     this.emitStepCompleted(turnId, currentStep, stepUuid, usage, finishReason, response);
 
     const afterStepContext = { turnId, step: currentStep, signal, usage, continueTurn: false };
@@ -287,7 +301,10 @@ export class AgentLoopService implements IAgentLoopService {
     });
   }
 
-  private createStreamPartHandler(turnId: number): (part: StreamedMessagePart) => void {
+  private createStreamPartHandler(
+    turnId: number,
+    onResponseEvent: () => void,
+  ): (part: StreamedMessagePart) => void {
     // Maps a tool call's streaming index to its identity so that interleaved
     // argument deltas from parallel tool calls can be routed to the right call.
     // Each provider emits a `function` header before any of its `tool_call_part`
@@ -301,9 +318,11 @@ export class AgentLoopService implements IAgentLoopService {
     return (part) => {
       switch (part.type) {
         case 'text':
+          onResponseEvent();
           this.record.signal({ type: 'assistant.delta', turnId, delta: part.text });
           return;
         case 'think':
+          onResponseEvent();
           this.record.signal({ type: 'thinking.delta', turnId, delta: part.think });
           return;
         case 'image_url':
@@ -311,6 +330,7 @@ export class AgentLoopService implements IAgentLoopService {
         case 'video_url':
           return;
         case 'function': {
+          onResponseEvent();
           callsByIndex.set(part._streamIndex, { id: part.id, name: part.name });
           this.record.signal({
             type: 'tool.call.delta',
@@ -325,6 +345,7 @@ export class AgentLoopService implements IAgentLoopService {
           if (part.argumentsPart === null) return;
           const toolCall = callsByIndex.get(part.index);
           if (toolCall === undefined) return;
+          onResponseEvent();
           this.record.signal({
             type: 'tool.call.delta',
             turnId,
