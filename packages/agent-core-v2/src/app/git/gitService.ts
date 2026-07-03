@@ -1,24 +1,22 @@
 /**
  * `git` domain (L1) — `IGitService` implementation.
  *
- * Runs `git status` / `git diff` (and `gh pr view`) against a repository on the
- * local disk by spawning `git` / `gh` through `node:child_process` directly.
- * Bound at App scope — it owns no Session dependency, so the caller supplies an
- * absolute `cwd` and already-confined repo-relative paths.
- *
- * The process runner below mirrors v1 `services/fs/fsGitService.ts`: a small
- * self-contained `runCommand` + `killChild` that collects stdout/stderr and the
- * exit code, with optional timeout / abort support (used by `gh pr view`).
+ * Runs `git status` / `git diff` (and `gh pr view`) against a repository on
+ * the local disk. Process spawning goes through the App-scope
+ * `IHostProcessService` from `os/interface`, and the single path-existence
+ * probe in `diff` goes through `IHostFileSystem`; no Node platform API is
+ * imported directly. Bound at App scope — it owns no Session dependency, so
+ * the caller supplies an absolute `cwd` and already-confined repo-relative
+ * paths.
  */
-
-import { spawn, type ChildProcess } from 'node:child_process';
-import { stat } from 'node:fs/promises';
 
 import type { FsDiffResponse, FsGitStatusResponse, FsPullRequest } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { IGitService } from './git';
 import { parseNumstat, parsePorcelain, parsePullRequest } from './gitParsers';
@@ -38,13 +36,18 @@ export class GitService implements IGitService {
     { value: FsPullRequest | null; fetchedAt: number }
   >();
 
+  constructor(
+    @IHostProcessService private readonly hostProcess: IHostProcessService,
+    @IHostFileSystem private readonly fs: IHostFileSystem,
+  ) {}
+
   async status(cwd: string, pathFilter?: ReadonlySet<string>): Promise<FsGitStatusResponse> {
-    const inside = await runCommand('git', ['rev-parse', '--is-inside-work-tree'], cwd);
+    const inside = await this.runCommand('git', ['rev-parse', '--is-inside-work-tree'], cwd);
     if (inside.exitCode !== 0 || inside.stdout.trim() !== 'true') {
       throw this.gitUnavailable(cwd, inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`);
     }
 
-    const porc = await runCommand('git', ['status', '--porcelain=v1', '--branch'], cwd);
+    const porc = await this.runCommand('git', ['status', '--porcelain=v1', '--branch'], cwd);
     if (porc.exitCode !== 0) {
       throw this.gitUnavailable(cwd, porc.stderr.trim() || `git status exit ${porc.exitCode}`);
     }
@@ -60,9 +63,9 @@ export class GitService implements IGitService {
       .split('\n')
       .some((line) => line.length > 0 && !line.startsWith('## '));
     if (dirty) {
-      const head = await runCommand('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], cwd);
+      const head = await this.runCommand('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], cwd);
       if (head.exitCode === 0) {
-        const numstat = await runCommand('git', ['diff', '--no-color', '--numstat', 'HEAD', '--'], cwd);
+        const numstat = await this.runCommand('git', ['diff', '--no-color', '--numstat', 'HEAD', '--'], cwd);
         if (numstat.exitCode === 0) {
           const stats = parseNumstat(numstat.stdout);
           result.additions = stats.additions;
@@ -76,12 +79,12 @@ export class GitService implements IGitService {
   }
 
   async diff(cwd: string, relPath: string, absPath: string): Promise<FsDiffResponse> {
-    const inside = await runCommand('git', ['rev-parse', '--is-inside-work-tree'], cwd);
+    const inside = await this.runCommand('git', ['rev-parse', '--is-inside-work-tree'], cwd);
     if (inside.exitCode !== 0 || inside.stdout.trim() !== 'true') {
       throw this.gitUnavailable(cwd, inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`);
     }
 
-    const statusRes = await runCommand('git', ['status', '--porcelain=v1', '--', relPath], cwd);
+    const statusRes = await this.runCommand('git', ['status', '--porcelain=v1', '--', relPath], cwd);
     if (statusRes.exitCode !== 0) {
       throw this.gitUnavailable(cwd, statusRes.stderr.trim() || `git status exit ${statusRes.exitCode}`);
     }
@@ -89,14 +92,14 @@ export class GitService implements IGitService {
 
     // A repo with no commits yet has no HEAD to diff against — every changed
     // file is all-new there, same as the untracked case.
-    const headRes = await runCommand('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], cwd);
+    const headRes = await this.runCommand('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], cwd);
     const hasHead = headRes.exitCode === 0;
 
     let diffStdout: string;
     if (untracked || !hasHead) {
       // An untracked file has no HEAD side; diff it against /dev/null so the UI
       // gets an all-added hunk. `git diff --no-index` exits 1 when files differ.
-      const res = await runCommand(
+      const res = await this.runCommand(
         'git',
         ['diff', '--no-color', '--no-index', '--', '/dev/null', relPath],
         cwd,
@@ -106,14 +109,14 @@ export class GitService implements IGitService {
       }
       diffStdout = res.stdout;
     } else {
-      const res = await runCommand('git', ['diff', '--no-color', 'HEAD', '--', relPath], cwd);
+      const res = await this.runCommand('git', ['diff', '--no-color', 'HEAD', '--', relPath], cwd);
       if (res.exitCode !== 0) {
         throw this.gitUnavailable(cwd, res.stderr.trim() || `git diff exit ${res.exitCode}`);
       }
       if (res.stdout.length === 0 && statusRes.stdout.length === 0) {
         // Not changed at all — distinguish "clean file" (empty diff is fine)
         // from a path that does not exist anywhere.
-        const exists = await stat(absPath).then(
+        const exists = await this.fs.stat(absPath).then(
           () => true,
           () => false,
         );
@@ -141,24 +144,76 @@ export class GitService implements IGitService {
       return cached.value;
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), PR_SPAWN_TIMEOUT_MS);
-    timer.unref?.();
-    try {
-      const res = await runCommand(
-        'gh',
-        ['pr', 'view', '--json', 'number,url,state'],
-        cwd,
-        {
-          env: { GH_NO_UPDATE_NOTIFIER: '1', GH_PROMPT_DISABLED: '1' },
-          signal: controller.signal,
-        },
+    const res = await this.runCommand(
+      'gh',
+      ['pr', 'view', '--json', 'number,url,state'],
+      cwd,
+      {
+        env: { GH_NO_UPDATE_NOTIFIER: '1', GH_PROMPT_DISABLED: '1' },
+        timeoutMs: PR_SPAWN_TIMEOUT_MS,
+      },
+    );
+    const value = res.exitCode === 0 ? parsePullRequest(res.stdout) : null;
+    this.pullRequestCache.set(cwd, { value, fetchedAt: now });
+    return value;
+  }
+
+  private async runCommand(
+    cmd: string,
+    args: readonly string[],
+    cwd: string,
+    options: RunOptions = {},
+  ): Promise<RunResult> {
+    const spawned = await this.hostProcess
+      .spawn(cmd, args, { cwd, env: options.env })
+      .then(
+        (proc) => ({ ok: true as const, proc }),
+        () => ({ ok: false as const }),
       );
-      const value = res.exitCode === 0 ? parsePullRequest(res.stdout) : null;
-      this.pullRequestCache.set(cwd, { value, fetchedAt: now });
-      return value;
+    if (!spawned.ok) {
+      // The binary is missing or failed to start (e.g. ENOENT). Mirror the old
+      // "exit code -1" so callers surface FS_GIT_UNAVAILABLE / skip the
+      // optional PR lookup uniformly instead of leaking HostProcessError.
+      return { exitCode: -1, stdout: '', stderr: '' };
+    }
+    const { proc } = spawned;
+
+    const work = Promise.all([
+      collect(proc.stdout),
+      collect(proc.stderr),
+      proc.wait().catch(() => -1),
+    ] as const);
+    // Keep the rejection handled if the timeout race below abandons `work`.
+    work.catch(() => {});
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      if (options.timeoutMs === undefined) {
+        const [stdout, stderr, exitCode] = await work;
+        return { exitCode, stdout, stderr };
+      }
+      const timeout = new Promise<'timeout'>((resolve) => {
+        timer = setTimeout(() => resolve('timeout'), options.timeoutMs);
+        timer.unref?.();
+      });
+      const result = await Promise.race([
+        work.then(
+          ([stdout, stderr, exitCode]) =>
+            ({ kind: 'done' as const, stdout, stderr, exitCode }),
+        ),
+        timeout.then((kind) => ({ kind })),
+      ]);
+      if (result.kind === 'done') {
+        return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
+      }
+      await proc.kill('SIGKILL').catch(() => {});
+      const [stdout, stderr] = await work
+        .then(([so, se]) => [so, se] as const)
+        .catch(() => ['', ''] as const);
+      return { exitCode: -1, stdout, stderr };
     } finally {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
+      proc.dispose();
     }
   }
 
@@ -177,87 +232,17 @@ interface RunResult {
 
 interface RunOptions {
   readonly timeoutMs?: number;
-  readonly env?: NodeJS.ProcessEnv;
-  readonly signal?: AbortSignal;
+  readonly env?: Record<string, string>;
 }
 
-function runCommand(
-  cmd: string,
-  args: readonly string[],
-  cwd: string,
-  options: RunOptions = {},
-): Promise<RunResult> {
-  return new Promise<RunResult>((resolve) => {
-    const child = spawn(cmd, [...args], {
-      cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: options.env ? { ...process.env, ...options.env } : process.env,
-      windowsHide: true,
-    });
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (result: RunResult): void => {
-      if (settled) return;
-      settled = true;
-      if (timer !== undefined) clearTimeout(timer);
-      resolve(result);
-    };
-    const kill = (): void => {
-      killChild(child);
-    };
-    const signal = options.signal;
-    if (signal !== undefined) {
-      if (signal.aborted) kill();
-      else signal.addEventListener('abort', kill, { once: true });
-    }
-    if (options.timeoutMs !== undefined) {
-      timer = setTimeout(() => {
-        kill();
-        finish({ exitCode: -1, stdout, stderr });
-      }, options.timeoutMs);
-      timer.unref?.();
-    }
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on('data', (chunk: string) => {
-      stderr += chunk;
-    });
-    child.once('error', () => {
-      finish({ exitCode: -1, stdout, stderr });
-    });
-    child.once('close', (code) => {
-      finish({ exitCode: code ?? -1, stdout, stderr });
-    });
-  });
-}
-
-function killChild(child: ChildProcess): void {
-  // On Windows, `ChildProcess.kill()` only signals the direct child (e.g. the
-  // `cmd.exe` wrapper when a shell is involved, or the `git`/`gh` parent),
-  // leaving grandchildren alive and holding the cwd. Terminate the whole
-  // process tree so the working directory is released promptly.
-  if (process.platform === 'win32' && child.pid !== undefined) {
-    try {
-      const killer = spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      killer.once('error', () => {});
-      return;
-    } catch {
-      // fall through to the direct kill below
-    }
+async function collect(stream: AsyncIterable<Uint8Array | string>): Promise<string> {
+  const decoder = new TextDecoder();
+  let out = '';
+  for await (const chunk of stream) {
+    out += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
   }
-  try {
-    child.kill();
-  } catch {
-    /* best effort */
-  }
+  out += decoder.decode();
+  return out;
 }
 
 registerScopedService(LifecycleScope.App, IGitService, GitService, InstantiationType.Delayed, 'git');

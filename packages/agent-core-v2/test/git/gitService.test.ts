@@ -5,8 +5,15 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { createServices, type TestInstantiationService } from '#/_base/di/test';
+import { IGitService } from '#/app/git/git';
 import { GitService } from '#/app/git/gitService';
 import { ErrorCodes } from '#/errors';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
@@ -20,17 +27,28 @@ function git(cwd: string, ...args: string[]): string {
 
 describe('GitService', () => {
   let repo: string;
-  let service: GitService;
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+  let service: IGitService;
 
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), 'git-service-'));
     git(repo, 'init');
     git(repo, 'config', 'user.email', 'test@example.com');
     git(repo, 'config', 'user.name', 'Test');
-    service = new GitService();
+    disposables = new DisposableStore();
+    ix = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.define(IHostProcessService, HostProcessService);
+        reg.define(IHostFileSystem, HostFileSystem);
+        reg.define(IGitService, GitService);
+      },
+    });
+    service = ix.get(IGitService);
   });
 
   afterEach(() => {
+    disposables.dispose();
     rmSync(repo, { recursive: true, force: true });
   });
 

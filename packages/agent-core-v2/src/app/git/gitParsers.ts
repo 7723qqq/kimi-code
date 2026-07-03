@@ -8,8 +8,6 @@
  * `services/fs/fsGit.ts`).
  */
 
-import path from 'node:path';
-
 import type { FsGitStatus, FsGitStatusResponse, FsPullRequest } from '@moonshot-ai/protocol';
 
 export function parsePorcelain(
@@ -134,7 +132,9 @@ function collapseXY(xy: string): FsGitStatus {
 }
 
 function posix(p: string): string {
-  return p.split(path.sep).join('/');
+  // Git porcelain always emits `/`-separated paths, even on Windows; normalize
+  // the stray backslash for safety without depending on the host path style.
+  return p.replaceAll('\\', '/');
 }
 
 export function parsePullRequest(stdout: string): FsPullRequest | null {
