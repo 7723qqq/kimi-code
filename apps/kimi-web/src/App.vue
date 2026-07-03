@@ -37,7 +37,7 @@ import { openDialogCount } from './composables/dialogStack';
 import ServerAuthDialog from './components/ServerAuthDialog.vue';
 import { initServerAuth, onAuthRequired } from './api/daemon/serverAuth';
 import type { AppConfig, ThinkingLevel } from './api/types';
-import { commitLevel, segmentsFor } from './lib/modelThinking';
+import { coerceThinkingForModel, commitLevel, segmentsFor } from './lib/modelThinking';
 import Button from './components/ui/Button.vue';
 import IconButton from './components/ui/IconButton.vue';
 import Icon from './components/ui/Icon.vue';
@@ -97,7 +97,11 @@ function nextThinkingLevel(current: ThinkingLevel): ThinkingLevel {
     (m) => m.id === raw || m.model === raw || m.displayName === client.status.value.model,
   );
   const segs = segmentsFor(model);
-  const idx = segs.indexOf(current);
+  // Coerce the stored level against the active model before indexing, so a
+  // stale value (e.g. 'on' from a boolean model) doesn't resolve to index -1
+  // and jump to 'off' instead of advancing from the model's default effort.
+  const coerced = coerceThinkingForModel(model, current);
+  const idx = segs.indexOf(coerced);
   const next = segs[(idx + 1) % segs.length] ?? segs[0] ?? 'off';
   return commitLevel(model, next);
 }
