@@ -44,6 +44,11 @@ export interface ToolExecutionTask {
   readonly execute: (signal: AbortSignal) => Promise<ToolResult>;
 }
 
+interface TimedToolResult {
+  readonly result: ToolResult;
+  readonly durationMs: number;
+}
+
 export class AgentToolExecutorService implements IAgentToolExecutorService {
   declare readonly _serviceBrand: undefined;
   readonly hooks = {
@@ -88,20 +93,22 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       }
     }
 
-    const rawResults = await this.executeBatch(
+    const timedResults = await this.executeBatch(
       preparedTasks.map(({ task }) => task),
       options.signal,
     );
 
     const results: ToolResult[] = [];
     for (let index = 0; index < preparedTasks.length; index += 1) {
-      const { call } = preparedTasks[index]!;
-      const rawResult = rawResults[index]!;
+      const prepared = preparedTasks[index]!;
+      const { call } = prepared;
+      const timedResult = timedResults[index]!;
+      const rawResult = timedResult.result;
       const finalized = await this.finalizeToolResult(call, rawResult, options);
       results.push(finalized);
 
       await dispatchToolResult(call, finalized, options);
-      this.trackToolCall(call, finalized);
+      this.trackToolCall(call, finalized, timedResult.durationMs, options.turnId);
     }
 
     return results;
@@ -110,14 +117,18 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   private trackToolCall(
     call: PreflightedToolCall,
     result: ToolResult,
+    durationMs: number,
+    turnId: number,
   ): void {
-    const properties: Record<string, string> = {
+    const outcome = toolTelemetryOutcome(result);
+    const properties: Record<string, unknown> = {
+      turn_id: turnId,
+      tool_call_id: call.toolCall.id,
       tool_name: call.toolName,
-      outcome: toolTelemetryOutcome(result),
-      duration_ms: 'TODO',
-      dup_type: 'TODO',
+      outcome,
+      duration_ms: durationMs,
     };
-    if (result.isError === true) properties['error_type'] = 'TODO';
+    if (result.isError === true) properties['error_type'] = toolTelemetryErrorType(outcome);
     this.telemetry.track('tool_call', properties);
   }
 
@@ -125,21 +136,29 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     call: PreflightedToolCall,
     allCalls: readonly ToolCall[],
     options: ToolExecutorExecuteOptions,
-  ): Promise<{ task: ToolExecutionTask; stopBatchAfterThis?: boolean }> {
+  ): Promise<{
+    task: ToolExecutionTask;
+    stopBatchAfterThis?: boolean;
+  }> {
     const settleError = (
       args: unknown,
       output: string,
       displayFields?: ToolCallDisplayFields,
     ): { task: ToolExecutionTask } => {
       dispatchToolCall(call, args, options, displayFields);
-      return { task: makeResolvedTask(makeErrorToolResult(call, args, output)) };
+      return {
+        task: makeResolvedTask(makeErrorToolResult(call, args, output)),
+      };
     };
 
     const settleSynthetic = (
       args: unknown,
       result: ExecutableToolResult,
       displayFields?: ToolCallDisplayFields,
-    ): { task: ToolExecutionTask; stopBatchAfterThis?: boolean } => {
+    ): {
+      task: ToolExecutionTask;
+      stopBatchAfterThis?: boolean;
+    } => {
       const toolResult = this.normalizeAndMergeResult(result, call.toolName, undefined);
       dispatchToolCall(call, args, options, displayFields);
       return {
@@ -195,7 +214,11 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       );
     }
     if (decision?.syntheticResult !== undefined) {
-      return settleSynthetic(call.args, decision.syntheticResult, displayFields);
+      return settleSynthetic(
+        call.args,
+        decision.syntheticResult,
+        displayFields,
+      );
     }
 
     const executionMetadata = decision?.executionMetadata;
@@ -224,12 +247,20 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   private async executeBatch(
     tasks: ToolExecutionTask[],
     signal: AbortSignal,
-  ): Promise<ToolResult[]> {
-    const scheduler = new ToolScheduler<ToolResult>();
+  ): Promise<TimedToolResult[]> {
+    const scheduler = new ToolScheduler<TimedToolResult>();
     const pendingResults = tasks.map((task) =>
       scheduler.add({
         accesses: task.accesses,
-        start: async () => ({ result: task.execute(signal) }),
+        start: async () => {
+          const startedAt = Date.now();
+          return {
+            result: task.execute(signal).then((result) => ({
+              result,
+              durationMs: Math.max(0, Date.now() - startedAt),
+            })),
+          };
+        },
       }),
     );
 
@@ -330,9 +361,14 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       };
     }
 
-    const effectiveResult = coerceToolResult(didCtx.result, call.toolName);
+    const coercedResult = coerceToolResult(didCtx.result, call.toolName);
+    const effectiveResult = normalizeToolResult(coercedResult);
     return {
-      ...result,
+      ...effectiveResult,
+      message: coercedResult.message ?? result.message,
+      description: result.description,
+      display: result.display,
+      approvalRule: result.approvalRule,
       stopTurn:
         result.stopTurn === true ||
         didCtx.stopTurn === true ||
@@ -591,6 +627,11 @@ function toolTelemetryOutcome(result: ToolResult): 'success' | 'error' | 'cancel
     text.includes('manually interrupted')
     ? 'cancelled'
     : 'error';
+}
+
+function toolTelemetryErrorType(outcome: 'success' | 'error' | 'cancelled'): string {
+  if (outcome === 'cancelled') return 'cancelled';
+  return 'error';
 }
 
 function toolOutputText(output: ToolResult['output']): string {

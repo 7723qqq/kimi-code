@@ -49,6 +49,7 @@ export const ErrorCodes = {
   CONTEXT_OVERFLOW: 'context.overflow',
   LOOP_MAX_STEPS_EXCEEDED: 'loop.max_steps_exceeded',
   PROVIDER_API_ERROR: 'provider.api_error',
+  PROVIDER_FILTERED: 'provider.filtered',
   PROVIDER_RATE_LIMIT: 'provider.rate_limit',
   PROVIDER_AUTH_ERROR: 'provider.auth_error',
   PROVIDER_CONNECTION_ERROR: 'provider.connection_error',
@@ -308,6 +309,12 @@ export const KIMI_ERROR_INFO = {
     retryable: false,
     public: true,
     action: 'Inspect details.statusCode / details.requestId; check provider status.',
+  },
+  'provider.filtered': {
+    title: 'Provider filtered response',
+    retryable: false,
+    public: true,
+    action: 'Revise the prompt or model configuration to avoid provider safety filtering.',
   },
   'provider.rate_limit': {
     title: 'Provider rate limit',

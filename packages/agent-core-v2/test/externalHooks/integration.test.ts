@@ -1,11 +1,36 @@
 import { describe, expect, it } from 'vitest';
 
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import {
+  createServices,
+  type TestInstantiationService,
+} from '#/_base/di/test';
+import { Event } from '#/_base/event';
+import { IAgentToolService } from '#/agent/agentTool';
+import { IAgentBackgroundService } from '#/agent/background';
+import {
+  AgentExternalHooksService,
+  IAgentExternalHooksService,
+} from '#/agent/externalHooks';
 import { HookEngine } from '#/agent/externalHooks/engine';
 import {
   HookDefSchema,
   hooksFromToml,
   hooksToToml,
 } from '#/agent/externalHooks/configSection';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction';
+import { IAgentLoopService, type TurnWillStopContext } from '#/agent/loop';
+import { IAgentPermissionGate } from '#/agent/permissionGate';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor';
+import { IAgentTurnService, type Turn } from '#/agent/turn';
+import { IBootstrapService } from '#/app/bootstrap';
+import { IConfigService } from '#/app/config';
+import { IPluginService } from '#/app/plugin';
+import { createHooks } from '#/hooks';
+
+import { stubBootstrap } from '../bootstrap/stubs';
+import { stubLoopWithHooks, stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';
 
 function nodeCommand(source: string): string {
   return `node -e ${JSON.stringify(source.replace(/\s*\n\s*/g, ' '))}`;
@@ -20,6 +45,15 @@ function stdinScript(body: string): string {
     body,
     '});',
   ].join('\n'));
+}
+
+function makeTurn(id: number): Turn {
+  return {
+    id,
+    abortController: new AbortController(),
+    ready: Promise.resolve(),
+    result: Promise.resolve({ reason: 'completed' }),
+  };
 }
 
 describe('HookEngine integration', () => {
@@ -69,6 +103,76 @@ describe('HookEngine integration', () => {
     expect(results).toHaveLength(1);
     expect(results[0]?.action).toBe('block');
     expect(results[0]?.reason).toContain('tests not written');
+  });
+
+  it('limits external Stop hook continuations to once per active turn', async () => {
+    const disposables = new DisposableStore();
+    let ix: TestInstantiationService | undefined;
+    try {
+      const loop = stubLoopWithHooks();
+      const turnService = stubTurnWithHooks();
+      const stopInputs: unknown[] = [];
+      const hookEngine = {
+        trigger: async () => [],
+        fireAndForgetTrigger: async () => [],
+        triggerBlock: async (_event: string, args: { inputData?: unknown }) => {
+          stopInputs.push(args.inputData);
+          return { block: true, reason: `continue ${stopInputs.length}` };
+        },
+      };
+
+      ix = createServices(disposables, {
+        strict: true,
+        additionalServices: (reg) => {
+          reg.defineInstance(IBootstrapService, stubBootstrap());
+          reg.definePartialInstance(IConfigService, {});
+          reg.definePartialInstance(IPluginService, {});
+          reg.defineInstance(IAgentLoopService, loop);
+          reg.defineInstance(IAgentTurnService, turnService);
+          reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
+          reg.definePartialInstance(IAgentPermissionGate, {
+            hooks: createHooks(['onDidRequestApproval', 'onDidResolveApproval']),
+          });
+          reg.definePartialInstance(IAgentFullCompactionService, {
+            hooks: createHooks(['onWillCompact', 'onDidCompact']),
+          });
+          reg.definePartialInstance(IAgentBackgroundService, {
+            hooks: createHooks(['onDidNotify']),
+          });
+          reg.definePartialInstance(IAgentToolService, {
+            hooks: createHooks(['onWillRunSubagent', 'onDidRunSubagent']),
+          });
+        },
+      });
+      ix.set(
+        IAgentExternalHooksService,
+        new SyncDescriptor(AgentExternalHooksService, [{ hookEngine }]),
+      );
+      ix.get(IAgentExternalHooksService);
+
+      const signal = new AbortController().signal;
+      const first: TurnWillStopContext = { signal };
+      await loop.hooks.onWillStop.run(first);
+      expect(first.continuationPrompt).toBe('continue 1');
+
+      const second: TurnWillStopContext = { signal };
+      await loop.hooks.onWillStop.run(second);
+      expect(second.continuationPrompt).toBeUndefined();
+      expect(stopInputs).toEqual([{ stopHookActive: false }]);
+
+      await turnService.hooks.onEnded.run({
+        turn: makeTurn(0),
+        result: { reason: 'completed' },
+      });
+
+      const nextTurn: TurnWillStopContext = { signal };
+      await loop.hooks.onWillStop.run(nextTurn);
+      expect(nextTurn.continuationPrompt).toBe('continue 2');
+      expect(stopInputs).toEqual([{ stopHookActive: false }, { stopHookActive: false }]);
+    } finally {
+      ix?.dispose();
+      disposables.dispose();
+    }
   });
 
   it('fires a Notification hook only when its matcher equals the notification matcher value', async () => {

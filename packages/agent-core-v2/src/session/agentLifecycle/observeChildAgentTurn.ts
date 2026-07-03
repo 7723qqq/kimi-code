@@ -1,13 +1,13 @@
 /**
  * `agentLifecycle` domain (L6) — helper that runs one prompt (or retry) turn on
  * a child agent, mirrors the child's turn lifecycle onto the caller's record
- * stream + external hooks, and distills a summary the caller can hand back to
+ * stream + subagent hooks, and distills a summary the caller can hand back to
  * its own tool result.
  *
  * Not a Service: `observeChildAgentTurn` is a pure function that borrows
  * `IAgentPromptService`, `IAgentContextMemoryService`, `IAgentUsageService`
- * from the child scope and `IAgentRecordService`, `IAgentExternalHooksService`
- * from the caller scope. It replaces the free-function `spawnChildAgent` /
+ * from the child scope and `IAgentRecordService`, `IAgentToolService` from the
+ * caller scope. It replaces the free-function `spawnChildAgent` /
  * `resumeChildAgent` orchestration under the old `agentTool` domain: the fork
  * step is now `IAgentLifecycleService.spawn`, profile application is
  * `applyProfileToAgent`, and the caller-side spawn record (`subagent.spawned`)
@@ -36,7 +36,7 @@ import {
 } from '#/agent/contextMemory';
 import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
 import { IAgentRecordService } from '#/agent/record';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
+import { IAgentToolService } from '#/agent/agentTool';
 import { isAbortError } from '#/agent/loop/errors';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentUsageService } from '#/agent/usage';
@@ -124,18 +124,16 @@ async function runObservation(
   const controller = new AbortController();
   const unlink = linkAbortSignal(options.signal, controller);
   const record = caller.accessor.get(IAgentRecordService);
-  const hooks = caller.accessor.get(IAgentExternalHooksService);
+  const agentTool = caller.accessor.get(IAgentToolService);
   let turnRef: Turn = turn;
   record?.signal({ type: 'subagent.started', subagentId: child.id });
   if (request.kind === 'prompt') {
     try {
-      await hooks?.triggerSubagentStart(
-        {
-          agentName: options.profileName,
-          prompt: request.prompt.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
-        },
-        options.signal,
-      );
+      await agentTool.hooks.onWillRunSubagent.run({
+        agentName: options.profileName,
+        prompt: request.prompt.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
+        signal: options.signal,
+      });
     } catch (error) {
       unlink();
       throw error;
@@ -158,10 +156,10 @@ async function runObservation(
       resultSummary: summary,
       usage,
     });
-    hooks?.triggerSubagentStop({
+    void agentTool.hooks.onDidRunSubagent.run({
       agentName: options.profileName,
       response: summary.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
-    });
+    }).catch(() => undefined);
     return { summary, usage };
   } catch (error) {
     if (!isAbortError(error) && !shouldSuppressFailure(options, error)) {

@@ -38,6 +38,7 @@ import { createExecContext, type IExecContext } from '#/session/execContext';
 import type { IProcess, ISessionProcessRunner } from '#/session/process';
 import { type BashInput, BashInputSchema, BashTool } from '#/agent/shellTools/tools/bash';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import { createHooks } from '#/hooks';
 
 const posixEnv: IHostEnvironment = {
   _serviceBrand: undefined,
@@ -444,6 +445,7 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
 
   const service: IAgentBackgroundService = {
     _serviceBrand: undefined,
+    hooks: createHooks(['onDidNotify']) as IAgentBackgroundService['hooks'],
 
     registerTask(task: BackgroundTask, registerOptions: RegisterBackgroundTaskOptions = {}): string {
       const detached = registerOptions.detached ?? true;

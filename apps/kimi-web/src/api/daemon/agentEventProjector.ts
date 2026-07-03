@@ -930,7 +930,7 @@ export function createAgentProjector(): AgentProjector {
               sessionId,
               messageId: msgId,
               content: msg.content.map((c) => ({ ...c })),
-              status: reason === 'failed' || reason === 'filtered' ? 'error' : 'completed',
+              status: reason === 'failed' || reason === 'blocked' ? 'error' : 'completed',
               durationMs,
             });
           }
@@ -941,7 +941,9 @@ export function createAgentProjector(): AgentProjector {
         out.push({ type: 'sessionUsageUpdated', sessionId, usage: usageSnapshot });
 
         const newStatus =
-          reason === 'cancelled' || reason === 'failed' || reason === 'filtered' ? 'aborted' : 'idle';
+          reason === 'cancelled' || reason === 'failed' || reason === 'blocked'
+            ? 'aborted'
+            : 'idle';
         out.push({
           type: 'sessionStatusChanged',
           sessionId,

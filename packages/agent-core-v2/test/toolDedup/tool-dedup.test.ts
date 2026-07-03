@@ -3,15 +3,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { ITelemetryService } from '#/app/telemetry';
+import type { ToolCall } from '#/app/llmProtocol';
 import { IAgentLoopService } from '#/agent/loop';
+import type { ExecutableTool, ExecutableToolContext, ToolExecution } from '#/agent/tool';
 import {
   IAgentToolDedupeService,
   AgentToolDedupeService,
   __testing as toolDedupTesting,
 } from '#/agent/toolDedupe';
 import type { ToolDedupResult } from '#/agent/toolDedupe';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
+import { AgentToolExecutorService, IAgentToolExecutorService } from '#/agent/toolExecutor';
+import { AgentToolRegistryService, IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentTurnService } from '#/agent/turn';
+import { registerLogServices } from '../log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';
 
@@ -46,7 +50,7 @@ function okResult(text: string): ToolDedupResult {
 }
 
 interface ToolDedupeInternals extends IAgentToolDedupeService {
-  beginStep(): Promise<void>;
+  beginStep(turnId?: number, step?: number): Promise<void>;
   endStep(): Promise<void>;
   checkSameStep(
     toolCallId: string,
@@ -80,6 +84,32 @@ async function runOriginal(
   const cached = await deduper.checkSameStep(callId, tool, args);
   expect(cached).toBeNull();
   return deduper.finalizeResult(callId, tool, args, result);
+}
+
+function toolCall(id: string, name: string, args: unknown): ToolCall {
+  return {
+    type: 'function',
+    id,
+    name,
+    arguments: JSON.stringify(args),
+  };
+}
+
+class EchoTool implements ExecutableTool<Record<string, unknown>> {
+  readonly name = 'Echo';
+  readonly description = 'Echo input text.';
+  readonly parameters = { type: 'object', additionalProperties: true };
+  readonly calls: Array<ExecutableToolContext & { readonly args: Record<string, unknown> }> = [];
+
+  resolveExecution(args: Record<string, unknown>): ToolExecution {
+    return {
+      approvalRule: this.name,
+      execute: async (ctx) => {
+        this.calls.push({ ...ctx, args });
+        return { output: String(args['text'] ?? '') };
+      },
+    };
+  }
 }
 
 describe('AgentToolDedupeService', () => {
@@ -121,6 +151,53 @@ describe('AgentToolDedupeService', () => {
       const dupFinal = await dedup.finalizeResult('c2', 'Read', { path: '/a' }, dupCached!);
       expect(origFinal).toEqual(okResult('A'));
       expect(dupFinal).toEqual(okResult('A'));
+    });
+
+    it('wires through ToolExecutor hooks and replaces same-step placeholders', async () => {
+      const loop = stubLoopWithHooks();
+      const ix = createServices(disposables, {
+        additionalServices: (reg) => {
+          reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
+          reg.defineInstance(IAgentLoopService, loop);
+          reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
+          reg.define(IAgentToolRegistryService, AgentToolRegistryService);
+          reg.define(IAgentToolExecutorService, AgentToolExecutorService);
+          reg.define(IAgentToolDedupeService, AgentToolDedupeService);
+          registerLogServices(reg);
+        },
+        strict: true,
+      });
+      const registry = ix.get(IAgentToolRegistryService);
+      const executor = ix.get(IAgentToolExecutorService);
+      const tool = new EchoTool();
+      registry.register(tool);
+      ix.get(IAgentToolDedupeService);
+
+      await loop.hooks.beforeStep.run({
+        turnId: 3,
+        step: 1,
+        signal: new AbortController().signal,
+      });
+      const results = await executor.execute(
+        [
+          toolCall('call_1', 'Echo', { text: 'same' }),
+          toolCall('call_2', 'Echo', { text: 'same' }),
+        ],
+        { turnId: 3, signal: new AbortController().signal },
+      );
+
+      expect(tool.calls).toHaveLength(1);
+      expect(results.map((result) => result.output)).toEqual(['same', 'same']);
+      expect(telemetryEvents).toContainEqual({
+        event: 'tool_call_dedup_detected',
+        properties: expect.objectContaining({
+          turn_id: 3,
+          step_no: 1,
+          tool_call_id: 'call_2',
+          tool_name: 'Echo',
+          dup_type: 'same_step',
+        }),
+      });
     });
   });
 
@@ -494,6 +571,67 @@ describe('AgentToolDedupeService', () => {
   });
 
   describe('repeat telemetry', () => {
+    it('emits same-step duplicate detection telemetry', async () => {
+      const dedup = createDeduper();
+      await dedup.beginStep(7, 1);
+      await runOriginal(dedup, 'c1', 'Read', { path: '/a' }, okResult('FILE_A'));
+      const cached = await dedup.checkSameStep('c2', 'Read', { path: '/a' });
+
+      expect(cached).not.toBeNull();
+      expect(telemetryEvents).toContainEqual({
+        event: 'tool_call_dedup_detected',
+        properties: {
+          turn_id: 7,
+          step_no: 1,
+          tool_call_id: 'c2',
+          tool_name: 'Read',
+          dup_type: 'same_step',
+          args_hash: expect.any(String),
+        },
+      });
+    });
+
+    it('emits cross-step duplicate detection telemetry', async () => {
+      const dedup = createDeduper();
+      await dedup.beginStep(7, 1);
+      await runOriginal(dedup, 'c1', 'Read', { path: '/a' }, okResult('FILE_A'));
+      await dedup.endStep();
+      telemetryEvents.length = 0;
+
+      await dedup.beginStep(7, 2);
+      await runOriginal(dedup, 'c2', 'Read', { path: '/a' }, okResult('FILE_A'));
+
+      expect(telemetryEvents).toContainEqual({
+        event: 'tool_call_dedup_detected',
+        properties: {
+          turn_id: 7,
+          step_no: 2,
+          tool_call_id: 'c2',
+          tool_name: 'Read',
+          dup_type: 'cross_step',
+          args_hash: expect.any(String),
+        },
+      });
+    });
+
+    it('does not keep interrupted cross-step history just for duplicate telemetry', async () => {
+      const dedup = createDeduper();
+      await dedup.beginStep(7, 1);
+      await runOriginal(dedup, 'a1', 'Read', { path: '/a' }, okResult('A'));
+      await dedup.endStep();
+      await dedup.beginStep(7, 2);
+      await runOriginal(dedup, 'b1', 'Read', { path: '/b' }, okResult('B'));
+      await dedup.endStep();
+      telemetryEvents.length = 0;
+
+      await dedup.beginStep(7, 3);
+      const result = await runOriginal(dedup, 'a2', 'Read', { path: '/a' }, okResult('A'));
+
+      expect(result.output as string).not.toContain('<system-reminder>');
+      expect(telemetryEvents.filter((e) => e.event === 'tool_call_dedup_detected')).toHaveLength(0);
+      expect(telemetryEvents.filter((e) => e.event === 'tool_call_repeat')).toHaveLength(0);
+    });
+
     it('emits tool_call_repeat with the streak count starting at the second occurrence', async () => {
       const dedup = createDeduper();
       for (let i = 0; i < 3; i += 1) {
@@ -573,6 +711,24 @@ describe('AgentToolDedupeService', () => {
         .map((e) => e.properties?.['repeat_count']);
       // Only the second Read({p:1}) is a repeat; the streak then breaks.
       expect(counts).toEqual([2]);
+    });
+
+    it('resets repeat state at turn boundaries', async () => {
+      const dedup = createDeduper();
+      for (let i = 0; i < 2; i += 1) {
+        await dedup.beginStep(1, i + 1);
+        await runOriginal(dedup, `a${String(i)}`, 'Read', { p: 1 }, okResult('R'));
+        await dedup.endStep();
+      }
+      telemetryEvents.length = 0;
+
+      await dedup.beginStep(2, 1);
+      const firstInNewTurn = await runOriginal(dedup, 'b1', 'Read', { p: 1 }, okResult('R'));
+      await dedup.endStep();
+
+      expect(firstInNewTurn.output as string).not.toContain('<system-reminder>');
+      expect(telemetryEvents.filter((e) => e.event === 'tool_call_repeat')).toHaveLength(0);
+      expect(telemetryEvents.filter((e) => e.event === 'tool_call_dedup_detected')).toHaveLength(0);
     });
 
     it('runs with a no-op telemetry service', async () => {

@@ -425,7 +425,7 @@ describe('Agent turn flow', () => {
         args: expect.objectContaining({
           reason: 'failed',
           error: expect.objectContaining({
-            code: 'provider.api_error',
+            code: 'provider.filtered',
             name: 'APIEmptyResponseError',
             details: expect.objectContaining({
               finishReason: 'filtered',
@@ -441,7 +441,7 @@ describe('Agent turn flow', () => {
         type: '[rpc]',
         event: 'error',
         args: expect.objectContaining({
-          code: 'provider.api_error',
+          code: 'provider.filtered',
           name: 'APIEmptyResponseError',
           details: expect.objectContaining({
             finishReason: 'filtered',
@@ -453,7 +453,7 @@ describe('Agent turn flow', () => {
     );
   });
 
-  it('ends the turn with reason filtered when the provider filters a non-empty response', async () => {
+  it('ends the turn with a provider.filtered error when the provider filters a non-empty response', async () => {
     const generate: GenerateFn = async () => ({
       id: null,
       message: {
@@ -484,7 +484,14 @@ describe('Agent turn flow', () => {
         type: '[rpc]',
         event: 'turn.ended',
         args: expect.objectContaining({
-          reason: 'filtered',
+          reason: 'failed',
+          error: expect.objectContaining({
+            code: 'provider.filtered',
+            details: expect.objectContaining({
+              finishReason: 'filtered',
+              turnId: 0,
+            }),
+          }),
         }),
       }),
     );
@@ -668,6 +675,12 @@ describe('Agent turn flow', () => {
           content: 'no profanity',
           blocked: true,
         }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'turn.ended',
+        args: expect.objectContaining({ reason: 'blocked' }),
       }),
     );
     expect(ctx.agent.context.data().history).toEqual([

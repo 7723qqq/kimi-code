@@ -46,7 +46,11 @@ export class SessionActivity implements ISessionActivity {
   private hasAbortedTurn(): boolean {
     for (const handle of this.agents.list()) {
       const reason = handle.accessor.get(IAgentTurnService).lastEndedReason();
-      if (reason === 'cancelled' || reason === 'failed' || reason === 'filtered') {
+      if (
+        reason === 'cancelled' ||
+        reason === 'failed' ||
+        reason === 'blocked'
+      ) {
         return true;
       }
     }

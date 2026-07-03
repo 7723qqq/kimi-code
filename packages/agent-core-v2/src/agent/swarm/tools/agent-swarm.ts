@@ -2,8 +2,8 @@
  * `swarm` domain (L4) — `AgentSwarm` collaboration tool.
  *
  * Launches a batch of child agents (an ordinary Agent scope each) through the
- * `agentTool` queued run helper and renders the per-subagent XML result. Keeps
- * a module-level map of spawned agent id → swarm item so a later
+ * session swarm coordinator and renders the per-subagent XML result. Keeps a
+ * module-level map of spawned agent id → swarm item so a later
  * `resume_agent_ids` call can relabel resumed subagents. Pure tool — owns no
  * scoped state.
  */

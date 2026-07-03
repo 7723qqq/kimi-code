@@ -7,9 +7,10 @@
  * completion-token budget, then drives `model.request(input, signal)` with
  * bounded retry. Forwards streamed `part` events to the caller's `onPart`
  * handler, records `usage` through `IAgentUsageService`, resolves to an
- * `LLMRequestFinish` on the `finish` event, and logs the outbound request
- * (config deduplicated by content, plus per-request fields) through `log`.
- * Bound at Agent scope.
+ * `LLMRequestFinish` on the `finish` event, logs the request lifecycle
+ * (config deduplicated by content, request/response/failure lines, plus
+ * per-request fields) through `log`, and reports provider failures through
+ * `telemetry`. Bound at Agent scope.
  */
 
 import { createHash } from 'node:crypto';
@@ -23,16 +24,24 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentUsageService } from '#/agent/usage';
 import { IConfigService } from '#/app/config';
 import {
+  APIConnectionError,
+  APIContextOverflowError,
+  APIEmptyResponseError,
+  APIStatusError,
+  APITimeoutError,
   emptyUsage,
+  isContextOverflowStatusError,
   isRetryableGenerateError,
   type Message,
   type ThinkingEffort,
+  type TokenUsage,
   type Tool,
 } from '#/app/llmProtocol';
-import { ILogService } from '#/app/log';
+import { ILogService, type LogContext } from '#/app/log';
 import type { KimiModelOverrides, Model, ModelRequestEvent } from '#/app/model';
 import { applyCompletionBudget, resolveCompletionBudget } from '#/app/model/completionBudget';
 import type { Protocol } from '#/app/protocol';
+import { ITelemetryService } from '#/app/telemetry';
 
 import type {
   LLMRequestFinish,
@@ -92,6 +101,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IAgentUsageService private readonly usage: IAgentUsageService,
     @IConfigService private readonly config: IConfigService,
     @ILogService private readonly log: ILogService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
   async request(
@@ -108,6 +118,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     onPart: LLMRequestPartHandler,
     signal: AbortSignal | undefined,
   ): Promise<LLMRequestFinish> {
+    const startedAt = Date.now();
     const maxAttempts = Math.max(overrides.retry?.maxAttempts ?? DEFAULT_MAX_RETRY_ATTEMPTS, 1);
 
     if (maxAttempts <= 1) {
@@ -115,6 +126,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         return await this.executeRequestAttempt(overrides, onPart, signal, 1, maxAttempts);
       } catch (error) {
         this.logRequestFailure(error, overrides, signal, 1, maxAttempts);
+        this.trackApiError(error, startedAt, signal);
         throw error;
       }
     }
@@ -126,6 +138,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       } catch (error) {
         if (attempt >= maxAttempts || !isRetryableGenerateError(error)) {
           this.logRequestFailure(error, overrides, signal, attempt, maxAttempts);
+          this.trackApiError(error, startedAt, signal);
           throw error;
         }
 
@@ -165,22 +178,30 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     maxAttempts: number,
   ): void {
     if (isAbortError(error) || signal?.aborted === true) return;
-    const payload: {
-      turnStep?: string;
-      attempt: string;
-      model: string;
-      errorName: string;
-      errorMessage: string;
-      statusCode?: number;
-    } = {
+    const payload: LogContext = {
+      ...overrides.requestLogFields,
       attempt: `${String(attempt)}/${String(maxAttempts)}`,
       model: this.profile.data().modelAlias ?? 'unknown',
       ...retryErrorFields(error),
     };
-    if (overrides.requestLogFields?.turnStep !== undefined) {
-      payload.turnStep = overrides.requestLogFields.turnStep;
-    }
     this.log.warn('llm request failed', payload);
+  }
+
+  private trackApiError(
+    error: unknown,
+    startedAt: number,
+    signal: AbortSignal | undefined,
+  ): void {
+    if (isAbortError(error) || signal?.aborted === true) return;
+    const properties: Record<string, unknown> = {
+      error_type: apiErrorType(error),
+      model: this.profile.data().modelAlias ?? 'unknown',
+      retryable: isRetryableGenerateError(error),
+      duration_ms: Math.max(0, Date.now() - startedAt),
+    };
+    const statusCode = apiStatusCode(error);
+    if (statusCode !== undefined) properties['status_code'] = statusCode;
+    this.telemetry.track('api_error', properties);
   }
 
   private async runRequest(
@@ -237,6 +258,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const usageModel = request.modelAlias;
     this.usage.record(usageModel, usage, request.usageContext);
     this.contextSize.measured(request.messages, [message], usage);
+    this.logResponse(request.requestLogFields, usage, timing);
 
     return {
       message,
@@ -277,7 +299,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   }
 
   private logRequest(input: LLMRequestLogInput): void {
-    const requestLogFields = input.fields ?? {};
+    const requestLogFields: LLMRequestLogFields = input.fields ?? {};
     const config = {
       provider: input.protocol,
       model: input.modelName,
@@ -297,13 +319,30 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
 
     const partialMessageCount = input.messages.filter((message) => message.partial === true).length;
-    const requestFields: {
-      turnStep?: string;
-      attempt?: string;
-      partialMessageCount?: number;
-    } = { ...requestLogFields };
-    if (partialMessageCount > 0) requestFields.partialMessageCount = partialMessageCount;
+    const requestFields: LogContext = { ...requestLogFields };
+    if (partialMessageCount > 0) requestFields['partialMessageCount'] = partialMessageCount;
     this.log.info('llm request', requestFields);
+  }
+
+  private logResponse(
+    fields: LLMRequestLogFields | undefined,
+    usage: TokenUsage,
+    timing: LLMStreamTiming | undefined,
+  ): void {
+    if (timing === undefined) return;
+    const payload: LogContext = {
+      ...fields,
+      ttftMs: timing.firstTokenLatencyMs,
+      streamDurationMs: timing.streamDurationMs,
+      outputTokens: usage.output,
+    };
+    if (timing.requestBuildMs !== undefined) payload['requestBuildMs'] = timing.requestBuildMs;
+    if (timing.serverFirstTokenMs !== undefined) {
+      payload['serverFirstTokenMs'] = timing.serverFirstTokenMs;
+    }
+    if (timing.serverDecodeMs !== undefined) payload['serverDecodeMs'] = timing.serverDecodeMs;
+    if (timing.clientConsumeMs !== undefined) payload['clientConsumeMs'] = timing.clientConsumeMs;
+    this.log.info('llm response', payload);
   }
 
   private defaultTools(): readonly Tool[] {
@@ -323,7 +362,7 @@ function requestOverridesForAttempt(
   attempt: number,
   maxAttempts: number,
 ): LLMRequestOverrides {
-  if (attempt === 1 || overrides.requestLogFields === undefined) {
+  if (attempt === 1) {
     return overrides;
   }
   return {
@@ -341,6 +380,30 @@ function toolSignature(tools: readonly Tool[]) {
 
 function fingerprint(content: string): string {
   return createHash('sha256').update(content).digest('hex');
+}
+
+function apiErrorType(error: unknown): string {
+  if (error instanceof APIContextOverflowError) return 'context_overflow';
+  if (error instanceof APIStatusError) {
+    if (isContextOverflowStatusError(error.statusCode, error.message)) return 'context_overflow';
+    if (error.statusCode === 429) return 'rate_limit';
+    if (error.statusCode === 401 || error.statusCode === 403) return 'auth';
+    if (error.statusCode >= 500) return '5xx_server';
+    if (error.statusCode >= 400) return '4xx_client';
+  }
+  if (error instanceof APIConnectionError) return 'network';
+  if (error instanceof APITimeoutError) return 'timeout';
+  if (error instanceof APIEmptyResponseError) return 'empty_response';
+  return 'other';
+}
+
+function apiStatusCode(error: unknown): number | undefined {
+  if (error instanceof APIStatusError) return error.statusCode;
+  if (typeof error !== 'object' || error === null) return undefined;
+  const statusCode = (error as Record<string, unknown>)['statusCode'];
+  if (typeof statusCode === 'number') return statusCode;
+  const status = (error as Record<string, unknown>)['status'];
+  return typeof status === 'number' ? status : undefined;
 }
 
 registerScopedService(

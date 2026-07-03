@@ -862,7 +862,13 @@ describe('runPrompt', () => {
           mocks.mainEvent({
             type: 'turn.ended',
             turnId: 2,
-            reason: 'filtered',
+            reason: 'failed',
+            error: {
+              code: 'provider.filtered',
+              message: 'Provider safety policy blocked the response.',
+              name: 'ProviderFilteredError',
+              retryable: false,
+            },
           }),
         );
       }

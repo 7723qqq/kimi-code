@@ -7,11 +7,9 @@ import type {
   TokenUsage,
   Tool,
 } from '#/app/llmProtocol';
+import type { LogContext } from '#/app/log';
 
-export interface LLMRequestLogFields {
-  readonly turnStep: string;
-  readonly attempt?: string;
-}
+export type LLMRequestLogFields = Readonly<LogContext>;
 
 export interface LLMRequestRetryContext {
   readonly failedAttempt: number;

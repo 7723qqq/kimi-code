@@ -17,6 +17,28 @@ import {
   type TestAgentContext,
 } from '../harness';
 
+interface CapturedLogEntry {
+  readonly level: 'error' | 'warn' | 'info' | 'debug';
+  readonly message: string;
+  readonly payload: LogPayload | undefined;
+}
+
+function captureLogs(): { logger: Logger; entries: CapturedLogEntry[] } {
+  const entries: CapturedLogEntry[] = [];
+  const capture =
+    (level: CapturedLogEntry['level']) => (message: string, payload?: LogPayload) => {
+      entries.push({ level, message, payload });
+    };
+  const logger: Logger = {
+    error: capture('error'),
+    warn: capture('warn'),
+    info: capture('info'),
+    debug: capture('debug'),
+    child: () => logger,
+  };
+  return { logger, entries };
+}
+
 describe('LLMRequester service migration coverage', () => {
   describe('tool-call deltas', () => {
     let ctx: TestAgentContext;
@@ -113,9 +135,11 @@ describe('LLMRequester service migration coverage', () => {
             throw new APIConnectionError('terminated');
           }
           return {
+            id: 'retry-response',
             message: { role: 'assistant', content: [], toolCalls: [] },
             usage: emptyUsage(),
             finishReason: 'completed',
+            rawFinishReason: 'stop',
           };
         }),
       );
@@ -185,13 +209,14 @@ describe('LLMRequester service migration coverage', () => {
 
       await expect(
         llmRequester.request({
-          requestLogFields: { turnStep: '0.1' },
+          requestLogFields: { requestKind: 'direct_test', turnStep: '0.1' },
           retry: { maxAttempts: 1 },
         }),
       ).rejects.toMatchObject({ message: 'temporary provider failure' });
 
       expect(entries).toEqual([
         expect.objectContaining({
+          requestKind: 'direct_test',
           turnStep: '0.1',
           attempt: '1/1',
           model: expect.any(String),
@@ -209,9 +234,12 @@ describe('LLMRequester service migration coverage', () => {
     let llmRequester: IAgentLLMRequesterService;
     let profile: IAgentProfileService;
     let requestMaxTokens: unknown;
+    let logEntries: CapturedLogEntry[];
 
     beforeEach(() => {
       requestMaxTokens = undefined;
+      const { logger, entries } = captureLogs();
+      logEntries = entries;
       ctx = createTestAgent(
         llmGenerateServices(async (provider, _systemPrompt, _tools, _messages, callbacks, options) => {
           requestMaxTokens = (
@@ -251,6 +279,7 @@ describe('LLMRequester service migration coverage', () => {
             },
           },
         })),
+        logServices(logger),
       );
       llmRequester = ctx.get(IAgentLLMRequesterService);
       profile = ctx.get(IAgentProfileService);
@@ -289,6 +318,30 @@ describe('LLMRequester service migration coverage', () => {
           streamDurationMs: expect.any(Number),
         }),
       );
+    });
+
+    it('logs successful LLM responses with caller-provided request fields', async () => {
+      await collectLLMRequest((onPart) =>
+        llmRequester.request(
+          { requestLogFields: { requestKind: 'direct_test', turnStep: '0.1' } },
+          onPart,
+        ),
+      );
+
+      const responseLogs = logEntries.filter((entry) => entry.message === 'llm response');
+      expect(responseLogs).toHaveLength(1);
+      const payload = responseLogs[0]?.payload as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        requestKind: 'direct_test',
+        turnStep: '0.1',
+        ttftMs: expect.any(Number),
+        streamDurationMs: expect.any(Number),
+        outputTokens: expect.any(Number),
+        serverDecodeMs: expect.any(Number),
+        clientConsumeMs: expect.any(Number),
+      });
+      expect(payload).not.toHaveProperty('requestBuildMs');
+      expect(payload).not.toHaveProperty('serverFirstTokenMs');
     });
 
     it('applies a per-request output budget override', async () => {

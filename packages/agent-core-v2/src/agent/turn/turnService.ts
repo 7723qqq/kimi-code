@@ -1,17 +1,17 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { toKimiErrorPayload, type KimiErrorPayload } from "#/errors";
-import { isUserCancellation } from "#/_base/utils/abort";
+import { ErrorCodes, KimiError, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { OrderedHookSlot } from '#/hooks';
 import { IAgentLoopService, type TurnResult as LoopTurnResult } from '#/agent/loop';
+import { isLoopTurnInterruptedError } from '#/agent/loop/errors';
 import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
 import { IAgentRecordService } from '#/agent/record';
 import type {
   Turn,
   TurnEndedContext,
+  TurnUserPromptSubmitContext,
   TurnResult,
 } from './turn';
 import { IAgentTurnService } from './turn';
@@ -33,11 +33,11 @@ export class AgentTurnService implements IAgentTurnService {
   private lastEndedReasonValue: TurnResult['reason'] | undefined;
   private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
   private readonly readySettled = new WeakSet<Turn>();
-  private readonly interruptedTelemetryTurnIds = new Set<number>();
   private readonly turnTelemetry = new Map<number, ITelemetryService>();
 
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
+    onWillSubmitUserPrompt: new OrderedHookSlot<TurnUserPromptSubmitContext>(),
     onEnded: new OrderedHookSlot<TurnEndedContext>(),
   };
 
@@ -45,7 +45,6 @@ export class AgentTurnService implements IAgentTurnService {
     @IAgentLoopService private readonly loop: IAgentLoopService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
   ) {
@@ -64,13 +63,6 @@ export class AgentTurnService implements IAgentTurnService {
         }
       },
     );
-    this.record.on((event) => {
-      if (event.type === 'turn.step.interrupted') {
-        if (typeof event.turnId === 'number' && typeof event.step === 'number') {
-          this.trackTurnInterrupted(event.turnId, event.step);
-        }
-      }
-    });
   }
 
   launch(origin: PromptOrigin, promptMessageId?: string): Turn {
@@ -128,20 +120,20 @@ export class AgentTurnService implements IAgentTurnService {
         result = promptHookResult;
         return result;
       }
-      result = toAgentTurnResult(
-        await this.loop.runTurn(turn.id, turn.abortController.signal),
-        turn.abortController.signal,
-      );
+      const loopResult = await this.loop.runTurn(turn.id, turn.abortController.signal);
+      result = toAgentTurnResult(loopResult, turn.abortController.signal);
       return result;
     } catch (error) {
+      const loopInterruptedError = isLoopTurnInterruptedError(error) ? error : undefined;
+      const resultError = loopInterruptedError?.cause ?? error;
+      const steps = loopInterruptedError?.steps;
       if (turn.abortController.signal.aborted) {
-        result = { reason: 'cancelled', error: turn.abortController.signal.reason };
+        result = { reason: 'cancelled', error: turn.abortController.signal.reason, steps };
         this.rejectReady(turn, turn.abortController.signal.reason);
         return result;
       }
-      this.externalHooks.triggerStopFailure(error, turn.abortController.signal);
-      this.rejectReady(turn, error);
-      result = { reason: 'failed', error };
+      this.rejectReady(turn, resultError);
+      result = { reason: 'failed', error: resultError, steps };
       return result;
     } finally {
       if (result !== undefined) {
@@ -153,24 +145,17 @@ export class AgentTurnService implements IAgentTurnService {
       if (result !== undefined) {
         this.lastEndedReasonValue = result.reason;
         const ended = toTurnEndedEvent(turn, result, Date.now() - startedAt);
-        if (
-          ended.reason === 'cancelled' &&
-          isUserCancellation(turn.abortController.signal.reason)
-        ) {
-          this.externalHooks.triggerInterrupt({ turnId: turn.id, reason: 'cancelled' });
-        }
         this.record.signal(ended);
         if (ended.error !== undefined) {
           this.record.signal({ type: 'error', ...ended.error });
         }
         if (ended.reason !== 'completed') {
-          this.trackTurnInterrupted(turn.id, 0);
+          this.trackTurnInterrupted(turn.id, result.steps ?? 0);
         }
       }
       if (result !== undefined) {
         await this.hooks.onEnded.run({ turn, result });
       }
-      this.interruptedTelemetryTurnIds.delete(turn.id);
       this.turnTelemetry.delete(turn.id);
     }
   }
@@ -195,10 +180,9 @@ export class AgentTurnService implements IAgentTurnService {
     const promptMessage = this.context.get().at(-1);
     if (!shouldRunUserPromptHook(promptMessage)) return undefined;
 
-    const hookResult = await this.externalHooks.triggerUserPromptSubmit(
-      promptMessage.content,
-      turn.abortController.signal,
-    );
+    const hookContext: TurnUserPromptSubmitContext = { turn, promptMessage };
+    await this.hooks.onWillSubmitUserPrompt.run(hookContext);
+    const hookResult = hookContext.decision;
     if (hookResult?.action === 'block') {
       this.append({
         role: 'assistant',
@@ -213,7 +197,7 @@ export class AgentTurnService implements IAgentTurnService {
         content: hookResult.message,
         blocked: true,
       });
-      return { reason: 'completed' };
+      return { reason: 'blocked' };
     }
 
     if (hookResult?.action === 'append') {
@@ -245,8 +229,6 @@ export class AgentTurnService implements IAgentTurnService {
   }
 
   private trackTurnInterrupted(turnId: number, atStep: number): void {
-    if (this.interruptedTelemetryTurnIds.has(turnId)) return;
-    this.interruptedTelemetryTurnIds.add(turnId);
     const telemetry =
       this.turnTelemetry.get(turnId) ?? this.telemetry.withContext(this.telemetryContext.get());
     telemetry.track('turn_interrupted', { at_step: atStep });
@@ -283,12 +265,23 @@ function toTurnEndedEvent(
 
 function toAgentTurnResult(result: LoopTurnResult, signal: AbortSignal): TurnResult {
   if (result.stopReason === 'aborted') {
-    return { reason: 'cancelled', error: signal.reason };
+    return { reason: 'cancelled', error: signal.reason, steps: result.steps };
   }
   if (result.stopReason === 'filtered') {
-    return { reason: 'filtered' };
+    return {
+      reason: 'failed',
+      steps: result.steps,
+      error: new KimiError(
+        ErrorCodes.PROVIDER_FILTERED,
+        'Provider safety policy blocked the response.',
+        {
+          name: 'ProviderFilteredError',
+          details: { finishReason: 'filtered' },
+        },
+      ),
+    };
   }
-  return { reason: 'completed' };
+  return { reason: 'completed', steps: result.steps };
 }
 
 const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';

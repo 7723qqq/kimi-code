@@ -1,10 +1,12 @@
 import { createDecorator } from "#/_base/di";
+import type { TurnEndReason } from '@moonshot-ai/protocol';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import type { Hooks } from '#/hooks';
 
 export interface TurnResult {
-  readonly reason: 'completed' | 'cancelled' | 'failed' | 'filtered';
+  readonly reason: TurnEndReason;
   readonly error?: unknown;
+  readonly steps?: number;
 }
 
 export interface Turn {
@@ -21,6 +23,26 @@ export interface TurnRunContext {
   readonly origin: PromptOrigin;
   readonly promptMessage?: ContextMessage;
   result?: TurnResult;
+}
+
+export type TurnUserPromptDecision =
+  | {
+      readonly action: 'append';
+      readonly event: string;
+      readonly message: string;
+      readonly text: string;
+    }
+  | {
+      readonly action: 'block';
+      readonly event: string;
+      readonly message: string;
+      readonly text: string;
+    };
+
+export interface TurnUserPromptSubmitContext {
+  readonly turn: Turn;
+  readonly promptMessage: ContextMessage;
+  decision?: TurnUserPromptDecision;
 }
 
 export interface TurnEndedContext {
@@ -41,6 +63,7 @@ export interface IAgentTurnService {
 
   readonly hooks: Hooks<{
     onLaunched: { turn: Turn };
+    onWillSubmitUserPrompt: TurnUserPromptSubmitContext;
     onEnded: TurnEndedContext;
   }>;
 }

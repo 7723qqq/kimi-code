@@ -60,10 +60,12 @@ function makeTurn(id: number): Turn {
 async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<boolean> {
   const step = {
     turnId: turn.id,
+    step: 1,
     signal: turn.abortController.signal,
   };
   const afterStep = {
     turnId: turn.id,
+    step: 1,
     signal: turn.abortController.signal,
     usage: zeroUsage,
     continueTurn: false,
@@ -81,6 +83,7 @@ async function runStepUsageHooks(
 ): Promise<boolean> {
   const afterStep = {
     turnId: turn.id,
+    step: 1,
     signal: turn.abortController.signal,
     usage,
     continueTurn: false,
@@ -658,10 +661,12 @@ describe('AgentGoalService core workflow hooks', () => {
     await turnService.hooks.onLaunched.run({ turn });
     const step = {
       turnId: turn.id,
+      step: 1,
       signal: turn.abortController.signal,
     };
     const afterStep = {
       turnId: turn.id,
+      step: 1,
       signal: turn.abortController.signal,
       usage: zeroUsage,
       continueTurn: false,
@@ -700,14 +705,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     const turn = makeTurn(5);
     await turnService.hooks.onLaunched.run({ turn });
-    eventSink.emit({
-      type: 'hook.result',
-      turnId: turn.id,
-      hookEvent: 'UserPromptSubmit',
-      content: 'blocked',
-      blocked: true,
-    });
-    await endTurn(turnService, turn);
+    await endTurn(turnService, turn, { reason: 'blocked' });
 
     expect(goals.getGoal().goal).toMatchObject({
       status: 'blocked',

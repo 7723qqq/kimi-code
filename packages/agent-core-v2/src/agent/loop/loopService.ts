@@ -4,7 +4,6 @@ import type { AgentEvent } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentRecordService } from '#/agent/record';
@@ -29,9 +28,10 @@ import {
   createMaxStepsExceededError,
   errorMessage,
   isAbortError,
+  LoopTurnInterruptedError,
   isMaxStepsExceededError,
 } from './errors';
-import { IAgentLoopService } from './loop';
+import { IAgentLoopService, type TurnWillStopContext } from './loop';
 import type { LoopInterruptReason, LoopTurnStopReason, TurnResult } from './types';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
@@ -47,6 +47,7 @@ export class AgentLoopService implements IAgentLoopService {
     beforeStep: new OrderedHookSlot(),
     afterStep: new OrderedHookSlot(),
     onContextOverflow: new OrderedHookSlot(),
+    onWillStop: new OrderedHookSlot<TurnWillStopContext>(),
   };
 
   constructor(
@@ -55,7 +56,6 @@ export class AgentLoopService implements IAgentLoopService {
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
-    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IConfigService private readonly config: IConfigService,
     @ILogService private readonly log: ILogService,
   ) { }
@@ -71,7 +71,6 @@ export class AgentLoopService implements IAgentLoopService {
       let stopReason: LoopTurnStopReason = 'completed';
       let activeStep: number | undefined;
       const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
-      let stopHookContinuationUsed = false;
 
       try {
         while (true) {
@@ -96,18 +95,16 @@ export class AgentLoopService implements IAgentLoopService {
             continue;
           }
 
-          if (!stopHookContinuationUsed) {
-            const reason = await this.externalHooks.triggerStop(signal, false);
-            if (reason !== undefined && hasStepBudgetRemaining(maxSteps, steps)) {
-              stopHookContinuationUsed = true;
-              this.append({
-                role: 'user',
-                content: [{ type: 'text', text: reason }],
-                toolCalls: [],
-                origin: { kind: 'system_trigger', name: 'stop_hook' },
-              });
-              continue;
-            }
+          const context: TurnWillStopContext = { signal };
+          await this.hooks.onWillStop.run(context);
+          if (context.continuationPrompt !== undefined) {
+            this.append({
+              role: 'user',
+              content: [{ type: 'text', text: context.continuationPrompt }],
+              toolCalls: [],
+              origin: { kind: 'system_trigger', name: 'stop_hook' },
+            });
+            continue;
           }
 
           break;
@@ -123,10 +120,18 @@ export class AgentLoopService implements IAgentLoopService {
 
         if (isContextOverflowError(error)) {
           const context = { turnId, signal, error, handled: false };
-          await this.hooks.onContextOverflow.run(context);
+          try {
+            await this.hooks.onContextOverflow.run(context);
+          } catch (hookError) {
+            throw new LoopTurnInterruptedError(hookError, {
+              steps,
+              activeStep,
+              reason: 'error',
+            });
+          }
           if (context.handled) continue;
         }
-        throw error;
+        throw new LoopTurnInterruptedError(error, { steps, activeStep, reason });
       }
 
       return { stopReason, steps };
@@ -141,7 +146,7 @@ export class AgentLoopService implements IAgentLoopService {
     readonly stopReason: FinishReason;
     readonly continueTurn: boolean;
   }> {
-    await this.hooks.beforeStep.run({ turnId, signal });
+    await this.hooks.beforeStep.run({ turnId, step: currentStep, signal });
     signal.throwIfAborted();
 
     const stepUuid = randomUUID();
@@ -218,20 +223,8 @@ export class AgentLoopService implements IAgentLoopService {
     signal.throwIfAborted();
 
     this.emitStepCompleted(turnId, currentStep, stepUuid, usage, finishReason, response);
-    if (response.timing !== undefined) {
-      this.log.info('llm response', {
-        turnStep,
-        ttftMs: response.timing.firstTokenLatencyMs,
-        requestBuildMs: response.timing.requestBuildMs,
-        serverFirstTokenMs: response.timing.serverFirstTokenMs,
-        streamDurationMs: response.timing.streamDurationMs,
-        serverDecodeMs: response.timing.serverDecodeMs,
-        clientConsumeMs: response.timing.clientConsumeMs,
-        outputTokens: response.usage.output,
-      });
-    }
 
-    const afterStepContext = { turnId, signal, usage, continueTurn: false };
+    const afterStepContext = { turnId, step: currentStep, signal, usage, continueTurn: false };
     try {
       await this.hooks.afterStep.run(afterStepContext);
     } catch {
@@ -384,10 +377,6 @@ function toolResultOutputForModel(result: ToolResult): string | ContentPart[] {
     return [{ type: 'text', text: TOOL_ERROR_STATUS }, ...output];
   }
   return output;
-}
-
-function hasStepBudgetRemaining(maxSteps: number | undefined, currentStep: number): boolean {
-  return maxSteps === undefined || maxSteps <= 0 || currentStep < maxSteps;
 }
 
 registerScopedService(

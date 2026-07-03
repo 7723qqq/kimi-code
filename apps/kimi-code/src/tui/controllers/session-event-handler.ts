@@ -333,8 +333,11 @@ export class SessionEventHandler {
     if (event.reason === 'cancelled') {
       this.markActiveAgentSwarmsCancelled();
     }
-    if (event.reason === 'filtered') {
+    if (event.reason === 'failed' && event.error?.code === 'provider.filtered') {
       this.host.showStatus('Turn stopped: provider safety policy blocked the response.', 'error');
+    }
+    if (event.reason === 'blocked') {
+      this.host.showStatus('Turn stopped: prompt hook blocked the request.', 'error');
     }
     const todos = this.host.state.todoPanel.getTodos();
     if (todos.length > 0 && todos.every((t) => t.status === 'done')) {
