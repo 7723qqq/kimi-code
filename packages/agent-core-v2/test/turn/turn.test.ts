@@ -19,7 +19,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { abortError, abortable } from '#/_base/utils/abort';
 import { ISessionAgentFileSystem } from '#/session/agentFs';
 import type { ContextMessage } from '#/agent/contextMemory';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IOAuthService } from '#/app/auth';
 import { IAgentTelemetryContextService } from '#/app/telemetry';
 import { ErrorCodes, KimiError } from '#/errors';

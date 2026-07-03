@@ -12,13 +12,10 @@ import { SessionCronServiceImpl } from '#/session/cron/sessionCronServiceImpl';
 import { ILogService } from '#/app/log';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionContext } from '#/session/sessionContext';
-import {
-  InMemoryStorageService,
-  IFileSystemStorageService,
-  IAtomicDocumentStore,
-  IAtomicTomlDocumentStore,
-  TomlAtomicDocumentStore,
-} from '#/app/storage';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAtomicDocumentStore, IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentTurnService, type Turn } from '#/agent/turn';

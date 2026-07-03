@@ -8,7 +8,7 @@
 
 import { randomBytes } from 'node:crypto';
 
-import type { IFileSystemStorageService } from '#/app/storage';
+import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 export type CloudPrimitive = boolean | number | string | undefined | null;
 

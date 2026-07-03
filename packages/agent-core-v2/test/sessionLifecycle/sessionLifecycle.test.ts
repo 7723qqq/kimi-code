@@ -9,7 +9,7 @@ import {
 } from '#/_base/di/scope';
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
 import { IBootstrapService } from '#/app/bootstrap';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IEventService } from '#/app/event';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
@@ -17,7 +17,8 @@ import { SessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle
 import { ISessionMetadata } from '#/session/sessionMetadata';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
 import { ISessionIndex } from '#/app/sessionIndex';
-import { IAppendLogStore, IAtomicDocumentStore } from '#/app/storage';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IWorkspaceRegistry, type Workspace } from '#/app/workspaceRegistry';
 
 function bootstrapStub(): IBootstrapService {

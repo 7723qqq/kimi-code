@@ -14,7 +14,7 @@
 
 import * as pathe from 'pathe';
 
-import type { IHostEnvironment } from '#/app/hostEnvironment';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 
 import type { WorkspaceConfig } from '../support/workspace';
 import { isSensitiveFile } from './sensitive';

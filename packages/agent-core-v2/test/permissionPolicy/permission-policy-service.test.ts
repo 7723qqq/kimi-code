@@ -16,7 +16,7 @@ import {
   matchesPathRuleSubject,
 } from '#/_base/tools/support/rule-match';
 import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
-import { IHostEnvironment, type IHostEnvironment as HostEnvironmentService } from '#/app/hostEnvironment';
+import { IHostEnvironment, type IHostEnvironment as HostEnvironmentService } from '#/os/interface/hostEnvironment';
 import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import {
   DenyAllPermissionPolicyService,

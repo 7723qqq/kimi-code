@@ -5,7 +5,8 @@ import {
   type BackgroundTaskInfo,
   type IAgentBackgroundService,
 } from '#/agent/background';
-import { AtomicDocumentStore, FileStorageService } from '#/app/storage';
+import { AtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 
 export type BackgroundServiceTestManager = IAgentBackgroundService & {
   loadFromDisk(): Promise<void>;

@@ -13,7 +13,7 @@ import {
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { IBootstrapService } from '#/app/bootstrap';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { SessionAgentFileSystem, ISessionAgentFileSystem } from '#/session/agentFs';
 import { createExecContext, IExecContext } from '#/session/execContext';
 import { IAgentProfileService } from '#/agent/profile';

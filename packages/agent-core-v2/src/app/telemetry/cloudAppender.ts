@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { arch, platform, release } from 'node:os';
 
-import type { IFileSystemStorageService } from '#/app/storage';
+import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import type { ITelemetryAppender, TelemetryContextPatch, TelemetryProperties } from './telemetry';
 import {

@@ -14,7 +14,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/app/log';
 import { ISessionContext } from '#/session/sessionContext';
-import { IAtomicDocumentStore } from '#/app/storage';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 
 import {
   ISessionMetadata,

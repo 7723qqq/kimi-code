@@ -9,7 +9,7 @@ import {
 import { IAgentBlobService } from '#/agent/blob';
 import { IBootstrapService } from '#/app/bootstrap';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { IAppendLogStore } from '#/app/storage';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { OrderedHookSlot } from '#/hooks';
 import type { WireRecord, WireRecordMap } from './index';
 import {

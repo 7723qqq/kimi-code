@@ -18,7 +18,7 @@ import type { SessionSwarmRunResult, SessionSwarmTask } from './sessionSwarm';
 //
 // The scheduler drives child-agent attempts through a small launcher
 // interface. Consumers (currently only `SessionSwarmService`) implement it
-// on top of `IAgentLifecycleService.spawn` + `applyProfileToAgent` +
+// on top of `IAgentLifecycleService.spawn({ profile })` +
 // `observeChildAgentTurn`; the option shapes are defined here so the
 // scheduler has a stable contract regardless of how launches are wired.
 

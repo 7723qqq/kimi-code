@@ -15,7 +15,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { IBootstrapService } from '#/app/bootstrap';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionAgentFileSystem } from '#/session/agentFs';
 import { IExecContext } from '#/session/execContext';
 import { IAgentProfileService, prepareSystemPromptContext } from '#/agent/profile';

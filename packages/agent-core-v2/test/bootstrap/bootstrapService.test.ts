@@ -6,10 +6,8 @@ import { createScopedTestHost } from '#/_base/di/test';
 import { IBootstrapService, bootstrapSeed, resolveBootstrapOptions } from '#/app/bootstrap';
 import { bootstrap } from '#/app/bootstrap/bootstrap';
 import { BootstrapService } from '#/app/bootstrap/bootstrapService';
-import {
-  FileStorageService,
-  IFileSystemStorageService,
-} from '#/app/storage';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 describe('BootstrapService (scoped)', () => {
   beforeEach(() => {

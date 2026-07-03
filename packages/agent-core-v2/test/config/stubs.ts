@@ -8,7 +8,8 @@
 import type { ServiceRegistration } from '#/_base/di/test';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { ConfigRegistry } from '#/app/config/configService';
-import { IAtomicTomlDocumentStore, TomlAtomicDocumentStore } from '#/app/storage';
+import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 
 /**
  * Register the default config collaborators: a real `ConfigRegistry` plus an

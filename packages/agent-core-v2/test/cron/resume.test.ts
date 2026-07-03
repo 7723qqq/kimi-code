@@ -21,7 +21,7 @@ import { IAgentPromptService } from '#/agent/prompt';
 import type { CronTask } from '#/app/cronPersistence';
 import { ISessionCronService } from '#/session/cron';
 import { IBootstrapService } from '#/app/bootstrap';
-import { IAtomicDocumentStore } from '#/app/storage';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionContext } from '#/session/sessionContext';
 import {
   createTestAgent,

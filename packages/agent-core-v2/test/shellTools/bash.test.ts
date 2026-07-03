@@ -32,7 +32,7 @@ import {
   type RegisterBackgroundTaskOptions,
 } from '#/agent/background';
 import type { BackgroundTaskSettlement } from '#/agent/background/task';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentProfileService } from '#/agent/profile';
 import { createExecContext, type IExecContext } from '#/session/execContext';
 import type { IProcess, ISessionProcessRunner } from '#/session/process';

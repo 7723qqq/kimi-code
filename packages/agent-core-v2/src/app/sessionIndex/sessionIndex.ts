@@ -11,7 +11,7 @@
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { Page } from '#/app/storage';
+import type { Page } from '#/persistence/interface/queryStore';
 
 export interface SessionSummary {
   readonly id: string;

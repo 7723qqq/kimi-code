@@ -15,12 +15,10 @@ import {
   BackgroundTaskPersistence,
   type BackgroundTaskInfo,
 } from '#/agent/background';
-import {
-  AtomicDocumentStore,
-  FileStorageService,
-  IAtomicDocumentStore,
-  IFileSystemStorageService,
-} from '#/app/storage';
+import { AtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 const SESSION_SCOPE = 'session';
 

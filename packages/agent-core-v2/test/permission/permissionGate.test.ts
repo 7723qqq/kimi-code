@@ -9,7 +9,7 @@ import type { Hooks } from '#/hooks';
 import type { ApprovalResponse } from '#/session/approval/approval';
 import type { ApprovalRequest } from '#/session/approval/approval';
 import { ISessionApprovalService } from '#/session/approval/approval';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
 import { IAgentPermissionGate, AgentPermissionGate } from '#/agent/permissionGate';
 import type { PermissionGateOptions } from '#/agent/permissionGate';
