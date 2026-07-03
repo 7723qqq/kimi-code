@@ -1,8 +1,8 @@
 import { resolve } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DisposableStore } from '#/_base/di/lifecycle';
+import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ErrorCodes } from '#/errors';
@@ -12,11 +12,18 @@ import {
   type TerminalFrame,
   type TerminalProcess,
   type TerminalSpawnOptions,
-  ISessionTerminalBackend,
+  IHostTerminalService,
+} from '#/os/interface/terminal';
+import { HostTerminalService } from '#/os/backends/node-local/hostTerminalService';
+import {
   ISessionTerminalService,
-} from '#/session/terminal';
-import { SessionTerminalService } from '#/os/backends/node-local/terminalService';
+  SessionTerminalService,
+} from '#/session/terminal/terminalService';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+
+vi.mock('node-pty', () => ({
+  spawn: vi.fn(),
+}));
 
 class FakeTerminalProcess implements TerminalProcess {
   private readonly dataEmitter = new Emitter<string>();
@@ -48,7 +55,7 @@ class FakeTerminalProcess implements TerminalProcess {
   }
 }
 
-class FakeTerminalBackend implements ISessionTerminalBackend {
+class FakeHostTerminalService implements IHostTerminalService {
   declare readonly _serviceBrand: undefined;
   readonly processes: FakeTerminalProcess[] = [];
   readonly lastOptions: TerminalSpawnOptions[] = [];
@@ -93,15 +100,15 @@ function collectSink(id = 'sink-1'): { sink: TerminalAttachSink; frames: Termina
 describe('SessionTerminalService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let backend: FakeTerminalBackend;
+  let host: FakeHostTerminalService;
 
   beforeEach(() => {
     disposables = new DisposableStore();
-    backend = new FakeTerminalBackend();
+    host = new FakeHostTerminalService();
     ix = createServices(disposables, {
       additionalServices: (reg) => {
+        reg.defineInstance(IHostTerminalService, host);
         reg.define(ISessionTerminalService, SessionTerminalService);
-        reg.defineInstance(ISessionTerminalBackend, backend);
         reg.defineInstance(ISessionWorkspaceContext, stubWorkspace());
         reg.defineInstance(ISessionContext, stubSessionContext());
       },
@@ -118,8 +125,8 @@ describe('SessionTerminalService', () => {
     expect(terminal.cwd).toBe(resolve('/ws', 'sub'));
     expect(terminal.cols).toBe(100);
     expect(terminal.rows).toBe(40);
-    expect(backend.processes).toHaveLength(1);
-    expect(backend.lastOptions[0]?.cwd).toBe(resolve('/ws', 'sub'));
+    expect(host.processes).toHaveLength(1);
+    expect(host.lastOptions[0]?.cwd).toBe(resolve('/ws', 'sub'));
   });
 
   it('uses the workspace workDir when cwd is omitted', async () => {
@@ -151,7 +158,7 @@ describe('SessionTerminalService', () => {
   it('attaches a sink, replays buffered frames, then streams live output', async () => {
     const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
-    const proc = backend.processes[0]!;
+    const proc = host.processes[0]!;
 
     proc.emitData('hello');
     const { sink, frames } = collectSink();
@@ -174,7 +181,7 @@ describe('SessionTerminalService', () => {
   it('replays only frames after sinceSeq', async () => {
     const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
-    const proc = backend.processes[0]!;
+    const proc = host.processes[0]!;
     proc.emitData('a');
     proc.emitData('b');
     proc.emitData('c');
@@ -188,7 +195,7 @@ describe('SessionTerminalService', () => {
   it('emits an exit frame and marks the terminal exited on process exit', async () => {
     const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
-    const proc = backend.processes[0]!;
+    const proc = host.processes[0]!;
     const { sink, frames } = collectSink();
     await svc.attach(terminal.id, sink);
 
@@ -208,7 +215,7 @@ describe('SessionTerminalService', () => {
   it('delegates write and resize to the process', async () => {
     const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
-    const proc = backend.processes[0]!;
+    const proc = host.processes[0]!;
 
     await svc.write(terminal.id, 'ls\n');
     await svc.resize(terminal.id, 120, 50);
@@ -221,7 +228,7 @@ describe('SessionTerminalService', () => {
   it('closes a terminal by killing the process and marking it exited', async () => {
     const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
-    const proc = backend.processes[0]!;
+    const proc = host.processes[0]!;
 
     const result = await svc.close(terminal.id);
     expect(result).toEqual({ closed: true });
@@ -232,7 +239,7 @@ describe('SessionTerminalService', () => {
   it('detaches a sink so it stops receiving frames', async () => {
     const svc = ix.get(ISessionTerminalService);
     const terminal = await svc.create({});
-    const proc = backend.processes[0]!;
+    const proc = host.processes[0]!;
     const { sink, frames } = collectSink();
     await svc.attach(terminal.id, sink);
 
@@ -244,9 +251,79 @@ describe('SessionTerminalService', () => {
   it('kills every live process when the service is disposed', async () => {
     const svc = ix.get(ISessionTerminalService);
     await svc.create({});
-    const proc = backend.processes[0]!;
+    const proc = host.processes[0]!;
 
     disposables.dispose();
     expect(proc.killed).toBe(true);
+  });
+});
+
+// Sanity check for the App-scoped OS HostTerminalService.
+describe('HostTerminalService (App scope)', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    ix = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.define(IHostTerminalService, HostTerminalService);
+      },
+    });
+  });
+  afterEach(() => disposables.dispose());
+
+  it('spawns a PTY through node-pty and forwards events', async () => {
+    const { spawn } = await import('node-pty');
+    const dataListeners = new Set<(data: string) => void>();
+    const exitListeners = new Set<(event: { exitCode: number }) => void>();
+    const mockPty = {
+      onData: (listener: (data: string) => void) => {
+        dataListeners.add(listener);
+        return toDisposable(() => dataListeners.delete(listener));
+      },
+      onExit: (listener: (event: { exitCode: number }) => void) => {
+        exitListeners.add(listener);
+        return toDisposable(() => exitListeners.delete(listener));
+      },
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(),
+    };
+    vi.mocked(spawn).mockReturnValue(mockPty as unknown as import('node-pty').IPty);
+
+    const svc = ix.get(IHostTerminalService);
+    const proc = await svc.spawn({ cwd: '/ws', shell: '/bin/sh', cols: 80, rows: 24 });
+
+    expect(spawn).toHaveBeenCalledWith('/bin/sh', [], {
+      name: 'xterm-256color',
+      cwd: '/ws',
+      cols: 80,
+      rows: 24,
+      env: process.env,
+    });
+
+    let receivedData = '';
+    proc.onData((data) => {
+      receivedData += data;
+    });
+    for (const listener of dataListeners) listener('hello');
+    expect(receivedData).toBe('hello');
+
+    let receivedExit: { exitCode: number | null } | undefined;
+    proc.onExit((event) => {
+      receivedExit = event;
+    });
+    for (const listener of exitListeners) listener({ exitCode: 5 });
+    expect(receivedExit).toEqual({ exitCode: 5 });
+
+    proc.write('ls\n');
+    expect(mockPty.write).toHaveBeenCalledWith('ls\n');
+
+    proc.resize(120, 50);
+    expect(mockPty.resize).toHaveBeenCalledWith(120, 50);
+
+    proc.kill();
+    expect(mockPty.kill).toHaveBeenCalled();
   });
 });

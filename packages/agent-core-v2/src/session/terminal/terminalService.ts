@@ -1,8 +1,8 @@
 /**
- * `terminal` domain (L6) — `ISessionTerminalService` implementation.
+ * `terminal` domain (L6) — Session-scoped terminal facade.
  *
  * Owns this session's terminal set and its per-terminal output buffers and
- * attached sinks; spawns PTYs through the injected `ISessionTerminalBackend`,
+ * attached sinks; spawns PTYs through the App-scoped `IHostTerminalService`,
  * resolves the working directory through `workspaceContext`, and reads the
  * session id through `sessionContext` to tag frames. Bound at Session scope.
  */
@@ -11,23 +11,22 @@ import { randomUUID } from 'node:crypto';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import type {
+  CreateTerminalRequest,
+  Terminal,
+  TerminalAttachOptions,
+  TerminalAttachSink,
+  TerminalExitMessage,
+  TerminalFrame,
+  TerminalOutputMessage,
+  TerminalProcess,
+} from '#/os/interface/terminal';
+import { IHostTerminalService } from '#/os/interface/terminal';
 import { ErrorCodes, KimiError } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
-
-import {
-  type CreateTerminalRequest,
-  type Terminal,
-  type TerminalAttachOptions,
-  type TerminalAttachSink,
-  type TerminalExitMessage,
-  type TerminalFrame,
-  type TerminalOutputMessage,
-  type TerminalProcess,
-  ISessionTerminalBackend,
-  ISessionTerminalService,
-} from '#/os/interface/terminal';
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -43,13 +42,42 @@ interface TerminalRecord {
   closed: boolean;
 }
 
+export interface ISessionTerminalService {
+  readonly _serviceBrand: undefined;
+
+  create(input: CreateTerminalRequest): Promise<Terminal>;
+
+  list(): Promise<readonly Terminal[]>;
+
+  get(terminalId: string): Promise<Terminal>;
+
+  attach(
+    terminalId: string,
+    sink: TerminalAttachSink,
+    options?: TerminalAttachOptions,
+  ): Promise<{ replayed: number }>;
+
+  detach(terminalId: string, sinkId: string): void;
+
+  detachAllForSink(sinkId: string): void;
+
+  write(terminalId: string, data: string): Promise<void>;
+
+  resize(terminalId: string, cols: number, rows: number): Promise<void>;
+
+  close(terminalId: string): Promise<{ closed: true }>;
+}
+
+export const ISessionTerminalService: ServiceIdentifier<ISessionTerminalService> =
+  createDecorator<ISessionTerminalService>('sessionTerminalService');
+
 export class SessionTerminalService extends Disposable implements ISessionTerminalService {
   declare readonly _serviceBrand: undefined;
 
   private readonly records = new Map<string, TerminalRecord>();
 
   constructor(
-    @ISessionTerminalBackend private readonly backend: ISessionTerminalBackend,
+    @IHostTerminalService private readonly terminalService: IHostTerminalService,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
     @ISessionContext private readonly sessionContext: ISessionContext,
   ) {
@@ -64,7 +92,7 @@ export class SessionTerminalService extends Disposable implements ISessionTermin
     const shell = input.shell ?? defaultShell();
     const cols = input.cols ?? DEFAULT_COLS;
     const rows = input.rows ?? DEFAULT_ROWS;
-    const process = await this.backend.spawn({ cwd, shell, cols, rows });
+    const process = await this.terminalService.spawn({ cwd, shell, cols, rows });
     const terminal: Terminal = {
       id: `term_${randomUUID()}`,
       session_id: this.sessionContext.sessionId,
