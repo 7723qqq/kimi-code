@@ -6,6 +6,7 @@ import type { Hooks } from '#/hooks';
 export interface TurnResult {
   readonly reason: TurnEndReason;
   readonly error?: unknown;
+  readonly steps?: number;
 }
 
 export interface Turn {

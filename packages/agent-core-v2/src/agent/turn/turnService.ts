@@ -5,6 +5,7 @@ import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
 import { OrderedHookSlot } from '#/hooks';
 import { IAgentLoopService, type TurnResult as LoopTurnResult } from '#/agent/loop';
+import { isLoopTurnInterruptedError } from '#/agent/loop/errors';
 import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
 import { IAgentRecordService } from '#/agent/record';
 import type {
@@ -32,7 +33,6 @@ export class AgentTurnService implements IAgentTurnService {
   private lastEndedReasonValue: TurnResult['reason'] | undefined;
   private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
   private readonly readySettled = new WeakSet<Turn>();
-  private readonly interruptedTelemetryTurnIds = new Set<number>();
   private readonly turnTelemetry = new Map<number, ITelemetryService>();
 
   readonly hooks = {
@@ -63,13 +63,6 @@ export class AgentTurnService implements IAgentTurnService {
         }
       },
     );
-    this.record.on((event) => {
-      if (event.type === 'turn.step.interrupted') {
-        if (typeof event.turnId === 'number' && typeof event.step === 'number') {
-          this.trackTurnInterrupted(event.turnId, event.step);
-        }
-      }
-    });
   }
 
   launch(origin: PromptOrigin, promptMessageId?: string): Turn {
@@ -127,19 +120,20 @@ export class AgentTurnService implements IAgentTurnService {
         result = promptHookResult;
         return result;
       }
-      result = toAgentTurnResult(
-        await this.loop.runTurn(turn.id, turn.abortController.signal),
-        turn.abortController.signal,
-      );
+      const loopResult = await this.loop.runTurn(turn.id, turn.abortController.signal);
+      result = toAgentTurnResult(loopResult, turn.abortController.signal);
       return result;
     } catch (error) {
+      const loopInterruptedError = isLoopTurnInterruptedError(error) ? error : undefined;
+      const resultError = loopInterruptedError?.cause ?? error;
+      const steps = loopInterruptedError?.steps;
       if (turn.abortController.signal.aborted) {
-        result = { reason: 'cancelled', error: turn.abortController.signal.reason };
+        result = { reason: 'cancelled', error: turn.abortController.signal.reason, steps };
         this.rejectReady(turn, turn.abortController.signal.reason);
         return result;
       }
-      this.rejectReady(turn, error);
-      result = { reason: 'failed', error };
+      this.rejectReady(turn, resultError);
+      result = { reason: 'failed', error: resultError, steps };
       return result;
     } finally {
       if (result !== undefined) {
@@ -156,13 +150,12 @@ export class AgentTurnService implements IAgentTurnService {
           this.record.signal({ type: 'error', ...ended.error });
         }
         if (ended.reason !== 'completed') {
-          this.trackTurnInterrupted(turn.id, 0);
+          this.trackTurnInterrupted(turn.id, result.steps ?? 0);
         }
       }
       if (result !== undefined) {
         await this.hooks.onEnded.run({ turn, result });
       }
-      this.interruptedTelemetryTurnIds.delete(turn.id);
       this.turnTelemetry.delete(turn.id);
     }
   }
@@ -236,8 +229,6 @@ export class AgentTurnService implements IAgentTurnService {
   }
 
   private trackTurnInterrupted(turnId: number, atStep: number): void {
-    if (this.interruptedTelemetryTurnIds.has(turnId)) return;
-    this.interruptedTelemetryTurnIds.add(turnId);
     const telemetry =
       this.turnTelemetry.get(turnId) ?? this.telemetry.withContext(this.telemetryContext.get());
     telemetry.track('turn_interrupted', { at_step: atStep });
@@ -274,11 +265,12 @@ function toTurnEndedEvent(
 
 function toAgentTurnResult(result: LoopTurnResult, signal: AbortSignal): TurnResult {
   if (result.stopReason === 'aborted') {
-    return { reason: 'cancelled', error: signal.reason };
+    return { reason: 'cancelled', error: signal.reason, steps: result.steps };
   }
   if (result.stopReason === 'filtered') {
     return {
       reason: 'failed',
+      steps: result.steps,
       error: new KimiError(
         ErrorCodes.PROVIDER_FILTERED,
         'Provider safety policy blocked the response.',
@@ -289,7 +281,7 @@ function toAgentTurnResult(result: LoopTurnResult, signal: AbortSignal): TurnRes
       ),
     };
   }
-  return { reason: 'completed' };
+  return { reason: 'completed', steps: result.steps };
 }
 
 const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';

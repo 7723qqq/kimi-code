@@ -28,6 +28,7 @@ import {
   createMaxStepsExceededError,
   errorMessage,
   isAbortError,
+  LoopTurnInterruptedError,
   isMaxStepsExceededError,
 } from './errors';
 import { IAgentLoopService, type TurnWillStopContext } from './loop';
@@ -123,10 +124,18 @@ export class AgentLoopService implements IAgentLoopService {
 
         if (isContextOverflowError(error)) {
           const context = { turnId, signal, error, handled: false };
-          await this.hooks.onContextOverflow.run(context);
+          try {
+            await this.hooks.onContextOverflow.run(context);
+          } catch (hookError) {
+            throw new LoopTurnInterruptedError(hookError, {
+              steps,
+              activeStep,
+              reason: 'error',
+            });
+          }
           if (context.handled) continue;
         }
-        throw error;
+        throw new LoopTurnInterruptedError(error, { steps, activeStep, reason });
       }
 
       return { stopReason, steps };
@@ -218,18 +227,6 @@ export class AgentLoopService implements IAgentLoopService {
     signal.throwIfAborted();
 
     this.emitStepCompleted(turnId, currentStep, stepUuid, usage, finishReason, response);
-    if (response.timing !== undefined) {
-      this.log.info('llm response', {
-        turnStep,
-        ttftMs: response.timing.firstTokenLatencyMs,
-        requestBuildMs: response.timing.requestBuildMs,
-        serverFirstTokenMs: response.timing.serverFirstTokenMs,
-        streamDurationMs: response.timing.streamDurationMs,
-        serverDecodeMs: response.timing.serverDecodeMs,
-        clientConsumeMs: response.timing.clientConsumeMs,
-        outputTokens: response.usage.output,
-      });
-    }
 
     const afterStepContext = { turnId, signal, usage, continueTurn: false };
     try {

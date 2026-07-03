@@ -3,6 +3,7 @@
  */
 
 import { KimiError, registerErrorDomain, type ErrorDomain } from '#/_base/errors';
+import type { LoopInterruptReason } from './types';
 
 export const LoopErrors = {
   codes: {
@@ -40,6 +41,33 @@ export function createMaxStepsExceededError(maxSteps: number, message?: string):
 
 export function isMaxStepsExceededError(error: unknown): boolean {
   return error instanceof KimiError && error.code === LoopErrors.codes.LOOP_MAX_STEPS_EXCEEDED;
+}
+
+export class LoopTurnInterruptedError extends Error {
+  override readonly cause: unknown;
+  readonly steps: number;
+  readonly activeStep?: number;
+  readonly reason: LoopInterruptReason;
+
+  constructor(
+    cause: unknown,
+    options: {
+      readonly steps: number;
+      readonly activeStep?: number;
+      readonly reason: LoopInterruptReason;
+    },
+  ) {
+    super(errorMessage(cause), { cause });
+    this.name = 'LoopTurnInterruptedError';
+    this.cause = cause;
+    this.steps = options.steps;
+    this.activeStep = options.activeStep;
+    this.reason = options.reason;
+  }
+}
+
+export function isLoopTurnInterruptedError(error: unknown): error is LoopTurnInterruptedError {
+  return error instanceof LoopTurnInterruptedError;
 }
 
 export function isAbortError(err: unknown): boolean {
