@@ -279,7 +279,6 @@ mcp --> toolRegistry #34495E
 mcp --> record #34495E
 mcp --> toolExecutor #34495E
 fullCompaction --> contextMemory #34495E
-fullCompaction --> contextProjector #34495E
 fullCompaction --> contextSize #34495E
 fullCompaction --> llmRequester #34495E
 fullCompaction --> profile #34495E

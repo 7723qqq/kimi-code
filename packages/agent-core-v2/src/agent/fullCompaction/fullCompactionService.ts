@@ -7,7 +7,6 @@ import { renderPrompt } from "#/_base/utils/render-prompt";
 import { estimateTokens, estimateTokensForMessages } from "#/_base/utils/tokens";
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentContextProjectorService } from '#/agent/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import {
   IAgentLLMRequesterService,
@@ -30,6 +29,7 @@ import {
   APIContextOverflowError,
   APIEmptyResponseError,
   createUserMessage,
+  type Message,
   type TokenUsage
 } from '#/app/llmProtocol';
 import { ITelemetryService } from '#/app/telemetry';
@@ -81,7 +81,6 @@ interface ActiveCompaction {
 interface CompactionAttemptResult {
   readonly summary: string;
   readonly usage: TokenUsage | null;
-  readonly model: string | undefined;
 }
 
 class CompactionTruncatedError extends Error {
@@ -101,11 +100,20 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   private readonly strategy: CompactionStrategy;
   private compactionCountInTurn = 0;
   private compacting: ActiveCompaction | null = null;
+  // Token count right after the last successful compaction. While nothing new
+  // has been appended, the history is already in its minimal compacted form;
+  // re-compacting would only summarize the summary again, so
+  // checkAutoCompaction skips in that case.
+  private lastCompactedTokenCount: number | null = null;
+  // Counts provider-overflow recoveries in this turn that have not yet been
+  // followed by a successful step. Trips maxOverflowCompactionAttempts to
+  // stop an overflow -> compact -> overflow loop when compaction can no
+  // longer shrink the request below the model window.
+  private consecutiveOverflowCompactions = 0;
 
   constructor(
     private readonly options: FullCompactionServiceOptions = {},
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
@@ -162,10 +170,11 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     this._register(
       record.define('full_compaction.complete', {
         resume: (r) => {
+          // The summary message never enters the replay (its splice is a
+          // boundary); the compaction record is its only replay presence.
           const message = compactionSummaryMessage(this.context.get());
           if (message === undefined) return;
           const summary = contextMessageText(message);
-          this.record.removeLastMessages(new Set([message]));
           this.record.patchLast('compaction', {
             result: {
               summary,
@@ -185,7 +194,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
 
   begin(input: CompactInput): boolean {
     if (this.compacting) return false;
-    const data = this.beginData(input);
+    const data: CompactionBeginData = { source: input.source, instruction: input.instruction };
     if (data.source === 'manual') {
       this.compactionCountInTurn = 0;
     } else {
@@ -233,12 +242,23 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
 
   private resetForTurn(): void {
     this.compactionCountInTurn = 0;
+    this.lastCompactedTokenCount = null;
+    this.consecutiveOverflowCompactions = 0;
   }
 
   private async onContextOverflow(
     context: TurnContextOverflowContext,
     next: () => Promise<void>,
   ): Promise<void> {
+    this.consecutiveOverflowCompactions += 1;
+    const maxAttempts = this.strategy.maxOverflowCompactionAttempts;
+    if (this.consecutiveOverflowCompactions > maxAttempts) {
+      throw new KimiError(
+        ErrorCodes.CONTEXT_OVERFLOW,
+        `Compaction failed to bring the context under the model window after ${String(maxAttempts)} attempts.`,
+        { cause: context.error instanceof Error ? context.error : undefined },
+      );
+    }
     const didStartCompaction = this.beginAutoCompaction();
     if (!didStartCompaction && !this.compacting) {
       await next();
@@ -256,6 +276,10 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   }
 
   private async afterStep(): Promise<void> {
+    // A completed step means a request succeeded, so any prior
+    // overflow -> compact cycle produced a request that now fits; clear the
+    // loop guard.
+    this.consecutiveOverflowCompactions = 0;
     if (this.strategy.checkAfterStep) {
       this.checkAutoCompaction(false);
     }
@@ -263,6 +287,12 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
 
   private checkAutoCompaction(throwOnLimit = true): boolean {
     if (this.compacting) return true;
+    if (
+      this.lastCompactedTokenCount !== null &&
+      this.tokenCountWithPending() <= this.lastCompactedTokenCount
+    ) {
+      return false;
+    }
     if (!this.strategy.shouldCompact(this.tokenCountWithPending())) return false;
     return this.beginAutoCompaction(throwOnLimit);
   }
@@ -328,6 +358,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       }
 
       if (this.compacting !== active) return;
+      this.lastCompactedTokenCount = finalResult.tokensAfter;
       this.markCompleted(completeData(finalResult));
       this.record.signal({ type: 'compaction.completed', result: finalResult });
       void this.hooks.onDidCompact.run({
@@ -365,11 +396,15 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       let compactedCount = initialCompactedCount;
       signal.throwIfAborted();
 
-      await this.hooks.onWillCompact.run({
-        trigger: data.source,
-        tokenCount: tokensBefore,
-        signal,
-      });
+      // One logical compaction fires the hook once, even when it takes
+      // multiple window-sized rounds to bring the context under the ratio.
+      if (round === 1) {
+        await this.hooks.onWillCompact.run({
+          trigger: data.source,
+          tokenCount: tokensBefore,
+          signal,
+        });
+      }
 
       const resolvedModel = this.profile.resolveModelContext();
       const maxContextTokens = resolvedModel.modelCapabilities.max_context_tokens;
@@ -379,16 +414,17 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
           : undefined;
       const compactionMaxOutputSize = resolvedModel.maxOutputSize ?? defaultCompactionCap;
 
+      const instruction = renderPrompt(compactionInstructionTemplate, {
+        customInstruction: data.instruction?.trim() ?? '',
+      }).trimEnd();
+
       const delays = retryBackoffDelays(MAX_COMPACTION_RETRY_ATTEMPTS);
       let attempt: CompactionAttemptResult | undefined;
       while (true) {
         const messagesToCompact = originalHistory.slice(0, compactedCount);
-        const messages = [
-          ...this.projector.project(messagesToCompact),
-          createUserMessage(renderPrompt(compactionInstructionTemplate, {
-            customInstruction: data.instruction ?? '',
-          })),
-        ];
+        // Raw context slice — `llmRequester` projects every request once;
+        // projecting here too would run micro-compaction on shifted indices.
+        const messages: Message[] = [...messagesToCompact, createUserMessage(instruction)];
 
         try {
           attempt = collectSummary(
@@ -409,7 +445,13 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
             error instanceof CompactionTruncatedError ||
             error instanceof APIEmptyResponseError
           ) {
-            compactedCount = this.strategy.reduceCompactOnOverflow(messagesToCompact);
+            const reduced = this.strategy.reduceCompactOnOverflow(messagesToCompact);
+            // An overflow that cannot shrink further would replay the same
+            // request; give up (v1: throws when the history cannot shrink).
+            if (error instanceof APIContextOverflowError && reduced >= compactedCount) {
+              throw error;
+            }
+            compactedCount = reduced;
           } else {
             throw error;
           }
@@ -443,6 +485,8 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       };
 
       this.telemetry.track('compaction_finished', {
+        // Never send `data.instruction` (user-authored content) to telemetry.
+        source: data.source,
         tokens_before: result.tokensBefore,
         tokens_after: result.tokensAfter,
         duration_ms: Date.now() - startedAt,
@@ -451,7 +495,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         round,
         thinking_level: this.profile.data().thinkingLevel,
         ...usageTelemetry(attempt.usage),
-        ...data,
       });
 
       this.context.splice(
@@ -464,7 +507,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     } catch (error) {
       if (isAbortError(error)) return undefined;
       this.telemetry.track('compaction_failed', {
-        ...data,
+        source: data.source,
         tokens_before: tokensBefore,
         duration_ms: Date.now() - startedAt,
         round,
@@ -497,13 +540,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   private tokenCountWithPending(): number {
     return this.contextSize.getStatus().contextTokensWithPending;
   }
-
-  private beginData(input: CompactInput): CompactionBeginData {
-    return {
-      source: input.source,
-      instruction: input.instruction ?? input.customInstruction,
-    };
-  }
 }
 
 function collectSummary(finish: LLMRequestFinish): CompactionAttemptResult {
@@ -522,7 +558,7 @@ function collectSummary(finish: LLMRequestFinish): CompactionAttemptResult {
     );
   }
 
-  return { summary, usage: finish.usage, model: finish.model };
+  return { summary, usage: finish.usage };
 }
 
 function createCompactionSummaryMessage(summary: string): ContextMessage {
@@ -559,9 +595,10 @@ function historyUnchanged(
   original: readonly ContextMessage[],
 ): boolean {
   // Only the compacted prefix must be intact. Messages appended to the tail
-  // while the summary request was in flight are fine — the splice replaces just
-  // the prefix and leaves the appended tail in place (matching legacy, which
-  // compared `newHistory[i] !== originalHistory[i]` over the original length).
+  // while the summary request was in flight are fine — unlike legacy's
+  // whole-history rebuild (which had to cancel when non-user messages grew the
+  // tail), the splice replaces just the prefix and leaves the appended tail in
+  // place, so nothing appended concurrently can be lost.
   if (current.length < original.length) return false;
   return original.every((message, index) => message === current[index]);
 }
