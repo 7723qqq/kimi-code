@@ -1,11 +1,10 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ErrorCodes, KimiError, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
+import { toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
 import { OrderedHookSlot } from '#/hooks';
-import { IAgentLoopService, type TurnResult as LoopTurnResult } from '#/agent/loop';
-import { isLoopTurnInterruptedError } from '#/agent/loop/errors';
+import { IAgentLoopService } from '#/agent/loop';
 import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
 import { IAgentRecordService } from '#/agent/record';
 import type {
@@ -120,20 +119,19 @@ export class AgentTurnService implements IAgentTurnService {
         result = promptHookResult;
         return result;
       }
-      const loopResult = await this.loop.runTurn(turn.id, turn.abortController.signal);
-      result = toAgentTurnResult(loopResult, turn.abortController.signal);
+      result = await this.loop.runTurn(turn.id, turn.abortController.signal);
+      if (result.reason === 'failed') {
+        this.rejectReady(turn, result.error ?? result);
+      }
       return result;
     } catch (error) {
-      const loopInterruptedError = isLoopTurnInterruptedError(error) ? error : undefined;
-      const resultError = loopInterruptedError?.cause ?? error;
-      const steps = loopInterruptedError?.steps;
       if (turn.abortController.signal.aborted) {
-        result = { reason: 'cancelled', error: turn.abortController.signal.reason, steps };
+        result = { reason: 'cancelled', error: turn.abortController.signal.reason };
         this.rejectReady(turn, turn.abortController.signal.reason);
         return result;
       }
-      this.rejectReady(turn, resultError);
-      result = { reason: 'failed', error: resultError, steps };
+      this.rejectReady(turn, error);
+      result = { reason: 'failed', error };
       return result;
     } finally {
       if (result !== undefined) {
@@ -261,27 +259,6 @@ function toTurnEndedEvent(
     error: summarizeTurnError(result.error, turn.id),
     durationMs,
   };
-}
-
-function toAgentTurnResult(result: LoopTurnResult, signal: AbortSignal): TurnResult {
-  if (result.stopReason === 'aborted') {
-    return { reason: 'cancelled', error: signal.reason, steps: result.steps };
-  }
-  if (result.stopReason === 'filtered') {
-    return {
-      reason: 'failed',
-      steps: result.steps,
-      error: new KimiError(
-        ErrorCodes.PROVIDER_FILTERED,
-        'Provider safety policy blocked the response.',
-        {
-          name: 'ProviderFilteredError',
-          details: { finishReason: 'filtered' },
-        },
-      ),
-    };
-  }
-  return { reason: 'completed', steps: result.steps };
 }
 
 const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';

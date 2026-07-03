@@ -17,7 +17,7 @@ import {
   type TokenUsage,
 } from '#/app/llmProtocol';
 import { ILogService } from '#/app/log';
-import { ErrorCodes, isKimiError } from '#/errors';
+import { ErrorCodes, KimiError, isKimiError } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
 
 import { IAgentContextMemoryService, newMessageId, type ContextMessage } from '../contextMemory';
@@ -26,11 +26,10 @@ import {
   createMaxStepsExceededError,
   errorMessage,
   isAbortError,
-  LoopTurnInterruptedError,
   isMaxStepsExceededError,
 } from './errors';
 import { IAgentLoopService, type TurnWillStopContext } from './loop';
-import type { LoopInterruptReason, LoopTurnStopReason, TurnResult } from './types';
+import type { LoopInterruptReason, TurnResult } from './types';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
@@ -66,11 +65,10 @@ export class AgentLoopService implements IAgentLoopService {
 
     while (true) {
       let steps = 0;
-      let stopReason: LoopTurnStopReason = 'completed';
       let activeStep: number | undefined;
-      const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
 
       try {
+        const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
         while (true) {
           signal.throwIfAborted();
 
@@ -83,11 +81,20 @@ export class AgentLoopService implements IAgentLoopService {
           const stepResult = await this.executeLoopStep(turnId, signal, steps);
           activeStep = undefined;
 
+          if (stepResult.stopReason === 'filtered') {
+            throw new KimiError(
+              ErrorCodes.PROVIDER_FILTERED,
+              'Provider safety policy blocked the response.',
+              {
+                name: 'ProviderFilteredError',
+                details: { finishReason: 'filtered' },
+              },
+            );
+          }
+
           if (stepResult.stopReason === 'tool_calls') {
             continue;
           }
-
-          stopReason = stepResult.stopReason;
 
           if (stepResult.continueTurn) {
             continue;
@@ -110,7 +117,11 @@ export class AgentLoopService implements IAgentLoopService {
       } catch (error) {
         if (isAbortError(error) || signal.aborted) {
           this.emitStepInterrupted(turnId, activeStep, 'aborted');
-          return { stopReason: 'aborted', steps };
+          return {
+            reason: 'cancelled',
+            error: signal.aborted ? signal.reason : error,
+            steps,
+          };
         }
 
         const reason: LoopInterruptReason = isMaxStepsExceededError(error) ? 'max_steps' : 'error';
@@ -121,18 +132,14 @@ export class AgentLoopService implements IAgentLoopService {
           try {
             await this.hooks.onContextOverflow.run(context);
           } catch (hookError) {
-            throw new LoopTurnInterruptedError(hookError, {
-              steps,
-              activeStep,
-              reason: 'error',
-            });
+            return { reason: 'failed', error: hookError, steps };
           }
           if (context.handled) continue;
         }
-        throw new LoopTurnInterruptedError(error, { steps, activeStep, reason });
+        return { reason: 'failed', error, steps };
       }
 
-      return { stopReason, steps };
+      return { reason: 'completed', steps };
     }
   }
 
@@ -178,6 +185,10 @@ export class AgentLoopService implements IAgentLoopService {
       signal,
     );
 
+    const usage = response.usage;
+    const { providerFinishReason, message } = response;
+    let finishReason = providerFinishReason ?? 'completed';
+
     this.append({
       id: newMessageId(),
       role: 'assistant',
@@ -186,9 +197,6 @@ export class AgentLoopService implements IAgentLoopService {
       providerMessageId: response.providerMessageId,
     });
 
-    const usage = response.usage;
-    const { providerFinishReason, message } = response;
-    let finishReason: FinishReason = providerFinishReason ?? 'completed';
     const hasToolCalls = message.toolCalls.length > 0;
     if (hasToolCalls) {
       let stopTurn = false;

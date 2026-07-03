@@ -103,7 +103,7 @@ export function stubLoopWithHooks(): IAgentLoopService {
   return {
     _serviceBrand: undefined,
     hooks,
-    runTurn: async () => ({ stopReason: 'completed', steps: 0 }),
+    runTurn: async () => ({ reason: 'completed', steps: 0 }),
   };
 }
 

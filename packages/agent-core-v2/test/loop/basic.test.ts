@@ -65,11 +65,10 @@ describe('Agent loop', () => {
   `);
   });
 
-  it('forwards provider finish diagnostics on filtered steps', async () => {
+  it('fails the turn after a filtered step completes', async () => {
     ctx.mockNextProviderResponse({
       parts: [{ type: 'text', text: 'blocked' }],
       finishReason: 'filtered',
-      rawFinishReason: 'content_filter',
     });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
 
@@ -81,21 +80,19 @@ describe('Agent loop', () => {
       [emit] assistant.delta         { "turnId": 0, "delta": "blocked" }
       [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
       [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.splice          { "start": 1, "deleteCount": 0, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "blocked" } ], "toolCalls": [] } ], "time": "<time>" }
       [wire] context_size.measured   { "length": 2, "tokens": 8, "time": "<time>" }
+      [wire] context.splice          { "start": 1, "deleteCount": 0, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "blocked" } ], "toolCalls": [], "providerMessageId": "mock-1" } ], "time": "<time>" }
       [emit] agent.status.updated    { "contextTokens": 8 }
-      [wire] context.splice          { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "blocked" } ], "toolCalls": [], "providerMessageId": "mock-1" } ], "time": "<time>" }
-      [emit] agent.status.updated    { "contextTokens": 0 }
       [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "filtered" }
       [emit] turn.ended              { "turnId": 0, "reason": "failed", "error": { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered", "turnId": 0 }, "retryable": false } }
       [emit] error                   { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered", "turnId": 0 }, "retryable": false }
     `);
 
-    const rpcStepEnd = ctx.allEvents.find(
+    const stepCompleted = ctx.allEvents.find(
       (event) => event.type === '[rpc]' && event.event === 'turn.step.completed',
     );
 
-    expect(rpcStepEnd?.args).toMatchObject({
+    expect(stepCompleted?.args).toMatchObject({
       finishReason: 'filtered',
     });
   });
