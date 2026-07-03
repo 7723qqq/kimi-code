@@ -69,17 +69,20 @@ Anyone can now `accessor.get(IGreeter)` the single global instance.
 ## §2 Constructor injection (your service uses others)
 
 ```ts
-export class SessionService implements ISessionService {
+export class SessionMetadata extends Disposable implements ISessionMetadata {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
-    @IEventService private readonly event: IEventService,
-  ) {}
+    @ISessionContext private readonly ctx: ISessionContext,
+    @IAtomicDocumentStore private readonly store: IAtomicDocumentStore,
+    @ILogService private readonly log: ILogService,
+  ) {
+    super();
+  }
 }
 ```
 
-`@IAgentLifecycleService` records "parameter 0 needs `IAgentLifecycleService`" on the class metadata; the container fills it when constructing.
+`@ISessionContext` records "parameter 0 needs `ISessionContext`" on the class metadata; the container fills it when constructing.
 
 Three inviolable constraints:
 
@@ -90,7 +93,7 @@ Three inviolable constraints:
 Consumers resolve by interface and never import the impl class:
 
 ```ts
-const session = accessor.get(ISessionService);   // type is ISessionService
+const meta = accessor.get(ISessionMetadata);   // type is ISessionMetadata
 ```
 
 > If you need "a config" rather than "a service", model it as a service (e.g. `IConfigService`) and inject it. If you need a per-turn, parameterized, non-singleton object, see §7.
@@ -100,7 +103,7 @@ const session = accessor.get(ISessionService);   // type is ISessionService
 Swap the `scope` argument to bind to a different tier:
 
 ```ts
-registerScopedService(LifecycleScope.Session, ISessionService, SessionService, InstantiationType.Delayed, 'session');
+registerScopedService(LifecycleScope.Session, ISessionMetadata, SessionMetadata, InstantiationType.Delayed, 'sessionMetadata');
 ```
 
 Remember the visibility rule from orient.md: a service may inject services from its own scope or any ancestor; never from a descendant.

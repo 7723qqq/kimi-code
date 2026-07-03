@@ -7,8 +7,9 @@
  * Utilities: `extractText | mergeInPlace` (in-place merge of streamed
  * tool-call argument deltas).
  *
- * Values are delegated to `@moonshot-ai/kosong` so behavior is identical
- * across the migration. Import from here rather than from kosong directly.
+ * Values are delegated to the vendored kosong copy under `./kosong` so behavior
+ * is identical across the migration. Import from here rather than from the
+ * vendored copy directly.
  */
 
 export {
@@ -20,4 +21,4 @@ export {
   isToolCall,
   isToolCallPart,
   mergeInPlace,
-} from '@moonshot-ai/kosong';
+} from './kosong';

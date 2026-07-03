@@ -35,15 +35,11 @@ import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry';
 import { IAgentWireRecordService, AgentWireRecordService } from '#/agent/wireRecord';
 import { IAgentBlobStoreService, AgentBlobStoreService } from '#/agent/blobStore';
 import {
-  IAgentReplayBuilderService,
-  AgentReplayBuilderService,
-} from '#/agent/replayBuilder';
-import {
   IAgentExternalHooksService,
   AgentExternalHooksService,
 } from '#/agent/externalHooks';
 
-import { type AgentListFilter, type CreateAgentOptions, IAgentLifecycleService } from './agentLifecycle';
+import { type AgentListFilter, type CreateAgentOptions, IAgentLifecycleService, type SpawnAgentOptions } from './agentLifecycle';
 
 let nextAgentId = 0;
 
@@ -106,12 +102,11 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
           [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
           [IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService, [{}])],
           [IAgentMcpService, new SyncDescriptor(AgentMcpService, [{ manager: this.getMcpManager() }])],
-          // These services carry a leading static `options` param; the scoped
+          // External hooks carries a leading static `options` param; the scoped
           // registry supplies none, so seed an empty one to satisfy the DI
           // contract (static args must fill the slots before the first `@IX`).
-          // Replay building stays delayed, while external hooks are
-          // force-instantiated below to attach listeners before the first turn.
-          [IAgentReplayBuilderService, new SyncDescriptor(AgentReplayBuilderService, [{}], true)],
+          // It is force-instantiated below to attach listeners before the first
+          // turn.
           [IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService, [{}])],
         ],
       },
@@ -173,6 +168,26 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     if (sourceMessages !== undefined && sourceMessages.length > 0) {
       child.accessor.get(IAgentContextMemoryService)?.splice(0, 0, sourceMessages);
     }
+    return child;
+  }
+
+  async spawn(parentAgentId: string, opts?: SpawnAgentOptions): Promise<IAgentScopeHandle> {
+    const parent = this.handles.get(parentAgentId);
+    if (parent === undefined) throw new Error(`Parent agent "${parentAgentId}" does not exist`);
+    const parentData = parent.accessor.get(IAgentProfileService).data();
+    const child = await this.create({
+      agentId: opts?.agentId,
+      forkedFrom: parentAgentId,
+      cwd: opts?.cwd ?? parentData.cwd,
+      swarmItem: opts?.swarmItem,
+    });
+    child.accessor.get(IAgentProfileService).update({
+      cwd: opts?.cwd ?? parentData.cwd,
+      modelAlias: parentData.modelAlias,
+      thinkingLevel: parentData.thinkingLevel,
+      systemPrompt: parentData.systemPrompt,
+      activeToolNames: parentData.activeToolNames,
+    });
     return child;
   }
 

@@ -1,5 +1,5 @@
-import { APIConnectionError, emptyUsage } from '@moonshot-ai/kosong';
-import type { StreamedMessagePart } from '@moonshot-ai/kosong';
+import { APIConnectionError, emptyUsage } from '#/app/llmProtocol/kosong';
+import type { StreamedMessagePart } from '#/app/llmProtocol/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {

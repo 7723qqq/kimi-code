@@ -10,7 +10,8 @@ export * from '#/app/log';
 export * from '#/session/sessionLog';
 export * from '#/app/telemetry';
 export * from '#/app/bootstrap';
-export * from '#/app/hostFs';
+export * from '#/os/interface';
+export * from '#/os/backends/node-local';
 export { IEventService, type DomainEvent } from '#/app/event';
 export * from '#/app/llmProtocol';
 
@@ -22,6 +23,7 @@ export * from '#/app/platform';
 export * from '#/app/protocol';
 export * from '#/app/model';
 export * from '#/app/modelCatalog';
+export * from '#/app/agentProfileCatalog';
 export * from '#/app/plugin';
 
 export type { SkillSource } from '#/app/globalSkillCatalog';
@@ -58,12 +60,10 @@ export * from '#/app/gateway';
 
 export * from '#/session/workspaceContext';
 export * from '#/app/workspaceRegistry';
-export * from '#/app/hostFolderBrowser';
 export * from '#/session/agentFs';
-export * from '#/session/process';
-export * from '#/session/terminal';
-export * from '#/app/storage';
-export * from '#/app/filestore';
+export * from '#/persistence/interface';
+export * from '#/persistence/backends/node-fs';
+export * from '#/persistence/backends/memory';
 export * from '#/app/auth';
 export * from '#/app/authLegacy';
 
@@ -91,7 +91,6 @@ export * from '#/agent/replayBuilder';
 export * from '#/agent/record';
 export * from '#/agent/rpc';
 export * from '#/agent/scopeContext';
-export * from '#/agent/agentTool';
 export * from '#/session/btw';
 export * from '#/session/swarm';
 export * from '#/agent/todoList';

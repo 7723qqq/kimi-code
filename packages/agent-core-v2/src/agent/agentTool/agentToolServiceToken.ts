@@ -1,12 +1,9 @@
 /**
- * `agentTool` domain (L5) — `IAgentToolService` token.
+ * `agentTool` domain (L5) — hook service for the `Agent` collaboration tool.
  *
- * Exposes only the service identifier for the Agent-scoped `Agent` tool
- * registrar so consumers (for example `runChildAgent`, which force-instantiates
- * it for child agents, and `rpc`, which force-instantiates it for the main
- * agent) can resolve the binding without pulling in the registrar's import
- * graph. Kept separate from the implementation to avoid an import cycle through
- * `agentTool` → `runChildAgent`. Bound at Agent scope.
+ * Exposes the Agent-scoped subagent lifecycle hooks that the `Agent` tool and
+ * swarm scheduler emit, and that observer services such as `externalHooks`
+ * consume. Bound at Agent scope.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';

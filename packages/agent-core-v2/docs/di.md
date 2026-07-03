@@ -96,24 +96,27 @@ export * from './greet/index';
 
 ## 场景 2：你的服务要用别人的服务
 
-> 你要做的：你的服务需要调用别的域的能力。参考 [`sessionService.ts`](../src/session/sessionService.ts)。
+> 你要做的：你的服务需要调用别的域的能力。参考 [`sessionMetadataService.ts`](../src/session/sessionMetadata/sessionMetadataService.ts)。
 
 这一步引入：**构造器注入** 与 **按接口解析**。
 
 ### 2.1 用 `@IX` 在构造器上声明依赖
 
 ```ts
-export class SessionService implements ISessionService {
+export class SessionMetadata extends Disposable implements ISessionMetadata {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
-    @IEventService private readonly event: IEventService,
-  ) {}
+    @ISessionContext private readonly ctx: ISessionContext,
+    @IAtomicDocumentStore private readonly store: IAtomicDocumentStore,
+    @ILogService private readonly log: ILogService,
+  ) {
+    super();
+  }
 }
 ```
 
-`@IAgentLifecycleService` 只做一件事：把「第 0 个参数需要 `IAgentLifecycleService`」记到类的元数据上。容器 new 这个类时读元数据，把依赖填好。
+`@ISessionContext` 只做一件事：把「第 0 个参数需要 `ISessionContext`」记到类的元数据上。容器 new 这个类时读元数据，把依赖填好。
 
 ### 2.2 三条不可破的约束
 
@@ -124,7 +127,7 @@ export class SessionService implements ISessionService {
 ### 2.3 消费方按接口取，看不到实现
 
 ```ts
-const session = accessor.get(ISessionService);   // 类型是 ISessionService
+const meta = accessor.get(ISessionMetadata);   // 类型是 ISessionMetadata
 ```
 
 消费方只 import **接口** 和 **`IX` 身份**，从不 import 实现类。这是 DI 把「接口 → 实现」的替换权完全握在容器手里的关键。
@@ -135,7 +138,7 @@ const session = accessor.get(ISessionService);   // 类型是 ISessionService
 
 ## 场景 3：你的服务不是全局一份
 
-> 你要做的：每个会话一份、或每个 agent 一份。参考 [`session`](../src/session/session.ts)、[`turn`](../src/turn/turn.ts)。
+> 你要做的：每个会话一份、或每个 agent 一份。参考 [`sessionMetadata`](../src/session/sessionMetadata/sessionMetadata.ts)、[`turn`](../src/turn/turn.ts)。
 
 这一步引入：**`LifecycleScope` 三层生命周期** 与 **父子 scope 的可见性**。
 
@@ -152,10 +155,10 @@ export enum LifecycleScope {
 数值越大，寿命越短、越靠叶子。注册时把 `scope` 换成对应层即可：
 
 ```ts
-registerScopedService(LifecycleScope.Session, ISessionService, SessionService, InstantiationType.Delayed, 'session');
+registerScopedService(LifecycleScope.Session, ISessionMetadata, SessionMetadata, InstantiationType.Delayed, 'sessionMetadata');
 ```
 
-「单例」的粒度是**每个 scope 一份**：App 的 `ILogService` 全局只有一份；每个 Session scope 各有自己的 `ISessionService`。
+「单例」的粒度是**每个 scope 一份**：App 的 `ILogService` 全局只有一份；每个 Session scope 各有自己的 `ISessionMetadata`。
 
 ### 3.2 子 scope 看得见父 scope，反之不行
 

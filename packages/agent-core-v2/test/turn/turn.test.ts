@@ -12,7 +12,7 @@ import {
   type ChatProvider,
   type ModelCapability,
   type ToolCall,
-} from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import { abortError, abortable } from '#/_base/utils/abort';
@@ -20,6 +20,7 @@ import { ISessionAgentFileSystem } from '#/session/agentFs';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IHostEnvironment } from '#/app/hostEnvironment';
 import { IOAuthService } from '#/app/auth';
+import { IAgentTelemetryContextService } from '#/app/telemetry';
 import { ErrorCodes, KimiError } from '#/errors';
 import { HookEngine } from '#/agent/externalHooks/engine';
 import type { ILogger as Logger, LogPayload } from '#/app/log';
@@ -162,6 +163,24 @@ describe('Agent turn flow', () => {
     expect(records).toContainEqual({
       event: 'turn_interrupted',
       properties: { mode: 'agent', at_step: 1 },
+    });
+  });
+
+  it('tags turn telemetry from the agent telemetry context', async () => {
+    const records: TelemetryRecord[] = [];
+    const ctx = testAgent({ telemetry: recordingTelemetry(records) });
+    ctx.get(IAgentTelemetryContextService).set({ mode: 'plan' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello in plan mode' }] });
+    await ctx.untilTurnEnd();
+
+    expect(records).toContainEqual({
+      event: 'turn_started',
+      properties: { mode: 'plan' },
+    });
+    expect(records).toContainEqual({
+      event: 'turn_interrupted',
+      properties: { mode: 'plan', at_step: 1 },
     });
   });
 

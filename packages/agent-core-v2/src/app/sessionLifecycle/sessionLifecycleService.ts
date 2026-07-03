@@ -3,12 +3,13 @@
  *
  * Owns the process-wide registry of open Session child scopes, creating them
  * through the DI scope tree and seeding each with its identity and storage
- * addressing. Materializes the session's initial metadata on creation by
- * resolving `sessionMetadata`. Bound at App scope. Persisted sessions are
- * the `sessionIndex` read model.
+ * addressing, and tearing them down on close/archive — archiving flags the
+ * session's `sessionMetadata`, removes its `agentLifecycle` agents, and
+ * broadcasts through `event`. Materializes the session's initial metadata on
+ * creation by resolving `sessionMetadata`. Bound at App scope. Persisted
+ * sessions are the `sessionIndex` read model.
  */
 
-import { join, relative } from 'pathe';
 import { randomUUID } from 'node:crypto';
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -24,6 +25,7 @@ import { Emitter, type Event } from '#/_base/event';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { IBootstrapService } from '#/app/bootstrap';
+import { IEventService } from '#/app/event';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IHostEnvironment } from '#/app/hostEnvironment';
@@ -32,7 +34,6 @@ import { ISessionActivity } from '#/session/sessionActivity';
 import { ISessionIndex } from '#/app/sessionIndex';
 import { IAtomicDocumentStore, IAppendLogStore } from '#/app/storage';
 import { IWorkspaceRegistry } from '#/app/workspaceRegistry';
-import { ISessionService } from '#/session/session';
 import { ISessionContext, sessionContextSeed } from '#/session/sessionContext';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
@@ -77,23 +78,27 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     @IAppendLogStore private readonly appendLogStore: IAppendLogStore,
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
     @IWorkspaceRegistry private readonly workspaceRegistry: IWorkspaceRegistry,
+    @IEventService private readonly event: IEventService,
   ) {
     super();
   }
 
   async create(opts: CreateSessionOptions): Promise<ISessionScopeHandle> {
     const workspaceId = encodeWorkDirKey(opts.workDir);
-    const sessionDir = join(this.bootstrap.sessionsDir, workspaceId, opts.sessionId);
+    const sessionScope = this.bootstrap.sessionScope(workspaceId, opts.sessionId);
+    const sessionDir = this.bootstrap.sessionDir(workspaceId, opts.sessionId);
     // Metadata lives at `<sessionDir>/state.json` (shared with v1's layout; the
     // v2 document is tagged with `version: 2`). `metaScope` is therefore the
     // session directory itself, homeDir-relative.
-    const metaScope = relative(this.bootstrap.homeDir, sessionDir);
+    const metaScope = sessionScope;
     const ctx: ISessionContext = {
       _serviceBrand: undefined,
       sessionId: opts.sessionId,
       workspaceId,
       sessionDir,
       metaScope,
+      scope: (subKey?: string): string =>
+        subKey === undefined || subKey === '' ? sessionScope : `${sessionScope}/${subKey}`,
     };
     // Wait for the host-environment probe to complete before creating any
     // Session scope — Session/Agent-scope services (bash, permission policies,
@@ -173,7 +178,16 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   async archive(sessionId: string): Promise<void> {
     const handle = this.sessions.get(sessionId);
     if (handle === undefined) return;
-    await handle.accessor.get(ISessionService).archive();
+    const meta = handle.accessor.get(ISessionMetadata);
+    const agentLifecycle = handle.accessor.get(IAgentLifecycleService);
+    await meta.setArchived(true);
+    for (const agent of agentLifecycle.list()) {
+      await agentLifecycle.remove(agent.id);
+    }
+    this.event.publish({
+      type: 'event.session.archived',
+      payload: { sessionId },
+    });
     this.sessions.delete(sessionId);
     handle.dispose();
     this._onDidArchiveSession.fire({ sessionId });
@@ -242,7 +256,8 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         sourceHandle,
         sourceHomedir,
         agentId,
-        targetSessionDir: targetCtx.sessionDir,
+        targetWorkspaceId: targetCtx.workspaceId,
+        targetSessionId: targetCtx.sessionId,
       });
     }
 
@@ -286,7 +301,8 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     readonly sourceHandle: ISessionScopeHandle | undefined;
     readonly sourceHomedir: string;
     readonly agentId: string;
-    readonly targetSessionDir: string;
+    readonly targetWorkspaceId: string;
+    readonly targetSessionId: string;
   }): Promise<void> {
     // Flush the live agent so its persisted log is current before reading.
     if (args.sourceHandle !== undefined) {
@@ -308,7 +324,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     }
     records.push(forkedRecord());
 
-    const targetHomedir = join(args.targetSessionDir, 'agents', args.agentId);
+    const targetHomedir = this.bootstrap.agentHomedir(
+      args.targetWorkspaceId,
+      args.targetSessionId,
+      args.agentId,
+    );
     const targetKey = wireRecordPersistKey(targetHomedir);
     await this.appendLogStore.rewrite('wire', targetKey, records);
   }
@@ -317,9 +337,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     workspaceId: string,
     sessionId: string,
   ): Promise<SessionMeta | undefined> {
-    const sessionsScope = relative(this.bootstrap.homeDir, this.bootstrap.sessionsDir);
-    const scope = `${sessionsScope}/${workspaceId}/${sessionId}`;
-    return this.docs.get<SessionMeta>(scope, 'state.json');
+    return this.docs.get<SessionMeta>(
+      this.bootstrap.sessionScope(workspaceId, sessionId),
+      'state.json',
+    );
   }
 }
 

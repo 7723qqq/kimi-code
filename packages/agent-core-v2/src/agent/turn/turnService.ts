@@ -5,7 +5,7 @@ import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
 import { OrderedHookSlot } from '#/hooks';
 import { IAgentLoopService, type TurnResult as LoopTurnResult } from '#/agent/loop';
-import { ITelemetryService } from '#/app/telemetry';
+import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
 import { IAgentRecordService } from '#/agent/record';
 import type {
   Turn,
@@ -33,8 +33,7 @@ export class AgentTurnService implements IAgentTurnService {
   private readonly readyControllers = new WeakMap<Turn, ControlledPromise<void>>();
   private readonly readySettled = new WeakSet<Turn>();
   private readonly interruptedTelemetryTurnIds = new Set<number>();
-  private readonly telemetryModeByTurn = new Map<number, 'agent' | 'plan'>();
-  private planModeActive = false;
+  private readonly turnTelemetry = new Map<number, ITelemetryService>();
 
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
@@ -47,6 +46,7 @@ export class AgentTurnService implements IAgentTurnService {
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
   ) {
     record.define('turn.launch', {
       resume: (r) => {
@@ -64,10 +64,6 @@ export class AgentTurnService implements IAgentTurnService {
       },
     );
     this.record.on((event) => {
-      if (event.type === 'agent.status.updated' && event.planMode !== undefined) {
-        this.planModeActive = event.planMode;
-        return;
-      }
       if (event.type === 'turn.step.interrupted') {
         if (typeof event.turnId === 'number' && typeof event.step === 'number') {
           this.trackTurnInterrupted(event.turnId, event.step);
@@ -115,11 +111,11 @@ export class AgentTurnService implements IAgentTurnService {
 
   private async runTurn(turn: Turn, origin: PromptOrigin): Promise<TurnResult> {
     const startedAt = Date.now();
-    const telemetryMode = this.telemetryMode();
-    this.telemetryModeByTurn.set(turn.id, telemetryMode);
+    const turnTelemetry = this.telemetry.withContext(this.telemetryContext.get());
+    this.turnTelemetry.set(turn.id, turnTelemetry);
     let result: TurnResult | undefined;
     try {
-      this.telemetry.track('turn_started', { mode: telemetryMode });
+      turnTelemetry.track('turn_started');
       this.record.signal({
         type: 'turn.started',
         turnId: turn.id,
@@ -167,7 +163,7 @@ export class AgentTurnService implements IAgentTurnService {
         await this.hooks.onEnded.run({ turn, result });
       }
       this.interruptedTelemetryTurnIds.delete(turn.id);
-      this.telemetryModeByTurn.delete(turn.id);
+      this.turnTelemetry.delete(turn.id);
     }
   }
 
@@ -242,14 +238,9 @@ export class AgentTurnService implements IAgentTurnService {
   private trackTurnInterrupted(turnId: number, atStep: number): void {
     if (this.interruptedTelemetryTurnIds.has(turnId)) return;
     this.interruptedTelemetryTurnIds.add(turnId);
-    this.telemetry.track('turn_interrupted', {
-      mode: this.telemetryModeByTurn.get(turnId) ?? this.telemetryMode(),
-      at_step: atStep,
-    });
-  }
-
-  private telemetryMode(): 'agent' | 'plan' {
-    return this.planModeActive ? 'plan' : 'agent';
+    const telemetry =
+      this.turnTelemetry.get(turnId) ?? this.telemetry.withContext(this.telemetryContext.get());
+    telemetry.track('turn_interrupted', { at_step: atStep });
   }
 }
 

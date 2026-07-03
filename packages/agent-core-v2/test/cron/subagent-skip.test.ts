@@ -15,6 +15,7 @@
  *      — listener bound, tools registered.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeAgentScopeContext } from '#/agent/scopeContext';
 
 import { IAgentCronService } from '#/agent/cron';
 import { IAgentProfileService } from '#/agent/profile';
@@ -43,7 +44,7 @@ describe('Agent + Cron — subagent suppression', () => {
 
     beforeEach(() => {
       listenerCountBeforeCreate = process.listenerCount('SIGUSR1');
-      ctx = createTestAgent(cronServices({ _serviceBrand: undefined, agentId: 'sub-1' }));
+      ctx = createTestAgent(cronServices(makeAgentScopeContext({ agentId: 'sub-1', agentScope: '' })));
       cron = ctx.get(IAgentCronService);
       profile = ctx.get(IAgentProfileService);
     });

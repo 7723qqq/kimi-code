@@ -453,6 +453,12 @@ importers:
       '@antfu/utils':
         specifier: ^9.3.0
         version: 9.3.0
+      '@anthropic-ai/sdk':
+        specifier: ^0.95.2
+        version: 0.95.2(zod@4.3.6)
+      '@google/genai':
+        specifier: ^1.49.0
+        version: 1.49.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
@@ -462,9 +468,6 @@ importers:
       '@moonshot-ai/kimi-telemetry':
         specifier: workspace:^
         version: link:../telemetry
-      '@moonshot-ai/kosong':
-        specifier: workspace:^
-        version: link:../kosong
       '@moonshot-ai/protocol':
         specifier: workspace:^
         version: link:../protocol
@@ -486,6 +489,9 @@ importers:
       nunjucks:
         specifier: ^3.2.4
         version: 3.2.4(chokidar@4.0.3)
+      openai:
+        specifier: ^6.34.0
+        version: 6.34.0(ws@8.20.0)(zod@4.3.6)
       pathe:
         specifier: ^2.0.3
         version: 2.0.3

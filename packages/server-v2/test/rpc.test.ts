@@ -206,7 +206,7 @@ describe('server-v2 /api/v2 RPC', () => {
 
   it('archives a session', async () => {
     const id = await createSession(home as string);
-    const { body } = await call<null>('POST', `/api/v2/session/${id}/session:archive`);
+    const { body } = await call<null>('POST', `/api/v2/session/${id}/session:archive`, id);
     expect(body.code).toBe(0);
   });
 

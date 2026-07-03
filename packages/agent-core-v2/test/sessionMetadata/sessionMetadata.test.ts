@@ -4,7 +4,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/app/log';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata';
 import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataService';
 import {
@@ -19,13 +19,13 @@ import { stubLog } from '../log/stubs';
 const META_SCOPE = 'sessions/wd_test/s1/session-meta';
 
 function makeContext(): ISessionContext {
-  return {
-    _serviceBrand: undefined,
+  return makeSessionContext({
     sessionId: 's1',
     workspaceId: 'wd_test',
     sessionDir: '/tmp/sessions/wd_test/s1',
+    sessionScope: 'sessions/wd_test/s1',
     metaScope: META_SCOPE,
-  };
+  });
 }
 
 describe('SessionMetadata', () => {

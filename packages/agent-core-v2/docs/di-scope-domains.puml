@@ -44,7 +44,6 @@ package "App scope (process-wide)" #EAF3FB {
 }
 
 package "Session scope (per session)" #EAFAF1 {
-  rectangle "<b>session</b>\n<size:9><i>Session</i></size>\n  ISessionService" as session #D5F5E3
   rectangle "<b>sessionContext</b>\n<size:9><i>Session</i></size>\n  ISessionContext (seed)" as session_context #D5F5E3
   rectangle "<b>sessionMetadata</b>\n<size:9><i>Session</i></size>\n  ISessionMetadata" as session_metadata #D5F5E3
   rectangle "<b>sessionActivity</b>\n<size:9><i>Session</i></size>\n  ISessionActivity" as session_activity #D5F5E3
@@ -71,7 +70,6 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>contextInjector</b>\n<size:9><i>Agent</i></size>\n  IAgentContextInjectorService" as contextInjector #FDEBD0
   rectangle "<b>contextSize</b>\n<size:9><i>Agent</i></size>\n  IAgentContextSizeService" as contextSize #FDEBD0
   rectangle "<b>systemReminder</b>\n<size:9><i>Agent</i></size>\n  IAgentSystemReminderService" as systemReminder #FDEBD0
-  rectangle "<b>replayBuilder</b>\n<size:9><i>Agent</i></size>\n  IAgentReplayBuilderService" as replayBuilder #FDEBD0
   rectangle "<b>profile</b>\n<size:9><i>Agent</i></size>\n  IAgentProfileService" as profile #FDEBD0
   rectangle "<b>prompt</b>\n<size:9><i>Agent</i></size>\n  IAgentPromptService" as prompt #FDEBD0
   rectangle "<b>turn</b>\n<size:9><i>Agent</i></size>\n  IAgentTurnService" as turn #FDEBD0
@@ -114,6 +112,7 @@ sessionIndex --> bootstrap #34495E
 sessionIndex --> storage #34495E
 session_lifecycle --> bootstrap #34495E
 session_lifecycle --> hostEnvironment #34495E
+session_lifecycle --> event #34495E
 hostFolderBrowser --> hostFs #34495E
 auth --> provider #34495E
 auth --> config #34495E
@@ -146,17 +145,7 @@ terminal --> workspaceContext #34495E
 terminal --> session_context #34495E
 approval --> interaction #34495E
 question --> interaction #34495E
-agentTool --> agent_lifecycle #34495E
-agentTool --> session_metadata #34495E
-agentTool --> scopeContext #34495E
-agentTool --> toolRegistry #34495E
-agentTool --> background #34495E
-agentTool --> profile #34495E
 modelProvider --> config #34495E
-session --> session_context #34495E
-session --> session_metadata #34495E
-session --> agent_lifecycle #34495E
-session --> event #34495E
 session_metadata --> session_context #34495E
 session_metadata --> storage #34495E
 session_metadata --> log #34495E
@@ -170,7 +159,7 @@ blobStore --> environment #34495E
 filestore --> storage #34495E
 record --> wireRecord #34495E
 contextMemory --> wireRecord #34495E
-contextMemory --> replayBuilder #34495E
+contextMemory --> record #34495E
 contextInjector --> contextMemory #34495E
 contextInjector --> turn #34495E
 contextInjector --> loop #34495E
@@ -179,10 +168,9 @@ contextSize --> contextMemory #34495E
 contextSize --> record #34495E
 contextSize --> wireRecord #34495E
 systemReminder --> contextMemory #34495E
-replayBuilder --> wireRecord #34495E
 profile --> wireRecord #34495E
 profile --> record #34495E
-profile --> replayBuilder #34495E
+profile --> record #34495E
 profile --> telemetry #34495E
 profile --> config #34495E
 profile --> modelProvider #34495E
@@ -225,24 +213,24 @@ permissionGate --> telemetry #34495E
 permissionGate --> toolExecutor #34495E
 permissionMode --> wireRecord #34495E
 permissionMode --> record #34495E
-permissionMode --> replayBuilder #34495E
+permissionMode --> record #34495E
 permissionMode --> contextInjector #34495E
 permissionRules --> wireRecord #34495E
-permissionRules --> replayBuilder #34495E
+permissionRules --> record #34495E
 permissionRules --> config #34495E
 plan --> contextMemory #34495E
 plan --> wireRecord #34495E
 plan --> record #34495E
 plan --> agentFs #34495E
 plan --> profile #34495E
-plan --> replayBuilder #34495E
+plan --> record #34495E
 plan --> toolRegistry #34495E
 plan --> contextInjector #34495E
 plan --> telemetry #34495E
 goal --> wireRecord #34495E
 goal --> record #34495E
 goal --> systemReminder #34495E
-goal --> replayBuilder #34495E
+goal --> record #34495E
 goal --> telemetry #34495E
 goal --> contextInjector #34495E
 goal --> contextMemory #34495E
@@ -281,7 +269,6 @@ cron --> storage #34495E
 swarm --> wireRecord #34495E
 swarm --> record #34495E
 swarm --> systemReminder #34495E
-swarm --> agentTool #34495E
 mcp --> toolRegistry #34495E
 mcp --> record #34495E
 mcp --> toolExecutor #34495E
@@ -294,7 +281,6 @@ fullCompaction --> toolStore #34495E
 fullCompaction --> telemetry #34495E
 fullCompaction --> wireRecord #34495E
 fullCompaction --> record #34495E
-fullCompaction --> replayBuilder #34495E
 fullCompaction --> turn #34495E
 fullCompaction --> loop #34495E
 microCompaction --> contextMemory #34495E
@@ -329,7 +315,6 @@ rpc --> contextMemory #34495E
 rpc --> contextSize #34495E
 rpc --> skill #34495E
 rpc --> questionTools #34495E
-rpc --> agentTool #34495E
 rpc --> usage #34495E
 rpc --> telemetry #34495E
 rpc --> goal #34495E

@@ -1,12 +1,8 @@
 /**
- * `terminal` domain barrel — re-exports the terminal contract (`terminal`),
- * its scoped service (`terminalService`), the default backend stub
- * (`terminalBackend`), and the domain error codes (`errors`). Importing this
- * barrel registers the `ISessionTerminalService` and default `ISessionTerminalBackend`
- * bindings into the scope registry.
+ * `terminal` domain barrel — compatibility re-export.
  */
 
-export * from './terminal';
-export * from './errors';
-export * from './terminalService';
-export * from './terminalBackend';
+export * from '#/os/interface/terminal';
+export * from '#/os/interface/terminalErrors';
+export * from '#/os/backends/node-local/terminalService';
+export * from '#/os/backends/node-local/terminalBackend';

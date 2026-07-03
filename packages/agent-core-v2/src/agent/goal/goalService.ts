@@ -32,7 +32,6 @@ import {
   type TurnBeforeStepContext,
 } from '#/agent/loop';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
-import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { IAgentTurnService, type Turn, type TurnEndedContext } from '#/agent/turn';
 import type { TokenUsage } from '#/app/llmProtocol';
@@ -149,7 +148,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     private readonly options: GoalServiceOptions = {},
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
-    @IAgentReplayBuilderService private readonly replayBuilder: IAgentReplayBuilderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -538,7 +536,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       budgetLimits: {},
     };
     this.state = state;
-    this.replayBuilder.push({
+    this.record.push({
       type: 'goal_updated',
       snapshot: this.toSnapshot(state),
       change: { kind: 'created' },
@@ -564,7 +562,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     if (record.budgetLimits !== undefined) state.budgetLimits = record.budgetLimits;
     if (status === undefined) return;
 
-    this.replayBuilder.push({
+    this.record.push({
       type: 'goal_updated',
       snapshot: this.toSnapshot(state),
       change:

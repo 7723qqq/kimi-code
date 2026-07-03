@@ -5,7 +5,7 @@
  * so the tool can be exercised without the missing composition root.
  */
 
-import type { ContentPart, ModelCapability } from '@moonshot-ai/kosong';
+import type { ContentPart, ModelCapability } from '#/app/llmProtocol/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ISessionAgentFileSystem } from '#/session/agentFs';

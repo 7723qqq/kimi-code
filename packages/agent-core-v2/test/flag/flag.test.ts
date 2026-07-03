@@ -14,9 +14,10 @@ import { IFlagRegistry, type FlagDefinitionInput } from '#/app/flag/flagRegistry
 import { FlagRegistryService } from '#/app/flag/flagRegistryService';
 import { FlagService, MASTER_ENV } from '#/app/flag/flagService';
 import { ILogService } from '#/app/log/log';
-import { IAtomicTomlDocumentStore, TomlAtomicDocumentStore } from '#/app/storage/atomicDocumentStore';
-import { InMemoryStorageService } from '#/app/storage/inMemoryStorageService';
-import { IStorageService } from '#/app/storage/storageService';
+import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { IStorageService } from '#/persistence/interface/storage';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../log/stubs';

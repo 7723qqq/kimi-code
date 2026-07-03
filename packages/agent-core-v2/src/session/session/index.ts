@@ -1,10 +1,9 @@
 /**
- * `session` domain barrel — re-exports the session facade contract
- * (`session`) and its scoped service (`sessionService`). Importing this
- * barrel registers the `ISessionService` binding into the scope registry.
+ * `session` domain barrel — re-exports the session warning contract
+ * (`sessionWarning`) and its scoped service (`sessionWarningService`).
+ * Importing this barrel registers the warning service binding into the scope
+ * registry.
  */
 
-export * from './session';
-export * from './sessionService';
 export * from './sessionWarning';
 export * from './sessionWarningService';

@@ -16,25 +16,28 @@ Run one from the repo root with `pnpm dev:core-example <name>` (a filename filte
 
 ### Examples
 
-Impl (`src/session/sessionService.ts`):
+Impl (`src/session/sessionMetadata/sessionMetadataService.ts`):
 
 ```ts
 /**
- * `session` domain (L6) — `ISessionService` implementation.
+ * `sessionMetadata` domain (L6) — `ISessionMetadata` implementation.
  *
- * Runs session-level commands; reads its identity through `sessionContext`,
- * mutates metadata through `sessionMetadata`, drives agent teardown through
- * `agentLifecycle`, and broadcasts through `event`. Bound at Session scope.
+ * Persists the session metadata document (`state.json`) through the `storage`
+ * access-pattern store (`IAtomicDocumentStore`), rooted at the `metaScope`
+ * namespace from `sessionContext`. Loads the existing document on
+ * construction (creating it on first run), and logs through `log`. Bound at
+ * Session scope.
  */
 ```
 
-Barrel (`src/session/index.ts`):
+Barrel (`src/session/sessionMetadata/index.ts`):
 
 ```ts
 /**
- * `session` domain barrel — re-exports the session facade contract
- * (`session`) and its scoped service (`sessionService`). Importing this
- * barrel registers the `ISessionService` binding into the scope registry.
+ * `sessionMetadata` domain barrel — re-exports the session metadata contract
+ * (`sessionMetadata`) and its scoped service (`sessionMetadataService`).
+ * Importing this barrel registers the `ISessionMetadata` binding into the scope
+ * registry.
  */
 ```
 

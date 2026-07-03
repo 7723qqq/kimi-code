@@ -11,7 +11,6 @@ export default defineConfig({
   plugins: [rawTextPlugin()],
   deps: {
     neverBundle: [
-      '@moonshot-ai/kosong',
       '@moonshot-ai/kimi-code-oauth',
       '@moonshot-ai/kimi-telemetry',
     ],

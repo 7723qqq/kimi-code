@@ -4,8 +4,8 @@ import {
   type FinishReason,
   type Message,
   type StreamedMessagePart,
-} from '@moonshot-ai/kosong';
-import type { generate as kosongGenerate } from '@moonshot-ai/kosong';
+} from '#/app/llmProtocol/kosong';
+import type { generate as kosongGenerate } from '#/app/llmProtocol/kosong';
 
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import {

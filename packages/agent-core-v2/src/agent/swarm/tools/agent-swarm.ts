@@ -2,8 +2,8 @@
  * `swarm` domain (L4) — `AgentSwarm` collaboration tool.
  *
  * Launches a batch of child agents (an ordinary Agent scope each) through the
- * `agentTool` queued run helper and renders the per-subagent XML result. Keeps
- * a module-level map of spawned agent id → swarm item so a later
+ * session swarm coordinator and renders the per-subagent XML result. Keeps a
+ * module-level map of spawned agent id → swarm item so a later
  * `resume_agent_ids` call can relabel resumed subagents. Pure tool — owns no
  * scoped state.
  */
@@ -12,9 +12,6 @@ import { z } from 'zod';
 
 import type { BuiltinTool } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
-import {
-  DEFAULT_SUBAGENT_TIMEOUT_MS,
-} from '#/agent/agentTool';
 import { ToolAccesses } from '#/agent/tool';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
@@ -25,6 +22,7 @@ import { IAgentSwarmService } from '#/agent/swarm/swarm';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
+const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 const PROMPT_TEMPLATE_PLACEHOLDER = '{{item}}';
 const MAX_AGENT_SWARM_SUBAGENTS = 128;
 

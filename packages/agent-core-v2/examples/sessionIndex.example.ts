@@ -30,8 +30,8 @@ import { IBootstrapService } from '#/app/bootstrap';
 import '#/app/bootstrap';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex';
 import '#/app/sessionIndex';
-import { IAtomicDocumentStore } from '#/app/storage';
-import '#/app/storage';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import '#/persistence/backends/node-fs';
 
 const META_SCOPE = 'session-meta';
 const META_KEY = 'state.json';

@@ -1,7 +1,29 @@
 /**
- * Scenario: the **persistence** module — how the `storage` domain's Services
- * compose into a complete call chain (Store → Storage → backend), shown
- * through the real files that make up `~/.kimi-code`.
+ * Scenario: the **persistence** module — how the `persistence` dimension's
+ * Services compose into a complete call chain (Store → Storage → backend),
+ * shown through the real files that make up `~/.kimi-code`.
+ *
+ * The persistence dimension is organised as:
+ *
+ *   persistence/
+ *     interface/         ← contracts only: IStorageService + role tokens,
+ *                          IAppendLogStore, IAtomicDocumentStore, IQueryStore,
+ *                          IFileStore, IAgentBlobStoreService
+ *     backends/
+ *       node-fs/         ← FileStorageService, AppendLogStore, AtomicDocumentStore,
+ *                          FileStoreService, AgentBlobStoreService
+ *       memory/          ← InMemoryStorageService (test backend)
+ *
+ * Business code imports from `persistence/interface` and never sees a backend.
+ * The composition root (`bootstrap`) wires each role token to a backend:
+ *
+ *   IStorageService         → FileStorageService(homeDir)  [config store]
+ *   IAppendLogStorage       → FileStorageService(homeDir)  [wire logs]
+ *   IAtomicDocumentStorage  → FileStorageService(homeDir)  [JSON docs]
+ *   IBlobStorage            → FileStorageService(homeDir)  [blobs]
+ *
+ * A server-only profile could route any of these to Postgres / Redis / S3
+ * without touching business code.
  *
  * Instead of writing to a made-up scope, each access pattern is demonstrated
  * against the actual on-disk path a real Domain Service persists to, so the
@@ -17,14 +39,6 @@
  *    log by a hash of the home dir; this example writes one record stream under
  *    the same `wire/` scope.
  *
- * For each, a typed value goes through the Store and is then read back as raw
- * bytes through the Storage token beneath it, exposing the codec / framing the
- * Store hides. All three Stores sit on distinct tokens of the same
- * `IStorageService` interface (`IStorageService`, `IAtomicDocumentStorage`,
- * `IAppendLogStorage`); `bootstrap` routes each to its own `FileStorageService`
- * here, and a server profile could route any one of them to a different backend
- * — that is the composition-root routing these distinct tokens enable.
- *
  * All Services come from `src/`; nothing here defines a new Service.
  */
 
@@ -35,15 +49,30 @@ import { afterEach, beforeEach, describe, test } from 'vitest';
 
 import type { Scope } from '#/_base/di/scope';
 import { bootstrap } from '#/app/bootstrap/bootstrap';
+
+// ── persistence/interface ─────────────────────────────────────────────
+// Contracts only — the four role tokens (IStorageService, IAppendLogStorage,
+// IAtomicDocumentStorage, IBlobStorage) share the same `IStorageService`
+// interface but are registered as distinct DI tokens so the composition root
+// can route each one to a different backend.
 import {
   IAppendLogStorage,
-  IAppendLogStore,
   IAtomicDocumentStorage,
+  IStorageService,
+} from '#/persistence/interface/storage';
+
+// Store-layer facades — typed access patterns on top of the byte-level storage.
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import {
   IAtomicDocumentStore,
   IAtomicTomlDocumentStore,
-  IStorageService,
-} from '#/app/storage';
-import '#/app/storage';
+} from '#/persistence/interface/atomicDocumentStore';
+
+// ── side-effect import ────────────────────────────────────────────────
+// Loading the backends barrel triggers `registerScopedService` calls that wire
+// the Store implementations (AppendLogStore, AtomicDocumentStore, etc.) into
+// the DI scope registry. Without this import the Stores would not resolve.
+import '#/persistence/backends/node-fs';
 
 const textDecoder = new TextDecoder();
 

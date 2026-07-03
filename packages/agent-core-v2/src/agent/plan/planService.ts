@@ -16,7 +16,7 @@ import { IAgentContextMemoryService, type ContextMessage } from '#/agent/context
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { ISessionAgentFileSystem } from '#/session/agentFs';
 import { IAgentProfileService } from '#/agent/profile';
-import { ITelemetryService } from '#/app/telemetry';
+import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
 import { IAgentRecordService } from '#/agent/record';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import type { ExecutableToolResult } from '#/agent/tool';
@@ -60,6 +60,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
   ) {
     super();
     this._register(
@@ -124,6 +125,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
     }
 
     this._active = true;
+    this.telemetryContext.set({ mode: 'plan' });
     this.planId = id;
     this._planFilePath = null;
 
@@ -151,6 +153,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
 
   private restoreEnter({ id }: { readonly id: string }): void {
     this._active = true;
+    this.telemetryContext.set({ mode: 'plan' });
     this.planId = id;
     this._planFilePath = this.planFilePathFor(id);
   }
@@ -298,6 +301,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
 
   private reset(): void {
     this._active = false;
+    this.telemetryContext.set({ mode: 'agent' });
     this.planId = null;
     this._planFilePath = null;
   }

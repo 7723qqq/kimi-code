@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import {
+  type IAgentScopeHandle,
   LifecycleScope,
   _clearScopedRegistryForTests,
   registerScopedService,
@@ -9,7 +10,8 @@ import {
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IHostEnvironment } from '#/app/hostEnvironment';
-import { ISessionService } from '#/session/session';
+import { IEventService } from '#/app/event';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycleService';
 import { ISessionMetadata } from '#/session/sessionMetadata';
@@ -22,6 +24,10 @@ function bootstrapStub(): IBootstrapService {
   return {
     sessionsDir: '/tmp/sessions',
     homeDir: '/tmp',
+    sessionScope: (workspaceId: string, sessionId: string) =>
+      `sessions/${workspaceId}/${sessionId}`,
+    sessionDir: (workspaceId: string, sessionId: string) =>
+      `/tmp/sessions/${workspaceId}/${sessionId}`,
   } as IBootstrapService;
 }
 
@@ -35,6 +41,15 @@ function metadataStub(): ISessionMetadata {
     setTitle: () => Promise.resolve(),
     setArchived: () => Promise.resolve(),
     registerAgent: () => Promise.resolve(),
+  };
+}
+
+function eventStub(): IEventService {
+  return {
+    _serviceBrand: undefined,
+    onDidPublish: () => ({ dispose: () => {} }),
+    publish: () => {},
+    subscribe: () => ({ dispose: () => {} }),
   };
 }
 
@@ -150,6 +165,7 @@ describe('SessionLifecycleService', () => {
       stubPair(ISessionIndex, sessionIndexStub()),
       stubPair(IAppendLogStore, appendLogStoreStub()),
       stubPair(IAtomicDocumentStore, atomicDocumentStoreStub()),
+      stubPair(IEventService, eventStub()),
       ...extra,
     ]);
     return host.app.accessor.get(ISessionLifecycleService);
@@ -174,21 +190,46 @@ describe('SessionLifecycleService', () => {
     expect(h.kind).toBe(LifecycleScope.Session);
   });
 
-  it('archive runs the in-scope command and disposes the session', async () => {
-    let archived = false;
-    const sessionStub: ISessionService = {
-      _serviceBrand: undefined,
-      archive: () => {
-        archived = true;
-        return Promise.resolve();
-      },
-    };
-    const svc = build([stubPair(ISessionService, sessionStub)]);
+  it('archive flags metadata, removes agents, publishes the event, and disposes the session', async () => {
+    let archived: boolean | undefined;
+    const removed: string[] = [];
+    const published: { type: string; payload: unknown }[] = [];
+    const agentHandle = {
+      id: 'main',
+      kind: LifecycleScope.Agent,
+      accessor: { get: () => ({}) },
+      dispose: () => {},
+    } as unknown as IAgentScopeHandle;
+    const svc = build([
+      stubPair(ISessionMetadata, {
+        ...metadataStub(),
+        setArchived: (value: boolean) => {
+          archived = value;
+          return Promise.resolve();
+        },
+      }),
+      stubPair(IAgentLifecycleService, {
+        _serviceBrand: undefined,
+        list: () => [agentHandle],
+        remove: (id: string) => {
+          removed.push(id);
+          return Promise.resolve();
+        },
+      } as unknown as IAgentLifecycleService),
+      stubPair(IEventService, {
+        ...eventStub(),
+        publish: (event: { type: string; payload: unknown }) => published.push(event),
+      }),
+    ]);
 
     await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
     await svc.archive('s1');
 
     expect(archived).toBe(true);
+    expect(removed).toEqual(['main']);
+    expect(published).toEqual([
+      { type: 'event.session.archived', payload: { sessionId: 's1' } },
+    ]);
     expect(svc.get('s1')).toBeUndefined();
   });
 
@@ -212,11 +253,13 @@ describe('SessionLifecycleService', () => {
   });
 
   it('fires onDidArchiveSession when a session is archived', async () => {
-    const sessionStub: ISessionService = {
-      _serviceBrand: undefined,
-      archive: () => Promise.resolve(),
-    };
-    const svc = build([stubPair(ISessionService, sessionStub)]);
+    const svc = build([
+      stubPair(IAgentLifecycleService, {
+        _serviceBrand: undefined,
+        list: () => [],
+        remove: () => Promise.resolve(),
+      } as unknown as IAgentLifecycleService),
+    ]);
     const archived: string[] = [];
     svc.onDidArchiveSession((e) => archived.push(e.sessionId));
     await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });

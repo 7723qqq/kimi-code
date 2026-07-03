@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeAgentScopeContext } from '#/agent/scopeContext';
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol/kosong';
 
 import type { CronTask } from '#/agent/cron';
 import {

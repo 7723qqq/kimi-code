@@ -24,7 +24,7 @@ import { ILogService } from '#/app/log/log';
 import {
   IAtomicTomlDocumentStore,
   type IAtomicDocumentStore,
-} from '#/app/storage/atomicDocumentStore';
+} from '#/persistence/interface/atomicDocumentStore';
 
 import {
   type AnyEnvBindings,

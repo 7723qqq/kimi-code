@@ -9,8 +9,8 @@ import {
   IAtomicTomlDocumentStore,
   IStorageService,
 } from '#/app/storage';
-import { AtomicDocumentStore, TomlAtomicDocumentStore } from '#/app/storage/atomicDocumentStore';
-import { InMemoryStorageService } from '#/app/storage/inMemoryStorageService';
+import { AtomicDocumentStore, TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
 interface State {
   readonly title?: string;

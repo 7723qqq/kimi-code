@@ -1,9 +1,6 @@
 /**
- * `hostEnvironment` domain barrel — re-exports the host-environment contract
- * (`hostEnvironment`) and its scoped service (`hostEnvironmentService`).
- * Importing this barrel registers the `IHostEnvironment` binding into the
- * scope registry.
+ * `hostEnvironment` domain barrel — compatibility re-export.
  */
 
-export * from './hostEnvironment';
-export * from './hostEnvironmentService';
+export * from '#/os/interface/hostEnvironment';
+export * from '#/os/backends/node-local/hostEnvironmentService';

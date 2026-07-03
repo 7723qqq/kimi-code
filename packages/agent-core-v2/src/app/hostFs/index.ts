@@ -1,8 +1,6 @@
 /**
- * `hostFs` domain barrel — re-exports the host-filesystem contract
- * (`hostFs`) and its scoped service (`hostFsService`). Importing this barrel
- * registers the `IHostFileSystem` binding into the scope registry.
+ * `hostFs` domain barrel — compatibility re-export.
  */
 
-export * from './hostFs';
-export * from './hostFsService';
+export * from '#/os/interface/hostFileSystem';
+export * from '#/os/backends/node-local/hostFsService';

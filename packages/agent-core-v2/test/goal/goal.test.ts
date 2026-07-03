@@ -1,13 +1,13 @@
-import type { TokenUsage } from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentGoalService, type AgentGoalService } from '#/agent/goal';
 import { IAgentLoopService } from '#/agent/loop';
-import { IAgentReplayBuilderService } from '#/agent/replayBuilder';
+import { IAgentRecordService } from '#/agent/record';
 import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn';
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord';
+import type { TokenUsage } from '#/app/llmProtocol/kosong';
 import { ErrorCodes } from '#/errors';
 
 import {
@@ -102,7 +102,7 @@ describe('AgentGoalService', () => {
   let context: IAgentContextMemoryService;
   let goals: GoalServiceTestManager;
   let records: PersistedWireRecord[];
-  let replayBuilder: IAgentReplayBuilderService;
+  let replayBuilder: IAgentRecordService;
   let events: Array<{
     readonly type: string;
     readonly snapshot?: GoalSnapshot | null;
@@ -121,7 +121,7 @@ describe('AgentGoalService', () => {
     context = ctx.get(IAgentContextMemoryService);
     goals = ctx.get(IAgentGoalService) as GoalServiceTestManager;
     records = persistence.records;
-    replayBuilder = ctx.get(IAgentReplayBuilderService);
+    replayBuilder = ctx.get(IAgentRecordService);
     const eventSink = ctx.get(IAgentEventSinkService);
     eventSink.on((event) => {
       if (event.type === 'goal.updated') events.push(event);
@@ -439,7 +439,7 @@ describe('AgentGoalService', () => {
         },
       ]);
 
-      expect(replayBuilder.buildResult()).toEqual([
+      expect(replayBuilder.buildReplay()).toEqual([
         expect.objectContaining({
           type: 'goal_updated',
           snapshot: expect.objectContaining({ objective: 'work', status: 'active' }),
@@ -489,7 +489,7 @@ describe('AgentGoalService', () => {
         },
       ]);
 
-      expect(replayBuilder.buildResult().at(-1)).toMatchObject({
+      expect(replayBuilder.buildReplay().at(-1)).toMatchObject({
         type: 'goal_updated',
         snapshot: { status: 'paused', terminalReason: 'Paused after agent resume' },
         change: {

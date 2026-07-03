@@ -10,17 +10,18 @@
  */
 
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { makeAgentScopeContext } from '#/agent/scopeContext';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '#/app/llmProtocol/kosong';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
 import type { CronTask } from '#/agent/cron';
 import { IAgentCronService } from '#/agent/cron';
-import { IEnvironmentService } from '#/app/environment';
+import { IBootstrapService } from '#/app/bootstrap';
 import { IAtomicDocumentStore } from '#/app/storage';
 import { ISessionContext } from '#/session/sessionContext';
 import {
@@ -75,8 +76,8 @@ function cronDir(ctx: TestAgentContext): string {
 }
 
 function cronScope(ctx: TestAgentContext): string {
-  const environment = ctx.get(IEnvironmentService);
-  return relative(environment.homeDir, cronDir(ctx));
+  const bootstrap = ctx.get(IBootstrapService);
+  return relative(bootstrap.homeDir, cronDir(ctx));
 }
 
 async function readDiskIds(ctx: TestAgentContext): Promise<readonly string[]> {
@@ -149,7 +150,7 @@ describe('AgentCronService — persistence and resume', () => {
       harness.install();
       ctx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       cron = ctx.get(IAgentCronService);
     });
@@ -193,13 +194,13 @@ describe('AgentCronService — persistence and resume', () => {
       clockA.install();
       ctx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       cron = ctx.get(IAgentCronService);
       clockB.install();
       resumedCtx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       resumedCron = resumedCtx.get(IAgentCronService);
     });
@@ -241,13 +242,13 @@ describe('AgentCronService — persistence and resume', () => {
       clockA.install();
       ctx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       cron = ctx.get(IAgentCronService);
       clockB.install();
       resumedCtx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       resumedCron = resumedCtx.get(IAgentCronService);
       resumedPrompt = resumedCtx.get(IAgentPromptService);
@@ -282,13 +283,13 @@ describe('AgentCronService — persistence and resume', () => {
       clockA.install();
       ctx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       cron = ctx.get(IAgentCronService);
       clockB.install();
       resumedCtx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       resumedCron = resumedCtx.get(IAgentCronService);
       resumedPrompt = resumedCtx.get(IAgentPromptService);
@@ -331,14 +332,14 @@ describe('AgentCronService — persistence and resume', () => {
       clockA.install();
       ctx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       cron = ctx.get(IAgentCronService);
       prompt = ctx.get(IAgentPromptService);
       clockB.install();
       resumedCtx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       resumedCron = resumedCtx.get(IAgentCronService);
       resumedPrompt = resumedCtx.get(IAgentPromptService);
@@ -384,13 +385,13 @@ describe('AgentCronService — persistence and resume', () => {
       clockA.install();
       ctx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       cron = ctx.get(IAgentCronService);
       clockB.install();
       resumedCtx = createCronAgent(
         sessionDir,
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       resumedCron = resumedCtx.get(IAgentCronService);
       resumedPrompt = resumedCtx.get(IAgentPromptService);
@@ -426,7 +427,7 @@ describe('AgentCronService — persistence and resume', () => {
       const harness = createClocks();
       harness.install();
       ctx = createTestAgent(
-        cronServices({ _serviceBrand: undefined, agentId: 'main' }),
+        cronServices(makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
       );
       cron = ctx.get(IAgentCronService);
     });

@@ -3,22 +3,6 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
-import {
-  isToolCall,
-  isToolCallPart,
-  type ChatProvider,
-  type ContentPart,
-  type GenerateOptions,
-  KimiChatProvider,
-  type Message as KosongMessage,
-  type ModelCapability,
-  type ProviderConfig,
-  type StreamedMessage,
-  type StreamedMessagePart,
-  type ThinkingEffort,
-  type Tool as KosongTool,
-  type generate as kosongGenerate,
-} from '@moonshot-ai/kosong';
 import { expect, vi } from 'vitest';
 
 import { toDisposable } from '#/_base/di';
@@ -45,12 +29,7 @@ import type { PermissionRule } from '#/agent/permissionRules';
 import { IAgentPlanService } from '#/agent/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { IAgentRecordService } from '#/agent/record';
-import {
-  IAgentReplayBuilderService,
-  AgentReplayBuilderService,
-  type ReplayBuilderServiceOptions,
-} from '#/agent/replayBuilder';
+import { AgentRecordService, IAgentRecordService, type RecordServiceOptions } from '#/agent/record';
 import type { AgentAPI } from '#/agent/rpc/core-api';
 import { IAgentSkillService } from '#/agent/skill/skill';
 import { AgentSkillService } from '#/agent/skill/skillService';
@@ -64,6 +43,22 @@ import type {
 import { IOAuthService } from '#/app/auth/auth';
 import { IChatProviderFactory } from '#/app/chatProvider';
 import type { SkillCatalog } from '#/app/globalSkillCatalog/types';
+import {
+  isToolCall,
+  isToolCallPart,
+  type ChatProvider,
+  type ContentPart,
+  type GenerateOptions,
+  KimiChatProvider,
+  type Message as KosongMessage,
+  type ModelCapability,
+  type ProviderConfig,
+  type StreamedMessage,
+  type StreamedMessagePart,
+  type ThinkingEffort,
+  type Tool as KosongTool,
+  type generate as kosongGenerate,
+} from '#/app/llmProtocol/kosong';
 import type { ILogger, LogContext, LogLevel } from '#/app/log';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import {
@@ -105,8 +100,6 @@ import {
   AgentSwarmService,
   ITelemetryService,
   ISessionTerminalBackend,
-  IAgentToolService,
-  AgentToolService,
   IAgentToolRegistryService,
   IAgentBuiltinToolsRegistrar,
   IAgentToolStoreService,
@@ -133,7 +126,6 @@ import {
   type Scope,
   type ScopeSeed,
   type ServiceIdentifier,
-  type AgentToolRunOverride,
 } from '#/index';
 import type { ApprovalResponse } from '#/session/approval';
 import { IExecContext, createExecContext } from '#/session/execContext';
@@ -629,10 +621,6 @@ function createSessionSkillCatalog(catalog: SkillCatalog): ISessionSkillCatalog 
   };
 }
 
-export function agentToolServices(runOverride: AgentToolRunOverride): TestAgentServiceOverride {
-  return agentService(IAgentToolService, new SyncDescriptor(AgentToolService, [runOverride]));
-}
-
 export function swarmServices(swarmService: ISessionSwarmService): TestAgentServiceOverride {
   return [
     sessionService(ISessionSwarmService, swarmService),
@@ -644,13 +632,8 @@ export function goalServices(options: GoalServiceOptions): TestAgentServiceOverr
   return agentService(IAgentGoalService, new SyncDescriptor(AgentGoalService, [options]));
 }
 
-export function replayServices(
-  options: ReplayBuilderServiceOptions = {},
-): TestAgentServiceOverride {
-  return agentService(
-    IAgentReplayBuilderService,
-    new SyncDescriptor(AgentReplayBuilderService, [options]),
-  );
+export function replayServices(options: RecordServiceOptions = {}): TestAgentServiceOverride {
+  return agentService(IAgentRecordService, new SyncDescriptor(AgentRecordService, [options]));
 }
 
 /**
@@ -1077,10 +1060,6 @@ export class AgentTestContext {
               new SyncDescriptor(AgentBackgroundService),
             );
             reg.defineDescriptor(IAgentMcpService, new SyncDescriptor(AgentMcpService, [{}]));
-            reg.defineDescriptor(
-              IAgentReplayBuilderService,
-              new SyncDescriptor(AgentReplayBuilderService, [{}]),
-            );
             reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService, [{}]));
             reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
             reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
@@ -1091,10 +1070,6 @@ export class AgentTestContext {
               scope: (subKey?: string): string =>
                 subKey === undefined || subKey === '' ? agentScope : `${agentScope}/${subKey}`,
             });
-            reg.defineDescriptor(
-              IAgentToolService,
-              new SyncDescriptor(AgentToolService, [unavailableAgentToolRun()]),
-            );
           },
         ],
         this.serviceOverrides,
@@ -1914,18 +1889,6 @@ function createTerminalBackend(): ISessionTerminalBackend {
       resize: () => {},
       kill: () => {},
     }),
-  };
-}
-
-function unavailableAgentToolRun(): AgentToolRunOverride {
-  const fail = async (): Promise<never> => {
-    throw new Error('Agent tool run is not configured in this test.');
-  };
-  return {
-    spawn: fail,
-    resume: fail,
-    retry: fail,
-    getProfileName: async () => undefined,
   };
 }
 

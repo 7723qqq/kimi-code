@@ -44,10 +44,10 @@ const DOMAIN_LAYER = new Map([
   ['errors', 0],
   // `llmProtocol` is v2's public wire-type namespace (`Message`,
   // `ContentPart`, `Tool`, `TokenUsage`, `FinishReason`, error classes,
-  // etc.). It has no v2 dependencies of its own (currently re-exports from
-  // `@moonshot-ai/kosong`); every domain — including `_base/utils/tokens`
-  // and `_base/errors/serialize` — may import wire types through it, so it
-  // sits at L0.
+  // etc.). It has no v2 dependencies of its own (it vendors the kosong wire
+  // implementation under `llmProtocol/kosong`); every domain — including
+  // `_base/utils/tokens` and `_base/errors/serialize` — may import wire types
+  // through it, so it sits at L0.
   ['llmProtocol', 0],
   // L1 — abstraction bridges & low-level capabilities
   ['log', 1],
@@ -82,6 +82,15 @@ const DOMAIN_LAYER = new Map([
   ['protocol', 1],
   ['hooks', 1],
   ['storage', 1],
+  // persistence/ and os/ — the two-level scopes. `interface` holds contracts
+  // (same layer as the old domains they replace); `backends` holds
+  // implementations that may depend on cross-domain services at various layers.
+  // They are set high enough to absorb their highest real dependency
+  // (`persistence/backends` → `scopeContext` at L4 for the agent blob store).
+  ['persistence/interface', 1],
+  ['persistence/backends', 4],
+  ['os/interface', 1],
+  ['os/backends', 6],
   // L2 — data & cross-cutting capabilities
   ['records', 2],
   ['wireRecord', 2],
@@ -115,6 +124,7 @@ const DOMAIN_LAYER = new Map([
   ['plugin', 3],
   ['record', 3],
   ['modelCatalog', 3],
+  ['agentProfileCatalog', 3],
   // L4 — agent behaviour
   ['context', 4],
   ['message', 4],
@@ -150,8 +160,8 @@ const DOMAIN_LAYER = new Map([
   ['cron', 5],
   ['agentTool', 5],
   ['externalHooks', 5],
-  // `btw` forks a single side-question sub-agent via `agentLifecycle`, mirroring
-  // the `agentTool` shape (Agent-scope, spawns one child) — same layer.
+  // `btw` forks a single side-question sub-agent via `agentLifecycle`,
+  // parallel to how the `Agent` tool spawns child agents. Agent-scope, L5.
   ['btw', 5],
   // L6 — coordination
   ['agentLifecycle', 6],
@@ -179,7 +189,13 @@ const V1_PACKAGE = '@moonshot-ai/agent-core';
  * Scope directories introduced by the `src/{scope}/{domain}` layout. A path's
  * first segment is a scope tier, not a domain; the domain is the next segment.
  */
-const SCOPE_DIRS = new Set(['app', 'session', 'agent']);
+const SCOPE_DIRS = new Set(['app', 'session', 'agent', 'persistence', 'os']);
+
+/**
+ * Two-level scope directories: `persistence` and `os` use `{scope}/{tier}`
+ * (e.g. `persistence/interface`, `os/backends`) as the domain key.
+ */
+const TWO_LEVEL_SCOPES = new Set(['persistence', 'os']);
 
 /**
  * Resolve a `src/`-relative path to its domain, skipping the scope tier when
@@ -189,6 +205,10 @@ const SCOPE_DIRS = new Set(['app', 'session', 'agent']);
  */
 function domainFromRel(rel, { exemptRootFile }) {
   const segments = rel.split(/[\\/]/);
+  if (TWO_LEVEL_SCOPES.has(segments[0])) {
+    // `src/{persistence|os}/{interface|backends}/…`
+    return segments[1] ? `${segments[0]}/${segments[1]}` : segments[0];
+  }
   if (SCOPE_DIRS.has(segments[0])) {
     // `src/{scope}/{domain}/…`
     return segments[1];
@@ -232,6 +252,8 @@ function domainFromRel(rel, { exemptRootFile }) {
  */
 const ALLOWED_EXCEPTIONS = new Set([
   'bootstrap>globalSkillCatalog',
+  // bootstrap is the composition root — it wires backends by design.
+  'bootstrap>persistence/backends',
   // path-access (base tool policy) needs the `IHostEnvironment` type to stay
   // host-aware (path class, home dir). Structural type dependency only —
   // path-access does not construct or resolve the service.
@@ -257,6 +279,10 @@ const ALLOWED_EXCEPTIONS = new Set([
   'permissionPolicy>profile',
   'permissionRules>replayBuilder',
   'record>replayBuilder',
+  // `record` owns the replay read model, whose `message` records carry
+  // `ContextMessage` (L4). `removeLastMessages` takes a set of them, so the
+  // projection side references the context message type by structure only.
+  'record>contextMemory',
   'plugin>externalHooks',
   'plugin>mcp',
   'profile>session',
@@ -266,16 +292,25 @@ const ALLOWED_EXCEPTIONS = new Set([
   'shellTools>background',
   'skill>contextMemory',
   'skill>prompt',
-  'swarm>agentTool',
   'swarm>sessionMetadata',
   'btw>agentLifecycle',
-  'agentTool>agentLifecycle',
-  'agentTool>sessionMetadata',
   'toolExecutor>loop',
   'userTool>profile',
   'wireRecord>contextMemory',
   'wireRecord>loop',
   'wireRecord>tool',
+  // Compatibility barrels: old domain barrels (L1-L2) re-export from the new
+  // persistence/os backends directories. These are pure re-export shims and
+  // will be removed once all consumers migrate to canonical paths.
+  'hostEnvironment>os/backends',
+  'hostFs>os/backends',
+  'hostFolderBrowser>os/backends',
+  'storage>persistence/backends',
+  'filestore>persistence/backends',
+  'process>os/backends',
+  'terminal>os/backends',
+  'agentFs>os/backends',
+  'blobStore>persistence/backends',
 ]);
 
 // Matches: import ... from 'x' | export ... from 'x' | import('x') | require('x')

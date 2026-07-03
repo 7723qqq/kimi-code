@@ -42,15 +42,12 @@ import { join } from 'node:path';
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import type { Scope } from '#/_base/di/scope';
 import { IOAuthService } from '#/app/auth';
-import { bootstrap } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config';
-import { logSeed, resolveLoggingConfig } from '#/app/log/logConfig';
 import { IModelService } from '#/app/model';
 import { IProviderService } from '#/app/provider';
-import '#/app/storage';
-import '#/app/telemetry';
+
+import { createSliceHost, type SliceHost } from './_harness';
 
 const STUB_ACCESS_TOKEN = 'stub-access-token';
 
@@ -138,7 +135,7 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<vo
 describe('oauth → modelCatalog slice (request-layer fetch mock, real clients)', () => {
   let homeDir: string;
   let caseDir: string;
-  let app: Scope | undefined;
+  let host: SliceHost | undefined;
 
   beforeEach(() => {
     const resolved = process.env['KIMI_CODE_HOME'];
@@ -155,20 +152,14 @@ describe('oauth → modelCatalog slice (request-layer fetch mock, real clients)'
   });
 
   afterEach(() => {
-    app?.dispose();
-    app = undefined;
+    host?.dispose();
+    host = undefined;
     vi.unstubAllGlobals();
   });
 
-  function buildApp(): Scope {
-    return bootstrap(
-      { homeDir: caseDir },
-      logSeed(resolveLoggingConfig({ homeDir: caseDir, env: process.env })),
-    ).app;
-  }
-
   test('device-code login provisions the provider credential through config.onDidChangeConfiguration', async () => {
-    app = buildApp();
+    host = createSliceHost({ homeDir: caseDir });
+    const app = host.app;
     const config = app.accessor.get(IConfigService);
     const oauth = app.accessor.get(IOAuthService);
     const providers = app.accessor.get(IProviderService);
@@ -199,7 +190,8 @@ describe('oauth → modelCatalog slice (request-layer fetch mock, real clients)'
   });
 
   test('refreshOAuthProviderModels fetches /models internally and lands aliases through config.onDidChangeConfiguration', async () => {
-    app = buildApp();
+    host = createSliceHost({ homeDir: caseDir });
+    const app = host.app;
     const config = app.accessor.get(IConfigService);
     const oauth = app.accessor.get(IOAuthService);
     const providers = app.accessor.get(IProviderService);

@@ -25,7 +25,10 @@ import { afterEach, beforeEach, describe, test } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { FileStorageService, IAppendLogStorage, IAppendLogStore, AppendLogStore } from '#/app/storage';
+import { IAppendLogStorage } from '#/persistence/interface/storage';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { AgentWireRecordService, type IAgentWireRecordService } from '#/agent/wireRecord';
 import '#/agent/swarm/swarm';
 

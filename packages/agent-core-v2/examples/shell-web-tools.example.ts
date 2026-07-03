@@ -45,7 +45,7 @@ import {
   type WebSearchProvider,
   type WebSearchResult,
 } from '#/agent/web/tools/web-search';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 
 import { createSliceHost, type SliceHost } from './_harness';
 

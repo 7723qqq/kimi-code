@@ -36,13 +36,13 @@ import {
   IAgentToolRegistryService,
 } from '#/agent/toolRegistry';
 
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry';
 import {
   ISessionAgentFileSystem,
   ISessionFsService,
 } from '#/session/agentFs';
-import { ISessionProcessRunner } from '#/session/process';
+import { ISessionProcessRunner } from '#/os/interface/process';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
 // Minimal leaf fakes. The real tool constructors only read these surfaces

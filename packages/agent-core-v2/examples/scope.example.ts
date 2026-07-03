@@ -2,90 +2,52 @@
  * Scenario: the **DI Scope** foundation — how resolution follows the tree.
  *
  * Not a business slice but the model every other slice rests on. Two rules,
- * shown with real services: a App-scoped service (`ILogService`) resolves to
- * the same instance whether you ask the App scope or a child Session scope
- * (it is found by walking up), while a Session-scoped service
- * (`ISessionMetadata`) is one distinct instance per session, so two sessions
- * hold independent state. Loads only `log` and `sessionMetadata`.
+ * shown with real services resolved through the composition root (`_harness`):
+ *
+ *   - an **App-scoped** service (`ILogService`) resolves to the same instance
+ *     whether you ask the App scope or a child Session scope — resolution walks
+ *     up the tree and finds the one App instance;
+ *   - a **Session-scoped** service (`ISessionMetadata`) is one distinct instance
+ *     per session, so two sessions hold independent state.
+ *
+ * Wiring: the real composition root (`_harness`) provides every service; we open
+ * two Session scopes to show the per-session isolation.
+ *
+ * Run:
+ *   pnpm --filter @moonshot-ai/agent-core-v2 example -- examples/scope.example.ts
  */
 
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { afterEach, describe, expect, test } from 'vitest';
 
-import { afterEach, beforeEach, describe, test } from 'vitest';
-
-import type { ServiceIdentifier } from '#/_base/di/instantiation';
-import { LifecycleScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
-import { bootstrap } from '#/app/bootstrap/bootstrap';
-import { ILogService, sessionLogSeed } from '#/app/log/log';
-import { logSeed, resolveLoggingConfig } from '#/app/log/logConfig';
-import { sessionContextSeed } from '#/session/sessionContext/sessionContext';
-import '#/app/log';
-import '#/session/sessionLog';
-import '#/session/sessionMetadata';
+import { ILogService } from '#/app/log/log';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { FileStorageService } from '#/app/storage/fileStorageService';
-import { IAtomicDocumentStorage } from '#/app/storage/storageService';
 
-/** Route the atomic-document access pattern to a file-backed store at `homeDir`. */
-function diskStorageSeed(homeDir: string): ScopeSeed {
-  return [[IAtomicDocumentStorage as ServiceIdentifier<unknown>, new FileStorageService(homeDir)]];
-}
+import { createSliceHost, type SliceHost } from './_harness';
 
 describe('di scope foundation (App singletons vs. per-Session instances)', () => {
-  let homeDir: string;
-  let app: Scope;
-
-  beforeEach(() => {
-    const resolved = process.env['KIMI_CODE_HOME'];
-    if (resolved === undefined) {
-      throw new Error('KIMI_CODE_HOME is not set; globalSetup should have initialized it');
-    }
-    homeDir = resolved;
-    mkdirSync(homeDir, { recursive: true });
-    app = bootstrap({}, [
-      ...logSeed(resolveLoggingConfig({ homeDir, env: process.env })),
-      ...diskStorageSeed(homeDir),
-    ]).app;
-  });
-  afterEach(() => {
-    app.dispose();
-  });
-
-  function createSession(sessionId: string): Scope {
-    const sessionDir = join(homeDir, 'sessions', 'example', sessionId);
-    return app.createChild(LifecycleScope.Session, sessionId, {
-      extra: [
-        ...sessionContextSeed({
-          _serviceBrand: undefined,
-          sessionId,
-          workspaceId: 'example',
-          sessionDir,
-          metaScope: 'session-meta',
-        }),
-        ...sessionLogSeed(sessionId, sessionDir),
-      ],
-    });
-  }
+  let host: SliceHost;
+  afterEach(() => host?.dispose());
 
   test('App services are shared; Session services are per-session', async () => {
-    console.log('KIMI_CODE_HOME =', homeDir);
-    const sessionA = createSession('scope-a');
-    const sessionB = createSession('scope-b');
+    host = createSliceHost({ homeDir: process.env['KIMI_CODE_HOME']! });
+    const sessionA = host.session;
+    const sessionB = host.newSession('scope-b');
 
-    const logFromCore = app.accessor.get(ILogService);
+    // App-scoped service: the same instance is visible from App and Session.
+    const logFromApp = host.app.accessor.get(ILogService);
     const logFromSession = sessionA.accessor.get(ILogService);
-    console.log('App ILogService shared across scopes:', logFromCore === logFromSession);
+    expect(logFromApp).toBe(logFromSession);
 
+    // Session-scoped service: each session gets its own instance + state.
     const metaA = sessionA.accessor.get(ISessionMetadata);
     const metaB = sessionB.accessor.get(ISessionMetadata);
+    expect(metaA).not.toBe(metaB);
     await Promise.all([metaA.ready, metaB.ready]);
-    console.log('Session ISessionMetadata differs per session:', metaA !== metaB);
 
     await metaA.setTitle('session A');
     await metaB.setTitle('session B');
     const [a, b] = await Promise.all([metaA.read(), metaB.read()]);
-    console.log('  A title:', a.title);
-    console.log('  B title:', b.title);
+    expect(a.title).toBe('session A');
+    expect(b.title).toBe('session B');
   });
 });

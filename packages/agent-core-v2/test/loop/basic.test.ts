@@ -1,4 +1,4 @@
-import { emptyUsage, type ToolCall } from '@moonshot-ai/kosong';
+import { emptyUsage, type ToolCall } from '#/app/llmProtocol/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService } from '#/index';

@@ -20,4 +20,4 @@ export type {
   ProviderRequestAuth,
   StreamDecodeStats,
   VideoUploadInput,
-} from '@moonshot-ai/kosong';
+} from './kosong';

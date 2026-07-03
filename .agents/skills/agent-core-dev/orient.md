@@ -31,7 +31,7 @@ export enum LifecycleScope {
 ```
 
 - A larger number = shorter life = closer to a leaf.
-- "Singleton" means **one per scope**: `ILogService` is global once; each `Session` scope has its own `ISessionService`.
+- "Singleton" means **one per scope**: `ILogService` is global once; each `Session` scope has its own `ISessionMetadata`.
 - `kind` strictly increases along the parent→child direction.
 
 ### Visibility rule
@@ -79,16 +79,17 @@ So a Session-scoped service is not "L1" — e.g. `session` is Session-scoped but
 - **Contribution files** (`<targetDomain>.ts` / `<what>.contrib.ts`) state what they register into the target domain (e.g. "registers the `log` config section into `config`").
 - **Pure-function / `.types` / `.errors` files** state the responsibility only — they own no scoped state, so no scope line.
 
-Impl file example (`sessionService.ts`):
+Impl file example (`sessionMetadataService.ts`):
 
 ```ts
 /**
- * `session` domain (L6) — `ISessionService` implementation.
+ * `sessionMetadata` domain (L6) — `ISessionMetadata` implementation.
  *
- * Owns the session's child-agent set and session-level operations; drives
- * agent lifecycle through `agentLifecycle`, broadcasts through `event`,
- * persists session metadata through `records`, and records activity through
- * `sessionActivity`. Bound at Session scope.
+ * Persists the session metadata document (`state.json`) through the `storage`
+ * access-pattern store (`IAtomicDocumentStore`), rooted at the `metaScope`
+ * namespace from `sessionContext`. Loads the existing document on
+ * construction (creating it on first run), and logs through `log`. Bound at
+ * Session scope.
  */
 ```
 
@@ -107,9 +108,10 @@ Barrel example:
 
 ```ts
 /**
- * `session` domain barrel — re-exports the session contract (`session`),
- * its scoped service (`sessionService`), and its contribution files. Importing
- * this barrel registers the `ISessionService` binding into the scope registry.
+ * `sessionMetadata` domain barrel — re-exports the session metadata contract
+ * (`sessionMetadata`) and its scoped service (`sessionMetadataService`).
+ * Importing this barrel registers the `ISessionMetadata` binding into the scope
+ * registry.
  */
 ```
 

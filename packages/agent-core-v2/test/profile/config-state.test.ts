@@ -1,4 +1,4 @@
-import { emptyUsage } from '@moonshot-ai/kosong';
+import { emptyUsage } from '#/app/llmProtocol/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentLLMRequesterService } from '#/agent/llmRequester';
