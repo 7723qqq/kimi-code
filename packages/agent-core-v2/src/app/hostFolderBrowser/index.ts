@@ -1,6 +1,7 @@
 /**
- * `hostFolderBrowser` domain barrel — compatibility re-export.
+ * `hostFolderBrowser` domain barrel — re-exports the host folder picker
+ * contract and its node-local backend.
  */
 
-export * from '#/os/interface/folderBrowser';
-export * from '#/os/backends/node-local/folderBrowserService';
+export * from './hostFolderBrowser';
+export * from './hostFolderBrowserService';
