@@ -72,8 +72,8 @@ describe('AgentToolExecutorService', () => {
       properties: expect.objectContaining({
         tool_name: 'echo',
         outcome: 'success',
-        duration_ms: 'TODO',
-        dup_type: 'TODO',
+        duration_ms: expect.any(Number),
+        dup_type: 'normal',
       }),
     });
   });
@@ -90,6 +90,16 @@ describe('AgentToolExecutorService', () => {
     expect(pairedToolCallIds()).toEqual({
       calls: ['call_missing'],
       results: ['call_missing'],
+    });
+    expect(telemetryEvents).toContainEqual({
+      event: 'tool_call',
+      properties: expect.objectContaining({
+        tool_name: 'missing',
+        outcome: 'error',
+        duration_ms: expect.any(Number),
+        dup_type: 'normal',
+        error_type: 'error',
+      }),
     });
   });
 

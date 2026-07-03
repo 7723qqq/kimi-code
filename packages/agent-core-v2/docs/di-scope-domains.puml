@@ -197,6 +197,7 @@ llmRequester --> contextProjector #34495E
 llmRequester --> toolRegistry #34495E
 llmRequester --> profile #34495E
 llmRequester --> log #34495E
+llmRequester --> telemetry #34495E
 llmRequester --> usage #34495E
 llmRequester --> modelProvider #34495E
 llmRequester --> config #34495E
@@ -211,6 +212,8 @@ permissionGate --> permissionRules #34495E
 permissionGate --> permissionPolicy #34495E
 permissionGate --> telemetry #34495E
 permissionGate --> toolExecutor #34495E
+permissionPolicy --> plan #34495E
+permissionPolicy --> swarm #34495E
 permissionMode --> wireRecord #34495E
 permissionMode --> record #34495E
 permissionMode --> record #34495E

@@ -235,6 +235,10 @@ function domainFromRel(rel, { exemptRootFile }) {
  *  - `permissionGate>approval`  : permissionGate(Agent) requests approval(Session broker).
  *  - `userTool>interaction`     : userTool(Agent) requests host-side execution
  *                                 through the Session interaction broker.
+ *  - `permissionPolicy>plan`     : plan-mode approval policies need the current
+ *                                 Agent plan state to approve/deny tool use.
+ *  - `permissionPolicy>swarm`    : swarm-mode approval policy needs the current
+ *                                 Agent swarm state to approve AgentSwarm.
  *  - `skill>turn`           : skill activate starts a turn (same Agent scope intent).
  *  - `turn>agentLifecycle` : turn cancels sub-agents via lifecycle handle.
  *  - `swarm>agentLifecycle`: swarm spawns/manages sub-agents.
@@ -260,6 +264,8 @@ const ALLOWED_EXCEPTIONS = new Set([
   '_base>hostEnvironment',
   'permissionGate>approval',
   'userTool>interaction',
+  'permissionPolicy>plan',
+  'permissionPolicy>swarm',
   'skill>turn',
   'turn>agentLifecycle',
   'swarm>agentLifecycle',
