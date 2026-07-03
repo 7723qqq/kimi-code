@@ -25,8 +25,8 @@ import {
   type ReadInput,
   ReadInputSchema,
   ReadTool,
-} from '#/agent/fileTools/tools/read';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
+} from '#/os/backends/node-local/tools/read';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;

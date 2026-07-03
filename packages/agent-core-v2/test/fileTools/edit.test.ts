@@ -13,8 +13,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
 import { stubWorkspaceContext } from './stub-workspace-context';
 import type { ISessionAgentFileSystem } from '#/session/agentFs';
-import { type EditInput, EditInputSchema, EditTool } from '#/agent/fileTools/tools/edit';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
+import { type EditInput, EditInputSchema, EditTool } from '#/os/backends/node-local/tools/edit';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;

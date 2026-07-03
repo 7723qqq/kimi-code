@@ -115,5 +115,4 @@ export type { ToolContribution, ToolContributionOptions } from '#/agent/toolRegi
 export * from '#/agent/toolState';
 export * from '#/agent/userTool';
 export * from '#/agent/wireRecord';
-export * from '#/agent/fileTools';
 export * from '#/agent/shellTools';

@@ -29,7 +29,7 @@ import { z } from 'zod';
 
 import { ISessionFsService } from '#/session/agentFs';
 import { ErrorCodes, isKimiError } from '#/errors';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
