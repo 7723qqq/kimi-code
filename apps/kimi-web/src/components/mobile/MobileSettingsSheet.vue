@@ -12,6 +12,7 @@ import type { ConversationStatus, PermissionMode } from '../../types';
 import type { AppModel, ThinkingLevel } from '../../api/types';
 import type { ColorScheme } from '../../composables/useKimiWebClient';
 import {
+  coerceThinkingForModel,
   commitLevel,
   effortLabel,
   modelThinkingAvailability,
@@ -76,11 +77,18 @@ const currentModel = computed<AppModel | undefined>(() => {
 });
 const thinkingAvailability = computed(() => modelThinkingAvailability(currentModel.value));
 const thinkingSegments = computed(() => segmentsFor(currentModel.value));
+// The persisted level can be stale relative to the active model (e.g. 'on'
+// from a boolean model, or 'off' while viewing an always-on effort model).
+// Coerce it before computing the active segment so the mobile sheet shows and
+// selects the same model-aware default the composer and prompt submission use.
+const coercedThinkingLevel = computed(() =>
+  coerceThinkingForModel(currentModel.value, props.thinking ?? 'off'),
+);
 // Runtime level clamped to the segments this model actually offers.
 const activeThinkingSegment = computed<string>(() => {
   const segs = thinkingSegments.value;
-  const raw = props.thinking ?? 'off';
-  if (segs.includes(raw)) return raw;
+  const level = coercedThinkingLevel.value;
+  if (segs.includes(level)) return level;
   if (segs.includes('on')) return 'on';
   return segs[0] ?? 'off';
 });
