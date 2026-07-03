@@ -6,7 +6,7 @@ import {
   type IDeferredHandle,
   type TaskState,
   TaskCancelledError,
-} from '#/app/task/interface/task';
+} from '#/app/task/task';
 import { TaskService } from '#/app/task/taskService';
 
 describe('TaskService', () => {

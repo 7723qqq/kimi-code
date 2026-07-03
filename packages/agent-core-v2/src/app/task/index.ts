@@ -3,6 +3,6 @@
  * Importing this barrel registers the `ITaskService` binding.
  */
 
-export * from './interface';
+export * from './task';
 import './taskService';
 export { TaskService } from './taskService';
