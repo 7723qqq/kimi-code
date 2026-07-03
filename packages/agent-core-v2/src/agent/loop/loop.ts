@@ -27,6 +27,12 @@ export interface TurnWillStopContext {
   continuationPrompt?: string;
 }
 
+export interface RunTurnOptions {
+  readonly signal?: AbortSignal;
+  /** Fires on the first model response event for a step, or at step completion. */
+  readonly onStepStarted?: (step: number) => void;
+}
+
 export interface IAgentLoopService {
   readonly _serviceBrand: undefined;
   readonly hooks: Hooks<{
@@ -35,7 +41,7 @@ export interface IAgentLoopService {
     onContextOverflow: TurnContextOverflowContext;
     onWillStop: TurnWillStopContext;
   }>;
-  runTurn(turnId: number, signal?: AbortSignal): Promise<TurnResult>;
+  runTurn(turnId: number, options?: RunTurnOptions): Promise<TurnResult>;
 }
 
 export const IAgentLoopService = createDecorator<IAgentLoopService>('agentLoopService');
