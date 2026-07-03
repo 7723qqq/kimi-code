@@ -144,7 +144,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   private readonly goalDrivenTurns = new Set<number>();
   private readonly countedGoalTurns = new Set<number>();
   private readonly goalOutcomeContinuationTurns = new Set<number>();
-  private readonly promptHookBlockedTurns = new Set<number>();
 
   constructor(
     private readonly options: GoalServiceOptions = {},
@@ -223,13 +222,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       turnService.hooks.onEnded.register('goal-drive-continuation', async (ctx, next) => {
         await next();
         await this.handleTurnEnded(ctx);
-      }),
-    );
-    this._register(
-      this.record.on((event) => {
-        if (event.type === 'hook.result' && event.blocked === true) {
-          this.promptHookBlockedTurns.add(event.turnId);
-        }
       }),
     );
   }
@@ -454,7 +446,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const turnId = turn.id;
     if (this.state?.status === 'active') this.goalDrivenTurns.add(turnId);
     this.goalOutcomeContinuationTurns.delete(turnId);
-    this.promptHookBlockedTurns.delete(turnId);
   }
 
   private async handleBeforeStep(ctx: TurnBeforeStepContext): Promise<void> {
@@ -487,8 +478,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.countedGoalTurns.delete(turnId);
     this.goalOutcomeContinuationTurns.delete(turnId);
 
-    const blockedByPromptHook = this.promptHookBlockedTurns.delete(turnId);
-    if (blockedByPromptHook) {
+    if (ctx.result.reason === 'blocked') {
       await this.markBlocked({ reason: 'Blocked by UserPromptSubmit hook' });
       return;
     }
@@ -499,10 +489,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     }
     if (ctx.result.reason === 'failed') {
       await this.pauseActiveGoal({ reason: goalFailurePauseReason(ctx.result.error) });
-      return;
-    }
-    if (ctx.result.reason === 'filtered') {
-      await this.pauseActiveGoal({ reason: GOAL_PROVIDER_FILTERED_PAUSE_REASON });
       return;
     }
 
@@ -797,6 +783,8 @@ function goalFailurePauseReason(error: unknown): string {
       return pauseReasonWithMessage(GOAL_PROVIDER_CONNECTION_PAUSE_PREFIX, payload.message);
     case ErrorCodes.PROVIDER_AUTH_ERROR:
       return pauseReasonWithMessage(GOAL_PROVIDER_AUTH_PAUSE_PREFIX, payload.message);
+    case ErrorCodes.PROVIDER_FILTERED:
+      return GOAL_PROVIDER_FILTERED_PAUSE_REASON;
     case ErrorCodes.PROVIDER_API_ERROR:
       return pauseReasonWithMessage(GOAL_PROVIDER_API_PAUSE_PREFIX, payload.message);
     case ErrorCodes.MODEL_NOT_CONFIGURED:

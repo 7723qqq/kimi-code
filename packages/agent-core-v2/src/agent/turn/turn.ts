@@ -1,9 +1,10 @@
 import { createDecorator } from "#/_base/di";
+import type { TurnEndReason } from '@moonshot-ai/protocol';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import type { Hooks } from '#/hooks';
 
 export interface TurnResult {
-  readonly reason: 'completed' | 'cancelled' | 'failed' | 'filtered';
+  readonly reason: TurnEndReason;
   readonly error?: unknown;
 }
 

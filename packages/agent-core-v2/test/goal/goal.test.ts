@@ -700,14 +700,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     const turn = makeTurn(5);
     await turnService.hooks.onLaunched.run({ turn });
-    eventSink.emit({
-      type: 'hook.result',
-      turnId: turn.id,
-      hookEvent: 'UserPromptSubmit',
-      content: 'blocked',
-      blocked: true,
-    });
-    await endTurn(turnService, turn);
+    await endTurn(turnService, turn, { reason: 'blocked' });
 
     expect(goals.getGoal().goal).toMatchObject({
       status: 'blocked',

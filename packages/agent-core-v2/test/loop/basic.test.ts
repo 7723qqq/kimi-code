@@ -87,7 +87,8 @@ describe('Agent loop', () => {
       [wire] context.splice          { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "blocked" } ], "toolCalls": [], "providerMessageId": "mock-1" } ], "time": "<time>" }
       [emit] agent.status.updated    { "contextTokens": 0 }
       [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "filtered" }
-      [emit] turn.ended              { "turnId": 0, "reason": "filtered" }
+      [emit] turn.ended              { "turnId": 0, "reason": "failed", "error": { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered", "turnId": 0 }, "retryable": false } }
+      [emit] error                   { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered", "turnId": 0 }, "retryable": false }
     `);
 
     const rpcStepEnd = ctx.allEvents.find(

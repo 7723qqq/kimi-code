@@ -375,13 +375,16 @@ async function completeSummary(
 }
 
 function classifyTurnResult(result: { reason: string; error?: unknown }): void {
-  if (result.reason === 'filtered') {
-    throw new Error('Subagent turn blocked by provider safety policy');
+  if (result.reason === 'blocked') {
+    throw new Error('Subagent turn blocked by prompt hook');
   }
   if (result.reason === 'failed') {
     const error = result.error;
     if (isProviderRateLimitError(error)) throw error;
     const payload = toKimiErrorPayload(error);
+    if (payload.code === ErrorCodes.PROVIDER_FILTERED) {
+      throw new Error('Subagent turn blocked by provider safety policy');
+    }
     if (payload.code === ErrorCodes.PROVIDER_RATE_LIMIT) {
       throw providerRateLimitErrorFromPayload(payload);
     }

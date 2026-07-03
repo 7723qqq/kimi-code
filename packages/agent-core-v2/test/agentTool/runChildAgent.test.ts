@@ -487,7 +487,17 @@ describe('runChildAgent', () => {
 
   it('classifies a filtered turn as a provider safety policy block', async () => {
     const parent = fakeScope(CALLER_AGENT_ID);
-    const child = fakeScope('child', { result: Promise.resolve({ reason: 'filtered' }) });
+    const child = fakeScope('child', {
+      result: Promise.resolve({
+        reason: 'failed',
+        error: {
+          code: 'provider.filtered',
+          message: 'Provider safety policy blocked the response.',
+          name: 'ProviderFilteredError',
+          retryable: false,
+        },
+      }),
+    });
     const agents = makeAgents(parent, { child });
 
     const handle = await spawnChildAgent({

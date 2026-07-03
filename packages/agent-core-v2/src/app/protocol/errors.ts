@@ -11,6 +11,7 @@ import { registerErrorDomain, type ErrorDomain } from '#/_base/errors';
 export const ProtocolErrors = {
   codes: {
     PROVIDER_API_ERROR: 'provider.api_error',
+    PROVIDER_FILTERED: 'provider.filtered',
     PROVIDER_RATE_LIMIT: 'provider.rate_limit',
     PROVIDER_AUTH_ERROR: 'provider.auth_error',
     PROVIDER_CONNECTION_ERROR: 'provider.connection_error',
@@ -22,6 +23,12 @@ export const ProtocolErrors = {
       retryable: true,
       public: true,
       action: 'Retry after the provider rate limit resets.',
+    },
+    'provider.filtered': {
+      title: 'Provider filtered response',
+      retryable: false,
+      public: true,
+      action: 'Revise the prompt or model configuration to avoid provider safety filtering.',
     },
     'provider.auth_error': {
       title: 'Provider authentication failed',

@@ -1,6 +1,6 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { toKimiErrorPayload, type KimiErrorPayload } from "#/errors";
+import { ErrorCodes, KimiError, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
 import { OrderedHookSlot } from '#/hooks';
@@ -208,7 +208,7 @@ export class AgentTurnService implements IAgentTurnService {
         content: hookResult.message,
         blocked: true,
       });
-      return { reason: 'completed' };
+      return { reason: 'blocked' };
     }
 
     if (hookResult?.action === 'append') {
@@ -286,7 +286,17 @@ function toAgentTurnResult(result: LoopTurnResult, signal: AbortSignal): TurnRes
     return { reason: 'cancelled', error: signal.reason };
   }
   if (result.stopReason === 'filtered') {
-    return { reason: 'filtered' };
+    return {
+      reason: 'failed',
+      error: new KimiError(
+        ErrorCodes.PROVIDER_FILTERED,
+        'Provider safety policy blocked the response.',
+        {
+          name: 'ProviderFilteredError',
+          details: { finishReason: 'filtered' },
+        },
+      ),
+    };
   }
   return { reason: 'completed' };
 }
