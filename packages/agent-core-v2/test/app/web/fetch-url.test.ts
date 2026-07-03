@@ -10,8 +10,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
-import { LocalFetchURLProvider } from '#/agent/web/providers/local-fetch-url';
-import { FetchURLTool, type UrlFetcher, type UrlFetchResult } from '#/agent/web/tools/fetch-url';
+import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
+import { FetchURLTool, type UrlFetcher, type UrlFetchResult } from '#/app/web/tools/fetch-url';
 
 function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
@@ -25,7 +25,7 @@ async function execute(
   const resolved = tool.resolveExecution({ url });
   const execution = isPromiseLike(resolved) ? await resolved : resolved;
   if (execution.isError === true) return execution;
-  const ctx: ExecutableToolContext = { turnId: '0', toolCallId: 'call_fetch', signal };
+  const ctx: ExecutableToolContext = { turnId: 0, toolCallId: 'call_fetch', signal };
   return execution.execute(ctx);
 }
 

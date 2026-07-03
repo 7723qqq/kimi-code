@@ -1,9 +1,12 @@
 /**
- * FetchURLTool — host-injected URL fetcher.
+ * `web` domain (L4) — `FetchURL` builtin tool and its `UrlFetcher` contract.
  *
- * agent-core-v2 defines the interface; the host provides the real fetch
- * implementation via `UrlFetcher`. If no fetcher is supplied, the tool
- * falls back to the built-in `LocalFetchURLProvider`.
+ * Defines the `FetchURL` tool and the host-injected `UrlFetcher` interface
+ * (plus `UrlFetchResult` / `HttpFetchError`). The tool reads its fetcher from
+ * the App-scope `IWebFetchService` at registry-construction time and
+ * self-registers via `registerTool(...)` at module load; the default service
+ * falls back to the built-in `LocalFetchURLProvider`, so `FetchURL` is always
+ * available without OAuth.
  */
 
 import { z } from 'zod';
@@ -18,7 +21,9 @@ import type {
 } from '#/agent/tool';
 import { ToolAccesses } from '#/agent/tool';
 import { ToolResultBuilder } from '#/agent/tool/result-builder';
+import { registerTool } from '#/agent/toolRegistry';
 
+import { IWebFetchService } from '../web';
 import DESCRIPTION from './fetch-url.md?raw';
 
 // ── Provider interface (host-injected) ───────────────────────────────
@@ -135,3 +140,7 @@ export class FetchURLTool implements BuiltinTool<FetchURLInput> {
     }
   }
 }
+
+registerTool(FetchURLTool, {
+  staticArgs: (accessor) => [accessor.get(IWebFetchService).getUrlFetcher()],
+});
