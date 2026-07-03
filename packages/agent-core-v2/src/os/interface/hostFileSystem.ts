@@ -2,18 +2,22 @@
  * `hostFs` domain (L1) — local real-filesystem primitives.
  *
  * Defines the `IHostFileSystem` used by the program side (persistence, skill
- * loading, workspace registry) to read and write the app's own files on the
- * real local disk, plus the stat/entry models. App-scoped — one shared
- * instance. The Agent side never injects this directly; its local backend
- * reuses it internally.
+ * loading, workspace registry) and the os file tools to read and write files on
+ * the real local disk, plus the stat/entry models. App-scoped — one shared
+ * instance.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { TextDecodeErrors } from '#/_base/execEnv';
 
 export interface HostFileStat {
   readonly isFile: boolean;
   readonly isDirectory: boolean;
   readonly size: number;
+  /** Last-modified time in epoch milliseconds, when the backend exposes it. */
+  readonly mtimeMs?: number;
+  /** Inode number, when the backend exposes it (`0` on backends without inodes). */
+  readonly ino?: number;
 }
 
 export interface HostDirEntry {
@@ -25,10 +29,30 @@ export interface HostDirEntry {
 export interface IHostFileSystem {
   readonly _serviceBrand: undefined;
 
-  readText(path: string): Promise<string>;
+  readText(
+    path: string,
+    options?: { encoding?: BufferEncoding; errors?: TextDecodeErrors },
+  ): Promise<string>;
   writeText(path: string, data: string): Promise<void>;
-  readBytes(path: string): Promise<Uint8Array>;
+  /**
+   * Read bytes from `path`. When `n` is given, reads at most the first `n`
+   * bytes (a ranged/prefix read); otherwise reads the whole file. The ranged
+   * form is used by callers that only need a header (e.g. file-type sniffing)
+   * so they never load a large file just to inspect its first bytes.
+   */
+  readBytes(path: string, n?: number): Promise<Uint8Array>;
   writeBytes(path: string, data: Uint8Array): Promise<void>;
+  /**
+   * Stream the lines of a UTF-8 (or other `encoding`) text file, yielding each
+   * line including its trailing terminator. `errors` mirrors Python's text
+   * decode error handling (`strict` throws on invalid bytes, used by the Read
+   * tool to surface non-UTF-8 files). Streaming lets callers paginate and
+   * stop early without loading the whole file.
+   */
+  readLines(
+    path: string,
+    options?: { encoding?: BufferEncoding; errors?: TextDecodeErrors },
+  ): AsyncGenerator<string>;
   /**
    * Create a file exclusively with `data`. Returns `true` when the file was
    * created, `false` when it already existed (EEXIST) — the existing content is

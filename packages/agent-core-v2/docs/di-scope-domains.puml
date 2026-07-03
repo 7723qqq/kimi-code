@@ -32,6 +32,7 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>workspaceRegistry</b>\n<size:9><i>App</i></size>\n  IWorkspaceRegistry" as workspaceRegistry #D6EAF8
   rectangle "<b>hostFolderBrowser</b>\n<size:9><i>App</i></size>\n  IHostFolderBrowser" as hostFolderBrowser #D6EAF8
   rectangle "<b>hostEnvironment</b>\n<size:9><i>App</i></size>\n  IHostEnvironment" as hostEnvironment #D6EAF8
+  rectangle "<b>hostProcess</b>\n<size:9><i>App</i></size>\n  IHostProcessService" as hostProcess #D6EAF8
   rectangle "<b>auth</b>\n<size:9><i>App</i></size>\n  IOAuthService\n  IAuthSummaryService\n  IWebSearchProviderService" as auth #D6EAF8
   rectangle "<b>web</b>\n<size:9><i>App</i></size>\n  IWebFetchService" as web #D6EAF8
   rectangle "<b>provider</b>\n<size:9><i>App</i></size>\n  IProviderService" as provider #D6EAF8
@@ -100,7 +101,8 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>todoList</b>\n<size:9><i>Agent</i></size>\n  IAgentTodoListService" as todoList #FDEBD0
   rectangle "<b>usage</b>\n<size:9><i>Agent</i></size>\n  IAgentUsageService" as usage #FDEBD0
   rectangle "<b>rpc</b>\n<size:9><i>Agent</i></size>\n  IAgentRPCService" as rpc #FDEBD0
-  rectangle "<b>fileTools</b>\n<size:9><i>Agent</i></size>\n  IAgentFileToolsService" as fileTools #FDEBD0
+  rectangle "<b>fileTools</b>\n<size:9><i>Agent</i></size>\n  Read/Write/Grep/Glob tools" as fileTools #FDEBD0
+  rectangle "<b>edit</b>\n<size:9><i>Agent</i></size>\n  EditTool\n  FileEditService" as edit #FDEBD0
   rectangle "<b>shellTools</b>\n<size:9><i>Agent</i></size>\n  IAgentShellToolsService" as shellTools #FDEBD0
   rectangle "<b>scopeContext</b>\n<size:9><i>Agent</i></size>\n  IAgentScopeContext (seed)" as scopeContext #FDEBD0
 }
@@ -327,10 +329,15 @@ rpc --> plugin #34495E
 rpc --> fileTools #34495E
 rpc --> shellTools #34495E
 fileTools --> toolRegistry #34495E
-fileTools --> agentFs #34495E
-fileTools --> hostEnvironment
-fileTools --> execContext #34495E
+fileTools --> hostFs #34495E
+fileTools --> hostEnvironment #34495E
+fileTools --> hostProcess #34495E
 fileTools --> workspaceContext #34495E
+fileTools --> telemetry #34495E
+edit --> toolRegistry #34495E
+edit --> hostFs #34495E
+edit --> hostEnvironment #34495E
+edit --> workspaceContext #34495E
 shellTools --> toolRegistry #34495E
 shellTools --> process #34495E
 shellTools --> hostEnvironment

@@ -16,7 +16,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { ISessionAgentFileSystem } from '#/session/agentFs';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IExecContext } from '#/session/execContext';
 import { IAgentProfileService, prepareSystemPromptContext } from '#/agent/profile';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
@@ -31,7 +31,7 @@ export class SessionWarningService implements ISessionWarningService {
 
   constructor(
     @IHostEnvironment private readonly env: IHostEnvironment,
-    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @IHostFileSystem private readonly fs: IHostFileSystem,
     @IExecContext private readonly ctx: IExecContext,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,

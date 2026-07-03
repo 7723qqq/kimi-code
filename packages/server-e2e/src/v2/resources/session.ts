@@ -4,7 +4,7 @@
  * The `session` resource (read/update/setTitle/setArchived/status/isIdle/
  * archive) is flattened onto the {@link SessionScope} handle itself, since it
  * is the primary thing you do with a session; every other resource
- * (`approvals`, `questions`, `interactions`, `workspace`, `agentFs`, `fs`) is
+ * (`approvals`, `questions`, `interactions`, `workspace`, `fs`) is
  * a sub-namespace. `agent(agentId)` enters the agent scope, and
  * `service<T>(resource)` is the escape hatch for actions not in the manifest.
  */
@@ -30,7 +30,6 @@ export type ApprovalsResource = ResourceShape<SessionManifest['approvals']>;
 export type QuestionsResource = ResourceShape<SessionManifest['questions']>;
 export type InteractionsResource = ResourceShape<SessionManifest['interactions']>;
 export type SessionWorkspaceResource = ResourceShape<SessionManifest['workspace']>;
-export type AgentFsResource = ResourceShape<SessionManifest['agentFs']>;
 export type SessionFsResource = ResourceShape<SessionManifest['fs']>;
 
 /** Session scope handle — obtained via `client.session(sessionId)`. */
@@ -39,7 +38,6 @@ export class SessionScope {
   readonly questions: QuestionsResource;
   readonly interactions: InteractionsResource;
   readonly workspace: SessionWorkspaceResource;
-  readonly agentFs: AgentFsResource;
   readonly fs: SessionFsResource;
 
   private readonly sessionResource: SessionResource;
@@ -60,7 +58,6 @@ export class SessionScope {
     this.questions = makeResource(rpc, 'session', params, 'questions', SESSION.questions);
     this.interactions = makeResource(rpc, 'session', params, 'interactions', SESSION.interactions);
     this.workspace = makeResource(rpc, 'session', params, 'workspace', SESSION.workspace);
-    this.agentFs = makeResource(rpc, 'session', params, 'agentFs', SESSION.agentFs);
     this.fs = makeResource(rpc, 'session', params, 'fs', SESSION.fs);
   }
 

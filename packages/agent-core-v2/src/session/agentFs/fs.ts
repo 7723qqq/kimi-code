@@ -2,11 +2,11 @@
  * `agentFs` domain (L2) — wire-shaped filesystem operations.
  *
  * Defines the `ISessionFsService` that backs the fs REST surface: content search,
- * content grep, and git status/diff. It is the higher-level counterpart to
- * `ISessionAgentFileSystem` (the thin IO primitive): it orchestrates the IO primitive
- * plus `ISessionProcessRunner` (for `rg` / `git` / `gh`) and returns protocol-shaped
- * responses. Session-scoped — the scope itself is the session, so no
- * `sessionId` is threaded through.
+ * content grep, and git status/diff. It orchestrates the os `IHostFileSystem`
+ * (file IO, resolved against the workspace root) plus `ISessionProcessRunner`
+ * (for `rg` / `git` / `gh`) and returns protocol-shaped responses.
+ * Session-scoped — the scope itself is the session, so no `sessionId` is
+ * threaded through.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';

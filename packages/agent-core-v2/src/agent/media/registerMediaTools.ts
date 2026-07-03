@@ -18,13 +18,13 @@ import type { Model } from '#/app/model';
 
 import { toDisposable, type IDisposable } from '#/_base/di';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
-import type { ISessionAgentFileSystem } from '#/session/agentFs';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { ReadMediaFileTool, type VideoUploader } from '#/agent/media/tools/read-media';
 
 export interface RegisterMediaToolsDeps {
-  readonly fs: ISessionAgentFileSystem;
+  readonly fs: IHostFileSystem;
   readonly env: IHostEnvironment;
   readonly workspace: WorkspaceConfig;
   readonly capabilities: ModelCapability;

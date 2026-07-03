@@ -2,10 +2,10 @@
  * GlobTool tests for the v2 fileTools domain.
  *
  * Ported from v1 (`packages/agent-core/test/tools/glob.test.ts`) and adapted
- * to the v2 constructor `(fs, env, runner, workspace, telemetry?)`. The Glob
- * search runs `rg --files` through `ISessionProcessRunner.exec` with the
- * search root passed as `options.cwd` (no more `IKaos.withCwd`); tests fake
- * the runner and assert on the second-argument `cwd` value.
+ * to the v2 constructor `(fs, env, processService, workspace, telemetry?)`. The
+ * Glob search runs `rg --files` through `IHostProcessService.spawn` with the
+ * search root passed as `options.cwd`; tests fake the process service and
+ * assert on the spawned args / `cwd` value.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -16,13 +16,11 @@ import { Readable, type Writable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ensureRgPath } from '#/session/agentFs/rgLocator';
+import { ensureRgPath } from '#/os/backends/node-local/tools/rgLocator';
 import { PathSecurityError, type PathClass } from '../../src/_base/tools/policies/path-access';
 import { noopTelemetryService } from '#/app/telemetry';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { stubWorkspaceContext } from './stub-workspace-context';
-import type { ISessionAgentFileSystem } from '#/session/agentFs';
-import { SessionAgentFileSystem } from '#/session/agentFs/agentFsService';
 import {
   type GlobInput,
   GlobInputSchema,
@@ -31,10 +29,11 @@ import {
   splitCompletePaths,
 } from '#/os/backends/node-local/tools/glob';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { probeHostEnvironmentFromNode } from '#/_base/execEnv';
-import { createExecContext } from '#/session/execContext';
-import { SessionProcessRunner } from '#/session/process/processRunnerService';
-import type { IProcess, ISessionProcessRunner } from '#/session/process';
 import type { ITelemetryService } from '#/app/telemetry';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
@@ -42,7 +41,7 @@ import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from 
 // on argument building and output parsing without probing a real `rg`. The
 // real locator is exercised end-to-end by the integration suite below (rg is
 // on PATH in that environment, so the resolved `rg` just runs).
-vi.mock('#/session/agentFs/rgLocator', () => ({
+vi.mock('#/os/backends/node-local/tools/rgLocator', () => ({
   ensureRgPath: vi.fn(async (): Promise<{ path: string; source: string }> => ({
     path: 'rg',
     source: 'system-path',
@@ -61,26 +60,27 @@ const workspace = stubWorkspaceContext('/workspace', ['/extra']);
 /** Fake fs with a spied `readdir` for the directory pre-check. */
 function createTestFs(opts: { readdir?: ReturnType<typeof vi.fn> } = {}) {
   const readdir = opts.readdir ?? vi.fn(async (): Promise<readonly string[]> => []);
-  const fs = { cwd: '/workspace', readdir } as unknown as ISessionAgentFileSystem;
+  const fs = { readdir } as unknown as IHostFileSystem;
   return { fs, readdir };
 }
 
-/** Build a fake `IProcess` that emits `stdout` / `stderr` then exits with `exitCode`. */
-function fakeProcess(stdout: string, stderr = '', exitCode = 0): IProcess {
+/** Build a fake `IHostProcess` that emits `stdout` / `stderr` then exits with `exitCode`. */
+function fakeProcess(stdout: string, stderr = '', exitCode = 0): IHostProcess {
   const stdoutStream = Readable.from([Buffer.from(stdout)]);
   const stderrStream = Readable.from([Buffer.from(stderr)]);
   return {
+    _serviceBrand: undefined,
     stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout: stdoutStream,
     stderr: stderrStream,
     pid: 123,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as IProcess['wait'],
-    kill: vi.fn(async () => {}) as IProcess['kill'],
-    dispose: vi.fn(async () => {
+    wait: vi.fn().mockResolvedValue(exitCode) as IHostProcess['wait'],
+    kill: vi.fn(async () => {}) as IHostProcess['kill'],
+    dispose: vi.fn(() => {
       stdoutStream.destroy();
       stderrStream.destroy();
-    }) as IProcess['dispose'],
+    }) as IHostProcess['dispose'],
   };
 }
 
@@ -102,19 +102,23 @@ function createTestEnv(opts: { home?: string; pathClass?: PathClass } = {}): IHo
   };
 }
 
-function createTestRunner(exec: ReturnType<typeof vi.fn>): ISessionProcessRunner {
-  return { _serviceBrand: undefined, exec } as unknown as ISessionProcessRunner;
+function createTestProcessService(spawn: ReturnType<typeof vi.fn>): IHostProcessService {
+  return { _serviceBrand: undefined, spawn } as unknown as IHostProcessService;
 }
 
 /**
  * `withCwd(dir)` shim — the v1 tests asserted on `kaos.withCwd(dir)`; the v2
- * tool passes the search root via `options.cwd` to `runner.exec`, so translate
- * that into a `withCwd` spy for the assertion sites.
+ * tool passes the search root via `options.cwd` to `processService.spawn`, so
+ * translate that into a `withCwd` spy for the assertion sites.
  */
 function withCwdOf(exec: ReturnType<typeof vi.fn>): { toHaveBeenCalledWith: (dir: string) => void; toHaveBeenCalled: () => void; not: { toHaveBeenCalled: () => void; toHaveBeenCalledWith: (dir: string) => void } } {
   const cwds = () =>
-    (exec.mock.calls as unknown as ReadonlyArray<readonly [readonly string[], { cwd?: string } | undefined]>)
-      .map((call) => call[1]?.cwd)
+    (
+      exec.mock.calls as unknown as ReadonlyArray<
+        readonly [string, readonly string[], { cwd?: string } | undefined]
+      >
+    )
+      .map((call) => call[2]?.cwd)
       .filter((c): c is string => typeof c === 'string');
   return {
     toHaveBeenCalledWith: (dir: string) => expect(cwds()).toContain(dir),
@@ -127,7 +131,8 @@ function withCwdOf(exec: ReturnType<typeof vi.fn>): { toHaveBeenCalledWith: (dir
 }
 
 function execArgs(exec: ReturnType<typeof vi.fn>): string[] {
-  return (exec.mock.calls[0] as ReadonlyArray<unknown>)[0] as string[];
+  // spawn(command, args, options) — the rg argv is the second parameter.
+  return (exec.mock.calls[0] as ReadonlyArray<unknown>)[1] as string[];
 }
 
 function telemetryStub(
@@ -184,19 +189,19 @@ function toolContentString(result: ExecutableToolResult): string {
   return c;
 }
 
-/** Build a `GlobTool` with the given exec spy, using a fake env + runner. */
+/** Build a `GlobTool` with the given spawn spy, using a fake env + process service. */
 function makeTool(
   workspaceConfig: ISessionWorkspaceContext,
   opts: { home?: string; pathClass?: PathClass; exec?: ReturnType<typeof vi.fn>; readdir?: ReturnType<typeof vi.fn>; telemetry?: ITelemetryService } = {},
 ): { tool: GlobTool; exec: ReturnType<typeof vi.fn>; withCwd: ReturnType<typeof withCwdOf> } {
   const exec = opts.exec ?? execReturning('');
   const { fs } = createTestFs({ readdir: opts.readdir });
-  const runner = createTestRunner(exec);
+  const processService = createTestProcessService(exec);
   const env = createTestEnv({ home: opts.home, pathClass: opts.pathClass });
   const tool = new GlobTool(
     fs,
     env,
-    runner,
+    processService,
     workspaceConfig,
     opts.telemetry ?? noopTelemetryService,
   );
@@ -429,7 +434,7 @@ describe('GlobTool', () => {
     expect(result.isError).toBeFalsy();
     expect(result.output).toContain('a.ts');
     expect(exec).toHaveBeenCalledTimes(2);
-    const retryArgs = (exec.mock.calls[1] as ReadonlyArray<unknown>)[0] as string[];
+    const retryArgs = (exec.mock.calls[1] as ReadonlyArray<unknown>)[1] as string[];
     expect(retryArgs).toContain('-j');
     expect(retryArgs).toContain('1');
   });
@@ -466,7 +471,7 @@ describe('GlobTool', () => {
 
     expect(result.isError).toBeFalsy();
     expect(result.output).toContain('a.ts');
-    expect(((exec.mock.calls[0] as ReadonlyArray<unknown>)[0] as string[])[0]).toBe('/mock/cached/rg');
+    expect((exec.mock.calls[0] as ReadonlyArray<unknown>)[0]).toBe('/mock/cached/rg');
     expect(events).toContainEqual({
       event: 'glob_tool_rg_fallback',
       properties: { source: 'share-bin-cached', outcome: 'resolved' },
@@ -782,7 +787,7 @@ describe('splitCompletePaths', () => {
 });
 
 describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
-  // Spawns the actual `rg` binary through a real `SessionProcessRunner` so the
+  // Spawns the actual `rg` binary through a real `HostProcessService` so the
   // ripgrep semantics the tool relies on (sort direction, recursion, brace
   // handling, cwd-relative matching) are exercised end-to-end — not just the
   // argument plumbing. Gated with `skipIf` so environments without `rg` skip
@@ -792,8 +797,8 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
 
   let tmpDir: string | undefined;
   let realEnv: IHostEnvironment;
-  let realRunner: ISessionProcessRunner;
-  let realFs: ISessionAgentFileSystem;
+  let realProcessService: IHostProcessService;
+  let realFs: IHostFileSystem;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glob-rg-'));
@@ -809,9 +814,8 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
       homeDir: info.homeDir,
       ready: Promise.resolve(),
     };
-    const ctx = createExecContext(tmpDir);
-    realRunner = new SessionProcessRunner(ctx);
-    realFs = new SessionAgentFileSystem(ctx);
+    realProcessService = new HostProcessService();
+    realFs = new HostFileSystem();
   });
 
   afterEach(async () => {
@@ -834,7 +838,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
     await touch('old.ts', new Date('2020-01-01T00:00:00Z'));
     await touch('mid.ts', new Date('2022-01-01T00:00:00Z'));
     await touch('new.ts', new Date('2024-01-01T00:00:00Z'));
-    const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
+    const tool = new GlobTool(realFs, realEnv, realProcessService, ws(), noopTelemetryService);
 
     const result = await execute(tool, { pattern: '*.ts', path: tmpDir! });
 
@@ -845,7 +849,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
     await touch('root.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('src/a.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('src/sub/b.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
+    const tool = new GlobTool(realFs, realEnv, realProcessService, ws(), noopTelemetryService);
 
     const result = await execute(tool, { pattern: '*.ts', path: tmpDir! });
 
@@ -858,7 +862,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
     await touch('src/a.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('test/a.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('other/a.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
+    const tool = new GlobTool(realFs, realEnv, realProcessService, ws(), noopTelemetryService);
 
     const result = await execute(tool, { pattern: '{src,test}/*.ts', path: tmpDir! });
 
@@ -871,7 +875,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
     await touch('src/a.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('src/sub/b.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('other/c.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
+    const tool = new GlobTool(realFs, realEnv, realProcessService, ws(), noopTelemetryService);
 
     const result = await execute(tool, { pattern: 'src/**/*.ts', path: tmpDir! });
 
@@ -882,7 +886,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
 
   it('treats an escaped brace as a literal filename', async () => {
     await touch('{a,b}.ts', new Date('2024-01-01T00:00:00Z'));
-    const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
+    const tool = new GlobTool(realFs, realEnv, realProcessService, ws(), noopTelemetryService);
 
     const result = await execute(tool, { pattern: '\\{a,b\\}.ts', path: tmpDir! });
 
@@ -894,7 +898,7 @@ describe.skipIf(!RG_AVAILABLE)('GlobTool integration (real ripgrep)', () => {
     try {
       const extFile = path.join(externalDir, 'pkg.ts');
       await fs.writeFile(extFile, '');
-      const tool = new GlobTool(realFs, realEnv, realRunner, ws(), noopTelemetryService);
+      const tool = new GlobTool(realFs, realEnv, realProcessService, ws(), noopTelemetryService);
 
       const result = await execute(tool, { pattern: '*.ts', path: externalDir });
 

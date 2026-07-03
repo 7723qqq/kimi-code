@@ -1,4 +1,4 @@
-import type { ISessionAgentFileSystem } from '#/session/agentFs';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ISessionProcessRunner } from '#/session/process';
 
 function notImplemented(name: string): never {
@@ -15,23 +15,19 @@ export function createFakeProcessRunner(
   };
 }
 
-export function createFakeAgentFs(
-  overrides: Partial<ISessionAgentFileSystem> = {},
-): ISessionAgentFileSystem {
-  const cwd = overrides.cwd ?? '/workspace';
-  const fs: ISessionAgentFileSystem = {
+export function createFakeHostFs(overrides: Partial<IHostFileSystem> = {}): IHostFileSystem {
+  const fs: IHostFileSystem = {
     _serviceBrand: undefined,
-    cwd,
-    readText: () => notImplemented('FakeAgentFs.readText'),
-    writeText: () => notImplemented('FakeAgentFs.writeText'),
-    readBytes: () => notImplemented('FakeAgentFs.readBytes'),
-    readLines: () => notImplemented('FakeAgentFs.readLines'),
-    writeBytes: () => notImplemented('FakeAgentFs.writeBytes'),
-    stat: () => notImplemented('FakeAgentFs.stat'),
-    readdir: () => notImplemented('FakeAgentFs.readdir'),
-    glob: () => notImplemented('FakeAgentFs.glob'),
-    mkdir: () => notImplemented('FakeAgentFs.mkdir'),
-    withCwd: (nextCwd) => createFakeAgentFs({ ...overrides, cwd: nextCwd }),
+    readText: () => notImplemented('FakeHostFs.readText'),
+    writeText: () => notImplemented('FakeHostFs.writeText'),
+    readBytes: () => notImplemented('FakeHostFs.readBytes'),
+    writeBytes: () => notImplemented('FakeHostFs.writeBytes'),
+    readLines: () => notImplemented('FakeHostFs.readLines'),
+    createExclusive: () => notImplemented('FakeHostFs.createExclusive'),
+    stat: () => notImplemented('FakeHostFs.stat'),
+    readdir: () => notImplemented('FakeHostFs.readdir'),
+    mkdir: () => notImplemented('FakeHostFs.mkdir'),
+    remove: () => notImplemented('FakeHostFs.remove'),
   };
   return { ...fs, ...overrides };
 }

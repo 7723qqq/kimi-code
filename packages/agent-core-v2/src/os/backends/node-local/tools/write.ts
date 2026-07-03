@@ -6,12 +6,13 @@
  * (mirroring `mkdir(parents=True, exist_ok=True)`). Path access policy is
  * resolved before any filesystem I/O.
  *
- * v2's `ISessionAgentFileSystem.writeText` has no mode flag: overwrite maps to a
- * direct write, while append reads the existing content first (treating a
- * missing file as empty) and writes the concatenation back.
+ * `IHostFileSystem.writeText` has no mode flag: overwrite maps to a direct
+ * write, while append reads the existing content first (treating a missing
+ * file as empty) and writes the concatenation back.
  *
- * Write access flows through the `agentFs` domain; path semantics (home
- * expansion, path class) come from the `hostEnvironment` domain.
+ * Write access flows through the os `hostFs` domain (`IHostFileSystem`); path
+ * semantics (home expansion, path class) come from the `hostEnvironment`
+ * domain.
  *
  * Ported from v1 (`packages/agent-core/src/tools/builtin/file/write.ts`).
  */
@@ -19,9 +20,8 @@
 import { dirname } from 'pathe';
 import { z } from 'zod';
 
-import { ISessionAgentFileSystem } from '#/session/agentFs';
-import type { AgentFileStat } from '#/session/agentFs';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
@@ -65,7 +65,7 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WriteInputSchema);
 
   constructor(
-    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @IHostFileSystem private readonly fs: IHostFileSystem,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
   ) {}
@@ -158,13 +158,13 @@ export class WriteTool implements BuiltinTool<WriteInput> {
    */
   private async ensureParentDirectory(safePath: string): Promise<string | undefined> {
     const parent = dirname(safePath);
-    let stat: AgentFileStat;
+    let stat: HostFileStat;
     try {
       stat = await this.fs.stat(parent);
     } catch (error) {
       if ((error as { code?: unknown } | null)?.code === 'ENOENT') {
         try {
-          await this.fs.mkdir(parent);
+          await this.fs.mkdir(parent, { recursive: true });
           return undefined;
         } catch (mkdirError) {
           return mkdirError instanceof Error ? mkdirError.message : String(mkdirError);

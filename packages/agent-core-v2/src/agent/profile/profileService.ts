@@ -28,7 +28,7 @@ import { IConfigService } from '#/app/config';
 import { resolveThinkingEffort } from './thinking';
 import type { LoopControl } from '#/agent/loop/configSection';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { ISessionAgentFileSystem } from '#/session/agentFs';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IExecContext } from '#/session/execContext';
 import { isMcpToolName } from '#/agent/tool';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
@@ -81,7 +81,7 @@ export class AgentProfileService implements IAgentProfileService {
     @IConfigService private readonly config: IConfigService,
     @IModelResolver private readonly modelFactory: IModelResolver,
     @IHostEnvironment private readonly env: IHostEnvironment,
-    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @IHostFileSystem private readonly fs: IHostFileSystem,
     @IExecContext private readonly execCtx: IExecContext,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,

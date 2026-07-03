@@ -2,19 +2,20 @@
  * EditTool tests for the v2 fileTools domain.
  *
  * Ported from v1 (`packages/agent-core/test/tools/edit.test.ts`) and adapted
- * to the v2 constructor `(fs, kaos, workspace)`. Self-contained: builds minimal
- * fake `ISessionAgentFileSystem` (spied readText/writeText) and `IKaos` inline so the
- * tool can be exercised without the composition root, mirroring
- * `test/fileTools/read.test.ts`.
+ * to the v2 constructor `(fs, env, workspace)`. Self-contained: builds a
+ * minimal fake `IHostFileSystem` (spied readText/writeText) inline so the tool
+ * can be exercised without the composition root, mirroring
+ * `test/fileTools/read.test.ts`. The pure `TextModel` / `EditService` logic is
+ * exercised through the tool and its `FileEditService` adapter.
  */
 
 import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
 import { stubWorkspaceContext } from './stub-workspace-context';
-import type { ISessionAgentFileSystem } from '#/session/agentFs';
-import { type EditInput, EditInputSchema, EditTool } from '#/os/backends/node-local/tools/edit';
+import { type EditInput, EditInputSchema, EditTool } from '#/agent/edit';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;
@@ -48,7 +49,7 @@ function createSpiedEditFs(
   const readText = options.readText ?? vi.fn(async () => '');
   const writeText = options.writeText ?? vi.fn(async () => undefined);
   const stat = vi.fn(async () => ({ isFile: true, isDirectory: false, size: 0 }));
-  const fs = { cwd: '/', readText, writeText, stat } as unknown as ISessionAgentFileSystem;
+  const fs = { readText, writeText, stat } as unknown as IHostFileSystem;
   return { fs, readText, writeText };
 }
 

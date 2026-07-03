@@ -1,35 +1,36 @@
 /**
  * `fileTools` domain — GrepTool, the model's content search tool.
  *
- * Searches file contents with ripgrep-style regular expressions, delegating
- * the actual scan to the `agentFs` domain's `ISessionFsService.grep` (which is
- * workspace-confined, `rg`-backed when available, and falls back to a Node
- * walker otherwise, honoring gitignore and glob filters). The tool maps the
- * model-facing input args onto an `FsGrepRequest`, then renders the
- * `FsGrepResponse` in the v1 Grep output shape (`files_with_matches` /
- * `content` / `count_matches`) with `offset` / `head_limit` pagination and a
- * sensitive-file post-filter.
+ * Searches file contents with ripgrep-style regular expressions. The actual
+ * scan runs through the os domains: `executeGrepSearch` (`./grepSearch`)
+ * spawns `rg --json` via the host `IHostProcessService` and parses its output,
+ * falling back to a gitignore-aware pure-node walker (through
+ * `IHostFileSystem`) when `rg` is unavailable. The tool maps the model-facing
+ * input args onto an `FsGrepRequest`, then renders the `FsGrepResponse` in the
+ * v1 Grep output shape (`files_with_matches` / `content` / `count_matches`)
+ * with `offset` / `head_limit` pagination and a sensitive-file post-filter.
  *
  * Path safety goes through the shared path access resolver used by
  * Read/Write/Edit/Grep: an explicit absolute path outside the workspace is
  * allowed for the access declaration, while a relative path that escapes the
- * workspace is rejected. The search itself is confined to the workspace by
- * `ISessionFsService`.
+ * workspace is rejected. The search itself is confined to the workspace
+ * directory (`cwd` pinned to the workspace root), mirroring the previous
+ * `ISessionFsService.grep` behavior — the `path` argument scopes only the
+ * access declaration, not the search root.
  *
- * Ported from v1 (`packages/agent-core/src/tools/builtin/file/grep.ts`). The
- * v1 tool shelled out to `rg` directly through Kaos and parsed its output;
- * that work now lives in `ISessionFsService.grep`, so this tool only maps arguments
- * and renders results. A few v1 behaviors that `ISessionFsService.grep` does not
- * expose (mtime ordering of `files_with_matches`, multiline matching, and
- * searching a path outside the workspace) are intentionally not replicated.
+ * Ported from v1 (`packages/agent-core/src/tools/builtin/file/grep.ts`). A few
+ * v1 behaviors that ripgrep does not expose here (mtime ordering of
+ * `files_with_matches`, multiline matching, and searching a path outside the
+ * workspace) are intentionally not replicated.
  */
 
 import type { FsGrepMatch, FsGrepRequest, FsGrepResponse } from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
-import { ISessionFsService } from '#/session/agentFs';
 import { ErrorCodes, isKimiError } from '#/errors';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
@@ -40,6 +41,7 @@ import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 import { renderPrompt } from '#/_base/utils/render-prompt';
+import { executeGrepSearch } from '#/os/backends/node-local/tools/grepSearch';
 import grepDescriptionTemplate from './grep.md?raw';
 
 // ── Input schema ─────────────────────────────────────────────────────
@@ -149,7 +151,8 @@ export class GrepTool implements BuiltinTool<GrepInput> {
   readonly description = GREP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GrepInputSchema);
   constructor(
-    @ISessionFsService private readonly fs: ISessionFsService,
+    @IHostProcessService private readonly processService: IHostProcessService,
+    @IHostFileSystem private readonly fs: IHostFileSystem,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
   ) {}
@@ -190,7 +193,11 @@ export class GrepTool implements BuiltinTool<GrepInput> {
 
     let response: FsGrepResponse;
     try {
-      response = await this.fs.grep(buildGrepRequest(args));
+      response = await executeGrepSearch(buildGrepRequest(args), {
+        processService: this.processService,
+        fs: this.fs,
+        cwd: this.workspaceConfig.workspaceDir,
+      });
     } catch (error) {
       return mapGrepError(error);
     }

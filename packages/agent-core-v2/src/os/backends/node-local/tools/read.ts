@@ -13,19 +13,19 @@
  * bounded by the per-call line/byte caps.
  *
  * Path safety goes through the shared path access resolver used by
- * Read/Write/Edit. Read access flows through the `agentFs` domain; path
- * semantics (home expansion, path class) come from the `hostEnvironment`
- * domain.
+ * Read/Write/Edit. Read access flows through the os `hostFs` domain
+ * (`IHostFileSystem`); path semantics (home expansion, path class) come from
+ * the `hostEnvironment` domain.
  *
  * Ported from v1 (`packages/agent-core/src/tools/builtin/file/read.ts`). The
  * optional `scanTextFile` / `readLineRange` / `readTailLines` fast-paths are
- * intentionally dropped: `ISessionAgentFileSystem` streams through `readLines` only.
+ * intentionally dropped: `IHostFileSystem` streams through `readLines` only.
  */
 
 import { z } from 'zod';
 
-import { ISessionAgentFileSystem } from '#/session/agentFs';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
@@ -35,8 +35,8 @@ import { MEDIA_SNIFF_BYTES, detectFileType } from '#/_base/tools/support/file-ty
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/_base/tools/support/rule-match';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
+import { makeCarriageReturnsVisible, type LineEndingStyle } from '#/_base/text/line-endings';
 import { renderPrompt } from '#/_base/utils/render-prompt';
-import { makeCarriageReturnsVisible, type LineEndingStyle } from './line-endings';
 import readDescriptionTemplate from './read.md?raw';
 
 export const MAX_LINES: number = 1000;
@@ -226,7 +226,7 @@ export class ReadTool implements BuiltinTool<ReadInput> {
   readonly description = READ_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ReadInputSchema);
   constructor(
-    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @IHostFileSystem private readonly fs: IHostFileSystem,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
   ) {}
@@ -261,7 +261,7 @@ export class ReadTool implements BuiltinTool<ReadInput> {
 
   private async execution(args: ReadInput, safePath: string): Promise<ExecutableToolResult> {
     try {
-      let stat: Awaited<ReturnType<ISessionAgentFileSystem['stat']>>;
+      let stat: Awaited<ReturnType<IHostFileSystem['stat']>>;
       try {
         stat = await this.fs.stat(safePath);
       } catch (error) {

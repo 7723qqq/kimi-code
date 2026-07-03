@@ -5,7 +5,7 @@
  * then project-level files from the project root down to the cwd) and assembles
  * the {@link SystemPromptContext} bag consumed by `IAgentProfileService.useProfile`.
  *
- * Runs on top of `ISessionAgentFileSystem` (for `readText` / `stat` / `readdir`)
+ * Runs on top of the os `IHostFileSystem` (for `readText` / `stat` / `readdir`)
  * plus the host's `homeDir` — supplied together as a small `ProfileContextDeps`
  * bag threaded through the helpers.
  *
@@ -18,7 +18,7 @@
 
 import { dirname, join, normalize } from 'pathe';
 
-import type { ISessionAgentFileSystem } from '#/session/agentFs';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 
 import type { SystemPromptContext } from './profile';
 
@@ -38,7 +38,7 @@ export const LIST_DIR_CHILD_WIDTH = 10;
  * the filesystem primitive plus the host home directory, not on `IKaos`.
  */
 interface ProfileContextDeps {
-  readonly fs: ISessionAgentFileSystem;
+  readonly fs: IHostFileSystem;
   readonly homeDir: string;
 }
 
@@ -253,7 +253,7 @@ function dedupeDirs(dirs: readonly string[]): string[] {
 // ---------------------------------------------------------------------------
 // listDirectory — compact 2-level directory tree for LLM context.
 // Port of v1 `packages/agent-core/src/tools/support/list-directory.ts`, driven
-// through the v2 `ISessionAgentFileSystem` (`readdir` + `stat`).
+// through the os `IHostFileSystem` (`readdir` + `stat`).
 // ---------------------------------------------------------------------------
 
 interface ListDirectoryOptions {
@@ -272,16 +272,9 @@ async function collectEntries(
 ): Promise<{ entries: Entry[]; total: number; readable: boolean }> {
   const all: Entry[] = [];
   try {
-    const names = await deps.fs.readdir(dirPath);
-    for (const name of names) {
-      let isDir = false;
-      try {
-        const st = await deps.fs.stat(join(dirPath, name));
-        isDir = st.isDirectory;
-      } catch {
-        // Unreadable entries keep isDir=false; still list the name.
-      }
-      all.push({ name, isDir });
+    const dirents = await deps.fs.readdir(dirPath);
+    for (const d of dirents) {
+      all.push({ name: d.name, isDir: d.isDirectory });
     }
   } catch {
     return { entries: [], total: 0, readable: false };

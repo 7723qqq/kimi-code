@@ -14,7 +14,7 @@ import {
 import { generateHeroSlug } from "#/_base/utils/hero-slug";
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
-import { ISessionAgentFileSystem } from '#/session/agentFs';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
 import { IAgentRecordService } from '#/agent/record';
@@ -56,7 +56,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentRecordService private readonly record: IAgentRecordService,
-    @ISessionAgentFileSystem private readonly agentFs: ISessionAgentFileSystem,
+    @IHostFileSystem private readonly agentFs: IHostFileSystem,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -344,7 +344,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
   }
 
   private async ensurePlanDirectory(path: string): Promise<void> {
-    await this.agentFs.mkdir(dirname(path));
+    await this.agentFs.mkdir(dirname(path), { recursive: true });
   }
 
   private currentCwd(): string {

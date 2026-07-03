@@ -2,8 +2,8 @@
  * `agentFs` domain (L2) — `ISessionFsService` implementation.
  *
  * Backs the fs REST surface (search / grep / git status / git diff) by
- * orchestrating `ISessionAgentFileSystem` (file IO), `ISessionProcessRunner` (`rg`),
- * and `IGitService` (git status / diff). Bound at Session scope — the workspace
+ * orchestrating the os `IHostFileSystem` (file IO, resolved against the
+ * workspace root), `ISessionProcessRunner` (`rg`), and `IGitService` (git
  * root and execution environment come from the scope, so no `sessionId` is
  * threaded through. Git operations are delegated to the App-scoped
  * `IGitService`; this service only confines paths and computes repo-relative
@@ -13,7 +13,7 @@
  * follow symlinks, matching the rest of v2 (`_base/tools/policies/path-access.ts`).
  */
 
-import { basename, extname, isAbsolute, relative, sep } from 'node:path';
+import { basename, extname, isAbsolute, join, relative, sep } from 'node:path';
 
 import {
   ErrorCode,
@@ -49,10 +49,10 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IGitService } from '#/app/git';
 import { ITelemetryService } from '#/app/telemetry';
+import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
 import { ISessionProcessRunner } from '#/session/process';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 
-import { type AgentFileStat, ISessionAgentFileSystem } from './fileSystem';
 import { type FsDownloadResolved, type FsPathResolved, ISessionFsService } from './fs';
 import { runCommand } from './fsProcess';
 import { ensureRgPath, type RgProbe, type RgResolution } from './rgLocator';
@@ -94,19 +94,24 @@ export class SessionFsService implements ISessionFsService {
 
   constructor(
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
-    @ISessionAgentFileSystem private readonly fs: ISessionAgentFileSystem,
+    @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @ISessionProcessRunner private readonly runner: ISessionProcessRunner,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IGitService private readonly git: IGitService,
   ) {}
 
+  /** Resolve a workspace-relative path (or `.`) back to an absolute path for `IHostFileSystem`. */
+  private absOf(rel: string): string {
+    return rel === '' || rel === '.' ? this.workspace.workDir : join(this.workspace.workDir, rel);
+  }
+
   async list(req: FsListRequest): Promise<FsListResponse> {
     const abs = this.resolveWithin(req.path);
     const rel = this.toRel(abs);
 
-    let topStat: AgentFileStat;
+    let topStat: HostFileStat;
     try {
-      topStat = await this.fs.stat(rel);
+      topStat = await this.hostFs.stat(abs);
     } catch (err) {
       throw mapFsError(err, req.path);
     }
@@ -133,14 +138,14 @@ export class SessionFsService implements ISessionFsService {
     interface Child {
       readonly name: string;
       readonly relPath: string;
-      readonly stat: AgentFileStat;
+      readonly stat: HostFileStat;
     }
 
     while (queue.length > 0) {
       const entry = queue.shift()!;
       let names: readonly string[];
       try {
-        names = await this.fs.readdir(entry.relPath === '' ? '.' : entry.relPath);
+        names = (await this.hostFs.readdir(this.absOf(entry.relPath))).map((e) => e.name);
       } catch (err) {
         if (entry.relPath === (rel === '.' ? '' : rel)) {
           throw mapFsError(err, req.path);
@@ -156,7 +161,7 @@ export class SessionFsService implements ISessionFsService {
           continue;
         }
         if (req.exclude_globs && matchesAnyGlob(childRel, req.exclude_globs)) continue;
-        const st = await this.fs.stat(childRel).catch(() => undefined);
+        const st = await this.hostFs.stat(this.absOf(childRel)).catch(() => undefined);
         if (st === undefined) continue;
         visible.push({ name, relPath: childRel, stat: st });
       }
@@ -196,9 +201,9 @@ export class SessionFsService implements ISessionFsService {
     const abs = this.resolveWithin(req.path);
     const rel = this.toRel(abs);
 
-    let st: AgentFileStat;
+    let st: HostFileStat;
     try {
-      st = await this.fs.stat(rel);
+      st = await this.hostFs.stat(abs);
     } catch (err) {
       throw mapFsError(err, req.path);
     }
@@ -217,7 +222,7 @@ export class SessionFsService implements ISessionFsService {
 
     const sampleSize = Math.min(FS_BINARY_SAMPLE_BYTES, st.size);
     const sample =
-      sampleSize === 0 ? new Uint8Array() : await this.fs.readBytes(rel, sampleSize);
+      sampleSize === 0 ? new Uint8Array() : await this.hostFs.readBytes(abs, sampleSize);
     const isBinary = detectBinary(sample);
 
     if (isBinary && req.encoding === 'utf-8') {
@@ -231,7 +236,7 @@ export class SessionFsService implements ISessionFsService {
     if (effectiveLength <= 0) {
       bytes = new Uint8Array();
     } else {
-      const window = await this.fs.readBytes(rel, req.offset + effectiveLength);
+      const window = await this.hostFs.readBytes(abs, req.offset + effectiveLength);
       bytes = window.subarray(req.offset, req.offset + effectiveLength);
     }
 
@@ -295,9 +300,9 @@ export class SessionFsService implements ISessionFsService {
   async stat(req: FsStatRequest): Promise<FsStatResponse> {
     const abs = this.resolveWithin(req.path);
     const rel = this.toRel(abs);
-    let st: AgentFileStat;
+    let st: HostFileStat;
     try {
-      st = await this.fs.stat(rel);
+      st = await this.hostFs.stat(abs);
     } catch (err) {
       throw mapFsError(err, req.path);
     }
@@ -315,7 +320,7 @@ export class SessionFsService implements ISessionFsService {
     await Promise.all(
       resolved.map(async ({ raw, rel, abs }) => {
         try {
-          const st = await this.fs.stat(rel);
+          const st = await this.hostFs.stat(abs);
           const name = rel === '.' ? basename(this.workspace.workDir) : basename(abs);
           entries[raw] = buildFsEntry(rel, name, st, false);
         } catch {
@@ -330,7 +335,7 @@ export class SessionFsService implements ISessionFsService {
     const abs = this.resolveWithin(req.path);
     const rel = this.toRel(abs);
     try {
-      await this.fs.mkdir(rel, { parents: req.recursive, existOk: req.recursive });
+      await this.hostFs.mkdir(abs, { recursive: req.recursive });
     } catch (err) {
       const code = errnoCode(err);
       if (code === 'EEXIST') {
@@ -345,16 +350,16 @@ export class SessionFsService implements ISessionFsService {
       }
       throw err;
     }
-    const st = await this.fs.stat(rel);
+    const st = await this.hostFs.stat(abs);
     return buildFsEntry(rel, basename(abs), st, false);
   }
 
   async resolvePath(relPath: string): Promise<FsPathResolved> {
     const abs = this.resolveWithin(relPath);
     const rel = this.toRel(abs);
-    let st: AgentFileStat;
+    let st: HostFileStat;
     try {
-      st = await this.fs.stat(rel);
+      st = await this.hostFs.stat(abs);
     } catch (err) {
       throw mapFsError(err, relPath);
     }
@@ -364,9 +369,9 @@ export class SessionFsService implements ISessionFsService {
   async resolveDownload(relPath: string): Promise<FsDownloadResolved> {
     const abs = this.resolveWithin(relPath);
     const rel = this.toRel(abs);
-    let st: AgentFileStat;
+    let st: HostFileStat;
     try {
-      st = await this.fs.stat(rel);
+      st = await this.hostFs.stat(abs);
     } catch (err) {
       throw mapFsError(err, relPath);
     }
@@ -377,7 +382,7 @@ export class SessionFsService implements ISessionFsService {
     }
     const sampleSize = Math.min(FS_BINARY_SAMPLE_BYTES, st.size);
     const sample =
-      sampleSize === 0 ? new Uint8Array() : await this.fs.readBytes(rel, sampleSize);
+      sampleSize === 0 ? new Uint8Array() : await this.hostFs.readBytes(abs, sampleSize);
     const isBinary = detectBinary(sample);
     return {
       absolute: abs,
@@ -530,7 +535,7 @@ export class SessionFsService implements ISessionFsService {
       filesScanned += 1;
       let content: string;
       try {
-        content = await this.fs.readText(rel);
+        content = await this.hostFs.readText(this.absOf(rel));
       } catch {
         continue;
       }
@@ -579,14 +584,14 @@ export class SessionFsService implements ISessionFsService {
     if (depth > WALK_MAX_DEPTH) return;
     let names: readonly string[];
     try {
-      names = await this.fs.readdir(rootRel === '' ? '.' : rootRel);
+      names = (await this.hostFs.readdir(this.absOf(rootRel))).map((e) => e.name);
     } catch {
       return;
     }
     for (const name of names) {
       if (name === '.git') continue;
       const childRel = rootRel === '' ? name : `${rootRel}/${name}`;
-      const st = await this.fs.stat(childRel).catch(() => undefined);
+      const st = await this.hostFs.stat(this.absOf(childRel)).catch(() => undefined);
       if (st === undefined) continue;
       const isDir = st.isDirectory;
       if (matcher) {
@@ -608,7 +613,7 @@ export class SessionFsService implements ISessionFsService {
     const ig = ignore();
     ig.add('.git/');
     try {
-      const contents = await this.fs.readText('.gitignore');
+      const contents = await this.hostFs.readText(join(this.workspace.workDir, '.gitignore'));
       ig.add(contents);
     } catch {
       // No .gitignore — keep the `.git/` default only.
@@ -778,11 +783,11 @@ function isHidden(name: string): boolean {
 }
 
 function sortChildren(
-  children: { name: string; stat: AgentFileStat }[],
+  children: { name: string; stat: HostFileStat }[],
   sort: FsListRequest['sort'],
 ): void {
   const cmp = {
-    type_first: (a: { name: string; stat: AgentFileStat }, b: { name: string; stat: AgentFileStat }) => {
+    type_first: (a: { name: string; stat: HostFileStat }, b: { name: string; stat: HostFileStat }) => {
       const ad = a.stat.isDirectory ? 0 : 1;
       const bd = b.stat.isDirectory ? 0 : 1;
       if (ad !== bd) return ad - bd;
@@ -797,7 +802,7 @@ function sortChildren(
   children.sort(cmp);
 }
 
-function buildEtag(st: AgentFileStat): string {
+function buildEtag(st: HostFileStat): string {
   const mtime = Math.floor(st.mtimeMs ?? 0);
   const ino = st.ino ?? 0;
   return [mtime.toString(36), st.size.toString(36), ino.toString(36)].join('-');
@@ -806,7 +811,7 @@ function buildEtag(st: AgentFileStat): string {
 function buildFsEntry(
   relPath: string,
   name: string,
-  st: AgentFileStat,
+  st: HostFileStat,
   withMime: boolean,
 ): FsEntry {
   const kind: FsEntry['kind'] = st.isDirectory ? 'directory' : 'file';

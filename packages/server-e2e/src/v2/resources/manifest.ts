@@ -70,7 +70,6 @@ export const SESSION = {
     addAdditionalDir: RW,
     removeAdditionalDir: RW,
   },
-  agentFs: { readText: RO, writeText: RW, stat: RO, readdir: RO, mkdir: RW },
   fs: { search: RO, grep: RO, gitStatus: RO, diff: RO },
 } as const satisfies Manifest;
 
