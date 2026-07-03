@@ -12,6 +12,8 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
+import { IHostProcessService } from '#/os/interface/hostProcess';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { createExecContext, IExecContext } from '#/session/execContext';
 import { ISessionProcessRunner, SessionProcessRunner } from '#/session/process';
 
@@ -28,6 +30,13 @@ describe('SessionProcessRunner (backed by IExecContext)', () => {
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
+    registerScopedService(
+      LifecycleScope.App,
+      IHostProcessService,
+      HostProcessService,
+      InstantiationType.Delayed,
+      'hostProcess',
+    );
     registerScopedService(
       LifecycleScope.Session,
       ISessionProcessRunner,

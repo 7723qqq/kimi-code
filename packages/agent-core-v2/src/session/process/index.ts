@@ -1,6 +1,7 @@
 /**
- * `process` domain barrel — compatibility re-export.
+ * `process` domain barrel — re-exports the session process runner contract
+ * and its scoped implementation.
  */
 
-export * from '#/os/interface/process';
-export * from '#/os/backends/node-local/processRunnerService';
+export * from './processRunner';
+export * from './processRunnerService';
