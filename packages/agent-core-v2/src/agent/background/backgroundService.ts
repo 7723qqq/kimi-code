@@ -19,6 +19,7 @@ import { Disposable } from '#/_base/di';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
 import type { BackgroundTaskOrigin } from '#/agent/contextMemory';
 import { renderNotificationXml } from '#/agent/contextMemory/notification-xml';
+import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task';
 import {
   TERMINAL_STATUSES,
   type BackgroundTaskInfoBase,
@@ -40,7 +41,9 @@ import {
   type BackgroundTaskInfo,
   type BackgroundTaskOutputSnapshot,
   type BackgroundTaskStatus,
+  type BackgroundTrackOptions,
   type ForegroundTaskReleaseReason,
+  type IBackgroundEntry,
   type RegisterBackgroundTaskOptions,
 } from './background';
 import { BACKGROUND_SECTION, type BackgroundConfig } from './configSection';
@@ -86,12 +89,16 @@ interface BackgroundTaskNotificationContext {
 
 interface ManagedTask {
   readonly taskId: string;
-  readonly task: BackgroundTask;
+  readonly task: BackgroundTask | undefined;
+  readonly handle: ITaskHandle | undefined;
+  readonly toInfoFn?: (base: BackgroundTaskInfoBase) => BackgroundTaskInfo;
+  readonly forceStopFn?: () => Promise<void>;
+  readonly onDetachFn?: () => void;
   readonly outputChunks: string[];
   outputSizeBytes: number;
   retainedOutputBytes: number;
   status: BackgroundTaskStatus;
-  options: RegisterBackgroundTaskOptions;
+  options: RegisterBackgroundTaskOptions & { description?: string };
   readonly startedAt: number;
   endedAt: number | null;
   foregroundRelease?: ForegroundRelease;
@@ -107,7 +114,9 @@ interface ManagedTask {
   pendingOutputBytes: number;
   outputPersistStarted: boolean;
   timeoutHandle?: ReturnType<typeof setTimeout>;
+  timedOut: boolean;
   readonly waiters: Array<() => void>;
+  handleSubscription?: { dispose(): void };
 }
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
@@ -139,6 +148,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     @IAtomicDocumentStore atomicDocs: IAtomicDocumentStore,
     @IFileSystemStorageService byteStore: IFileSystemStorageService,
     @ISessionContext session: ISessionContext,
+    @ITaskService private readonly taskService: ITaskService,
   ) {
     super();
     this.persistence = new BackgroundTaskPersistence(
@@ -196,6 +206,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     const entry: ManagedTask = {
       taskId: generateTaskId(task.idPrefix),
       task,
+      handle: undefined,
       outputChunks: [],
       outputSizeBytes: 0,
       retainedOutputBytes: 0,
@@ -213,6 +224,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
       outputPersistStarted: detached,
       waiters: [],
       terminalFired: false,
+      timedOut: false,
     };
     this.tasks.set(entry.taskId, entry);
     this.ghosts.delete(entry.taskId);
@@ -249,6 +261,85 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
       this.recordTaskStarted(this.toInfo(entry));
     }
     return entry.taskId;
+  }
+
+  track(handle: ITaskHandle, options: BackgroundTrackOptions): IBackgroundEntry {
+    const detached = options.detached ?? true;
+    this.assertCanRegister(detached);
+
+    const taskId = generateTaskId(options.idPrefix ?? 'task');
+    const timeoutMs = options.timeoutMs;
+
+    const entry: ManagedTask = {
+      taskId,
+      task: undefined,
+      handle,
+      toInfoFn: options.toInfo,
+      forceStopFn: options.forceStop,
+      onDetachFn: options.onDetach,
+      outputChunks: [],
+      outputSizeBytes: 0,
+      retainedOutputBytes: 0,
+      status: 'running',
+      options: { detached, timeoutMs, detachTimeoutMs: options.detachTimeoutMs, signal: detached ? undefined : options.signal, description: options.description },
+      startedAt: Date.now(),
+      endedAt: null,
+      foregroundRelease: detached ? undefined : createForegroundRelease(),
+      abortController: new AbortController(),
+      lifecyclePromise: Promise.resolve(),
+      persistWriteQueue: Promise.resolve(),
+      outputWriteQueue: Promise.resolve(),
+      pendingOutput: [],
+      pendingOutputBytes: 0,
+      outputPersistStarted: detached,
+      waiters: [],
+      terminalFired: false,
+      timedOut: false,
+    };
+    this.tasks.set(taskId, entry);
+    this.ghosts.delete(taskId);
+
+    if (timeoutMs !== undefined && timeoutMs > 0) {
+      entry.timeoutHandle = setTimeout(() => {
+        entry.timedOut = true;
+        handle.cancel();
+      }, timeoutMs);
+      entry.timeoutHandle.unref?.();
+    }
+
+    const outputSub = handle.onDidOutput((chunk) => {
+      this.appendOutput(entry, chunk);
+    });
+
+    const stateSub = handle.onDidChangeState((state) => {
+      if (!TERMINAL_TASK_STATES.has(state)) return;
+      const status = entry.timedOut ? 'timed_out' as const
+        : state === 'cancelled' ? 'killed' as const
+        : state === 'failed' ? 'failed' as const
+        : 'completed' as const;
+      void this.settleTask(entry, { status, stopReason: entry.stopReason });
+    });
+
+    entry.handleSubscription = {
+      dispose() {
+        outputSub.dispose();
+        stateSub.dispose();
+      },
+    };
+
+    entry.lifecyclePromise = handle.result.then(() => {}, () => {});
+
+    this.installForegroundSignal(entry);
+
+    if (this.isDetached(entry)) {
+      void this.persistLive(entry);
+      this.recordTaskStarted(this.toInfo(entry));
+    }
+
+    return {
+      taskId,
+      onDidDetach: entry.foregroundRelease?.promise ?? Promise.resolve('terminal' as const),
+    };
   }
 
   getTask(taskId: string): BackgroundTaskInfo | undefined {
@@ -378,7 +469,8 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     entry.foregroundSignalCleanup = undefined;
     this.applyDetachTimeout(entry);
     try {
-      entry.task.onDetach?.();
+      const onDetach = entry.onDetachFn ?? entry.task?.onDetach;
+      onDetach?.();
     } catch {
       /* detach has already succeeded; hooks must not make RPC fail */
     }
@@ -399,8 +491,13 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     }
     if (timeoutMs > 0) {
       entry.timeoutHandle = setTimeout(() => {
-        entry.abortController.abort('Timed out');
-        void this.settleTask(entry, { status: 'timed_out' });
+        entry.timedOut = true;
+        if (entry.handle) {
+          entry.handle.cancel();
+        } else {
+          entry.abortController.abort('Timed out');
+          void this.settleTask(entry, { status: 'timed_out' });
+        }
       }, timeoutMs);
       entry.timeoutHandle.unref?.();
     }
@@ -423,7 +520,11 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     }
 
     entry.stopReason = stopReason;
-    entry.abortController.abort(abortReason);
+    if (entry.handle) {
+      entry.handle.cancel();
+    } else {
+      entry.abortController.abort(abortReason);
+    }
 
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     const graceful = await Promise.race([
@@ -447,7 +548,8 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
 
     if (!graceful) {
       try {
-        await entry.task.forceStop?.();
+        const forceStop = entry.forceStopFn ?? entry.task?.forceStop;
+        await forceStop?.();
       } catch {
         /* best effort */
       }
@@ -653,6 +755,8 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
       settlement.stopReason ?? (settlement.status === 'killed' ? entry.stopReason : undefined);
     entry.foregroundSignalCleanup?.();
     entry.foregroundSignalCleanup = undefined;
+    entry.handleSubscription?.dispose();
+    entry.handleSubscription = undefined;
     if (entry.timeoutHandle !== undefined) {
       clearTimeout(entry.timeoutHandle);
       entry.timeoutHandle = undefined;
@@ -827,7 +931,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
   private toInfo(entry: ManagedTask): BackgroundTaskInfo {
     const base: BackgroundTaskInfoBase = {
       taskId: entry.taskId,
-      description: entry.task.description,
+      description: entry.task?.description ?? entry.options.description ?? '',
       status: entry.status,
       detached: this.isDetached(entry) ? true : false,
       startedAt: entry.startedAt,
@@ -836,7 +940,8 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
       terminalNotificationSuppressed: entry.terminalNotificationSuppressed,
       timeoutMs: entry.options.timeoutMs,
     };
-    return entry.task.toInfo(base);
+    if (entry.toInfoFn) return entry.toInfoFn(base);
+    return entry.task!.toInfo(base);
   }
 }
 

@@ -6,8 +6,8 @@ import {
   type IDeferredHandle,
   type TaskState,
   TaskCancelledError,
-} from '#/task/interface/task';
-import { TaskService } from '#/task/taskService';
+} from '#/app/task/interface/task';
+import { TaskService } from '#/app/task/taskService';
 
 describe('TaskService', () => {
   let disposables: DisposableStore;

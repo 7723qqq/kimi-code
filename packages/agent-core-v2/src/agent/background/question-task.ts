@@ -16,6 +16,31 @@ export interface QuestionBackgroundTaskOptions {
   readonly toolCallId?: string;
 }
 
+/**
+ * Create a `taskService.run()`-compatible executor that runs a question
+ * thunk and resolves with its result.  Throws on error or abort.
+ */
+export function createQuestionExecutor(
+  run: (signal: AbortSignal) => Promise<ExecutableToolResult>,
+): (signal: AbortSignal, output: (data: string) => void) => Promise<ExecutableToolResult> {
+  return async (signal, output) => {
+    const result = await run(signal);
+    const text = serializeToolOutput(result.output);
+    if (text.length > 0) output(text);
+    if (result.isError === true) {
+      throw new QuestionTaskError(errorStopReason(result) ?? 'Question failed');
+    }
+    return result;
+  };
+}
+
+export class QuestionTaskError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QuestionTaskError';
+  }
+}
+
 export class QuestionBackgroundTask implements BackgroundTask {
   readonly kind = 'question' as const;
   readonly idPrefix = 'question';

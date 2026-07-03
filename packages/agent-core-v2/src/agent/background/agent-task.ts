@@ -33,6 +33,40 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * Create a `taskService.run()`-compatible executor that waits for a
+ * subagent completion promise.  Resolves with the subagent result on
+ * success, throws on abort or failure.
+ */
+export function createAgentExecutor(
+  handle: SubagentHandle,
+  abortController: AbortController,
+): (signal: AbortSignal, output: (data: string) => void) => Promise<SubagentCompletion> {
+  return async (signal, output) => {
+    const requestAbort = (): void => {
+      abortController.abort(signal.reason);
+    };
+    if (signal.aborted) {
+      requestAbort();
+    } else {
+      signal.addEventListener('abort', requestAbort, { once: true });
+    }
+
+    try {
+      const outcome = await handle.completion;
+      output(outcome.result);
+      return outcome;
+    } catch (error: unknown) {
+      if (signal.aborted && (isAbortError(error) || error === signal.reason)) {
+        throw error;
+      }
+      throw error;
+    } finally {
+      signal.removeEventListener('abort', requestAbort);
+    }
+  };
+}
+
 export class AgentBackgroundTask implements BackgroundTask {
   readonly kind = 'agent' as const;
   readonly idPrefix: string = 'agent';
