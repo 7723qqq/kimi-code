@@ -2,7 +2,7 @@ export {
   additionalDirServices,
   agentService,
   agentServices,
-  backgroundServices,
+  taskServices,
   configServices,
   createCommandRunner,
   createTestAgent,

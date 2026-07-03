@@ -255,7 +255,7 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
           { name: 'approvals', description: 'Approval resolution' },
           { name: 'questions', description: 'Question resolution & dismiss' },
           { name: 'tools', description: 'Tool & MCP server management' },
-          { name: 'tasks', description: 'Background tasks' },
+          { name: 'tasks', description: 'Task management' },
           { name: 'terminals', description: 'PTY terminal sessions' },
           { name: 'fs', description: 'Filesystem operations' },
           { name: 'files', description: 'File upload & download' },
@@ -386,7 +386,7 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   } catch (error) {
     // Listen failed even after the port walk (or for a non-EADDRINUSE reason).
     // Tear down what boot already assembled so a failed start does not leak the
-    // lock file, the Core scope, or the background scheduler.
+    // lock file, the Core scope, or the refresh scheduler.
     try {
       await close();
     } catch {

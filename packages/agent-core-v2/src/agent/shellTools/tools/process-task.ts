@@ -3,29 +3,35 @@ import type { Readable } from 'node:stream';
 import type { IProcess } from '#/session/process';
 
 import type {
-  BackgroundTask,
-  BackgroundTaskInfoBase,
-  BackgroundTaskSink,
-  BackgroundTaskSettlement,
-} from './task';
+  AgentTask,
+  AgentTaskInfoBase,
+  AgentTaskSink,
+  AgentTaskSettlement,
+} from '#/agent/task/types';
 
-export interface ProcessBackgroundTaskInfo extends BackgroundTaskInfoBase {
+export interface ProcessTaskInfo extends AgentTaskInfoBase {
   readonly kind: 'process';
   readonly command: string;
   readonly pid: number;
   readonly exitCode: number | null;
 }
 
-export type ProcessBackgroundTaskOutputKind = 'stdout' | 'stderr';
+declare module '#/agent/task/types' {
+  interface AgentTaskInfoByKind {
+    readonly process: ProcessTaskInfo;
+  }
+}
 
-export type ProcessBackgroundTaskOutputCallback = (
-  kind: ProcessBackgroundTaskOutputKind,
+export type ProcessTaskOutputKind = 'stdout' | 'stderr';
+
+export type ProcessTaskOutputCallback = (
+  kind: ProcessTaskOutputKind,
   text: string,
 ) => void;
 
 const STREAM_DRAIN_GRACE_MS = 250;
 
-export class ProcessBackgroundTask implements BackgroundTask {
+export class ProcessTask implements AgentTask {
   readonly kind = 'process' as const;
   readonly idPrefix = 'bash';
   private exitCode: number | null = null;
@@ -34,10 +40,10 @@ export class ProcessBackgroundTask implements BackgroundTask {
     readonly proc: IProcess,
     readonly command: string,
     readonly description: string,
-    private readonly onOutput?: ProcessBackgroundTaskOutputCallback,
+    private readonly onOutput?: ProcessTaskOutputCallback,
   ) {}
 
-  async start(sink: BackgroundTaskSink): Promise<void> {
+  async start(sink: AgentTaskSink): Promise<void> {
     const streamDrained = Promise.all([
       observeProcessStream(this.proc.stdout, 'stdout', sink, this.onOutput),
       observeProcessStream(this.proc.stderr, 'stderr', sink, this.onOutput),
@@ -55,7 +61,7 @@ export class ProcessBackgroundTask implements BackgroundTask {
       sink.signal.addEventListener('abort', requestStop, { once: true });
     }
 
-    let settlement: BackgroundTaskSettlement;
+    let settlement: AgentTaskSettlement;
     try {
       const exitCode = await this.proc.wait();
       await waitForStreamDrain(streamDrained);
@@ -87,7 +93,7 @@ export class ProcessBackgroundTask implements BackgroundTask {
     }
   }
 
-  toInfo(base: BackgroundTaskInfoBase): ProcessBackgroundTaskInfo {
+  toInfo(base: AgentTaskInfoBase): ProcessTaskInfo {
     return {
       ...base,
       kind: 'process',
@@ -131,9 +137,9 @@ async function waitForStreamDrainSettled(streamDrained: Promise<void>): Promise<
 
 function observeProcessStream(
   stream: Readable,
-  kind: ProcessBackgroundTaskOutputKind,
-  sink: BackgroundTaskSink,
-  onOutput?: ProcessBackgroundTaskOutputCallback,
+  kind: ProcessTaskOutputKind,
+  sink: AgentTaskSink,
+  onOutput?: ProcessTaskOutputCallback,
 ): Promise<void> {
   stream.setEncoding('utf8');
   const onData = (chunk: string): void => {
@@ -199,10 +205,10 @@ export interface ProcessTaskResult {
  */
 export function createProcessExecutor(
   proc: IProcess,
-  onOutput?: ProcessBackgroundTaskOutputCallback,
+  onOutput?: ProcessTaskOutputCallback,
 ): (signal: AbortSignal, output: (data: string) => void) => Promise<ProcessTaskResult> {
   return async (signal, output) => {
-    const forwardOutput = (chunk: string, kind: ProcessBackgroundTaskOutputKind): void => {
+    const forwardOutput = (chunk: string, kind: ProcessTaskOutputKind): void => {
       if (chunk.length === 0) return;
       output(chunk);
       onOutput?.(kind, chunk);
@@ -252,9 +258,9 @@ export class ProcessExitError extends Error {
 
 function observeProcessStreamRaw(
   stream: Readable,
-  kind: ProcessBackgroundTaskOutputKind,
+  kind: ProcessTaskOutputKind,
   signal: AbortSignal,
-  onChunk: (chunk: string, kind: ProcessBackgroundTaskOutputKind) => void,
+  onChunk: (chunk: string, kind: ProcessTaskOutputKind) => void,
 ): Promise<void> {
   stream.setEncoding('utf8');
   const onData = (chunk: string): void => {

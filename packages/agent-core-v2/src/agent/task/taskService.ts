@@ -1,9 +1,9 @@
 /**
- * `background` domain (L5) — `AgentBackgroundService` implementation.
+ * `task` domain (L5) — `AgentTaskService` implementation.
  *
- * Owns the agent's registry of running and restored background tasks:
+ * Owns the agent's registry of running and restored tasks:
  * registers and drives tasks to completion, retains a bounded output ring,
- * persists task state and output through `background` persistence, reads
+ * persists task state and output through task persistence, reads
  * limits through `config`, records lifecycle and broadcasts through `record`,
  * and delivers terminal notifications through `contextMemory`. Bound at Agent
  * scope.
@@ -17,14 +17,14 @@ import type { ContentPart } from '#/app/llmProtocol';
 
 import { Disposable } from '#/_base/di';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
-import type { BackgroundTaskOrigin } from '#/agent/contextMemory';
+import type { TaskOrigin } from '#/agent/contextMemory';
 import { renderNotificationXml } from '#/agent/contextMemory/notification-xml';
 import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task';
 import {
   TERMINAL_STATUSES,
-  type BackgroundTaskInfoBase,
-  type BackgroundTaskSettlement,
-} from './task';
+  type AgentTaskInfoBase,
+  type AgentTaskSettlement,
+} from './types';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IConfigService } from '#/app/config';
@@ -34,32 +34,32 @@ import { IAtomicDocumentStore, IFileSystemStorageService } from '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 import {
-  IAgentBackgroundService,
-  type BackgroundNotificationContext,
-  type BackgroundLoadOptions,
-  type BackgroundTask,
-  type BackgroundTaskInfo,
-  type BackgroundTaskOutputSnapshot,
-  type BackgroundTaskStatus,
-  type BackgroundTrackOptions,
+  IAgentTaskService,
+  type AgentTaskNotificationContext,
+  type AgentTaskLoadOptions,
+  type AgentTask,
+  type AgentTaskInfo,
+  type AgentTaskOutputSnapshot,
+  type AgentTaskStatus,
+  type AgentTaskTrackOptions,
   type ForegroundTaskReleaseReason,
-  type IBackgroundEntry,
-  type RegisterBackgroundTaskOptions,
-} from './background';
-import { BACKGROUND_SECTION, type BackgroundConfig } from './configSection';
-import { BackgroundTaskPersistence } from './persist';
-import { TaskListTool } from '#/agent/background/tools/task-list';
-import { TaskOutputTool } from '#/agent/background/tools/task-output';
-import { TaskStopTool } from '#/agent/background/tools/task-stop';
+  type IAgentTaskEntry,
+  type RegisterAgentTaskOptions,
+} from './task';
+import { LEGACY_BACKGROUND_SECTION, TASK_SECTION, type AgentTaskConfig } from './configSection';
+import { AgentTaskPersistence } from './persist';
+import { TaskListTool } from '#/agent/task/tools/task-list';
+import { TaskOutputTool } from '#/agent/task/tools/task-output';
+import { TaskStopTool } from '#/agent/task/tools/task-stop';
 import { OrderedHookSlot } from '#/hooks';
 
 declare module '#/agent/wireRecord' {
   interface WireRecordMap {
-    'background.task.started': {
-      info: BackgroundTaskInfo;
+    'task.started': {
+      info: AgentTaskInfo;
     };
-    'background.task.terminated': {
-      info: BackgroundTaskInfo;
+    'task.terminated': {
+      info: AgentTaskInfo;
     };
   }
 }
@@ -69,11 +69,11 @@ interface ForegroundRelease {
   resolve(reason: ForegroundTaskReleaseReason): void;
 }
 
-type BackgroundTaskNotification = Record<string, unknown> & {
+type AgentTaskNotification = Record<string, unknown> & {
   readonly id: string;
   readonly category: 'task';
   readonly type: string;
-  readonly source_kind: 'background_task';
+  readonly source_kind: 'task';
   readonly source_id: string;
   readonly agent_id?: string | undefined;
   readonly title: string;
@@ -82,24 +82,24 @@ type BackgroundTaskNotification = Record<string, unknown> & {
   readonly children?: readonly string[] | undefined;
 };
 
-interface BackgroundTaskNotificationContext {
+interface AgentTaskNotificationBuildContext {
   readonly content: readonly ContentPart[];
-  readonly origin: BackgroundTaskOrigin;
-  readonly notification: BackgroundTaskNotification;
+  readonly origin: TaskOrigin;
+  readonly notification: AgentTaskNotification;
 }
 
 interface ManagedTask {
   readonly taskId: string;
-  readonly task: BackgroundTask | undefined;
+  readonly task: AgentTask | undefined;
   readonly handle: ITaskHandle | undefined;
-  readonly toInfoFn?: (base: BackgroundTaskInfoBase) => BackgroundTaskInfo;
+  readonly toInfoFn?: (base: AgentTaskInfoBase) => AgentTaskInfo;
   readonly forceStopFn?: () => Promise<void>;
   readonly onDetachFn?: () => void;
   readonly outputChunks: string[];
   outputSizeBytes: number;
   retainedOutputBytes: number;
-  status: BackgroundTaskStatus;
-  options: RegisterBackgroundTaskOptions & { description?: string };
+  status: AgentTaskStatus;
+  options: RegisterAgentTaskOptions & { description?: string };
   readonly startedAt: number;
   endedAt: number | null;
   foregroundRelease?: ForegroundRelease;
@@ -126,21 +126,21 @@ const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 const USER_INTERRUPT_REASON = 'Interrupted by user';
 const NOTIFICATION_FALLBACK_PREVIEW_BYTES = 3_000;
 
-export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean {
+export function isAgentTaskTerminal(status: AgentTaskStatus): boolean {
   return TERMINAL_STATUSES.has(status);
 }
 
-export class AgentBackgroundService extends Disposable implements IAgentBackgroundService {
+export class AgentTaskService extends Disposable implements IAgentTaskService {
   declare readonly _serviceBrand: undefined;
-  readonly hooks: IAgentBackgroundService['hooks'] = {
-    onDidNotify: new OrderedHookSlot<BackgroundNotificationContext>(),
+  readonly hooks: IAgentTaskService['hooks'] = {
+    onDidNotify: new OrderedHookSlot<AgentTaskNotificationContext>(),
   };
 
   private readonly tasks = new Map<string, ManagedTask>();
-  private readonly ghosts = new Map<string, BackgroundTaskInfo>();
+  private readonly ghosts = new Map<string, AgentTaskInfo>();
   private readonly scheduledNotificationKeys = new Set<string>();
   private readonly deliveredNotificationKeys = new Set<string>();
-  private readonly persistence: BackgroundTaskPersistence;
+  private readonly persistence: AgentTaskPersistence;
 
   constructor(
     @IAgentRecordService private readonly record: IAgentRecordService,
@@ -154,21 +154,21 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     @ITaskService private readonly taskService: ITaskService,
   ) {
     super();
-    this.persistence = new BackgroundTaskPersistence(
+    this.persistence = new AgentTaskPersistence(
       session.sessionDir,
       session.metaScope.replace(/\/session-meta$/, ''),
       atomicDocs,
       byteStore,
     );
     this._register(
-      record.define('background.task.started', {
+      record.define('task.started', {
         resume: (r) => {
           this.applyRestoredTask(r);
         },
       }),
     );
     this._register(
-      record.define('background.task.terminated', {
+      record.define('task.terminated', {
         resume: (r) => {
           this.applyRestoredTask(r);
         },
@@ -176,7 +176,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     );
     this._register(
       record.hooks.onResumeEnded.register(
-        'background-lifecycle-resume',
+        'task-lifecycle-resume',
         async (_ctx, next) => {
           await this.loadFromDisk({ replace: false });
           await this.reconcile();
@@ -185,10 +185,10 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
       ),
     );
     this._register(
-      context.hooks.onSpliced.register('background-notification-delivery', async (ctx, next) => {
+      context.hooks.onSpliced.register('task-notification-delivery', async (ctx, next) => {
         await next();
         for (const message of ctx.messages) {
-          if (message.origin?.kind === 'background_task') {
+          if (isTaskOrigin(message.origin)) {
             this.markDeliveredNotification(message.origin);
           }
         }
@@ -196,10 +196,10 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     );
   }
 
-  registerTask(task: BackgroundTask, options: RegisterBackgroundTaskOptions = {}): string {
+  registerTask(task: AgentTask, options: RegisterAgentTaskOptions = {}): string {
     const detached = options.detached ?? true;
     const timeoutMs = options.timeoutMs ?? task.timeoutMs;
-    const entryOptions: RegisterBackgroundTaskOptions = {
+    const entryOptions: RegisterAgentTaskOptions = {
       detached,
       timeoutMs,
       detachTimeoutMs: options.detachTimeoutMs,
@@ -266,7 +266,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     return entry.taskId;
   }
 
-  track(handle: ITaskHandle, options: BackgroundTrackOptions): IBackgroundEntry {
+  track(handle: ITaskHandle, options: AgentTaskTrackOptions): IAgentTaskEntry {
     const detached = options.detached ?? true;
     this.assertCanRegister(detached);
 
@@ -345,13 +345,13 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     };
   }
 
-  getTask(taskId: string): BackgroundTaskInfo | undefined {
+  getTask(taskId: string): AgentTaskInfo | undefined {
     const entry = this.tasks.get(taskId);
     return entry === undefined ? this.ghosts.get(taskId) : this.toInfo(entry);
   }
 
-  list(activeOnly = true, limit?: number): readonly BackgroundTaskInfo[] {
-    const result: BackgroundTaskInfo[] = [];
+  list(activeOnly = true, limit?: number): readonly AgentTaskInfo[] {
+    const result: AgentTaskInfo[] = [];
     for (const entry of this.tasks.values()) {
       const info = this.toInfo(entry);
       if (!shouldListTask(info, activeOnly)) continue;
@@ -374,7 +374,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     this.startOutputPersist(entry);
   }
 
-  async loadFromDisk(options: BackgroundLoadOptions = {}): Promise<void> {
+  async loadFromDisk(options: AgentTaskLoadOptions = {}): Promise<void> {
     const persistence = this.persistence;
     if (options.replace !== false) {
       this.ghosts.clear();
@@ -391,19 +391,19 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     }
   }
 
-  async reconcile(): Promise<readonly BackgroundTaskInfo[]> {
+  async reconcile(): Promise<readonly AgentTaskInfo[]> {
     const lostTasks = await this.markLoadedTasksLost();
     for (const info of lostTasks) {
       this.recordTaskTerminated(info);
     }
-    await this.restoreBackgroundTaskNotifications();
+    await this.restoreAgentTaskNotifications();
     return lostTasks;
   }
 
   async getOutputSnapshot(
     taskId: string,
     maxPreviewBytes: number,
-  ): Promise<BackgroundTaskOutputSnapshot> {
+  ): Promise<AgentTaskOutputSnapshot> {
     if (this.getTask(taskId) === undefined) return emptyOutputSnapshot();
 
     await this.tasks.get(taskId)?.outputWriteQueue;
@@ -459,7 +459,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     if (ghost !== undefined) return;
   }
 
-  detach(taskId: string): BackgroundTaskInfo | undefined {
+  detach(taskId: string): AgentTaskInfo | undefined {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return this.ghosts.get(taskId);
     if (TERMINAL_STATUSES.has(entry.status)) return this.toInfo(entry);
@@ -506,7 +506,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     }
   }
 
-  async stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined> {
+  async stop(taskId: string, reason?: string): Promise<AgentTaskInfo | undefined> {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return undefined;
     return this.stopEntry(entry, normalizeReason(reason), normalizeReason(reason));
@@ -516,7 +516,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     entry: ManagedTask,
     stopReason: string | undefined,
     abortReason: unknown,
-  ): Promise<BackgroundTaskInfo | undefined> {
+  ): Promise<AgentTaskInfo | undefined> {
     if (TERMINAL_STATUSES.has(entry.status)) {
       await entry.persistWriteQueue;
       return this.toInfo(entry);
@@ -568,14 +568,14 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     return this.toInfo(entry);
   }
 
-  async stopAll(reason?: string): Promise<readonly BackgroundTaskInfo[]> {
+  async stopAll(reason?: string): Promise<readonly AgentTaskInfo[]> {
     const results = await Promise.all(
       Array.from(this.tasks.keys()).map((taskId) => this.stop(taskId, reason)),
     );
-    return results.filter((info): info is BackgroundTaskInfo => info !== undefined);
+    return results.filter((info): info is AgentTaskInfo => info !== undefined);
   }
 
-  async wait(taskId: string, timeoutMs = 30_000): Promise<BackgroundTaskInfo | undefined> {
+  async wait(taskId: string, timeoutMs = 30_000): Promise<AgentTaskInfo | undefined> {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return this.ghosts.get(taskId);
     if (TERMINAL_STATUSES.has(entry.status)) {
@@ -634,25 +634,30 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     return reason;
   }
 
-  private assertCanRegister(startedInBackground: boolean): void {
-    const maxRunningTasks = this.config.get<BackgroundConfig | undefined>(
-      BACKGROUND_SECTION,
-    )?.maxRunningTasks;
+  private assertCanRegister(detached: boolean): void {
+    const maxRunningTasks = this.taskConfig()?.maxRunningTasks;
     if (maxRunningTasks === undefined) return;
-    if (!startedInBackground) return;
+    if (!detached) return;
     if (this.activeTaskCount() < maxRunningTasks) return;
-    throw new Error('Too many background tasks are already running.');
+    throw new Error('Too many detached tasks are already running.');
+  }
+
+  private taskConfig(): AgentTaskConfig | undefined {
+    return (
+      this.config.get<AgentTaskConfig | undefined>(TASK_SECTION) ??
+      this.config.get<AgentTaskConfig | undefined>(LEGACY_BACKGROUND_SECTION)
+    );
   }
 
   private activeTaskCount(): number {
     let count = 0;
     for (const entry of this.tasks.values()) {
-      if (!TERMINAL_STATUSES.has(entry.status) && this.startedInBackground(entry)) count++;
+      if (!TERMINAL_STATUSES.has(entry.status) && this.startsDetached(entry)) count++;
     }
     return count;
   }
 
-  private startedInBackground(entry: ManagedTask): boolean {
+  private startsDetached(entry: ManagedTask): boolean {
     return entry.options.detached !== false;
   }
 
@@ -661,19 +666,19 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
   }
 
   private applyRestoredTask(
-    record: AgentRecord<'background.task.started' | 'background.task.terminated'>,
+    record: AgentRecord<'task.started' | 'task.terminated'>,
   ): void {
     const info = record.info;
     if (this.tasks.has(info.taskId)) return;
     this.ghosts.set(info.taskId, info);
   }
 
-  private async markLoadedTasksLost(): Promise<readonly BackgroundTaskInfo[]> {
-    const lostTasks: BackgroundTaskInfo[] = [];
+  private async markLoadedTasksLost(): Promise<readonly AgentTaskInfo[]> {
+    const lostTasks: AgentTaskInfo[] = [];
     const persistence = this.persistence;
     for (const [taskId, info] of this.ghosts) {
       if (TERMINAL_STATUSES.has(info.status)) continue;
-      const updated: BackgroundTaskInfo = {
+      const updated: AgentTaskInfo = {
         ...info,
         status: 'lost',
         endedAt: info.endedAt ?? Date.now(),
@@ -749,7 +754,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
 
   private async settleTask(
     entry: ManagedTask,
-    settlement: BackgroundTaskSettlement,
+    settlement: AgentTaskSettlement,
   ): Promise<boolean> {
     if (TERMINAL_STATUSES.has(entry.status)) return false;
     entry.status = settlement.status;
@@ -782,30 +787,30 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     if (!this.isDetached(entry)) return;
     entry.terminalFired = true;
     const info = this.toInfo(entry);
-    void this.notifyBackgroundTask(info).catch(() => { });
+    void this.notifyAgentTask(info).catch(() => { });
     this.recordTaskTerminated(info);
   }
 
-  private recordTaskStarted(info: BackgroundTaskInfo): void {
-    this.record.append({ type: 'background.task.started', info });
-    this.record.signal({ type: 'background.task.started', info });
-    this.telemetry.track('background_task_created', {
+  private recordTaskStarted(info: AgentTaskInfo): void {
+    this.record.append({ type: 'task.started', info });
+    this.record.signal({ type: 'task.started', info });
+    this.telemetry.track('task_created', {
       kind: info.kind === 'process' ? 'bash' : info.kind,
     });
   }
 
-  private recordTaskTerminated(info: BackgroundTaskInfo): void {
-    this.record.append({ type: 'background.task.terminated', info });
-    this.record.signal({ type: 'background.task.terminated', info });
-    this.telemetry.track('background_task_completed', {
+  private recordTaskTerminated(info: AgentTaskInfo): void {
+    this.record.append({ type: 'task.terminated', info });
+    this.record.signal({ type: 'task.terminated', info });
+    this.telemetry.track('task_completed', {
       kind: info.kind,
       duration: info.endedAt !== null ? info.endedAt - info.startedAt : null,
       status: info.status,
     });
   }
 
-  private async notifyBackgroundTask(info: BackgroundTaskInfo): Promise<void> {
-    const context = await this.buildBackgroundTaskNotificationContext(info);
+  private async notifyAgentTask(info: AgentTaskInfo): Promise<void> {
+    const context = await this.buildAgentTaskNotificationContext(info);
     if (context === undefined) return;
     this.prompt.steer({
       role: 'user',
@@ -816,15 +821,15 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     this.fireNotificationHook(context.notification);
   }
 
-  private async restoreBackgroundTaskNotifications(): Promise<void> {
+  private async restoreAgentTaskNotifications(): Promise<void> {
     for (const info of this.list(false)) {
-      if (!isBackgroundTaskTerminal(info.status)) continue;
-      await this.restoreBackgroundTaskNotification(info);
+      if (!isAgentTaskTerminal(info.status)) continue;
+      await this.restoreAgentTaskNotification(info);
     }
   }
 
-  private async restoreBackgroundTaskNotification(info: BackgroundTaskInfo): Promise<void> {
-    const context = await this.buildBackgroundTaskNotificationContext(info);
+  private async restoreAgentTaskNotification(info: AgentTaskInfo): Promise<void> {
+    const context = await this.buildAgentTaskNotificationContext(info);
     if (context === undefined) return;
     this.context.splice(this.context.get().length, 0, [
       {
@@ -837,13 +842,13 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     this.fireNotificationHook(context.notification);
   }
 
-  private async buildBackgroundTaskNotificationContext(
-    info: BackgroundTaskInfo,
-  ): Promise<BackgroundTaskNotificationContext | undefined> {
+  private async buildAgentTaskNotificationContext(
+    info: AgentTaskInfo,
+  ): Promise<AgentTaskNotificationBuildContext | undefined> {
     if (info.detached === false) return undefined;
     if (info.terminalNotificationSuppressed === true) return undefined;
-    const origin: BackgroundTaskOrigin = {
-      kind: 'background_task',
+    const origin: TaskOrigin = {
+      kind: 'task',
       taskId: info.taskId,
       status: info.status,
       notificationId: `task:${info.taskId}:${info.status}`,
@@ -859,17 +864,17 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
       output = await this.getOutputSnapshot(info.taskId, NOTIFICATION_FALLBACK_PREVIEW_BYTES);
     }
     if (this.isTerminalNotificationSuppressed(info.taskId)) return undefined;
-    const notification: BackgroundTaskNotification = {
+    const notification: AgentTaskNotification = {
       id: origin.notificationId,
       category: 'task',
       type: `task.${info.status}`,
-      source_kind: 'background_task',
+      source_kind: 'task',
       source_id: info.taskId,
       agent_id: info.kind === 'agent' ? info.agentId : undefined,
-      title: `Background ${info.kind} ${info.status}`,
+      title: `Task ${info.kind} ${info.status}`,
       severity: info.status === 'completed' ? 'info' : 'warning',
-      body: buildBackgroundTaskNotificationBody(info),
-      children: backgroundTaskNotificationChildren(output),
+      body: buildAgentTaskNotificationBody(info),
+      children: agentTaskNotificationChildren(output),
     };
     const content = [
       {
@@ -880,7 +885,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     return { content, origin, notification };
   }
 
-  private fireNotificationHook(notification: BackgroundTaskNotification): void {
+  private fireNotificationHook(notification: AgentTaskNotification): void {
     void this.hooks.onDidNotify.run({
       notificationType: notification.type,
       title: notification.title,
@@ -898,13 +903,13 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     );
   }
 
-  private markDeliveredNotification(origin: BackgroundTaskOrigin): void {
+  private markDeliveredNotification(origin: TaskOrigin): void {
     this.deliveredNotificationKeys.add(notificationKey(origin));
   }
 
   private hasDeliveredNotification(key: string): boolean {
     return this.context.get().some((message) => {
-      return message.origin?.kind === 'background_task' && notificationKey(message.origin) === key;
+      return isTaskOrigin(message.origin) && notificationKey(message.origin) === key;
     });
   }
 
@@ -931,8 +936,8 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     };
   }
 
-  private toInfo(entry: ManagedTask): BackgroundTaskInfo {
-    const base: BackgroundTaskInfoBase = {
+  private toInfo(entry: ManagedTask): AgentTaskInfo {
+    const base: AgentTaskInfoBase = {
       taskId: entry.taskId,
       description: entry.task?.description ?? entry.options.description ?? '',
       status: entry.status,
@@ -948,7 +953,7 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
   }
 }
 
-function emptyOutputSnapshot(): BackgroundTaskOutputSnapshot {
+function emptyOutputSnapshot(): AgentTaskOutputSnapshot {
   return {
     outputSizeBytes: 0,
     previewBytes: 0,
@@ -958,8 +963,8 @@ function emptyOutputSnapshot(): BackgroundTaskOutputSnapshot {
   };
 }
 
-function backgroundTaskNotificationChildren(
-  output: BackgroundTaskOutputSnapshot,
+function agentTaskNotificationChildren(
+  output: AgentTaskOutputSnapshot,
 ): readonly string[] | undefined {
   if (output.fullOutputAvailable && output.outputPath !== undefined) {
     return [renderOutputFileBlock(output.outputPath, output.outputSizeBytes)];
@@ -976,7 +981,7 @@ function renderOutputFileBlock(outputPath: string, outputSizeBytes: number): str
   ].join('\n');
 }
 
-function renderOutputPreviewBlock(output: BackgroundTaskOutputSnapshot): string {
+function renderOutputPreviewBlock(output: AgentTaskOutputSnapshot): string {
   return [
     `<output-preview bytes="${String(output.previewBytes)}" total_bytes="${String(output.outputSizeBytes)}" truncated="${String(output.truncated)}">`,
     output.truncated
@@ -987,18 +992,18 @@ function renderOutputPreviewBlock(output: BackgroundTaskOutputSnapshot): string 
   ].join('\n');
 }
 
-function shouldListTask(info: BackgroundTaskInfo, activeOnly: boolean): boolean {
+function shouldListTask(info: AgentTaskInfo, activeOnly: boolean): boolean {
   if (!TERMINAL_STATUSES.has(info.status)) return true;
   if (activeOnly) return false;
   return info.detached !== false;
 }
 
 function newerRestoredTask(
-  existing: BackgroundTaskInfo,
-  loaded: BackgroundTaskInfo,
-): BackgroundTaskInfo {
-  const existingTerminal = isBackgroundTaskTerminal(existing.status);
-  const loadedTerminal = isBackgroundTaskTerminal(loaded.status);
+  existing: AgentTaskInfo,
+  loaded: AgentTaskInfo,
+): AgentTaskInfo {
+  const existingTerminal = isAgentTaskTerminal(existing.status);
+  const loadedTerminal = isAgentTaskTerminal(loaded.status);
   if (existingTerminal && !loadedTerminal) return existing;
   if (!existingTerminal && loadedTerminal) return loaded;
   if (existing.endedAt !== null && loaded.endedAt !== null) {
@@ -1009,11 +1014,17 @@ function newerRestoredTask(
   return loaded;
 }
 
-function notificationKey(origin: BackgroundTaskOrigin): string {
+function isTaskOrigin(origin: unknown): origin is TaskOrigin {
+  if (typeof origin !== 'object' || origin === null) return false;
+  const kind = (origin as { kind?: unknown }).kind;
+  return kind === 'task';
+}
+
+function notificationKey(origin: TaskOrigin): string {
   return `${origin.taskId}\0${origin.status}\0${origin.notificationId}`;
 }
 
-function buildBackgroundTaskNotificationBody(info: BackgroundTaskInfo): string {
+function buildAgentTaskNotificationBody(info: AgentTaskInfo): string {
   const baseLine =
     info.status === 'timed_out'
       ? `${info.description} timed out.`
@@ -1064,12 +1075,10 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-export { AgentBackgroundService as Background };
-
 registerScopedService(
   LifecycleScope.Agent,
-  IAgentBackgroundService,
-  AgentBackgroundService,
+  IAgentTaskService,
+  AgentTaskService,
   InstantiationType.Delayed,
-  'background',
+  'task',
 );

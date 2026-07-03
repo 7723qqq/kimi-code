@@ -1110,10 +1110,10 @@ export function createAgentProjector(): AgentProjector {
       }
 
       // -----------------------------------------------------------------------
-      // Background tasks (e.g. a backgrounded Bash command). Real daemon shape:
+      // Tasks (e.g. a detached Bash command). Real daemon shape:
       // payload.info = { taskId, description, status, startedAt(ms), endedAt,
       // kind:'process', command, pid, exitCode }.
-      case 'background.task.started': {
+      case 'task.started': {
         const info = (p?.info ?? {}) as Record<string, unknown>;
         const startedAt =
           typeof info.startedAt === 'number' ? new Date(info.startedAt).toISOString() : undefined;
@@ -1147,7 +1147,7 @@ export function createAgentProjector(): AgentProjector {
         });
         break;
       }
-      case 'background.task.terminated': {
+      case 'task.terminated': {
         const info = (p?.info ?? {}) as Record<string, unknown>;
         const failed =
           info.status === 'failed' ||
@@ -1301,8 +1301,8 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'subagent.suspended',
   'subagent.completed',
   'subagent.failed',
-  'background.task.started',
-  'background.task.terminated',
+  'task.started',
+  'task.terminated',
 ]);
 
 /**

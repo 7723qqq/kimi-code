@@ -119,9 +119,9 @@ describe('events / display re-exports', () => {
     expect((parsed as { promptId: string }).promptId).toBe('prompt_1');
   });
 
-  it('preserves detached on background task events', () => {
+  it('preserves detached on task events', () => {
     const parsed = eventSchema.parse({
-      type: 'background.task.started',
+      type: 'task.started',
       agentId: 'main',
       sessionId: 'sess_1',
       info: {
@@ -138,7 +138,7 @@ describe('events / display re-exports', () => {
       },
     });
 
-    expect(parsed.type).toBe('background.task.started');
+    expect(parsed.type).toBe('task.started');
     expect((parsed as { info: { detached?: boolean } }).info.detached).toBe(false);
   });
 

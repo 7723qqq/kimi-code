@@ -1,5 +1,5 @@
 /**
- * BackgroundManager reconcile + persistence integration tests.
+ * AgentTaskService reconcile + persistence integration tests.
  */
 
 import { mkdir, rm } from 'node:fs/promises';
@@ -9,27 +9,27 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  IAgentBackgroundService,
-  type BackgroundTaskInfo,
-} from '#/agent/background';
+  IAgentTaskService,
+  type AgentTaskInfo,
+} from '#/agent/task';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import {
-  backgroundServices,
+  taskServices,
   createTestAgent,
   homeDirServices,
   type TestAgentContext,
 } from '../harness';
 import {
-  createBackgroundTaskPersistence,
-  type BackgroundServiceTestManager,
+  createAgentTaskPersistence,
+  type TaskServiceTestManager,
 } from './stubs';
 
 let sessionDir: string;
-let persistence: ReturnType<typeof createBackgroundTaskPersistence>;
+let persistence: ReturnType<typeof createAgentTaskPersistence>;
 
 function persistedProcess(
-  overrides: Partial<Extract<BackgroundTaskInfo, { kind: 'process' }>> = {},
-): Extract<BackgroundTaskInfo, { kind: 'process' }> {
+  overrides: Partial<Extract<AgentTaskInfo, { kind: 'process' }>> = {},
+): Extract<AgentTaskInfo, { kind: 'process' }> {
   return {
     taskId: 'bash-orphan00',
     kind: 'process',
@@ -50,21 +50,21 @@ beforeEach(async () => {
     `kimi-bg-reconcile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   await mkdir(sessionDir, { recursive: true });
-  persistence = createBackgroundTaskPersistence(sessionDir);
+  persistence = createAgentTaskPersistence(sessionDir);
 });
 
 afterEach(async () => {
   await rm(sessionDir, { recursive: true, force: true });
 });
 
-describe('BackgroundManager — loadFromDisk + reconcile', () => {
+describe('AgentTaskService — loadFromDisk + reconcile', () => {
   describe('without persisted tasks', () => {
     let ctx: TestAgentContext;
-    let background: BackgroundServiceTestManager;
+    let background: TaskServiceTestManager;
 
     beforeEach(() => {
-      ctx = createTestAgent(backgroundServices());
-      background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
+      ctx = createTestAgent(taskServices());
+      background = ctx.get(IAgentTaskService) as TaskServiceTestManager;
     });
 
     afterEach(async () => {
@@ -84,12 +84,12 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
 
   describe('with persistence', () => {
     let ctx: TestAgentContext;
-    let background: BackgroundServiceTestManager;
+    let background: TaskServiceTestManager;
     let emittedEvents: unknown[];
 
     beforeEach(() => {
-      ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
-      background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
+      ctx = createTestAgent(homeDirServices(sessionDir), taskServices());
+      background = ctx.get(IAgentTaskService) as TaskServiceTestManager;
       emittedEvents = [];
       const events = ctx.get(IAgentEventSinkService);
       events.on((event) => {
@@ -120,7 +120,7 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
         status: 'lost',
       });
       expect(emittedEvents).toContainEqual({
-        type: 'background.task.terminated',
+        type: 'task.terminated',
         info: expect.objectContaining({
           taskId: 'bash-orphan00',
           status: 'lost',
@@ -128,7 +128,7 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
       });
     });
 
-    it('runtime restore reconciles persisted tasks through the background resume hook', async () => {
+    it('runtime restore reconciles persisted tasks through the task resume hook', async () => {
       await persistence.writeTask(
         persistedProcess({
           taskId: 'bash-restore0',
@@ -149,7 +149,7 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
         status: 'lost',
       });
       expect(emittedEvents).toContainEqual({
-        type: 'background.task.terminated',
+        type: 'task.terminated',
         info: expect.objectContaining({
           taskId: 'bash-restore0',
           status: 'lost',
@@ -188,11 +188,11 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
         status: 'lost',
       });
       const terminationEvents = emittedEvents.filter(
-        (event) => (event as { type?: string }).type === 'background.task.terminated',
+        (event) => (event as { type?: string }).type === 'task.terminated',
       );
       expect(terminationEvents).toHaveLength(1);
       expect(terminationEvents[0]).toMatchObject({
-        type: 'background.task.terminated',
+        type: 'task.terminated',
         info: { taskId: 'bash-running0', status: 'lost' },
       });
     });
@@ -258,7 +258,7 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
 
       expect(
         emittedEvents.filter(
-          (event) => (event as { type?: string }).type === 'background.task.terminated',
+          (event) => (event as { type?: string }).type === 'task.terminated',
         ),
       ).toHaveLength(1);
     });
@@ -285,7 +285,7 @@ describe('BackgroundManager — loadFromDisk + reconcile', () => {
       });
       expect(
         emittedEvents.filter(
-          (event) => (event as { type?: string }).type === 'background.task.terminated',
+          (event) => (event as { type?: string }).type === 'task.terminated',
         ),
       ).toEqual([]);
     });

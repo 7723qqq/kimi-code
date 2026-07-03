@@ -1,5 +1,5 @@
 /**
- * TaskStopTool — stop a running background task.
+ * TaskStopTool — stop a running task.
  */
 
 import { z } from 'zod';
@@ -9,14 +9,14 @@ import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
 
-import { IAgentBackgroundService } from '#/agent/background/background';
-import { TERMINAL_STATUSES } from '#/agent/background/task';
+import { IAgentTaskService } from '#/agent/task/task';
+import { TERMINAL_STATUSES } from '#/agent/task/types';
 import TASK_STOP_DESCRIPTION from './task-stop.md?raw';
 
 // ── Input schema ─────────────────────────────────────────────────────
 
 export const TaskStopInputSchema = z.object({
-  task_id: z.string().describe('The background task ID to stop.'),
+  task_id: z.string().describe('The task ID to stop.'),
   reason: z
     .string()
     .default('Stopped by TaskStop')
@@ -33,7 +33,7 @@ export class TaskStopTool implements BuiltinTool<TaskStopInput> {
   readonly description = TASK_STOP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskStopInputSchema);
 
-  constructor(@IAgentBackgroundService private readonly background: IAgentBackgroundService) {}
+  constructor(@IAgentTaskService private readonly tasks: IAgentTaskService) {}
 
   resolveExecution(args: TaskStopInput): ToolExecution {
     return {
@@ -41,7 +41,7 @@ export class TaskStopTool implements BuiltinTool<TaskStopInput> {
       approvalRule: this.name,
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.task_id),
       execute: async () => {
-        const info = this.background.getTask(args.task_id);
+        const info = this.tasks.getTask(args.task_id);
         if (!info) {
           return { isError: true, output: `Task not found: ${args.task_id}` };
         }
@@ -68,8 +68,8 @@ export class TaskStopTool implements BuiltinTool<TaskStopInput> {
           };
         }
 
-        await this.background.suppressTerminalNotification(args.task_id);
-        const result = await this.background.stop(args.task_id, reason);
+        await this.tasks.suppressTerminalNotification(args.task_id);
+        const result = await this.tasks.stop(args.task_id, reason);
         if (!result) {
           return { isError: true, output: `Failed to stop task: ${args.task_id}` };
         }

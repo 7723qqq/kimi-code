@@ -5,20 +5,21 @@ import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 import type { IProcess } from '#/session/process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IAgentBackgroundService, ProcessBackgroundTask } from '#/agent/background';
-import { createBackgroundTaskPersistence, type BackgroundServiceTestManager } from './stubs';
-import { backgroundServices, createTestAgent, homeDirServices, type TestAgentContext } from '../harness';
+import { IAgentTaskService } from '#/agent/task';
+import { ProcessTask } from '#/agent/shellTools/tools/process-task';
+import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
+import { taskServices, createTestAgent, homeDirServices, type TestAgentContext } from '../harness';
 
-interface BackgroundServiceFixture {
+interface TaskServiceFixture {
   readonly ctx: TestAgentContext;
-  readonly manager: BackgroundServiceTestManager;
-  readonly persistence: ReturnType<typeof createBackgroundTaskPersistence>;
+  readonly manager: TaskServiceTestManager;
+  readonly persistence: ReturnType<typeof createAgentTaskPersistence>;
 }
 
-function createBackgroundService(homedir: string): BackgroundServiceFixture {
-  const persistence = createBackgroundTaskPersistence(homedir);
-  const ctx = createTestAgent(homeDirServices(homedir), backgroundServices());
-  const manager = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
+function createTaskService(homedir: string): TaskServiceFixture {
+  const persistence = createAgentTaskPersistence(homedir);
+  const ctx = createTestAgent(homeDirServices(homedir), taskServices());
+  const manager = ctx.get(IAgentTaskService) as TaskServiceTestManager;
   return {
     ctx,
     manager,
@@ -27,16 +28,16 @@ function createBackgroundService(homedir: string): BackgroundServiceFixture {
 }
 
 function registerProcess(
-  manager: IAgentBackgroundService,
+  manager: IAgentTaskService,
   proc: IProcess,
   command: string,
   description: string,
 ): string {
-  return manager.registerTask(new ProcessBackgroundTask(proc, command, description));
+  return manager.registerTask(new ProcessTask(proc, command, description));
 }
 
 async function waitForOutput(
-  manager: IAgentBackgroundService,
+  manager: IAgentTaskService,
   taskId: string,
   expected: string,
 ): Promise<void> {
@@ -61,15 +62,15 @@ function immediateProcess(exitCode: number, stdoutText = ''): IProcess {
   };
 }
 
-describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
+describe('AgentTaskService — readOutput / getOutputSnapshot', () => {
   let sessionDir: string;
   let ctx: TestAgentContext;
-  let manager: BackgroundServiceTestManager;
-  let persistence: ReturnType<typeof createBackgroundTaskPersistence>;
+  let manager: TaskServiceTestManager;
+  let persistence: ReturnType<typeof createAgentTaskPersistence>;
 
   beforeEach(() => {
     sessionDir = mkdtempSync(join(tmpdir(), 'bpm-output-'));
-    const fixture = createBackgroundService(sessionDir);
+    const fixture = createTaskService(sessionDir);
     ctx = fixture.ctx;
     manager = fixture.manager;
     persistence = fixture.persistence;
@@ -170,7 +171,7 @@ describe('BackgroundManager — readOutput / getOutputSnapshot', () => {
     await waitForOutput(manager, taskId, 'persisted line');
     await manager.wait(taskId);
 
-    const freshFixture = createBackgroundService(sessionDir);
+    const freshFixture = createTaskService(sessionDir);
     const fresh = freshFixture.manager;
     try {
       await fresh.loadFromDisk();

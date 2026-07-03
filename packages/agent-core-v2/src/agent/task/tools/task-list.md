@@ -2,8 +2,8 @@ List background tasks and their current status.
 
 Use this tool to discover which background tasks exist and where each one
 stands. It is the entry point for inspecting background work: it returns a
-task ID, status, command, description, and PID for every task it reports,
-plus the exit code and stop reason for tasks that have already finished.
+task ID, status, command, description, PID, exit code, and stop reason
+when available.
 
 Guidelines:
 

@@ -2,23 +2,23 @@ import { z } from 'zod';
 
 import { isoDateTimeSchema } from './time';
 
-export const backgroundTaskKindSchema = z.enum(['subagent', 'bash', 'tool']);
-export type BackgroundTaskKind = z.infer<typeof backgroundTaskKindSchema>;
+export const taskKindSchema = z.enum(['subagent', 'bash', 'tool']);
+export type TaskKind = z.infer<typeof taskKindSchema>;
 
-export const backgroundTaskStatusSchema = z.enum([
+export const taskStatusSchema = z.enum([
   'running',
   'completed',
   'failed',
   'cancelled',
 ]);
-export type BackgroundTaskStatus = z.infer<typeof backgroundTaskStatusSchema>;
+export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
-export const backgroundTaskSchema = z.object({
+export const taskSchema = z.object({
   id: z.string().min(1),
   session_id: z.string().min(1),
-  kind: backgroundTaskKindSchema,
+  kind: taskKindSchema,
   description: z.string(),
-  status: backgroundTaskStatusSchema,
+  status: taskStatusSchema,
   command: z.string().optional(),
   created_at: isoDateTimeSchema,
   started_at: isoDateTimeSchema.optional(),
@@ -26,4 +26,4 @@ export const backgroundTaskSchema = z.object({
   output_preview: z.string().optional(),
   output_bytes: z.number().int().nonnegative().optional(),
 });
-export type BackgroundTask = z.infer<typeof backgroundTaskSchema>;
+export type Task = z.infer<typeof taskSchema>;

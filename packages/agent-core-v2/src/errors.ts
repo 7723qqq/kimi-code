@@ -10,7 +10,7 @@
 import { CoreErrors } from '#/_base/errors';
 import { AgentLifecycleErrors } from '#/session/agentLifecycle/errors';
 import { AuthErrors } from '#/app/auth/errors';
-import { BackgroundErrors } from '#/agent/background/errors';
+import { TaskErrors } from '#/agent/task/errors';
 import { ChatProviderErrors } from '#/app/protocol/errors';
 import { ConfigErrors } from '#/app/config/errors';
 import { FileErrors } from '#/app/file/fileService';
@@ -34,7 +34,7 @@ import { WireRecordErrors } from '#/agent/wireRecord/errors';
 export * from '#/_base/errors';
 export { AgentLifecycleErrors } from '#/session/agentLifecycle/errors';
 export { AuthErrors } from '#/app/auth/errors';
-export { BackgroundErrors } from '#/agent/background/errors';
+export { TaskErrors } from '#/agent/task/errors';
 export { ChatProviderErrors } from '#/app/protocol/errors';
 export { ConfigErrors } from '#/app/config/errors';
 export { FileErrors } from '#/app/file/fileService';
@@ -59,7 +59,7 @@ export const ErrorCodes = {
   ...CoreErrors.codes,
   ...AgentLifecycleErrors.codes,
   ...AuthErrors.codes,
-  ...BackgroundErrors.codes,
+  ...TaskErrors.codes,
   ...ChatProviderErrors.codes,
   ...ConfigErrors.codes,
   ...FileErrors.codes,

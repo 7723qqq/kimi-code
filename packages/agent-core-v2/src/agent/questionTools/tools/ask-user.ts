@@ -11,7 +11,7 @@
 import { z } from 'zod';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { QuestionBackgroundTask, IAgentBackgroundService } from '#/agent/background';
+import { IAgentTaskService } from '#/agent/task';
 import { ITelemetryService } from '#/app/telemetry';
 import type { TelemetryProperties } from '#/app/telemetry';
 import type {
@@ -30,6 +30,7 @@ import type {
   QuestionResult,
 } from '#/session/question/question';
 import DESCRIPTION from './ask-user.md?raw';
+import { QuestionTask } from './question-task';
 
 // ── Input schema ─────────────────────────────────────────────────────
 
@@ -102,7 +103,7 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
 
   constructor(
     @ISessionQuestionService private readonly question: ISessionQuestionService,
-    @IAgentBackgroundService private readonly background: IAgentBackgroundService,
+    @IAgentTaskService private readonly tasks: IAgentTaskService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
@@ -177,8 +178,8 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
     const description = questionDescription(args.questions);
     let taskId: string;
     try {
-      taskId = this.background.registerTask(
-        new QuestionBackgroundTask(
+      taskId = this.tasks.registerTask(
+        new QuestionTask(
           () => this.executeQuestion(args, { toolCallId, turnId }),
           description,
           {
@@ -194,7 +195,7 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
       };
     }
 
-    const status = this.background.getTask(taskId)?.status ?? 'running';
+    const status = this.tasks.getTask(taskId)?.status ?? 'running';
     return {
       isError: false,
       output:

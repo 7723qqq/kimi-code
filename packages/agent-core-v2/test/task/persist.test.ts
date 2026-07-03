@@ -12,9 +12,9 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import {
-  BackgroundTaskPersistence,
-  type BackgroundTaskInfo,
-} from '#/agent/background';
+  AgentTaskPersistence,
+  type AgentTaskInfo,
+} from '#/agent/task';
 import {
   AtomicDocumentStore,
   FileStorageService,
@@ -26,9 +26,9 @@ const SESSION_SCOPE = 'session';
 
 let disposables: DisposableStore;
 let sessionDir: string;
-let persistence: BackgroundTaskPersistence;
+let persistence: AgentTaskPersistence;
 
-function sample(overrides: Partial<Extract<BackgroundTaskInfo, { kind: 'process' }>> = {}): Extract<BackgroundTaskInfo, { kind: 'process' }> {
+function sample(overrides: Partial<Extract<AgentTaskInfo, { kind: 'process' }>> = {}): Extract<AgentTaskInfo, { kind: 'process' }> {
   return {
     taskId: 'bash-11111111',
     kind: 'process',
@@ -51,8 +51,8 @@ beforeEach(async () => {
   );
   await mkdir(sessionDir, { recursive: true });
 
-  // `BackgroundTaskPersistence` is a plain (non-DI) helper constructed by
-  // `AgentBackgroundService`, so the test builds it directly. Its `docs`
+  // `AgentTaskPersistence` is a plain (non-DI) helper constructed by
+  // `AgentTaskService`, so the test builds it directly. Its `docs`
   // collaborator (`IAtomicDocumentStore`) carries an `@IService` dependency, so
   // it is resolved by interface through the container rather than `new`ed.
   disposables = new DisposableStore();
@@ -63,7 +63,7 @@ beforeEach(async () => {
   ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
   const docs = ix.get(IAtomicDocumentStore);
   const bytes = ix.get(IFileSystemStorageService);
-  persistence = new BackgroundTaskPersistence(sessionDir, SESSION_SCOPE, docs, bytes);
+  persistence = new AgentTaskPersistence(sessionDir, SESSION_SCOPE, docs, bytes);
 });
 
 afterEach(async () => {
@@ -71,7 +71,7 @@ afterEach(async () => {
   await rm(sessionDir, { recursive: true, force: true });
 });
 
-describe('BackgroundTaskPersistence', () => {
+describe('AgentTaskPersistence', () => {
   it('round-trips a task via write/read', async () => {
     await persistence.writeTask(sample());
     const loaded = await persistence.readTask('bash-11111111');

@@ -287,12 +287,12 @@ export interface WireQuestionResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Background Task
+// Task
 // ---------------------------------------------------------------------------
 
 export type WireTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
-export interface WireBackgroundTask {
+export interface WireTask {
   id: string;
   session_id: string;
   kind: 'subagent' | 'bash' | 'tool';
@@ -737,8 +737,8 @@ type WireEventQuestionDismissed = WireEventBase<'event.question.dismissed', {
   dismissed_by: string;
   dismissed_at: string;
 }>;
-// Background tasks
-type WireEventTaskCreated = WireEventBase<'event.task.created', { task: WireBackgroundTask }>;
+// Tasks
+type WireEventTaskCreated = WireEventBase<'event.task.created', { task: WireTask }>;
 type WireEventTaskProgress = WireEventBase<'event.task.progress', {
   task_id: string;
   output_chunk: string;
@@ -809,7 +809,7 @@ export type WireEvent =
   | WireEventQuestionRequested
   | WireEventQuestionAnswered
   | WireEventQuestionDismissed
-  // Background tasks
+  // Tasks
   | WireEventTaskCreated
   | WireEventTaskProgress
   | WireEventTaskCompleted

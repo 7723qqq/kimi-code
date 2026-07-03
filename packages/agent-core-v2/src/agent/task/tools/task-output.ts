@@ -1,5 +1,5 @@
 /**
- * TaskOutputTool — read output from a background task.
+ * TaskOutputTool — read output from a managed task.
  *
  * Returns structured task metadata plus a fixed-size tail preview of the
  * task's output. The full, never-truncated output lives on disk at
@@ -19,12 +19,12 @@ import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
 
-import { IAgentBackgroundService } from '#/agent/background/background';
+import { IAgentTaskService } from '#/agent/task/task';
 import type {
-  BackgroundTaskInfo,
-  BackgroundTaskOutputSnapshot,
-} from '#/agent/background/background';
-import { type BackgroundTaskStatus, TERMINAL_STATUSES } from '#/agent/background/task';
+  AgentTaskInfo,
+  AgentTaskOutputSnapshot,
+} from '#/agent/task/task';
+import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
 import { formatPlainObject } from './format';
 import TASK_OUTPUT_DESCRIPTION from './task-output.md?raw';
 
@@ -41,7 +41,7 @@ const PAGING_HINT_LINES = 300;
 // ── Input schema ─────────────────────────────────────────────────────
 
 export const TaskOutputInputSchema = z.object({
-  task_id: z.string().describe('The background task ID to inspect.'),
+  task_id: z.string().describe('The task ID to inspect.'),
   block: z
     .boolean()
     .default(false)
@@ -62,21 +62,21 @@ export type TaskOutputInput = z.infer<typeof TaskOutputInputSchema>;
 // ── Implementation ───────────────────────────────────────────────────
 
 function retrievalStatus(
-  status: BackgroundTaskStatus,
+  status: AgentTaskStatus,
   block: boolean | undefined,
 ): 'success' | 'timeout' | 'not_ready' {
   if (TERMINAL_STATUSES.has(status)) return 'success';
   return block ? 'timeout' : 'not_ready';
 }
 
-function terminalReason(info: BackgroundTaskInfo): 'timed_out' | 'stopped' | 'failed' | undefined {
+function terminalReason(info: AgentTaskInfo): 'timed_out' | 'stopped' | 'failed' | undefined {
   if (info.status === 'timed_out') return 'timed_out';
   if (info.status === 'killed' && info.stopReason !== undefined) return 'stopped';
   if (info.status === 'failed' && info.stopReason !== undefined) return 'failed';
   return undefined;
 }
 
-function fullOutputHint(output: BackgroundTaskOutputSnapshot): string | undefined {
+function fullOutputHint(output: AgentTaskOutputSnapshot): string | undefined {
   if (!output.fullOutputAvailable || output.outputPath === undefined) return undefined;
   if (output.truncated) {
     return (
@@ -99,7 +99,7 @@ export class TaskOutputTool implements BuiltinTool<TaskOutputInput> {
   readonly description: string = TASK_OUTPUT_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskOutputInputSchema);
 
-  constructor(@IAgentBackgroundService private readonly background: IAgentBackgroundService) {}
+  constructor(@IAgentTaskService private readonly tasks: IAgentTaskService) {}
 
   resolveExecution(args: TaskOutputInput): ToolExecution {
     return {
@@ -111,17 +111,17 @@ export class TaskOutputTool implements BuiltinTool<TaskOutputInput> {
   }
 
   private async execute(args: TaskOutputInput): Promise<ExecutableToolResult> {
-    const info = this.background.getTask(args.task_id);
+    const info = this.tasks.getTask(args.task_id);
     if (!info) {
       return { isError: true, output: `Task not found: ${args.task_id}` };
     }
 
     if (args.block && !TERMINAL_STATUSES.has(info.status)) {
-      await this.background.wait(args.task_id, (args.timeout ?? 30) * 1000);
+      await this.tasks.wait(args.task_id, (args.timeout ?? 30) * 1000);
     }
 
     // Re-fetch after potential wait.
-    const current = this.background.getTask(args.task_id);
+    const current = this.tasks.getTask(args.task_id);
     if (!current) {
       return { isError: true, output: `Task not found: ${args.task_id}` };
     }
@@ -129,7 +129,7 @@ export class TaskOutputTool implements BuiltinTool<TaskOutputInput> {
     // A single manager-owned snapshot drives the tail window and every
     // reported metric below. Persisted logs remain authoritative when
     // available; detached managers fall back to their live ring buffer.
-    const output = await this.background.getOutputSnapshot(args.task_id, OUTPUT_PREVIEW_BYTES);
+    const output = await this.tasks.getOutputSnapshot(args.task_id, OUTPUT_PREVIEW_BYTES);
 
     const lines = [
       formatPlainObject({

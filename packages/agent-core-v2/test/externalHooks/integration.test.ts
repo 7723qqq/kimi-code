@@ -8,7 +8,7 @@ import {
 } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { IAgentToolService } from '#/agent/agentTool';
-import { IAgentBackgroundService } from '#/agent/background';
+import { IAgentTaskService } from '#/agent/task';
 import {
   AgentExternalHooksService,
   IAgentExternalHooksService,
@@ -136,7 +136,7 @@ describe('HookEngine integration', () => {
           reg.definePartialInstance(IAgentFullCompactionService, {
             hooks: createHooks(['onWillCompact', 'onDidCompact']),
           });
-          reg.definePartialInstance(IAgentBackgroundService, {
+          reg.definePartialInstance(IAgentTaskService, {
             hooks: createHooks(['onDidNotify']),
           });
           reg.definePartialInstance(IAgentToolService, {

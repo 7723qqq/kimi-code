@@ -9,25 +9,25 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  IAgentBackgroundService,
-  type BackgroundTaskInfo,
-} from '#/agent/background';
+  IAgentTaskService,
+  type AgentTaskInfo,
+} from '#/agent/task';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import {
-  backgroundServices,
+  taskServices,
   createTestAgent,
   homeDirServices,
   type TestAgentContext,
 } from '../harness';
 import {
-  createBackgroundTaskPersistence,
-  type BackgroundServiceTestManager,
+  createAgentTaskPersistence,
+  type TaskServiceTestManager,
 } from './stubs';
 
 let sessionDir: string;
-let persistence: ReturnType<typeof createBackgroundTaskPersistence>;
+let persistence: ReturnType<typeof createAgentTaskPersistence>;
 
-function runningGhost(taskId: string): Extract<BackgroundTaskInfo, { kind: 'process' }> {
+function runningGhost(taskId: string): Extract<AgentTaskInfo, { kind: 'process' }> {
   return {
     taskId,
     kind: 'process',
@@ -47,7 +47,7 @@ beforeEach(async () => {
     `kimi-hb-stale-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   await mkdir(sessionDir, { recursive: true });
-  persistence = createBackgroundTaskPersistence(sessionDir);
+  persistence = createAgentTaskPersistence(sessionDir);
 });
 
 afterEach(async () => {
@@ -56,12 +56,12 @@ afterEach(async () => {
 
 describe('Background reconcile — stale ghost detection', () => {
   let ctx: TestAgentContext;
-  let background: BackgroundServiceTestManager;
+  let background: TaskServiceTestManager;
   let emittedEvents: unknown[];
 
   beforeEach(() => {
-    ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
-    background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
+    ctx = createTestAgent(homeDirServices(sessionDir), taskServices());
+    background = ctx.get(IAgentTaskService) as TaskServiceTestManager;
     emittedEvents = [];
     const events = ctx.get(IAgentEventSinkService);
     events.on((event) => {
@@ -84,7 +84,7 @@ describe('Background reconcile — stale ghost detection', () => {
     await background.reconcile();
 
     expect(emittedEvents).toContainEqual({
-      type: 'background.task.terminated',
+      type: 'task.terminated',
       info: expect.objectContaining({
         taskId: 'bash-stale000',
         status: 'lost',
@@ -101,7 +101,7 @@ describe('Background reconcile — stale ghost detection', () => {
 
     expect(
       emittedEvents.filter(
-        (event) => (event as { type?: string }).type === 'background.task.terminated',
+        (event) => (event as { type?: string }).type === 'task.terminated',
       ),
     ).toHaveLength(1);
   });

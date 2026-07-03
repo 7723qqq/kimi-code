@@ -5,34 +5,36 @@ import type { IProcess } from '#/session/process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  AgentBackgroundTask,
-  IAgentBackgroundService,
-  ProcessBackgroundTask,
-} from '#/agent/background';
-import type { SubagentHandle } from '#/agent/background';
+  IAgentTaskService,
+} from '#/agent/task';
+import {
+  SubagentTask,
+  type SubagentHandle,
+} from '#/session/agentLifecycle/tools/subagent-task';
+import { ProcessTask } from '#/agent/shellTools/tools/process-task';
 import { createTestAgent, type TestAgentContext } from '../harness';
-import { createBackgroundTaskPersistence } from './stubs';
+import { createAgentTaskPersistence } from './stubs';
 
 function registerProcess(
-  manager: IAgentBackgroundService,
+  manager: IAgentTaskService,
   proc: IProcess,
   command: string,
   description: string,
 ): string {
-  return manager.registerTask(new ProcessBackgroundTask(proc, command, description));
+  return manager.registerTask(new ProcessTask(proc, command, description));
 }
 
 function agentTask(
   completion: Promise<{ result: string }>,
   description: string,
-): AgentBackgroundTask {
+): SubagentTask {
   const handle: SubagentHandle = {
     agentId: 'agent-child',
     profileName: 'coder',
     resumed: false,
     completion,
   };
-  return new AgentBackgroundTask(
+  return new SubagentTask(
     handle,
     description,
     new AbortController(),
@@ -65,11 +67,11 @@ function pendingProcess(): IProcess & { resolve(code: number): void } {
 
 describe('background task id format', () => {
   let ctx: TestAgentContext;
-  let background: IAgentBackgroundService;
+  let background: IAgentTaskService;
 
   beforeEach(() => {
     ctx = createTestAgent();
-    background = ctx.get(IAgentBackgroundService);
+    background = ctx.get(IAgentTaskService);
   });
 
   afterEach(async () => {
@@ -106,7 +108,7 @@ describe('background task id format', () => {
   });
 
   it('rejects malformed ids at the persistence path boundary', () => {
-    const persistence = createBackgroundTaskPersistence('/tmp/kimi-bg-id-test');
+    const persistence = createAgentTaskPersistence('/tmp/kimi-bg-id-test');
     const rejected = [
       '',
       'x',

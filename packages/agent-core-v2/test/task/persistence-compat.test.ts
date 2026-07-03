@@ -4,17 +4,17 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IAgentBackgroundService } from '#/agent/background';
+import { IAgentTaskService } from '#/agent/task';
 import {
-  backgroundServices,
+  taskServices,
   createTestAgent,
   homeDirServices,
   type TestAgentContext,
 } from '../harness';
 import {
-  BACKGROUND_TEST_SESSION_SCOPE,
-  createBackgroundTaskPersistence,
-  type BackgroundServiceTestManager,
+  TASK_TEST_SESSION_SCOPE,
+  createAgentTaskPersistence,
+  type TaskServiceTestManager,
 } from './stubs';
 
 let sessionDir: string;
@@ -24,7 +24,7 @@ beforeEach(async () => {
     tmpdir(),
     `kimi-bg-persist-compat-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
-  await mkdir(join(sessionDir, BACKGROUND_TEST_SESSION_SCOPE, 'tasks'), { recursive: true });
+  await mkdir(join(sessionDir, TASK_TEST_SESSION_SCOPE, 'tasks'), { recursive: true });
 });
 
 afterEach(async () => {
@@ -33,13 +33,13 @@ afterEach(async () => {
 
 async function writeLegacyTask(taskId: string, task: Record<string, unknown>): Promise<void> {
   await writeFile(
-    join(sessionDir, BACKGROUND_TEST_SESSION_SCOPE, 'tasks', `${taskId}.json`),
+    join(sessionDir, TASK_TEST_SESSION_SCOPE, 'tasks', `${taskId}.json`),
     JSON.stringify(task),
     'utf-8',
   );
 }
 
-describe('BackgroundTaskPersistence legacy compatibility', () => {
+describe('AgentTaskPersistence legacy compatibility', () => {
   it('normalizes legacy snake_case process task records', async () => {
     await writeLegacyTask('bash-legacy01', {
       task_id: 'bash-legacy01',
@@ -52,7 +52,7 @@ describe('BackgroundTaskPersistence legacy compatibility', () => {
       status: 'running',
     });
 
-    const persistence = createBackgroundTaskPersistence(sessionDir);
+    const persistence = createAgentTaskPersistence(sessionDir);
 
     expect(await persistence.readTask('bash-legacy01')).toMatchObject({
       taskId: 'bash-legacy01',
@@ -83,7 +83,7 @@ describe('BackgroundTaskPersistence legacy compatibility', () => {
       subagent_type: 'reviewer',
     });
 
-    const persistence = createBackgroundTaskPersistence(sessionDir);
+    const persistence = createAgentTaskPersistence(sessionDir);
     const tasks = await persistence.listTasks();
 
     expect(tasks).toHaveLength(1);
@@ -101,8 +101,8 @@ describe('BackgroundTaskPersistence legacy compatibility', () => {
   });
 
   it('migrates legacy records through load/reconcile writeback', async () => {
-    const ctx: TestAgentContext = createTestAgent(homeDirServices(sessionDir), backgroundServices());
-    const background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
+    const ctx: TestAgentContext = createTestAgent(homeDirServices(sessionDir), taskServices());
+    const background = ctx.get(IAgentTaskService) as TaskServiceTestManager;
     await writeLegacyTask('bash-orphan01', {
       task_id: 'bash-orphan01',
       command: 'sleep 60',
@@ -125,7 +125,7 @@ describe('BackgroundTaskPersistence legacy compatibility', () => {
       });
       const raw = JSON.parse(
         await readFile(
-          join(sessionDir, BACKGROUND_TEST_SESSION_SCOPE, 'tasks', 'bash-orphan01.json'),
+          join(sessionDir, TASK_TEST_SESSION_SCOPE, 'tasks', 'bash-orphan01.json'),
           'utf-8',
         ),
       ) as Record<string, unknown>;

@@ -55,7 +55,7 @@ import {
 } from './mappers';
 import type {
   WireAuthResult,
-  WireBackgroundTask,
+  WireTask,
   WireConfig,
   WireEvent,
   WireFileMeta,
@@ -646,7 +646,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
     const query: Record<string, string | undefined> = {
       status: status,
     };
-    const data = await this.http.get<{ items: WireBackgroundTask[] }>(
+    const data = await this.http.get<{ items: WireTask[] }>(
       `/sessions/${encodeURIComponent(sessionId)}/tasks`,
       query,
     );
@@ -662,7 +662,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       with_output: input?.withOutput,
       output_bytes: input?.outputBytes,
     };
-    const data = await this.http.get<WireBackgroundTask>(
+    const data = await this.http.get<WireTask>(
       `/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}`,
       query,
     );

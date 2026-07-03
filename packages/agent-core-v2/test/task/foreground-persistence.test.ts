@@ -14,19 +14,17 @@ import { join } from 'pathe';
 import type { IProcess } from '#/session/process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { IAgentTaskService } from '#/agent/task';
+import { ProcessTask } from '#/agent/shellTools/tools/process-task';
 import {
-  IAgentBackgroundService,
-  ProcessBackgroundTask,
-} from '#/agent/background';
-import {
-  backgroundServices,
+  taskServices,
   createTestAgent,
   homeDirServices,
   type TestAgentContext,
 } from '../harness';
 import {
-  BACKGROUND_TEST_SESSION_SCOPE,
-  createBackgroundTaskPersistence,
+  TASK_TEST_SESSION_SCOPE,
+  createAgentTaskPersistence,
 } from './stubs';
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
@@ -79,27 +77,27 @@ function controllableProcess(): {
 }
 
 function registerForeground(
-  background: IAgentBackgroundService,
+  background: IAgentTaskService,
   proc: IProcess,
   command: string,
   description: string,
 ): string {
-  return background.registerTask(new ProcessBackgroundTask(proc, command, description), {
+  return background.registerTask(new ProcessTask(proc, command, description), {
     detached: false,
   });
 }
 
-describe('BackgroundManager — foreground persistence', () => {
+describe('AgentTaskService — foreground persistence', () => {
   let sessionDir: string;
-  let persistence: ReturnType<typeof createBackgroundTaskPersistence>;
+  let persistence: ReturnType<typeof createAgentTaskPersistence>;
   let ctx: TestAgentContext;
-  let background: IAgentBackgroundService;
+  let background: IAgentTaskService;
 
   beforeEach(() => {
     sessionDir = mkdtempSync(join(tmpdir(), 'bpm-fg-'));
-    persistence = createBackgroundTaskPersistence(sessionDir);
-    ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
-    background = ctx.get(IAgentBackgroundService);
+    persistence = createAgentTaskPersistence(sessionDir);
+    ctx = createTestAgent(homeDirServices(sessionDir), taskServices());
+    background = ctx.get(IAgentTaskService);
   });
 
   afterEach(async () => {
@@ -112,7 +110,7 @@ describe('BackgroundManager — foreground persistence', () => {
   });
 
   const taskJsonPath = (taskId: string): string =>
-    join(sessionDir, BACKGROUND_TEST_SESSION_SCOPE, 'tasks', `${taskId}.json`);
+    join(sessionDir, TASK_TEST_SESSION_SCOPE, 'tasks', `${taskId}.json`);
 
   it('writes nothing to disk for a foreground task that does not spill or detach', async () => {
     const taskId = registerForeground(background, immediateProcess(0, 'hello\n'), 'echo', 'demo');

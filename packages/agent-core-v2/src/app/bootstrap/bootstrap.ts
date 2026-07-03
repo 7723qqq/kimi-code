@@ -97,7 +97,7 @@ export interface IBootstrapService {
   /**
    * File-only: absolute on-disk directory for a session.
    * Prefer `sessionScope(...)` — this exists for legacy APIs (session logs,
-   * background task tail file). Non-file bootstraps may throw.
+   * task output files). Non-file bootstraps may throw.
    */
   sessionDir(workspaceId: string, sessionId: string): string;
 

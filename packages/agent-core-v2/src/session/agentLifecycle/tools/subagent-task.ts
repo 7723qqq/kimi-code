@@ -1,10 +1,10 @@
 import type { TokenUsage } from '#/app/llmProtocol';
 
 import {
-  type BackgroundTask,
-  type BackgroundTaskInfoBase,
-  type BackgroundTaskSink,
-} from './task';
+  type AgentTask,
+  type AgentTaskInfoBase,
+  type AgentTaskSink,
+} from '#/agent/task/types';
 
 type SubagentCompletion = {
   readonly result: string;
@@ -17,12 +17,18 @@ export type SubagentHandle = {
   readonly completion: Promise<SubagentCompletion>;
 };
 
-export interface AgentBackgroundTaskInfo extends BackgroundTaskInfoBase {
+export interface SubagentTaskInfo extends AgentTaskInfoBase {
   readonly kind: 'agent';
   /** Subagent identifier accepted by Agent(resume=...). */
   readonly agentId?: string;
   /** Subagent profile name. */
   readonly subagentType?: string;
+}
+
+declare module '#/agent/task/types' {
+  interface AgentTaskInfoByKind {
+    readonly agent: SubagentTaskInfo;
+  }
 }
 
 function isAbortError(err: unknown): boolean {
@@ -38,7 +44,7 @@ function errorMessage(err: unknown): string {
  * subagent completion promise.  Resolves with the subagent result on
  * success, throws on abort or failure.
  */
-export function createAgentExecutor(
+export function createSubagentExecutor(
   handle: SubagentHandle,
   abortController: AbortController,
 ): (signal: AbortSignal, output: (data: string) => void) => Promise<SubagentCompletion> {
@@ -67,7 +73,7 @@ export function createAgentExecutor(
   };
 }
 
-export class AgentBackgroundTask implements BackgroundTask {
+export class SubagentTask implements AgentTask {
   readonly kind = 'agent' as const;
   readonly idPrefix: string = 'agent';
   readonly agentId: string;
@@ -82,7 +88,7 @@ export class AgentBackgroundTask implements BackgroundTask {
     this.subagentType = handle.profileName;
   }
 
-  async start(sink: BackgroundTaskSink): Promise<void> {
+  async start(sink: AgentTaskSink): Promise<void> {
     const requestAbort = (): void => {
       this.abortController.abort(sink.signal.reason);
     };
@@ -107,7 +113,7 @@ export class AgentBackgroundTask implements BackgroundTask {
     }
   }
 
-  toInfo(base: BackgroundTaskInfoBase): AgentBackgroundTaskInfo {
+  toInfo(base: AgentTaskInfoBase): SubagentTaskInfo {
     return {
       ...base,
       kind: 'agent',

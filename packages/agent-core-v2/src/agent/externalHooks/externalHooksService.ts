@@ -4,7 +4,7 @@
  *
  * Listens to hook slots owned by the agent behavior/lifecycle domains
  * (`toolExecutor`, `permissionGate`, `turn`, `loop`, `fullCompaction`,
- * `background`, and `agentTool`) and translates those minimal contexts into
+ * `task`, and `agentTool`) and translates those minimal contexts into
  * the configured external HookEngine events.
  */
 
@@ -18,7 +18,7 @@ import type {
   AgentToolWillRunSubagentContext,
 } from '#/agent/agentTool';
 import { IAgentToolService } from '#/agent/agentTool';
-import { IAgentBackgroundService, type BackgroundNotificationContext } from '#/agent/background';
+import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task';
 import {
   IAgentFullCompactionService,
   type FullCompactionDidCompactContext,
@@ -124,8 +124,8 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       this.instantiation.invokeFunction((accessor) => accessor.get(IAgentFullCompactionService)),
     );
 
-    this.registerBackgroundHooks(
-      this.instantiation.invokeFunction((accessor) => accessor.get(IAgentBackgroundService)),
+    this.registerTaskHooks(
+      this.instantiation.invokeFunction((accessor) => accessor.get(IAgentTaskService)),
     );
 
     this.registerAgentToolHooks(
@@ -228,10 +228,10 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private registerBackgroundHooks(background: IAgentBackgroundService): void {
+  private registerTaskHooks(tasks: IAgentTaskService): void {
     this._register(
-      background.hooks.onDidNotify.register('externalHooks', async (ctx, next) => {
-        this.notifyBackgroundNotification(ctx);
+      tasks.hooks.onDidNotify.register('externalHooks', async (ctx, next) => {
+        this.notifyTaskNotification(ctx);
         await next();
       }),
     );
@@ -379,7 +379,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     });
   }
 
-  private notifyBackgroundNotification(ctx: BackgroundNotificationContext): void {
+  private notifyTaskNotification(ctx: AgentTaskNotificationContext): void {
     const signal = new AbortController().signal;
     fireAndForget(
       this.engine(),

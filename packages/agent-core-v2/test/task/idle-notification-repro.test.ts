@@ -6,7 +6,7 @@
  * this file drives a real `Agent` instance so we can verify the
  * full chain:
  *
- *    onLiveTaskTerminal → notifyBackgroundTask → turn.steer()
+ *    onLiveTaskTerminal → notifyAgentTask → turn.steer()
  *      → (idle) launch() → turnWorker() → LLM generate called with
  *        the notification XML in history
  *      → (busy) buffered into steerBuffer → flushed on next loop step
@@ -22,46 +22,44 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  AgentBackgroundTask,
-  IAgentBackgroundService,
-} from '#/agent/background';
+import { IAgentTaskService } from '#/agent/task';
+import { SubagentTask } from '#/session/agentLifecycle/tools/subagent-task';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentTurnService } from '#/agent/turn';
 import {
-  backgroundServices,
+  taskServices,
   createTestAgent,
   homeDirServices,
   type TestAgentContext,
 } from '../harness';
 import {
-  createBackgroundTaskPersistence,
-  type BackgroundServiceTestManager,
+  createAgentTaskPersistence,
+  type TaskServiceTestManager,
 } from './stubs';
 
 function agentTask(
   completion: Promise<{ result: string }>,
   description: string,
-): AgentBackgroundTask {
-  return new AgentBackgroundTask(
+): SubagentTask {
+  return new SubagentTask(
     { agentId: 'agent-child', profileName: 'coder', completion },
     description,
     new AbortController(),
   );
 }
 
-describe('background notification → main agent (real Agent instance)', () => {
+describe('task notification → main agent (real Agent instance)', () => {
   describe('live notification delivery', () => {
     let ctx: TestAgentContext;
-    let background: IAgentBackgroundService;
+    let background: IAgentTaskService;
     let prompt: IAgentPromptService;
     let turn: IAgentTurnService;
     let profile: IAgentProfileService;
 
     beforeEach(() => {
       ctx = createTestAgent();
-      background = ctx.get(IAgentBackgroundService);
+      background = ctx.get(IAgentTaskService);
       prompt = ctx.get(IAgentPromptService);
       turn = ctx.get(IAgentTurnService);
       profile = ctx.get(IAgentProfileService);
@@ -99,7 +97,7 @@ describe('background notification → main agent (real Agent instance)', () => {
       );
 
       // The latest LLM call must include the notification XML the
-      // BackgroundManager injected via `turn.steer`.
+      // AgentTaskService injected via `turn.steer`.
       const lastCall = ctx.llmCalls.at(-1)!;
       const flatHistoryText = JSON.stringify(lastCall.history);
       expect(flatHistoryText).toContain('<notification');
@@ -154,7 +152,7 @@ describe('background notification → main agent (real Agent instance)', () => {
       });
       const matchingCall = steerSpy.mock.calls.find((c) => {
         const payload = c[0] as { origin?: { kind?: string; taskId?: string } } | undefined;
-        return payload?.origin?.kind === 'background_task' && payload?.origin?.taskId === taskId;
+        return payload?.origin?.kind === 'task' && payload?.origin?.taskId === taskId;
       });
       expect(matchingCall).toBeDefined();
 
@@ -273,7 +271,7 @@ describe('background notification → main agent (real Agent instance)', () => {
   describe('resumed notifications', () => {
     let sessionDir: string;
     let ctx: TestAgentContext;
-    let background: BackgroundServiceTestManager;
+    let background: TaskServiceTestManager;
     let prompt: IAgentPromptService;
     let turn: IAgentTurnService;
 
@@ -281,7 +279,7 @@ describe('background notification → main agent (real Agent instance)', () => {
       sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-repro-'));
       // Simulate a previous session's bash bg task that completed
       // before exit and an agent bg task that didn't (will be lost).
-      const backgroundPersistence = createBackgroundTaskPersistence(sessionDir);
+      const backgroundPersistence = createAgentTaskPersistence(sessionDir);
       await backgroundPersistence.writeTask({
         taskId: 'bash-prev0000',
         kind: 'process',
@@ -304,8 +302,8 @@ describe('background notification → main agent (real Agent instance)', () => {
         status: 'running',
       });
 
-      ctx = createTestAgent(homeDirServices(sessionDir), backgroundServices());
-      background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
+      ctx = createTestAgent(homeDirServices(sessionDir), taskServices());
+      background = ctx.get(IAgentTaskService) as TaskServiceTestManager;
       prompt = ctx.get(IAgentPromptService);
       turn = ctx.get(IAgentTurnService);
       const profile = ctx.get(IAgentProfileService);

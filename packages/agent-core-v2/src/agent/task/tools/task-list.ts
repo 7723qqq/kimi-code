@@ -1,5 +1,5 @@
 /**
- * TaskListTool — list background tasks.
+ * TaskListTool — list managed tasks.
  */
 
 import { z } from 'zod';
@@ -9,8 +9,8 @@ import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import type { BuiltinTool, ToolExecution } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
 
-import { IAgentBackgroundService } from '#/agent/background/background';
-import type { BackgroundTaskInfo } from '#/agent/background/background';
+import { IAgentTaskService } from '#/agent/task/task';
+import type { AgentTaskInfo } from '#/agent/task/task';
 import { formatPlainObject } from './format';
 import TASK_LIST_DESCRIPTION from './task-list.md?raw';
 
@@ -21,7 +21,7 @@ export const TaskListInputSchema = z.object({
     .boolean()
     .optional()
     .default(true)
-    .describe('Whether to list only non-terminal background tasks.'),
+    .describe('Whether to list only non-terminal tasks.'),
   limit: z
     .number()
     .int()
@@ -36,12 +36,12 @@ export type TaskListInput = z.infer<typeof TaskListInputSchema>;
 
 // ── Implementation ───────────────────────────────────────────────────
 
-function formatTaskList(tasks: readonly BackgroundTaskInfo[], activeOnly: boolean): string {
+function formatTaskList(tasks: readonly AgentTaskInfo[], activeOnly: boolean): string {
   // `active_only=false` mixes in terminal/lost tasks, so the count is no
   // longer purely "active" — use a neutral label to avoid mislabeling them.
-  const label = activeOnly ? 'active_background_tasks' : 'background_tasks';
+  const label = activeOnly ? 'active_tasks' : 'tasks';
   const header = `${label}: ${String(tasks.length)}`;
-  if (tasks.length === 0) return `${header}\nNo background tasks found.`;
+  if (tasks.length === 0) return `${header}\nNo tasks found.`;
   return `${header}\n${tasks.map((task) => formatPlainObject(task)).join('\n---\n')}`;
 }
 
@@ -50,17 +50,17 @@ export class TaskListTool implements BuiltinTool<TaskListInput> {
   readonly description = TASK_LIST_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskListInputSchema);
 
-  constructor(@IAgentBackgroundService private readonly background: IAgentBackgroundService) {}
+  constructor(@IAgentTaskService private readonly tasks: IAgentTaskService) {}
 
   resolveExecution(args: TaskListInput): ToolExecution {
     const listScope = (args.active_only ?? true) ? 'active' : 'all';
     return {
-      description: 'Listing background tasks',
+      description: 'Listing tasks',
       approvalRule: this.name,
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, listScope),
       execute: async () => {
         const activeOnly = args.active_only ?? true;
-        const tasks = this.background.list(activeOnly, args.limit ?? 20);
+        const tasks = this.tasks.list(activeOnly, args.limit ?? 20);
         return {
           output: formatTaskList(tasks, activeOnly),
           isError: false,

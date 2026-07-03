@@ -1,6 +1,6 @@
 /**
- * `background` domain (L5) — `BackgroundTaskPersistence`, the per-session
- * persistence helper behind `AgentBackgroundService`.
+ * `task` domain (L5) — `AgentTaskPersistence`, the per-session
+ * persistence helper behind `AgentTaskService`.
  *
  * Persists task state (`<taskId>.json`) and raw task output (`output.log`)
  * through the `storage` access-pattern stores (`IAtomicDocumentStore` for
@@ -10,14 +10,14 @@
  * `{prefix}-{8 hex}` shape before use as path segments (path-traversal and
  * legacy `bg_<hex>` guard), and legacy snake_case records are normalized to
  * the current shape on read. Not scope-bound; constructed by
- * `AgentBackgroundService`.
+ * `AgentTaskService`.
  */
 
 import { join } from 'pathe';
 
 import type { IAtomicDocumentStore, IFileSystemStorageService } from '#/app/storage';
 
-import type { BackgroundTaskInfo, BackgroundTaskStatus } from './task';
+import type { AgentTaskInfo, AgentTaskStatus } from './types';
 
 const VALID_TASK_ID: RegExp = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{8}$/;
 
@@ -28,7 +28,7 @@ const JSON_SUFFIX = '.json';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-type PersistedTask = BackgroundTaskInfo;
+type PersistedTask = AgentTaskInfo;
 
 type DiskPersistedTask = PersistedTask | LegacyPersistedTask;
 
@@ -38,7 +38,7 @@ function validateTaskId(taskId: string): void {
   }
 }
 
-export class BackgroundTaskPersistence {
+export class AgentTaskPersistence {
   constructor(
     private readonly sessionDir: string,
     private readonly sessionScope: string,
@@ -129,7 +129,7 @@ function normalizePersistedTask(task: DiskPersistedTask): PersistedTask {
   };
 }
 
-type LegacyBackgroundTaskStatus =
+type LegacyAgentTaskStatus =
   | 'running'
   | 'awaiting_approval'
   | 'completed'
@@ -145,7 +145,7 @@ interface LegacyPersistedTask {
   readonly started_at: number;
   readonly ended_at: number | null;
   readonly exit_code: number | null;
-  readonly status: LegacyBackgroundTaskStatus;
+  readonly status: LegacyAgentTaskStatus;
   readonly timed_out?: boolean;
   readonly stop_reason?: string;
   readonly timeout_ms?: number;
@@ -186,7 +186,7 @@ function legacyPersistedTaskToInfo(task: LegacyPersistedTask): PersistedTask {
   };
 }
 
-function legacyStatusToCurrent(task: LegacyPersistedTask): BackgroundTaskStatus {
+function legacyStatusToCurrent(task: LegacyPersistedTask): AgentTaskStatus {
   if (task.status === 'awaiting_approval') return 'running';
   if (task.status === 'failed' && task.timed_out === true) return 'timed_out';
   return task.status;

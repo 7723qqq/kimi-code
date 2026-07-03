@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentBackgroundService, type BackgroundTask } from '#/agent/background';
-import { AgentBackgroundService } from '#/agent/background/backgroundService';
+import { IAgentTaskService, type AgentTask } from '#/agent/task';
+import { AgentTaskService } from '#/agent/task/taskService';
 import { IConfigRegistry, IConfigService } from '#/app/config';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
@@ -18,7 +18,7 @@ import { createHooks } from '#/hooks';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
 
-function fakeProcessTask(): BackgroundTask {
+function fakeProcessTask(): AgentTask {
   return {
     idPrefix: 'test',
     kind: 'process',
@@ -28,7 +28,7 @@ function fakeProcessTask(): BackgroundTask {
   };
 }
 
-describe('AgentBackgroundService', () => {
+describe('AgentTaskService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
 
@@ -75,12 +75,12 @@ describe('AgentBackgroundService', () => {
       flush: async () => {},
       close: async () => {},
     });
-    ix.set(IAgentBackgroundService, new SyncDescriptor(AgentBackgroundService));
+    ix.set(IAgentTaskService, new SyncDescriptor(AgentTaskService));
   });
   afterEach(() => disposables.dispose());
 
   it('registerTask / list / readOutput / stop', async () => {
-    const svc = ix.get(IAgentBackgroundService);
+    const svc = ix.get(IAgentTaskService);
     const id = svc.registerTask(fakeProcessTask());
     const listed = svc.list();
     expect(listed).toHaveLength(1);

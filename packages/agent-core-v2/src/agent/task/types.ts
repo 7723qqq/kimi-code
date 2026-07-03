@@ -1,8 +1,4 @@
-import type { AgentBackgroundTaskInfo } from './agent-task';
-import type { ProcessBackgroundTaskInfo } from './process-task';
-import type { QuestionBackgroundTaskInfo } from './question-task';
-
-export type BackgroundTaskStatus =
+export type AgentTaskStatus =
   | 'running'
   | 'completed'
   | 'failed'
@@ -10,25 +6,25 @@ export type BackgroundTaskStatus =
   | 'killed'
   | 'lost';
 
-export const TERMINAL_STATUSES: ReadonlySet<BackgroundTaskStatus> = new Set<BackgroundTaskStatus>([
+export const TERMINAL_STATUSES: ReadonlySet<AgentTaskStatus> = new Set<AgentTaskStatus>([
   'completed',
   'failed',
   'timed_out',
   'killed',
   'lost',
 ]);
-export type BackgroundTaskSettlementStatus = 'completed' | 'failed' | 'timed_out' | 'killed';
+export type AgentTaskSettlementStatus = 'completed' | 'failed' | 'timed_out' | 'killed';
 
-export interface BackgroundTaskSettlement {
-  readonly status: BackgroundTaskSettlementStatus;
+export interface AgentTaskSettlement {
+  readonly status: AgentTaskSettlementStatus;
   /** Human-readable reason for the terminal status, when available. */
   readonly stopReason?: string;
 }
 
-export interface BackgroundTaskInfoBase {
+export interface AgentTaskInfoBase {
   readonly taskId: string;
   readonly description: string;
-  readonly status: BackgroundTaskStatus;
+  readonly status: AgentTaskStatus;
   /**
    * `false` means a tool call is still waiting on this task in the
    * foreground. Omitted legacy records should be treated as detached.
@@ -44,25 +40,26 @@ export interface BackgroundTaskInfoBase {
   readonly timeoutMs?: number;
 }
 
-export type BackgroundTaskInfo =
-  | ProcessBackgroundTaskInfo
-  | AgentBackgroundTaskInfo
-  | QuestionBackgroundTaskInfo;
+export interface AgentTaskInfoByKind {}
 
-export interface BackgroundTaskSink {
+export type AgentTaskKind = Extract<keyof AgentTaskInfoByKind, string>;
+
+export type AgentTaskInfo = AgentTaskInfoByKind[AgentTaskKind];
+
+export interface AgentTaskSink {
   readonly signal: AbortSignal;
   appendOutput(chunk: string): void;
-  settle(settlement: BackgroundTaskSettlement): Promise<boolean>;
+  settle(settlement: AgentTaskSettlement): Promise<boolean>;
 }
 
-export interface BackgroundTask {
+export interface AgentTask {
   readonly idPrefix: string;
-  readonly kind: BackgroundTaskInfo['kind'];
+  readonly kind: AgentTaskKind;
   readonly description: string;
   readonly timeoutMs?: number;
 
-  start(sink: BackgroundTaskSink): void | Promise<void>;
+  start(sink: AgentTaskSink): void | Promise<void>;
   onDetach?(): void;
   forceStop?(): Promise<void>;
-  toInfo(base: BackgroundTaskInfoBase): BackgroundTaskInfo;
+  toInfo(base: AgentTaskInfoBase): AgentTaskInfo;
 }

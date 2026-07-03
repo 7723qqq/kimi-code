@@ -9,9 +9,9 @@
  * `observeChildAgentTurn` (submit the prompt, mirror the child's turn
  * lifecycle onto the caller's record + external hooks, and distill the
  * summary). The tool owns only the LLM-facing surface: JSON schema + tool
- * description, approval rule, background-task registration (so the LLM can see
- * the child under TaskList/TaskOutput/TaskStop when `run_in_background=true`
- * or after detach), and the terminal text formatting.
+ * description, approval rule, task registration (so the LLM can see the child
+ * under TaskList/TaskOutput/TaskStop when `run_in_background=true` or after
+ * detach), and the terminal text formatting.
  *
  * Registered via the module-level `registerTool(AgentTool)` at the bottom of
  * this file — the same "import = register" pattern used by every builtin tool.
@@ -23,11 +23,9 @@ import { isUserCancellation } from '#/_base/utils/abort';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import {
-  AgentBackgroundTask,
-  IAgentBackgroundService,
-  type RegisterBackgroundTaskOptions,
-  type SubagentHandle,
-} from '#/agent/background';
+  IAgentTaskService,
+  type RegisterAgentTaskOptions,
+} from '#/agent/task';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentScopeContext } from '#/agent/scopeContext';
@@ -52,6 +50,7 @@ import { ISessionProcessRunner } from '#/session/process';
 import { IAgentLifecycleService } from '../agentLifecycle';
 import { applyProfileToAgent } from '../applyProfileToAgent';
 import { observeChildAgentTurn } from '../observeChildAgentTurn';
+import { SubagentTask, type SubagentHandle } from './subagent-task';
 
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
 import AGENT_BACKGROUND_DESCRIPTION from './agent-background-enabled.md?raw';
@@ -146,7 +145,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
     @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
     @IAgentScopeContext scopeContext: IAgentScopeContext,
-    @IAgentBackgroundService private readonly background: IAgentBackgroundService,
+    @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IExecContext execContext: IExecContext,
@@ -320,13 +319,13 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
 
       let taskId: string;
       try {
-        const registerOptions: RegisterBackgroundTaskOptions = {
+        const registerOptions: RegisterAgentTaskOptions = {
           detached: runInBackground,
           timeoutMs: DEFAULT_SUBAGENT_TIMEOUT_MS,
           signal: runInBackground ? undefined : signal,
         };
-        taskId = this.background.registerTask(
-          new AgentBackgroundTask(handle, args.description, controller),
+        taskId = this.tasks.registerTask(
+          new SubagentTask(handle, args.description, controller),
           registerOptions,
         );
         signal.removeEventListener('abort', abortBeforeRegister);
@@ -334,7 +333,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         controller.abort();
         void handle.completion.catch(() => {});
         signal.removeEventListener('abort', abortBeforeRegister);
-        this.log?.warn('background agent task registration failed', {
+        this.log?.warn('subagent task registration failed', {
           toolCallId,
           agentId: handle.agentId,
           subagentType: handle.profileName,
@@ -352,7 +351,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         };
       }
 
-      const release = await this.background.waitForForegroundRelease(taskId);
+      const release = await this.tasks.waitForForegroundRelease(taskId);
       if (release === 'detached') {
         return {
           output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
@@ -385,10 +384,10 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     taskId: string,
     handle: SubagentHandle,
   ): Promise<ExecutableToolResult> {
-    const info = this.background.getTask(taskId);
+    const info = this.tasks.getTask(taskId);
     if (info?.status === 'completed') {
       return {
-        output: formatForegroundAgentSuccess(handle, await this.background.readOutput(taskId)),
+        output: formatForegroundAgentSuccess(handle, await this.tasks.readOutput(taskId)),
       };
     }
     const timedOut = info?.status === 'timed_out';

@@ -9,7 +9,7 @@ import { toDisposable } from '#/_base/di';
 import { Event } from '#/_base/event';
 import type { PromisifyMethods } from '#/_base/utils/types';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
-import type { BackgroundTaskInfo } from '#/agent/background';
+import type { AgentTaskInfo } from '#/agent/task';
 import {
   IAgentBlobService,
   type IAgentBlobService as AgentBlobService,
@@ -65,7 +65,7 @@ import type { ILogger, LogContext, LogLevel } from '#/app/log';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
-  AgentBackgroundService,
+  AgentTaskService,
   AgentExternalHooksService,
   FileStorageService,
   InMemoryStorageService,
@@ -75,7 +75,7 @@ import {
   IFileSystemStorageService,
   ISessionApprovalService,
   ISessionMetadata,
-  IAgentBackgroundService,
+  IAgentTaskService,
   IBlobStore,
   BlobStoreService,
   IBootstrapService,
@@ -265,7 +265,7 @@ interface UserToolInteractionPayload {
 }
 
 interface ResumeStateSnapshot {
-  readonly background: ReturnType<IAgentBackgroundService['list']>;
+  readonly tasks: ReturnType<IAgentTaskService['list']>;
   readonly config: {
     readonly cwd: string;
     readonly activeToolNames: readonly string[] | undefined;
@@ -580,8 +580,8 @@ export function permissionRulesServices(
   return agentService(IAgentPermissionRulesService, createPermissionRulesStub(rules));
 }
 
-export function backgroundServices(): TestAgentServiceOverride {
-  return agentService(IAgentBackgroundService, new SyncDescriptor(AgentBackgroundService));
+export function taskServices(): TestAgentServiceOverride {
+  return agentService(IAgentTaskService, new SyncDescriptor(AgentTaskService));
 }
 
 export function cronServices(): TestAgentServiceOverride {
@@ -1055,8 +1055,8 @@ export class AgentTestContext {
               ]),
             );
             reg.defineDescriptor(
-              IAgentBackgroundService,
-              new SyncDescriptor(AgentBackgroundService),
+              IAgentTaskService,
+              new SyncDescriptor(AgentTaskService),
             );
             reg.defineDescriptor(IAgentMcpService, new SyncDescriptor(AgentMcpService, [{}]));
             reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService, [{}]));
@@ -1153,7 +1153,7 @@ export class AgentTestContext {
     // under a real Agent scope (see `AgentLifecycleService.create`).
     this.get(IAgentBuiltinToolsRegistrar);
     this.get(IAgentExternalHooksService);
-    const background = this.get(IAgentBackgroundService);
+    const tasks = this.get(IAgentTaskService);
     const permission = this.get(IAgentPermissionGate);
     const swarm = this.get(IAgentSwarmService);
 
@@ -1164,7 +1164,7 @@ export class AgentTestContext {
     contextSize.getStatus();
     usage.status();
     toolStore.data();
-    background.list(false);
+    tasks.list(false);
     permission.data();
     void permissionMode.mode;
     void permissionRules.rules;
@@ -1904,12 +1904,12 @@ function createResumeNoSideEffectExecEnv(initialCwd: string): TestAgentServiceOv
 }
 
 function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
-  const background = ctx.get(IAgentBackgroundService);
+  const tasks = ctx.get(IAgentTaskService);
   const usage = ctx.get(IAgentUsageService);
   const toolStore = ctx.get(IAgentToolState);
   const permission = ctx.get(IAgentPermissionGate);
   return {
-    background: normalizeBackgroundSnapshot(background.list(false)),
+    tasks: normalizeTaskSnapshot(tasks.list(false)),
     config: configStateSnapshot(ctx),
     context: resumeContextSnapshot(ctx),
     permission: permission.data(),
@@ -1918,11 +1918,11 @@ function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
   };
 }
 
-function normalizeBackgroundSnapshot(
-  background: readonly BackgroundTaskInfo[],
-): readonly BackgroundTaskInfo[] {
-  return background
-    .map((task) => stripUndefinedFields(task) as BackgroundTaskInfo)
+function normalizeTaskSnapshot(
+  tasks: readonly AgentTaskInfo[],
+): readonly AgentTaskInfo[] {
+  return tasks
+    .map((task) => stripUndefinedFields(task) as AgentTaskInfo)
     .toSorted(
       (left, right) => left.startedAt - right.startedAt || left.taskId.localeCompare(right.taskId),
     );

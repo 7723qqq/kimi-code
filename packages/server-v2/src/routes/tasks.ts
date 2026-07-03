@@ -6,23 +6,23 @@
  *
  *   GET  /sessions/{session_id}/tasks                 query: {status?}        data: {items[]}
  *   GET  /sessions/{session_id}/tasks/{task_id}       query: {with_output?,
- *                                                               output_bytes?} data: BackgroundTask
+ *                                                               output_bytes?} data: Task
  *   POST /sessions/{session_id}/tasks/{task_id}:cancel body: empty            data: {cancelled:true}
  *
- * **Thin wrapper over `IAgentBackgroundService`**: the main agent's
- * `IAgentBackgroundService` is already exposed at Agent scope (`tasks:*` in the RPC
+ * **Thin wrapper over `IAgentTaskService`**: the main agent's
+ * `IAgentTaskService` is already exposed at Agent scope (`tasks:*` in the RPC
  * action map). These REST routes borrow it by interface and project its
- * `BackgroundTaskInfo` (camelCase + ms timestamps + agent-core literal sets)
- * into the protocol's `BackgroundTask` shape (snake_case + ISO + spec literal
+ * `AgentTaskInfo` (camelCase + ms timestamps + agent-core literal sets)
+ * into the protocol's `Task` shape (snake_case + ISO + spec literal
  * sets) — the same field/literal mapping v1 performs in
  * `packages/agent-core/src/services/task/task.ts`.
  *
  * **Resolution**: `core` → `ISessionIndex` (existence, → 40401) →
  * `ISessionLifecycleService` (live session handle) → `IAgentLifecycleService`
- * (the `main` agent) → `IAgentBackgroundService`. When the session is not live or
+ * (the `main` agent) → `IAgentTaskService`. When the session is not live or
  * has no main agent yet (server-v2 gap G10 — the main agent is not created on
- * session creation), there is no background service: `list` returns an empty
- * page and `get`/`cancel` answer `40406`.
+ * session creation), there is no task service: `list` returns an empty page
+ * and `get`/`cancel` answer `40406`.
  *
  * **Error mapping**:
  *   - unknown session            → `40401` (session.not_found)
@@ -39,10 +39,10 @@
  */
 
 import {
-  IAgentBackgroundService,
+  IAgentTaskService,
   ISessionIndex,
   ISessionLifecycleService,
-  type BackgroundTaskInfo,
+  type AgentTaskInfo,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import {
@@ -53,7 +53,7 @@ import {
   listTasksQuerySchema,
   listTasksResponseSchema,
 } from '@moonshot-ai/protocol';
-import type { BackgroundTask, BackgroundTaskKind, BackgroundTaskStatus } from '@moonshot-ai/protocol';
+import type { Task, TaskKind, TaskStatus } from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -111,12 +111,12 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
       },
-      description: 'List background tasks for a session',
+      description: 'List tasks for a session',
       tags: ['tasks'],
     },
     async (req, reply) => {
       const { session_id } = req.params;
-      const resolved = await resolveSessionBackground(core, session_id);
+      const resolved = await resolveSessionTasks(core, session_id);
       if (resolved.kind === 'not_found') {
         reply.send(sessionNotFound(session_id, req.id));
         return;
@@ -124,10 +124,10 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
 
       // `list(false)` = include terminal (ghost) tasks, matching v1 which
       // lists everything and filters by wire status in-memory.
-      const all = (resolved.bg?.list(false) ?? []).map((info) =>
+      const all = (resolved.tasks?.list(false) ?? []).map((info) =>
         toWireTask(session_id, info),
       );
-      const query = req.query as { status?: BackgroundTaskStatus };
+      const query = req.query as { status?: TaskStatus };
       const items =
         query.status !== undefined ? all.filter((t) => t.status === query.status) : all;
       reply.send(okEnvelope({ items }, req.id));
@@ -148,18 +148,18 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.TASK_NOT_FOUND]: {},
       },
-      description: 'Get a background task by ID',
+      description: 'Get a task by ID',
       tags: ['tasks'],
     },
     async (req, reply) => {
       const { session_id, task_id } = req.params;
-      const resolved = await resolveSessionBackground(core, session_id);
+      const resolved = await resolveSessionTasks(core, session_id);
       if (resolved.kind === 'not_found') {
         reply.send(sessionNotFound(session_id, req.id));
         return;
       }
 
-      const found = resolved.bg?.getTask(task_id);
+      const found = resolved.tasks?.getTask(task_id);
       if (found === undefined) {
         reply.send(taskNotFound(session_id, task_id, req.id));
         return;
@@ -167,10 +167,10 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
 
       const query = req.query as { with_output?: boolean; output_bytes?: number };
       let output: { preview: string; bytes: number } | undefined;
-      if (query.with_output === true && resolved.bg !== undefined) {
+      if (query.with_output === true && resolved.tasks !== undefined) {
         const tailBytes = query.output_bytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES;
         try {
-          const preview = await resolved.bg.readOutput(task_id, tailBytes);
+          const preview = await resolved.tasks.readOutput(task_id, tailBytes);
           if (preview.length > 0) {
             output = { preview, bytes: Buffer.byteLength(preview, 'utf-8') };
           }
@@ -203,7 +203,7 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
           detailsSchema: z.object({ current_status: z.string() }),
         },
       },
-      description: 'Cancel a background task',
+      description: 'Cancel a task',
       tags: ['tasks'],
       operationId: 'cancelTask',
     },
@@ -235,16 +235,16 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         return;
       }
 
-      const resolved = await resolveSessionBackground(core, session_id);
+      const resolved = await resolveSessionTasks(core, session_id);
       if (resolved.kind === 'not_found') {
         reply.send(sessionNotFound(session_id, req.id));
         return;
       }
 
       // Pre-fetch so we can distinguish 40406 (not found) from 40904 (already
-      // finished) deterministically — `IAgentBackgroundService.stop` does not
+      // finished) deterministically — `IAgentTaskService.stop` does not
       // surface this distinction on its own.
-      const found = resolved.bg?.getTask(task_id);
+      const found = resolved.tasks?.getTask(task_id);
       if (found === undefined) {
         reply.send(taskNotFound(session_id, task_id, req.id));
         return;
@@ -255,7 +255,7 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         return;
       }
 
-      await resolved.bg?.stop(task_id);
+      await resolved.tasks?.stop(task_id);
       reply.send(okEnvelope({ cancelled: true as const }, req.id));
     },
   );
@@ -263,30 +263,30 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
 }
 
 // ---------------------------------------------------------------------------
-// Resolution — walk core → session → main agent → `IAgentBackgroundService`.
+// Resolution — walk core → session → main agent → `IAgentTaskService`.
 // Returns `{kind:'not_found'}` when the session does not exist (→ 40401). A
-// missing live session / main agent yields `{kind:'resolved', bg: undefined}`
+// missing live session / main agent yields `{kind:'resolved', tasks: undefined}`
 // (gap G10), which `list` treats as empty and `get`/`cancel` treat as 40406.
 // ---------------------------------------------------------------------------
 
-type ResolvedBackground =
+type ResolvedTasks =
   | { readonly kind: 'not_found' }
-  | { readonly kind: 'resolved'; readonly bg: IAgentBackgroundService | undefined };
+  | { readonly kind: 'resolved'; readonly tasks: IAgentTaskService | undefined };
 
-async function resolveSessionBackground(core: Scope, sid: string): Promise<ResolvedBackground> {
+async function resolveSessionTasks(core: Scope, sid: string): Promise<ResolvedTasks> {
   const summary = await core.accessor.get(ISessionIndex).get(sid);
   if (summary === undefined) return { kind: 'not_found' };
 
   const session = core.accessor.get(ISessionLifecycleService).get(sid);
-  if (session === undefined) return { kind: 'resolved', bg: undefined };
+  if (session === undefined) return { kind: 'resolved', tasks: undefined };
   const agent = await ensureMainAgent(session);
-  const bg = agent.accessor.get(IAgentBackgroundService);
-  return { kind: 'resolved', bg };
+  const tasks = agent.accessor.get(IAgentTaskService);
+  return { kind: 'resolved', tasks };
 }
 
 // ---------------------------------------------------------------------------
-// Wire mapping — pure projection from `BackgroundTaskInfo` (agent-core literal
-// sets + ms timestamps) to the protocol `BackgroundTask` (spec literal sets +
+// Wire mapping — pure projection from `AgentTaskInfo` (agent-core literal
+// sets + ms timestamps) to the protocol `Task` (spec literal sets +
 // ISO timestamps). Mirrors v1's `toProtocolTask` / `mapKind` / `mapStatus` so
 // the REST contract is byte-for-byte compatible.
 //
@@ -302,20 +302,20 @@ async function resolveSessionBackground(core: Scope, sid: string): Promise<Resol
 //            lost      → failed       (lossy)
 // ---------------------------------------------------------------------------
 
-function mapKind(k: BackgroundTaskInfo['kind']): BackgroundTaskKind {
+function mapKind(k: AgentTaskInfo['kind']): TaskKind {
   switch (k) {
     case 'process':
       return 'bash';
     case 'agent':
       return 'subagent';
     case 'question':
-      // SCHEMAS §7 has no 'question' literal; question background tasks are
+      // SCHEMAS §7 has no 'question' literal; question tasks are
       // tool-spawned flows, so 'tool' is the closest spec literal.
       return 'tool';
   }
 }
 
-function mapStatus(s: BackgroundTaskInfo['status']): BackgroundTaskStatus {
+function mapStatus(s: AgentTaskInfo['status']): TaskStatus {
   switch (s) {
     case 'running':
       return 'running';
@@ -333,24 +333,24 @@ function mapStatus(s: BackgroundTaskInfo['status']): BackgroundTaskStatus {
   }
 }
 
-const TERMINAL_WIRE_STATUSES: ReadonlySet<BackgroundTaskStatus> = new Set([
+const TERMINAL_WIRE_STATUSES: ReadonlySet<TaskStatus> = new Set([
   'completed',
   'failed',
   'cancelled',
 ]);
 
-function isTerminalStatus(status: BackgroundTaskStatus): boolean {
+function isTerminalStatus(status: TaskStatus): boolean {
   return TERMINAL_WIRE_STATUSES.has(status);
 }
 
 function toWireTask(
   sessionId: string,
-  info: BackgroundTaskInfo,
+  info: AgentTaskInfo,
   output?: { preview: string; bytes: number },
-): BackgroundTask {
+): Task {
   const status = mapStatus(info.status);
   const createdIso = new Date(info.startedAt).toISOString();
-  const base: BackgroundTask = {
+  const base: Task = {
     id: info.taskId,
     session_id: sessionId,
     kind: mapKind(info.kind),
@@ -398,7 +398,7 @@ function taskNotFound(sid: string, tid: string, requestId: string): unknown {
 function taskAlreadyFinished(
   sid: string,
   tid: string,
-  currentStatus: BackgroundTaskStatus,
+  currentStatus: TaskStatus,
   requestId: string,
 ): unknown {
   return {

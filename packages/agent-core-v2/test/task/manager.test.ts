@@ -1,5 +1,5 @@
 /**
- * Covers: BackgroundManager.
+ * Covers: AgentTaskService.
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -12,12 +12,14 @@ import type { IProcess } from '#/session/process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  AgentBackgroundTask,
-  IAgentBackgroundService,
-  ProcessBackgroundTask,
-  type BackgroundTaskInfo,
-} from '#/agent/background';
-import type { SubagentHandle } from '#/agent/background';
+  IAgentTaskService,
+  type AgentTaskInfo,
+} from '#/agent/task';
+import {
+  SubagentTask,
+  type SubagentHandle,
+} from '#/session/agentLifecycle/tools/subagent-task';
+import { ProcessTask } from '#/agent/shellTools/tools/process-task';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import {
   configServices,
@@ -27,24 +29,24 @@ import {
   type TestAgentServiceOverride,
 } from '../harness';
 import {
-  createBackgroundTaskPersistence,
-  type BackgroundServiceTestManager,
+  createAgentTaskPersistence,
+  type TaskServiceTestManager,
 } from './stubs';
 
-interface BackgroundServiceFixture {
+interface TaskServiceFixture {
   ctx: TestAgentContext;
-  manager: BackgroundServiceTestManager;
-  persistence?: ReturnType<typeof createBackgroundTaskPersistence>;
+  manager: TaskServiceTestManager;
+  persistence?: ReturnType<typeof createAgentTaskPersistence>;
 }
 
-function createBackgroundManager(options: {
+function createAgentTaskService(options: {
   sessionDir?: string;
   maxRunningTasks?: number;
-} = {}): BackgroundServiceFixture {
+} = {}): TaskServiceFixture {
   const persistence =
     options.sessionDir === undefined
       ? undefined
-      : createBackgroundTaskPersistence(options.sessionDir);
+      : createAgentTaskPersistence(options.sessionDir);
   const overrides: TestAgentServiceOverride[] = [];
   if (options.sessionDir !== undefined) {
     overrides.push(homeDirServices(options.sessionDir));
@@ -53,24 +55,24 @@ function createBackgroundManager(options: {
   if (maxRunningTasks !== undefined) {
     overrides.push(configServices(() => ({
       providers: {},
-      background: { maxRunningTasks },
+      task: { maxRunningTasks },
     })));
   }
   const ctx = createTestAgent(...overrides);
   return {
     ctx,
-    manager: ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager,
+    manager: ctx.get(IAgentTaskService) as TaskServiceTestManager,
     persistence,
   };
 }
 
 function registerProcess(
-  manager: IAgentBackgroundService,
+  manager: IAgentTaskService,
   proc: IProcess,
   command: string,
   description: string,
 ): string {
-  return manager.registerTask(new ProcessBackgroundTask(proc, command, description));
+  return manager.registerTask(new ProcessTask(proc, command, description));
 }
 
 function agentTask(
@@ -82,14 +84,14 @@ function agentTask(
     readonly abortController?: AbortController;
     readonly timeoutMs?: number;
   } = {},
-): AgentBackgroundTask {
+): SubagentTask {
   const handle: SubagentHandle = {
     agentId: options.agentId ?? 'agent-child',
     profileName: options.subagentType ?? 'coder',
     resumed: false,
     completion,
   };
-  const task = new AgentBackgroundTask(
+  const task = new SubagentTask(
     handle,
     description,
     options.abortController ?? new AbortController(),
@@ -104,10 +106,10 @@ function agentTask(
 }
 
 async function waitForTerminal(
-  manager: IAgentBackgroundService,
+  manager: IAgentTaskService,
   taskId: string,
   timeoutMs = 30_000,
-): Promise<BackgroundTaskInfo | undefined> {
+): Promise<AgentTaskInfo | undefined> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
     const info = await manager.wait(taskId, 5);
@@ -126,7 +128,7 @@ async function waitForTerminal(
 }
 
 async function waitForOutput(
-  manager: IAgentBackgroundService,
+  manager: IAgentTaskService,
   taskId: string,
   expected: string,
 ): Promise<void> {
@@ -305,13 +307,13 @@ function processWithVisibleExitCodeBeforeWait(exitCode = 143): {
   };
 }
 
-describe('BackgroundManager', () => {
+describe('AgentTaskService', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
   it('registers process tasks and exposes process metadata', () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const proc = immediateProcess(0);
 
     const taskId = registerProcess(manager, proc, 'echo hello', 'test echo');
@@ -328,7 +330,7 @@ describe('BackgroundManager', () => {
   });
 
   it('registers agent tasks and exposes agent metadata', () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
 
     const taskId = manager.registerTask(
       agentTask(new Promise(() => {}), 'investigate bug', {
@@ -349,7 +351,7 @@ describe('BackgroundManager', () => {
   });
 
   it('tracks foreground tasks and releases their waiter when detached', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const taskId = manager.registerTask(
       agentTask(new Promise(() => {}), 'foreground agent'),
       { detached: false },
@@ -370,7 +372,7 @@ describe('BackgroundManager', () => {
   });
 
   it('releases foreground waiters when a foreground task completes', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const taskId = manager.registerTask(
       agentTask(Promise.resolve({ result: 'done' }), 'foreground agent'),
       { detached: false },
@@ -384,11 +386,11 @@ describe('BackgroundManager', () => {
   });
 
   it('stops foreground tasks from their register-time signal', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const { proc, killSpy } = pendingProcess();
     const controller = new AbortController();
     const taskId = manager.registerTask(
-      new ProcessBackgroundTask(proc, 'sleep 10', 'foreground process'),
+      new ProcessTask(proc, 'sleep 10', 'foreground process'),
       {
         detached: false,
         signal: controller.signal,
@@ -407,7 +409,7 @@ describe('BackgroundManager', () => {
   });
 
   it('forwards foreground signal abort reasons to agent task controllers', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const foregroundController = new AbortController();
     const subagentController = new AbortController();
     const completion = new Promise<{ result: string }>((_resolve, reject) => {
@@ -438,7 +440,7 @@ describe('BackgroundManager', () => {
   });
 
   it('does not count foreground tasks against the detached task limit', () => {
-    const { manager } = createBackgroundManager({ maxRunningTasks: 1 });
+    const { manager } = createAgentTaskService({ maxRunningTasks: 1 });
     manager.registerTask(agentTask(new Promise(() => {}), 'foreground agent'), {
       detached: false,
     });
@@ -447,11 +449,11 @@ describe('BackgroundManager', () => {
 
     expect(() => {
       manager.registerTask(agentTask(new Promise(() => {}), 'second background'));
-    }).toThrow('Too many background tasks are already running.');
+    }).toThrow('Too many detached tasks are already running.');
   });
 
-  it('does not count foreground tasks detached later against the background task limit', () => {
-    const { manager } = createBackgroundManager({ maxRunningTasks: 1 });
+  it('does not count foreground tasks detached later against the detached task limit', () => {
+    const { manager } = createAgentTaskService({ maxRunningTasks: 1 });
     const taskId = manager.registerTask(
       agentTask(new Promise(() => {}), 'foreground agent'),
       { detached: false },
@@ -463,11 +465,11 @@ describe('BackgroundManager', () => {
 
     expect(() => {
       manager.registerTask(agentTask(new Promise(() => {}), 'second background'));
-    }).toThrow('Too many background tasks are already running.');
+    }).toThrow('Too many detached tasks are already running.');
   });
 
   it('lists active tasks by default', () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     registerProcess(manager, pendingProcess().proc, 'sleep 60', 'task 1');
     registerProcess(manager, pendingProcess().proc, 'sleep 60', 'task 2');
 
@@ -475,7 +477,7 @@ describe('BackgroundManager', () => {
   });
 
   it('excludes terminal detached tasks from active listings and includes them in all-task listings', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const taskId = registerProcess(manager, immediateProcess(0), 'echo done', 'done');
 
     await manager.wait(taskId);
@@ -492,7 +494,7 @@ describe('BackgroundManager', () => {
   });
 
   it('honours the list limit parameter', () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const first = registerProcess(manager, pendingProcess().proc, 'sleep 1', 'one');
     const second = registerProcess(manager, pendingProcess().proc, 'sleep 2', 'two');
 
@@ -506,7 +508,7 @@ describe('BackgroundManager', () => {
 
   it('lists running tasks synchronously without waiting for task completion', () => {
     vi.useFakeTimers();
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const taskId = registerProcess(manager, pendingProcess().proc, 'sleep 60', 'running list');
 
     const tasks = manager.list(true);
@@ -521,20 +523,20 @@ describe('BackgroundManager', () => {
   });
 
   it('rejects new tasks when maxRunningTasks is reached', () => {
-    const { manager } = createBackgroundManager({ maxRunningTasks: 1 });
+    const { manager } = createAgentTaskService({ maxRunningTasks: 1 });
 
     registerProcess(manager, pendingProcess().proc, 'sleep 60', 'first task');
 
     expect(() => {
       registerProcess(manager, pendingProcess().proc, 'sleep 60', 'second task');
-    }).toThrow('Too many background tasks are already running.');
+    }).toThrow('Too many detached tasks are already running.');
     expect(() => {
       manager.registerTask(agentTask(new Promise(() => {}), 'agent task'));
-    }).toThrow('Too many background tasks are already running.');
+    }).toThrow('Too many detached tasks are already running.');
   });
 
   it('captures process output', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const taskId = registerProcess(
       manager,
       immediateProcess(0, 'captured output\n'),
@@ -548,7 +550,7 @@ describe('BackgroundManager', () => {
   });
 
   it('fails process tasks when output capture errors after successful exit', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const taskId = registerProcess(
       manager,
       processWithStdoutError(),
@@ -565,7 +567,7 @@ describe('BackgroundManager', () => {
   });
 
   it('handles process stream errors before process wait settles', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const { proc, failStdout, resolveWait } = processWithStdoutErrorBeforeWait();
     const taskId = registerProcess(
       manager,
@@ -595,7 +597,7 @@ describe('BackgroundManager', () => {
   });
 
   it('disposes process resources after a process task completes', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const dispose = vi.fn();
     const proc = {
       ...immediateProcess(0, 'hello'),
@@ -611,7 +613,7 @@ describe('BackgroundManager', () => {
   });
 
   it('transitions process status from exit code', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const successId = registerProcess(manager, immediateProcess(0), 'echo done', 'ok');
     const failureId = registerProcess(manager, immediateProcess(42), 'exit 42', 'fail');
 
@@ -628,7 +630,7 @@ describe('BackgroundManager', () => {
   });
 
   it('records failed runtime when proc.wait rejects', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const taskId = registerProcess(
       manager,
       rejectedProcess(new Error('launch failed')),
@@ -646,7 +648,7 @@ describe('BackgroundManager', () => {
   });
 
   it('does not finalize from a visible process exit code before wait settles', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const { proc, markExited } = processWithVisibleExitCodeBeforeWait(143);
     const taskId = registerProcess(manager, proc, 'sleep 60', 'external kill test');
 
@@ -666,7 +668,7 @@ describe('BackgroundManager', () => {
   });
 
   it('stop kills a running process and records the stop reason', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const { proc, killSpy } = pendingProcess(143);
     const taskId = registerProcess(manager, proc, 'sleep 60', 'kill test');
 
@@ -681,7 +683,7 @@ describe('BackgroundManager', () => {
   });
 
   it('includes stopReason for stopped tasks in all-task listings', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const taskId = registerProcess(manager, pendingProcess().proc, 'sleep 60', 'stop reason');
 
     await manager.stop(taskId, 'superseded by newer task');
@@ -696,7 +698,7 @@ describe('BackgroundManager', () => {
   });
 
   it('disposes process resources after a stopped process task settles', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const { proc, killSpy } = pendingProcess(143);
     const dispose = vi.fn();
     const disposableProc = {
@@ -712,7 +714,7 @@ describe('BackgroundManager', () => {
   });
 
   it('stop normalizes blank reasons', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const { proc, resolve } = manuallyResolvedProcess();
     const taskId = registerProcess(manager, proc, 'sleep 60', 'blank reason test');
 
@@ -725,7 +727,7 @@ describe('BackgroundManager', () => {
   });
 
   it('stop keeps graceful process shutdown classified as killed', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const { proc, killSpy, resolve } = manuallyResolvedProcess();
     const taskId = registerProcess(manager, proc, 'sleep 60', 'process race test');
 
@@ -745,7 +747,7 @@ describe('BackgroundManager', () => {
   it('persists graceful process shutdown as killed when stop was requested', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-stop-race-'));
     try {
-      const writer = createBackgroundManager({ sessionDir }).manager;
+      const writer = createAgentTaskService({ sessionDir }).manager;
       const { proc, resolve } = manuallyResolvedProcess();
       const taskId = registerProcess(writer, proc, 'sleep 60', 'persisted race');
 
@@ -753,7 +755,7 @@ describe('BackgroundManager', () => {
       resolve(0);
       await stopPromise;
 
-      const reader = createBackgroundManager({ sessionDir }).manager;
+      const reader = createAgentTaskService({ sessionDir }).manager;
       await reader.loadFromDisk();
 
       expect(reader.getTask(taskId)).toMatchObject({
@@ -768,7 +770,7 @@ describe('BackgroundManager', () => {
   });
 
   it('stop preserves agent completion when it wins the stop race', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     let resolveCompletion!: (value: { result: string }) => void;
     const completion = new Promise<{ result: string }>((resolve) => {
       resolveCompletion = resolve;
@@ -790,7 +792,7 @@ describe('BackgroundManager', () => {
   });
 
   it('stop preserves agent failure when a non-abort rejection wins', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     let rejectCompletion!: (error: Error) => void;
     const completion = new Promise<{ result: string }>((_resolve, reject) => {
       rejectCompletion = reject;
@@ -813,7 +815,7 @@ describe('BackgroundManager', () => {
   });
 
   it('stop marks agent task killed when abort rejection wins', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     let rejectCompletion!: (error: Error) => void;
     const completion = new Promise<{ result: string }>((_resolve, reject) => {
       rejectCompletion = reject;
@@ -840,7 +842,7 @@ describe('BackgroundManager', () => {
 
   it('stop finalizes a never-settling agent task after the grace window', async () => {
     vi.useFakeTimers();
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const controller = new AbortController();
     const abort = vi.spyOn(controller, 'abort');
     const taskId = manager.registerTask(
@@ -860,7 +862,7 @@ describe('BackgroundManager', () => {
   });
 
   it('wait resolves on completion and returns the current snapshot on timeout', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const completedId = registerProcess(manager, immediateProcess(0), 'echo fast', 'wait test');
 
     expect(await manager.wait(completedId, 5_000)).toMatchObject({ status: 'completed' });
@@ -871,7 +873,7 @@ describe('BackgroundManager', () => {
 
   it('clears task deadline timers when completion wins the race', async () => {
     vi.useFakeTimers();
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const baselineTimerCount = vi.getTimerCount();
     const taskId = manager.registerTask(
       agentTask(Promise.resolve({ result: 'done' }), 'fast deadline task', {
@@ -884,7 +886,7 @@ describe('BackgroundManager', () => {
   });
 
   it('returns undefined or empty output for unknown task ids', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
 
     expect(manager.getTask('bash-nonexist')).toBeUndefined();
     expect(await manager.readOutput('bash-nonexist')).toBe('');
@@ -892,7 +894,7 @@ describe('BackgroundManager', () => {
   });
 
   it('stop returns terminal info for an already-exited task', async () => {
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const taskId = registerProcess(manager, immediateProcess(0), 'echo done', 'already done');
 
     await manager.wait(taskId);
@@ -906,7 +908,7 @@ describe('BackgroundManager', () => {
   it('getTask on an unknown id does not create persisted state', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-mgr-missing-'));
     try {
-      const { manager, persistence } = createBackgroundManager({ sessionDir });
+      const { manager, persistence } = createAgentTaskService({ sessionDir });
 
       expect(manager.getTask('bash-bogusss0')).toBeUndefined();
 
@@ -918,7 +920,7 @@ describe('BackgroundManager', () => {
 
   it('launches a real process and waits to completion', async () => {
     const { spawn } = await import('node:child_process');
-    const { manager } = createBackgroundManager();
+    const { manager } = createAgentTaskService();
     const child = spawn(
       process.execPath,
       ['-e', "process.stdout.write('bg-ok\\n')"],

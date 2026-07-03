@@ -1,17 +1,23 @@
 import type { ExecutableToolOutput, ExecutableToolResult } from '#/agent/tool';
 import type {
-  BackgroundTask,
-  BackgroundTaskInfoBase,
-  BackgroundTaskSink,
-} from './task';
+  AgentTask,
+  AgentTaskInfoBase,
+  AgentTaskSink,
+} from '#/agent/task/types';
 
-export interface QuestionBackgroundTaskInfo extends BackgroundTaskInfoBase {
+export interface QuestionTaskInfo extends AgentTaskInfoBase {
   readonly kind: 'question';
   readonly questionCount: number;
   readonly toolCallId?: string;
 }
 
-export interface QuestionBackgroundTaskOptions {
+declare module '#/agent/task/types' {
+  interface AgentTaskInfoByKind {
+    readonly question: QuestionTaskInfo;
+  }
+}
+
+export interface QuestionTaskOptions {
   readonly questionCount: number;
   readonly toolCallId?: string;
 }
@@ -41,7 +47,7 @@ export class QuestionTaskError extends Error {
   }
 }
 
-export class QuestionBackgroundTask implements BackgroundTask {
+export class QuestionTask implements AgentTask {
   readonly kind = 'question' as const;
   readonly idPrefix = 'question';
   readonly questionCount: number;
@@ -50,13 +56,13 @@ export class QuestionBackgroundTask implements BackgroundTask {
   constructor(
     private readonly run: (signal: AbortSignal) => Promise<ExecutableToolResult>,
     readonly description: string,
-    options: QuestionBackgroundTaskOptions,
+    options: QuestionTaskOptions,
   ) {
     this.questionCount = options.questionCount;
     this.toolCallId = options.toolCallId;
   }
 
-  async start(sink: BackgroundTaskSink): Promise<void> {
+  async start(sink: AgentTaskSink): Promise<void> {
     try {
       const result = await this.run(sink.signal);
       const output = serializeToolOutput(result.output);
@@ -74,7 +80,7 @@ export class QuestionBackgroundTask implements BackgroundTask {
     }
   }
 
-  toInfo(base: BackgroundTaskInfoBase): QuestionBackgroundTaskInfo {
+  toInfo(base: AgentTaskInfoBase): QuestionTaskInfo {
     return {
       ...base,
       kind: 'question',
