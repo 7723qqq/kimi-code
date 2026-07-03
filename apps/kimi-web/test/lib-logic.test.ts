@@ -333,6 +333,12 @@ describe('modelThinking', () => {
   });
 
   describe('coerceThinkingForModel', () => {
+    it('undefined model preserves the requested level (catalog not loaded yet)', () => {
+      expect(coerceThinkingForModel(undefined, 'high')).toBe('high');
+      expect(coerceThinkingForModel(undefined, 'max')).toBe('max');
+      expect(coerceThinkingForModel(undefined, 'on')).toBe('on');
+      expect(coerceThinkingForModel(undefined, 'off')).toBe('off');
+    });
     it('unsupported model → off', () => {
       expect(coerceThinkingForModel(unsupportedModel(), 'high')).toBe('off');
     });

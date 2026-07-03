@@ -83,6 +83,11 @@ export function coerceThinkingForModel(
   model: ModelThinkingInfo | undefined,
   requested: ThinkingLevel,
 ): ThinkingLevel {
+  // Model catalog (and thus the active model) is not known yet on early app
+  // load — keep the requested/persisted level as-is. loadModels() re-runs this
+  // coercion once models are available, so an effort like 'high' is not
+  // rewritten to the boolean 'on' and silently lost.
+  if (model === undefined) return requested;
   const availability = modelThinkingAvailability(model);
   if (availability === 'unsupported') return 'off';
   if (requested === 'off') {
