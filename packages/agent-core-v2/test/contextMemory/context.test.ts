@@ -1,10 +1,16 @@
 import type { Message } from '#/app/llmProtocol/kosong';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
-import { IAgentContextMemoryService, IAgentContextSizeService, IAgentProfileService } from '#/index';
-import { project } from '#/agent/contextProjector';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { renderNotificationXml } from '#/agent/contextMemory/notification-xml';
+import { project } from '#/agent/contextProjector';
+import {
+  IAgentContextMemoryService,
+  IAgentContextSizeService,
+  IAgentProfileService,
+} from '#/index';
+
 import { createTestAgent, type TestAgentContext } from '../harness';
 
 describe('Agent context', () => {
@@ -71,7 +77,10 @@ describe('Agent context', () => {
       {
         role: 'tool',
         content: [
-          { type: 'text', text: '<system>ERROR: Tool execution failed.</system>\npermission denied' },
+          {
+            type: 'text',
+            text: '<system>ERROR: Tool execution failed.</system>\npermission denied',
+          },
         ],
         toolCalls: [],
         toolCallId: 'call_error',
@@ -91,7 +100,10 @@ describe('Agent context', () => {
       {
         role: 'tool',
         content: [
-          { type: 'text', text: '<system>ERROR: Tool execution failed.</system>\npermission denied' },
+          {
+            type: 'text',
+            text: '<system>ERROR: Tool execution failed.</system>\npermission denied',
+          },
         ],
         toolCallId: 'call_error',
       },
@@ -198,34 +210,40 @@ describe('Agent context', () => {
 
   it('projects hook result messages into LLM projection', async () => {
     ctx.appendUserMessage([{ type: 'text', text: 'hooked input' }]);
-    context.splice(context.get().length, 0, [{
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: '<hook_result hook_event="UserPromptSubmit">\nhook response\n</hook_result>',
-        },
-      ],
-      toolCalls: [],
-      origin: { kind: 'hook_result', event: 'UserPromptSubmit' },
-    }]);
-    context.splice(context.get().length, 0, [{
-      role: 'assistant',
-      content: [
-        {
-          type: 'text',
-          text: '<hook_result hook_event="UserPromptSubmit">\nblocked reason\n</hook_result>',
-        },
-      ],
-      toolCalls: [],
-      origin: { kind: 'hook_result', event: 'UserPromptSubmit', blocked: true },
-    }]);
-    context.splice(context.get().length, 0, [{
-      role: 'user',
-      content: [{ type: 'text', text: 'continue from stop hook' }],
-      toolCalls: [],
-      origin: { kind: 'hook_result', event: 'Stop' },
-    }]);
+    context.splice(context.get().length, 0, [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: '<hook_result hook_event="UserPromptSubmit">\nhook response\n</hook_result>',
+          },
+        ],
+        toolCalls: [],
+        origin: { kind: 'hook_result', event: 'UserPromptSubmit' },
+      },
+    ]);
+    context.splice(context.get().length, 0, [
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: '<hook_result hook_event="UserPromptSubmit">\nblocked reason\n</hook_result>',
+          },
+        ],
+        toolCalls: [],
+        origin: { kind: 'hook_result', event: 'UserPromptSubmit', blocked: true },
+      },
+    ]);
+    context.splice(context.get().length, 0, [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'continue from stop hook' }],
+        toolCalls: [],
+        origin: { kind: 'hook_result', event: 'Stop' },
+      },
+    ]);
 
     expect(context.get()).toHaveLength(4);
     expect(ctx.project()).toEqual([
@@ -264,17 +282,19 @@ describe('Agent context', () => {
 
   it('projects blocked UserPromptSubmit prompts into LLM projection', async () => {
     ctx.appendUserMessage([{ type: 'text', text: 'blocked prompt' }]);
-    context.splice(context.get().length, 0, [{
-      role: 'assistant',
-      content: [
-        {
-          type: 'text',
-          text: '<hook_result hook_event="UserPromptSubmit">\nblocked reason\n</hook_result>',
-        },
-      ],
-      toolCalls: [],
-      origin: { kind: 'hook_result', event: 'UserPromptSubmit', blocked: true },
-    }]);
+    context.splice(context.get().length, 0, [
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: '<hook_result hook_event="UserPromptSubmit">\nblocked reason\n</hook_result>',
+          },
+        ],
+        toolCalls: [],
+        origin: { kind: 'hook_result', event: 'UserPromptSubmit', blocked: true },
+      },
+    ]);
     ctx.appendUserMessage([{ type: 'text', text: 'safe followup' }]);
 
     expect(context.get()).toHaveLength(3);
@@ -346,33 +366,33 @@ describe('Agent context', () => {
 
   it('defers system reminders until pending tool results are recorded and resumed', async () => {
     ctx.appendUserMessage([{ type: 'text', text: 'load a skill' }]);
-    context.splice(context.get().length, 0, [{
-      role: 'assistant',
-      content: [],
-      toolCalls: [
-        { type: 'function', id: 'call_write', name: 'Write', arguments: '{}' },
-        { type: 'function', id: 'call_skill', name: 'Skill', arguments: '{}' },
-      ],
-    }]);
-    context.splice(context.get().length, 0, [{
-      role: 'user',
-      content: [{ type: 'text', text: '<system-reminder>\nskill body\n</system-reminder>' }],
-      toolCalls: [],
-      origin: {
-        kind: 'skill_activation',
-        activationId: 'act_skill',
-        skillName: 'demo',
-        trigger: 'model-tool',
+    context.splice(context.get().length, 0, [
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [
+          { type: 'function', id: 'call_write', name: 'Write', arguments: '{}' },
+          { type: 'function', id: 'call_skill', name: 'Skill', arguments: '{}' },
+        ],
       },
-    }]);
+    ]);
+    context.splice(context.get().length, 0, [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: '<system-reminder>\nskill body\n</system-reminder>' }],
+        toolCalls: [],
+        origin: {
+          kind: 'skill_activation',
+          activationId: 'act_skill',
+          skillName: 'demo',
+          trigger: 'model-tool',
+        },
+      },
+    ]);
 
     // Raw history records the reminder in insertion order, behind the open
     // exchange.
-    expect(context.get().map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'user',
-    ]);
+    expect(context.get().map((message) => message.role)).toEqual(['user', 'assistant', 'user']);
     // The projector keeps the reminder behind the exchange — closing the open
     // calls (synthetic results) and placing the reminder after them.
     expect(ctx.project().map((message) => message.role)).toEqual([
@@ -383,12 +403,14 @@ describe('Agent context', () => {
       'user',
     ]);
 
-    context.splice(context.get().length, 0, [{
-      role: 'tool',
-      content: [{ type: 'text', text: 'wrote file' }],
-      toolCalls: [],
-      toolCallId: 'call_write',
-    }]);
+    context.splice(context.get().length, 0, [
+      {
+        role: 'tool',
+        content: [{ type: 'text', text: 'wrote file' }],
+        toolCalls: [],
+        toolCallId: 'call_write',
+      },
+    ]);
     // The real result is pulled up; the still-open call is synthesized.
     expect(ctx.project().map((message) => message.role)).toEqual([
       'user',
@@ -398,12 +420,14 @@ describe('Agent context', () => {
       'user',
     ]);
 
-    context.splice(context.get().length, 0, [{
-      role: 'tool',
-      content: [{ type: 'text', text: 'skill loaded' }],
-      toolCalls: [],
-      toolCallId: 'call_skill',
-    }]);
+    context.splice(context.get().length, 0, [
+      {
+        role: 'tool',
+        content: [{ type: 'text', text: 'skill loaded' }],
+        toolCalls: [],
+        toolCallId: 'call_skill',
+      },
+    ]);
 
     expect(ctx.project().map((message) => message.role)).toEqual([
       'user',
@@ -425,12 +449,14 @@ describe('Agent context', () => {
       kind: 'injection',
       variant: 'host',
     });
-    context.splice(0, 1, [{
-      role: 'assistant',
-      content: [{ type: 'text', text: 'summary of old prompt' }],
-      toolCalls: [],
-      origin: { kind: 'compaction_summary' },
-    }]);
+    context.splice(0, 1, [
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'summary of old prompt' }],
+        toolCalls: [],
+        origin: { kind: 'compaction_summary' },
+      },
+    ]);
     ctx.appendSystemReminder('second reminder', {
       kind: 'injection',
       variant: 'host',
@@ -448,12 +474,14 @@ describe('Agent context', () => {
       'user',
     ]);
 
-    context.splice(context.get().length, 0, [{
-      role: 'tool',
-      content: [{ type: 'text', text: 'two result' }],
-      toolCalls: [],
-      toolCallId: 'call_open_two',
-    }]);
+    context.splice(context.get().length, 0, [
+      {
+        role: 'tool',
+        content: [{ type: 'text', text: 'two result' }],
+        toolCalls: [],
+        toolCallId: 'call_open_two',
+      },
+    ]);
 
     expect(ctx.project().map((message) => message.role)).toEqual([
       'assistant',
@@ -540,10 +568,17 @@ describe('Agent context', () => {
       {
         role: 'assistant',
         content: [],
-        toolCalls: [{ type: 'function', id: 'call_pending_tokens', name: 'Lookup', arguments: '{}' }],
+        toolCalls: [
+          { type: 'function', id: 'call_pending_tokens', name: 'Lookup', arguments: '{}' },
+        ],
       },
     ]);
-    contextSize.measured(context.get().length, 1_280);
+    contextSize.measured(context.get(), [], {
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+      inputOther: 1_280,
+      output: 0,
+    });
     context.splice(context.get().length, 0, [
       {
         role: 'tool',
@@ -577,17 +612,19 @@ describe('Agent context', () => {
     ctx.appendAssistantText(2, 'second response');
 
     // Append a background task notification (role: 'user' but not a real prompt)
-    context.splice(context.get().length, 0, [{
-      role: 'user',
-      content: [{ type: 'text', text: 'background task completed' }],
-      toolCalls: [],
-      origin: {
-        kind: 'background_task',
-        taskId: 'bash-001',
-        status: 'completed',
-        notificationId: 'task:bash-001:completed',
+    context.splice(context.get().length, 0, [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'background task completed' }],
+        toolCalls: [],
+        origin: {
+          kind: 'background_task',
+          taskId: 'bash-001',
+          status: 'completed',
+          notificationId: 'task:bash-001:completed',
+        },
       },
-    }]);
+    ]);
 
     expect(context.get().map((m) => m.role)).toEqual([
       'user',
@@ -619,12 +656,14 @@ describe('Agent context', () => {
       20,
     );
     ctx.appendUserMessage([{ type: 'text', text: 'recent user message' }]);
-    context.splice(context.get().length, 0, [{
-      role: 'assistant',
-      content: [{ type: 'text', text: 'recent answer' }],
-      toolCalls: [],
-      origin: undefined,
-    }]);
+    context.splice(context.get().length, 0, [
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'recent answer' }],
+        toolCalls: [],
+        origin: undefined,
+      },
+    ]);
     ctx.newEvents();
 
     expect(() => {
@@ -656,24 +695,28 @@ describe('Agent context', () => {
           type: 'context.splice',
           start: 0,
           deleteCount: 0,
-          messages: [{
-            role: 'user',
-            content: [{ type: 'text', text: 'old user message' }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          }],
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'text', text: 'old user message' }],
+              toolCalls: [],
+              origin: { kind: 'user' },
+            },
+          ],
           time: 1,
         },
         {
           type: 'context.splice',
           start: 0,
           deleteCount: 1,
-          messages: [{
-            role: 'assistant',
-            content: [{ type: 'text', text: 'summary of compacted context' }],
-            toolCalls: [],
-            origin: { kind: 'compaction_summary' },
-          }],
+          messages: [
+            {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'summary of compacted context' }],
+              toolCalls: [],
+              origin: { kind: 'compaction_summary' },
+            },
+          ],
           tokens: 20,
           time: 2,
         },
@@ -681,23 +724,27 @@ describe('Agent context', () => {
           type: 'context.splice',
           start: 1,
           deleteCount: 0,
-          messages: [{
-            role: 'user',
-            content: [{ type: 'text', text: 'recent user message' }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          }],
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'text', text: 'recent user message' }],
+              toolCalls: [],
+              origin: { kind: 'user' },
+            },
+          ],
           time: 3,
         },
         {
           type: 'context.splice',
           start: 2,
           deleteCount: 0,
-          messages: [{
-            role: 'assistant',
-            content: [{ type: 'text', text: 'recent answer' }],
-            toolCalls: [],
-          }],
+          messages: [
+            {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'recent answer' }],
+              toolCalls: [],
+            },
+          ],
           time: 4,
         },
         {
@@ -720,16 +767,20 @@ describe('Agent context', () => {
 
   it('preserves injection messages when undo removes the surrounding turn', () => {
     context.splice(context.get().length, 0, [userMessage('do the work', { kind: 'user' })]);
-    context.splice(context.get().length, 0, [userMessage('Plan mode is active', {
-      kind: 'injection',
-      variant: 'plan_mode',
-    })]);
-    context.splice(context.get().length, 0, [{
-      role: 'assistant',
-      content: [{ type: 'text', text: 'work done' }],
-      toolCalls: [],
-      origin: undefined,
-    }]);
+    context.splice(context.get().length, 0, [
+      userMessage('Plan mode is active', {
+        kind: 'injection',
+        variant: 'plan_mode',
+      }),
+    ]);
+    context.splice(context.get().length, 0, [
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'work done' }],
+        toolCalls: [],
+        origin: undefined,
+      },
+    ]);
 
     ctx.undoHistory(1);
 
@@ -742,132 +793,132 @@ describe('Agent context', () => {
   });
 
   describe('notification projection', () => {
-  it('renders task notifications with escaped attributes and generic children', () => {
-    const text = renderNotificationXml({
-      id: 'n_"1&2',
-      category: 'task',
-      type: 'task.done',
-      source_kind: 'background_task',
-      source_id: 'bg&1',
-      title: 'Task finished',
-      severity: 'info',
-      body: 'The task completed.',
-      children: [
-        [
-          '<output-file path="/tmp/logs/a&amp;b/output.log" bytes="1234">',
-          'Read the output file to retrieve the result: /tmp/logs/a&amp;b/output.log',
-          '</output-file>',
-        ].join('\n'),
-      ],
+    it('renders task notifications with escaped attributes and generic children', () => {
+      const text = renderNotificationXml({
+        id: 'n_"1&2',
+        category: 'task',
+        type: 'task.done',
+        source_kind: 'background_task',
+        source_id: 'bg&1',
+        title: 'Task finished',
+        severity: 'info',
+        body: 'The task completed.',
+        children: [
+          [
+            '<output-file path="/tmp/logs/a&amp;b/output.log" bytes="1234">',
+            'Read the output file to retrieve the result: /tmp/logs/a&amp;b/output.log',
+            '</output-file>',
+          ].join('\n'),
+        ],
+      });
+
+      expect(text).toContain('id="n_&quot;1&amp;2"');
+      expect(text).toContain('source_id="bg&amp;1"');
+      expect(text).toContain('Title: Task finished');
+      expect(text).toContain('Severity: info');
+      expect(text).toContain('<output-file path="/tmp/logs/a&amp;b/output.log" bytes="1234">');
+      expect(text).toContain(
+        'Read the output file to retrieve the result: /tmp/logs/a&amp;b/output.log',
+      );
+      expect(text).not.toContain('<task-notification>');
+      expect(text.trimEnd()).toMatch(/<\/notification>$/);
     });
 
-    expect(text).toContain('id="n_&quot;1&amp;2"');
-    expect(text).toContain('source_id="bg&amp;1"');
-    expect(text).toContain('Title: Task finished');
-    expect(text).toContain('Severity: info');
-    expect(text).toContain('<output-file path="/tmp/logs/a&amp;b/output.log" bytes="1234">');
-    expect(text).toContain(
-      'Read the output file to retrieve the result: /tmp/logs/a&amp;b/output.log',
-    );
-    expect(text).not.toContain('<task-notification>');
-    expect(text.trimEnd()).toMatch(/<\/notification>$/);
-  });
+    it('renders an agent_id attribute when the notification carries one', () => {
+      // Background agent tasks (taskId starts with `agent-`) own a separate
+      // `agent_id` for the spawned subagent. Surfacing it as a top-level XML
+      // attribute lets the LLM resume the right thing without having to dig
+      // it out of the body or cross-reference the spawn-success ToolResult.
+      const text = renderNotificationXml({
+        id: 'n_lost1',
+        category: 'task',
+        type: 'task.lost',
+        source_kind: 'background_task',
+        source_id: 'agent-w7gq3wwj',
+        agent_id: 'agent-0',
+        title: 'Background agent lost',
+        severity: 'warning',
+        body: 'Background agent 1 lost.',
+      });
 
-  it('renders an agent_id attribute when the notification carries one', () => {
-    // Background agent tasks (taskId starts with `agent-`) own a separate
-    // `agent_id` for the spawned subagent. Surfacing it as a top-level XML
-    // attribute lets the LLM resume the right thing without having to dig
-    // it out of the body or cross-reference the spawn-success ToolResult.
-    const text = renderNotificationXml({
-      id: 'n_lost1',
-      category: 'task',
-      type: 'task.lost',
-      source_kind: 'background_task',
-      source_id: 'agent-w7gq3wwj',
-      agent_id: 'agent-0',
-      title: 'Background agent lost',
-      severity: 'warning',
-      body: 'Background agent 1 lost.',
+      expect(text).toContain('source_id="agent-w7gq3wwj"');
+      expect(text).toContain('agent_id="agent-0"');
     });
 
-    expect(text).toContain('source_id="agent-w7gq3wwj"');
-    expect(text).toContain('agent_id="agent-0"');
-  });
+    it('omits the agent_id attribute when the notification does not carry one', () => {
+      const text = renderNotificationXml({
+        id: 'n_bash',
+        category: 'task',
+        type: 'task.completed',
+        source_kind: 'background_task',
+        source_id: 'bash-abcdef00',
+        title: 'Background task completed',
+        severity: 'info',
+        body: 'echo done completed.',
+      });
 
-  it('omits the agent_id attribute when the notification does not carry one', () => {
-    const text = renderNotificationXml({
-      id: 'n_bash',
-      category: 'task',
-      type: 'task.completed',
-      source_kind: 'background_task',
-      source_id: 'bash-abcdef00',
-      title: 'Background task completed',
-      severity: 'info',
-      body: 'echo done completed.',
+      expect(text).not.toContain('agent_id=');
     });
 
-    expect(text).not.toContain('agent_id=');
-  });
+    it('does not render task output blocks for non-task notifications', () => {
+      const text = renderNotificationXml({
+        id: '',
+        source_kind: 'host',
+        tail_output: 'should stay out of the XML',
+      });
 
-  it('does not render task output blocks for non-task notifications', () => {
-    const text = renderNotificationXml({
-      id: '',
-      source_kind: 'host',
-      tail_output: 'should stay out of the XML',
+      expect(text).toContain('id="unknown"');
+      expect(text).toContain('category="unknown"');
+      expect(text).not.toContain('<task-notification>');
+      expect(text).not.toContain('should stay out of the XML');
     });
 
-    expect(text).toContain('id="unknown"');
-    expect(text).toContain('category="unknown"');
-    expect(text).not.toContain('<task-notification>');
-    expect(text).not.toContain('should stay out of the XML');
-  });
+    it('does not merge a cron-fire envelope into an adjacent user message', () => {
+      const cronEnvelope =
+        '<cron-fire jobId="deadbeef" cron="*/5 * * * *" recurring="true" coalescedCount="1" stale="false">\n<prompt>\ncheck the deploy\n</prompt>\n</cron-fire>';
+      const messages = project([
+        userMessage(cronEnvelope, {
+          kind: 'cron_job',
+          jobId: 'deadbeef',
+          cron: '*/5 * * * *',
+          recurring: true,
+          coalescedCount: 1,
+          stale: false,
+        }),
+        userMessage('Actual follow-up from the user', { kind: 'user' }),
+      ]);
+      expect(messages).toHaveLength(2);
+      expect(textOf(messages[0]!)).toBe(cronEnvelope);
+      expect(textOf(messages[1]!)).toBe('Actual follow-up from the user');
+    });
 
-  it('does not merge a cron-fire envelope into an adjacent user message', () => {
-    const cronEnvelope =
-      '<cron-fire jobId="deadbeef" cron="*/5 * * * *" recurring="true" coalescedCount="1" stale="false">\n<prompt>\ncheck the deploy\n</prompt>\n</cron-fire>';
-    const messages = project([
-      userMessage(cronEnvelope, {
-        kind: 'cron_job',
-        jobId: 'deadbeef',
-        cron: '*/5 * * * *',
-        recurring: true,
-        coalescedCount: 1,
-        stale: false,
-      }),
-      userMessage('Actual follow-up from the user', { kind: 'user' }),
-    ]);
-    expect(messages).toHaveLength(2);
-    expect(textOf(messages[0]!)).toBe(cronEnvelope);
-    expect(textOf(messages[1]!)).toBe('Actual follow-up from the user');
-  });
+    it('uses message origin to keep non-user-origin messages separate', () => {
+      const messages = project([
+        userMessage('Host reminder without an XML prefix', {
+          kind: 'injection',
+          variant: 'host',
+        }),
+        userMessage('Actual follow-up from the user', { kind: 'user' }),
+      ]);
 
-  it('uses message origin to keep non-user-origin messages separate', () => {
-    const messages = project([
-      userMessage('Host reminder without an XML prefix', {
-        kind: 'injection',
-        variant: 'host',
-      }),
-      userMessage('Actual follow-up from the user', { kind: 'user' }),
-    ]);
+      expect(messages).toHaveLength(2);
+      expect(textOf(messages[0]!)).toBe('Host reminder without an XML prefix');
+      expect(textOf(messages[1]!)).toBe('Actual follow-up from the user');
+    });
 
-    expect(messages).toHaveLength(2);
-    expect(textOf(messages[0]!)).toBe('Host reminder without an XML prefix');
-    expect(textOf(messages[1]!)).toBe('Actual follow-up from the user');
-  });
+    it('only merges user-role messages with user origin', () => {
+      const messages = project([
+        userMessage('First real prompt', { kind: 'user' }),
+        userMessage('Second real prompt', { kind: 'user' }),
+        userMessage('No origin prompt'),
+        userMessage('Third real prompt', { kind: 'user' }),
+      ]);
 
-  it('only merges user-role messages with user origin', () => {
-    const messages = project([
-      userMessage('First real prompt', { kind: 'user' }),
-      userMessage('Second real prompt', { kind: 'user' }),
-      userMessage('No origin prompt'),
-      userMessage('Third real prompt', { kind: 'user' }),
-    ]);
-
-    expect(messages).toHaveLength(3);
-    expect(textOf(messages[0]!)).toBe('First real prompt\n\nSecond real prompt');
-    expect(textOf(messages[1]!)).toBe('No origin prompt');
-    expect(textOf(messages[2]!)).toBe('Third real prompt');
-  });
+      expect(messages).toHaveLength(3);
+      expect(textOf(messages[0]!)).toBe('First real prompt\n\nSecond real prompt');
+      expect(textOf(messages[1]!)).toBe('No origin prompt');
+      expect(textOf(messages[2]!)).toBe('Third real prompt');
+    });
   });
 });
 
@@ -882,7 +933,7 @@ function userMessage(text: string, origin?: ContextMessage['origin']): ContextMe
 
 function textOf(message: Message): string {
   return message.content
-    .filter((part): part is { type: 'text'; text: string; } => part.type === 'text')
+    .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
     .map((part) => part.text)
     .join('');
 }

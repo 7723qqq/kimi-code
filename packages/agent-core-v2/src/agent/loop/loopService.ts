@@ -4,7 +4,6 @@ import type { AgentEvent } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester';
 import { IAgentProfileService } from '#/agent/profile';
@@ -16,6 +15,7 @@ import {
   APIContextOverflowError,
   createToolMessage,
   type ContentPart,
+  type FinishReason,
   type StreamedMessagePart,
   type TokenUsage,
 } from '#/app/llmProtocol';
@@ -32,12 +32,7 @@ import {
   isMaxStepsExceededError,
 } from './errors';
 import { IAgentLoopService } from './loop';
-import type {
-  LoopInterruptReason,
-  LoopStepStopReason,
-  LoopTurnStopReason,
-  TurnResult,
-} from './types';
+import type { LoopInterruptReason, LoopTurnStopReason, TurnResult } from './types';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
@@ -50,14 +45,12 @@ export class AgentLoopService implements IAgentLoopService {
 
   readonly hooks: IAgentLoopService['hooks'] = {
     beforeStep: new OrderedHookSlot(),
-    onStepUsage: new OrderedHookSlot(),
     afterStep: new OrderedHookSlot(),
     onContextOverflow: new OrderedHookSlot(),
   };
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
@@ -65,7 +58,7 @@ export class AgentLoopService implements IAgentLoopService {
     @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IConfigService private readonly config: IConfigService,
     @ILogService private readonly log: ILogService,
-  ) {}
+  ) { }
 
   async runTurn(
     turnId: number,
@@ -75,7 +68,7 @@ export class AgentLoopService implements IAgentLoopService {
 
     while (true) {
       let steps = 0;
-      let stopReason: LoopTurnStopReason = 'end_turn';
+      let stopReason: LoopTurnStopReason = 'completed';
       let activeStep: number | undefined;
       const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
       let stopHookContinuationUsed = false;
@@ -93,7 +86,7 @@ export class AgentLoopService implements IAgentLoopService {
           const stepResult = await this.executeLoopStep(turnId, signal, steps);
           activeStep = undefined;
 
-          if (stepResult.stopReason === 'tool_use') {
+          if (stepResult.stopReason === 'tool_calls') {
             continue;
           }
 
@@ -145,7 +138,7 @@ export class AgentLoopService implements IAgentLoopService {
     signal: AbortSignal,
     currentStep: number,
   ): Promise<{
-    readonly stopReason: LoopStepStopReason;
+    readonly stopReason: FinishReason;
     readonly continueTurn: boolean;
   }> {
     await this.hooks.beforeStep.run({ turnId, signal });
@@ -196,22 +189,10 @@ export class AgentLoopService implements IAgentLoopService {
     });
 
     const usage = response.usage;
-    const usageContext = {
-      turnId,
-      signal,
-      usage,
-      stepNumber: currentStep,
-      stepUuid,
-      toolCallCount: response.message.toolCalls.length,
-      stopTurn: false,
-    };
-    await this.hooks.onStepUsage.run(usageContext);
-    this.recordContextSize(usage);
-    const stopReason = deriveStepStopReason(response);
-
-    let effectiveStopReason: LoopStepStopReason =
-      usageContext.stopTurn && stopReason === 'tool_use' ? 'end_turn' : stopReason;
-    if (effectiveStopReason === 'tool_use') {
+    const { providerFinishReason, message } = response;
+    let finishReason: FinishReason = providerFinishReason ?? 'completed';
+    const hasToolCalls = message.toolCalls.length > 0;
+    if (hasToolCalls) {
       const toolResults = await this.toolExecutor.execute(response.message.toolCalls, {
         signal,
         turnId,
@@ -228,13 +209,15 @@ export class AgentLoopService implements IAgentLoopService {
         },
       });
       if (toolResults.some((r) => r.stopTurn === true)) {
-        effectiveStopReason = 'end_turn';
+        finishReason = 'completed';
+      } else {
+        finishReason = 'tool_calls';
       }
     }
 
     signal.throwIfAborted();
 
-    this.emitStepCompleted(turnId, currentStep, stepUuid, usage, effectiveStopReason, response);
+    this.emitStepCompleted(turnId, currentStep, stepUuid, usage, finishReason, response);
     if (response.timing !== undefined) {
       this.log.info('llm response', {
         turnStep,
@@ -248,7 +231,7 @@ export class AgentLoopService implements IAgentLoopService {
       });
     }
 
-    const afterStepContext = { turnId, signal, continueTurn: false };
+    const afterStepContext = { turnId, signal, usage, continueTurn: false };
     try {
       await this.hooks.afterStep.run(afterStepContext);
     } catch {
@@ -256,8 +239,8 @@ export class AgentLoopService implements IAgentLoopService {
     }
 
     return {
-      stopReason: effectiveStopReason,
-      continueTurn: effectiveStopReason !== 'tool_use' && afterStepContext.continueTurn,
+      stopReason: finishReason,
+      continueTurn: finishReason !== 'tool_calls' && afterStepContext.continueTurn,
     };
   }
 
@@ -265,26 +248,19 @@ export class AgentLoopService implements IAgentLoopService {
     this.context.splice(this.context.get().length, 0, [message]);
   }
 
-  private recordContextSize(usage: TokenUsage): void {
-    const tokens =
-      usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
-    if (tokens <= 0) return;
-    this.contextSize.measured(this.context.get().length, tokens);
-  }
-
   private emitStepCompleted(
     turnId: number,
     step: number,
     stepId: string,
     usage: TokenUsage,
-    finishReason: LoopStepStopReason,
+    finishReason: string,
     response: LLMRequestFinish,
   ): void {
-    // Provider diagnostics are omitted when the normalized finish reason already
-    // matches the provider's, and surfaced only when they diverge.
-    const normalFinish =
-      (response.providerFinishReason === 'completed' && finishReason === 'end_turn') ||
-      (response.providerFinishReason === 'tool_calls' && finishReason === 'tool_use');
+    const providerFinishReason =
+      response.providerFinishReason !== undefined &&
+        response.providerFinishReason !== finishReason
+        ? response.providerFinishReason
+        : undefined;
     this.record.signal({
       type: 'turn.step.completed',
       turnId,
@@ -298,8 +274,8 @@ export class AgentLoopService implements IAgentLoopService {
       llmServerFirstTokenMs: response.timing?.serverFirstTokenMs,
       llmServerDecodeMs: response.timing?.serverDecodeMs,
       llmClientConsumeMs: response.timing?.clientConsumeMs,
-      providerFinishReason: normalFinish ? undefined : response.providerFinishReason,
-      rawFinishReason: normalFinish ? undefined : response.rawFinishReason,
+      providerFinishReason,
+      rawFinishReason: providerFinishReason !== undefined ? response.rawFinishReason : undefined,
     });
   }
 
@@ -412,28 +388,6 @@ function toolResultOutputForModel(result: ToolResult): string | ContentPart[] {
 
 function hasStepBudgetRemaining(maxSteps: number | undefined, currentStep: number): boolean {
   return maxSteps === undefined || maxSteps <= 0 || currentStep < maxSteps;
-}
-
-function deriveStepStopReason(response: LLMRequestFinish): LoopStepStopReason {
-  switch (response.providerFinishReason) {
-    case 'truncated':
-      return 'max_tokens';
-    case 'filtered':
-      return 'filtered';
-    case 'paused':
-      return 'paused';
-    case 'other':
-      return 'unknown';
-    case 'completed':
-    case undefined:
-      return response.message.toolCalls.length > 0 ? 'tool_use' : 'end_turn';
-    case 'tool_calls':
-      return response.message.toolCalls.length > 0 ? 'tool_use' : 'unknown';
-    default: {
-      const _exhaustive: never = response.providerFinishReason;
-      return _exhaustive;
-    }
-  }
 }
 
 registerScopedService(

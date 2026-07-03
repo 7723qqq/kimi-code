@@ -5,11 +5,11 @@
  * production tree. Import from a relative path (`./stubs` or `../turn/stubs`).
  */
 
-import { createHooks } from '#/hooks';
 import type { PromptOrigin } from '#/agent/contextMemory';
 import type { IAgentLoopService } from '#/agent/loop';
-import type { IAgentTurnService, Turn } from '#/agent/turn';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor';
+import type { IAgentTurnService, Turn } from '#/agent/turn';
+import { createHooks } from '#/hooks';
 
 export interface StubTurnOptions {
   /** When set, `getActiveTurn()` returns a synthetic active turn. */
@@ -41,16 +41,12 @@ function makeTurn(id: number): Turn {
 }
 
 function makeHooks(): IAgentTurnService['hooks'] {
-  return createHooks([
-    'onLaunched',
-    'onEnded',
-  ]) as IAgentTurnService['hooks'];
+  return createHooks(['onLaunched', 'onEnded']) as IAgentTurnService['hooks'];
 }
 
 function makeAgentLoopHookSlots(): IAgentLoopService['hooks'] {
   return createHooks([
     'beforeStep',
-    'onStepUsage',
     'afterStep',
     'onContextOverflow',
   ]) as IAgentLoopService['hooks'];
@@ -102,7 +98,7 @@ export function stubLoopWithHooks(): IAgentLoopService {
   return {
     _serviceBrand: undefined,
     hooks,
-    runTurn: async () => ({ stopReason: 'end_turn', steps: 0 }),
+    runTurn: async () => ({ stopReason: 'completed', steps: 0 }),
   };
 }
 

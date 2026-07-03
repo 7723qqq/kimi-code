@@ -7,7 +7,9 @@ import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { ToolAccesses, type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolResult, type ToolUpdate } from '#/agent/tool';
 import { IAgentToolExecutorService, AgentToolExecutorService, parseToolCallArguments } from '#/agent/toolExecutor';
 import { IAgentToolRegistryService, AgentToolRegistryService } from '#/agent/toolRegistry';
+import { ITelemetryService } from '#/app/telemetry';
 import { registerLogServices } from '../log/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 
 type ToolExecutorEvent =
   | { readonly type: 'tool.result'; readonly toolCallId: string; readonly result: ToolResult }
@@ -19,15 +21,18 @@ let executor: IAgentToolExecutorService;
 let registry: IAgentToolRegistryService;
 let events: ToolExecutorEvent[];
 let protocolEvents: AgentEvent[];
+let telemetryEvents: TelemetryRecord[];
 
 beforeEach(() => {
   disposables = new DisposableStore();
   events = [];
   protocolEvents = [];
+  telemetryEvents = [];
   ix = createServices(disposables, {
     additionalServices: (reg) => {
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
+      reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
       registerLogServices(reg);
     },
     strict: true,
@@ -62,6 +67,15 @@ describe('AgentToolExecutorService', () => {
     ]);
     expect(eventTypes()).toEqual(['tool.result']);
     expect(protocolEventTypes()).toEqual(['tool.call.started', 'tool.result']);
+    expect(telemetryEvents).toContainEqual({
+      event: 'tool_call',
+      properties: expect.objectContaining({
+        tool_name: 'echo',
+        outcome: 'success',
+        duration_ms: 'TODO',
+        dup_type: 'TODO',
+      }),
+    });
   });
 
   it('records an error tool.result when the tool name is unknown', async () => {
@@ -479,9 +493,7 @@ describe('parseToolCallArguments', () => {
 function execute(calls: ToolCall[], signal?: AbortSignal): Promise<ToolResult[]> {
   return executor.execute(calls, {
     turnId: 0,
-    stepNumber: 1,
-    stepUuid: 'step-1',
-    signal,
+    signal: signal ?? new AbortController().signal,
     onToolResult: (toolCallId, result) => {
       events.push({ type: 'tool.result', toolCallId, result });
     },

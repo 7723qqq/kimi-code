@@ -206,6 +206,7 @@ llmRequester --> usage #34495E
 llmRequester --> modelProvider #34495E
 llmRequester --> config #34495E
 toolExecutor --> toolRegistry #34495E
+toolExecutor --> telemetry #34495E
 toolStore --> wireRecord #34495E
 toolDedup --> telemetry #34495E
 toolDedup --> loop #34495E

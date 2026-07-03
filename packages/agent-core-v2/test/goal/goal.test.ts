@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { TokenUsage } from '#/app/llmProtocol/kosong';
 
-import { ErrorCodes } from '#/errors';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentGoalService, type AgentGoalService } from '#/agent/goal';
@@ -9,7 +7,9 @@ import { IAgentLoopService } from '#/agent/loop';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn';
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord';
-import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
+import type { TokenUsage } from '#/app/llmProtocol/kosong';
+import { ErrorCodes } from '#/errors';
+
 import {
   InMemoryWireRecordPersistence,
   agentService,
@@ -18,6 +18,7 @@ import {
   wireRecordPersistenceServices,
   type TestAgentContext,
 } from '../harness';
+import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import { stubLoopWithHooks, stubTurn, type StubTurn } from '../turn/stubs';
 
 type GoalServiceTestManager = IAgentGoalService & AgentGoalService;
@@ -26,6 +27,13 @@ type AgentEvent = Parameters<IAgentEventSinkService['emit']>[0];
 type GoalUpdatedEvent = Extract<AgentEvent, { type: 'goal.updated' }>;
 type GoalSnapshot = NonNullable<ReturnType<IAgentGoalService['getGoal']>['goal']>;
 type GoalChange = GoalUpdatedEvent['change'];
+
+const zeroUsage: TokenUsage = {
+  inputCacheRead: 0,
+  inputCacheCreation: 0,
+  inputOther: 0,
+  output: 0,
+};
 
 function goalRecords(records: readonly PersistedWireRecord[]): readonly GoalRecord[] {
   return records.filter((record): record is GoalRecord => record.type.startsWith('goal.'));
@@ -57,6 +65,7 @@ async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<
   const afterStep = {
     turnId: turn.id,
     signal: turn.abortController.signal,
+    usage: zeroUsage,
     continueTurn: false,
   };
   await loopService.hooks.beforeStep.run(step);
@@ -66,20 +75,18 @@ async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<
 
 async function runStepUsageHooks(
   loopService: IAgentLoopService,
+  goals: IAgentGoalService,
   turn: Turn,
   usage: TokenUsage,
 ): Promise<boolean> {
-  const usageContext = {
+  const afterStep = {
     turnId: turn.id,
     signal: turn.abortController.signal,
     usage,
-    stepNumber: 1,
-    stepUuid: 'step-1',
-    toolCallCount: 0,
-    stopTurn: false,
+    continueTurn: false,
   };
-  await loopService.hooks.onStepUsage.run(usageContext);
-  return usageContext.stopTurn;
+  await loopService.hooks.afterStep.run(afterStep);
+  return goals.getGoal().goal?.budget.overBudget === true;
 }
 
 async function endTurn(
@@ -96,7 +103,11 @@ describe('AgentGoalService', () => {
   let goals: GoalServiceTestManager;
   let records: PersistedWireRecord[];
   let replayBuilder: IAgentRecordService;
-  let events: Array<{ readonly type: string; readonly snapshot?: GoalSnapshot | null; readonly change?: GoalChange }>;
+  let events: Array<{
+    readonly type: string;
+    readonly snapshot?: GoalSnapshot | null;
+    readonly change?: GoalChange;
+  }>;
   let telemetry: TelemetryRecord[];
 
   beforeEach(() => {
@@ -266,9 +277,12 @@ describe('AgentGoalService', () => {
 
     it('sets budget limits through SetGoalBudget-style updates', async () => {
       await goals.createGoal({ objective: 'work' });
-      const snapshot = await goals.setBudgetLimits({
-        budgetLimits: { tokenBudget: 100, turnBudget: 2, wallClockBudgetMs: 1000 },
-      }, 'model');
+      const snapshot = await goals.setBudgetLimits(
+        {
+          budgetLimits: { tokenBudget: 100, turnBudget: 2, wallClockBudgetMs: 1000 },
+        },
+        'model',
+      );
 
       expect(snapshot.budget.tokenBudget).toBe(100);
       expect(snapshot.budget.turnBudget).toBe(2);
@@ -299,10 +313,7 @@ describe('AgentGoalService', () => {
       await goals.createGoal({ objective: 'work' });
       await goals.incrementTurn();
 
-      const snapshot = await goals.setBudgetLimits(
-        { budgetLimits: { turnBudget: 1 } },
-        'model',
-      );
+      const snapshot = await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
 
       expect(snapshot).toMatchObject({
         status: 'blocked',
@@ -551,9 +562,7 @@ describe('AgentGoalService core workflow hooks', () => {
       status: 'active',
       turnsUsed: 1,
     });
-    expect(turnService.launches).toEqual([
-      { kind: 'system_trigger', name: 'goal_continuation' },
-    ]);
+    expect(turnService.launches).toEqual([{ kind: 'system_trigger', name: 'goal_continuation' }]);
     expect(context.get().at(-1)?.origin).toEqual({
       kind: 'system_trigger',
       name: 'goal_continuation',
@@ -585,18 +594,22 @@ describe('AgentGoalService core workflow hooks', () => {
     const turn = turnService.launch({ kind: 'user' });
     await turnService.hooks.onLaunched.run({ turn });
 
-    expect(await runStepUsageHooks(loopService, turn, {
-      inputCacheRead: 0,
-      inputCacheCreation: 0,
-      inputOther: 4,
-      output: 0,
-    })).toBe(false);
-    expect(await runStepUsageHooks(loopService, turn, {
-      inputCacheRead: 0,
-      inputCacheCreation: 0,
-      inputOther: 0,
-      output: 3,
-    })).toBe(true);
+    expect(
+      await runStepUsageHooks(loopService, goals, turn, {
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+        inputOther: 4,
+        output: 0,
+      }),
+    ).toBe(false);
+    expect(
+      await runStepUsageHooks(loopService, goals, turn, {
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+        inputOther: 0,
+        output: 3,
+      }),
+    ).toBe(true);
 
     expect(goals.getGoal().goal).toMatchObject({
       status: 'blocked',
@@ -609,12 +622,14 @@ describe('AgentGoalService core workflow hooks', () => {
     await goals.createGoal({ objective: 'finish the task' });
 
     const turn = makeTurn(99);
-    expect(await runStepUsageHooks(loopService, turn, {
-      inputCacheRead: 0,
-      inputCacheCreation: 0,
-      inputOther: 10,
-      output: 5,
-    })).toBe(false);
+    expect(
+      await runStepUsageHooks(loopService, goals, turn, {
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+        inputOther: 10,
+        output: 5,
+      }),
+    ).toBe(false);
     expect(goals.getGoal().goal).toMatchObject({
       status: 'active',
       tokensUsed: 0,
@@ -633,9 +648,7 @@ describe('AgentGoalService core workflow hooks', () => {
       status: 'active',
       turnsUsed: 0,
     });
-    expect(turnService.launches).toEqual([
-      { kind: 'system_trigger', name: 'goal_continuation' },
-    ]);
+    expect(turnService.launches).toEqual([{ kind: 'system_trigger', name: 'goal_continuation' }]);
   });
 
   it('requests one final outcome turn after model completion', async () => {
@@ -650,6 +663,7 @@ describe('AgentGoalService core workflow hooks', () => {
     const afterStep = {
       turnId: turn.id,
       signal: turn.abortController.signal,
+      usage: zeroUsage,
       continueTurn: false,
     };
     await loopService.hooks.beforeStep.run(step);

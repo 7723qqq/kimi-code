@@ -1867,7 +1867,7 @@ describe('Agent turn flow', () => {
       [emit] tool.result                         { "turnId": 0, "toolCallId": "call_bash", "output": "approved" }
       [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will ask first." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf approved\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 0 }
-      [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
+      [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_calls" }
       [wire] context.splice                      { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Also mention the steer." } ], "toolCalls": [], "id": "<msg-4>" } ], "time": "<time>" }
       [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
       [emit] assistant.delta                     { "turnId": 0, "delta": "Approved, and I saw the steer." }
@@ -1878,7 +1878,7 @@ describe('Agent turn flow', () => {
       [emit] agent.status.updated                { "contextTokens": 50 }
       [wire] context.splice                      { "start": 4, "deleteCount": 1, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "Approved, and I saw the steer." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 0 }
-      [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 39, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 39, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "completed" }
       [emit] turn.ended                          { "turnId": 0, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
@@ -1936,7 +1936,7 @@ describe('Agent turn flow', () => {
       [emit] tool.result                         { "turnId": 0, "toolCallId": "call_bash", "output": "Tool \\"Bash\\" was not run because the user rejected the approval request.", "isError": true }
       [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will wait for approval." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 0 }
-      [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
+      [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_calls" }
       [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
       [emit] assistant.delta                     { "turnId": 0, "delta": "I will not run it." }
       [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 63, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
@@ -1946,7 +1946,7 @@ describe('Agent turn flow', () => {
       [emit] agent.status.updated                { "contextTokens": 71 }
       [wire] context.splice                      { "start": 3, "deleteCount": 1, "messages": [ { "id": "<msg-4>", "role": "assistant", "content": [ { "type": "text", "text": "I will not run it." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 0 }
-      [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 63, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 63, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "completed" }
       [emit] turn.ended                          { "turnId": 0, "reason": "completed" }
     `);
     await ctx.expectResumeMatches();

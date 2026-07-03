@@ -9,7 +9,9 @@
  * `telemetry`. Bound at Agent scope.
  */
 
-import { Disposable } from "#/_base/di";
+import { randomUUID } from 'node:crypto';
+
+import { Disposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
@@ -19,10 +21,7 @@ import {
   type ContextMessage,
   type PromptOrigin,
 } from '#/agent/contextMemory';
-import {
-  GoalInjection,
-  type GoalInjectionOptions,
-} from '#/agent/goal/injection/goalInjection';
+import { GoalInjection, type GoalInjectionOptions } from '#/agent/goal/injection/goalInjection';
 import {
   buildGoalBlockedReasonPrompt,
   buildGoalCompletionSummaryPrompt,
@@ -31,29 +30,16 @@ import {
   IAgentLoopService,
   type TurnAfterStepContext,
   type TurnBeforeStepContext,
-  type TurnStepUsageContext,
 } from '#/agent/loop';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
-import {
-  IAgentTurnService,
-  type Turn,
-  type TurnEndedContext,
-} from '#/agent/turn';
+import { IAgentTurnService, type Turn, type TurnEndedContext } from '#/agent/turn';
 import type { TokenUsage } from '#/app/llmProtocol';
 import type { TelemetryProperties } from '#/app/telemetry';
 import { ITelemetryService } from '#/app/telemetry';
-import {
-  ErrorCodes,
-  KimiError,
-  toKimiErrorPayload,
-  type KimiErrorPayload,
-} from "#/errors";
-import { randomUUID } from 'node:crypto';
-import {
-  IAgentGoalService,
-  type GoalReasonInput,
-} from './goal';
+import { ErrorCodes, KimiError, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
+
+import { IAgentGoalService, type GoalReasonInput } from './goal';
 import type {
   CreateGoalInput,
   GoalActor,
@@ -226,12 +212,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       }),
     );
     this._register(
-      loopService.hooks.onStepUsage.register('goal-record-step-usage', async (ctx, next) => {
-        this.handleStepUsage(ctx);
-        await next();
-      }),
-    );
-    this._register(
       loopService.hooks.afterStep.register('goal-outcome-continuation', async (ctx, next) => {
         await next();
         this.handleAfterStep(ctx);
@@ -268,10 +248,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     return this.toSnapshot(state);
   }
 
-  async createGoal(
-    input: CreateGoalInput,
-    actor: GoalActor = 'user',
-  ): Promise<GoalSnapshot> {
+  async createGoal(input: CreateGoalInput, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
     const objective = input.objective.trim();
     if (objective.length === 0) {
       throw new KimiError(ErrorCodes.GOAL_OBJECTIVE_EMPTY, 'Goal objective cannot be empty');
@@ -316,10 +293,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     return this.toSnapshot(state);
   }
 
-  async pauseGoal(
-    input: GoalReasonInput = {},
-    actor: GoalActor = 'user',
-  ): Promise<GoalSnapshot> {
+  async pauseGoal(input: GoalReasonInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
     const state = this.requireState();
     if (state.status === 'paused') return this.toSnapshot(state);
     if (state.status !== 'active') {
@@ -352,10 +326,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     return this.toSnapshot(state);
   }
 
-  async resumeGoal(
-    input: GoalReasonInput = {},
-    actor: GoalActor = 'user',
-  ): Promise<GoalSnapshot> {
+  async resumeGoal(input: GoalReasonInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
     const state = this.requireState();
     if (state.status === 'active') return this.toSnapshot(state);
     if (state.status !== 'paused' && state.status !== 'blocked') {
@@ -388,10 +359,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     return this.blockIfBudgetReached(state) ?? this.toSnapshot(state);
   }
 
-  async cancelGoal(
-    _input: GoalReasonInput = {},
-    actor: GoalActor = 'user',
-  ): Promise<GoalSnapshot> {
+  async cancelGoal(_input: GoalReasonInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
     const state = this.requireState();
     const snapshot = this.toSnapshot(state);
     this.clearInternal(actor);
@@ -494,15 +462,17 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     await this.incrementTurn();
   }
 
-  private handleStepUsage(ctx: TurnStepUsageContext): void {
-    if (!this.goalDrivenTurns.has(ctx.turnId)) return;
-    const snapshot = this.accountTokenUsage(tokenUsageTotal(ctx.usage));
-    if (snapshot?.budget.overBudget === true) {
-      ctx.stopTurn = true;
-    }
-  }
-
   private handleAfterStep(ctx: TurnAfterStepContext): void {
+    if (this.goalDrivenTurns.has(ctx.turnId)) {
+      const snapshot = this.accountTokenUsage(tokenUsageTotal(ctx.usage));
+      if (snapshot?.budget.overBudget === true) {
+        // Over budget: account the usage but do not continue this turn. Note this
+        // runs after the step's tools have already executed (the old
+        // `onStepUsage` hook could stop before tools); it now only suppresses
+        // further continuation.
+        return;
+      }
+    }
     if (this.goalOutcomeContinuationTurns.has(ctx.turnId)) return;
     if (!isGoalOutcomeReminder(this.context.get().at(-1))) return;
     this.goalOutcomeContinuationTurns.add(ctx.turnId);
@@ -668,9 +638,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     });
   }
 
-  private appendGoalUpdate(
-    update: Omit<AgentRecord<'goal.update'>, 'type' | 'time'>,
-  ): void {
+  private appendGoalUpdate(update: Omit<AgentRecord<'goal.update'>, 'type' | 'time'>): void {
     this.record.append({
       type: 'goal.update',
       ...update,
@@ -754,10 +722,7 @@ function liveWallClockMs(state: GoalState, now: number = Date.now()): number {
   return state.wallClockMs;
 }
 
-function computeBudgetReport(
-  state: GoalState,
-  now: number = Date.now(),
-): GoalBudgetReport {
+function computeBudgetReport(state: GoalState, now: number = Date.now()): GoalBudgetReport {
   const tokenBudget = state.budgetLimits.tokenBudget ?? null;
   const turnBudget = state.budgetLimits.turnBudget ?? null;
   const wallClockBudgetMs = state.budgetLimits.wallClockBudgetMs ?? null;
@@ -765,8 +730,7 @@ function computeBudgetReport(
 
   const tokenBudgetReached = tokenBudget !== null && state.tokensUsed >= tokenBudget;
   const turnBudgetReached = turnBudget !== null && state.turnsUsed >= turnBudget;
-  const wallClockBudgetReached =
-    wallClockBudgetMs !== null && wallClockMs >= wallClockBudgetMs;
+  const wallClockBudgetReached = wallClockBudgetMs !== null && wallClockMs >= wallClockBudgetMs;
 
   return {
     tokenBudget,

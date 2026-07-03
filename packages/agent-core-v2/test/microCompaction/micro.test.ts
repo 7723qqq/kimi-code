@@ -2,20 +2,17 @@ import type { ContentPart } from '#/app/llmProtocol/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
+import { microCompactionFlag } from '#/agent/microCompaction/flag';
 import { IFlagService } from '#/app/flag';
 import { MASTER_ENV } from '#/app/flag/flagService';
-import { microCompactionFlag } from '#/agent/microCompaction/flag';
-import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
-import {
-  InMemoryWireRecordPersistence,
-  testAgent,
-  type TestAgentContext,
-} from '../harness';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   IAgentMicroCompactionService,
   type PersistedWireRecord,
 } from '#/index';
+
+import { InMemoryWireRecordPersistence, testAgent, type TestAgentContext } from '../harness';
+import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 
 const CATALOGUED_PROVIDER = {
   type: 'kimi',
@@ -59,8 +56,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * 60 * 1000,
           minContextUsageRatio: 0,
-
-        }
+        },
       },
     });
 
@@ -97,8 +93,7 @@ describe('MicroCompaction', () => {
           keepRecentMessages: 4,
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * 60 * 1000,
-
-        }
+        },
       },
     });
 
@@ -122,8 +117,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * 60 * 1000,
           minContextUsageRatio: 0,
-
-        }
+        },
       },
     });
 
@@ -158,8 +152,7 @@ describe('MicroCompaction', () => {
           keepRecentMessages: 4,
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * 60 * 1000,
-
-        }
+        },
       },
     });
 
@@ -183,8 +176,7 @@ describe('MicroCompaction', () => {
           keepRecentMessages: 2,
           minContentTokens: 100,
           cacheMissedThresholdMs: 60 * 60 * 1000,
-
-        }
+        },
       },
     });
 
@@ -206,8 +198,7 @@ describe('MicroCompaction', () => {
           keepRecentMessages: 2,
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * 60 * 1000,
-
-        }
+        },
       },
     });
 
@@ -231,8 +222,7 @@ describe('MicroCompaction', () => {
           keepRecentMessages: 2,
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * 60 * 1000,
-
-        }
+        },
       },
     });
 
@@ -257,8 +247,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * MINUTE,
           minContextUsageRatio: 0,
-
-        }
+        },
       },
     });
     ctx.configure({
@@ -298,8 +287,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * MINUTE,
           minContextUsageRatio: 0,
-
-        }
+        },
       },
       persistence: new InMemoryWireRecordPersistence(
         resumeToolExchangeRecords(assistantRecordTime),
@@ -309,7 +297,9 @@ describe('MicroCompaction', () => {
     vi.setSystemTime(999_999);
     await ctx.restorePersisted();
 
-    expect((ctx.get(IAgentMicroCompactionService) as any).lastAssistantAt).toBe(assistantRecordTime);
+    expect((ctx.get(IAgentMicroCompactionService) as any).lastAssistantAt).toBe(
+      assistantRecordTime,
+    );
 
     vi.setSystemTime(assistantRecordTime + 30 * MINUTE);
     expect(hasMarker(ctx.project())).toBe(false);
@@ -356,11 +346,7 @@ describe('MicroCompaction', () => {
     await resumed.restorePersisted();
 
     expect((resumed.get(IAgentMicroCompactionService) as any).lastAssistantAt).toBe(62 * MINUTE);
-    expect(toolTexts(resumed.project())).toEqual([
-      DEFAULT_MARKER,
-      'result two',
-      'result three',
-    ]);
+    expect(toolTexts(resumed.project())).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
   });
 
   it('recomputes the restored cutoff when resuming after the cache-miss threshold', async () => {
@@ -391,9 +377,7 @@ describe('MicroCompaction', () => {
     appendMicroToolExchange(ctx, 3, { output: 'result three' });
     await ctx.wireRecord.flush();
 
-    const resumedPersistence = new InMemoryWireRecordPersistence(
-      cloneRecords(persistence.records),
-    );
+    const resumedPersistence = new InMemoryWireRecordPersistence(cloneRecords(persistence.records));
     const resumed = testAgent({
       microCompaction: { config },
       persistence: resumedPersistence,
@@ -404,11 +388,7 @@ describe('MicroCompaction', () => {
 
     expect((resumed.get(IAgentMicroCompactionService) as any).lastAssistantAt).toBe(62 * MINUTE);
     (resumed.get(IAgentMicroCompactionService) as any).detect();
-    expect(toolTexts(resumed.project())).toEqual([
-      DEFAULT_MARKER,
-      DEFAULT_MARKER,
-      'result three',
-    ]);
+    expect(toolTexts(resumed.project())).toEqual([DEFAULT_MARKER, DEFAULT_MARKER, 'result three']);
     await resumed.wireRecord.flush();
     expect(lastMicroCompactionCutoff(resumedPersistence.records)).toBe(7);
   });
@@ -422,8 +402,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * MINUTE,
           minContextUsageRatio: 0,
-
-        }
+        },
       },
     });
 
@@ -440,19 +419,11 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(63 * MINUTE);
     (ctx.get(IAgentMicroCompactionService) as any).detect();
-    expect(toolTexts(ctx.project())).toEqual([
-      DEFAULT_MARKER,
-      'result two',
-      'result three',
-    ]);
+    expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
 
     vi.setSystemTime(123 * MINUTE);
     (ctx.get(IAgentMicroCompactionService) as any).detect();
-    expect(toolTexts(ctx.project())).toEqual([
-      DEFAULT_MARKER,
-      DEFAULT_MARKER,
-      'result three',
-    ]);
+    expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, DEFAULT_MARKER, 'result three']);
   });
 
   it('clamps cutoff when undo shortens the context', () => {
@@ -464,8 +435,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * MINUTE,
           minContextUsageRatio: 0,
-
-        }
+        },
       },
     });
 
@@ -476,19 +446,12 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * MINUTE);
     (ctx.get(IAgentMicroCompactionService) as any).detect();
-    expect(toolTexts(ctx.project())).toEqual([
-      DEFAULT_MARKER,
-      DEFAULT_MARKER,
-      'result three',
-    ]);
+    expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, DEFAULT_MARKER, 'result three']);
 
     ctx.undoHistory(2);
     appendMicroToolExchange(ctx, 4, { output: 'result four' });
 
-    expect(toolTexts(ctx.project())).toEqual([
-      DEFAULT_MARKER,
-      'result four',
-    ]);
+    expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, 'result four']);
   });
 
   it('tracks telemetry when a cache miss advances the micro_compaction cutoff', () => {
@@ -512,11 +475,7 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * MINUTE);
     (ctx.get(IAgentMicroCompactionService) as any).detect();
-    expect(toolTexts(ctx.project())).toEqual([
-      DEFAULT_MARKER,
-      DEFAULT_MARKER,
-      'result three',
-    ]);
+    expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, DEFAULT_MARKER, 'result three']);
 
     const event = singleTelemetryEvent(records, 'micro_compaction_finished');
     expect(event.properties).toMatchObject({
@@ -544,7 +503,9 @@ describe('MicroCompaction', () => {
     );
 
     expect(ctx.project()).toHaveLength(9);
-    expect(records.filter((record) => record.event === 'micro_compaction_finished')).toHaveLength(1);
+    expect(records.filter((record) => record.event === 'micro_compaction_finished')).toHaveLength(
+      1,
+    );
   });
 
   it('reports context token deltas from the previously compacted projection', () => {
@@ -567,10 +528,7 @@ describe('MicroCompaction', () => {
 
     vi.setSystemTime(61 * MINUTE);
     (ctx.get(IAgentMicroCompactionService) as any).detect();
-    expect(toolTexts(ctx.project())).toEqual([
-      DEFAULT_MARKER,
-      'result two '.repeat(20),
-    ]);
+    expect(toolTexts(ctx.project())).toEqual([DEFAULT_MARKER, 'result two '.repeat(20)]);
 
     vi.setSystemTime(62 * MINUTE);
     appendMicroToolExchange(ctx, 3, { output: 'result three' });
@@ -602,8 +560,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * MINUTE,
           minContextUsageRatio: 0,
-
-        }
+        },
       },
       persistence,
     });
@@ -629,8 +586,7 @@ describe('MicroCompaction', () => {
           cacheMissedThresholdMs: 60 * MINUTE,
           truncatedMarker: marker,
           minContextUsageRatio: 0,
-
-        }
+        },
       },
     });
 
@@ -653,8 +609,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * MINUTE,
           minContextUsageRatio: 0,
-
-        }
+        },
       },
     });
     ctx.configure();
@@ -688,8 +643,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * MINUTE,
           minContextUsageRatio: 0,
-
-        }
+        },
       },
     });
 
@@ -724,8 +678,7 @@ describe('MicroCompaction', () => {
           keepRecentMessages: 0,
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * MINUTE,
-
-        }
+        },
       },
     });
 
@@ -760,8 +713,7 @@ describe('MicroCompaction', () => {
           keepRecentMessages: 2,
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * 60 * 1000,
-
-        }
+        },
       },
     });
     ctx.configure({
@@ -796,8 +748,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * MINUTE,
           minContextUsageRatio: 0.9,
-
-        }
+        },
       },
     });
     ctx.configure({
@@ -823,8 +774,7 @@ describe('MicroCompaction', () => {
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * MINUTE,
           minContextUsageRatio: 0.5,
-
-        }
+        },
       },
     });
     ctx.configure({
@@ -857,8 +807,7 @@ describe('MicroCompaction', () => {
           keepRecentMessages: 20,
           minContentTokens: 1,
           cacheMissedThresholdMs: 60 * 60 * 1000,
-
-        }
+        },
       },
     });
 
@@ -895,31 +844,31 @@ function appendMicroToolExchange(
     options.usageTokens === undefined
       ? undefined
       : {
-        inputOther: options.usageTokens - 1,
-        output: 1,
-        inputCacheRead: 0,
-        inputCacheCreation: 0,
-      };
+          inputOther: options.usageTokens - 1,
+          output: 1,
+          inputCacheRead: 0,
+          inputCacheCreation: 0,
+        };
 
   ctx.appendUserMessage([{ type: 'text', text: `lookup ${String(index)}` }]);
 
   ctx.context.splice(ctx.context.get().length, 0, [
     {
       role: 'assistant',
-      content: [
-        { type: 'text', text: `calling Lookup ${String(index)}` },
-      ],
+      content: [{ type: 'text', text: `calling Lookup ${String(index)}` }],
       toolCalls: [
-        { type: 'function', id: toolCallId, name: 'Lookup', arguments: JSON.stringify({ query: `item-${String(index)}` }) },
+        {
+          type: 'function',
+          id: toolCallId,
+          name: 'Lookup',
+          arguments: JSON.stringify({ query: `item-${String(index)}` }),
+        },
       ],
     },
   ]);
 
   if (usage !== undefined) {
-    ctx.contextSize.measured(
-      ctx.context.get().length,
-      usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation,
-    );
+    ctx.contextSize.measured(ctx.context.get(), [], usage);
   }
 
   ctx.context.splice(ctx.context.get().length, 0, [
@@ -1005,13 +954,15 @@ function lastMicroCompactionCutoff(records: readonly PersistedWireRecord[]): num
   return (records.findLast((record) => record.type === 'micro_compaction.apply') as any)?.cutoff;
 }
 
-function toolTexts(messages: readonly { role: string; content?: readonly { type: string; text?: string }[] }[]): string[] {
-  return messages
-    .filter((message) => message.role === 'tool')
-    .map((message) => textOf(message));
+function toolTexts(
+  messages: readonly { role: string; content?: readonly { type: string; text?: string }[] }[],
+): string[] {
+  return messages.filter((message) => message.role === 'tool').map((message) => textOf(message));
 }
 
-function textOf(message: { content?: readonly { type: string; text?: string }[] } | undefined): string {
+function textOf(
+  message: { content?: readonly { type: string; text?: string }[] } | undefined,
+): string {
   return (
     message?.content
       ?.map((part) => {
@@ -1022,7 +973,9 @@ function textOf(message: { content?: readonly { type: string; text?: string }[] 
   );
 }
 
-function hasMarker(messages: readonly { role: string; content?: readonly { type: string; text?: string }[] }[]): boolean {
+function hasMarker(
+  messages: readonly { role: string; content?: readonly { type: string; text?: string }[] }[],
+): boolean {
   return toolTexts(messages).includes(DEFAULT_MARKER);
 }
 
@@ -1030,10 +983,7 @@ function getMicroCompactionFlagEnv(): string {
   return microCompactionFlag.env;
 }
 
-function singleTelemetryEvent(
-  records: readonly TelemetryRecord[],
-  event: string,
-): TelemetryRecord {
+function singleTelemetryEvent(records: readonly TelemetryRecord[], event: string): TelemetryRecord {
   const matches = records.filter((record) => record.event === event);
   expect(matches).toHaveLength(1);
   return matches[0]!;

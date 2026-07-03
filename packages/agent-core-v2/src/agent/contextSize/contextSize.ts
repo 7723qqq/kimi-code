@@ -1,4 +1,5 @@
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from '#/_base/di';
+import type { Message, TokenUsage } from '#/app/llmProtocol';
 
 export interface ContextSizeStatus {
   readonly contextTokens: number;
@@ -9,7 +10,7 @@ export interface IAgentContextSizeService {
   readonly _serviceBrand: undefined;
 
   getStatus(): ContextSizeStatus;
-  measured(length: number, tokens: number): void;
+  measured(input: readonly Message[], output: readonly Message[], usage: TokenUsage): void;
 }
 
 export const IAgentContextSizeService =
